@@ -5110,7 +5110,6 @@ pub export fn sa_deno_memory_usage() u64 {
 
 pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
     const input = constBytes(json_bytes, len) catch return 0;
-    std.debug.print("DBG parse input len={d} text={s} hex={s}\n", .{ input.len, input, std.fmt.fmtSliceHexLower(input) });
     const document = jsonDocumentFromSlice(std.heap.page_allocator, input) catch return 0;
     return registerJsonNode(document, document.parsed.value, false) catch return 0;
 }

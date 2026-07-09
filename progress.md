@@ -2,17 +2,35 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 15% for active large-SAB `sa test --filter` performance slice; previous String/Vec macro-surface batch remains completed and committed.
+Current progress: 100% for active large-SAB `sa test --filter` compile-only/list performance slice; focused blockers and isolated timeout are fixed, test dependency steps pass, install completed, and installed performance gates pass.
 
 ## Active: 2026-07-09 large SAB focused test performance
 
 - Baseline was committed before starting this slice: `ee50937 Add extended string macro surfaces`.
+- Checkpoint commit before this continuation: `94d841c Optimize SAB test listing path`.
 - New issue record: `docs/issue14_test_filter_large_sab_performance.md`.
 - Real downstream measurements from `/home/vscode/projects/sla_ecs/.sla-cache/sab` show the split:
   - Small `parallel_table_erased-ab6b0062c772adb.sab` focused compile-only is close to target: about `elapsed=1.28 maxrss=70252`; focused list is about `elapsed=0.33 maxrss=57136`.
   - Large `world_table_erased-5d5e95eb4646a2ce.sab` focused list is still about `elapsed=8.87 maxrss=385224`; focused compile-only is about `elapsed=30.61 maxrss=465592`, with a repeat around `elapsed=33.51 maxrss=464808`.
 - Current root cause found in `src/cli.zig`: `executeTest()` compiles/verifies the full source before collecting `test_meta` or applying filters/list mode. For `.sab`, `compileSource()` calls `loadSabFlat()` and `referee.verifyWithOptions()` over the whole decoded module, so `--list --filter` still pays full large-module verification.
-- Current implementation target: first add `.sab` `sa test --list` metadata fast path that skips full verifier; then add focused test reachability pruning before verify/LLVM emit/link for compile/run paths. No full tests have been run for this active slice yet.
+- Completed focused compile-only/list milestone:
+  - `.sab --list --filter` now uses metadata-only test signature decoding and avoids full decode/verify.
+  - `.sab + explicit test selection + --compile-only` now collects selected tests before compile, prunes the SAB to selected-test reachability, uses borrowed SAB symbol pools, trusts the selected SAB as preverified for compile-only, and skips linking the throwaway test executable after LLVM bitcode emit succeeds.
+  - ReleaseFast real downstream gates with local `./zig-out/bin/sa`: large `world_table_erased --list --filter` `elapsed=0.05 maxrss=56576`; large `world_table_erased --compile-only --filter --no-incremental` `elapsed=0.82 maxrss=167528`; small `parallel_table_erased --compile-only --filter --no-incremental` `elapsed=0.17 maxrss=70104`.
+  - Installed `/home/vscode/.sa/bin/sa` gates after `tools/install.sh --no-shell`: large list `elapsed=0.07 maxrss=56960`; large compile-only `elapsed=1.00 maxrss=168132`; small compile-only `elapsed=0.26 maxrss=70664`.
+  - Large compile-only profile: `compile=496.834ms`, `emit=476.366ms`, `link=0.000ms`, `total=985.677ms`.
+- Full test status: initial `timeout 600s zig build test --summary all` did not pass; failures are recorded in `docs/issue15_full_test_suite_failures_20260709.md`.
+- Issue 15 focused fixes completed:
+  - `sa_std/string.sa` splitn/rsplitn limited split aliases now pass the source focused gate with `SA_STD_DIR=/home/vscode/projects/sci/sa_std`.
+  - `src/plugins.zig` formal runtime policy now blocks privileged dev-installed plugins outside `SA_PLUGIN_DEV`, and full `zig build plugin-host-smoke --summary all` passes (`12/12 tests passed`).
+  - `src/runtime/sa_net_uring.zig` loopback netx test no longer hangs on client thread joins; focused netx test and `zig build sa-std-unit --summary all` pass (`63/63 tests passed`).
+- Test gate status: each `zig build test` dependency was rerun individually with explicit step logging and passed; this avoids masking timeout ownership inside the monolithic full-suite command.
+- Install/final focused gate status:
+  - `tools/install.sh --no-shell` passed.
+  - Installed large SAB compile-only focused gate: `elapsed=0.75 maxrss=167856`.
+  - Installed large SAB list focused gate: `elapsed=0.04 maxrss=56960`.
+  - Installed small SAB compile-only focused gate: `elapsed=0.13 maxrss=70912`.
+- Remaining: run-mode selected SAB still verifies/links; full lazy/partial SAB instruction decode is still open.
 
 ## Completed: 2026-07-08 str/String reverse slice-needle split/matches batch
 

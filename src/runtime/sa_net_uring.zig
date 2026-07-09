@@ -2130,6 +2130,19 @@ const TicketCollector = struct {
     result: i32 = SA_NETX_OK,
 };
 
+const TestTimeval = std.posix.timeval;
+const TestTimevalSec = @TypeOf(@as(TestTimeval, .{ .sec = 0, .usec = 0 }).sec);
+const TestTimevalUsec = @TypeOf(@as(TestTimeval, .{ .sec = 0, .usec = 0 }).usec);
+
+fn setLoopbackReadTimeout(stream: net.Stream) void {
+    const timeout_ns: u64 = 2 * std.time.ns_per_s;
+    const tv = TestTimeval{
+        .sec = std.math.cast(TestTimevalSec, timeout_ns / std.time.ns_per_s) orelse 2,
+        .usec = std.math.cast(TestTimevalUsec, (timeout_ns % std.time.ns_per_s) / std.time.ns_per_us) orelse 0,
+    };
+    std.posix.setsockopt(stream.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
+}
+
 fn ticketPayload(ticket: Ticket) []const u8 {
     return @as([*]const u8, @ptrCast(ticket.payload))[0..@as(usize, @intCast(ticket.payload_len))];
 }
@@ -2137,6 +2150,7 @@ fn ticketPayload(ticket: Ticket) []const u8 {
 fn loopbackClientMain(client: *LoopbackClient) void {
     const stream = net.tcpConnectToAddress(client.address) catch return;
     defer stream.close();
+    setLoopbackReadTimeout(stream);
 
     _ = stream.writeAll(client.request) catch return;
 
@@ -2157,6 +2171,7 @@ fn loopbackClientMain(client: *LoopbackClient) void {
 fn wsLoopbackClientMain(client: *WsLoopbackClient) void {
     const stream = net.tcpConnectToAddress(client.address) catch return;
     defer stream.close();
+    setLoopbackReadTimeout(stream);
 
     _ = stream.writeAll(client.request) catch return;
 
@@ -2539,10 +2554,10 @@ test "listen accept recv_ticket and outbound commands work end to end" {
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_close_slot(accept_slots[0]));
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_close_slot(accept_slots[1]));
 
+    _ = sa_netx_shutdown();
     collector_thread.join();
     client1_thread.join();
     client2_thread.join();
-    _ = sa_netx_shutdown();
 
     const client1_received = client1.received[0..client1.received_len];
     const client2_received = client2.received[0..client2.received_len];

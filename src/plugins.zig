@@ -1573,7 +1573,6 @@ pub const Runtime = struct {
 
     fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
         if (pluginDevMode(self.allocator) or self.host_authorization.dev_mode) return null;
-        if (self.host_authorization.project_root != null) return null;
 
         const sap_path = try std.fs.path.join(self.allocator, &.{ dir_path, "sap.json" });
         defer self.allocator.free(sap_path);
@@ -1599,6 +1598,13 @@ pub const Runtime = struct {
         };
         defer self.allocator.free(lock_text);
 
+        if (lockHasKeyValue(lock_text, "dev_install", "true")) {
+            return try std.fmt.allocPrint(
+                self.allocator,
+                "privileged plugin {s} is blocked in formal runtime mode: plugin was installed in development mode; use SA_PLUGIN_DEV=1 only for trusted development",
+                .{manifest.name},
+            );
+        }
         if (lockHasKeyValue(lock_text, "sandbox_enforced", "true")) return null;
         return try std.fmt.allocPrint(
             self.allocator,
@@ -1809,7 +1815,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     next_ancestors[ancestors.len] = manifest.sap_path;
 
     if (options.review) {
-        const review_text = try renderPermissionsLock(allocator, manifest, false);
+        const review_text = try renderPermissionsLock(allocator, manifest, false, false);
         defer allocator.free(review_text);
         try stdout.writeAll(review_text);
         return 0;
@@ -1931,7 +1937,8 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     defer allocator.free(version_lock_path);
     try writeFileAbsolute(version_lock_path, lock_text);
 
-    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, permissions_confirmed);
+    const dev_install = options.dev or pluginDevMode(allocator);
+    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, permissions_confirmed, dev_install);
     defer allocator.free(permissions_lock_text);
     const permissions_lock_path = try std.fs.path.join(allocator, &.{ installed_dir, "permissions.lock" });
     defer allocator.free(permissions_lock_path);
@@ -2021,7 +2028,7 @@ pub fn listInstalled(allocator: std.mem.Allocator, stdout: anytype) !u8 {
     return 0;
 }
 
-fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, confirmed: bool) ![]u8 {
+fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, confirmed: bool, dev_install: bool) ![]u8 {
     var out = std.ArrayList(u8).init(allocator);
     errdefer out.deinit();
     const digest_hex = std.fmt.bytesToHex(manifest.permission_digest, .lower);
@@ -2035,6 +2042,7 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
         \\dependency_graph_sha256={s}
         \\requires_confirmation={s}
         \\confirmed={s}
+        \\dev_install={s}
         \\artifact_scan=dynamic-imports
         \\sandbox_enforced=false
         \\
@@ -2045,6 +2053,7 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
         graph_digest_hex,
         if (manifest.requires_sandbox) "true" else "false",
         if (confirmed) "true" else "false",
+        if (dev_install) "true" else "false",
     });
     if (manifest.external_urls.len != 0) {
         try out.writer().writeAll("external_urls\n");

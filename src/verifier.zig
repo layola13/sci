@@ -84,6 +84,7 @@ pub const VerifyOptions = struct {
     stage_reporter: ?VerifyStageReporter = null,
     predecoded_symbol_names: []const []const u8 = &.{},
     predecoded_function_sigs: []const sig.FunctionSig = &.{},
+    check_exit_leaks: bool = true,
 };
 
 pub const VerifyStageReporter = struct {
@@ -205,6 +206,7 @@ const ParallelVerifyContext = struct {
     jobs: []ParallelVerifyJob,
     workers: []ParallelVerifyWorker,
     requested_jobs: ?usize,
+    check_exit_leaks: bool,
     next_chunk: std.atomic.Value(usize),
 };
 
@@ -3786,7 +3788,7 @@ fn verifyWorker(context: *ParallelVerifyContext, worker_index: usize) void {
             context.const_decls,
             context.metadata,
             chunk.sig_index,
-            chunk_index + 1 == context.chunks.len,
+            context.check_exit_leaks and chunk_index + 1 == context.chunks.len,
             context.package_grants,
             context.sax_context,
         ) catch |err| {
@@ -3807,11 +3809,12 @@ fn verifyParallel(
     sax_context: ?SaxValidationContext,
     chunks: []const ParallelFunctionChunk,
     requested_jobs: ?usize,
+    check_exit_leaks: bool,
     stage_reporter: ?VerifyStageReporter,
 ) !VerifyBodyResult {
     const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
     if (worker_count <= 1) {
-        return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, true, package_grants, sax_context);
+        return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, check_exit_leaks, package_grants, sax_context);
     }
 
     if (stage_reporter) |reporter| reporter.report("parallel_start", worker_count, chunks.len);
@@ -3845,6 +3848,7 @@ fn verifyParallel(
         .jobs = jobs,
         .workers = workers,
         .requested_jobs = requested_jobs,
+        .check_exit_leaks = check_exit_leaks,
         .next_chunk = std.atomic.Value(usize).init(0),
     };
     _ = context.allocator;
@@ -3998,10 +4002,10 @@ pub fn verifyWithOptions(
     const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
-        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs, options.stage_reporter);
+        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs, options.check_exit_leaks, options.stage_reporter);
         break :blk parallel;
     } else blk: {
-        const serial = try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, true, options.package_grants, options.sax_context);
+        const serial = try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, options.check_exit_leaks, options.package_grants, options.sax_context);
         if (options.stage_reporter) |reporter| reporter.report("after_body", instructions.len, instructions.len);
         break :blk serial;
     };

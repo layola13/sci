@@ -3,13 +3,20 @@
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)
 
 - [x] Commit pre-existing String macro-surface work before starting SCI performance changes: `ee50937 Add extended string macro surfaces`.
+- [x] Commit first SCI SAB fast-path checkpoint before continuing: `94d841c Optimize SAB test listing path`.
 - [x] Record the issue in `docs/issue14_test_filter_large_sab_performance.md`.
 - [x] Measure real downstream SAB baselines: small `parallel_table_erased` focused compile-only about 1.28s, small list about 0.33s; large `world_table_erased` focused list about 8.87s and compile-only about 30.61s.
 - [x] Identify root cause in `src/cli.zig`: `executeTest()` calls `compileSource()` before collecting tests or applying filters/list; `.sab` compileSource performs full `loadSabFlat()` + verifier over the whole module.
-- [ ] Implement `.sab` `sa test --list` fast path that decodes test metadata/function signatures without full verifier.
-- [ ] Implement focused selected-test reachability pruning before verify/LLVM emit/link for `sa test --filter` compile/run paths.
-- [ ] Fix test cache semantics for filtered compile artifacts by including effective selection in the key or storing per-selection artifacts.
-- [ ] Verify with serial timeout-guarded real gates from `docs/issue14_test_filter_large_sab_performance.md`; do not run full tests until a meaningful milestone is complete.
+- [x] Implement `.sab` `sa test --list` fast path that decodes test metadata/function signatures without full verifier.
+- [x] Implement selected `.sab --compile-only --filter` reachability pruning, borrowed symbol-pool decode, trusted preverified compile-only path, and skip-link after LLVM bitcode emit succeeds.
+- [x] Verify focused ReleaseFast real gates from `docs/issue14_test_filter_large_sab_performance.md`: large list `0.05s`, large compile-only `0.82s`, small compile-only `0.17s`.
+- [x] Install with `tools/install.sh --no-shell` and repeat installed focused gates: large list `0.07s`, large compile-only `1.00s`, small compile-only `0.26s`.
+- [x] Fix focused full-test blockers from `docs/issue15_full_test_suite_failures_20260709.md`: `splitn aliases` source focused gate passes, and full `plugin-host-smoke` passes `12/12`.
+- [x] Isolate and fix the `sa-std-unit` timeout: `sa_net_uring.test.listen accept recv_ticket and outbound commands work end to end` now passes focused, and `zig build sa-std-unit --summary all` passes `63/63`.
+- [x] Complete single build-step reruns for the `zig build test` dependency set; all required steps pass with per-object logs.
+- [x] Install with `tools/install.sh --no-shell`, then rerun installed focused performance gates: large compile-only `0.75s`, large list `0.04s`, small compile-only `0.13s`.
+- [ ] Follow up with lazy/partial SAB instruction decode for selected run-mode and further compile-only headroom.
+- [ ] Fix test cache semantics for filtered linked artifacts if selected linked artifacts are cached in the future.
 
 ## 2026-07-05 当前工作集
 

@@ -27,6 +27,7 @@ const test_formatter = @import("test_formatter.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
+const common_signature = @import("common/signature.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 
 const DceMode = emit_options.DceMode;
@@ -577,6 +578,8 @@ const CompileOptions = struct {
     stdin_reader: ?std.io.AnyReader = null,
     stdin_is_tty: ?bool = null,
     diagnostic_writer: ?std.io.AnyWriter = null,
+    sab_selected_test_names: []const []const u8 = &.{},
+    sab_skip_verify: bool = false,
 };
 
 const TestCommandOptions = struct {
@@ -3898,9 +3901,12 @@ fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener
     errdefer symbols.deinit();
     for (module.symbols) |name| _ = try symbols.intern(name);
 
-    for (module.symbols) |name| allocator.free(name);
+    if (module.owns_symbol_text) {
+        for (module.symbols) |name| allocator.free(name);
+    }
     allocator.free(module.symbols);
     module.symbols = &.{};
+    module.owns_symbol_text = false;
 
     var test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
     errdefer test_sigs.deinit();
@@ -3943,6 +3949,475 @@ fn collectSabTestListFast(allocator: std.mem.Allocator, source_path: []const u8)
     }
 
     return try test_meta.collect(allocator, function_sigs);
+}
+
+fn hasExplicitTestSelection(selection: test_meta.TestSelection) bool {
+    return selection.include_filters.len != 0 or
+        selection.skip_filters.len != 0 or
+        selection.exact or
+        selection.ignored != .normal;
+}
+
+fn selectedTestNamesFromList(allocator: std.mem.Allocator, test_list: test_meta.TestList, selection: test_meta.TestSelection) ![]const []const u8 {
+    if (!hasExplicitTestSelection(selection)) return &.{};
+    const selected_count = selection.countSelected(test_list.tests);
+    if (selected_count == 0) return &.{};
+
+    const selected_names = try allocator.alloc([]const u8, selected_count);
+    errdefer allocator.free(selected_names);
+    var selected_index: usize = 0;
+    for (test_list.tests) |test_case| {
+        if (!selection.shouldRun(test_case)) continue;
+        selected_names[selected_index] = test_case.selectorName();
+        selected_index += 1;
+    }
+    return selected_names;
+}
+
+fn sabPruneDebugEnabled(allocator: std.mem.Allocator) bool {
+    const value = std.process.getEnvVarOwned(allocator, "SA_DEBUG_SAB_PRUNE") catch return false;
+    defer allocator.free(value);
+    return value.len != 0 and !std.mem.eql(u8, value, "0");
+}
+
+const SabFunctionRange = struct {
+    sig_index: usize,
+    start: usize,
+    end: usize,
+};
+
+fn isSabFunctionDecl(kind: flattener.InstKind) bool {
+    return switch (kind) {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        else => false,
+    };
+}
+
+fn buildSabFunctionRanges(allocator: std.mem.Allocator, instructions: []const flattener.Instruction) ![]SabFunctionRange {
+    var ranges = std.ArrayList(SabFunctionRange).init(allocator);
+    errdefer ranges.deinit();
+
+    var current_start: ?usize = null;
+    var current_sig_index: usize = 0;
+    var next_sig_index: usize = 0;
+    for (instructions, 0..) |item, idx| {
+        if (!isSabFunctionDecl(item.kind)) continue;
+        if (current_start) |start| {
+            try ranges.append(.{
+                .sig_index = current_sig_index,
+                .start = start,
+                .end = idx,
+            });
+        }
+        current_start = idx;
+        current_sig_index = next_sig_index;
+        next_sig_index += 1;
+    }
+    if (current_start) |start| {
+        try ranges.append(.{
+            .sig_index = current_sig_index,
+            .start = start,
+            .end = instructions.len,
+        });
+    }
+    return try ranges.toOwnedSlice();
+}
+
+fn putSabFunctionAlias(index: *std.StringHashMap(usize), name: []const u8, sig_index: usize) !void {
+    if (name.len == 0 or index.contains(name)) return;
+    try index.put(name, sig_index);
+}
+
+fn buildSabFunctionSigIndex(allocator: std.mem.Allocator, function_sigs: []const flattener.FunctionSig) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    const max_aliases = std.math.mul(usize, function_sigs.len, 2) catch function_sigs.len;
+    try index.ensureTotalCapacity(@intCast(max_aliases));
+    for (function_sigs, 0..) |function_sig, sig_index| {
+        try putSabFunctionAlias(&index, function_sig.name, sig_index);
+        if (function_sig.llvm_name) |llvm_name| try putSabFunctionAlias(&index, llvm_name, sig_index);
+    }
+    return index;
+}
+
+fn buildSabConstIndex(allocator: std.mem.Allocator, const_decls: []const flattener.ConstDecl) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    try index.ensureTotalCapacity(@intCast(const_decls.len));
+    for (const_decls, 0..) |decl, const_index| {
+        if (!index.contains(decl.name)) try index.put(decl.name, const_index);
+    }
+    return index;
+}
+
+fn markSabReachableByName(
+    reachable: *std.AutoHashMap(usize, void),
+    sig_index_by_name: *const std.StringHashMap(usize),
+    name: []const u8,
+) !bool {
+    const sig_index = sig_index_by_name.get(name) orelse return false;
+    if (reachable.contains(sig_index)) return false;
+    try reachable.put(sig_index, {});
+    return true;
+}
+
+fn sabReferenceName(text: []const u8) []const u8 {
+    var trimmed = std.mem.trim(u8, text, " \t\r");
+    while (trimmed.len != 0 and (trimmed[0] == '&' or trimmed[0] == '^' or trimmed[0] == '*')) {
+        trimmed = std.mem.trim(u8, trimmed[1..], " \t\r");
+    }
+    return trimmed;
+}
+
+fn markSabReachableVtableConstByName(
+    reachable_functions: *std.AutoHashMap(usize, void),
+    reachable_vtable_consts: *std.AutoHashMap(usize, void),
+    sig_index_by_name: *const std.StringHashMap(usize),
+    const_index_by_name: *const std.StringHashMap(usize),
+    const_decls: []const flattener.ConstDecl,
+    name: []const u8,
+) !bool {
+    const normalized = sabReferenceName(name);
+    if (normalized.len == 0) return false;
+    const const_index = const_index_by_name.get(normalized) orelse return false;
+    switch (const_decls[const_index].value) {
+        .vtable => |literal| {
+            var changed = false;
+            if (!reachable_vtable_consts.contains(const_index)) {
+                try reachable_vtable_consts.put(const_index, {});
+                changed = true;
+            }
+            for (literal.slots) |slot| {
+                changed = (try markSabReachableByName(reachable_functions, sig_index_by_name, slot.func_name)) or changed;
+            }
+            return changed;
+        },
+        else => return false,
+    }
+}
+
+fn markSabReachableVtableConstFromOperand(
+    reachable_functions: *std.AutoHashMap(usize, void),
+    reachable_vtable_consts: *std.AutoHashMap(usize, void),
+    sig_index_by_name: *const std.StringHashMap(usize),
+    const_index_by_name: *const std.StringHashMap(usize),
+    flat: *const flattener.FlattenResult,
+    operand: anytype,
+) !bool {
+    const text = switch (operand) {
+        .reg => |id| flat.symbols.lookupName(id),
+        .symbol => |id| flat.symbols.lookupName(id),
+        .label => |id| flat.symbols.lookupName(id),
+        .func => |id| flat.symbols.lookupName(id),
+        .text => |value| value,
+        .native_text => |value| value,
+        else => null,
+    } orelse return false;
+    return try markSabReachableVtableConstByName(reachable_functions, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat.const_decls, text);
+}
+
+fn freeFlatInstructionMetadata(allocator: std.mem.Allocator, item: flattener.Instruction) void {
+    if (item.package_identity) |identity| allocator.free(identity);
+    if (item.upstream_loc) |loc| allocator.free(loc.file);
+    if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
+}
+
+fn freeFlatLocEntry(allocator: std.mem.Allocator, entry: ?common_upstream.UpstreamLoc) void {
+    if (entry) |loc| allocator.free(loc.file);
+}
+
+fn pruneSabVtableConsts(
+    allocator: std.mem.Allocator,
+    flat: *flattener.FlattenResult,
+    reachable_vtable_consts: *const std.AutoHashMap(usize, void),
+) !void {
+    if (flat.const_decls.len == 0) return;
+
+    var keep = try allocator.alloc(bool, flat.const_decls.len);
+    defer allocator.free(keep);
+    var pruned_any = false;
+    var kept_count: usize = 0;
+    for (flat.const_decls, 0..) |decl, const_index| {
+        keep[const_index] = switch (decl.value) {
+            .vtable => reachable_vtable_consts.contains(const_index),
+            else => true,
+        };
+        if (keep[const_index]) {
+            kept_count += 1;
+        } else {
+            pruned_any = true;
+        }
+    }
+    if (!pruned_any) return;
+
+    const new_const_decls = try allocator.alloc(flattener.ConstDecl, kept_count);
+    var kept_index: usize = 0;
+    for (flat.const_decls, 0..) |decl, const_index| {
+        if (keep[const_index]) {
+            new_const_decls[kept_index] = decl;
+            kept_index += 1;
+        } else {
+            var dropped = decl;
+            dropped.deinit(allocator);
+        }
+    }
+    allocator.free(flat.const_decls);
+    flat.const_decls = new_const_decls;
+}
+
+fn collectSabSelectedReachability(
+    allocator: std.mem.Allocator,
+    flat: *const flattener.FlattenResult,
+    ranges: []const SabFunctionRange,
+    sig_index_by_name: *const std.StringHashMap(usize),
+    const_index_by_name: *const std.StringHashMap(usize),
+    selected_test_names: []const []const u8,
+    reachable_vtable_consts: *std.AutoHashMap(usize, void),
+) !std.AutoHashMap(usize, void) {
+    var reachable = std.AutoHashMap(usize, void).init(allocator);
+    errdefer reachable.deinit();
+
+    for (selected_test_names) |name| {
+        _ = try markSabReachableByName(&reachable, sig_index_by_name, name);
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (ranges) |range| {
+            if (!reachable.contains(range.sig_index)) continue;
+            for (flat.instructions[range.start..range.end]) |item| {
+                if (item.kind != .call and item.kind != .call_indirect) continue;
+                var parsed = referee_call.parseInstructionCall(allocator, item, &flat.symbols) catch |err| switch (err) {
+                    error.InvalidCallSyntax => continue,
+                    else => return err,
+                };
+                defer parsed.deinit(allocator);
+                if (parsed.is_indirect) continue;
+                changed = (try markSabReachableByName(&reachable, sig_index_by_name, parsed.callee)) or changed;
+            }
+            for (flat.instructions[range.start..range.end]) |item| {
+                inline for (0..4) |operand_index| {
+                    changed = (try markSabReachableVtableConstFromOperand(&reachable, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat, item.operands[operand_index])) or changed;
+                }
+            }
+        }
+    }
+
+    return reachable;
+}
+
+fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.FlattenResult, selected_test_names: []const []const u8) !void {
+    if (selected_test_names.len == 0 or flat.function_sigs.len == 0 or flat.instructions.len == 0) return;
+    const original_function_count = flat.function_sigs.len;
+    const original_test_count = flat.test_sigs.len;
+    const original_instruction_count = flat.instructions.len;
+    const original_const_count = flat.const_decls.len;
+
+    const ranges = try buildSabFunctionRanges(allocator, flat.instructions);
+    defer allocator.free(ranges);
+    if (ranges.len == 0) return;
+
+    var sig_index_by_name = try buildSabFunctionSigIndex(allocator, flat.function_sigs);
+    defer sig_index_by_name.deinit();
+
+    var const_index_by_name = try buildSabConstIndex(allocator, flat.const_decls);
+    defer const_index_by_name.deinit();
+
+    var reachable_vtable_consts = std.AutoHashMap(usize, void).init(allocator);
+    defer reachable_vtable_consts.deinit();
+
+    var reachable = try collectSabSelectedReachability(allocator, flat, ranges, &sig_index_by_name, &const_index_by_name, selected_test_names, &reachable_vtable_consts);
+    defer reachable.deinit();
+    if (reachable.count() == 0) return;
+
+    var kept_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    errdefer kept_sigs.deinit();
+    var kept_test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    errdefer kept_test_sigs.deinit();
+    var kept_instructions = std.ArrayList(flattener.Instruction).init(allocator);
+    errdefer kept_instructions.deinit();
+    var kept_loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    errdefer kept_loc_table.deinit();
+
+    var keep_ranges = try allocator.alloc(bool, ranges.len);
+    defer allocator.free(keep_ranges);
+    @memset(keep_ranges, false);
+    for (ranges, 0..) |range, range_idx| {
+        if (range.sig_index >= flat.function_sigs.len) continue;
+        if (!reachable.contains(range.sig_index)) continue;
+        keep_ranges[range_idx] = true;
+
+        const function_sig = flat.function_sigs[range.sig_index];
+        try kept_sigs.append(function_sig);
+        if (function_sig.kind == .test_func) try kept_test_sigs.append(function_sig);
+        try kept_instructions.appendSlice(flat.instructions[range.start..range.end]);
+        try kept_loc_table.appendSlice(flat.loc_table[range.start..range.end]);
+    }
+    if (kept_sigs.items.len == 0) return;
+
+    const new_function_sigs = try kept_sigs.toOwnedSlice();
+    errdefer allocator.free(new_function_sigs);
+    const new_test_sigs = try kept_test_sigs.toOwnedSlice();
+    errdefer allocator.free(new_test_sigs);
+    const new_instructions = try kept_instructions.toOwnedSlice();
+    errdefer allocator.free(new_instructions);
+    const new_loc_table = try kept_loc_table.toOwnedSlice();
+    errdefer allocator.free(new_loc_table);
+
+    try pruneSabVtableConsts(allocator, flat, &reachable_vtable_consts);
+
+    var range_index: usize = 0;
+    var instruction_index: usize = 0;
+    while (instruction_index < flat.instructions.len) {
+        if (range_index < ranges.len and instruction_index == ranges[range_index].start) {
+            const range = ranges[range_index];
+            if (!keep_ranges[range_index]) {
+                for (flat.instructions[range.start..range.end]) |item| freeFlatInstructionMetadata(allocator, item);
+                for (flat.loc_table[range.start..range.end]) |entry| freeFlatLocEntry(allocator, entry);
+            }
+            instruction_index = range.end;
+            range_index += 1;
+            continue;
+        }
+        freeFlatInstructionMetadata(allocator, flat.instructions[instruction_index]);
+        freeFlatLocEntry(allocator, flat.loc_table[instruction_index]);
+        instruction_index += 1;
+    }
+
+    var sig_keep = try allocator.alloc(bool, flat.function_sigs.len);
+    defer allocator.free(sig_keep);
+    @memset(sig_keep, false);
+    for (ranges, 0..) |range, range_idx| {
+        if (range.sig_index < sig_keep.len and keep_ranges[range_idx]) sig_keep[range.sig_index] = true;
+    }
+    for (flat.function_sigs, 0..) |*function_sig, sig_index| {
+        if (!sig_keep[sig_index]) function_sig.deinit(allocator);
+    }
+
+    allocator.free(flat.function_sigs);
+    allocator.free(flat.test_sigs);
+    allocator.free(flat.instructions);
+    allocator.free(flat.loc_table);
+
+    flat.function_sigs = new_function_sigs;
+    flat.test_sigs = new_test_sigs;
+    flat.instructions = new_instructions;
+    flat.loc_table = new_loc_table;
+
+    if (sabPruneDebugEnabled(allocator)) {
+        std.debug.print(
+            "sab prune: funcs {d}->{d}, tests {d}->{d}, inst {d}->{d}, consts {d}->{d}, vtables_kept {d}\n",
+            .{
+                original_function_count,
+                flat.function_sigs.len,
+                original_test_count,
+                flat.test_sigs.len,
+                original_instruction_count,
+                flat.instructions.len,
+                original_const_count,
+                flat.const_decls.len,
+                reachable_vtable_consts.count(),
+            },
+        );
+    }
+}
+
+fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionSig) !flattener.FunctionSig {
+    const name = try allocator.dupe(u8, source.name);
+    errdefer allocator.free(name);
+
+    const params = try allocator.alloc(common_signature.ParamSpec, source.params.len);
+    errdefer allocator.free(params);
+    var param_initialized: usize = 0;
+    errdefer for (params[0..param_initialized]) |param| allocator.free(param.name);
+    for (source.params, 0..) |param, idx| {
+        params[idx] = .{
+            .name = try allocator.dupe(u8, param.name),
+            .ty = param.ty,
+            .cap = param.cap,
+        };
+        param_initialized += 1;
+    }
+
+    const param_ids = try allocator.dupe(u32, source.param_ids);
+    errdefer allocator.free(param_ids);
+    const reg_ids = try allocator.dupe(u32, source.reg_ids);
+    errdefer allocator.free(reg_ids);
+
+    var upstream_file: ?[]u8 = null;
+    errdefer if (upstream_file) |file| allocator.free(file);
+    if (source.upstream_file) |file| upstream_file = try allocator.dupe(u8, file);
+
+    var upstream_loc: ?common_upstream.UpstreamLoc = null;
+    errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+    if (source.upstream_loc) |loc| {
+        upstream_loc = .{
+            .file = try allocator.dupe(u8, loc.file),
+            .line = loc.line,
+            .col = loc.col,
+        };
+    }
+
+    var llvm_name: ?[]u8 = null;
+    errdefer if (llvm_name) |value| allocator.free(value);
+    if (source.llvm_name) |value| llvm_name = try allocator.dupe(u8, value);
+
+    return .{
+        .id = source.id,
+        .name = name,
+        .params = params,
+        .kind = source.kind,
+        .return_cap = source.return_cap,
+        .return_ty = source.return_ty,
+        .return_fallible = source.return_fallible,
+        .entry_inst_idx = source.entry_inst_idx,
+        .is_ffi_wrapper = source.is_ffi_wrapper,
+        .upstream_file = upstream_file,
+        .upstream_loc = upstream_loc,
+        .param_ids = param_ids,
+        .reg_ids = reg_ids,
+        .llvm_name = llvm_name,
+        .ignored = source.ignored,
+        .should_panic = source.should_panic,
+    };
+}
+
+fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
+    var annotated = std.ArrayList(referee.AnnotatedInstruction).init(allocator);
+    errdefer annotated.deinit();
+    var fatal_terminated = false;
+    for (flat.instructions) |item| {
+        if (fatal_terminated and item.kind != .label and !isSabFunctionDecl(item.kind)) continue;
+        if (item.kind == .label or isSabFunctionDecl(item.kind)) fatal_terminated = false;
+        try annotated.append(.{
+            .base = item,
+            .delta = .{ .changes = &.{} },
+            .gas_step_cost = 0,
+        });
+        if (item.kind == .panic or item.kind == .panic_msg) fatal_terminated = true;
+    }
+    const annotated_slice = try annotated.toOwnedSlice();
+    errdefer allocator.free(annotated_slice);
+
+    const function_sigs = flat.function_sigs;
+    flat.function_sigs = &.{};
+
+    const symbols = flat.symbols;
+    flat.symbols = flattener.SymbolTable.init(allocator);
+
+    return .{
+        .annotated = annotated_slice,
+        .function_sigs = function_sigs,
+        .symbols = symbols,
+        .const_decls = flat.const_decls,
+        .gas = .{
+            .max_alloc_bytes = 0,
+            .max_instruction_steps = .{ .bounded = 0 },
+            .call_depth = 0,
+            .has_unbounded_loop = false,
+        },
+    };
 }
 
 var test_source_tree_load_count: usize = 0;
@@ -4247,14 +4722,51 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 
     const total_start = if (options.profile) std.time.Instant.now() catch null else null;
     if (std.mem.endsWith(u8, source_path, ".sab")) {
+        const load_flat_start = if (options.profile) std.time.Instant.now() catch null else null;
         var flat = try loadSabFlat(allocator, source_path);
         errdefer flat.deinit(allocator);
+        const load_flat_ns = if (load_flat_start) |start| elapsedNs(start) else null;
+        const prune_start = if (options.profile) std.time.Instant.now() catch null else null;
+        try pruneSabFlatToSelectedTests(allocator, &flat, options.sab_selected_test_names);
+        const prune_ns = if (prune_start) |start| elapsedNs(start) else null;
+        const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+        if (options.sab_skip_verify and options.sab_selected_test_names.len != 0) {
+            const trusted = try trustedSabVerifyOk(allocator, &flat);
+            const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
+            if (options.profile) {
+                var null_writer = std.io.null_writer;
+                const writer = options.diagnostic_writer orelse null_writer.any();
+                try writer.print(
+                    "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms trusted=1\n",
+                    .{
+                        @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
+                    },
+                );
+            }
+            return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_flat_ns orelse 0, .setup_ns = 0, .flatten_ns = prune_ns orelse 0, .verify_ns = verify_ns orelse 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
+        }
         const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
             .jobs = options.jobs,
             .stage_reporter = null,
             .predecoded_symbol_names = flat.symbols.names.items,
             .predecoded_function_sigs = flat.function_sigs,
+            .check_exit_leaks = options.sab_selected_test_names.len == 0,
         });
+        const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
+        if (options.profile) {
+            var null_writer = std.io.null_writer;
+            const writer = options.diagnostic_writer orelse null_writer.any();
+            try writer.print(
+                "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms\n",
+                .{
+                    @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
+                    @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
+                    @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
+                },
+            );
+        }
         return switch (verified) {
             .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
             .trap => |report| {
@@ -6507,7 +7019,23 @@ fn executeTest(
         cached_test_list.deinit(allocator);
     }
 
-    const compiled = try compileSource(allocator, source_path, compile_options);
+    const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    var effective_compile_options = compile_options;
+    var sab_selected_test_list: ?test_meta.TestList = null;
+    defer if (sab_selected_test_list) |*list| list.deinit(allocator);
+    var selected_test_names: []const []const u8 = &.{};
+    defer if (selected_test_names.len != 0) allocator.free(selected_test_names);
+
+    if (std.mem.endsWith(u8, source_path, ".sab") and hasExplicitTestSelection(test_options.selection)) {
+        sab_selected_test_list = try collectSabTestListFast(allocator, source_path);
+        selected_test_names = try selectedTestNamesFromList(allocator, sab_selected_test_list.?, test_options.selection);
+        effective_compile_options.sab_selected_test_names = selected_test_names;
+        effective_compile_options.sab_skip_verify = test_options.compile_only;
+    }
+
+    const compile_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const compiled = try compileSource(allocator, source_path, effective_compile_options);
+    const compile_ns = if (compile_start) |start| elapsedNs(start) else null;
     switch (compiled) {
         .trap => |report| {
             try printTrapReport(stderr, report, diagnostics_mode);
@@ -6517,31 +7045,20 @@ fn executeTest(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            var compiled_test_list: ?test_meta.TestList = null;
+            defer if (compiled_test_list) |*list| list.deinit(allocator);
+            if (sab_selected_test_list == null) {
+                compiled_test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            }
+            const test_list = if (sab_selected_test_list) |*list| list else &compiled_test_list.?;
             if (test_options.list) {
-                defer test_list.deinit(allocator);
                 try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
                 return 0;
             }
 
-            const has_explicit_test_selection = test_options.selection.include_filters.len != 0 or
-                test_options.selection.skip_filters.len != 0 or
-                test_options.selection.exact or
-                test_options.selection.ignored != .normal;
-            var selected_test_names: []const []const u8 = &.{};
-            defer if (selected_test_names.len != 0) allocator.free(selected_test_names);
-            if (has_explicit_test_selection) {
-                const selected_count = test_options.selection.countSelected(test_list.tests);
-                if (selected_count != 0) {
-                    const mutable_selected_names = try allocator.alloc([]const u8, selected_count);
-                    var selected_index: usize = 0;
-                    for (test_list.tests) |test_case| {
-                        if (!test_options.selection.shouldRun(test_case)) continue;
-                        mutable_selected_names[selected_index] = test_case.selectorName();
-                        selected_index += 1;
-                    }
-                    selected_test_names = mutable_selected_names;
-                }
+            const has_explicit_test_selection = hasExplicitTestSelection(test_options.selection);
+            if (selected_test_names.len == 0 and has_explicit_test_selection) {
+                selected_test_names = try selectedTestNamesFromList(allocator, test_list.*, test_options.selection);
             }
 
             var link_inputs = std.ArrayList([]const u8).init(allocator);
@@ -6555,19 +7072,22 @@ fn executeTest(
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
+            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path);
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
-                else => return err,
-            };
-
-            if (cache_key) |key| {
-                if (!has_explicit_test_selection and link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list);
-            }
-
-            if (test_options.compile_only) {
-                defer test_list.deinit(allocator);
+            const fast_sab_compile_only = test_options.compile_only and std.mem.endsWith(u8, source_path, ".sab") and has_explicit_test_selection;
+            if (fast_sab_compile_only) {
+                if (compile_options.profile) {
+                    try stderr.print(
+                        "profile test compile={d:.3}ms emit={d:.3}ms link=0.000ms total={d:.3}ms\n",
+                        .{
+                            @as(f64, @floatFromInt(compile_ns orelse 0)) / 1_000_000.0,
+                            @as(f64, @floatFromInt(emit_ns orelse 0)) / 1_000_000.0,
+                            @as(f64, @floatFromInt(if (test_total_start) |start| elapsedNs(start) else 0)) / 1_000_000.0,
+                        },
+                    );
+                }
                 try stdout.print(
                     "compiled {d} selected tests ({d} discovered)\n",
                     .{
@@ -6578,17 +7098,68 @@ fn executeTest(
                 return 0;
             }
 
-            return try test_runner.run(
-                allocator,
-                exe_full_path,
-                tmp.dir,
-                &test_list,
-                test_options.selection,
-                test_options.trace_panic,
-                compile_options.jobs,
-                stdout.any(),
-                stderr.any(),
-            );
+            const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => return 1,
+                else => return err,
+            };
+            const link_ns = if (link_start) |start| elapsedNs(start) else null;
+            if (compile_options.profile) {
+                try stderr.print(
+                    "profile test compile={d:.3}ms emit={d:.3}ms link={d:.3}ms total={d:.3}ms\n",
+                    .{
+                        @as(f64, @floatFromInt(compile_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(emit_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(link_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(if (test_total_start) |start| elapsedNs(start) else 0)) / 1_000_000.0,
+                    },
+                );
+            }
+
+            if (cache_key) |key| {
+                if (!has_explicit_test_selection and link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*);
+            }
+
+            if (test_options.compile_only) {
+                try stdout.print(
+                    "compiled {d} selected tests ({d} discovered)\n",
+                    .{
+                        test_options.selection.countSelected(test_list.tests),
+                        test_list.tests.len,
+                    },
+                );
+                return 0;
+            }
+
+            if (sab_selected_test_list) |list| {
+                var run_list = list;
+                sab_selected_test_list = null;
+                return try test_runner.run(
+                    allocator,
+                    exe_full_path,
+                    tmp.dir,
+                    &run_list,
+                    test_options.selection,
+                    test_options.trace_panic,
+                    compile_options.jobs,
+                    stdout.any(),
+                    stderr.any(),
+                );
+            } else {
+                var run_list = compiled_test_list.?;
+                compiled_test_list = null;
+                return try test_runner.run(
+                    allocator,
+                    exe_full_path,
+                    tmp.dir,
+                    &run_list,
+                    test_options.selection,
+                    test_options.trace_panic,
+                    compile_options.jobs,
+                    stdout.any(),
+                    stderr.any(),
+                );
+            }
         },
     }
 }

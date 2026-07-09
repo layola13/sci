@@ -30,13 +30,16 @@ pub const Error = error{
 
 pub const Module = struct {
     symbols: []const []const u8,
+    owns_symbol_text: bool = true,
     function_sigs: []sig.FunctionSig,
     const_decls: []const_decl.ConstDecl,
     instructions: []inst.Instruction,
     owned_text: [][]const u8,
 
     pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
-        for (self.symbols) |name| allocator.free(name);
+        if (self.owns_symbol_text) {
+            for (self.symbols) |name| allocator.free(name);
+        }
         allocator.free(self.symbols);
         for (self.function_sigs) |*item| item.deinit(allocator);
         allocator.free(self.function_sigs);
@@ -1014,12 +1017,12 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
         const len = try decodeUleb128(&cursor);
         if (len > std.math.maxInt(usize)) return error.Leb128Overflow;
         const payload = try cursor.readSlice(@intCast(len));
-        if (id == @intFromEnum(SectionId.symbol_pool)) symbols = try readStringPool(allocator, payload);
+        if (id == @intFromEnum(SectionId.symbol_pool)) symbols = try readStringPoolBorrowed(allocator, payload);
         if (id == @intFromEnum(SectionId.function_sigs)) function_sigs = try readFunctionSigs(allocator, symbols, payload, has_full_metadata);
         if (id == @intFromEnum(SectionId.const_decls)) const_decls = try readConstDecls(allocator, symbols, payload, has_full_metadata);
         if (id == @intFromEnum(SectionId.instructions)) instructions = try readInstructions(allocator, symbols, &owned_text, payload, has_raw_text, has_full_metadata, synthesize_debug_text);
     }
-    return .{ .symbols = symbols, .function_sigs = function_sigs, .const_decls = const_decls, .instructions = instructions orelse return error.MissingInstructionSection, .owned_text = try owned_text.toOwnedSlice() };
+    return .{ .symbols = symbols, .owns_symbol_text = false, .function_sigs = function_sigs, .const_decls = const_decls, .instructions = instructions orelse return error.MissingInstructionSection, .owned_text = try owned_text.toOwnedSlice() };
 }
 
 pub fn decodeFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u8) ![]sig.FunctionSig {
