@@ -147,6 +147,36 @@ Observed improvement against the prior logged full-pass baseline:
 
 The optimized run rebuilt the Zig test binary because `src/plugins.zig` changed, so the steady-state runtime saving is likely better represented by the individual test-body deltas than by the total step delta alone.
 
+## 2026-07-09 `sa-std-runtime` Archive Reuse
+
+The next slowest owner from the full logged pass was `sa-std-runtime` at `145.815s`. The test body was repeatedly compiling the same static runtime library for each C demo:
+
+```text
+zig build-lib src/runtime/sa_std.zig src/runtime/sa_pthread_host.c -O Debug -lc -femit-bin=libsa_std.a
+```
+
+Change:
+
+- `build.zig` makes `sa-std-runtime` depend on the build-system refresh of `artifacts/sa_std/libsa_std.a`.
+- `tests/sa_std_runtime.zig` copies that archive into each temp test directory before linking each C demo.
+- Each C demo still compiles, links, runs, and validates its output independently. The removed work is only the repeated static runtime library rebuild inside each test case.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime
+```
+
+Result: pass, `14/14 tests passed`, `elapsed=33.532s`.
+
+Observed improvement:
+
+| Step | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `sa-std-runtime` | 145.815s | 33.532s | -112.283s / -77.0% |
+
+The logged build summary shows the new shape: one `zig build-lib sa_std` archive refresh at about `12s`, one `zig test` build at about `6s`, and the test run at about `7s`, instead of rebuilding the runtime archive per C demo.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`

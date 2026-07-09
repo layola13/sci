@@ -15,8 +15,12 @@ Active follow-up: reduce the slowest full-test runtime owners using the logged s
    - `plugin-host-smoke` remains an isolated install-flow test. It uses `std.testing.tmpDir()` and sets `SA_PLUGINS_HOME` to the test-local `state` directory; ordinary unit testing does not install real user plugins.
    - Focused verification with the logged runner passed: `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-20260709T070747Z plugin-host-smoke`, `12/12 tests passed`, `elapsed=170.743s`.
    - Measured improvement against the previous full logged baseline: `209.569s -> 170.743s`, saving `38.826s` (`18.5%`) on the observed `plugin-host-smoke` step. Internal timing showed the duplicate extern failure paths as the clearest wins.
-   - Overall progress estimate after this feature: `15%` of the full-test runtime optimization follow-up.
-   - Next candidates: add or inspect focused timing for `sa-std-runtime`, then evaluate `wasm-matrix` repeated compile phases. Do not run a full suite until the next large milestone.
+   - Second completed feature: `sa-std-runtime` reuses the build-system `sa_std` static archive instead of rebuilding `src/runtime/sa_std.zig` inside each C demo test.
+   - `build.zig` wires the runtime integration test step to the archive refresh, and `tests/sa_std_runtime.zig` copies the refreshed archive into each temp test directory before linking each demo.
+   - Focused verification passed: `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime`, `14/14 tests passed`, `elapsed=33.532s`.
+   - Measured improvement against the previous full logged baseline: `145.815s -> 33.532s`, saving `112.283s` (`77.0%`) on the observed `sa-std-runtime` step.
+   - Overall progress estimate after this feature: `35%` of the full-test runtime optimization follow-up. Current observed cumulative savings are about `151.109s` across `plugin-host-smoke` and `sa-std-runtime`.
+   - Next candidates: evaluate `wasm-matrix` repeated compile phases, then `unit-framework` and the remaining `plugin-host-smoke` runtime. Do not run a full suite until the next large milestone.
 
 1. Active test logging/timeout diagnostics:
    - `tools/test_steps_timed.sh` is the new diagnostic entry point for the `zig build test` dependency set.

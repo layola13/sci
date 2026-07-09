@@ -426,6 +426,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_sa_std_runtime = b.addRunArtifact(sa_std_runtime);
     run_sa_std_runtime.setCwd(repo_root_lazy);
+    run_sa_std_runtime.step.dependOn(&sync_sa_std_artifact.step);
     test_step.dependOn(&run_sa_std_runtime.step);
     const sa_std_runtime_step = b.step("sa-std-runtime", "Run SA standard runtime integration tests");
     sa_std_runtime_step.dependOn(&run_sa_std_runtime.step);

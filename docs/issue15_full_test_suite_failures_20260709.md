@@ -175,3 +175,15 @@ tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-202
 ```
 
 Result: `12/12 tests passed`, `elapsed=170.743s`, saving `38.826s` (`18.5%`) versus the previous logged `plugin-host-smoke` baseline. The duplicate extern failure tests are the main visible beneficiaries because they now fail before unnecessary temporary plugin builds.
+
+The second follow-up optimization targets `sa-std-runtime`, which was the next slowest step in the full logged pass at `145.815s`.
+
+`tests/sa_std_runtime.zig` no longer rebuilds `src/runtime/sa_std.zig` inside every C demo test. The build step now refreshes `artifacts/sa_std/libsa_std.a` once, and each C demo copies that archive into its temp directory before linking and running.
+
+Focused logged verification passed:
+
+```bash
+tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime
+```
+
+Result: `14/14 tests passed`, `elapsed=33.532s`, saving `112.283s` (`77.0%`) versus the previous logged `sa-std-runtime` baseline.

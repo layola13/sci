@@ -24,7 +24,9 @@
 - [x] Keep plugin install unit tests isolated: `plugin-host-smoke` uses `std.testing.tmpDir()` and test-local `SA_PLUGINS_HOME=state`; no real user plugin installation is required for ordinary unit testing.
 - [x] Verify the plugin optimization with the logged step runner: `plugin-host-smoke` passed in `170.743s`.
 - [x] Record observed improvement: previous logged baseline `209.569s`, optimized run `170.743s`, delta `38.826s` (`18.5%`) for that step; overall optimization follow-up progress estimate `15%`.
-- [ ] Continue with the next slowest logged owners: `sa-std-runtime` and `wasm-matrix`, using focused instrumentation before broad changes.
+- [x] Optimize `sa-std-runtime` by reusing the build-system `sa_std` archive instead of rebuilding the same static runtime library in every C demo test.
+- [x] Verify the `sa-std-runtime` optimization with the logged step runner: `14/14 tests passed`, `145.815s -> 33.532s`, delta `112.283s` (`77.0%`); overall optimization follow-up progress estimate `35%`.
+- [ ] Continue with the next slowest logged owners: `wasm-matrix`, `unit-framework`, and remaining `plugin-host-smoke` runtime, using focused instrumentation before broad changes.
 
 ## Active compiler-performance slice: large SAB focused tests (2026-07-09)
 

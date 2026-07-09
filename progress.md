@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 15% for the active full-test runtime optimization follow-up; 100% for the test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 35% for the active full-test runtime optimization follow-up; 100% for the test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -15,6 +15,13 @@ Current progress: 15% for the active full-test runtime optimization follow-up; 1
   - Previous logged full-pass baseline for the same step was `209.569s`, so the observed step-level improvement is `38.826s` (`18.5%`) despite this run also rebuilding the Zig test binary after `src/plugins.zig` changed.
   - Most visible internal wins: duplicate extern symbols across installed plugins about `33.936s -> 13.809s`; duplicate extern symbols inside installed plugin about `18.447s -> 0.007s`.
 - Overall progress estimate after this feature: `15%` of the full-test runtime optimization follow-up. Remaining dominant steps are still `plugin-host-smoke`, `sa-std-runtime`, `wasm-matrix`, `unit-framework`, and `std-smoke`.
+- Feature completed: `sa-std-runtime` now reuses the build-system `sa_std` static archive instead of rebuilding the same runtime library inside each C demo test.
+- `build.zig` makes the `sa-std-runtime` step depend on the `artifacts/sa_std/libsa_std.a` refresh, and `tests/sa_std_runtime.zig` copies that archive into each temp test directory before linking each C demo.
+- The C demo compile/link/run coverage is preserved; only 13 repeated `zig build-lib src/runtime/sa_std.zig ...` invocations were removed from the test body.
+- Focused verification:
+  - `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime`: pass, `14/14 tests passed`, `elapsed=33.532s`.
+  - Previous logged full-pass baseline for the same step was `145.815s`, so the observed step-level improvement is `112.283s` (`77.0%`).
+- Overall progress estimate after this feature: `35%` of the full-test runtime optimization follow-up. Current observed cumulative savings versus the logged full-pass baseline are about `151.109s` across `plugin-host-smoke` and `sa-std-runtime`.
 
 ## Active: 2026-07-09 logged full-test step runner
 
