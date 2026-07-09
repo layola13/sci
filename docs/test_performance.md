@@ -20,6 +20,286 @@ This note records the first timed pre-push pass after replacing the fixed `zig b
   - `legacy` preserves the older stage list for timing comparisons.
 - `pre-push-aggregate` is available as an explicit stage, but it is not part of the default timed run because it repeats all previous CI dependencies.
 
+## 2026-07-09 Logged Full-Test Dependency Runner
+
+`tools/test_steps_timed.sh` is now the preferred diagnostic command when the goal is to validate the `zig build test` dependency set without losing timeout ownership inside Zig's aggregate build output.
+
+Example commands:
+
+```sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --timeout 420
+tools/test_steps_timed.sh --continue --timeout 420
+tools/test_steps_timed.sh --timeout 420 --log-dir /tmp/sci-test-steps
+tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test
+```
+
+The runner prints:
+
+- per-step `START` lines with UTC timestamp, timeout, and exact `zig build <step>` command.
+- per-step `PASS`, `FAIL`, or `TIMEOUT` lines with elapsed time and status.
+- a slowest-step ranking.
+- a final `SUMMARY passed=... failed=... timeout=... total=... elapsed=...` line.
+- a persisted log directory, defaulting to `logs/test_steps/<utc timestamp>`, containing one numbered log per step plus `summary.log`. Use `--log-dir` or `SA_TEST_STEP_LOG_DIR` to override this path.
+
+The default step list mirrors the `build.zig` `test` dependency set through named build steps. It uses `std-smoke` for the std smoke artifacts and `whitepaper-lint` for the whitepaper smoke artifact, instead of using the aggregate `smoke` step, because `smoke` also repeats the std smoke artifacts.
+
+Focused verification after adding the runner:
+
+```sh
+bash -n tools/test_steps_timed.sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test
+tools/test_steps_timed.sh --timeout 180 --log-dir /tmp/sci-test-steps-logs pkg-core-test
+```
+
+Result: the focused two-step run passed. `lib-root-smoke` took `50.989s`, `pkg-core-test` took `1.419s`, and the runner printed the slowest-step summary. The explicit log-dir check generated `summary.log` and `01-pkg-core-test.log`; an invalid-step failure-path check preserved exit status `1` while writing the Zig error output to the step log. A full logged run was intentionally not executed during this follow-up; use this runner at the next milestone boundary instead of invoking `zig build test` directly.
+
+Milestone full logged pass:
+
+```sh
+tools/test_steps_timed.sh --continue --timeout 420 --log-dir logs/test_steps/full-20260709T060333Z
+```
+
+Result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`. Full logs were written under `logs/test_steps/full-20260709T060333Z`.
+
+Slowest steps from that pass:
+
+| Step | Elapsed |
+| --- | ---: |
+| `plugin-host-smoke` | 209.569s |
+| `sa-std-runtime` | 145.815s |
+| `wasm-matrix` | 121.868s |
+| `unit-framework` | 57.407s |
+| `std-smoke` | 57.155s |
+| `bc2sa-smoke` | 47.792s |
+| `workspace-smoke` | 43.340s |
+| `trap-baseline` | 41.566s |
+| `sa-std-unit` | 27.227s |
+| `sa-term-runtime` | 24.427s |
+
+## 2026-07-09 Heavy Step Internal Timing
+
+Two historically expensive steps now emit internal timing, so the step runner can identify both the owning build step and the slow or stuck object inside that step.
+
+`plugin-host-smoke` now prints one START/END pair per Zig test body:
+
+```text
+[plugin-host-smoke] START test="plugin installer rejects duplicate extern symbols across installed plugins"
+[plugin-host-smoke] END   test="plugin installer rejects duplicate extern symbols across installed plugins" elapsed=30534ms
+```
+
+Focused validation:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 plugin-host-smoke
+```
+
+Result: pass, `230.858s` total. Zig test binary build took about `47s`; the test run took about `3m`. The slowest visible plugin tests were duplicate extern checks and optional dependency skills checks at about `30s` each.
+
+`wasm-matrix` now prints demo and phase timing for `build-exe`, `native-run`, `build-wasm`, and `wasm-run`:
+
+```text
+[wasm-matrix] START demo=demos/rosetta/01_hello_world/main.sa phase=build-exe
+[wasm-matrix] END   demo=demos/rosetta/01_hello_world/main.sa phase=build-exe elapsed=822ms
+```
+
+Focused validation:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 wasm-matrix
+```
+
+Result: pass, `149.039s` total. Zig test binary build took about `41s`; the matrix run took about `1m`. The visible per-demo output shows most time is in repeated `build-exe` SA compilation, while `native-run`, `build-wasm`, and `wasm-run` are comparatively small for most demos.
+
+## 2026-07-09 Plugin Install Preflight Optimization
+
+The first optimization after the logged-runner milestone targets `plugin-host-smoke`, the slowest owner from the full logged pass.
+
+Change: `src/plugins.zig` now runs pure plugin-install preflight checks before `buildPluginProject()`:
+
+- declared interface file verification.
+- declared asset file verification.
+- installed extern-symbol conflict checks.
+
+Artifact-dependent checks remain after build/copy:
+
+- dynamic symbol smoke.
+- artifact static policy.
+
+This does not remove plugin install coverage. The `plugin-host-smoke` unit tests intentionally exercise install flows, but they set `SA_PLUGINS_HOME` to a `std.testing.tmpDir()`-backed `state` directory, so ordinary unit tests do not install plugins into the real user plugin home.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-20260709T070747Z plugin-host-smoke
+```
+
+Result: pass, `12/12 tests passed`, `elapsed=170.743s`.
+
+Observed improvement against the prior logged full-pass baseline:
+
+| Step / test body | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `plugin-host-smoke` step | 209.569s | 170.743s | -38.826s / -18.5% |
+| duplicate extern symbols across installed plugins | ~33.936s | ~13.809s | ~-20.127s |
+| duplicate extern symbols inside installed plugin | ~18.447s | ~0.007s | ~-18.440s |
+
+The optimized run rebuilt the Zig test binary because `src/plugins.zig` changed, so the steady-state runtime saving is likely better represented by the individual test-body deltas than by the total step delta alone.
+
+## 2026-07-09 `sa-std-runtime` Archive Reuse
+
+The next slowest owner from the full logged pass was `sa-std-runtime` at `145.815s`. The test body was repeatedly compiling the same static runtime library for each C demo:
+
+```text
+zig build-lib src/runtime/sa_std.zig src/runtime/sa_pthread_host.c -O Debug -lc -femit-bin=libsa_std.a
+```
+
+Change:
+
+- `build.zig` makes `sa-std-runtime` depend on the build-system refresh of `artifacts/sa_std/libsa_std.a`.
+- `tests/sa_std_runtime.zig` copies that archive into each temp test directory before linking each C demo.
+- Each C demo still compiles, links, runs, and validates its output independently. The removed work is only the repeated static runtime library rebuild inside each test case.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime
+```
+
+Result: pass, `14/14 tests passed`, `elapsed=33.532s`.
+
+Observed improvement:
+
+| Step | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `sa-std-runtime` | 145.815s | 33.532s | -112.283s / -77.0% |
+
+The logged build summary shows the new shape: one `zig build-lib sa_std` archive refresh at about `12s`, one `zig test` build at about `6s`, and the test run at about `7s`, instead of rebuilding the runtime archive per C demo.
+
+## 2026-07-09 Full-Test Log Quality Follow-up
+
+The logged step runner now emits better progress and failure diagnostics for long full-test runs:
+
+- `--heartbeat SEC` / `SA_TEST_STEP_HEARTBEAT`, default `30`, prints `RUNNING` lines while a step is active.
+- Heartbeat lines include `index=current/total`, elapsed time, current step log size in bytes, timestamp, and log path.
+- `--fail-tail-lines N` / `SA_TEST_STEP_FAIL_TAIL_LINES`, default `80`, prints the tail of failed or timed-out step logs into both the console and `summary.log`.
+- Every run writes `results.tsv` with one row per completed step and `environment.txt` with repo/git/settings metadata.
+- START/PASS/FAIL/TIMEOUT lines now include `index=current/total`.
+
+Focused verification only:
+
+```sh
+bash -n tools/test_steps_timed.sh
+tools/test_steps_timed.sh --list
+tools/test_steps_timed.sh --heartbeat 1 --timeout 180 --log-dir logs/test_steps/log-quality-pkg-20260709T080000Z pkg-core-test
+tools/test_steps_timed.sh --heartbeat 1 --fail-tail-lines 20 --timeout 30 --log-dir logs/test_steps/log-quality-fail-20260709T080000Z definitely-not-a-step
+tools/test_steps_timed.sh --heartbeat 5 --timeout 180 --log-dir logs/test_steps/log-quality-heartbeat-20260709T080000Z sa-std-runtime
+```
+
+Results: syntax/list checks passed; `pkg-core-test` passed and generated structured logs; the intentional invalid step preserved exit status `1` and printed its failing log tail; `sa-std-runtime` passed and emitted a `RUNNING` heartbeat at 5s. A full suite was intentionally not run for this log-quality slice.
+
+## 2026-07-09 `unit-framework` File-Level Logs
+
+The `unit-framework` step now prints one line before and after each SA unit file it runs:
+
+```text
+[unit-framework] START file=tests/unit_framework/std_string_macro_surface.sa mode=in-process jobs=auto
+[unit-framework] END   file=tests/unit_framework/std_string_macro_surface.sa mode=in-process elapsed=2095ms jobs=auto stdout_bytes=2686 stderr_bytes=0
+```
+
+Queued process-mode files include progress inside the queue:
+
+```text
+[unit-framework] START index=1/2 file=.../queued_pass.sa mode=process jobs=1
+[unit-framework] END   index=1/2 file=.../queued_pass.sa mode=process elapsed=137ms jobs=1 stdout_bytes=71 stderr_bytes=0
+```
+
+Unexpected per-file errors use `END status=error` rather than a bare `[unit-framework] FAIL`. This keeps the intentional queued-worker failure propagation test from making a passing `unit-framework` step look failed in simple log searches.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log2-20260709T082000Z unit-framework
+rg -n "\\[unit-framework\\] (START|END|FAIL)|status=error|stdout_bytes|stderr_bytes" logs/test_steps/unit-framework-log2-20260709T082000Z/01-unit-framework.log
+rg -n "\\[unit-framework\\] FAIL" logs/test_steps/unit-framework-log2-20260709T082000Z/01-unit-framework.log
+```
+
+Result: `unit-framework` passed (`5/5 tests passed`). The log contains file-level START/END lines and `stdout_bytes` / `stderr_bytes`; the final grep returned no `[unit-framework] FAIL` matches. A full suite was not run for this logging slice.
+
+Follow-up consistency pass:
+
+- `feature_suite.sa` now logs `START/END file=tests/unit_framework/feature_suite.sa mode=all-modes`.
+- `assert_diag.sa` now logs `START/END file=assert_diag.sa mode=negative-diagnostic`.
+- `mock_io_test.sa` now logs `START/END file=mock_io_test.sa mode=in-process`.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log3-20260709T083000Z unit-framework
+rg -n "feature_suite\\.sa all modes elapsed|assert_diag\\.sa elapsed|mock_io_test\\.sa elapsed|\\[unit-framework\\] FAIL" logs/test_steps/unit-framework-log3-20260709T083000Z/01-unit-framework.log
+rg -n "START file=tests/unit_framework/feature_suite\\.sa|END   file=tests/unit_framework/feature_suite\\.sa|START file=assert_diag\\.sa|END   file=assert_diag\\.sa|START file=mock_io_test\\.sa|END   file=mock_io_test\\.sa" logs/test_steps/unit-framework-log3-20260709T083000Z/01-unit-framework.log
+```
+
+Result: `unit-framework` passed (`5/5 tests passed`). The first grep returned no matches for the old elapsed-only formats or misleading `[unit-framework] FAIL`; the second grep found the new START/END lines.
+
+## 2026-07-09 `wasm-matrix` Slowest Summary
+
+The `wasm-matrix` step now prints an end-of-step summary with aggregate phase totals and top-10 rankings for slow demos and slow phases. This keeps the existing per-demo START/END lines, but avoids manually scanning more than 100 demo records when a run is slow.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-matrix-summary2-20260709T084000Z wasm-matrix
+rg -n "\\[wasm-matrix\\] SUMMARY|demo_rank=|phase_rank=" logs/test_steps/wasm-matrix-summary2-20260709T084000Z/01-wasm-matrix.log
+```
+
+Result: pass, `1/1 tests passed`, `elapsed=146.982s` including Zig test rebuild.
+
+Summary from the successful run:
+
+```text
+[wasm-matrix] SUMMARY demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188
+```
+
+Slowest demos:
+
+| Rank | Demo | Elapsed | build-exe |
+| ---: | --- | ---: | ---: |
+| 1 | `demos/rosetta/81_kv_store/main.sa` | 2252ms | 2106ms |
+| 2 | `demos/rosetta/35_iterator_fold/main.sa` | 2236ms | 2154ms |
+| 3 | `demos/rosetta/176_result_flattening/main.sa` | 1780ms | 1680ms |
+| 4 | `demos/rosetta/32_trait_object_vector/main.sa` | 1631ms | 1543ms |
+| 5 | `demos/rosetta/83_blob_chunk/main.sa` | 1589ms | 1497ms |
+
+The top-10 slowest individual phases were all `build-exe`. Current evidence points at repeated SA native build cost as the next optimization target; wasm execution itself was only `8188ms` across all 110 demos.
+
+## 2026-07-09 `wasm-matrix` WASM-Fast Default
+
+The matrix now matches the WASM-fast product claim more directly:
+
+- all 110 demos still build and run through `build-wasm` plus Node/WASI.
+- native `build-exe` is reduced to 6 representative sanity checks by default.
+- full native equivalence remains available with `SA_WASM_MATRIX_NATIVE_ALL=1`.
+- `build-exe` and `build-wasm` now pass `--project-root <repo-root>`, so matrix builds share the repo `.sa_cache` instead of scattering cache roots across demo directories.
+
+Focused verification only:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-fast-default-20260709T091500Z wasm-matrix
+tools/test_steps_timed.sh --heartbeat 10 --timeout 300 --log-dir logs/test_steps/wasm-fast-hot-20260709T092000Z wasm-matrix
+```
+
+Results:
+
+| Run | Step elapsed | native_checked | build-exe | build-wasm | wasm-run |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous default | 146.982s | 110 | 93.156s | 1.711s | 8.188s |
+| Cold shared cache | 212.385s | 6 | 18.404s | 138.154s | 8.577s |
+| Hot shared cache | 59.623s | 6 | 6.255s | 43.033s | 7.754s |
+
+The hot-cache default path saves `87.359s` versus the previous logged default (`59.4%`). The cold shared-cache run is intentionally slower because it fills the new shared repo-level `build-wasm` cache for all 110 demos.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`

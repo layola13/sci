@@ -18,6 +18,7 @@ pub const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 pub const interp = @import("interp.zig");
 pub const layout = @import("layout.zig");
 pub const llvm2sa = @import("llvm2sa.zig");
+pub const sab = @import("sab.zig");
 pub const plugins = @import("plugins.zig");
 pub const test_executor = @import("test_executor.zig");
 pub const test_formatter = @import("test_formatter.zig");
@@ -34,11 +35,16 @@ pub const pkg = struct {
     pub const mirror = @import("pkg/mirror.zig");
     pub const resolver = @import("pkg/resolver.zig");
     pub const sum = @import("pkg/sum.zig");
+    pub const workspace = @import("pkg/workspace.zig");
 };
 pub const libsa_scope = @import("libsa_scope.zig");
 pub const runtime = struct {
     pub const sa_net_uring = @import("runtime/sa_net_uring.zig");
     pub const sa_std = @import("runtime/sa_std.zig");
+    pub const sa_http2 = @import("runtime/sa_http2.zig");
+    pub const sa_tls_server = @import("runtime/sa_tls_server.zig");
+    pub const sa_dtls = @import("runtime/sa_dtls.zig");
+    pub const sa_quic = @import("runtime/sa_quic.zig");
 };
 pub const referee = @import("referee.zig");
 pub const cli = @import("cli.zig");

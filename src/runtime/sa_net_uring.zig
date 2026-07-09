@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sa_std = @import("sa_std.zig");
+const net_primitives = @import("sa_net_primitives.zig");
 
 const net = std.net;
 const posix = std.posix;
@@ -1705,107 +1706,187 @@ fn findColonVector(bytes: []const u8) ?usize {
 }
 
 pub fn parseWsFrame(bytes: []const u8) error{ Incomplete, Invalid }!WsFrame {
-    if (bytes.len < 2) return error.Incomplete;
-    const b0 = bytes[0];
-    const b1 = bytes[1];
-    const fin = (b0 & 0x80) != 0;
-    const opcode = b0 & 0x0f;
-    const masked = (b1 & 0x80) != 0;
-    var payload_len: usize = b1 & 0x7f;
-    var idx: usize = 2;
-    if (payload_len == 126) {
-        if (bytes.len < 4) return error.Incomplete;
-        payload_len = std.mem.readInt(u16, bytes[2..4], .big);
-        idx = 4;
-    } else if (payload_len == 127) {
-        if (bytes.len < 10) return error.Incomplete;
-        const raw = std.mem.readInt(u64, bytes[2..10], .big);
-        payload_len = std.math.cast(usize, raw) orelse return error.Invalid;
-        idx = 10;
-    }
-
-    var mask: [4]u8 = .{ 0, 0, 0, 0 };
-    if (masked) {
-        if (bytes.len < idx + 4) return error.Incomplete;
-        @memcpy(mask[0..], bytes[idx .. idx + 4]);
-        idx += 4;
-    }
-
-    if (bytes.len < idx + payload_len) return error.Incomplete;
+    const frame = try net_primitives.parseWsFrame(bytes);
     return .{
-        .fin = fin,
-        .opcode = opcode,
-        .masked = masked,
-        .payload_start = idx,
-        .payload_len = payload_len,
-        .frame_len = idx + payload_len,
-        .mask = mask,
+        .fin = frame.fin,
+        .opcode = frame.opcode,
+        .masked = frame.masked,
+        .payload_start = frame.payload_start,
+        .payload_len = frame.payload_len,
+        .frame_len = frame.frame_len,
+        .mask = frame.mask,
     };
 }
 
 fn unmaskFrame(payload: []u8, mask: [4]u8) void {
-    if (payload.len == 0) return;
-    const vec_len = 16;
-    if (payload.len >= 32) {
-        const mask16: @Vector(16, u8) = .{
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-        };
-        const mask32: @Vector(32, u8) = .{
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-        };
-        var offset32: usize = 0;
-        while (offset32 + 32 <= payload.len) : (offset32 += 32) {
-            const block = readVector32(payload[offset32..]);
-            const decoded = block ^ mask32;
-            writeVector32(payload[offset32..], decoded);
-        }
-        while (offset32 + 16 <= payload.len) : (offset32 += 16) {
-            const block = readVector16(payload[offset32..]);
-            const decoded = block ^ mask16;
-            writeVector16(payload[offset32..], decoded);
-        }
-        while (offset32 < payload.len) : (offset32 += 1) {
-            payload[offset32] ^= mask[offset32 & 3];
-        }
-        return;
-    }
-    var i: usize = 0;
-    while (i + vec_len <= payload.len) : (i += vec_len) {
-        const block = readVector16(payload[i..]);
-        const key: @Vector(16, u8) = .{
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-            mask[0], mask[1], mask[2], mask[3],
-        };
-        const decoded = block ^ key;
-        writeVector16(payload[i..], decoded);
-    }
-    while (i < payload.len) : (i += 1) {
-        payload[i] ^= mask[i & 3];
-    }
+    net_primitives.unmaskFrame(payload, mask);
 }
 
 pub fn websocketAccept(key: []const u8) ![28]u8 {
-    var sha1 = std.crypto.hash.Sha1.init(.{});
-    sha1.update(key);
-    sha1.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-    var digest: [20]u8 = undefined;
-    sha1.final(&digest);
+    return net_primitives.websocketAccept(key);
+}
 
-    var out: [28]u8 = undefined;
-    _ = std.base64.standard.Encoder.encode(out[0..], digest[0..]);
-    return out;
+// ---------------------------------------------------------------------------
+// Shared WebSocket + URL primitives exported as flat sa_std ABI.
+//
+// These wrap the same parseWsFrame/unmaskFrame/websocketAccept logic the netx
+// reactor uses, so the http_client / http_server / node / deno plugins can stop
+// hand-rolling their own frame codecs and URL parsers and call one tested
+// implementation. Buffer-style (caller owns output) to match sa_std_net_*.
+// ---------------------------------------------------------------------------
+
+// Sec-WebSocket-Accept: base64(SHA1(key + magic)). Writes exactly 28 bytes.
+pub export fn sa_std_ws_accept_key(key_ptr: ?[*]const u8, key_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const out_len_ptr = out_len orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    out_len_ptr.* = 0;
+    const kp = key_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    const key = kp[0..@as(usize, @intCast(key_len))];
+    const op = out_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    if (out_cap < 28) return SA_NETX_ERR_TRUNCATED;
+    const accept = websocketAccept(key) catch return SA_NETX_ERR_INVALID_ARGUMENT;
+    @memcpy(op[0..28], accept[0..]);
+    out_len_ptr.* = 28;
+    return SA_NETX_OK;
+}
+
+// Parse one WebSocket frame header. Fills the six out_* scalars.
+// Returns SA_NETX_OK on a complete frame, SA_NETX_ERR_TRUNCATED if more bytes
+// are needed, SA_NETX_ERR_INVALID_ARGUMENT on a malformed frame.
+pub export fn sa_std_ws_frame_parse(
+    data_ptr: ?[*]const u8,
+    data_len: u64,
+    out_fin: ?*u8,
+    out_opcode: ?*u8,
+    out_masked: ?*u8,
+    out_payload_offset: ?*u64,
+    out_payload_len: ?*u64,
+    out_frame_len: ?*u64,
+    out_mask: ?[*]u8,
+) i32 {
+    const dp = data_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    const data = dp[0..@as(usize, @intCast(data_len))];
+    const frame = parseWsFrame(data) catch |err| switch (err) {
+        error.Incomplete => return SA_NETX_ERR_TRUNCATED,
+        error.Invalid => return SA_NETX_ERR_INVALID_ARGUMENT,
+    };
+    if (out_fin) |p| p.* = if (frame.fin) 1 else 0;
+    if (out_opcode) |p| p.* = frame.opcode;
+    if (out_masked) |p| p.* = if (frame.masked) 1 else 0;
+    if (out_payload_offset) |p| p.* = @as(u64, @intCast(frame.payload_start));
+    if (out_payload_len) |p| p.* = @as(u64, @intCast(frame.payload_len));
+    if (out_frame_len) |p| p.* = @as(u64, @intCast(frame.frame_len));
+    if (out_mask) |p| @memcpy(p[0..4], frame.mask[0..]);
+    return SA_NETX_OK;
+}
+
+// XOR-unmask payload bytes in place with a 4-byte mask (SIMD-accelerated).
+pub export fn sa_std_ws_unmask(payload_ptr: ?[*]u8, payload_len: u64, mask_ptr: ?[*]const u8) i32 {
+    const pp = payload_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    const mp = mask_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    var mask: [4]u8 = undefined;
+    @memcpy(mask[0..], mp[0..4]);
+    unmaskFrame(pp[0..@as(usize, @intCast(payload_len))], mask);
+    return SA_NETX_OK;
+}
+
+// Build a WebSocket frame into caller storage. When mask_ptr is non-null the
+// payload is masked (client role, per RFC 6455); pass null for server frames.
+// Writes the full frame (header + payload) and reports its length.
+pub export fn sa_std_ws_frame_build(
+    opcode_arg: u32,
+    fin_arg: u32,
+    payload_ptr: ?[*]const u8,
+    payload_len: u64,
+    mask_ptr: ?[*]const u8,
+    out_ptr: ?[*]u8,
+    out_cap: u64,
+    out_len: ?*u64,
+) i32 {
+    const opcode: u8 = @as(u8, @intCast(opcode_arg & 0x0f));
+    const out_len_ptr = out_len orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    out_len_ptr.* = 0;
+    const out_cap_usize = @as(usize, @intCast(out_cap));
+    const plen = @as(usize, @intCast(payload_len));
+    const payload = if (plen == 0) &[_]u8{} else (payload_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT)[0..plen];
+    const out = (out_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT)[0..out_cap_usize];
+
+    var mask_buf: [4]u8 = undefined;
+    const mask_arg: ?*const [4]u8 = if (mask_ptr) |mp| blk: {
+        @memcpy(mask_buf[0..], mp[0..4]);
+        break :blk &mask_buf;
+    } else null;
+    const written = net_primitives.buildWsFrame(opcode, fin_arg != 0, payload, mask_arg, out) catch |err| switch (err) {
+        error.NoSpaceLeft => return SA_NETX_ERR_TRUNCATED,
+        else => return SA_NETX_ERR_INVALID_ARGUMENT,
+    };
+    out_len_ptr.* = @as(u64, @intCast(written));
+    return SA_NETX_OK;
+}
+
+// Convenience wrapper for server frames (no mask, per RFC 6455). Avoids the SA
+// layer having to pass a null pointer for the mask argument.
+pub export fn sa_std_ws_frame_build_unmasked(
+    opcode: u32,
+    fin: u32,
+    payload_ptr: ?[*]const u8,
+    payload_len: u64,
+    out_ptr: ?[*]u8,
+    out_cap: u64,
+    out_len: ?*u64,
+) i32 {
+    return sa_std_ws_frame_build(opcode, fin, payload_ptr, payload_len, null, out_ptr, out_cap, out_len);
+}
+
+const UrlParts = struct {
+    scheme: []const u8,
+    host: []const u8,
+    port: u16,
+    path: []const u8,
+};
+
+// Parse scheme://host[:port][/path]. Defaults: http->80, https->443, ws->80,
+// wss->443. Host excludes brackets for IPv6 literals.
+fn parseUrlParts(url: []const u8) !UrlParts {
+    const parts = try net_primitives.parseUrlParts(url);
+    return .{ .scheme = parts.scheme, .host = parts.host, .port = parts.port, .path = parts.path };
+}
+
+// Parse a URL, writing scheme/host/path into caller buffers and returning the
+// port. out_*_len report the written lengths. Any out buffer may be null to
+// skip that component (still validates + returns port).
+pub export fn sa_std_url_parse(
+    url_ptr: ?[*]const u8,
+    url_len: u64,
+    scheme_out: ?[*]u8,
+    scheme_cap: u64,
+    scheme_len: ?*u64,
+    host_out: ?[*]u8,
+    host_cap: u64,
+    host_len: ?*u64,
+    path_out: ?[*]u8,
+    path_cap: u64,
+    path_len: ?*u64,
+    out_port: ?*u32,
+) i32 {
+    const up = url_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
+    const url = up[0..@as(usize, @intCast(url_len))];
+    const parts = parseUrlParts(url) catch return SA_NETX_ERR_INVALID_ARGUMENT;
+
+    if (copyOut(parts.scheme, scheme_out, scheme_cap, scheme_len) != SA_NETX_OK) return SA_NETX_ERR_TRUNCATED;
+    if (copyOut(parts.host, host_out, host_cap, host_len) != SA_NETX_OK) return SA_NETX_ERR_TRUNCATED;
+    if (copyOut(parts.path, path_out, path_cap, path_len) != SA_NETX_OK) return SA_NETX_ERR_TRUNCATED;
+    if (out_port) |p| p.* = @as(u32, parts.port);
+    return SA_NETX_OK;
+}
+
+fn copyOut(src: []const u8, out: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
+    if (out_len) |p| p.* = 0;
+    if (out) |dst| {
+        if (src.len > @as(usize, @intCast(cap))) return SA_NETX_ERR_TRUNCATED;
+        if (src.len != 0) @memcpy(dst[0..src.len], src);
+    }
+    if (out_len) |p| p.* = @as(u64, @intCast(src.len));
+    return SA_NETX_OK;
 }
 
 fn resumeSlot(receptor: *Reactor, slot: *ConnectionSlot) !void {
@@ -1818,7 +1899,7 @@ fn resumeSlot(receptor: *Reactor, slot: *ConnectionSlot) !void {
     }
 }
 
-pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
+pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
     if (builtin.os.tag != .linux) return SA_NETX_ERR_UNSUPPORTED;
     if (slot_capacity == 0 or reactor_count == 0) return SA_NETX_ERR_INVALID_ARGUMENT;
     if (runtime_state.initialized) return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -1876,7 +1957,7 @@ pub fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
     return SA_NETX_OK;
 }
 
-pub fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     if (!runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
     if (runtime_state.listened) return SA_NETX_ERR_INVALID_ARGUMENT;
     const host = if (host_len == 0) "0.0.0.0" else blk: {
@@ -1923,7 +2004,7 @@ pub fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     return SA_NETX_OK;
 }
 
-pub fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
+pub export fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     const ticket_ptr = out_ticket orelse return SA_NETX_ERR_INVALID_ARGUMENT;
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     reactor.ticket_mutex.lock();
@@ -1946,7 +2027,7 @@ pub fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     return SA_NETX_OK;
 }
 
-pub fn sa_netx_push_outbound(reactor_id: u32, slot_id: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
+pub export fn sa_netx_push_outbound(reactor_id: u32, slot_id: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     const msg = if (len == 0) &[_]u8{} else blk: {
         const ptr = msg_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -1961,7 +2042,7 @@ pub fn sa_netx_push_outbound(reactor_id: u32, slot_id: u32, msg_ptr: ?[*]const u
     });
 }
 
-pub fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
+pub export fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n: u32, msg_ptr: ?[*]const u8, len: u32) i32 {
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     const slots = if (n == 0) &[_]u32{} else blk: {
         const ptr = slot_ids_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -1982,7 +2063,7 @@ pub fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n: u32, m
     });
 }
 
-pub fn sa_netx_close_slot(slot_id: u32) i32 {
+pub export fn sa_netx_close_slot(slot_id: u32) i32 {
     if (!runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
     const pool = runtime_state.slot_pool orelse return SA_NETX_ERR_INVALID_HANDLE;
     const slot = pool.slotFromId(slot_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
@@ -1993,7 +2074,7 @@ pub fn sa_netx_close_slot(slot_id: u32) i32 {
     });
 }
 
-pub fn sa_netx_shutdown() i32 {
+pub export fn sa_netx_shutdown() i32 {
     if (!runtime_state.initialized) return SA_NETX_OK;
     runtime_state.worker_state.mutex.lock();
     runtime_state.worker_state.stop = true;
@@ -2049,6 +2130,19 @@ const TicketCollector = struct {
     result: i32 = SA_NETX_OK,
 };
 
+const TestTimeval = std.posix.timeval;
+const TestTimevalSec = @TypeOf(@as(TestTimeval, .{ .sec = 0, .usec = 0 }).sec);
+const TestTimevalUsec = @TypeOf(@as(TestTimeval, .{ .sec = 0, .usec = 0 }).usec);
+
+fn setLoopbackReadTimeout(stream: net.Stream) void {
+    const timeout_ns: u64 = 2 * std.time.ns_per_s;
+    const tv = TestTimeval{
+        .sec = std.math.cast(TestTimevalSec, timeout_ns / std.time.ns_per_s) orelse 2,
+        .usec = std.math.cast(TestTimevalUsec, (timeout_ns % std.time.ns_per_s) / std.time.ns_per_us) orelse 0,
+    };
+    std.posix.setsockopt(stream.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
+}
+
 fn ticketPayload(ticket: Ticket) []const u8 {
     return @as([*]const u8, @ptrCast(ticket.payload))[0..@as(usize, @intCast(ticket.payload_len))];
 }
@@ -2056,6 +2150,7 @@ fn ticketPayload(ticket: Ticket) []const u8 {
 fn loopbackClientMain(client: *LoopbackClient) void {
     const stream = net.tcpConnectToAddress(client.address) catch return;
     defer stream.close();
+    setLoopbackReadTimeout(stream);
 
     _ = stream.writeAll(client.request) catch return;
 
@@ -2076,6 +2171,7 @@ fn loopbackClientMain(client: *LoopbackClient) void {
 fn wsLoopbackClientMain(client: *WsLoopbackClient) void {
     const stream = net.tcpConnectToAddress(client.address) catch return;
     defer stream.close();
+    setLoopbackReadTimeout(stream);
 
     _ = stream.writeAll(client.request) catch return;
 
@@ -2458,10 +2554,10 @@ test "listen accept recv_ticket and outbound commands work end to end" {
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_close_slot(accept_slots[0]));
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_close_slot(accept_slots[1]));
 
+    _ = sa_netx_shutdown();
     collector_thread.join();
     client1_thread.join();
     client2_thread.join();
-    _ = sa_netx_shutdown();
 
     const client1_received = client1.received[0..client1.received_len];
     const client2_received = client2.received[0..client2.received_len];

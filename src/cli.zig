@@ -10,6 +10,7 @@ const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
+const sab = @import("sab.zig");
 const plugins = @import("plugins.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_audit = @import("pkg/audit.zig");
@@ -19,12 +20,14 @@ const pkg_fetch = @import("pkg/fetch.zig");
 const pkg_mirror = @import("pkg/mirror.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
 const pkg_sum = @import("pkg/sum.zig");
+const pkg_workspace = @import("pkg/workspace.zig");
 const referee_call = @import("referee/call.zig");
 const referee = @import("referee.zig");
 const test_formatter = @import("test_formatter.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
+const common_signature = @import("common/signature.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 
 const DceMode = emit_options.DceMode;
@@ -567,6 +570,7 @@ const CompileOptions = struct {
     allow_read_requested: bool = false,
     allow_write_requested: bool = false,
     allow_run_requested: bool = false,
+    package_name: ?[]const u8 = null,
     project_root: ?[]const u8 = null,
     profile: bool = false,
     mem_report: bool = false,
@@ -574,6 +578,8 @@ const CompileOptions = struct {
     stdin_reader: ?std.io.AnyReader = null,
     stdin_is_tty: ?bool = null,
     diagnostic_writer: ?std.io.AnyWriter = null,
+    sab_selected_test_names: []const []const u8 = &.{},
+    sab_skip_verify: bool = false,
 };
 
 const TestCommandOptions = struct {
@@ -692,6 +698,7 @@ const Command = enum {
     pkg,
     cache,
     build,
+    build_workspace,
     build_exe,
     build_wasm,
     build_obj,
@@ -843,17 +850,25 @@ const ProjectBuildArtifact = struct {
 
 const ProjectContext = struct {
     root_path: []const u8,
-    manifest_path: []const u8,
+    member_root_path: []const u8,
+    workspace_manifest_path: []const u8,
+    member_manifest_path: []const u8,
     manifest: ?manifest.Manifest,
+    workspace_manifest: ?manifest.Manifest,
+    member_manifest: ?manifest.Manifest,
     lock_file: ?manifest.LockFile,
     sum_file: ?manifest.SumFile,
 
     fn deinit(self: *ProjectContext, allocator: std.mem.Allocator) void {
         if (self.manifest) |*m| m.deinit(allocator);
+        if (self.workspace_manifest) |*m| m.deinit(allocator);
+        if (self.member_manifest) |*m| m.deinit(allocator);
         if (self.lock_file) |*lock| lock.deinit(allocator);
         if (self.sum_file) |*sum| sum.deinit(allocator);
         allocator.free(self.root_path);
-        allocator.free(self.manifest_path);
+        allocator.free(self.member_root_path);
+        allocator.free(self.workspace_manifest_path);
+        allocator.free(self.member_manifest_path);
         self.* = undefined;
     }
 };
@@ -923,14 +938,10 @@ fn projectSumPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
     return try pathJoinAlloc(allocator, &.{ root_path, "sa.sum" });
 }
 
-fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
-    const src_path = try pathJoinAlloc(allocator, &.{ root_path, "src", "main.sa" });
-    if (projectPathExists(src_path)) return src_path;
-    allocator.free(src_path);
-    const fallback = try pathJoinAlloc(allocator, &.{ root_path, "main.sa" });
-    if (projectPathExists(fallback)) return fallback;
-    allocator.free(fallback);
-    return error.FileNotFound;
+fn projectSourcePath(allocator: std.mem.Allocator, root_path: []const u8, package_name: ?[]const u8) ![]u8 {
+    var resolved = try pkg_workspace.resolveFromRootPath(allocator, root_path, .{ .request = package_name });
+    defer resolved.deinit(allocator);
+    return try pkg_workspace.selectedSourcePath(allocator, &resolved);
 }
 
 fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Manifest {
@@ -961,33 +972,31 @@ fn readSumFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.SumFil
     return try manifest.parseSum(allocator, bytes);
 }
 
-fn loadProjectContext(allocator: std.mem.Allocator, root_path: []const u8) !ProjectContext {
-    const root_copy = try allocator.dupe(u8, root_path);
-    errdefer allocator.free(root_copy);
-    const manifest_path = try projectManifestPath(allocator, root_copy);
-    errdefer allocator.free(manifest_path);
+fn loadProjectContext(allocator: std.mem.Allocator, root_path: []const u8, package_name: ?[]const u8) !ProjectContext {
+    const resolution = try pkg_workspace.resolveFromRootPath(allocator, root_path, .{ .request = package_name });
 
     var ctx = ProjectContext{
-        .root_path = root_copy,
-        .manifest_path = manifest_path,
-        .manifest = null,
+        .root_path = resolution.workspace_root,
+        .member_root_path = resolution.member_root,
+        .workspace_manifest_path = resolution.workspace_manifest_path,
+        .member_manifest_path = resolution.member_manifest_path,
+        .manifest = resolution.effective_manifest,
+        .workspace_manifest = resolution.workspace_manifest,
+        .member_manifest = resolution.member_manifest,
         .lock_file = null,
         .sum_file = null,
     };
+    errdefer ctx.deinit(allocator);
+    if (resolution.selected_package) |name| allocator.free(name);
+    if (resolution.workspace_rel_member_path) |path| allocator.free(path);
 
-    const manifest_file = readManifestFile(allocator, manifest_path) catch |err| switch (err) {
-        error.FileNotFound => null,
-        else => return err,
-    };
-    ctx.manifest = manifest_file;
-
-    const lock_path = try projectLockPath(allocator, root_copy);
+    const lock_path = try projectLockPath(allocator, ctx.root_path);
     defer allocator.free(lock_path);
     if (try readLockFile(allocator, lock_path)) |lock_file| {
         ctx.lock_file = lock_file;
     }
 
-    const sum_path = try projectSumPath(allocator, root_copy);
+    const sum_path = try projectSumPath(allocator, ctx.root_path);
     defer allocator.free(sum_path);
     if (try readSumFile(allocator, sum_path)) |sum_file| {
         ctx.sum_file = sum_file;
@@ -1103,6 +1112,7 @@ fn computeArtifactHash(source_path: []const u8, source_bytes: []const u8, target
 fn commandName(cmd: Command) []const u8 {
     return switch (cmd) {
         .build => "build",
+        .build_workspace => "build-workspace",
         .run => "run",
         .init => "init",
         .install => "install",
@@ -1156,12 +1166,14 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --jobs auto|N                  Set parallel compile jobs\n");
     try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
+    try writer.writeAll("  --project-root <dir>           Use a specific project root for package resolution and .sa_cache\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --mem-report                   Print compile RSS stage samples; JSON mode includes metrics\n");
     try writer.writeAll("  --offline                      Use local package cache only\n");
     try writer.writeAll("  --ci                           Use CI package preflight behavior\n");
     try writer.writeAll("  --allow-unaudited-risks        Allow high-risk package audit findings\n");
     try writer.writeAll("  --yes, --auto-approve          Approve package review prompts when allowed\n");
+    try writer.writeAll("  -p, --package <name>           Select a workspace member package\n");
     try writer.writeAll("  -P, --permission-set <name>    Select a named permission set\n");
     try writer.writeAll("  --allow-env[=list]             Allow environment access for reviewed packages\n");
     try writer.writeAll("  --allow-net[=list]             Allow network access for reviewed packages\n");
@@ -1188,6 +1200,7 @@ fn printPkgHelp(writer: anytype, args: []const []const u8) !void {
         try writer.writeAll("Options:\n");
         try writer.writeAll("  --offline                      Use local package cache only\n");
         try writer.writeAll("  -g                             Install into the global package cache\n");
+        try writer.writeAll("  -p, --package <name>           Install one workspace member package\n");
         try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
         try writer.writeAll("  -h, --help                     Show this help message\n");
         return;
@@ -1285,6 +1298,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --offline                      Use local package cache only\n");
             try writer.writeAll("  -g                             Install into the global package cache\n");
+            try writer.writeAll("  -p, --package <name>           Install one workspace member package\n");
             try writer.writeAll("  --ref <ref>                    Fetch a specific package ref\n");
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -1293,7 +1307,14 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         .cache => try printCacheHelp(writer, args),
         .build => {
             try writer.writeAll("usage: sa build <file> [options]\n\n");
-            try writer.writeAll("Compile a .sa source file to a native executable.\n\n");
+            try writer.writeAll("Compile a .sa source file or experimental .sab binary to a native executable.\n\n");
+            try writer.writeAll("Options:\n");
+            try writeBuildOptionsHelp(writer, "the executable", false);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_workspace => {
+            try writer.writeAll("usage: sa build-workspace [options]\n\n");
+            try writer.writeAll("Build the selected workspace member from the current workspace root or member directory.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the executable", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1307,14 +1328,14 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .build_obj => {
             try writer.writeAll("usage: sa build-obj <file> [options]\n\n");
-            try writer.writeAll("Build a native object file from a .sa source file.\n\n");
+            try writer.writeAll("Build a native object file from a .sa source file or experimental .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the object file", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_wasm => {
             try writer.writeAll("usage: sa build-wasm <file> [options]\n\n");
-            try writer.writeAll("Build a WebAssembly module from a .sa source file.\n\n");
+            try writer.writeAll("Build a WebAssembly module from a .sa source file or experimental .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
             try writeBuildOptionsHelp(writer, "the wasm module", false);
@@ -1322,7 +1343,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .run => {
             try writer.writeAll("usage: sa run <file> [compile-options] [args...]\n\n");
-            try writer.writeAll("Compile and execute a .sa source file.\n\n");
+            try writer.writeAll("Compile and execute a .sa source file or experimental .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1574,12 +1595,13 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  plugin       <subcommand>      Install and list native SA plugins\n");
     try writer.writeAll("  cache        <subcommand>      Inspect and clean project-local caches\n");
     try writer.writeAll("  install      [identity]        Install project dependencies or one package (compat)\n");
-    try writer.writeAll("  build        <file>            Compile a .sa source to a native executable\n");
-    try writer.writeAll("  run          <file>            Compile and immediately execute a .sa file\n");
+    try writer.writeAll("  build        <file>            Compile a .sa/.sab source to a native executable\n");
+    try writer.writeAll("  build-workspace                Build the selected workspace member executable\n");
+    try writer.writeAll("  run          <file>            Compile and immediately execute a .sa/.sab file\n");
     try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
-    try writer.writeAll("  test         <file>            Run @test blocks in a .sa file\n");
+    try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
     try writer.writeAll("  audit        <file>            Use `sa pkg audit` from the package plugin\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
@@ -1877,7 +1899,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, run, build-exe, build-wasm, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
+            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -2929,7 +2951,7 @@ fn writeSaAgentSkillMarkdown(
     try writer.writeAll("- Run `sa version` to confirm the installed compiler version.\n");
     try writer.writeAll("- Use `sa build <file>` to compile and verify SA source without running it; project build caching is on by default and `--no-incremental` forces a clean rebuild.\n");
     try writer.writeAll("- Use `sa run <file> [args...]` for compile-and-run workflows.\n");
-    try writer.writeAll("- Use `sa build-exe <file> -o <path>`, `sa build-obj <file> -o <path>`, or `sa build-wasm <file> -o <path>` for artifacts.\n");
+    try writer.writeAll("- Use `sa build-workspace -p <package> -o <path>` for workspace-root member builds, or `sa build-exe <file> -o <path>`, `sa build-obj <file> -o <path>`, and `sa build-wasm <file> -o <path>` for direct file artifacts.\n");
     try writer.writeAll("- Use `sa test <file> --list`, `sa test <file> --filter <pattern>`, `sa test <file> --compile-only`, and `sa test <file> --trace-panic` for unit tests.\n");
     try writer.writeAll("- Use `sa explain <code>` and `sa fix --plan <code>` before guessing at diagnostics.\n");
     try writer.writeAll("- Treat the `sa_std Surface` section below as authoritative for currently available macros and extern/export declarations; it is generated by scanning the active std root.\n");
@@ -3695,6 +3717,7 @@ fn compileOptionsHaveAllowList(options: CompileOptions) bool {
 fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
     if (try consumeJobsOption(arg, args, index, options)) return true;
     if (try consumeDceOption(arg, args, index, options)) return true;
+    if (try consumePackageOption(arg, args, index, options)) return true;
     if (consumeProfileOption(arg, options)) return true;
     if (consumeMemReportOption(arg, options)) return true;
     if (try consumePermissionSetOption(arg, args, index, options)) return true;
@@ -3707,6 +3730,18 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
         options.incremental_cache = false;
         return true;
     }
+    if (std.mem.startsWith(u8, arg, "--project-root=")) {
+        options.project_root = arg["--project-root=".len..];
+        if (options.project_root.?.len == 0) return error.InvalidPath;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--project-root")) {
+        if (index.* + 1 >= args.len) return error.InvalidPath;
+        options.project_root = args[index.* + 1];
+        if (options.project_root.?.len == 0) return error.InvalidPath;
+        index.* += 1;
+        return true;
+    }
     if (std.mem.eql(u8, arg, "--ci")) {
         options.ci = true;
         return true;
@@ -3717,6 +3752,27 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--yes") or std.mem.eql(u8, arg, "--auto-approve")) {
         options.auto_approve_requested = true;
+        return true;
+    }
+    return false;
+}
+
+fn consumePackageOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
+    if (std.mem.startsWith(u8, arg, "--package=")) {
+        options.package_name = arg["--package=".len..];
+        if (options.package_name.?.len == 0) return error.UnknownPackage;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--package") or std.mem.eql(u8, arg, "-p")) {
+        if (index.* + 1 >= args.len) return error.UnknownPackage;
+        options.package_name = args[index.* + 1];
+        if (options.package_name.?.len == 0) return error.UnknownPackage;
+        index.* += 1;
+        return true;
+    }
+    if (std.mem.startsWith(u8, arg, "-p=")) {
+        options.package_name = arg["-p=".len..];
+        if (options.package_name.?.len == 0) return error.UnknownPackage;
         return true;
     }
     return false;
@@ -3848,43 +3904,548 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
-var test_source_tree_load_count: usize = 0;
+fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener.FlattenResult {
+    const bytes = try loadSource(allocator, source_path);
+    defer allocator.free(bytes);
+    var module = try sab.decodeModule(allocator, bytes);
+    errdefer module.deinit(allocator);
 
-fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
-    errdefer allocator.free(cwd_abs);
+    var symbols = flattener.SymbolTable.init(allocator);
+    errdefer symbols.deinit();
+    for (module.symbols) |name| _ = try symbols.intern(name);
 
-    const source_dir = std.fs.path.dirname(source_path) orelse ".";
-    var current = try allocator.dupe(u8, source_dir);
-    defer allocator.free(current);
+    if (module.owns_symbol_text) {
+        for (module.symbols) |name| allocator.free(name);
+    }
+    allocator.free(module.symbols);
+    module.symbols = &.{};
+    module.owns_symbol_text = false;
 
-    while (true) {
-        const candidate_dir = if (std.fs.path.isAbsolute(current))
-            try allocator.dupe(u8, current)
-        else
-            try std.fs.path.join(allocator, &.{ cwd_abs, current });
-        defer allocator.free(candidate_dir);
-
-        const manifest_path = try std.fs.path.join(allocator, &.{ candidate_dir, "sa.mod" });
-        defer allocator.free(manifest_path);
-
-        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
-            file.close();
-            allocator.free(cwd_abs);
-            return try std.fs.cwd().realpathAlloc(allocator, candidate_dir);
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => return err,
-        }
-
-        const parent = std.fs.path.dirname(current) orelse break;
-        if (std.mem.eql(u8, parent, current)) break;
-        const next = try allocator.dupe(u8, parent);
-        allocator.free(current);
-        current = next;
+    var test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    errdefer test_sigs.deinit();
+    for (module.function_sigs) |fsig| {
+        if (fsig.kind == .test_func) try test_sigs.append(fsig);
     }
 
-    return cwd_abs;
+    const loc_table = try allocator.alloc(?common_upstream.UpstreamLoc, module.instructions.len);
+    @memset(loc_table, null);
+
+    const result = flattener.FlattenResult{
+        .instructions = module.instructions,
+        .const_decls = module.const_decls,
+        .function_sigs = module.function_sigs,
+        .test_sigs = try test_sigs.toOwnedSlice(),
+        .cached_macro_defs = &.{},
+        .def_dict = flattener.DefDict.init(allocator),
+        .symbols = symbols,
+        .loc_table = loc_table,
+        .layout_versions = &.{},
+        .package_identities = std.StringHashMap(void).init(allocator),
+        .owned_text = module.owned_text,
+        .trap = null,
+    };
+    module.instructions = &.{};
+    module.const_decls = &.{};
+    module.function_sigs = &.{};
+    module.owned_text = &.{};
+    return result;
+}
+
+fn collectSabTestListFast(allocator: std.mem.Allocator, source_path: []const u8) !test_meta.TestList {
+    const bytes = try loadSource(allocator, source_path);
+    defer allocator.free(bytes);
+
+    const function_sigs = try sab.decodeTestFunctionSigsOnly(allocator, bytes);
+    defer {
+        for (function_sigs) |*function_sig| function_sig.deinit(allocator);
+        allocator.free(function_sigs);
+    }
+
+    return try test_meta.collect(allocator, function_sigs);
+}
+
+fn hasExplicitTestSelection(selection: test_meta.TestSelection) bool {
+    return selection.include_filters.len != 0 or
+        selection.skip_filters.len != 0 or
+        selection.exact or
+        selection.ignored != .normal;
+}
+
+fn selectedTestNamesFromList(allocator: std.mem.Allocator, test_list: test_meta.TestList, selection: test_meta.TestSelection) ![]const []const u8 {
+    if (!hasExplicitTestSelection(selection)) return &.{};
+    const selected_count = selection.countSelected(test_list.tests);
+    if (selected_count == 0) return &.{};
+
+    const selected_names = try allocator.alloc([]const u8, selected_count);
+    errdefer allocator.free(selected_names);
+    var selected_index: usize = 0;
+    for (test_list.tests) |test_case| {
+        if (!selection.shouldRun(test_case)) continue;
+        selected_names[selected_index] = test_case.selectorName();
+        selected_index += 1;
+    }
+    return selected_names;
+}
+
+fn sabPruneDebugEnabled(allocator: std.mem.Allocator) bool {
+    const value = std.process.getEnvVarOwned(allocator, "SA_DEBUG_SAB_PRUNE") catch return false;
+    defer allocator.free(value);
+    return value.len != 0 and !std.mem.eql(u8, value, "0");
+}
+
+const SabFunctionRange = struct {
+    sig_index: usize,
+    start: usize,
+    end: usize,
+};
+
+fn isSabFunctionDecl(kind: flattener.InstKind) bool {
+    return switch (kind) {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        else => false,
+    };
+}
+
+fn buildSabFunctionRanges(allocator: std.mem.Allocator, instructions: []const flattener.Instruction) ![]SabFunctionRange {
+    var ranges = std.ArrayList(SabFunctionRange).init(allocator);
+    errdefer ranges.deinit();
+
+    var current_start: ?usize = null;
+    var current_sig_index: usize = 0;
+    var next_sig_index: usize = 0;
+    for (instructions, 0..) |item, idx| {
+        if (!isSabFunctionDecl(item.kind)) continue;
+        if (current_start) |start| {
+            try ranges.append(.{
+                .sig_index = current_sig_index,
+                .start = start,
+                .end = idx,
+            });
+        }
+        current_start = idx;
+        current_sig_index = next_sig_index;
+        next_sig_index += 1;
+    }
+    if (current_start) |start| {
+        try ranges.append(.{
+            .sig_index = current_sig_index,
+            .start = start,
+            .end = instructions.len,
+        });
+    }
+    return try ranges.toOwnedSlice();
+}
+
+fn putSabFunctionAlias(index: *std.StringHashMap(usize), name: []const u8, sig_index: usize) !void {
+    if (name.len == 0 or index.contains(name)) return;
+    try index.put(name, sig_index);
+}
+
+fn buildSabFunctionSigIndex(allocator: std.mem.Allocator, function_sigs: []const flattener.FunctionSig) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    const max_aliases = std.math.mul(usize, function_sigs.len, 2) catch function_sigs.len;
+    try index.ensureTotalCapacity(@intCast(max_aliases));
+    for (function_sigs, 0..) |function_sig, sig_index| {
+        try putSabFunctionAlias(&index, function_sig.name, sig_index);
+        if (function_sig.llvm_name) |llvm_name| try putSabFunctionAlias(&index, llvm_name, sig_index);
+    }
+    return index;
+}
+
+fn buildSabConstIndex(allocator: std.mem.Allocator, const_decls: []const flattener.ConstDecl) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    try index.ensureTotalCapacity(@intCast(const_decls.len));
+    for (const_decls, 0..) |decl, const_index| {
+        if (!index.contains(decl.name)) try index.put(decl.name, const_index);
+    }
+    return index;
+}
+
+fn markSabReachableByName(
+    reachable: *std.AutoHashMap(usize, void),
+    sig_index_by_name: *const std.StringHashMap(usize),
+    name: []const u8,
+) !bool {
+    const sig_index = sig_index_by_name.get(name) orelse return false;
+    if (reachable.contains(sig_index)) return false;
+    try reachable.put(sig_index, {});
+    return true;
+}
+
+fn sabReferenceName(text: []const u8) []const u8 {
+    var trimmed = std.mem.trim(u8, text, " \t\r");
+    while (trimmed.len != 0 and (trimmed[0] == '&' or trimmed[0] == '^' or trimmed[0] == '*')) {
+        trimmed = std.mem.trim(u8, trimmed[1..], " \t\r");
+    }
+    return trimmed;
+}
+
+fn markSabReachableVtableConstByName(
+    reachable_functions: *std.AutoHashMap(usize, void),
+    reachable_vtable_consts: *std.AutoHashMap(usize, void),
+    sig_index_by_name: *const std.StringHashMap(usize),
+    const_index_by_name: *const std.StringHashMap(usize),
+    const_decls: []const flattener.ConstDecl,
+    name: []const u8,
+) !bool {
+    const normalized = sabReferenceName(name);
+    if (normalized.len == 0) return false;
+    const const_index = const_index_by_name.get(normalized) orelse return false;
+    switch (const_decls[const_index].value) {
+        .vtable => |literal| {
+            var changed = false;
+            if (!reachable_vtable_consts.contains(const_index)) {
+                try reachable_vtable_consts.put(const_index, {});
+                changed = true;
+            }
+            for (literal.slots) |slot| {
+                changed = (try markSabReachableByName(reachable_functions, sig_index_by_name, slot.func_name)) or changed;
+            }
+            return changed;
+        },
+        else => return false,
+    }
+}
+
+fn markSabReachableVtableConstFromOperand(
+    reachable_functions: *std.AutoHashMap(usize, void),
+    reachable_vtable_consts: *std.AutoHashMap(usize, void),
+    sig_index_by_name: *const std.StringHashMap(usize),
+    const_index_by_name: *const std.StringHashMap(usize),
+    flat: *const flattener.FlattenResult,
+    operand: anytype,
+) !bool {
+    const text = switch (operand) {
+        .reg => |id| flat.symbols.lookupName(id),
+        .symbol => |id| flat.symbols.lookupName(id),
+        .label => |id| flat.symbols.lookupName(id),
+        .func => |id| flat.symbols.lookupName(id),
+        .text => |value| value,
+        .native_text => |value| value,
+        else => null,
+    } orelse return false;
+    return try markSabReachableVtableConstByName(reachable_functions, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat.const_decls, text);
+}
+
+fn freeFlatInstructionMetadata(allocator: std.mem.Allocator, item: flattener.Instruction) void {
+    if (item.package_identity) |identity| allocator.free(identity);
+    if (item.upstream_loc) |loc| allocator.free(loc.file);
+    if (item.native_reg_names.len != 0) allocator.free(item.native_reg_names);
+}
+
+fn freeFlatLocEntry(allocator: std.mem.Allocator, entry: ?common_upstream.UpstreamLoc) void {
+    if (entry) |loc| allocator.free(loc.file);
+}
+
+fn pruneSabVtableConsts(
+    allocator: std.mem.Allocator,
+    flat: *flattener.FlattenResult,
+    reachable_vtable_consts: *const std.AutoHashMap(usize, void),
+) !void {
+    if (flat.const_decls.len == 0) return;
+
+    var keep = try allocator.alloc(bool, flat.const_decls.len);
+    defer allocator.free(keep);
+    var pruned_any = false;
+    var kept_count: usize = 0;
+    for (flat.const_decls, 0..) |decl, const_index| {
+        keep[const_index] = switch (decl.value) {
+            .vtable => reachable_vtable_consts.contains(const_index),
+            else => true,
+        };
+        if (keep[const_index]) {
+            kept_count += 1;
+        } else {
+            pruned_any = true;
+        }
+    }
+    if (!pruned_any) return;
+
+    const new_const_decls = try allocator.alloc(flattener.ConstDecl, kept_count);
+    var kept_index: usize = 0;
+    for (flat.const_decls, 0..) |decl, const_index| {
+        if (keep[const_index]) {
+            new_const_decls[kept_index] = decl;
+            kept_index += 1;
+        } else {
+            var dropped = decl;
+            dropped.deinit(allocator);
+        }
+    }
+    allocator.free(flat.const_decls);
+    flat.const_decls = new_const_decls;
+}
+
+fn collectSabSelectedReachability(
+    allocator: std.mem.Allocator,
+    flat: *const flattener.FlattenResult,
+    ranges: []const SabFunctionRange,
+    sig_index_by_name: *const std.StringHashMap(usize),
+    const_index_by_name: *const std.StringHashMap(usize),
+    selected_test_names: []const []const u8,
+    reachable_vtable_consts: *std.AutoHashMap(usize, void),
+) !std.AutoHashMap(usize, void) {
+    var reachable = std.AutoHashMap(usize, void).init(allocator);
+    errdefer reachable.deinit();
+
+    for (selected_test_names) |name| {
+        _ = try markSabReachableByName(&reachable, sig_index_by_name, name);
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (ranges) |range| {
+            if (!reachable.contains(range.sig_index)) continue;
+            for (flat.instructions[range.start..range.end]) |item| {
+                if (item.kind != .call and item.kind != .call_indirect) continue;
+                var parsed = referee_call.parseInstructionCall(allocator, item, &flat.symbols) catch |err| switch (err) {
+                    error.InvalidCallSyntax => continue,
+                    else => return err,
+                };
+                defer parsed.deinit(allocator);
+                if (parsed.is_indirect) continue;
+                changed = (try markSabReachableByName(&reachable, sig_index_by_name, parsed.callee)) or changed;
+            }
+            for (flat.instructions[range.start..range.end]) |item| {
+                inline for (0..4) |operand_index| {
+                    changed = (try markSabReachableVtableConstFromOperand(&reachable, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat, item.operands[operand_index])) or changed;
+                }
+            }
+        }
+    }
+
+    return reachable;
+}
+
+fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.FlattenResult, selected_test_names: []const []const u8) !void {
+    if (selected_test_names.len == 0 or flat.function_sigs.len == 0 or flat.instructions.len == 0) return;
+    const original_function_count = flat.function_sigs.len;
+    const original_test_count = flat.test_sigs.len;
+    const original_instruction_count = flat.instructions.len;
+    const original_const_count = flat.const_decls.len;
+
+    const ranges = try buildSabFunctionRanges(allocator, flat.instructions);
+    defer allocator.free(ranges);
+    if (ranges.len == 0) return;
+
+    var sig_index_by_name = try buildSabFunctionSigIndex(allocator, flat.function_sigs);
+    defer sig_index_by_name.deinit();
+
+    var const_index_by_name = try buildSabConstIndex(allocator, flat.const_decls);
+    defer const_index_by_name.deinit();
+
+    var reachable_vtable_consts = std.AutoHashMap(usize, void).init(allocator);
+    defer reachable_vtable_consts.deinit();
+
+    var reachable = try collectSabSelectedReachability(allocator, flat, ranges, &sig_index_by_name, &const_index_by_name, selected_test_names, &reachable_vtable_consts);
+    defer reachable.deinit();
+    if (reachable.count() == 0) return;
+
+    var kept_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    errdefer kept_sigs.deinit();
+    var kept_test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    errdefer kept_test_sigs.deinit();
+    var kept_instructions = std.ArrayList(flattener.Instruction).init(allocator);
+    errdefer kept_instructions.deinit();
+    var kept_loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    errdefer kept_loc_table.deinit();
+
+    var keep_ranges = try allocator.alloc(bool, ranges.len);
+    defer allocator.free(keep_ranges);
+    @memset(keep_ranges, false);
+    for (ranges, 0..) |range, range_idx| {
+        if (range.sig_index >= flat.function_sigs.len) continue;
+        if (!reachable.contains(range.sig_index)) continue;
+        keep_ranges[range_idx] = true;
+
+        const function_sig = flat.function_sigs[range.sig_index];
+        try kept_sigs.append(function_sig);
+        if (function_sig.kind == .test_func) try kept_test_sigs.append(function_sig);
+        try kept_instructions.appendSlice(flat.instructions[range.start..range.end]);
+        try kept_loc_table.appendSlice(flat.loc_table[range.start..range.end]);
+    }
+    if (kept_sigs.items.len == 0) return;
+
+    const new_function_sigs = try kept_sigs.toOwnedSlice();
+    errdefer allocator.free(new_function_sigs);
+    const new_test_sigs = try kept_test_sigs.toOwnedSlice();
+    errdefer allocator.free(new_test_sigs);
+    const new_instructions = try kept_instructions.toOwnedSlice();
+    errdefer allocator.free(new_instructions);
+    const new_loc_table = try kept_loc_table.toOwnedSlice();
+    errdefer allocator.free(new_loc_table);
+
+    try pruneSabVtableConsts(allocator, flat, &reachable_vtable_consts);
+
+    var range_index: usize = 0;
+    var instruction_index: usize = 0;
+    while (instruction_index < flat.instructions.len) {
+        if (range_index < ranges.len and instruction_index == ranges[range_index].start) {
+            const range = ranges[range_index];
+            if (!keep_ranges[range_index]) {
+                for (flat.instructions[range.start..range.end]) |item| freeFlatInstructionMetadata(allocator, item);
+                for (flat.loc_table[range.start..range.end]) |entry| freeFlatLocEntry(allocator, entry);
+            }
+            instruction_index = range.end;
+            range_index += 1;
+            continue;
+        }
+        freeFlatInstructionMetadata(allocator, flat.instructions[instruction_index]);
+        freeFlatLocEntry(allocator, flat.loc_table[instruction_index]);
+        instruction_index += 1;
+    }
+
+    var sig_keep = try allocator.alloc(bool, flat.function_sigs.len);
+    defer allocator.free(sig_keep);
+    @memset(sig_keep, false);
+    for (ranges, 0..) |range, range_idx| {
+        if (range.sig_index < sig_keep.len and keep_ranges[range_idx]) sig_keep[range.sig_index] = true;
+    }
+    for (flat.function_sigs, 0..) |*function_sig, sig_index| {
+        if (!sig_keep[sig_index]) function_sig.deinit(allocator);
+    }
+
+    allocator.free(flat.function_sigs);
+    allocator.free(flat.test_sigs);
+    allocator.free(flat.instructions);
+    allocator.free(flat.loc_table);
+
+    flat.function_sigs = new_function_sigs;
+    flat.test_sigs = new_test_sigs;
+    flat.instructions = new_instructions;
+    flat.loc_table = new_loc_table;
+
+    if (sabPruneDebugEnabled(allocator)) {
+        std.debug.print(
+            "sab prune: funcs {d}->{d}, tests {d}->{d}, inst {d}->{d}, consts {d}->{d}, vtables_kept {d}\n",
+            .{
+                original_function_count,
+                flat.function_sigs.len,
+                original_test_count,
+                flat.test_sigs.len,
+                original_instruction_count,
+                flat.instructions.len,
+                original_const_count,
+                flat.const_decls.len,
+                reachable_vtable_consts.count(),
+            },
+        );
+    }
+}
+
+fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionSig) !flattener.FunctionSig {
+    const name = try allocator.dupe(u8, source.name);
+    errdefer allocator.free(name);
+
+    const params = try allocator.alloc(common_signature.ParamSpec, source.params.len);
+    errdefer allocator.free(params);
+    var param_initialized: usize = 0;
+    errdefer for (params[0..param_initialized]) |param| allocator.free(param.name);
+    for (source.params, 0..) |param, idx| {
+        params[idx] = .{
+            .name = try allocator.dupe(u8, param.name),
+            .ty = param.ty,
+            .cap = param.cap,
+        };
+        param_initialized += 1;
+    }
+
+    const param_ids = try allocator.dupe(u32, source.param_ids);
+    errdefer allocator.free(param_ids);
+    const reg_ids = try allocator.dupe(u32, source.reg_ids);
+    errdefer allocator.free(reg_ids);
+
+    var upstream_file: ?[]u8 = null;
+    errdefer if (upstream_file) |file| allocator.free(file);
+    if (source.upstream_file) |file| upstream_file = try allocator.dupe(u8, file);
+
+    var upstream_loc: ?common_upstream.UpstreamLoc = null;
+    errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+    if (source.upstream_loc) |loc| {
+        upstream_loc = .{
+            .file = try allocator.dupe(u8, loc.file),
+            .line = loc.line,
+            .col = loc.col,
+        };
+    }
+
+    var llvm_name: ?[]u8 = null;
+    errdefer if (llvm_name) |value| allocator.free(value);
+    if (source.llvm_name) |value| llvm_name = try allocator.dupe(u8, value);
+
+    return .{
+        .id = source.id,
+        .name = name,
+        .params = params,
+        .kind = source.kind,
+        .return_cap = source.return_cap,
+        .return_ty = source.return_ty,
+        .return_fallible = source.return_fallible,
+        .entry_inst_idx = source.entry_inst_idx,
+        .is_ffi_wrapper = source.is_ffi_wrapper,
+        .upstream_file = upstream_file,
+        .upstream_loc = upstream_loc,
+        .param_ids = param_ids,
+        .reg_ids = reg_ids,
+        .llvm_name = llvm_name,
+        .ignored = source.ignored,
+        .should_panic = source.should_panic,
+    };
+}
+
+fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
+    var annotated = std.ArrayList(referee.AnnotatedInstruction).init(allocator);
+    errdefer annotated.deinit();
+    var fatal_terminated = false;
+    for (flat.instructions) |item| {
+        if (fatal_terminated and item.kind != .label and !isSabFunctionDecl(item.kind)) continue;
+        if (item.kind == .label or isSabFunctionDecl(item.kind)) fatal_terminated = false;
+        try annotated.append(.{
+            .base = item,
+            .delta = .{ .changes = &.{} },
+            .gas_step_cost = 0,
+        });
+        if (item.kind == .panic or item.kind == .panic_msg) fatal_terminated = true;
+    }
+    const annotated_slice = try annotated.toOwnedSlice();
+    errdefer allocator.free(annotated_slice);
+
+    const function_sigs = flat.function_sigs;
+    flat.function_sigs = &.{};
+
+    const symbols = flat.symbols;
+    flat.symbols = flattener.SymbolTable.init(allocator);
+
+    return .{
+        .annotated = annotated_slice,
+        .function_sigs = function_sigs,
+        .symbols = symbols,
+        .const_decls = flat.const_decls,
+        .gas = .{
+            .max_alloc_bytes = 0,
+            .max_instruction_steps = .{ .bounded = 0 },
+            .call_depth = 0,
+            .has_unbounded_loop = false,
+        },
+    };
+}
+
+var test_source_tree_load_count: usize = 0;
+
+fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
+    const real_source = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    defer allocator.free(real_source);
+    const source_dir = std.fs.path.dirname(real_source) orelse ".";
+    return try pkg_workspace.resolveFromRootPath(allocator, source_dir, .{ .request = package_name });
+}
+
+fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    var resolved = try resolveProjectFromSourcePath(allocator, source_path, null);
+    defer resolved.deinit(allocator);
+    return try allocator.dupe(u8, resolved.workspace_root);
 }
 
 fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
@@ -3956,32 +4517,9 @@ fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !
 }
 
 fn projectRootFromCurrentDir(allocator: std.mem.Allocator) ![]u8 {
-    const cwd_abs = try std.fs.cwd().realpathAlloc(allocator, ".");
-    errdefer allocator.free(cwd_abs);
-
-    var current = try allocator.dupe(u8, cwd_abs);
-    defer allocator.free(current);
-    while (true) {
-        const manifest_path = try std.fs.path.join(allocator, &.{ current, "sa.mod" });
-        defer allocator.free(manifest_path);
-
-        if (std.fs.cwd().openFile(manifest_path, .{})) |file| {
-            file.close();
-            allocator.free(cwd_abs);
-            return try allocator.dupe(u8, current);
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => return err,
-        }
-
-        const parent = std.fs.path.dirname(current) orelse break;
-        if (std.mem.eql(u8, parent, current)) break;
-        const next = try allocator.dupe(u8, parent);
-        allocator.free(current);
-        current = next;
-    }
-
-    return cwd_abs;
+    var resolved = try pkg_workspace.resolveFromCurrentDir(allocator, .{});
+    defer resolved.deinit(allocator);
+    return try allocator.dupe(u8, resolved.workspace_root);
 }
 
 fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), value_text: []const u8) !void {
@@ -4196,6 +4734,62 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     }
 
     const total_start = if (options.profile) std.time.Instant.now() catch null else null;
+    if (std.mem.endsWith(u8, source_path, ".sab")) {
+        const load_flat_start = if (options.profile) std.time.Instant.now() catch null else null;
+        var flat = try loadSabFlat(allocator, source_path);
+        errdefer flat.deinit(allocator);
+        const load_flat_ns = if (load_flat_start) |start| elapsedNs(start) else null;
+        const prune_start = if (options.profile) std.time.Instant.now() catch null else null;
+        try pruneSabFlatToSelectedTests(allocator, &flat, options.sab_selected_test_names);
+        const prune_ns = if (prune_start) |start| elapsedNs(start) else null;
+        const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+        if (options.sab_skip_verify and options.sab_selected_test_names.len != 0) {
+            const trusted = try trustedSabVerifyOk(allocator, &flat);
+            const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
+            if (options.profile) {
+                var null_writer = std.io.null_writer;
+                const writer = options.diagnostic_writer orelse null_writer.any();
+                try writer.print(
+                    "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms trusted=1\n",
+                    .{
+                        @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
+                    },
+                );
+            }
+            return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_flat_ns orelse 0, .setup_ns = 0, .flatten_ns = prune_ns orelse 0, .verify_ns = verify_ns orelse 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
+        }
+        const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
+            .jobs = options.jobs,
+            .stage_reporter = null,
+            .predecoded_symbol_names = flat.symbols.names.items,
+            .predecoded_function_sigs = flat.function_sigs,
+            .check_exit_leaks = options.sab_selected_test_names.len == 0,
+        });
+        const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
+        if (options.profile) {
+            var null_writer = std.io.null_writer;
+            const writer = options.diagnostic_writer orelse null_writer.any();
+            try writer.print(
+                "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms\n",
+                .{
+                    @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
+                    @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
+                    @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
+                },
+            );
+        }
+        return switch (verified) {
+            .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
+            .trap => |report| {
+                var r = report;
+                if (r.file == null) setFile(&r, source_path);
+                flat.deinit(allocator);
+                return .{ .trap = r };
+            },
+        };
+    }
     const load_start = if (options.profile) std.time.Instant.now() catch null else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
@@ -4206,21 +4800,25 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     }
 
     const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
-    const project_root_owned = options.project_root == null;
-    const project_root = options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer if (project_root_owned) allocator.free(project_root);
+    var resolution = if (options.project_root) |project_root|
+        try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = options.package_name })
+    else
+        try resolveProjectFromSourcePath(allocator, source_path, options.package_name);
+    defer resolution.deinit(allocator);
+
+    const project_root = resolution.workspace_root;
+    const member_root = resolution.member_root;
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
 
-    var project_manifest = try readProjectManifest(allocator, project_root);
-    defer if (project_manifest) |*m| m.deinit(allocator);
+    const project_manifest = resolution.effective_manifest;
 
     var dependency_slice: []pkg_resolver.Dependency = &.{};
     defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
 
     var plugin_import_roots: []const []const u8 = &.{};
     defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
-    const stable_import_roots = try defaultStableImportRoots(allocator, project_root);
+    const stable_import_roots = try defaultStableImportRoots(allocator, member_root);
     defer freeOwnedStringSlice(allocator, stable_import_roots);
 
     if (project_manifest) |*m| {
@@ -4624,7 +5222,8 @@ fn hashResolvedSourceTreeUncached(
     resolved_source: ?[]const u8,
 ) !void {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
-    errdefer allocator.free(real_source_path);
+    var owned_by_files = false;
+    errdefer if (!owned_by_files) allocator.free(real_source_path);
     if (visited.contains(real_source_path)) {
         allocator.free(real_source_path);
         return;
@@ -4637,6 +5236,7 @@ fn hashResolvedSourceTreeUncached(
 
     const stat = try std.fs.cwd().statFile(real_source_path);
     try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
+    owned_by_files = true;
 
     cacheBytes(hasher, real_source_path);
     const owned_source = if (resolved_source == null) try loadSource(allocator, source_path) else null;
@@ -4738,11 +5338,19 @@ fn computeProjectBuildKey(
 
     const project_manifest = project_context.manifest;
     if (project_manifest) |*m| {
-        cacheBytes(&hasher, project_context.manifest_path);
-        if (projectPathExists(project_context.manifest_path)) {
-            const manifest_bytes = try readTextFileAlloc(allocator, project_context.manifest_path);
-            defer allocator.free(manifest_bytes);
-            cacheBytes(&hasher, manifest_bytes);
+        cacheBytes(&hasher, project_context.workspace_manifest_path);
+        if (projectPathExists(project_context.workspace_manifest_path)) {
+            const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
+            defer allocator.free(workspace_manifest_bytes);
+            cacheBytes(&hasher, workspace_manifest_bytes);
+        }
+        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
+            cacheBytes(&hasher, project_context.member_manifest_path);
+            if (projectPathExists(project_context.member_manifest_path)) {
+                const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
+                defer allocator.free(member_manifest_bytes);
+                cacheBytes(&hasher, member_manifest_bytes);
+            }
         }
         if (project_context.lock_file != null) {
             const lock_path = try projectLockPath(allocator, project_context.root_path);
@@ -4769,7 +5377,10 @@ fn computeProjectBuildKey(
             try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
         }
     } else {
-        try projectFileMaybeHash(&hasher, allocator, project_context.manifest_path);
+        try projectFileMaybeHash(&hasher, allocator, project_context.workspace_manifest_path);
+        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
+            try projectFileMaybeHash(&hasher, allocator, project_context.member_manifest_path);
+        }
         if (hash_source_tree) {
             try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
         }
@@ -5489,7 +6100,29 @@ const InstallArgs = struct {
     options: pkg_fetch.FetchOptions = .{},
     identity: ?[]const u8 = null,
     ref: []const u8 = "HEAD",
+    package_name: ?[]const u8 = null,
 };
+
+fn fetchManifestRequires(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest, fetch_options: pkg_fetch.FetchOptions, stdout: anytype) !void {
+    for (manifest_file.requires) |entry| {
+        var entry_fetch_options = fetch_options;
+        entry_fetch_options.expected_source_sha256 = entry.source_sha256;
+        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, entry_fetch_options);
+        defer result.deinit(allocator);
+        if (!hashesEqual(result.source_sha256, entry.source_sha256)) return error.UpstreamShaMismatch;
+        try stdout.print("{s}\n", .{result.root});
+    }
+}
+
+fn installManifestPlugins(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest, stdout: anytype) !u8 {
+    for (manifest_file.plugin_requires) |entry| {
+        _ = entry.abi;
+        _ = entry.ref;
+        const code = try plugins.installFromPath(allocator, entry.identity, stdout, .{});
+        if (code != 0) return code;
+    }
+    return 0;
+}
 
 fn parseInstallArgs(args: []const []const u8) !InstallArgs {
     var parsed = InstallArgs{};
@@ -5502,6 +6135,20 @@ fn parseInstallArgs(args: []const []const u8) !InstallArgs {
         }
         if (std.mem.eql(u8, arg, "--offline")) {
             parsed.options.offline = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--package") or std.mem.eql(u8, arg, "-p")) {
+            if (i + 1 >= args.len) return error.UnknownPackage;
+            parsed.package_name = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--package=")) {
+            parsed.package_name = arg["--package=".len..];
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-p=")) {
+            parsed.package_name = arg["-p=".len..];
             continue;
         }
         if (std.mem.eql(u8, arg, "--ref")) {
@@ -5519,15 +6166,65 @@ fn parseInstallArgs(args: []const []const u8) !InstallArgs {
     return parsed;
 }
 
-fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, stdout: anytype) !u8 {
-    const source = try readManifestTextFileAlloc(allocator, "sa.mod");
-    defer allocator.free(source);
+fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, package_name: ?[]const u8, stdout: anytype) !u8 {
+    var resolution = try pkg_workspace.resolveFromCurrentDir(allocator, .{ .request = package_name });
+    defer resolution.deinit(allocator);
 
-    var project_manifest = try manifest.parseManifestWithFile(allocator, source, "sa.mod");
-    defer project_manifest.deinit(allocator);
+    const project_root = resolution.workspace_root;
+    const project_manifest = resolution.effective_manifest orelse return 0;
 
-    const project_root = try std.fs.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(project_root);
+    const current_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(current_dir);
+
+    if (package_name == null and
+        resolution.workspace_manifest != null and
+        resolution.workspace_manifest.?.workspace != null and
+        std.mem.eql(u8, current_dir, resolution.workspace_root))
+    {
+        const members = try pkg_workspace.listWorkspaceMembers(allocator, resolution.workspace_root, &resolution.workspace_manifest.?);
+        defer pkg_workspace.freeWorkspaceMembers(allocator, members);
+
+        var member_manifests = std.ArrayList(manifest.Manifest).init(allocator);
+        defer {
+            for (member_manifests.items) |*member_manifest| member_manifest.deinit(allocator);
+            member_manifests.deinit();
+        }
+
+        var member_manifest_ptrs = std.ArrayList(*const manifest.Manifest).init(allocator);
+        defer member_manifest_ptrs.deinit();
+
+        for (members) |member| {
+            const member_manifest_path = try projectManifestPath(allocator, member.member_root);
+            defer allocator.free(member_manifest_path);
+            const member_manifest = try readManifestFile(allocator, member_manifest_path);
+            try member_manifests.append(member_manifest);
+        }
+
+        for (member_manifests.items) |*member_manifest| {
+            try member_manifest_ptrs.append(member_manifest);
+        }
+
+        var aggregate_manifest = try manifest.mergeWorkspaceMemberSet(
+            allocator,
+            &resolution.workspace_manifest.?,
+            member_manifest_ptrs.items,
+        );
+        defer aggregate_manifest.deinit(allocator);
+
+        var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, aggregate_manifest.mirrors);
+        defer mirror_rules.deinit(allocator);
+
+        var fetch_options = options;
+        fetch_options.mirror_rules = mirror_rules.rules;
+
+        try fetchManifestRequires(allocator, &aggregate_manifest, fetch_options, stdout);
+        const plugin_code = try installManifestPlugins(allocator, &aggregate_manifest, stdout);
+        if (plugin_code != 0) return plugin_code;
+
+        var update = try pkg_sum.updateProjectSum(allocator, project_root, aggregate_manifest);
+        defer update.deinit(allocator);
+        return 0;
+    }
 
     var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, project_manifest.mirrors);
     defer mirror_rules.deinit(allocator);
@@ -5535,21 +6232,9 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
     var fetch_options = options;
     fetch_options.mirror_rules = mirror_rules.rules;
 
-    for (project_manifest.requires) |entry| {
-        var entry_fetch_options = fetch_options;
-        entry_fetch_options.expected_source_sha256 = entry.source_sha256;
-        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, entry_fetch_options);
-        defer result.deinit(allocator);
-        if (!hashesEqual(result.source_sha256, entry.source_sha256)) return error.UpstreamShaMismatch;
-        try stdout.print("{s}\n", .{result.root});
-    }
-
-    for (project_manifest.plugin_requires) |entry| {
-        _ = entry.abi;
-        _ = entry.ref;
-        const code = try plugins.installFromPath(allocator, entry.identity, stdout, .{});
-        if (code != 0) return code;
-    }
+    try fetchManifestRequires(allocator, &project_manifest, fetch_options, stdout);
+    const plugin_code = try installManifestPlugins(allocator, &project_manifest, stdout);
+    if (plugin_code != 0) return plugin_code;
 
     var update = try pkg_sum.updateProjectSum(allocator, project_root, project_manifest);
     defer update.deinit(allocator);
@@ -5565,7 +6250,17 @@ fn executeInstall(allocator: std.mem.Allocator, args: []const []const u8, stdout
         try stdout.print("{s}\n", .{result.root});
         return 0;
     }
-    return try installManifestDependencies(allocator, parsed.options, stdout);
+    return try installManifestDependencies(allocator, parsed.options, parsed.package_name, stdout);
+}
+
+fn executePkgCommandFallback(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !?u8 {
+    if (args.len < 3) return null;
+    const sub = args[2];
+    if (std.mem.eql(u8, sub, "install")) {
+        return try executeInstall(allocator, args[3..], stdout);
+    }
+    _ = stderr;
+    return null;
 }
 
 fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
@@ -5670,7 +6365,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
@@ -5893,7 +6588,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
@@ -5952,7 +6647,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce)
@@ -6102,7 +6797,7 @@ fn executeGraph(
 
     const project_root = try projectRootDir(allocator);
     defer allocator.free(project_root);
-    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
+    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root, compile_options.package_name);
     defer if (source_arg == null) allocator.free(source_path);
     configureCompileDiagnostics(&compile_options, json_mode);
 
@@ -6116,11 +6811,14 @@ fn executeGraph(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            const resolved_project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-            defer allocator.free(resolved_project_root);
+            var resolution = if (compile_options.project_root) |root|
+                try pkg_workspace.resolveFromRootPath(allocator, root, .{ .request = compile_options.package_name })
+            else
+                try resolveProjectFromSourcePath(allocator, source_path, compile_options.package_name);
+            defer resolution.deinit(allocator);
 
-            var project_manifest = try readProjectManifest(allocator, resolved_project_root);
-            defer if (project_manifest) |*m| m.deinit(allocator);
+            const resolved_project_root = resolution.workspace_root;
+            const project_manifest = resolution.effective_manifest;
 
             var dependencies: []pkg_resolver.Dependency = &.{};
             defer if (dependencies.len != 0) allocator.free(dependencies);
@@ -6197,7 +6895,7 @@ fn executeSize(
 
     const project_root = try projectRootDir(allocator);
     defer allocator.free(project_root);
-    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root);
+    const source_path = if (source_arg) |path| path else try projectSourcePath(allocator, project_root, compile_options.package_name);
     defer if (source_arg == null) allocator.free(source_path);
     configureCompileDiagnostics(&compile_options, json_mode);
 
@@ -6252,6 +6950,13 @@ fn executeTest(
     stderr: anytype,
     diagnostics_mode: DiagnosticsMode,
 ) !u8 {
+    if (test_options.list and std.mem.endsWith(u8, source_path, ".sab")) {
+        var test_list = try collectSabTestListFast(allocator, source_path);
+        defer test_list.deinit(allocator);
+        try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
+        return 0;
+    }
+
     const std_archive_path = try saStdArchivePath(allocator);
     defer allocator.free(std_archive_path);
 
@@ -6275,7 +6980,7 @@ fn executeTest(
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root);
+    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce)
@@ -6327,7 +7032,23 @@ fn executeTest(
         cached_test_list.deinit(allocator);
     }
 
-    const compiled = try compileSource(allocator, source_path, compile_options);
+    const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    var effective_compile_options = compile_options;
+    var sab_selected_test_list: ?test_meta.TestList = null;
+    defer if (sab_selected_test_list) |*list| list.deinit(allocator);
+    var selected_test_names: []const []const u8 = &.{};
+    defer if (selected_test_names.len != 0) allocator.free(selected_test_names);
+
+    if (std.mem.endsWith(u8, source_path, ".sab") and hasExplicitTestSelection(test_options.selection)) {
+        sab_selected_test_list = try collectSabTestListFast(allocator, source_path);
+        selected_test_names = try selectedTestNamesFromList(allocator, sab_selected_test_list.?, test_options.selection);
+        effective_compile_options.sab_selected_test_names = selected_test_names;
+        effective_compile_options.sab_skip_verify = test_options.compile_only;
+    }
+
+    const compile_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const compiled = try compileSource(allocator, source_path, effective_compile_options);
+    const compile_ns = if (compile_start) |start| elapsedNs(start) else null;
     switch (compiled) {
         .trap => |report| {
             try printTrapReport(stderr, report, diagnostics_mode);
@@ -6337,11 +7058,20 @@ fn executeTest(
             var owned = ok;
             defer owned.deinit(allocator);
 
-            var test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            var compiled_test_list: ?test_meta.TestList = null;
+            defer if (compiled_test_list) |*list| list.deinit(allocator);
+            if (sab_selected_test_list == null) {
+                compiled_test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
+            }
+            const test_list = if (sab_selected_test_list) |*list| list else &compiled_test_list.?;
             if (test_options.list) {
-                defer test_list.deinit(allocator);
                 try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
                 return 0;
+            }
+
+            const has_explicit_test_selection = hasExplicitTestSelection(test_options.selection);
+            if (selected_test_names.len == 0 and has_explicit_test_selection) {
+                selected_test_names = try selectedTestNamesFromList(allocator, test_list.*, test_options.selection);
             }
 
             var link_inputs = std.ArrayList([]const u8).init(allocator);
@@ -6355,19 +7085,22 @@ fn executeTest(
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_full_path);
+            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path);
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
-                else => return err,
-            };
-
-            if (cache_key) |key| {
-                if (link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list);
-            }
-
-            if (test_options.compile_only) {
-                defer test_list.deinit(allocator);
+            const fast_sab_compile_only = test_options.compile_only and std.mem.endsWith(u8, source_path, ".sab") and has_explicit_test_selection;
+            if (fast_sab_compile_only) {
+                if (compile_options.profile) {
+                    try stderr.print(
+                        "profile test compile={d:.3}ms emit={d:.3}ms link=0.000ms total={d:.3}ms\n",
+                        .{
+                            @as(f64, @floatFromInt(compile_ns orelse 0)) / 1_000_000.0,
+                            @as(f64, @floatFromInt(emit_ns orelse 0)) / 1_000_000.0,
+                            @as(f64, @floatFromInt(if (test_total_start) |start| elapsedNs(start) else 0)) / 1_000_000.0,
+                        },
+                    );
+                }
                 try stdout.print(
                     "compiled {d} selected tests ({d} discovered)\n",
                     .{
@@ -6378,17 +7111,68 @@ fn executeTest(
                 return 0;
             }
 
-            return try test_runner.run(
-                allocator,
-                exe_full_path,
-                tmp.dir,
-                &test_list,
-                test_options.selection,
-                test_options.trace_panic,
-                compile_options.jobs,
-                stdout.any(),
-                stderr.any(),
-            );
+            const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => return 1,
+                else => return err,
+            };
+            const link_ns = if (link_start) |start| elapsedNs(start) else null;
+            if (compile_options.profile) {
+                try stderr.print(
+                    "profile test compile={d:.3}ms emit={d:.3}ms link={d:.3}ms total={d:.3}ms\n",
+                    .{
+                        @as(f64, @floatFromInt(compile_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(emit_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(link_ns orelse 0)) / 1_000_000.0,
+                        @as(f64, @floatFromInt(if (test_total_start) |start| elapsedNs(start) else 0)) / 1_000_000.0,
+                    },
+                );
+            }
+
+            if (cache_key) |key| {
+                if (!has_explicit_test_selection and link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*);
+            }
+
+            if (test_options.compile_only) {
+                try stdout.print(
+                    "compiled {d} selected tests ({d} discovered)\n",
+                    .{
+                        test_options.selection.countSelected(test_list.tests),
+                        test_list.tests.len,
+                    },
+                );
+                return 0;
+            }
+
+            if (sab_selected_test_list) |list| {
+                var run_list = list;
+                sab_selected_test_list = null;
+                return try test_runner.run(
+                    allocator,
+                    exe_full_path,
+                    tmp.dir,
+                    &run_list,
+                    test_options.selection,
+                    test_options.trace_panic,
+                    compile_options.jobs,
+                    stdout.any(),
+                    stderr.any(),
+                );
+            } else {
+                var run_list = compiled_test_list.?;
+                compiled_test_list = null;
+                return try test_runner.run(
+                    allocator,
+                    exe_full_path,
+                    tmp.dir,
+                    &run_list,
+                    test_options.selection,
+                    test_options.trace_panic,
+                    compile_options.jobs,
+                    stdout.any(),
+                    stderr.any(),
+                );
+            }
         },
     }
 }
@@ -6452,6 +7236,7 @@ pub fn executeWithWritersAndOptions(
             return try executeGraph(allocator, args[2..], stdout, stderr, json_mode, exec_options);
         },
         .pkg => {
+            if (try executePkgCommandFallback(allocator, args, stdout, stderr)) |code| return code;
             var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
             defer plugin_auth.deinit(allocator);
             var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
@@ -6468,13 +7253,54 @@ pub fn executeWithWritersAndOptions(
         .install => return try executeInstall(allocator, args[2..], stdout),
         .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
         .build => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
+            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
+            var out_path: ?[]const u8 = null;
+            var debug = false;
+            var optimization: driver.Optimization = .release_small;
+            var i: usize = 2;
+            while (i < args.len) : (i += 1) {
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
+                    i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                if (parseOptimizationFlag(args[i])) |mode| {
+                    optimization = mode;
+                    continue;
+                }
+                return error.UnexpectedArgument;
+            }
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+        },
+        .build_workspace => {
             var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (std.mem.eql(u8, args[i], "-o")) {
@@ -6497,10 +7323,14 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const final_source_path = try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer allocator.free(final_source_path);
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .fetch => {
             if (args.len < 3) return error.MissingSourcePath;
@@ -6533,15 +7363,18 @@ pub fn executeWithWritersAndOptions(
             return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
         },
         .build_exe => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6562,22 +7395,30 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, "");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .release_small;
             var incremental = false;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6602,22 +7443,30 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".o");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".o");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildObj(allocator, source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildObj(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_wasm => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
             var optimization: driver.Optimization = .release_small;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "-o")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     out_path = args[i + 1];
@@ -6644,10 +7493,15 @@ pub fn executeWithWritersAndOptions(
                 }
                 return error.UnexpectedArgument;
             }
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, source_path, ".wasm");
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".wasm");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildWasm(allocator, source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildWasm(allocator, final_source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
@@ -6662,9 +7516,8 @@ pub fn executeWithWritersAndOptions(
             return 0;
         },
         .test_cmd => {
-            if (args.len < 3) return error.MissingSourcePath;
-            const source_path = args[2];
             var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
             var include_filters = std.ArrayList([]const u8).init(allocator);
             defer include_filters.deinit();
             var skip_filters = std.ArrayList([]const u8).init(allocator);
@@ -6674,9 +7527,13 @@ pub fn executeWithWritersAndOptions(
             var list_tests = false;
             var compile_only = false;
             var trace_panic = false;
-            var i: usize = 3;
+            var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "--list")) {
                     list_tests = true;
                     continue;
@@ -6721,8 +7578,13 @@ pub fn executeWithWritersAndOptions(
                 .exact = exact,
                 .ignored = run_ignored,
             };
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeTest(allocator, source_path, compile_options, .{
+            return try executeTest(allocator, final_source_path, compile_options, .{
                 .selection = selection,
                 .list = list_tests,
                 .compile_only = compile_only,
@@ -6810,6 +7672,18 @@ test "cli error printing is detailed and json capable" {
     try std.testing.expect(std.mem.indexOf(u8, json.items, "\"message\":\"invalid target\"") != null);
 }
 
+test "build-workspace command is recognized in help" {
+    var list = std.ArrayList(u8).init(std.testing.allocator);
+    defer list.deinit();
+
+    try printUsage(list.writer());
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "build-workspace") != null);
+
+    list.clearRetainingCapacity();
+    try printCommandHelp(list.writer(), .build_workspace, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "usage: sa build-workspace [options]") != null);
+}
+
 test "source tree hash cache reuses mtime size digest without reloading unchanged files" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -6873,6 +7747,39 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     third_hasher.final(&third_digest);
     try std.testing.expect(test_source_tree_load_count > 1);
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
+}
+
+test "source tree hash missing import returns PackageNotResolved without ownership errors" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("sa_std/core");
+    {
+        var file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        defer file.close();
+        try file.writeAll(
+            \\@import "missing.sa"
+            \\@main() -> i32:
+            \\return 0
+            \\
+        );
+    }
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std");
+    defer std.testing.allocator.free(std_root);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    try std.testing.expectError(
+        error.PackageNotResolved,
+        hashResolvedSourceTree(std.testing.allocator, &hasher, &.{}, &.{}, project_root, std_root, false, "main.sa"),
+    );
 }
 
 test "source tree hash cache LRU is opt-in" {
@@ -6964,4 +7871,47 @@ test "duplicate definition trap gets a repair hint" {
     try std.testing.expectEqualStrings("rename-def", report.repair_action.?);
     try std.testing.expectEqualStrings("change one of the conflicting names or namespace the symbol", report.repair_hint.?);
     try std.testing.expectEqualStrings("high", report.repair_confidence.?);
+}
+
+test "compileSource accepts true SAB without text flattener" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const reg_ids = [_]u32{1};
+    const fsig = @import("common/signature.zig").FunctionSig{
+        .id = 0,
+        .name = "main",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .i32,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .reg_ids = reg_ids[0..],
+    };
+    var decl = @import("common/instruction.zig").makeInstruction(.func_decl, 1, 0, null, "");
+    decl.operands[0] = .{ .symbol = 0 };
+    decl.operands[1] = .{ .func = 0 };
+    var assign = @import("common/instruction.zig").makeInstruction(.assign, 2, 1, null, "");
+    assign.operands[0] = .{ .reg = 1 };
+    assign.operands[1] = .{ .imm_i64 = 7 };
+    var ret = @import("common/instruction.zig").makeInstruction(.return_, 3, 2, null, "");
+    ret.operands[0] = .{ .reg = 1 };
+
+    const bytes = try sab.encodeProgram(std.testing.allocator, &.{ "main", "value" }, &.{fsig}, &.{ decl, assign, ret });
+    defer std.testing.allocator.free(bytes);
+    try tmp.dir.writeFile(.{ .sub_path = "main.sab", .data = bytes });
+
+    var compiled = try compileSource(std.testing.allocator, "main.sab", .{});
+    switch (compiled) {
+        .ok => |*ok| {
+            defer ok.deinit(std.testing.allocator);
+            try std.testing.expectEqual(@as(usize, 3), ok.verified.annotated.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
 }

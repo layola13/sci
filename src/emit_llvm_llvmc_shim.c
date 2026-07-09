@@ -112,6 +112,7 @@ typedef struct {
     LLVMValueRef ftell_fn;
     LLVMValueRef rewind_fn;
     LLVMValueRef memcpy_fn;
+    LLVMValueRef dprintf_fn;
     LLVMValueRef saasm_argc_global;
     LLVMValueRef saasm_argv_global;
     const SaFunction *functions;
@@ -560,6 +561,28 @@ static LLVMValueRef const_c_string(EmitCtx *e, const char *name, const char *tex
     LLVMValueRef zero = LLVMConstInt(e->i32_ty, 0, 0);
     LLVMValueRef idxs[2] = { zero, zero };
     return LLVMConstGEP2(arr_ty, glob, idxs, 2);
+}
+
+static LLVMValueRef find_or_make_c_string(EmitCtx *e, const char *name, const char *text) {
+    LLVMValueRef glob = LLVMGetNamedGlobal(e->module, name);
+    if (glob != NULL) {
+        LLVMTypeRef arr_ty = LLVMGlobalGetValueType(glob);
+        LLVMValueRef zero = LLVMConstInt(e->i32_ty, 0, 0);
+        LLVMValueRef idxs[2] = { zero, zero };
+        return LLVMConstGEP2(arr_ty, glob, idxs, 2);
+    }
+    return const_c_string(e, name, text);
+}
+
+static void debug_printf_call(EmitCtx *e, const char *fmt_name, const char *fmt_text, LLVMValueRef *args, unsigned arg_count) {
+    if (e->dprintf_fn == NULL) return;
+    LLVMValueRef *all_args = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * (arg_count + 2));
+    if (all_args == NULL) return;
+    all_args[0] = LLVMConstInt(e->i32_ty, 2, 0);
+    all_args[1] = find_or_make_c_string(e, fmt_name, fmt_text);
+    for (unsigned i = 0; i < arg_count; i++) all_args[i + 2] = args[i];
+    LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->dprintf_fn), e->dprintf_fn, all_args, arg_count + 2, "");
+    free(all_args);
 }
 
 static LLVMAtomicOrdering atomic_ordering(SaAtomicOrdering ordering) {
@@ -1039,7 +1062,9 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                 v0 = coerce(e, v0, t0, SA_T_I64);
                 v0 = coerce_to_size(e, v0, "stack_size");
-                if (reg_store(e, regs, reg_count, in->dst, LLVMBuildArrayAlloca(e->builder, e->i8_ty, v0, "stack_alloc"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                LLVMValueRef stack_mem = LLVMBuildArrayAlloca(e->builder, e->i8_ty, v0, "stack_alloc");
+                LLVMSetAlignment(stack_mem, 16);
+                if (reg_store(e, regs, reg_count, in->dst, stack_mem, SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 break;
             case SA_OP_TAKE:
             case SA_OP_LOAD:
@@ -1048,7 +1073,9 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMValueRef gep = LLVMBuildGEP2(e->builder, e->i8_ty, v0, &v1, 1, "gep");
                 LLVMTypeRef load_ty = type_of(e, in->ty);
                 LLVMValueRef load_ptr = LLVMBuildPointerCast(e->builder, gep, LLVMPointerType(load_ty, 0), "load_ptr");
-                if (reg_store(e, regs, reg_count, in->dst, LLVMBuildLoad2(e->builder, load_ty, load_ptr, "load"), in->ty, 0, in->indirect_sig_index)) { free(regs); free(labels); return 1; }
+                LLVMValueRef load_inst = LLVMBuildLoad2(e->builder, load_ty, load_ptr, "load");
+                LLVMSetAlignment(load_inst, align_of(in->ty));
+                if (reg_store(e, regs, reg_count, in->dst, load_inst, in->ty, 0, in->indirect_sig_index)) { free(regs); free(labels); return 1; }
                 if (in->op == SA_OP_TAKE && in->ty == SA_T_PTR) {
                     regs[in->dst].is_malloc = 1;
                 }
@@ -1059,7 +1086,8 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMValueRef store_gep = LLVMBuildGEP2(e->builder, e->i8_ty, v0, &v1, 1, "gep");
                 LLVMTypeRef store_ty = type_of(e, in->ty);
                 LLVMValueRef store_ptr = LLVMBuildPointerCast(e->builder, store_gep, LLVMPointerType(store_ty, 0), "store_ptr");
-                LLVMBuildStore(e->builder, v2, store_ptr);
+                LLVMValueRef store_inst = LLVMBuildStore(e->builder, v2, store_ptr);
+                LLVMSetAlignment(store_inst, align_of(in->ty));
                 break;
             case SA_OP_ATOMIC_LOAD:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }
@@ -1189,6 +1217,45 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 }
                 free(param_types);
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call" : "");
+                if (strcmp(in->callee, "sa_json_parse") == 0 && in->arg_count >= 2) {
+                    LLVMValueRef dbg_args[3] = {
+                        coerce(e, args[0], sa_type_from_llvm(LLVMTypeOf(args[0])), SA_T_PTR),
+                        coerce(e, args[1], sa_type_from_llvm(LLVMTypeOf(args[1])), SA_T_I64),
+                        coerce(e, callv, in->ty, SA_T_PTR),
+                    };
+                    debug_printf_call(e, "__dbg_fmt_parse", "DBG parse bytes=%p len=%llu ret=%p\n", dbg_args, 3);
+                } else if (strcmp(in->callee, "sa_json_object_get") == 0 && in->arg_count >= 4) {
+                    LLVMValueRef out_ptr = coerce(e, args[3], sa_type_from_llvm(LLVMTypeOf(args[3])), SA_T_PTR);
+                    LLVMValueRef out_load_ptr = LLVMBuildPointerCast(e->builder, out_ptr, LLVMPointerType(e->i64_ty, 0), "dbg_out_ptr");
+                    LLVMValueRef out_value = LLVMBuildLoad2(e->builder, e->i64_ty, out_load_ptr, "dbg_out_val");
+                    LLVMValueRef dbg_args[6] = {
+                        coerce(e, args[0], sa_type_from_llvm(LLVMTypeOf(args[0])), SA_T_I64),
+                        coerce(e, args[1], sa_type_from_llvm(LLVMTypeOf(args[1])), SA_T_PTR),
+                        coerce(e, args[2], sa_type_from_llvm(LLVMTypeOf(args[2])), SA_T_I64),
+                        out_ptr,
+                        coerce(e, callv, in->ty, SA_T_I32),
+                        out_value,
+                    };
+                    debug_printf_call(e, "__dbg_fmt_obj_get", "DBG object_get node=%llu key=%p len=%llu out_ptr=%p status=%d out=%llu\n", dbg_args, 6);
+                } else if (strcmp(in->callee, "sa_json_kind") == 0 && in->arg_count >= 1) {
+                    LLVMValueRef dbg_args[2] = {
+                        coerce(e, args[0], sa_type_from_llvm(LLVMTypeOf(args[0])), SA_T_I64),
+                        coerce(e, callv, in->ty, SA_T_I32),
+                    };
+                    debug_printf_call(e, "__dbg_fmt_kind", "DBG kind node=%llu ret=%u\n", dbg_args, 2);
+                } else if (strcmp(in->callee, "sa_json_string_ptr") == 0 && in->arg_count >= 1) {
+                    LLVMValueRef dbg_args[2] = {
+                        coerce(e, args[0], sa_type_from_llvm(LLVMTypeOf(args[0])), SA_T_I64),
+                        coerce(e, callv, in->ty, SA_T_PTR),
+                    };
+                    debug_printf_call(e, "__dbg_fmt_str_ptr", "DBG string_ptr node=%llu ret=%p\n", dbg_args, 2);
+                } else if (strcmp(in->callee, "sa_json_string_len") == 0 && in->arg_count >= 1) {
+                    LLVMValueRef dbg_args[2] = {
+                        coerce(e, args[0], sa_type_from_llvm(LLVMTypeOf(args[0])), SA_T_I64),
+                        coerce(e, callv, in->ty, SA_T_I64),
+                    };
+                    debug_printf_call(e, "__dbg_fmt_str_len", "DBG string_len node=%llu ret=%llu\n", dbg_args, 2);
+                }
                 if (self_call_is_immediate_tail_return(f, i)) {
                     LLVMSetTailCall(callv, 1);
                     if (f->ret_ty == SA_T_VOID) {
@@ -1369,6 +1436,8 @@ static int declare_runtime(EmitCtx *e) {
     e->exit_fn = LLVMAddFunction(e->module, "exit", LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), exit_params, 1, 0));
     LLVMTypeRef memcpy_params[3] = { e->ptr_ty, e->ptr_ty, sz_ty };
     e->memcpy_fn = LLVMAddFunction(e->module, "memcpy", LLVMFunctionType(e->ptr_ty, memcpy_params, 3, 0));
+    LLVMTypeRef dprintf_params[2] = { e->i32_ty, e->ptr_ty };
+    e->dprintf_fn = LLVMAddFunction(e->module, "dprintf", LLVMFunctionType(e->i32_ty, dprintf_params, 2, 1));
     LLVMTypeRef fopen_params[2] = { e->ptr_ty, e->ptr_ty };
     e->fopen_fn = LLVMAddFunction(e->module, "fopen", LLVMFunctionType(e->ptr_ty, fopen_params, 2, 0));
     LLVMTypeRef fclose_params[1] = { e->ptr_ty };

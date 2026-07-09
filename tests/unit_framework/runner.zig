@@ -98,6 +98,46 @@ fn elapsedMs(start_ns: i128) i128 {
     return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
+fn startSaFileLog(path: []const u8, mode: []const u8, jobs_arg: []const u8, index: usize, total: usize) i128 {
+    if (total == 0) {
+        std.debug.print("[unit-framework] START file={s} mode={s} jobs={s}\n", .{ path, mode, jobs_arg });
+    } else {
+        std.debug.print("[unit-framework] START index={}/{} file={s} mode={s} jobs={s}\n", .{ index, total, path, mode, jobs_arg });
+    }
+    return std.time.nanoTimestamp();
+}
+
+fn endSaFileLog(
+    path: []const u8,
+    mode: []const u8,
+    jobs_arg: []const u8,
+    index: usize,
+    total: usize,
+    start_ns: i128,
+    stdout_len: usize,
+    stderr_len: usize,
+) void {
+    if (total == 0) {
+        std.debug.print(
+            "[unit-framework] END   file={s} mode={s} elapsed={}ms jobs={s} stdout_bytes={} stderr_bytes={}\n",
+            .{ path, mode, elapsedMs(start_ns), jobs_arg, stdout_len, stderr_len },
+        );
+    } else {
+        std.debug.print(
+            "[unit-framework] END   index={}/{} file={s} mode={s} elapsed={}ms jobs={s} stdout_bytes={} stderr_bytes={}\n",
+            .{ index, total, path, mode, elapsedMs(start_ns), jobs_arg, stdout_len, stderr_len },
+        );
+    }
+}
+
+fn errorSaFileLog(path: []const u8, mode: []const u8, index: usize, total: usize, err: anyerror) void {
+    if (total == 0) {
+        std.debug.print("[unit-framework] END   file={s} mode={s} status=error err={s}\n", .{ path, mode, @errorName(err) });
+    } else {
+        std.debug.print("[unit-framework] END   index={}/{} file={s} mode={s} status=error err={s}\n", .{ index, total, path, mode, @errorName(err) });
+    }
+}
+
 const SaTestExpectations = struct {
     expected_passes: []const []const u8,
     expected_absent_passes: []const []const u8 = &.{},
@@ -267,8 +307,8 @@ fn runSaTestFileInProcess(path: []const u8, expectations: SaTestExpectations) !v
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] {s} elapsed={}ms jobs={s}\n", .{ path, elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog(path, "in-process", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog(path, "in-process", 0, 0, err);
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
@@ -295,6 +335,7 @@ fn runSaTestFileInProcess(path: []const u8, expectations: SaTestExpectations) !v
     }
     try expectContains(stdout_buffer.items, expectations.expected_summary);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    endSaFileLog(path, "in-process", jobs_arg, 0, 0, start_ns, stdout_buffer.items.len, stderr_buffer.items.len);
 }
 
 const SaTestWorkerContext = struct {
@@ -312,11 +353,11 @@ fn externalSaTestCode(term: std.process.Child.Term) u8 {
     };
 }
 
-fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask) !void {
+fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask, index: usize, total: usize) !void {
     const suite_path = try std.fs.cwd().realpathAlloc(std.heap.page_allocator, task.path);
     defer std.heap.page_allocator.free(suite_path);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] {s} elapsed={}ms jobs={s} mode=process\n", .{ task.path, elapsedMs(start_ns), task.jobs_arg });
+    const start_ns = startSaFileLog(task.path, "process", task.jobs_arg, index, total);
+    errdefer |err| errorSaFileLog(task.path, "process", index, total, err);
 
     const argv = [_][]const u8{ sa_bin, "test", suite_path, "--jobs", task.jobs_arg, "--trace-panic" };
     const result = try std.process.Child.run(.{
@@ -352,17 +393,18 @@ fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask) !void {
         std.debug.print("unexpected stderr for {s}: {s}\n", .{ task.path, result.stderr });
         return error.SaTestUnexpectedStderr;
     }
+    endSaFileLog(task.path, "process", task.jobs_arg, index, total, start_ns, result.stdout.len, result.stderr.len);
 }
 
 fn saTestWorkerMain(context: *SaTestWorkerContext) void {
     while (true) {
         const index = context.next_index.fetchAdd(1, .monotonic);
         if (index >= context.tasks.len) return;
-        runSaTestFileExternal(context.sa_bin, context.tasks[index]) catch |err| {
+        runSaTestFileExternal(context.sa_bin, context.tasks[index], index + 1, context.tasks.len) catch |err| {
             context.failed.store(true, .release);
             context.output_mutex.lock();
             defer context.output_mutex.unlock();
-            std.debug.print("[unit-framework] FAIL {s}: {s}\n", .{ context.tasks[index].path, @errorName(err) });
+            std.debug.print("[unit-framework] worker observed error file={s} err={s}\n", .{ context.tasks[index].path, @errorName(err) });
         };
     }
 }
@@ -382,7 +424,7 @@ fn runQueuedSaTestFiles() !void {
 
     const worker_count = @min(saUnitFileJobs(), tasks.len);
     if (worker_count <= 1) {
-        for (tasks) |task| try runSaTestFileExternal(sa_bin, task);
+        for (tasks, 0..) |task, index| try runSaTestFileExternal(sa_bin, task, index + 1, tasks.len);
         return;
     }
 
@@ -422,13 +464,15 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] feature_suite.sa all modes elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", 0, 0, err);
 
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
+    var total_stdout_bytes: usize = 0;
+    var total_stderr_bytes: usize = 0;
 
     const default_argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg };
     const default_code = try saasm.cli.executeWithWriters(
@@ -452,6 +496,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     }
     try expectContains(stdout_buffer.items, default_expectations.expected_summary);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    total_stdout_bytes += stdout_buffer.items.len;
+    total_stderr_bytes += stderr_buffer.items.len;
 
     var ignored_tmp = std.testing.tmpDir(.{ .iterate = true });
     defer ignored_tmp.cleanup();
@@ -483,6 +529,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectNotContains(stdout_buffer.items, "[PASS] small normal case");
     try expectContains(stdout_buffer.items, "test result: ok. 1 passed; 0 failed; 1 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    total_stdout_bytes += stdout_buffer.items.len;
+    total_stderr_bytes += stderr_buffer.items.len;
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
@@ -499,6 +547,9 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     try expectContains(stdout_buffer.items, "[PASS] small ignored case");
     try expectContains(stdout_buffer.items, "test result: ok. 2 passed; 0 failed; 0 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    total_stdout_bytes += stdout_buffer.items.len;
+    total_stderr_bytes += stderr_buffer.items.len;
+    endSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", jobs_arg, 0, 0, start_ns, total_stdout_bytes, total_stderr_bytes);
 }
 
 test "native unit assertions surface file line expected and got details" {
@@ -537,8 +588,8 @@ test "native unit assertions surface file line expected and got details" {
     defer stderr_buffer.deinit();
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] assert_diag.sa elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog("assert_diag.sa", "negative-diagnostic", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "assert_diag.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
@@ -554,6 +605,7 @@ test "native unit assertions surface file line expected and got details" {
     try expectContains(stderr_buffer.items, "tests/assert_diag.sa:");
     try expectContains(stderr_buffer.items, "expected 7");
     try expectContains(stderr_buffer.items, "got 3");
+    endSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0, start_ns, stdout_buffer.items.len, stderr_buffer.items.len);
 }
 
 test "native unit framework covers sa_std macro surface suites" {
@@ -584,6 +636,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_mpsc_macro_surface.sa",
         "tests/unit_framework/std_process_macro_surface.sa",
         "tests/unit_framework/std_env_macro_surface.sa",
+        "tests/unit_framework/std_thread_macro_surface.sa",
         "tests/unit_framework/std_marker_macro_surface.sa",
         "tests/unit_framework/std_pin_macro_surface.sa",
         "tests/unit_framework/std_any_borrow_macro_surface.sa",
@@ -602,9 +655,17 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_io_utility_macro_surface.sa",
         "tests/unit_framework/std_iter_macro_surface.sa",
         "tests/unit_framework/std_fs_macro_surface.sa",
+        "tests/unit_framework/std_fs_metadata_ext_macro_surface.sa",
+        "tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa",
+        "tests/unit_framework/std_fs_unix_ext_macro_surface.sa",
         "tests/unit_framework/std_net_macro_surface.sa",
         "tests/unit_framework/std_net_addr_macro_surface.sa",
         "tests/unit_framework/std_net_multicast_macro_surface.sa",
+        "tests/unit_framework/std_netx_macro_surface.sa",
+        "tests/unit_framework/std_net_unix_macro_surface.sa",
+        "tests/unit_framework/std_net_dns_macro_surface.sa",
+        "tests/unit_framework/std_os_fd_macro_surface.sa",
+        "tests/unit_framework/std_os_unix_ffi_macro_surface.sa",
     };
 
     for (macro_surface_suites) |path| {
@@ -773,8 +834,8 @@ test "native unit framework exposes standard mock io buffer" {
     defer stderr_buffer.deinit();
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
-    const start_ns = std.time.nanoTimestamp();
-    defer std.debug.print("[unit-framework] mock_io_test.sa elapsed={}ms jobs={s}\n", .{ elapsedMs(start_ns), jobs_arg });
+    const start_ns = startSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0);
+    errdefer |err| errorSaFileLog("mock_io_test.sa", "in-process", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "mock_io_test.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
@@ -791,4 +852,5 @@ test "native unit framework exposes standard mock io buffer" {
     try expectContains(stdout_buffer.items, "[PASS] mock io buffer read write rewind");
     try expectContains(stdout_buffer.items, "test result: ok. 1 passed; 0 failed; 0 skipped");
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+    endSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0, start_ns, stdout_buffer.items.len, stderr_buffer.items.len);
 }

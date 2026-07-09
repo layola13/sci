@@ -1,0 +1,7 @@
+@extern sa_std_fd_as_raw(handle: u64, &out_fd: ptr) -> i32
+@extern sa_std_fd_dup(handle: u64, &out_handle: ptr) -> i32
+@extern sa_std_fd_dup_raw(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_fd_from_raw(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_fd_into_raw(handle: u64, &out_fd: ptr) -> i32
+@extern sa_std_fd_close_raw(fd: i32) -> i32
+@extern sa_std_fd_is_terminal(handle: u64, &out_flag: ptr) -> i32

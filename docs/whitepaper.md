@@ -12,12 +12,14 @@ SA (safe asm, 安全汇编) is a fully independent, line-oriented affine ownersh
 
 | Command | Pipeline | Output |
 |---|---|---|
-| `sa run <file>` | Flattener → Referee → Interpreter | stdout + exit code |
-| `sa build-exe <file>` | Flattener → Referee → LLVM-C bitcode builder → `.sa.bc` → `zig cc` | standalone `.exe` |
-| `sa build-wasm <file>` | Flattener → Referee → LLVM-C bitcode builder → `.sa.bc` → `zig cc -target wasm32-wasi` | `.wasm` module |
-| `sa build-obj <file>` | Flattener → Referee → LLVM-C bitcode builder → `.sa.bc` → `zig cc -c` | `.o` (C-ABI linkable) |
+| `sa run <file>` | `.sa` → Flattener / `.sab` → SAB Decoder → Referee → Interpreter | stdout + exit code |
+| `sa build-exe <file>` | `.sa` → Flattener / `.sab` → SAB Decoder → Referee → LLVM-C bitcode → `.sa.bc` → `zig cc` | standalone `.exe` |
+| `sa build-wasm <file>` | `.sa` → Flattener / `.sab` → SAB Decoder → Referee → LLVM-C bitcode → `.sa.bc` → `zig cc -target wasm32-wasi` | `.wasm` module |
+| `sa build-obj <file>` | `.sa` → Flattener / `.sab` → SAB Decoder → Referee → LLVM-C bitcode → `.sa.bc` → `zig cc -c` | `.o` (C-ABI linkable) |
 
 No Zig source generation. No AST construction. No hidden round-trips.
+
+**Y-shaped Input Architecture**: The compiler auto-detects input format by file extension — `.sa` text (Flattener path, with macro support) or `.sab` binary (SAB Decoder path, directly decodes to `Instruction[]`). Both paths converge before Referee. See `sab.zig` for the binary format specification (magic `"SAB\x00"`, v4.0).
 
 ## Checked-in `sa_std` Archive
 
@@ -230,16 +232,37 @@ This section is a compact summary for readers; it may lag the live namespace.
 | 108–127 | Reserved |
 | 128–255 | User-defined |
 
+## Distributed Compilation (SAB Module System)
+
+SA supports module-level distributed compilation via `.sab` binary modules:
+
+| Command | Pipeline | Output |
+|---|---|---|
+| `sa build --emit-sab <file>` | `.sa` → Flattener → SAB Encoder → `.sab` cache | `<stem>.sab` |
+| `sa build-workspace --distributed` | 依赖分析 → 并行 flatten → 并行 Referee → 跨模块验证 → 链接 | final binary |
+| `sa build-workspace --dry-run` | 仅输出需重编译的模块列表 | module list |
+
+**Cache model**: `.sab` files are the persistent cache of Flattener output. Subsequent compilations decode `.sab` directly into `Instruction[]`, skipping the entire Flattener (macro expansion, `@import` resolution, text parsing).
+
+**Parallelism**: Each module's Flattener and Referee run independently. Cross-module `@export`/`@extern` signature matching is verified after all modules pass individual Referee.
+
+**Incremental**: Module-level cache invalidation via `SHA256(source + sa_mod_hash + compiler_version)`. Unchanged modules reuse `.sa_cache/<module>.sab`.
+
+**JS/TS analogy**: `.sab` is to SA what `.js` is to TypeScript — a pre-compiled, self-contained, distributable module format. `sa build-workspace --distributed` is SA's webpack/esbuild.
+
+See `docs/sab_distributed_compilation.md` for full design.
+
 ## Version Roadmap
 
 | Version | Focus |
 |---|---|
 | v0.1 | Closed loop: Flattener + Referee + LLVM bitcode + CLI (14 weeks) |
-| v0.2 | Self-authored WASM emitter + `#mode compact` infix sugar |
+| v0.2 | Self-authored WASM emitter + `#mode compact` infix sugar ~~（已由外部 SLA 插件 `sa_plugin_sla` 替代）~~ |
 | v0.3 | Performance: VTable signature check + `libsa_async` macros + `--debug-san` |
 | v0.4 | Parallel dev: `.sai` + `.sal` + incremental compilation |
 | v0.5 | Ecosystem: `sa.pkg` package manager + `#tag` layout tagging + `sa_std` |
 | v0.6 | Certification: Referee formal proof (Coq/Lean4) + FPGA hardware Referee |
+| v0.7b | Distributed compilation: `--emit-sab` + `build-workspace --distributed` + module-level parallel Referee |
 | v1.0+ | Self-hosting (SA compiler written in SA) |
 
 ## Design Principles

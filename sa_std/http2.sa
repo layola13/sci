@@ -1,0 +1,78 @@
+@import "http2.sal"
+@import "http2.sai"
+
+[MACRO] HTTP2_SUPPORTED %out_status, %out_supported
+    __h2_supported_%out_status = stack_alloc 4
+    %out_status = call @sa_std_http2_supported(&__h2_supported_%out_status)
+    %out_supported = load __h2_supported_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] HTTP2_CLIENT_REQUEST %out_status, %out_buffer, %url, %url_len, %method, %method_len, %body, %body_len
+    __h2_client_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_client_request(&%url, %url_len, &%method, %method_len, &%body, %body_len, &__h2_client_handle_%out_status)
+    %out_buffer = load __h2_client_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_VERSION_JSON %out_status, %out_buffer
+    __h2_version_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_nghttp2_version_json(&__h2_version_handle_%out_status)
+    %out_buffer = load __h2_version_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_STATUS_JSON %out_status, %out_buffer
+    __h2_status_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_status_json(&__h2_status_handle_%out_status)
+    %out_buffer = load __h2_status_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_CONSTANTS_JSON %out_status, %out_buffer
+    __h2_consts_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_constants_json(&__h2_consts_handle_%out_status)
+    %out_buffer = load __h2_consts_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_SENSITIVE_HEADERS_JSON %out_status, %out_buffer
+    __h2_sens_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_sensitive_headers(&__h2_sens_handle_%out_status)
+    %out_buffer = load __h2_sens_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_DEFAULT_SETTINGS_JSON %out_status, %out_buffer
+    __h2_default_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_get_default_settings_json(&__h2_default_handle_%out_status)
+    %out_buffer = load __h2_default_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_GET_PACKED_SETTINGS %out_status, %out_buffer, %settings_json, %settings_json_len
+    __h2_packed_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_get_packed_settings(&%settings_json, %settings_json_len, &__h2_packed_handle_%out_status)
+    %out_buffer = load __h2_packed_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_GET_UNPACKED_SETTINGS_JSON %out_status, %out_buffer, %buf, %buf_len
+    __h2_unpacked_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_get_unpacked_settings_json(&%buf, %buf_len, &__h2_unpacked_handle_%out_status)
+    %out_buffer = load __h2_unpacked_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP2_PERFORM_SERVER_HANDSHAKE %out_status, %out_bytes, %out_json, %input, %input_len, %settings_json, %settings_json_len
+    __h2_hs_bytes_%out_status = stack_alloc 8
+    __h2_hs_json_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http2_perform_server_handshake(&%input, %input_len, &%settings_json, %settings_json_len, &__h2_hs_bytes_%out_status, &__h2_hs_json_%out_status)
+    %out_bytes = load __h2_hs_bytes_%out_status+0 as u64
+    %out_json = load __h2_hs_json_%out_status+0 as u64
+[END_MACRO]
+
+// buffer handle accessors (sci convention)
+
+[MACRO] HTTP2_BUFFER_DATA %out_ptr, %buffer
+    %out_ptr = call @sa_std_http2_buffer_data(^%buffer)
+[END_MACRO]
+
+[MACRO] HTTP2_BUFFER_LEN %out_len, %buffer
+    %out_len = call @sa_std_http2_buffer_len(^%buffer)
+[END_MACRO]
+
+[MACRO] HTTP2_BUFFER_FREE %out_status, %buffer
+    %out_status = call @sa_std_http2_buffer_free(^%buffer)
+[END_MACRO]

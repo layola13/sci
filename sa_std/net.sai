@@ -11,6 +11,10 @@
 @extern sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) -> i32
 @extern sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_set_quickack(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_quickack(stream: u64, &out_enabled: ptr) -> i32
+@extern sa_std_net_tcp_stream_set_deferaccept(stream: u64, seconds: u32) -> i32
+@extern sa_std_net_tcp_stream_deferaccept(stream: u64, &out_seconds: ptr) -> i32
 @extern sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_stream_read_timeout(stream: u64, &out_timeout_ns: ptr) -> i32
 @extern sa_std_net_tcp_stream_write_timeout(stream: u64, &out_timeout_ns: ptr) -> i32
@@ -24,8 +28,72 @@
 @extern sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_listener_ttl(listener: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_tcp_listener_take_error(listener: u64, &out_error: ptr) -> i32
+@extern sa_std_net_tcp_listener_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_stream_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+
+// Unix domain sockets (stream). Handles reuse the tcp_stream/tcp_listener kinds,
+// so NET_TCP_STREAM_READ/WRITE/CLOSE and NET_TCP_LISTENER_CLOSE work on them.
+@extern sa_std_net_unix_listen(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_accept(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_accept_addr(listener: u64, &out_stream: ptr, &out_addr: ptr) -> i32
+@extern sa_std_net_unix_connect(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_pair(&out_left: ptr, &out_right: ptr) -> i32
+@extern sa_std_net_unix_addr_from_abstract_name(&name: ptr, name_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_addr_from_pathname(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listen_addr(addr: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_connect_addr(addr: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listener_local_addr(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listener_try_clone(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listener_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_local_addr(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_try_clone(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_peer_addr(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_set_passcred(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_unix_stream_passcred(stream: u64, &out_enabled: ptr) -> i32
+@extern sa_std_net_unix_stream_set_mark(stream: u64, mark: u32) -> i32
+@extern sa_std_net_unix_stream_peer_cred(stream: u64, &out_pid: ptr, &out_uid: ptr, &out_gid: ptr) -> i32
+@extern sa_std_net_unix_datagram_unbound(&out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_bind(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_bind_addr(addr: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_pair(&out_left: ptr, &out_right: ptr) -> i32
+@extern sa_std_net_unix_datagram_connect(socket: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_std_net_unix_datagram_connect_addr(socket: u64, addr: u64) -> i32
+@extern sa_std_net_unix_datagram_try_clone(socket: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_local_addr(socket: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_peer_addr(socket: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_set_passcred(socket: u64, enabled: i32) -> i32
+@extern sa_std_net_unix_datagram_passcred(socket: u64, &out_enabled: ptr) -> i32
+@extern sa_std_net_unix_datagram_set_mark(socket: u64, mark: u32) -> i32
+@extern sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) -> i32
+@extern sa_std_net_unix_datagram_send_to(socket: u64, &buf: ptr, len: u64, &path: ptr, path_len: u64, &out_written: ptr) -> i32
+@extern sa_std_net_unix_datagram_send_to_addr(socket: u64, &buf: ptr, len: u64, addr: u64, &out_written: ptr) -> i32
+@extern sa_std_net_unix_datagram_recv_from(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr) -> i32
+@extern sa_std_net_unix_datagram_peek_from(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr) -> i32
+
+// Additional stream/listener socket options.
+@extern sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, intvl_secs: u32, cnt: u32) -> i32
+@extern sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) -> i32
+
+// TLS ClientHello fingerprint digests (JA3 = MD5 hex, JA4 segment = SHA256 first 12 hex chars).
+@extern sa_std_net_ja3_hash(&ja3: ptr, ja3_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_net_ja4_hash12(&data: ptr, data_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+
+// Shared WebSocket frame codec (downpushed from http_client/http_server/node/deno plugins).
+@extern sa_std_ws_accept_key(&key: ptr, key_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_ws_frame_parse(&data: ptr, data_len: u64, &out_fin: ptr, &out_opcode: ptr, &out_masked: ptr, &out_payload_offset: ptr, &out_payload_len: ptr, &out_frame_len: ptr, &out_mask: ptr) -> i32
+@extern sa_std_ws_unmask(&payload: ptr, payload_len: u64, &mask: ptr) -> i32
+@extern sa_std_ws_frame_build(opcode: u32, fin: u32, &payload: ptr, payload_len: u64, &mask: ptr, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_ws_frame_build_unmasked(opcode: u32, fin: u32, &payload: ptr, payload_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+
+// Shared URL parser (scheme://host[:port][/path]). Any out buffer may be omitted.
+@extern sa_std_url_parse(&url: ptr, url_len: u64, &scheme_out: ptr, scheme_cap: u64, &scheme_len: ptr, &host_out: ptr, host_cap: u64, &host_len: ptr, &path_out: ptr, path_cap: u64, &path_len: ptr, &out_port: ptr) -> i32
 
 @extern sa_std_net_udp_bind(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
+@extern sa_std_net_udp_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_peer_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_connect(socket: u64, &host: ptr, host_len: u64, port: u32) -> i32
@@ -104,5 +172,12 @@
 @extern sa_net_addr_scope_id(addr: u64) -> u64
 @extern sa_std_net_addr_format(addr: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_net_addr_free(addr: u64) -> i32!
+@extern sa_net_unix_addr_kind(addr: u64) -> u32
+@extern sa_net_unix_addr_is_unnamed(addr: u64) -> u8
+@extern sa_net_unix_addr_path_ptr(addr: u64) -> &ptr
+@extern sa_net_unix_addr_path_len(addr: u64) -> u64
+@extern sa_net_unix_addr_abstract_ptr(addr: u64) -> &ptr
+@extern sa_net_unix_addr_abstract_len(addr: u64) -> u64
+@extern sa_net_unix_addr_free(addr: u64) -> i32!
 @extern sa_net_ipv4_parse_ascii(&text: ptr, text_len: u64, &out_addr: ptr) -> i32
 @extern sa_net_socket_addr_v4_parse_ascii(&text: ptr, text_len: u64, &out_socket_addr: ptr) -> i32

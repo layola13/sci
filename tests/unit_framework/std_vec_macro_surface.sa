@@ -82,6 +82,38 @@ L_ENTRY:
     !value
     return is_match
 
+@vec_pop_if_mut_inc_keep(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next = add value, 1
+    store value_ptr+0, next as u64
+    !next
+    !value
+    !value_ptr
+    return 0
+
+@vec_pop_if_mut_inc_take_if_101(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next = add value, 1
+    store value_ptr+0, next as u64
+    take = eq next, 101
+    !next
+    !value
+    !value_ptr
+    return take
+
+@vec_pop_if_mut_inc_take_if_89(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next = add value, 1
+    store value_ptr+0, next as u64
+    take = eq next, 89
+    !next
+    !value
+    !value_ptr
+    return take
+
 @vec_retain_even(value: u64) -> u64:
 L_ENTRY:
     rem = urem value, 2
@@ -90,9 +122,28 @@ L_ENTRY:
     !value
     return is_even
 
+@vec_retain_mut_add_ten_keep_original_odd(value_ptr: ptr) -> u64:
+L_ENTRY:
+    value = load value_ptr+0 as u64
+    next_value = add value, 10
+    store value_ptr+0, next_value as u64
+    rem = urem value, 2
+    keep = eq rem, 1
+    !next_value
+    !rem
+    !value
+    !value_ptr
+    return keep
+
 @vec_resize_with_42() -> u64:
 L_ENTRY:
     return 42
+
+@vec_from_fn_double(index: u64) -> u64:
+L_ENTRY:
+    value = mul index, 2
+    !index
+    return value
 
 @vec_dedup_by_same_tens(left: u64, right: u64) -> u64:
 L_ENTRY:
@@ -116,6 +167,19 @@ L_ENTRY:
     take = ugt value, 30
     !value
     return take
+
+@const VEC_FN_PTR_FALSE_VT = vtable { call = @vec_fn_ptr_false }
+@const VEC_FN_PTR_TRUE_VT = vtable { call = @vec_fn_ptr_true }
+
+@vec_fn_ptr_false(value: u64) -> u64:
+L_ENTRY:
+    !value
+    return 0
+
+@vec_fn_ptr_true(value: u64) -> u64:
+L_ENTRY:
+    !value
+    return 1
 
 @slice_partition_lt_30(value: u64) -> u64:
 L_ENTRY:
@@ -188,24 +252,57 @@ L_ENTRY:
     EXPAND VEC_LEN len_after_pop_if_alias, vec
     EXPAND VEC_WITH_CAPACITY_U64 pop_if_empty_vec, 0
     EXPAND VEC_TRY_POP_IF_U64 pop_if_empty_ok, pop_if_empty, pop_if_empty_vec, @vec_pop_if_is_99
+    EXPAND VEC_WITH_CAPACITY_U64 pop_if_mut_vec, 2
+    EXPAND VEC_PUSH_U64 pop_if_mut_vec, 88
+    EXPAND VEC_PUSH_U64 pop_if_mut_vec, 99
+    EXPAND VEC_TRY_POP_IF_MUT_U64 pop_if_mut_keep_ok, pop_if_mut_keep, pop_if_mut_vec, @vec_pop_if_mut_inc_keep
+    EXPAND VEC_LEN len_after_pop_if_mut_keep, pop_if_mut_vec
+    EXPAND VEC_TRY_GET_U64 pop_if_mut_keep_tail_ok, pop_if_mut_keep_tail, pop_if_mut_vec, 1
+    EXPAND VEC_TRY_POP_IF_MUT_U64 pop_if_mut_hit_ok, pop_if_mut_hit, pop_if_mut_vec, @vec_pop_if_mut_inc_take_if_101
+    EXPAND VEC_LEN len_after_pop_if_mut_hit, pop_if_mut_vec
+    EXPAND VEC_POP_IF_MUT_U64 pop_if_mut_alias_ok, pop_if_mut_alias, pop_if_mut_vec, @vec_pop_if_mut_inc_take_if_89
+    EXPAND VEC_LEN len_after_pop_if_mut_alias, pop_if_mut_vec
+    EXPAND VEC_WITH_CAPACITY_U64 pop_if_mut_empty_vec, 0
+    EXPAND VEC_TRY_POP_IF_MUT_U64 pop_if_mut_empty_ok, pop_if_mut_empty, pop_if_mut_empty_vec, @vec_pop_if_mut_inc_take_if_89
     prefix_data = alloc 8
     suffix_data = alloc 8
     miss_prefix_data = alloc 8
     long_suffix_data = alloc 24
+    eq_data = alloc 24
+    eq_mismatch_data = alloc 24
+    eq_short_data = alloc 16
     store prefix_data+0, 44 as u64
     store suffix_data+0, 44 as u64
     store miss_prefix_data+0, 66 as u64
     store long_suffix_data+0, 44 as u64
     store long_suffix_data+8, 55 as u64
     store long_suffix_data+16, 66 as u64
+    store eq_data+0, 44 as u64
+    store eq_data+8, 55 as u64
+    store eq_data+16, 66 as u64
+    store eq_mismatch_data+0, 44 as u64
+    store eq_mismatch_data+8, 55 as u64
+    store eq_mismatch_data+16, 77 as u64
+    store eq_short_data+0, 44 as u64
+    store eq_short_data+8, 55 as u64
     prefix = alloc Slice_SIZE
     suffix = alloc Slice_SIZE
     miss_prefix = alloc Slice_SIZE
     long_suffix = alloc Slice_SIZE
+    eq_slice = alloc Slice_SIZE
+    eq_mismatch_slice = alloc Slice_SIZE
+    eq_short_slice = alloc Slice_SIZE
     EXPAND SLICE_NEW prefix, prefix_data, 1
     EXPAND SLICE_NEW suffix, suffix_data, 1
     EXPAND SLICE_NEW miss_prefix, miss_prefix_data, 1
     EXPAND SLICE_NEW long_suffix, long_suffix_data, 3
+    EXPAND SLICE_NEW eq_slice, eq_data, 3
+    EXPAND SLICE_NEW eq_mismatch_slice, eq_mismatch_data, 3
+    EXPAND SLICE_NEW eq_short_slice, eq_short_data, 2
+    EXPAND VEC_FROM_SLICE_U64 eq_vec, eq_slice
+    EXPAND VEC_FROM_SLICE_U64 eq_vec_same, eq_slice
+    EXPAND VEC_FROM_SLICE_U64 eq_vec_mismatch, eq_mismatch_slice
+    EXPAND VEC_FROM_SLICE_U64 eq_vec_short, eq_short_slice
     EXPAND VEC_RESERVE_EXACT_U64 vec, 2
     EXPAND VEC_CAPACITY cap_exact, vec
     EXPAND VEC_RESERVE_U64 vec, 0
@@ -219,13 +316,41 @@ L_ENTRY:
     EXPAND VEC_TRY_BACK_U64 back_try_ok, back_try, vec
     EXPAND VEC_CONTAINS_U64 contains_55, vec, 55
     EXPAND VEC_CONTAINS_U64 contains_123, vec, 123
+    EXPAND SLICE_EQ_U64 slice_eq_match, eq_slice, eq_slice
+    EXPAND SLICE_NE_U64 slice_ne_mismatch, eq_slice, eq_mismatch_slice
+    EXPAND SLICE_NE_U64 slice_ne_len, eq_slice, eq_short_slice
+    EXPAND VEC_EQ_SLICE_U64 vec_eq_slice, eq_vec, eq_slice
+    EXPAND VEC_NE_SLICE_U64 vec_ne_slice, eq_vec, eq_mismatch_slice
+    EXPAND SLICE_EQ_VEC_U64 slice_eq_vec, eq_slice, eq_vec
+    EXPAND SLICE_NE_VEC_U64 slice_ne_vec, eq_mismatch_slice, eq_vec
+    EXPAND VEC_EQ_U64 vec_eq_vec, eq_vec, eq_vec_same
+    EXPAND VEC_NE_U64 vec_ne_vec, eq_vec, eq_vec_mismatch
+    EXPAND SLICE_HASH_U64 slice_hash, eq_slice
+    EXPAND VEC_HASH_U64 vec_hash, eq_vec
+    EXPAND VEC_HASH_U64 vec_mismatch_hash, eq_vec_mismatch
+    EXPAND SLICE_CMP_U64 slice_cmp_equal, eq_slice, eq_slice
+    EXPAND SLICE_CMP_U64 slice_cmp_less_item, eq_slice, eq_mismatch_slice
+    EXPAND SLICE_CMP_U64 slice_cmp_greater_item, eq_mismatch_slice, eq_slice
+    EXPAND SLICE_CMP_U64 slice_cmp_shorter, eq_short_slice, eq_slice
+    EXPAND SLICE_LT_U64 slice_lt_item, eq_slice, eq_mismatch_slice
+    EXPAND SLICE_LE_U64 slice_le_equal, eq_slice, eq_slice
+    EXPAND SLICE_GT_U64 slice_gt_item, eq_mismatch_slice, eq_slice
+    EXPAND SLICE_GE_U64 slice_ge_equal, eq_slice, eq_slice
+    EXPAND VEC_CMP_SLICE_U64 vec_cmp_slice_less, eq_vec, eq_mismatch_slice
+    EXPAND SLICE_CMP_VEC_U64 slice_cmp_vec_greater, eq_mismatch_slice, eq_vec
+    EXPAND VEC_CMP_U64 vec_cmp_equal, eq_vec, eq_vec_same
+    EXPAND VEC_CMP_U64 vec_cmp_shorter, eq_vec_short, eq_vec
+    EXPAND VEC_LT_U64 vec_lt_shorter, eq_vec_short, eq_vec
+    EXPAND VEC_LE_U64 vec_le_equal, eq_vec, eq_vec_same
+    EXPAND VEC_GT_U64 vec_gt_item, eq_vec_mismatch, eq_vec
+    EXPAND VEC_GE_U64 vec_ge_equal, eq_vec, eq_vec_same
     EXPAND VEC_STARTS_WITH_U64 starts_ok, vec, prefix
     EXPAND VEC_ENDS_WITH_U64 ends_ok, vec, suffix
     EXPAND VEC_STARTS_WITH_U64 starts_miss, vec, miss_prefix
     EXPAND VEC_ENDS_WITH_U64 ends_long_miss, vec, long_suffix
-    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, vec, prefix
-    EXPAND VEC_TRY_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, vec, suffix
-    EXPAND VEC_TRY_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, vec, miss_prefix
+    EXPAND VEC_STRIP_PREFIX_U64 strip_prefix_ok, strip_prefix_tail, vec, prefix
+    EXPAND VEC_STRIP_SUFFIX_U64 strip_suffix_ok, strip_suffix_head, vec, suffix
+    EXPAND VEC_STRIP_PREFIX_U64 strip_prefix_miss_ok, strip_prefix_miss, vec, miss_prefix
     EXPAND SLICE_GET_LEN strip_prefix_tail_len, strip_prefix_tail
     EXPAND SLICE_FIRST_U64 strip_prefix_tail_first, strip_prefix_tail
     EXPAND SLICE_GET_LEN strip_suffix_head_len, strip_suffix_head
@@ -247,15 +372,15 @@ L_ENTRY:
     EXPAND VEC_LEN len_after_resize, vec
     EXPAND VEC_TRY_GET_U64 resize_fill1_ok, resize_fill1, vec, 3
     EXPAND VEC_TRY_GET_U64 resize_fill2_ok, resize_fill2, vec, 4
-    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_ok, split_off_vec, vec, 2
+    EXPAND VEC_SPLIT_OFF_U64 split_off_ok, split_off_vec, vec, 2
     EXPAND VEC_LEN len_after_split_off, vec
     EXPAND VEC_LEN split_off_len, split_off_vec
     EXPAND VEC_TRY_GET_U64 split_off_first_ok, split_off_first, split_off_vec, 0
     EXPAND VEC_TRY_GET_U64 split_off_last_ok, split_off_last, split_off_vec, 2
-    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_empty_ok, split_off_empty_vec, vec, 2
+    EXPAND VEC_SPLIT_OFF_U64 split_off_empty_ok, split_off_empty_vec, vec, 2
     EXPAND VEC_LEN len_after_empty_split_off, vec
     EXPAND VEC_LEN split_off_empty_len, split_off_empty_vec
-    EXPAND VEC_TRY_SPLIT_OFF_U64 split_off_miss_ok, split_off_miss, vec, 9
+    EXPAND VEC_SPLIT_OFF_U64 split_off_miss_ok, split_off_miss, vec, 9
     EXPAND VEC_TRY_FRONT_U64 front_after_ok, front_after, vec
     EXPAND VEC_TRY_BACK_U64 back_after_ok, back_after, vec
 
@@ -290,6 +415,19 @@ L_ENTRY:
     len_after_pop_if_alias_ok = eq len_after_pop_if_alias, 7
     pop_if_empty_flag_ok = eq pop_if_empty_ok, 0
     pop_if_empty_value_ok = eq pop_if_empty, 0
+    pop_if_mut_keep_flag_ok = eq pop_if_mut_keep_ok, 0
+    pop_if_mut_keep_value_ok = eq pop_if_mut_keep, 0
+    len_after_pop_if_mut_keep_ok = eq len_after_pop_if_mut_keep, 2
+    pop_if_mut_keep_tail_flag_ok = eq pop_if_mut_keep_tail_ok, 1
+    pop_if_mut_keep_tail_value_ok = eq pop_if_mut_keep_tail, 100
+    pop_if_mut_hit_flag_ok = eq pop_if_mut_hit_ok, 1
+    pop_if_mut_hit_value_ok = eq pop_if_mut_hit, 101
+    len_after_pop_if_mut_hit_ok = eq len_after_pop_if_mut_hit, 1
+    pop_if_mut_alias_flag_ok = eq pop_if_mut_alias_ok, 1
+    pop_if_mut_alias_value_ok = eq pop_if_mut_alias, 89
+    len_after_pop_if_mut_alias_ok = eq len_after_pop_if_mut_alias, 0
+    pop_if_mut_empty_flag_ok = eq pop_if_mut_empty_ok, 0
+    pop_if_mut_empty_value_ok = eq pop_if_mut_empty, 0
     cap_exact_ok = eq cap_exact, 9
     cap_ok = eq cap, 9
     front_ok = eq front, 44
@@ -300,6 +438,59 @@ L_ENTRY:
     back_try_value_ok = eq back_try, 44
     contains_55_ok = eq contains_55, 1
     contains_123_ok = eq contains_123, 0
+    slice_eq_match_ok = eq slice_eq_match, 1
+    slice_ne_mismatch_ok = eq slice_ne_mismatch, 1
+    slice_ne_len_ok = eq slice_ne_len, 1
+    vec_eq_slice_ok = eq vec_eq_slice, 1
+    vec_ne_slice_ok = eq vec_ne_slice, 1
+    slice_eq_vec_ok = eq slice_eq_vec, 1
+    slice_ne_vec_ok = eq slice_ne_vec, 1
+    vec_eq_vec_ok = eq vec_eq_vec, 1
+    vec_ne_vec_ok = eq vec_ne_vec, 1
+    eq_alias01 = and slice_eq_match_ok, slice_ne_mismatch_ok
+    eq_alias02 = and eq_alias01, slice_ne_len_ok
+    eq_alias03 = and eq_alias02, vec_eq_slice_ok
+    eq_alias04 = and eq_alias03, vec_ne_slice_ok
+    eq_alias05 = and eq_alias04, slice_eq_vec_ok
+    eq_alias06 = and eq_alias05, slice_ne_vec_ok
+    eq_alias07 = and eq_alias06, vec_eq_vec_ok
+    eq_alias_ok = and eq_alias07, vec_ne_vec_ok
+    vec_hash_eq = eq slice_hash, vec_hash
+    vec_hash_diff = ne vec_hash, vec_mismatch_hash
+    hash_alias_ok = and vec_hash_eq, vec_hash_diff
+    slice_cmp_equal_ok = eq slice_cmp_equal, 0
+    slice_cmp_less_item_ok = eq slice_cmp_less_item, -1
+    slice_cmp_greater_item_ok = eq slice_cmp_greater_item, 1
+    slice_cmp_shorter_ok = eq slice_cmp_shorter, -1
+    slice_lt_item_ok = eq slice_lt_item, 1
+    slice_le_equal_ok = eq slice_le_equal, 1
+    slice_gt_item_ok = eq slice_gt_item, 1
+    slice_ge_equal_ok = eq slice_ge_equal, 1
+    vec_cmp_slice_less_ok = eq vec_cmp_slice_less, -1
+    slice_cmp_vec_greater_ok = eq slice_cmp_vec_greater, 1
+    vec_cmp_equal_ok = eq vec_cmp_equal, 0
+    vec_cmp_shorter_ok = eq vec_cmp_shorter, -1
+    vec_lt_shorter_ok = eq vec_lt_shorter, 1
+    vec_le_equal_ok = eq vec_le_equal, 1
+    vec_gt_item_ok = eq vec_gt_item, 1
+    vec_ge_equal_ok = eq vec_ge_equal, 1
+    cmp_alias01 = and slice_cmp_equal_ok, slice_cmp_less_item_ok
+    cmp_alias02 = and cmp_alias01, slice_cmp_greater_item_ok
+    cmp_alias03 = and cmp_alias02, slice_cmp_shorter_ok
+    cmp_alias04 = and cmp_alias03, slice_lt_item_ok
+    cmp_alias05 = and cmp_alias04, slice_le_equal_ok
+    cmp_alias06 = and cmp_alias05, slice_gt_item_ok
+    cmp_alias07 = and cmp_alias06, slice_ge_equal_ok
+    cmp_alias08 = and cmp_alias07, vec_cmp_slice_less_ok
+    cmp_alias09 = and cmp_alias08, slice_cmp_vec_greater_ok
+    cmp_alias10 = and cmp_alias09, vec_cmp_equal_ok
+    cmp_alias11 = and cmp_alias10, vec_cmp_shorter_ok
+    cmp_alias12 = and cmp_alias11, vec_lt_shorter_ok
+    cmp_alias13 = and cmp_alias12, vec_le_equal_ok
+    cmp_alias14 = and cmp_alias13, vec_gt_item_ok
+    cmp_alias15 = and cmp_alias14, vec_ge_equal_ok
+    cmp_alias16 = and cmp_alias15, eq_alias_ok
+    cmp_alias_ok = and cmp_alias16, hash_alias_ok
     starts_match_ok = eq starts_ok, 1
     ends_match_ok = eq ends_ok, 1
     starts_miss_ok = eq starts_miss, 0
@@ -369,8 +560,24 @@ L_ENTRY:
     ok16 = and ok15, pop_if_hit_flag_ok
     ok17 = and ok16, pop_if_hit_value_ok
     ok18 = and ok17, len_after_pop_if_hit_ok
+    pop_if_alias01 = and pop_if_alias_flag_ok, pop_if_alias_value_ok
+    pop_if_alias_all = and pop_if_alias01, len_after_pop_if_alias_ok
+    pop_if_mut01 = and pop_if_mut_keep_flag_ok, pop_if_mut_keep_value_ok
+    pop_if_mut02 = and pop_if_mut01, len_after_pop_if_mut_keep_ok
+    pop_if_mut03 = and pop_if_mut02, pop_if_mut_keep_tail_flag_ok
+    pop_if_mut04 = and pop_if_mut03, pop_if_mut_keep_tail_value_ok
+    pop_if_mut05 = and pop_if_mut04, pop_if_mut_hit_flag_ok
+    pop_if_mut06 = and pop_if_mut05, pop_if_mut_hit_value_ok
+    pop_if_mut07 = and pop_if_mut06, len_after_pop_if_mut_hit_ok
+    pop_if_mut08 = and pop_if_mut07, pop_if_mut_alias_flag_ok
+    pop_if_mut09 = and pop_if_mut08, pop_if_mut_alias_value_ok
+    pop_if_mut10 = and pop_if_mut09, len_after_pop_if_mut_alias_ok
+    pop_if_mut11 = and pop_if_mut10, pop_if_mut_empty_flag_ok
+    pop_if_mut_all = and pop_if_mut11, pop_if_mut_empty_value_ok
+    pop_if_extra01 = and pop_if_empty_value_ok, pop_if_alias_all
+    pop_if_extra_ok = and pop_if_extra01, pop_if_mut_all
     ok19 = and ok18, pop_if_empty_flag_ok
-    ok20 = and ok19, pop_if_empty_value_ok
+    ok20 = and ok19, pop_if_extra_ok
     ok21 = and ok20, cap_exact_ok
     ok22 = and ok21, cap_ok
     ok23 = and ok22, front_ok
@@ -383,7 +590,8 @@ L_ENTRY:
     ok30 = and ok29, contains_123_ok
     pattern01 = and starts_match_ok, ends_match_ok
     pattern02 = and pattern01, starts_miss_ok
-    pattern_ok = and pattern02, ends_long_miss_ok
+    pattern03 = and pattern02, ends_long_miss_ok
+    pattern_ok = and pattern03, cmp_alias_ok
     strip01 = and strip_prefix_flag_ok, strip_suffix_flag_ok
     strip02 = and strip01, strip_prefix_miss_flag_ok
     strip03 = and strip02, strip_prefix_tail_len_ok
@@ -453,9 +661,27 @@ L_ENTRY:
     !pop_if_hit_ok
     !pop_if_hit
     !len_after_pop_if_hit
-    !pop_if_empty_vec
+    !pop_if_alias_ok
+    !pop_if_alias
+    !len_after_pop_if_alias
+    EXPAND VEC_FREE pop_if_empty_vec
     !pop_if_empty_ok
     !pop_if_empty
+    !pop_if_mut_keep_ok
+    !pop_if_mut_keep
+    !len_after_pop_if_mut_keep
+    !pop_if_mut_keep_tail_ok
+    !pop_if_mut_keep_tail
+    !pop_if_mut_hit_ok
+    !pop_if_mut_hit
+    !len_after_pop_if_mut_hit
+    !pop_if_mut_alias_ok
+    !pop_if_mut_alias
+    !len_after_pop_if_mut_alias
+    EXPAND VEC_FREE pop_if_mut_vec
+    EXPAND VEC_FREE pop_if_mut_empty_vec
+    !pop_if_mut_empty_ok
+    !pop_if_mut_empty
     !cap_exact
     !cap
     !front
@@ -466,6 +692,34 @@ L_ENTRY:
     !back_try
     !contains_55
     !contains_123
+    !slice_eq_match
+    !slice_ne_mismatch
+    !slice_ne_len
+    !vec_eq_slice
+    !vec_ne_slice
+    !slice_eq_vec
+    !slice_ne_vec
+    !vec_eq_vec
+    !vec_ne_vec
+    !slice_hash
+    !vec_hash
+    !vec_mismatch_hash
+    !slice_cmp_equal
+    !slice_cmp_less_item
+    !slice_cmp_greater_item
+    !slice_cmp_shorter
+    !slice_lt_item
+    !slice_le_equal
+    !slice_gt_item
+    !slice_ge_equal
+    !vec_cmp_slice_less
+    !slice_cmp_vec_greater
+    !vec_cmp_equal
+    !vec_cmp_shorter
+    !vec_lt_shorter
+    !vec_le_equal
+    !vec_gt_item
+    !vec_ge_equal
     !starts_ok
     !ends_ok
     !starts_miss
@@ -550,8 +804,40 @@ L_ENTRY:
     !pop_if_hit_flag_ok
     !pop_if_hit_value_ok
     !len_after_pop_if_hit_ok
+    !pop_if_alias_flag_ok
+    !pop_if_alias_value_ok
+    !len_after_pop_if_alias_ok
     !pop_if_empty_flag_ok
     !pop_if_empty_value_ok
+    !pop_if_mut_keep_flag_ok
+    !pop_if_mut_keep_value_ok
+    !len_after_pop_if_mut_keep_ok
+    !pop_if_mut_keep_tail_flag_ok
+    !pop_if_mut_keep_tail_value_ok
+    !pop_if_mut_hit_flag_ok
+    !pop_if_mut_hit_value_ok
+    !len_after_pop_if_mut_hit_ok
+    !pop_if_mut_alias_flag_ok
+    !pop_if_mut_alias_value_ok
+    !len_after_pop_if_mut_alias_ok
+    !pop_if_mut_empty_flag_ok
+    !pop_if_mut_empty_value_ok
+    !pop_if_alias01
+    !pop_if_alias_all
+    !pop_if_mut01
+    !pop_if_mut02
+    !pop_if_mut03
+    !pop_if_mut04
+    !pop_if_mut05
+    !pop_if_mut06
+    !pop_if_mut07
+    !pop_if_mut08
+    !pop_if_mut09
+    !pop_if_mut10
+    !pop_if_mut11
+    !pop_if_mut_all
+    !pop_if_extra01
+    !pop_if_extra_ok
     !cap_exact_ok
     !cap_ok
     !front_ok
@@ -562,6 +848,59 @@ L_ENTRY:
     !back_try_value_ok
     !contains_55_ok
     !contains_123_ok
+    !slice_eq_match_ok
+    !slice_ne_mismatch_ok
+    !slice_ne_len_ok
+    !vec_eq_slice_ok
+    !vec_ne_slice_ok
+    !slice_eq_vec_ok
+    !slice_ne_vec_ok
+    !vec_eq_vec_ok
+    !vec_ne_vec_ok
+    !eq_alias01
+    !eq_alias02
+    !eq_alias03
+    !eq_alias04
+    !eq_alias05
+    !eq_alias06
+    !eq_alias07
+    !eq_alias_ok
+    !vec_hash_eq
+    !vec_hash_diff
+    !hash_alias_ok
+    !slice_cmp_equal_ok
+    !slice_cmp_less_item_ok
+    !slice_cmp_greater_item_ok
+    !slice_cmp_shorter_ok
+    !slice_lt_item_ok
+    !slice_le_equal_ok
+    !slice_gt_item_ok
+    !slice_ge_equal_ok
+    !vec_cmp_slice_less_ok
+    !slice_cmp_vec_greater_ok
+    !vec_cmp_equal_ok
+    !vec_cmp_shorter_ok
+    !vec_lt_shorter_ok
+    !vec_le_equal_ok
+    !vec_gt_item_ok
+    !vec_ge_equal_ok
+    !cmp_alias01
+    !cmp_alias02
+    !cmp_alias03
+    !cmp_alias04
+    !cmp_alias05
+    !cmp_alias06
+    !cmp_alias07
+    !cmp_alias08
+    !cmp_alias09
+    !cmp_alias10
+    !cmp_alias11
+    !cmp_alias12
+    !cmp_alias13
+    !cmp_alias14
+    !cmp_alias15
+    !cmp_alias16
+    !cmp_alias_ok
     !starts_match_ok
     !ends_match_ok
     !starts_miss_ok
@@ -685,6 +1024,7 @@ L_ENTRY:
     !ok70
     !pattern01
     !pattern02
+    !pattern03
     !pattern_ok
     !strip01
     !strip02
@@ -697,10 +1037,20 @@ L_ENTRY:
     !suffix
     !miss_prefix
     !long_suffix
+    !eq_slice
+    !eq_mismatch_slice
+    !eq_short_slice
     !prefix_data
     !suffix_data
     !miss_prefix_data
     !long_suffix_data
+    !eq_data
+    !eq_mismatch_data
+    !eq_short_data
+    EXPAND VEC_FREE eq_vec_mismatch
+    EXPAND VEC_FREE eq_vec_short
+    EXPAND VEC_FREE eq_vec_same
+    EXPAND VEC_FREE eq_vec
     EXPAND VEC_FREE vec
     br ok -> L_OK, L_FAIL
 
@@ -709,6 +1059,338 @@ L_FAIL:
     panic(902)
 
 L_OK:
+    !ok
+    return
+
+@test "sa_std vec first last u64 aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 41
+    EXPAND VEC_PUSH_U64 vec, 99
+    EXPAND VEC_FIRST_U64 first_value, vec
+    EXPAND VEC_LAST_U64 last_value, vec
+
+    EXPAND VEC_WITH_CAPACITY_U64 empty_vec, 0
+    EXPAND VEC_FIRST_U64 empty_first, empty_vec
+    EXPAND VEC_LAST_U64 empty_last, empty_vec
+
+    first_ok = eq first_value, 41
+    last_ok = eq last_value, 99
+    empty_first_ok = eq empty_first, 0
+    empty_last_ok = eq empty_last, 0
+    ok01 = and first_ok, last_ok
+    ok02 = and ok01, empty_first_ok
+    ok = and ok02, empty_last_ok
+
+    !first_value
+    !last_value
+    !empty_first
+    !empty_last
+    !first_ok
+    !last_ok
+    !empty_first_ok
+    !empty_last_ok
+    !ok01
+    !ok02
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FIRST_LAST_U64_OK, L_VEC_FIRST_LAST_U64_FAIL
+
+L_VEC_FIRST_LAST_U64_FAIL:
+    !ok
+    panic(902)
+
+L_VEC_FIRST_LAST_U64_OK:
+    !ok
+    return
+
+@test "sa_std vec split first last aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_SPLIT_FIRST_U64 first_ok, first_value, first_rest, vec
+    EXPAND SLICE_GET_LEN first_rest_len, first_rest
+    EXPAND SLICE_FIRST_U64 first_rest_first, first_rest
+    EXPAND VEC_SPLIT_LAST_U64 last_ok, last_value, last_rest, vec
+    EXPAND SLICE_GET_LEN last_rest_len, last_rest
+    EXPAND SLICE_LAST_U64 last_rest_last, last_rest
+    EXPAND VEC_SPLIT_FIRST_MUT_U64 first_mut_ok, first_mut_ptr, first_mut_rest, vec
+    store first_mut_ptr+0, 11 as u64
+    EXPAND VEC_TRY_GET_U64 first_after_ok, first_after, vec, 0
+    EXPAND SLICE_GET_LEN first_mut_rest_len, first_mut_rest
+    EXPAND VEC_SPLIT_LAST_MUT_U64 last_mut_ok, last_mut_ptr, last_mut_rest, vec
+    store last_mut_ptr+0, 33 as u64
+    EXPAND VEC_TRY_GET_U64 last_after_ok, last_after, vec, 2
+    EXPAND SLICE_GET_LEN last_mut_rest_len, last_mut_rest
+    EXPAND VEC_WITH_CAPACITY_U64 empty_vec, 0
+    EXPAND VEC_SPLIT_FIRST_U64 empty_first_ok, empty_first_value, empty_first_rest, empty_vec
+    EXPAND SLICE_GET_LEN empty_first_rest_len, empty_first_rest
+    EXPAND VEC_SPLIT_LAST_MUT_U64 empty_last_mut_ok, empty_last_mut_ptr, empty_last_mut_rest, empty_vec
+    EXPAND SLICE_GET_LEN empty_last_mut_rest_len, empty_last_mut_rest
+
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first_value, 10
+    first_rest_len_ok = eq first_rest_len, 2
+    first_rest_first_ok = eq first_rest_first, 20
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last_value, 30
+    last_rest_len_ok = eq last_rest_len, 2
+    last_rest_last_ok = eq last_rest_last, 20
+    first_mut_flag_ok = eq first_mut_ok, 1
+    first_after_flag_ok = eq first_after_ok, 1
+    first_after_value_ok = eq first_after, 11
+    first_mut_rest_len_ok = eq first_mut_rest_len, 2
+    last_mut_flag_ok = eq last_mut_ok, 1
+    last_after_flag_ok = eq last_after_ok, 1
+    last_after_value_ok = eq last_after, 33
+    last_mut_rest_len_ok = eq last_mut_rest_len, 2
+    empty_first_flag_ok = eq empty_first_ok, 0
+    empty_first_value_ok = eq empty_first_value, 0
+    empty_first_rest_len_ok = eq empty_first_rest_len, 0
+    empty_last_mut_flag_ok = eq empty_last_mut_ok, 0
+    empty_last_mut_rest_len_ok = eq empty_last_mut_rest_len, 0
+    ok01 = and first_flag_ok, first_value_ok
+    ok02 = and ok01, first_rest_len_ok
+    ok03 = and ok02, first_rest_first_ok
+    ok04 = and ok03, last_flag_ok
+    ok05 = and ok04, last_value_ok
+    ok06 = and ok05, last_rest_len_ok
+    ok07 = and ok06, last_rest_last_ok
+    ok08 = and ok07, first_mut_flag_ok
+    ok09 = and ok08, first_after_flag_ok
+    ok10 = and ok09, first_after_value_ok
+    ok11 = and ok10, first_mut_rest_len_ok
+    ok12 = and ok11, last_mut_flag_ok
+    ok13 = and ok12, last_after_flag_ok
+    ok14 = and ok13, last_after_value_ok
+    ok15 = and ok14, last_mut_rest_len_ok
+    ok16 = and ok15, empty_first_flag_ok
+    ok17 = and ok16, empty_first_value_ok
+    ok18 = and ok17, empty_first_rest_len_ok
+    ok19 = and ok18, empty_last_mut_flag_ok
+    ok = and ok19, empty_last_mut_rest_len_ok
+    !first_ok
+    !first_value
+    !first_rest
+    !first_rest_len
+    !first_rest_first
+    !last_ok
+    !last_value
+    !last_rest
+    !last_rest_len
+    !last_rest_last
+    !first_mut_ok
+    !first_mut_ptr
+    !first_mut_rest
+    !first_after_ok
+    !first_after
+    !first_mut_rest_len
+    !last_mut_ok
+    !last_mut_ptr
+    !last_mut_rest
+    !last_after_ok
+    !last_after
+    !last_mut_rest_len
+    EXPAND VEC_FREE empty_vec
+    !empty_first_ok
+    !empty_first_value
+    !empty_first_rest
+    !empty_first_rest_len
+    !empty_last_mut_ok
+    !empty_last_mut_ptr
+    !empty_last_mut_rest
+    !empty_last_mut_rest_len
+    EXPAND VEC_FREE vec
+    !first_flag_ok
+    !first_value_ok
+    !first_rest_len_ok
+    !first_rest_first_ok
+    !last_flag_ok
+    !last_value_ok
+    !last_rest_len_ok
+    !last_rest_last_ok
+    !first_mut_flag_ok
+    !first_after_flag_ok
+    !first_after_value_ok
+    !first_mut_rest_len_ok
+    !last_mut_flag_ok
+    !last_after_flag_ok
+    !last_after_value_ok
+    !last_mut_rest_len_ok
+    !empty_first_flag_ok
+    !empty_first_value_ok
+    !empty_first_rest_len_ok
+    !empty_last_mut_flag_ok
+    !empty_last_mut_rest_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    br ok -> L_VEC_SPLIT_ALIAS_OK, L_VEC_SPLIT_ALIAS_FAIL
+
+L_VEC_SPLIT_ALIAS_FAIL:
+    !ok
+    panic(937)
+
+L_VEC_SPLIT_ALIAS_OK:
+    !ok
+    return
+
+@test "sa_std vec unchecked aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 70
+    EXPAND VEC_PUSH_U64 vec, 80
+    EXPAND VEC_GET_UNCHECKED_U64 unchecked_value, vec, 1
+    EXPAND VEC_GET_UNCHECKED_MUT_PTR_U64 unchecked_ptr, vec, 0
+    store unchecked_ptr+0, 71 as u64
+    EXPAND VEC_TRY_GET_U64 first_ok, first_value, vec, 0
+    EXPAND VEC_LEN len_after, vec
+    unchecked_value_ok = eq unchecked_value, 80
+    unchecked_ptr_ok = ne unchecked_ptr, 0
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first_value, 71
+    len_ok = eq len_after, 2
+    ok01 = and unchecked_value_ok, unchecked_ptr_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok = and ok03, len_ok
+    !unchecked_value
+    !unchecked_ptr
+    !first_ok
+    !first_value
+    !len_after
+    EXPAND VEC_FREE vec
+    !unchecked_value_ok
+    !unchecked_ptr_ok
+    !first_flag_ok
+    !first_value_ok
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_VEC_UNCHECKED_ALIAS_OK, L_VEC_UNCHECKED_ALIAS_FAIL
+
+L_VEC_UNCHECKED_ALIAS_FAIL:
+    !ok
+    panic(938)
+
+L_VEC_UNCHECKED_ALIAS_OK:
+    !ok
+    return
+
+@test "sa_std vec extend trait aliases"():
+L_ENTRY:
+    src_data = alloc 16
+    store src_data+0, 20 as u64
+    store src_data+8, 30 as u64
+    src_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW src_slice, src_data, 2
+    EXPAND VEC_NEW vec
+    EXPAND VEC_EXTEND_ONE_U64 vec, 10
+    EXPAND VEC_EXTEND_REF_SLICE_U64 vec, src_slice
+    EXPAND VEC_EXTEND_ITER_U64 vec, src_slice
+    EXPAND VEC_FROM_ITER_U64 from_iter_vec, src_slice
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_LEN from_iter_len, from_iter_vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    EXPAND VEC_TRY_GET_U64 fifth_ok, fifth, vec, 4
+    EXPAND VEC_TRY_GET_U64 from_iter_first_ok, from_iter_first, from_iter_vec, 0
+    EXPAND VEC_TRY_GET_U64 from_iter_second_ok, from_iter_second, from_iter_vec, 1
+    len_ok = eq len, 5
+    from_iter_len_ok = eq from_iter_len, 2
+    first_value_ok = eq first, 10
+    second_value_ok = eq second, 20
+    third_value_ok = eq third, 30
+    fourth_value_ok = eq fourth, 20
+    fifth_value_ok = eq fifth, 30
+    from_iter_first_value_ok = eq from_iter_first, 20
+    from_iter_second_value_ok = eq from_iter_second, 30
+    ok01 = and len_ok, first_ok
+    ok02 = and ok01, from_iter_len_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_ok
+    ok09 = and ok08, fourth_value_ok
+    ok10 = and ok09, fifth_ok
+    ok11 = and ok10, fifth_value_ok
+    ok12 = and ok11, from_iter_first_ok
+    ok13 = and ok12, from_iter_first_value_ok
+    ok14 = and ok13, from_iter_second_ok
+    ok = and ok14, from_iter_second_value_ok
+    !len
+    !from_iter_len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !fifth_ok
+    !fifth
+    !from_iter_first_ok
+    !from_iter_first
+    !from_iter_second_ok
+    !from_iter_second
+    !len_ok
+    !from_iter_len_ok
+    !first_value_ok
+    !second_value_ok
+    !third_value_ok
+    !fourth_value_ok
+    !fifth_value_ok
+    !from_iter_first_value_ok
+    !from_iter_second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    EXPAND VEC_FREE from_iter_vec
+    EXPAND VEC_FREE vec
+    !src_slice
+    !src_data
+    br ok -> L_VEC_EXTEND_OK, L_VEC_EXTEND_FAIL
+
+L_VEC_EXTEND_FAIL:
+    !ok
+    panic(943)
+
+L_VEC_EXTEND_OK:
     !ok
     return
 
@@ -721,6 +1403,26 @@ L_ENTRY:
     EXPAND VEC_CAPACITY cap_after_resize, vec
     EXPAND VEC_AS_MUT_SLICE mut_slice, vec
     EXPAND SLICE_GET_LEN mut_slice_len, mut_slice
+    EXPAND VEC_AS_REF_SLICE as_ref_slice, vec
+    EXPAND SLICE_GET_LEN as_ref_slice_len, as_ref_slice
+    EXPAND VEC_AS_MUT_REF_SLICE as_mut_ref_slice, vec
+    EXPAND SLICE_GET_LEN as_mut_ref_slice_len, as_mut_ref_slice
+    EXPAND VEC_AS_REF_VEC_PTR as_ref_vec_ptr, vec
+    as_ref_vec_len = load as_ref_vec_ptr+Vec_len as u64
+    !as_ref_vec_ptr
+    EXPAND VEC_AS_MUT_VEC_PTR as_mut_vec_ptr, vec
+    as_mut_vec_len = load as_mut_vec_ptr+Vec_len as u64
+    !as_mut_vec_ptr
+    EXPAND VEC_DEREF_SLICE deref_slice, vec
+    EXPAND SLICE_GET_LEN deref_slice_len, deref_slice
+    EXPAND VEC_DEREF_MUT_SLICE deref_mut_slice, vec
+    EXPAND SLICE_GET_LEN deref_mut_slice_len, deref_mut_slice
+    EXPAND VEC_AS_PTR vec_data_ptr, vec
+    EXPAND VEC_AS_PTR_RANGE_U64 vec_range_start, vec_range_end, vec
+    EXPAND VEC_AS_MUT_PTR_RANGE_U64 vec_mut_range_start, vec_mut_range_end, vec
+    EXPAND SLICE_AS_PTR_RANGE_U64 slice_range_start, slice_range_end, mut_slice
+    EXPAND SLICE_AS_MUT_PTR_RANGE_U64 slice_mut_range_start, slice_mut_range_end, mut_slice
+    vec_range_expected_end = ptr_add vec_range_start, 40
     EXPAND VEC_SET_LEN vec, 3
     EXPAND VEC_LEN len_after_set_len, vec
     EXPAND VEC_SHRINK_TO_U64 vec, 2
@@ -739,6 +1441,27 @@ L_ENTRY:
 
     resize_cap_ok = eq cap_after_resize, 5
     mut_slice_len_ok = eq mut_slice_len, 5
+    as_ref_slice_len_ok = eq as_ref_slice_len, 5
+    as_mut_ref_slice_len_ok = eq as_mut_ref_slice_len, 5
+    as_ref_vec_len_ok = eq as_ref_vec_len, 5
+    as_mut_vec_len_ok = eq as_mut_vec_len, 5
+    deref_slice_len_ok = eq deref_slice_len, 5
+    deref_mut_slice_len_ok = eq deref_mut_slice_len, 5
+    vec_range_start_ok = eq vec_range_start, vec_data_ptr
+    vec_range_end_ok = eq vec_range_end, vec_range_expected_end
+    vec_mut_range_start_ok = eq vec_mut_range_start, vec_range_start
+    vec_mut_range_end_ok = eq vec_mut_range_end, vec_range_expected_end
+    slice_range_start_ok = eq slice_range_start, vec_range_start
+    slice_range_end_ok = eq slice_range_end, vec_range_expected_end
+    slice_mut_range_start_ok = eq slice_mut_range_start, vec_range_start
+    slice_mut_range_end_ok = eq slice_mut_range_end, vec_range_expected_end
+    ptr_range_ok01 = and vec_range_start_ok, vec_range_end_ok
+    ptr_range_ok02 = and ptr_range_ok01, vec_mut_range_start_ok
+    ptr_range_ok03 = and ptr_range_ok02, vec_mut_range_end_ok
+    ptr_range_ok04 = and ptr_range_ok03, slice_range_start_ok
+    ptr_range_ok05 = and ptr_range_ok04, slice_range_end_ok
+    ptr_range_ok06 = and ptr_range_ok05, slice_mut_range_start_ok
+    ptr_range_ok = and ptr_range_ok06, slice_mut_range_end_ok
     set_len_ok = eq len_after_set_len, 3
     shrink_to_ok = eq cap_after_shrink_to, 3
     try_shrink_to_flag_ok = eq try_shrink_to_ok, 1
@@ -753,22 +1476,49 @@ L_ENTRY:
     tail_flag_ok = eq tail_ok, 1
     tail_value_ok = eq tail_value, 30
     ok01 = and resize_cap_ok, mut_slice_len_ok
-    ok02 = and ok01, set_len_ok
-    ok03 = and ok02, shrink_to_ok
-    ok04 = and ok03, try_shrink_to_flag_ok
-    ok05 = and ok04, try_shrink_to_cap_ok
-    ok06 = and ok05, shrink_to_fit_ok
-    ok07 = and ok06, try_shrink_to_fit_flag_ok
-    ok08 = and ok07, try_shrink_to_fit_cap_ok
-    ok09 = and ok08, try_shrink_to_generic_flag_ok
-    ok10 = and ok09, try_shrink_to_generic_cap_ok
-    ok11 = and ok10, try_shrink_to_fit_generic_flag_ok
-    ok12 = and ok11, try_shrink_to_fit_generic_cap_ok
-    ok13 = and ok12, tail_flag_ok
-    ok = and ok13, tail_value_ok
+    ok02 = and ok01, as_ref_slice_len_ok
+    ok03 = and ok02, as_mut_ref_slice_len_ok
+    ok04 = and ok03, as_ref_vec_len_ok
+    ok05 = and ok04, as_mut_vec_len_ok
+    ok06 = and ok05, deref_slice_len_ok
+    ok06a = and ok06, deref_mut_slice_len_ok
+    ok06b = and ok06a, ptr_range_ok
+    ok07 = and ok06b, set_len_ok
+    ok08 = and ok07, shrink_to_ok
+    ok09 = and ok08, try_shrink_to_flag_ok
+    ok10 = and ok09, try_shrink_to_cap_ok
+    ok11 = and ok10, shrink_to_fit_ok
+    ok12 = and ok11, try_shrink_to_fit_flag_ok
+    ok13 = and ok12, try_shrink_to_fit_cap_ok
+    ok14 = and ok13, try_shrink_to_generic_flag_ok
+    ok15 = and ok14, try_shrink_to_generic_cap_ok
+    ok16 = and ok15, try_shrink_to_fit_generic_flag_ok
+    ok17 = and ok16, try_shrink_to_fit_generic_cap_ok
+    ok18 = and ok17, tail_flag_ok
+    ok = and ok18, tail_value_ok
     !cap_after_resize
     !mut_slice
     !mut_slice_len
+    !as_ref_slice
+    !as_ref_slice_len
+    !as_mut_ref_slice
+    !as_mut_ref_slice_len
+    !as_ref_vec_len
+    !as_mut_vec_len
+    !deref_slice
+    !deref_slice_len
+    !deref_mut_slice
+    !deref_mut_slice_len
+    !vec_data_ptr
+    !vec_range_start
+    !vec_range_end
+    !vec_mut_range_start
+    !vec_mut_range_end
+    !slice_range_start
+    !slice_range_end
+    !slice_mut_range_start
+    !slice_mut_range_end
+    !vec_range_expected_end
     !len_after_set_len
     !cap_after_shrink_to
     !try_shrink_to_ok
@@ -784,6 +1534,26 @@ L_ENTRY:
     !tail_value
     !resize_cap_ok
     !mut_slice_len_ok
+    !as_ref_slice_len_ok
+    !as_mut_ref_slice_len_ok
+    !as_mut_vec_len_ok
+    !deref_slice_len_ok
+    !deref_mut_slice_len_ok
+    !vec_range_start_ok
+    !vec_range_end_ok
+    !vec_mut_range_start_ok
+    !vec_mut_range_end_ok
+    !slice_range_start_ok
+    !slice_range_end_ok
+    !slice_mut_range_start_ok
+    !slice_mut_range_end_ok
+    !ptr_range_ok01
+    !ptr_range_ok02
+    !ptr_range_ok03
+    !ptr_range_ok04
+    !ptr_range_ok05
+    !ptr_range_ok06
+    !ptr_range_ok
     !set_len_ok
     !shrink_to_ok
     !try_shrink_to_flag_ok
@@ -797,12 +1567,15 @@ L_ENTRY:
     !try_shrink_to_fit_generic_cap_ok
     !tail_flag_ok
     !tail_value_ok
+    !as_ref_vec_len_ok
     !ok01
     !ok02
     !ok03
     !ok04
     !ok05
     !ok06
+    !ok06a
+    !ok06b
     !ok07
     !ok08
     !ok09
@@ -810,6 +1583,11 @@ L_ENTRY:
     !ok11
     !ok12
     !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
     EXPAND VEC_FREE vec
     br ok -> L_VEC_CAP_OK, L_VEC_CAP_FAIL
 
@@ -831,8 +1609,8 @@ L_ENTRY:
     EXPAND VEC_PUSH_U64 search_vec, 20
     EXPAND VEC_PUSH_U64 search_vec, 40
 
-    EXPAND VEC_TRY_BINARY_SEARCH_U64 vec_bs_hit_ok, vec_bs_hit_idx, search_vec, 20
-    EXPAND VEC_TRY_BINARY_SEARCH_U64 vec_bs_miss_ok, vec_bs_miss_idx, search_vec, 30
+    EXPAND VEC_BINARY_SEARCH_U64 vec_bs_hit_ok, vec_bs_hit_idx, search_vec, 20
+    EXPAND VEC_BINARY_SEARCH_U64 vec_bs_miss_ok, vec_bs_miss_idx, search_vec, 30
     EXPAND VEC_PARTITION_POINT_U64 vec_partition_idx, search_vec, @slice_partition_lt_30
     EXPAND VEC_LOWER_BOUND_U64 vec_lower_20_idx, search_vec, 20
     EXPAND VEC_LOWER_BOUND_U64 vec_lower_30_idx, search_vec, 30
@@ -1115,6 +1893,306 @@ L_VEC_RETAIN_FAIL:
     panic(912)
 
 L_VEC_RETAIN_OK:
+    !ok
+    return
+
+@test "sa_std vec peek_mut macros"():
+L_ENTRY:
+    EXPAND VEC_NEW empty_vec
+    EXPAND VEC_TRY_PEEK_MUT_U64 empty_ok, empty_ptr, empty_vec
+    EXPAND VEC_TRY_FIRST_MUT_U64 empty_first_ok, empty_first_ptr, empty_vec
+    EXPAND VEC_TRY_LAST_MUT_U64 empty_last_ok, empty_last_ptr, empty_vec
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_FIRST_MUT_U64 first_mut_ok, first_mut_ptr, vec
+    store first_mut_ptr+0, 11 as u64
+    EXPAND VEC_TRY_FIRST_U64 first_after_ok, first_after, vec
+    EXPAND VEC_LAST_MUT_U64 last_mut_ok, last_mut_ptr, vec
+    store last_mut_ptr+0, 77 as u64
+    EXPAND VEC_TRY_LAST_U64 last_after_mut_ok, last_after_mut, vec
+    EXPAND VEC_TRY_PEEK_MUT_U64 peek_ok, peek_ptr, vec
+    store peek_ptr+0, 99 as u64
+    EXPAND VEC_TRY_FIRST_U64 first_final_ok, first_final, vec
+    EXPAND VEC_TRY_LAST_U64 last_ok, last, vec
+    EXPAND VEC_LEN len_after, vec
+
+    empty_flag_ok = eq empty_ok, 0
+    empty_ptr_ok = eq empty_ptr, 0
+    empty_first_flag_ok = eq empty_first_ok, 0
+    empty_first_ptr_ok = eq empty_first_ptr, 0
+    empty_last_flag_ok = eq empty_last_ok, 0
+    empty_last_ptr_ok = eq empty_last_ptr, 0
+    first_mut_flag_ok = eq first_mut_ok, 1
+    first_mut_ptr_ok = ne first_mut_ptr, 0
+    first_after_flag_ok = eq first_after_ok, 1
+    first_after_value_ok = eq first_after, 11
+    last_mut_flag_ok = eq last_mut_ok, 1
+    last_mut_ptr_ok = ne last_mut_ptr, 0
+    last_after_mut_flag_ok = eq last_after_mut_ok, 1
+    last_after_mut_value_ok = eq last_after_mut, 77
+    peek_flag_ok = eq peek_ok, 1
+    peek_ptr_ok = ne peek_ptr, 0
+    first_final_flag_ok = eq first_final_ok, 1
+    first_final_value_ok = eq first_final, 11
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last, 99
+    len_ok = eq len_after, 3
+    ok01 = and empty_flag_ok, empty_ptr_ok
+    ok02 = and ok01, empty_first_flag_ok
+    ok03 = and ok02, empty_first_ptr_ok
+    ok04 = and ok03, empty_last_flag_ok
+    ok05 = and ok04, empty_last_ptr_ok
+    ok06 = and ok05, first_mut_flag_ok
+    ok07 = and ok06, first_mut_ptr_ok
+    ok08 = and ok07, first_after_flag_ok
+    ok09 = and ok08, first_after_value_ok
+    ok10 = and ok09, last_mut_flag_ok
+    ok11 = and ok10, last_mut_ptr_ok
+    ok12 = and ok11, last_after_mut_flag_ok
+    ok13 = and ok12, last_after_mut_value_ok
+    ok14 = and ok13, peek_flag_ok
+    ok15 = and ok14, peek_ptr_ok
+    ok16 = and ok15, first_final_flag_ok
+    ok17 = and ok16, first_final_value_ok
+    ok18 = and ok17, last_flag_ok
+    ok19 = and ok18, last_value_ok
+    ok = and ok19, len_ok
+    !empty_ok
+    !empty_ptr
+    !empty_first_ok
+    !empty_first_ptr
+    !empty_last_ok
+    !empty_last_ptr
+    !first_mut_ok
+    !first_mut_ptr
+    !first_after_ok
+    !first_after
+    !last_mut_ok
+    !last_mut_ptr
+    !last_after_mut_ok
+    !last_after_mut
+    !peek_ok
+    !peek_ptr
+    !first_final_ok
+    !first_final
+    !last_ok
+    !last
+    !len_after
+    !empty_flag_ok
+    !empty_ptr_ok
+    !empty_first_flag_ok
+    !empty_first_ptr_ok
+    !empty_last_flag_ok
+    !empty_last_ptr_ok
+    !first_mut_flag_ok
+    !first_mut_ptr_ok
+    !first_after_flag_ok
+    !first_after_value_ok
+    !last_mut_flag_ok
+    !last_mut_ptr_ok
+    !last_after_mut_flag_ok
+    !last_after_mut_value_ok
+    !peek_flag_ok
+    !peek_ptr_ok
+    !first_final_flag_ok
+    !first_final_value_ok
+    !last_flag_ok
+    !last_value_ok
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_PEEK_MUT_OK, L_VEC_PEEK_MUT_FAIL
+
+L_VEC_PEEK_MUT_FAIL:
+    !ok
+    panic(914)
+
+L_VEC_PEEK_MUT_OK:
+    !ok
+    return
+
+@test "sa_std vec peek_mut aliases"():
+L_ENTRY:
+    EXPAND VEC_NEW empty_vec
+    EXPAND VEC_PEEK_MUT_U64 empty_u64_ok, empty_u64_ptr, empty_vec
+    EXPAND VEC_PEEK_MUT empty_generic_ok, empty_generic_ptr, empty_vec, 8
+
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PEEK_MUT_U64 peek_u64_ok, peek_u64_ptr, vec
+    store peek_u64_ptr+0, 21 as u64
+    EXPAND VEC_TRY_LAST_U64 last_after_u64_ok, last_after_u64, vec
+    EXPAND VEC_PEEK_MUT peek_generic_ok, peek_generic_ptr, vec, 8
+    store peek_generic_ptr+0, 22 as u64
+    EXPAND VEC_TRY_LAST_U64 last_after_generic_ok, last_after_generic, vec
+    EXPAND VEC_TRY_FIRST_U64 first_ok, first, vec
+    EXPAND VEC_LEN len_after, vec
+
+    empty_u64_flag_ok = eq empty_u64_ok, 0
+    empty_u64_ptr_ok = eq empty_u64_ptr, 0
+    empty_generic_flag_ok = eq empty_generic_ok, 0
+    empty_generic_ptr_ok = eq empty_generic_ptr, 0
+    peek_u64_flag_ok = eq peek_u64_ok, 1
+    peek_u64_ptr_ok = ne peek_u64_ptr, 0
+    last_after_u64_flag_ok = eq last_after_u64_ok, 1
+    last_after_u64_value_ok = eq last_after_u64, 21
+    peek_generic_flag_ok = eq peek_generic_ok, 1
+    peek_generic_ptr_ok = ne peek_generic_ptr, 0
+    last_after_generic_flag_ok = eq last_after_generic_ok, 1
+    last_after_generic_value_ok = eq last_after_generic, 22
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 10
+    len_ok = eq len_after, 2
+    ok01 = and empty_u64_flag_ok, empty_u64_ptr_ok
+    ok02 = and ok01, empty_generic_flag_ok
+    ok03 = and ok02, empty_generic_ptr_ok
+    ok04 = and ok03, peek_u64_flag_ok
+    ok05 = and ok04, peek_u64_ptr_ok
+    ok06 = and ok05, last_after_u64_flag_ok
+    ok07 = and ok06, last_after_u64_value_ok
+    ok08 = and ok07, peek_generic_flag_ok
+    ok09 = and ok08, peek_generic_ptr_ok
+    ok10 = and ok09, last_after_generic_flag_ok
+    ok11 = and ok10, last_after_generic_value_ok
+    ok12 = and ok11, first_flag_ok
+    ok13 = and ok12, first_value_ok
+    ok = and ok13, len_ok
+    !empty_u64_ok
+    !empty_u64_ptr
+    !empty_generic_ok
+    !empty_generic_ptr
+    !peek_u64_ok
+    !peek_u64_ptr
+    !last_after_u64_ok
+    !last_after_u64
+    !peek_generic_ok
+    !peek_generic_ptr
+    !last_after_generic_ok
+    !last_after_generic
+    !first_ok
+    !first
+    !len_after
+    !empty_u64_flag_ok
+    !empty_u64_ptr_ok
+    !empty_generic_flag_ok
+    !empty_generic_ptr_ok
+    !peek_u64_flag_ok
+    !peek_u64_ptr_ok
+    !last_after_u64_flag_ok
+    !last_after_u64_value_ok
+    !peek_generic_flag_ok
+    !peek_generic_ptr_ok
+    !last_after_generic_flag_ok
+    !last_after_generic_value_ok
+    !first_flag_ok
+    !first_value_ok
+    !len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_PEEK_MUT_ALIAS_OK, L_VEC_PEEK_MUT_ALIAS_FAIL
+
+L_VEC_PEEK_MUT_ALIAS_FAIL:
+    !ok
+    panic(915)
+
+L_VEC_PEEK_MUT_ALIAS_OK:
+    !ok
+    return
+
+@test "sa_std vec retain_mut macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_PUSH_U64 vec, 4
+    EXPAND VEC_RETAIN_MUT_U64 retain_mut_len, vec, @vec_retain_mut_add_ten_keep_original_odd
+    EXPAND VEC_LEN len_after_retain_mut, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+
+    retain_len_ok = eq retain_mut_len, 2
+    len_after_ok = eq len_after_retain_mut, 2
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 11
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 13
+    third_flag_ok = eq third_ok, 0
+    third_value_ok = eq third, 0
+    ok01 = and retain_len_ok, len_after_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok = and ok06, third_value_ok
+    !retain_mut_len
+    !len_after_retain_mut
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !retain_len_ok
+    !len_after_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_RETAIN_MUT_OK, L_VEC_RETAIN_MUT_FAIL
+
+L_VEC_RETAIN_MUT_FAIL:
+    !ok
+    panic(913)
+
+L_VEC_RETAIN_MUT_OK:
     !ok
     return
 
@@ -1604,5 +2682,970 @@ L_VEC_DRAIN_SPLICE_FAIL:
     panic(917)
 
 L_VEC_DRAIN_SPLICE_OK:
+    !ok
+    return
+
+@test "vec stores vtable function pointer values"():
+L_ENTRY:
+    EXPAND VEC_NEW vec
+    false_fn = &VEC_FN_PTR_FALSE_VT
+    true_fn = &VEC_FN_PTR_TRUE_VT
+    EXPAND VEC_PUSH vec, false_fn, 8
+    EXPAND VEC_PUSH vec, true_fn, 8
+    EXPAND VEC_GET first_fn, vec, 0
+    EXPAND VEC_GET second_fn, vec, 1
+    first_call = load first_fn+0 as ptr
+    second_call = load second_fn+0 as ptr
+    first = call_indirect first_call(11)
+    second = call_indirect second_call(22)
+    first_ok = eq first, 0
+    second_ok = eq second, 1
+    ok = and first_ok, second_ok
+    !first_call
+    !second_call
+    !first
+    !second
+    !first_ok
+    !second_ok
+    !first_fn
+    !second_fn
+    !false_fn
+    !true_fn
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FN_PTR_OK, L_VEC_FN_PTR_FAIL
+
+L_VEC_FN_PTR_FAIL:
+    !ok
+    panic(918)
+
+L_VEC_FN_PTR_OK:
+    !ok
+    return
+
+@test "sa_std vec raw parts macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 11
+    EXPAND VEC_PUSH_U64 vec, 22
+    EXPAND VEC_AS_NON_NULL borrowed_nonnull, vec
+    EXPAND NONNULL_AS_PTR borrowed_ptr, borrowed_nonnull
+    borrowed_first = load borrowed_ptr+0 as u64
+    EXPAND VEC_LEN borrowed_vec_len, vec
+    EXPAND VEC_INTO_RAW_PARTS raw_ptr, raw_len, raw_cap, vec
+    raw_ptr_ok = ne raw_ptr, 0
+    raw_len_ok = eq raw_len, 2
+    raw_cap_ok = uge raw_cap, 2
+    EXPAND VEC_FROM_RAW_PARTS rebound, raw_ptr, raw_len, raw_cap
+    EXPAND VEC_GET_U64 first, rebound, 0
+    EXPAND VEC_GET_U64 second, rebound, 1
+    borrowed_ptr_ok = ne borrowed_ptr, 0
+    borrowed_first_ok = eq borrowed_first, 11
+    borrowed_len_ok = eq borrowed_vec_len, 2
+    first_ok = eq first, 11
+    second_ok = eq second, 22
+    ok01 = and raw_ptr_ok, raw_len_ok
+    ok02 = and ok01, raw_cap_ok
+    ok03 = and ok02, borrowed_ptr_ok
+    ok04 = and ok03, borrowed_first_ok
+    ok05 = and ok04, borrowed_len_ok
+    ok06 = and ok05, first_ok
+    ok = and ok06, second_ok
+    !borrowed_ptr
+    !borrowed_first
+    !borrowed_vec_len
+    !raw_len
+    !raw_cap
+    !first
+    !second
+    !borrowed_ptr_ok
+    !borrowed_first_ok
+    !borrowed_len_ok
+    !raw_ptr_ok
+    !raw_len_ok
+    !raw_cap_ok
+    !first_ok
+    !second_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !borrowed_nonnull
+    EXPAND VEC_FREE rebound
+    br ok -> L_VEC_RAW_PARTS_OK, L_VEC_RAW_PARTS_FAIL
+
+L_VEC_RAW_PARTS_FAIL:
+    !ok
+    panic(919)
+
+L_VEC_RAW_PARTS_OK:
+    !ok
+    return
+
+@test "sa_std vec NonNull parts macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 33
+    EXPAND VEC_PUSH_U64 vec, 44
+    EXPAND VEC_INTO_PARTS parts, parts_len, parts_cap, vec
+    EXPAND NONNULL_AS_PTR parts_ptr, parts
+    parts_ptr_ok = ne parts_ptr, 0
+    parts_len_ok = eq parts_len, 2
+    parts_cap_ok = uge parts_cap, 2
+    EXPAND VEC_FROM_PARTS rebound, parts, parts_len, parts_cap
+    EXPAND VEC_TRY_GET_U64 first_ok, first, rebound, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, rebound, 1
+    first_value_ok = eq first, 33
+    second_value_ok = eq second, 44
+    ok01 = and parts_ptr_ok, parts_len_ok
+    ok02 = and ok01, parts_cap_ok
+    ok03 = and ok02, first_ok
+    ok04 = and ok03, first_value_ok
+    ok05 = and ok04, second_ok
+    ok = and ok05, second_value_ok
+    !parts_ptr
+    !parts_len
+    !parts_cap
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !parts_ptr_ok
+    !parts_len_ok
+    !parts_cap_ok
+    !first_value_ok
+    !second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    EXPAND VEC_FREE rebound
+    br ok -> L_VEC_NONNULL_PARTS_OK, L_VEC_NONNULL_PARTS_FAIL
+
+L_VEC_NONNULL_PARTS_FAIL:
+    !ok
+    panic(922)
+
+L_VEC_NONNULL_PARTS_OK:
+    !ok
+    return
+
+@test "sa_std vec mut return macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_MUT_U64 push_slot, vec, 20
+    store push_slot+0, 25 as u64
+    !push_slot
+    EXPAND VEC_INSERT_MUT_U64 insert_ok, insert_slot, vec, 1, 15
+    insert_ptr_ok = ne insert_slot, 0
+    store insert_slot+0, 17 as u64
+    !insert_slot
+    EXPAND VEC_TRY_INSERT_MUT_U64 miss_ok, miss_slot, vec, 99, 99
+    miss_ptr_ok = eq miss_slot, 0
+    !miss_slot
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    insert_flag_ok = eq insert_ok, 1
+    miss_flag_ok = eq miss_ok, 0
+    len_ok = eq len, 3
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 10
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 17
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 25
+    ok01 = and insert_flag_ok, insert_ptr_ok
+    ok02 = and ok01, miss_flag_ok
+    ok03 = and ok02, miss_ptr_ok
+    ok04 = and ok03, len_ok
+    ok05 = and ok04, first_flag_ok
+    ok06 = and ok05, first_value_ok
+    ok07 = and ok06, second_flag_ok
+    ok08 = and ok07, second_value_ok
+    ok09 = and ok08, third_flag_ok
+    ok = and ok09, third_value_ok
+    !insert_ok
+    !miss_ok
+    !len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !insert_ptr_ok
+    !miss_ptr_ok
+    !insert_flag_ok
+    !miss_flag_ok
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_MUT_RETURN_OK, L_VEC_MUT_RETURN_FAIL
+
+L_VEC_MUT_RETURN_FAIL:
+    !ok
+    panic(920)
+
+L_VEC_MUT_RETURN_OK:
+    !ok
+    return
+
+@test "sa_std vec from_fn macros"():
+L_ENTRY:
+    EXPAND VEC_FROM_FN_U64 vec, 4, @vec_from_fn_double
+    EXPAND VEC_FROM_FN_U64 empty_vec, 0, @vec_from_fn_double
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_LEN empty_len, empty_vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    len_ok = eq len, 4
+    empty_len_ok = eq empty_len, 0
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 0
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 2
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 4
+    fourth_flag_ok = eq fourth_ok, 1
+    fourth_value_ok = eq fourth, 6
+    ok01 = and len_ok, empty_len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_flag_ok
+    ok = and ok08, fourth_value_ok
+    !len
+    !empty_len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !len_ok
+    !empty_len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FROM_FN_OK, L_VEC_FROM_FN_FAIL
+
+L_VEC_FROM_FN_FAIL:
+    !ok
+    panic(921)
+
+L_VEC_FROM_FN_OK:
+    !ok
+    return
+
+@test "sa_std vec from_elem macros"():
+L_ENTRY:
+    EXPAND VEC_FROM_ELEM_U64 vec, 42, 3
+    EXPAND VEC_FROM_ELEM_U64 empty_vec, 99, 0
+    EXPAND VEC_LEN len, vec
+    EXPAND VEC_LEN empty_len, empty_vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    len_ok = eq len, 3
+    empty_len_ok = eq empty_len, 0
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 42
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 42
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 42
+    fourth_flag_ok = eq fourth_ok, 0
+    fourth_value_ok = eq fourth, 0
+    ok01 = and len_ok, empty_len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, second_flag_ok
+    ok05 = and ok04, second_value_ok
+    ok06 = and ok05, third_flag_ok
+    ok07 = and ok06, third_value_ok
+    ok08 = and ok07, fourth_flag_ok
+    ok = and ok08, fourth_value_ok
+    !len
+    !empty_len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !len_ok
+    !empty_len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    EXPAND VEC_FREE empty_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_FROM_ELEM_OK, L_VEC_FROM_ELEM_FAIL
+
+L_VEC_FROM_ELEM_FAIL:
+    !ok
+    panic(922)
+
+L_VEC_FROM_ELEM_OK:
+    !ok
+    return
+
+@test "sa_std vec leak macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 7
+    EXPAND VEC_PUSH_U64 vec, 9
+    EXPAND VEC_LEAK leaked, vec
+    EXPAND SLICE_GET_LEN leaked_len, leaked
+    EXPAND SLICE_TRY_GET_U64 first_ok, first, leaked, 0
+    EXPAND SLICE_TRY_GET_U64 second_ok, second, leaked, 1
+    EXPAND SLICE_GET_MUT_PTR_U64 second_ptr, leaked, 1
+    store second_ptr+0, 99 as u64
+    EXPAND SLICE_TRY_GET_U64 mutated_ok, mutated, leaked, 1
+    len_ok = eq leaked_len, 2
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 7
+    second_flag_ok = eq second_ok, 1
+    second_value_ok = eq second, 9
+    mutated_flag_ok = eq mutated_ok, 1
+    mutated_value_ok = eq mutated, 99
+    ok01 = and len_ok, first_flag_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, second_flag_ok
+    ok04 = and ok03, second_value_ok
+    ok05 = and ok04, mutated_flag_ok
+    ok = and ok05, mutated_value_ok
+    !leaked_len
+    !first_ok
+    !first
+    !second_ok
+    !second
+    !second_ptr
+    !mutated_ok
+    !mutated
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !second_flag_ok
+    !second_value_ok
+    !mutated_flag_ok
+    !mutated_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !leaked
+    br ok -> L_VEC_LEAK_OK, L_VEC_LEAK_FAIL
+
+L_VEC_LEAK_FAIL:
+    !ok
+    panic(923)
+
+L_VEC_LEAK_OK:
+    !ok
+    return
+
+@test "sa_std vec spare capacity macros"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 11
+    EXPAND VEC_PUSH_U64 vec, 22
+    EXPAND VEC_CAPACITY cap, vec
+    expected_spare_len = sub cap, 2
+    EXPAND VEC_SPARE_CAPACITY_MUT_U64 spare, vec
+    EXPAND SLICE_GET_LEN spare_len, spare
+    EXPAND SLICE_GET_MUT_PTR_U64 spare0, spare, 0
+    EXPAND SLICE_GET_MUT_PTR_U64 spare1, spare, 1
+    store spare0+0, 33 as u64
+    store spare1+0, 44 as u64
+    EXPAND VEC_SET_LEN vec, 4
+    EXPAND VEC_TRY_GET_U64 first_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 third_ok, third, vec, 2
+    EXPAND VEC_TRY_GET_U64 fourth_ok, fourth, vec, 3
+    EXPAND VEC_SPLIT_AT_SPARE_MUT_U64 init, spare_after, vec
+    EXPAND SLICE_GET_LEN init_len, init
+    EXPAND SLICE_GET_LEN spare_after_len, spare_after
+    expected_spare_after_len = sub cap, 4
+    EXPAND SLICE_GET_MUT_PTR_U64 init0, init, 0
+    store init0+0, 10 as u64
+    EXPAND VEC_TRY_GET_U64 mutated_ok, mutated, vec, 0
+    cap_ok = uge cap, 4
+    spare_len_ok = eq spare_len, expected_spare_len
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 11
+    third_flag_ok = eq third_ok, 1
+    third_value_ok = eq third, 33
+    fourth_flag_ok = eq fourth_ok, 1
+    fourth_value_ok = eq fourth, 44
+    init_len_ok = eq init_len, 4
+    spare_after_len_ok = eq spare_after_len, expected_spare_after_len
+    mutated_flag_ok = eq mutated_ok, 1
+    mutated_value_ok = eq mutated, 10
+    ok01 = and cap_ok, spare_len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, third_flag_ok
+    ok05 = and ok04, third_value_ok
+    ok06 = and ok05, fourth_flag_ok
+    ok07 = and ok06, fourth_value_ok
+    ok08 = and ok07, init_len_ok
+    ok09 = and ok08, spare_after_len_ok
+    ok10 = and ok09, mutated_flag_ok
+    ok = and ok10, mutated_value_ok
+    !cap
+    !expected_spare_len
+    !spare_len
+    !spare0
+    !spare1
+    !first_ok
+    !first
+    !third_ok
+    !third
+    !fourth_ok
+    !fourth
+    !init_len
+    !spare_after_len
+    !expected_spare_after_len
+    !init0
+    !mutated_ok
+    !mutated
+    !cap_ok
+    !spare_len_ok
+    !first_flag_ok
+    !first_value_ok
+    !third_flag_ok
+    !third_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !init_len_ok
+    !spare_after_len_ok
+    !mutated_flag_ok
+    !mutated_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !spare
+    !init
+    !spare_after
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_SPARE_OK, L_VEC_SPARE_FAIL
+
+L_VEC_SPARE_FAIL:
+    !ok
+    panic(924)
+
+L_VEC_SPARE_OK:
+    !ok
+    return
+
+@test "sa_std vec clone and from-slice macros"():
+L_VEC_CLONE_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 source, 3
+    EXPAND VEC_PUSH_U64 source, 11
+    EXPAND VEC_PUSH_U64 source, 22
+    EXPAND VEC_PUSH_U64 source, 33
+    EXPAND VEC_CLONE_U64 cloned, source
+    EXPAND VEC_WITH_CAPACITY_U64 clone_from_dst, 1
+    EXPAND VEC_PUSH_U64 clone_from_dst, 99
+    EXPAND VEC_CLONE_FROM_U64 clone_from_dst, source
+
+    slice_data = alloc 16
+    store slice_data+0, 44 as u64
+    store slice_data+8, 55 as u64
+    from_slice_view = alloc Slice_SIZE
+    EXPAND SLICE_NEW from_slice_view, slice_data, 2
+    EXPAND VEC_FROM_SLICE_U64 from_slice_vec, from_slice_view
+    EXPAND VEC_FROM_MUT_SLICE_U64 from_mut_slice_vec, from_slice_view
+    EXPAND VEC_FROM_ARRAY_U64 from_array_vec, from_slice_view
+    EXPAND VEC_FROM_MUT_ARRAY_U64 from_mut_array_vec, from_slice_view
+
+    EXPAND VEC_GET_MUT_U64 source_first_mut_ok, source_first_ptr, source, 0
+    store source_first_ptr+0, 77 as u64
+    EXPAND VEC_TRY_GET_MUT_PTR_U64 source_miss_mut_ok, source_miss_ptr, source, 9
+    source_miss_ptr_ok = eq source_miss_ptr, 0
+    !source_miss_ptr
+    EXPAND VEC_TRY_GET_U64 source_first_ok, source_first, source, 0
+    EXPAND VEC_TRY_GET_U64 cloned_first_ok, cloned_first, cloned, 0
+    EXPAND VEC_TRY_GET_U64 cloned_second_ok, cloned_second, cloned, 1
+    EXPAND VEC_TRY_GET_U64 clone_from_first_ok, clone_from_first, clone_from_dst, 0
+    EXPAND VEC_TRY_GET_U64 clone_from_third_ok, clone_from_third, clone_from_dst, 2
+    EXPAND VEC_LEN clone_from_len, clone_from_dst
+    EXPAND VEC_LEN from_slice_len, from_slice_vec
+    EXPAND VEC_TRY_GET_U64 from_slice_first_ok, from_slice_first, from_slice_vec, 0
+    EXPAND VEC_TRY_GET_U64 from_slice_second_ok, from_slice_second, from_slice_vec, 1
+    EXPAND VEC_LEN from_mut_slice_len, from_mut_slice_vec
+    EXPAND VEC_TRY_GET_U64 from_mut_slice_second_ok, from_mut_slice_second, from_mut_slice_vec, 1
+    EXPAND VEC_LEN from_array_len, from_array_vec
+    EXPAND VEC_TRY_GET_U64 from_array_second_ok, from_array_second, from_array_vec, 1
+    EXPAND VEC_LEN from_mut_array_len, from_mut_array_vec
+    EXPAND VEC_TRY_GET_U64 from_mut_array_second_ok, from_mut_array_second, from_mut_array_vec, 1
+
+    source_first_mut_flag_ok = eq source_first_mut_ok, 1
+    source_miss_mut_flag_ok = eq source_miss_mut_ok, 0
+    source_first_flag_ok = eq source_first_ok, 1
+    source_first_value_ok = eq source_first, 77
+    cloned_first_flag_ok = eq cloned_first_ok, 1
+    cloned_first_value_ok = eq cloned_first, 11
+    cloned_second_flag_ok = eq cloned_second_ok, 1
+    cloned_second_value_ok = eq cloned_second, 22
+    clone_from_first_flag_ok = eq clone_from_first_ok, 1
+    clone_from_first_value_ok = eq clone_from_first, 11
+    clone_from_third_flag_ok = eq clone_from_third_ok, 1
+    clone_from_third_value_ok = eq clone_from_third, 33
+    clone_from_len_ok = eq clone_from_len, 3
+    from_slice_len_ok = eq from_slice_len, 2
+    from_slice_first_flag_ok = eq from_slice_first_ok, 1
+    from_slice_first_value_ok = eq from_slice_first, 44
+    from_slice_second_flag_ok = eq from_slice_second_ok, 1
+    from_slice_second_value_ok = eq from_slice_second, 55
+    from_mut_slice_len_ok = eq from_mut_slice_len, 2
+    from_mut_slice_second_flag_ok = eq from_mut_slice_second_ok, 1
+    from_mut_slice_second_value_ok = eq from_mut_slice_second, 55
+    from_array_len_ok = eq from_array_len, 2
+    from_array_second_flag_ok = eq from_array_second_ok, 1
+    from_array_second_value_ok = eq from_array_second, 55
+    from_mut_array_len_ok = eq from_mut_array_len, 2
+    from_mut_array_second_flag_ok = eq from_mut_array_second_ok, 1
+    from_mut_array_second_value_ok = eq from_mut_array_second, 55
+    ok01 = and source_first_mut_flag_ok, source_miss_mut_flag_ok
+    ok02 = and ok01, source_miss_ptr_ok
+    ok03 = and ok02, source_first_flag_ok
+    ok04 = and ok03, source_first_value_ok
+    ok05 = and ok04, cloned_first_flag_ok
+    ok06 = and ok05, cloned_first_value_ok
+    ok07 = and ok06, cloned_second_flag_ok
+    ok08 = and ok07, cloned_second_value_ok
+    ok09 = and ok08, clone_from_first_flag_ok
+    ok10 = and ok09, clone_from_first_value_ok
+    ok11 = and ok10, clone_from_third_flag_ok
+    ok12 = and ok11, clone_from_third_value_ok
+    ok13 = and ok12, clone_from_len_ok
+    ok14 = and ok13, from_slice_len_ok
+    ok15 = and ok14, from_slice_first_flag_ok
+    ok16 = and ok15, from_slice_first_value_ok
+    ok17 = and ok16, from_slice_second_flag_ok
+    ok18 = and ok17, from_slice_second_value_ok
+    ok19 = and ok18, from_mut_slice_len_ok
+    ok20 = and ok19, from_mut_slice_second_flag_ok
+    ok21 = and ok20, from_mut_slice_second_value_ok
+    ok22 = and ok21, from_array_len_ok
+    ok23 = and ok22, from_array_second_flag_ok
+    ok24 = and ok23, from_array_second_value_ok
+    ok25 = and ok24, from_mut_array_len_ok
+    ok26 = and ok25, from_mut_array_second_flag_ok
+    ok = and ok26, from_mut_array_second_value_ok
+
+    !source_first_mut_ok
+    !source_first_ptr
+    !source_miss_mut_ok
+    !source_miss_ptr_ok
+    !source_first_ok
+    !source_first
+    !cloned_first_ok
+    !cloned_first
+    !cloned_second_ok
+    !cloned_second
+    !clone_from_first_ok
+    !clone_from_first
+    !clone_from_third_ok
+    !clone_from_third
+    !clone_from_len
+    !from_slice_len
+    !from_slice_first_ok
+    !from_slice_first
+    !from_slice_second_ok
+    !from_slice_second
+    !from_mut_slice_len
+    !from_mut_slice_second_ok
+    !from_mut_slice_second
+    !from_array_len
+    !from_array_second_ok
+    !from_array_second
+    !from_mut_array_len
+    !from_mut_array_second_ok
+    !from_mut_array_second
+    !source_first_mut_flag_ok
+    !source_miss_mut_flag_ok
+    !source_first_flag_ok
+    !source_first_value_ok
+    !cloned_first_flag_ok
+    !cloned_first_value_ok
+    !cloned_second_flag_ok
+    !cloned_second_value_ok
+    !clone_from_first_flag_ok
+    !clone_from_first_value_ok
+    !clone_from_third_flag_ok
+    !clone_from_third_value_ok
+    !clone_from_len_ok
+    !from_slice_len_ok
+    !from_slice_first_flag_ok
+    !from_slice_first_value_ok
+    !from_slice_second_flag_ok
+    !from_slice_second_value_ok
+    !from_mut_slice_len_ok
+    !from_mut_slice_second_flag_ok
+    !from_mut_slice_second_value_ok
+    !from_array_len_ok
+    !from_array_second_flag_ok
+    !from_array_second_value_ok
+    !from_mut_array_len_ok
+    !from_mut_array_second_flag_ok
+    !from_mut_array_second_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    !ok26
+    !from_slice_view
+    !slice_data
+    EXPAND VEC_FREE from_mut_array_vec
+    EXPAND VEC_FREE from_array_vec
+    EXPAND VEC_FREE from_mut_slice_vec
+    EXPAND VEC_FREE from_slice_vec
+    EXPAND VEC_FREE clone_from_dst
+    EXPAND VEC_FREE cloned
+    EXPAND VEC_FREE source
+    br ok -> L_VEC_CLONE_OK, L_VEC_CLONE_FAIL
+
+L_VEC_CLONE_FAIL:
+    !ok
+    panic(925)
+
+L_VEC_CLONE_OK:
+    !ok
+    return
+
+@test "sa_std vec default and string byte conversion macros"():
+L_VEC_STR_BYTES_ENTRY:
+    word_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+    EXPAND VEC_DEFAULT default_vec
+    EXPAND VEC_IS_EMPTY default_empty, default_vec
+    EXPAND VEC_FROM_STR_BYTES bytes_vec, word_slice
+    EXPAND VEC_LEN bytes_len, bytes_vec
+    EXPAND VEC_TRY_GET_TYPED_U8 first_ok, first, bytes_vec, 0, 1
+    EXPAND VEC_TRY_GET_TYPED_U8 last_ok, last, bytes_vec, 3, 1
+
+    default_ok = eq default_empty, 1
+    len_ok = eq bytes_len, 4
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 114
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last, 116
+    ok01 = and default_ok, len_ok
+    ok02 = and ok01, first_flag_ok
+    ok03 = and ok02, first_value_ok
+    ok04 = and ok03, last_flag_ok
+    ok = and ok04, last_value_ok
+
+    !default_empty
+    !bytes_len
+    !first_ok
+    !first
+    !last_ok
+    !last
+    !default_ok
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !last_flag_ok
+    !last_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !word_slice
+    EXPAND VEC_FREE bytes_vec
+    EXPAND VEC_FREE default_vec
+    br ok -> L_VEC_STR_BYTES_OK, L_VEC_STR_BYTES_FAIL
+
+L_VEC_STR_BYTES_FAIL:
+    !ok
+    panic(926)
+
+L_VEC_STR_BYTES_OK:
+    !ok
+    return
+
+@test "sa_std vec from string buffer macro"():
+L_VEC_FROM_STRING_ENTRY:
+    word_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW word_slice, &WORD, 4
+    EXPAND STRING_BUF_FROM_STR string_buf, word_slice
+    EXPAND VEC_FROM_STRING_BUF bytes_vec, string_buf
+    EXPAND VEC_LEN bytes_len, bytes_vec
+    EXPAND VEC_TRY_GET_TYPED_U8 first_ok, first, bytes_vec, 0, 1
+    EXPAND VEC_TRY_GET_TYPED_U8 fourth_ok, fourth, bytes_vec, 3, 1
+
+    len_ok = eq bytes_len, 4
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 114
+    fourth_flag_ok = eq fourth_ok, 1
+    fourth_value_ok = eq fourth, 116
+    ok01 = and len_ok, first_flag_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, fourth_flag_ok
+    ok = and ok03, fourth_value_ok
+
+    !bytes_len
+    !first_ok
+    !first
+    !fourth_ok
+    !fourth
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !fourth_flag_ok
+    !fourth_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !word_slice
+    EXPAND VEC_FREE bytes_vec
+    br ok -> L_VEC_FROM_STRING_OK, L_VEC_FROM_STRING_FAIL
+
+L_VEC_FROM_STRING_FAIL:
+    !ok
+    panic(927)
+
+L_VEC_FROM_STRING_OK:
+    !ok
+    return
+
+@test "sa_std vec repeat aliases"():
+L_VEC_REPEAT_ENTRY:
+    repeat_data = alloc 16
+    store repeat_data+0, 11 as u64
+    store repeat_data+8, 22 as u64
+    repeat_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW repeat_slice, repeat_data, 2
+
+    EXPAND VEC_REPEAT_U64 repeated_vec, repeat_slice, 3
+    EXPAND VEC_LEN repeat_len, repeated_vec
+    EXPAND VEC_TRY_GET_U64 first_ok, first, repeated_vec, 0
+    EXPAND VEC_TRY_GET_U64 middle_ok, middle, repeated_vec, 3
+    EXPAND VEC_TRY_GET_U64 last_ok, last, repeated_vec, 5
+
+    EXPAND VEC_REPEAT_U64 zero_vec, repeat_slice, 0
+    EXPAND VEC_LEN zero_len, zero_vec
+
+    len_ok = eq repeat_len, 6
+    first_flag_ok = eq first_ok, 1
+    first_value_ok = eq first, 11
+    middle_flag_ok = eq middle_ok, 1
+    middle_value_ok = eq middle, 22
+    last_flag_ok = eq last_ok, 1
+    last_value_ok = eq last, 22
+    zero_ok = eq zero_len, 0
+    ok01 = and len_ok, first_flag_ok
+    ok02 = and ok01, first_value_ok
+    ok03 = and ok02, middle_flag_ok
+    ok04 = and ok03, middle_value_ok
+    ok05 = and ok04, last_flag_ok
+    ok06 = and ok05, last_value_ok
+    ok = and ok06, zero_ok
+
+    !repeat_len
+    !first_ok
+    !first
+    !middle_ok
+    !middle
+    !last_ok
+    !last
+    !zero_len
+    !len_ok
+    !first_flag_ok
+    !first_value_ok
+    !middle_flag_ok
+    !middle_value_ok
+    !last_flag_ok
+    !last_value_ok
+    !zero_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !repeat_data
+    !repeat_slice
+    EXPAND VEC_FREE zero_vec
+    EXPAND VEC_FREE repeated_vec
+    br ok -> L_VEC_REPEAT_OK, L_VEC_REPEAT_FAIL
+
+L_VEC_REPEAT_FAIL:
+    !ok
+    panic(928)
+
+L_VEC_REPEAT_OK:
+    !ok
+    return
+
+@test "sa_std vec to_vec and to_owned aliases"():
+L_VEC_TO_OWNED_ENTRY:
+    slice_data = alloc 16
+    store slice_data+0, 11 as u64
+    store slice_data+8, 22 as u64
+    slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW slice, slice_data, 2
+    EXPAND SLICE_TO_VEC_U64 slice_vec, slice
+    EXPAND SLICE_TO_OWNED_VEC_U64 slice_owned_vec, slice
+    store slice_data+0, 99 as u64
+    EXPAND VEC_TRY_GET_U64 slice_vec_first_ok, slice_vec_first, slice_vec, 0
+    EXPAND VEC_TRY_GET_U64 slice_owned_first_ok, slice_owned_first, slice_owned_vec, 0
+
+    EXPAND VEC_WITH_CAPACITY_U64 source_vec, 2
+    EXPAND VEC_PUSH_U64 source_vec, 33
+    EXPAND VEC_PUSH_U64 source_vec, 44
+    EXPAND VEC_TO_OWNED_U64 vec_owned, source_vec
+    EXPAND VEC_GET_MUT_PTR_U64 source_first_ptr, source_vec, 0
+    store source_first_ptr+0, 55 as u64
+    EXPAND VEC_TRY_GET_U64 source_first_ok, source_first, source_vec, 0
+    EXPAND VEC_TRY_GET_U64 vec_owned_first_ok, vec_owned_first, vec_owned, 0
+    EXPAND VEC_LEN vec_owned_len, vec_owned
+
+    slice_vec_flag_ok = eq slice_vec_first_ok, 1
+    slice_vec_value_ok = eq slice_vec_first, 11
+    slice_owned_flag_ok = eq slice_owned_first_ok, 1
+    slice_owned_value_ok = eq slice_owned_first, 11
+    source_flag_ok = eq source_first_ok, 1
+    source_value_ok = eq source_first, 55
+    owned_flag_ok = eq vec_owned_first_ok, 1
+    owned_value_ok = eq vec_owned_first, 33
+    owned_len_ok = eq vec_owned_len, 2
+    ok01 = and slice_vec_flag_ok, slice_vec_value_ok
+    ok02 = and ok01, slice_owned_flag_ok
+    ok03 = and ok02, slice_owned_value_ok
+    ok04 = and ok03, source_flag_ok
+    ok05 = and ok04, source_value_ok
+    ok06 = and ok05, owned_flag_ok
+    ok07 = and ok06, owned_value_ok
+    ok = and ok07, owned_len_ok
+
+    !slice_vec_first_ok
+    !slice_vec_first
+    !slice_owned_first_ok
+    !slice_owned_first
+    !source_first_ptr
+    !source_first_ok
+    !source_first
+    !vec_owned_first_ok
+    !vec_owned_first
+    !vec_owned_len
+    !slice_vec_flag_ok
+    !slice_vec_value_ok
+    !slice_owned_flag_ok
+    !slice_owned_value_ok
+    !source_flag_ok
+    !source_value_ok
+    !owned_flag_ok
+    !owned_value_ok
+    !owned_len_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !slice_data
+    !slice
+    EXPAND VEC_FREE vec_owned
+    EXPAND VEC_FREE source_vec
+    EXPAND VEC_FREE slice_owned_vec
+    EXPAND VEC_FREE slice_vec
+    br ok -> L_VEC_TO_OWNED_OK, L_VEC_TO_OWNED_FAIL
+
+L_VEC_TO_OWNED_FAIL:
+    !ok
+    panic(929)
+
+L_VEC_TO_OWNED_OK:
     !ok
     return

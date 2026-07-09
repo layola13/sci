@@ -288,6 +288,7 @@ fn fillConstBytes(out: []u8, value: const_decl.ConstValue) !void {
 
 fn collectAnonStringConsts(
     allocator: std.mem.Allocator,
+    symbols: anytype,
     annotated: []const referee.AnnotatedInstruction,
     anon_string_names: *std.StringHashMap([*:0]const u8),
     c_consts: *std.ArrayList(CConst),
@@ -299,7 +300,7 @@ fn collectAnonStringConsts(
             else => continue,
         }
 
-        var parsed = call.parseCall(allocator, item.base.raw_text) catch |err| switch (err) {
+        var parsed = call.parseInstructionCall(allocator, item.base, symbols) catch |err| switch (err) {
             error.InvalidCallSyntax => continue,
             else => return err,
         };
@@ -329,6 +330,7 @@ const BuildState = struct {
     allocator: std.mem.Allocator,
     symbols: *const @import("flattener/symbol.zig").SymbolTable,
     fsig: sig.FunctionSig,
+    reg_operands_are_global_ids: bool,
     const_names: std.StringHashMap(void),
     anon_string_names: *const std.StringHashMap([*:0]const u8),
     const_decls: []const const_decl.ConstDecl,
@@ -339,6 +341,7 @@ const BuildState = struct {
         allocator: std.mem.Allocator,
         symbols: *const @import("flattener/symbol.zig").SymbolTable,
         fsig: sig.FunctionSig,
+        reg_operands_are_global_ids: bool,
         const_decls: []const const_decl.ConstDecl,
         function_sigs: []const sig.FunctionSig,
         function_sig_index: *const std.StringHashMap(usize),
@@ -347,7 +350,7 @@ const BuildState = struct {
         var const_names = std.StringHashMap(void).init(allocator);
         errdefer const_names.deinit();
         for (const_decls) |decl| try const_names.put(decl.name, {});
-        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index };
+        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index };
     }
 
     fn deinit(self: *BuildState) void {
@@ -359,9 +362,34 @@ const BuildState = struct {
         return self.function_sigs[idx];
     }
 
+    fn regGlobalId(self: *BuildState, slot_or_id: u32) !u32 {
+        if (self.reg_operands_are_global_ids) return slot_or_id;
+        const slot_index: usize = @intCast(slot_or_id);
+        if (slot_index < self.fsig.reg_ids.len) return self.fsig.globalId(slot_or_id);
+        return slot_or_id;
+    }
+
+    fn regSlot(self: *BuildState, slot_or_id: u32) !u32 {
+        if (self.reg_operands_are_global_ids) {
+            return self.fsig.slotOf(slot_or_id) orelse return error.InvalidOperand;
+        }
+        const slot_index: usize = @intCast(slot_or_id);
+        if (slot_index < self.fsig.reg_ids.len) return slot_or_id;
+        return self.fsig.slotOf(slot_or_id) orelse return error.InvalidOperand;
+    }
+
+    fn regName(self: *BuildState, slot_or_id: u32) ?[]const u8 {
+        const global_id = self.regGlobalId(slot_or_id) catch return null;
+        return self.symbols.lookupName(global_id);
+    }
+
+    pub fn lookupName(self: *BuildState, id: u32) ?[]const u8 {
+        return self.regName(id);
+    }
+
     fn operand(self: *BuildState, op: inst.Operand) !COperand {
         return switch (op) {
-            .reg => |slot| .{ .kind = .reg, .reg = slot, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
+            .reg => |slot_or_id| .{ .kind = .reg, .reg = try self.regSlot(slot_or_id), .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
             .imm_i64 => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
             .imm_int => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
             .imm_u64 => |v| .{ .kind = .imm_u64, .reg = 0, .i64_value = 0, .u64_value = v, .f64_value = 0, .ty = .i64, .name = null },
@@ -555,7 +583,7 @@ fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, sig
         const base = body_item.base;
         if (base.kind != .call and base.kind != .call_indirect) continue;
 
-        var parsed = call.parseCall(allocator, base.raw_text) catch |err| switch (err) {
+        var parsed = call.parseInstructionCall(allocator, base, &verified.symbols) catch |err| switch (err) {
             error.InvalidCallSyntax => continue,
             else => return err,
         };
@@ -604,6 +632,51 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
         changed = false;
         sig_index = 0;
         idx = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    const fsig = verified.function_sigs[sig_index];
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        else => true,
+                    }) : (end += 1) {}
+
+                    if (reachable.contains(fsig.name)) {
+                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable)) or changed;
+                    }
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
+    }
+}
+
+fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), selected_test_names: []const []const u8, reachable: *std.StringHashMap(void)) !void {
+    for (verified.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                for (literal.slots) |slot| {
+                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name);
+                }
+            },
+            else => {},
+        }
+    }
+
+    for (selected_test_names) |name| {
+        _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, name);
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        var sig_index: usize = 0;
+        var idx: usize = 0;
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
@@ -709,14 +782,50 @@ fn offsetFromOperand(op: inst.Operand) ?u64 {
     };
 }
 
-fn slotNameFromLoadText(raw: []const u8) ?[]const u8 {
+fn slotTokenFromLoadText(raw: []const u8) ?[]const u8 {
     const plus = std.mem.indexOfScalar(u8, raw, '+') orelse return null;
     const tail = std.mem.trim(u8, raw[plus + 1 ..], " \t\r");
     const as_idx = std.mem.indexOf(u8, tail, " as ") orelse tail.len;
-    var token = std.mem.trim(u8, tail[0..as_idx], " \t\r");
-    if (token.len == 0) return null;
-    if (std.mem.lastIndexOfScalar(u8, token, '_')) |idx| token = token[idx + 1 ..];
+    const token = std.mem.trim(u8, tail[0..as_idx], " \t\r");
     return if (token.len == 0) null else token;
+}
+
+fn slotNameFromToken(token: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, token, '_')) |idx| {
+        return token[idx + 1 ..];
+    }
+    return token;
+}
+
+fn normalizeIdentInto(buf: []u8, text: []const u8) []const u8 {
+    var len: usize = 0;
+    for (text) |ch| {
+        if (std.ascii.isAlphanumeric(ch)) {
+            if (len >= buf.len) break;
+            buf[len] = std.ascii.toLower(ch);
+            len += 1;
+        }
+    }
+    return buf[0..len];
+}
+
+fn stripKnownTypeSuffix(text: []const u8) []const u8 {
+    if (std.mem.endsWith(u8, text, "vtable")) return text[0 .. text.len - "vtable".len];
+    if (std.mem.endsWith(u8, text, "vt")) return text[0 .. text.len - "vt".len];
+    if (std.mem.endsWith(u8, text, "fn")) return text[0 .. text.len - "fn".len];
+    return text;
+}
+
+fn slotPrefixKeyFromToken(buf: []u8, token: []const u8) []const u8 {
+    const prefix = if (std.mem.lastIndexOfScalar(u8, token, '_')) |idx| token[0..idx] else return &.{};
+    const normalized = normalizeIdentInto(buf, prefix);
+    return stripKnownTypeSuffix(normalized);
+}
+
+fn normalizedContainsKey(buf: []u8, text: []const u8, key: []const u8) bool {
+    if (key.len == 0) return false;
+    const normalized = normalizeIdentInto(buf, text);
+    return std.mem.indexOf(u8, normalized, key) != null;
 }
 
 fn chooseIndirectSigIndex(state: *BuildState, current: ?usize, candidate: usize) ?usize {
@@ -745,6 +854,28 @@ fn inferIndirectSigIndexFromSlot(state: *BuildState, slot_name: []const u8) ?usi
     return resolved;
 }
 
+fn inferIndirectSigIndexFromSlotWithPrefix(state: *BuildState, slot_name: []const u8, prefix_key: []const u8) ?usize {
+    if (prefix_key.len == 0) return null;
+    var resolved: ?usize = null;
+    for (state.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                var decl_buf: [256]u8 = undefined;
+                const decl_match = normalizedContainsKey(&decl_buf, decl.name, prefix_key);
+                for (literal.slots) |slot| {
+                    if (!std.mem.eql(u8, slot.name, slot_name)) continue;
+                    var func_buf: [256]u8 = undefined;
+                    if (!decl_match and !normalizedContainsKey(&func_buf, slot.func_name, prefix_key)) continue;
+                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
+                    resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
+                }
+            },
+            else => {},
+        }
+    }
+    return resolved;
+}
+
 fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
     if (offset % 8 != 0) return null;
     const slot_index: usize = @intCast(offset / 8);
@@ -763,9 +894,13 @@ fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
 }
 
 fn inferIndirectSigIndexFromLoad(state: *BuildState, base: inst.Instruction) ?usize {
-    if (slotNameFromLoadText(base.raw_text)) |slot| {
+    if (base.raw_text.len != 0) if (slotTokenFromLoadText(base.raw_text)) |token| {
+        const slot = slotNameFromToken(token);
+        var prefix_buf: [256]u8 = undefined;
+        const prefix_key = slotPrefixKeyFromToken(&prefix_buf, token);
+        if (inferIndirectSigIndexFromSlotWithPrefix(state, slot, prefix_key)) |idx| return idx;
         if (inferIndirectSigIndexFromSlot(state, slot)) |idx| return idx;
-    }
+    };
     if (offsetFromOperand(base.operands[2])) |offset| {
         return inferIndirectSigIndexFromOffset(state, offset);
     }
@@ -809,12 +944,44 @@ fn opConversionTy(base: inst.Instruction) !CType {
     return try cType(sig.primTypeFromTag(base.operands[2].ty) orelse return error.InvalidOperand);
 }
 
-fn rawAssignOperand(state: *BuildState, base: inst.Instruction) ?COperand {
-    const eq_idx = std.mem.indexOfScalar(u8, base.raw_text, '=') orelse return null;
-    const rhs = std.mem.trim(u8, base.raw_text[eq_idx + 1 ..], " \t\r");
-    if (rhs.len == 0) return null;
-    if (rhs[0] != '&') return null;
-    return state.textOperand(rhs) catch null;
+fn localizedRegName(state: *BuildState, slot_or_id: u32) ?[]const u8 {
+    return state.regName(slot_or_id);
+}
+
+fn functionUsesGlobalRegIds(fsig: sig.FunctionSig, body: []const referee.AnnotatedInstruction) bool {
+    for (body) |body_item| {
+        for (body_item.base.operands) |operand| {
+            if (operand == .reg) {
+                const raw = operand.reg;
+                if (raw >= fsig.reg_ids.len and fsig.slotOf(raw) != null) return true;
+            }
+        }
+    }
+    return false;
+}
+
+fn assignOperand(state: *BuildState, base: inst.Instruction) !COperand {
+    return switch (base.operands[1]) {
+        .reg => |id| blk: {
+            if (localizedRegName(state, id)) |name| {
+                if (state.const_names.contains(name)) break :blk try state.textOperand(name);
+            }
+            break :blk try state.operand(base.operands[1]);
+        },
+        .symbol => |id| blk: {
+            const name = state.symbols.lookupName(id) orelse return error.InvalidOperand;
+            break :blk try state.textOperand(name);
+        },
+        .func => |id| blk: {
+            const name = state.symbols.lookupName(id) orelse return error.InvalidOperand;
+            break :blk try state.textOperand(name);
+        },
+        .label => |id| blk: {
+            const name = state.symbols.lookupName(id) orelse return error.InvalidOperand;
+            break :blk try state.textOperand(name);
+        },
+        else => try state.operand(base.operands[1]),
+    };
 }
 
 fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item: referee.AnnotatedInstruction) !?CInstruction {
@@ -824,41 +991,41 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
     const default_rmw: CAtomicRmwOp = .add;
     return switch (base.kind) {
         .label => .{ .op = .label, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
-        .alloc, .stack_alloc => |k| .{ .op = if (k == .alloc) .alloc else .stack_alloc, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = .ptr, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = (k == .alloc) },
+        .alloc, .stack_alloc => |k| .{ .op = if (k == .alloc) .alloc else .stack_alloc, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = .ptr, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = (k == .alloc) },
         .load, .take => |k| blk: {
             const loaded_ty = if (base.operands[3] == .ty) sig.primTypeFromTag(base.operands[3].ty) orelse .i64 else sig.PrimType.i64;
             const indirect_sig_index: u32 = if (loaded_ty == .ptr)
                 if (inferIndirectSigIndexFromLoad(state, base)) |idx| @intCast(idx) else std.math.maxInt(u32)
             else
                 std.math.maxInt(u32);
-            break :blk .{ .op = if (k == .load) .load else .take, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = try cType(loaded_ty), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = indirect_sig_index, .is_malloc = (k == .take) };
+            break :blk .{ .op = if (k == .load) .load else .take, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = try cType(loaded_ty), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = indirect_sig_index, .is_malloc = (k == .take) };
         },
-        .atomic_load => .{ .op = .atomic_load, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .atomic_load => .{ .op = .atomic_load, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .atomic_store => .{ .op = .atomic_store, .dst = 0, .operand0 = try state.operand(base.operands[0]), .operand1 = try state.operand(base.operands[1]), .operand2 = try state.operand(base.operands[2]), .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
-        .atomic_rmw => .{ .op = .atomic_rmw, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = try state.operand(base.operands[3]), .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = try atomicRmwOp(base.atomic_rmw_op), .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .atomic_rmw => .{ .op = .atomic_rmw, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = try state.operand(base.operands[3]), .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = try atomicRmwOp(base.atomic_rmw_op), .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .cmpxchg => blk: {
             const args = try allocator.alloc(COperand, 2);
             args[0] = try state.textOperand(base.atomic_new_text orelse return error.InvalidOperand);
-            args[1] = .{ .kind = .reg, .reg = base.operands[1].reg, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i1, .name = null };
-            break :blk .{ .op = .cmpxchg, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[2]), .operand1 = try state.operand(base.operands[3]), .operand2 = try state.textOperand(base.atomic_expected_text orelse return error.InvalidOperand), .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = atomicOrdering(base.atomic_second_ordering), .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+            args[1] = .{ .kind = .reg, .reg = try state.regSlot(base.operands[1].reg), .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i1, .name = null };
+            break :blk .{ .op = .cmpxchg, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[2]), .operand1 = try state.operand(base.operands[3]), .operand2 = try state.textOperand(base.atomic_expected_text orelse return error.InvalidOperand), .ty = try cType(atomicValueType(base, .i64)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = atomicOrdering(base.atomic_second_ordering), .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
         },
         .fence => .{ .op = .fence, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = atomicOrdering(base.atomic_ordering), .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .store => .{ .op = .store, .dst = 0, .operand0 = try state.operand(base.operands[0]), .operand1 = try state.operand(base.operands[1]), .operand2 = try state.operand(base.operands[2]), .ty = if (base.operands[3] == .ty) try cType(sig.primTypeFromTag(base.operands[3].ty) orelse .i64) else .i64, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .op => blk: {
             const opcode = base.op_kind orelse return error.InvalidOperand;
             if (inst.isTypeConversionOpKind(opcode)) {
-                break :blk .{ .op = .assign, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try opConversionTy(base), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+                break :blk .{ .op = .assign, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try opConversionTy(base), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             }
             if (opcode == .fneg) {
-                break :blk .{ .op = .op, .dst = base.operands[0].reg, .operand0 = .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0.0, .ty = .f64, .name = null }, .operand1 = try state.operand(base.operands[1]), .operand2 = none, .ty = .f64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+                break :blk .{ .op = .op, .dst = try state.regSlot(base.operands[0].reg), .operand0 = .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0.0, .ty = .f64, .name = null }, .operand1 = try state.operand(base.operands[1]), .operand2 = none, .ty = .f64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             }
-            break :blk .{ .op = .op, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = if (isFloatOp(opcode)) .f64 else .i64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+            break :blk .{ .op = .op, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = if (isFloatOp(opcode)) .f64 else .i64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
         },
-        .ptr_add => .{ .op = .ptr_add, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = .ptr, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .ptr_add => .{ .op = .ptr_add, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = try state.operand(base.operands[2]), .operand2 = none, .ty = .ptr, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .jmp => .{ .op = .jmp, .dst = 0, .operand0 = none, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .br => .{ .op = .br, .dst = 0, .operand0 = try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = try labelNameZ(allocator, state.symbols, base.operands[1]), .false_label = try labelNameZ(allocator, state.symbols, base.operands[3]), .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .call, .call_indirect, .panic, .panic_msg => blk: {
-            var parsed = call.parseCall(allocator, base.raw_text) catch return error.InvalidOperand;
+            var parsed = call.parseInstructionCall(allocator, base, state) catch return error.InvalidOperand;
             defer parsed.deinit(allocator);
             if (base.kind == .panic) {
                 if (parsed.args.len != 1) return error.InvalidOperand;
@@ -881,7 +1048,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
                 const id = state.symbols.findId(dest) orelse return error.InvalidOperand;
                 break :blk2 state.fsig.slotOf(id) orelse return error.InvalidOperand;
             } else 0;
-var is_malloc_val = false;
+            var is_malloc_val = false;
             if (parsed.dest) |dest_name| {
                 if (state.symbols.findId(dest_name)) |dst_id| {
                     for (body_item.delta.changes) |change| {
@@ -904,15 +1071,16 @@ var is_malloc_val = false;
             const call_fallible = if (resolved) |resolved_sig| resolved_sig.return_fallible else false;
             break :blk .{ .op = .call, .dst = dst, .operand0 = none, .operand1 = none, .operand2 = none, .ty = call_ty, .binary_op = .add, .label = null, .false_label = null, .callee = callee.ptr, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = call_fallible, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
         },
-        .try_, .early_return => .{ .op = .try_, .dst = base.operands[0].reg, .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .try_, .early_return => .{ .op = .try_, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => blk: {
-            const value = rawAssignOperand(state, base) orelse try state.operand(base.operands[1]);
+            const value = try assignOperand(state, base);
             const assign_ty = assignTy(base.kind, value);
             const is_ptr = (assign_ty == .ptr);
             var is_malloc_val = false;
+            const dst_global_id = try state.regGlobalId(base.operands[0].reg);
             if (is_ptr) {
                 for (body_item.delta.changes) |change| {
-                    if (change.reg == base.operands[0].reg) {
+                    if (change.reg == dst_global_id) {
                         if ((change.after & (0x10 | 0x20 | 0x40 | 0x0200)) == 0) {
                             is_malloc_val = true;
                         }
@@ -920,7 +1088,7 @@ var is_malloc_val = false;
                     }
                 }
             }
-            break :blk .{ .op = .assign, .dst = base.operands[0].reg, .operand0 = value, .operand1 = none, .operand2 = none, .ty = assignTy(base.kind, value), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
+            break :blk .{ .op = .assign, .dst = try state.regSlot(base.operands[0].reg), .operand0 = value, .operand1 = none, .operand2 = none, .ty = assignTy(base.kind, value), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
         },
         .return_ => .{ .op = .ret, .dst = 0, .operand0 = if (base.operands[0] == .none) none else try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = base.operands[0] != .none, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .move_ => null,
@@ -1048,16 +1216,20 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
         var debug_locs = std.ArrayList(CDebugLoc).init(a);
 
         if (task.decl_kind != .extern_decl) {
-            var state = BuildState.init(a, &context.verified.symbols, fsig, context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.anon_string_names) catch |err| {
+            const body = context.verified.annotated[task.start_idx + 1 .. task.end_idx];
+            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.anon_string_names) catch |err| {
                 job.err = err;
                 return;
             };
             defer state.deinit();
-            for (context.verified.annotated[task.start_idx + 1 .. task.end_idx], task.start_idx + 1..) |body_item, annotated_idx| {
+            for (body, task.start_idx + 1..) |body_item, annotated_idx| {
                 if (lowerInstruction(a, &state, body_item) catch |err| {
                     job.err = err;
                     return;
                 }) |ci| {
+                    if (std.mem.eql(u8, fsig.name, "sla__imported_json_get_type") or std.mem.eql(u8, fsig.name, "sla__imported_json_struct") or std.mem.eql(u8, fsig.name, "sla__imported_json_struct_field_key")) {
+                        std.debug.print("emit {s} inst#{d} kind={s} c_op={s} dst={d} op0_kind={s} op0_reg={d} op1_kind={s} op1_reg={d}\n", .{ fsig.name, annotated_idx - (task.start_idx + 1), @tagName(body_item.base.kind), @tagName(ci.op), ci.dst, @tagName(ci.operand0.kind), ci.operand0.reg, @tagName(ci.operand1.kind), ci.operand1.reg });
+                    }
                     insts.append(ci) catch |err| {
                         job.err = err;
                         return;
@@ -1138,11 +1310,15 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             },
         }
     }
-    try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
+    try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
-    if (prune_unreachable) {
+    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
+    if (focused_test_prune) {
+        try collectSelectedTestReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (prune_unreachable) {
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
@@ -1257,8 +1433,8 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                         // Not needed at all, completely skip!
                         should_include = false;
                     }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name) and shouldPruneUnreachableFunction(options, fsig, source_path)) {
-                    should_include = false;
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
                 }
 
                 if (should_include) {
@@ -1419,11 +1595,15 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             },
         }
     }
-    try collectAnonStringConsts(a, verified.annotated, &anon_string_names, &c_consts);
+    try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
-    var prune_unreachable = options.dce != .no and !options.test_mode and options.codegen_unit_index == null and options.function_task_index == null;
-    if (prune_unreachable) {
+    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
+    if (focused_test_prune) {
+        try collectSelectedTestReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (prune_unreachable) {
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
@@ -1530,8 +1710,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     } else {
                         should_include = false;
                     }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name) and shouldPruneUnreachableFunction(options, fsig, source_path)) {
-                    should_include = false;
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
                 }
 
                 if (should_include) {
@@ -1682,6 +1862,54 @@ test "dce modes prune std and user functions at distinct levels" {
     try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .std, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
     try std.testing.expect(shouldPruneUnreachableFunction(.{ .dce = .full, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
     try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .no, .std_root = "/tmp/app/sa_std" }, std_func, source_path));
+}
+
+test "assignOperand resolves localized const vtable slots without raw text" {
+    var symbols = flattener.SymbolTable.init(std.testing.allocator);
+    defer symbols.deinit();
+    const const_id = try symbols.intern("SLA_THREAD_VT_0");
+
+    var anon_string_names = std.StringHashMap([*:0]const u8).init(std.testing.allocator);
+    defer anon_string_names.deinit();
+    var function_sig_index = std.StringHashMap(usize).init(std.testing.allocator);
+    defer function_sig_index.deinit();
+
+    const reg_ids = [_]u32{const_id};
+    const fsig = sig.FunctionSig{
+        .id = 0,
+        .name = "wrap",
+        .params = &.{},
+        .kind = .ffi_wrapper,
+        .return_cap = null,
+        .return_ty = .void,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = true,
+        .reg_ids = reg_ids[0..],
+    };
+
+    var state = BuildState{
+        .allocator = std.testing.allocator,
+        .symbols = &symbols,
+        .fsig = fsig,
+        .const_names = std.StringHashMap(void).init(std.testing.allocator),
+        .anon_string_names = &anon_string_names,
+        .const_decls = &.{},
+        .function_sigs = &.{},
+        .function_sig_index = &function_sig_index,
+    };
+    state.const_names = std.StringHashMap(void).init(std.testing.allocator);
+    defer state.const_names.deinit();
+    try state.const_names.put("SLA_THREAD_VT_0", {});
+
+    var item = inst.makeInstruction(.borrow, 1, 0, null, "");
+    item.operands[0] = .{ .reg = 1 };
+    item.operands[1] = .{ .reg = 0 };
+
+    const got = try assignOperand(&state, item);
+    defer if (got.name) |name| std.testing.allocator.free(std.mem.span(name));
+    try std.testing.expectEqual(COperandKind.const_ptr, got.kind);
+    try std.testing.expect(got.name != null);
+    try std.testing.expectEqualStrings("SLA_THREAD_VT_0", std.mem.sliceTo(got.name.?, 0));
 }
 
 test "llvmc backend can construct and write bitcode in memory" {

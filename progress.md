@@ -2,9 +2,3450 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 100%
+Current progress: 75% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+
+## Active: 2026-07-09 full-test runtime optimization follow-up
+
+- Feature completed: plugin installer failure preflight now runs pure checks before building temporary plugin dynamic libraries.
+- `src/plugins.zig` now checks declared interface files, declared asset files, and installed extern-symbol conflicts before `buildPluginProject()`.
+- Post-build validation still keeps artifact-dependent checks after the copy/build path: dynamic symbol smoke and artifact static policy.
+- This preserves the intended `plugin-host-smoke` behavior: tests still exercise plugin install flows, but all installs are isolated under `std.testing.tmpDir()` with test-local `SA_PLUGINS_HOME=state`; they do not install into the real user plugin home.
+- Focused verification:
+  - `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/plugin-opt-20260709T070747Z plugin-host-smoke`: pass, `12/12 tests passed`, `elapsed=170.743s`.
+  - Previous logged full-pass baseline for the same step was `209.569s`, so the observed step-level improvement is `38.826s` (`18.5%`) despite this run also rebuilding the Zig test binary after `src/plugins.zig` changed.
+  - Most visible internal wins: duplicate extern symbols across installed plugins about `33.936s -> 13.809s`; duplicate extern symbols inside installed plugin about `18.447s -> 0.007s`.
+- Overall progress estimate after this feature: `15%` of the full-test runtime optimization follow-up. Remaining dominant steps are still `plugin-host-smoke`, `sa-std-runtime`, `wasm-matrix`, `unit-framework`, and `std-smoke`.
+- Feature completed: `sa-std-runtime` now reuses the build-system `sa_std` static archive instead of rebuilding the same runtime library inside each C demo test.
+- `build.zig` makes the `sa-std-runtime` step depend on the `artifacts/sa_std/libsa_std.a` refresh, and `tests/sa_std_runtime.zig` copies that archive into each temp test directory before linking each C demo.
+- The C demo compile/link/run coverage is preserved; only 13 repeated `zig build-lib src/runtime/sa_std.zig ...` invocations were removed from the test body.
+- Focused verification:
+  - `tools/test_steps_timed.sh --timeout 420 --log-dir logs/test_steps/sa-std-runtime-opt-20260709T073000Z sa-std-runtime`: pass, `14/14 tests passed`, `elapsed=33.532s`.
+  - Previous logged full-pass baseline for the same step was `145.815s`, so the observed step-level improvement is `112.283s` (`77.0%`).
+- Overall progress estimate after this feature: `35%` of the full-test runtime optimization follow-up. Current observed cumulative savings versus the logged full-pass baseline are about `151.109s` across `plugin-host-smoke` and `sa-std-runtime`.
+- Feature completed: full-test step logs now have better long-run visibility and failure triage.
+- `tools/test_steps_timed.sh` now supports `--heartbeat SEC` / `SA_TEST_STEP_HEARTBEAT`, defaulting to 30s, and prints `RUNNING` lines with step index, elapsed time, log byte count, timestamp, and log path while a step is still active.
+- The runner now supports `--fail-tail-lines N` / `SA_TEST_STEP_FAIL_TAIL_LINES`, defaulting to 80 lines, and prints the tail of a failed or timed-out step log directly into `summary.log` and the console.
+- Each run now writes `results.tsv` for machine-readable per-step status and `environment.txt` with repo, git head/branch, dirty-line count, jobs, timeout, heartbeat, fail-tail, and log-dir metadata.
+- START/PASS/FAIL/TIMEOUT lines now include `index=current/total`, which makes full-suite progress visible without counting manually.
+- Focused verification, without running the full suite:
+  - `bash -n tools/test_steps_timed.sh`: pass.
+  - `tools/test_steps_timed.sh --list`: pass.
+  - `tools/test_steps_timed.sh --heartbeat 1 --timeout 180 --log-dir logs/test_steps/log-quality-pkg-20260709T080000Z pkg-core-test`: pass, generated `results.tsv` and `environment.txt`.
+  - intentional invalid step with `--fail-tail-lines 20`: exit status preserved as `1`, and summary printed the failing log tail.
+  - `tools/test_steps_timed.sh --heartbeat 5 --timeout 180 --log-dir logs/test_steps/log-quality-heartbeat-20260709T080000Z sa-std-runtime`: pass, emitted a `RUNNING` heartbeat at 5s.
+- Overall progress estimate after this feature: `45%` of the full-test runtime/logging optimization follow-up.
+- Feature completed: `unit-framework` now emits file-level START/END/error logs for SA unit files instead of only printing elapsed time after a file finishes.
+- `tests/unit_framework/runner.zig` now logs each macro surface file with mode, jobs, elapsed time, stdout byte count, and stderr byte count. Queued process-mode files include `index=current/total` so parallel worker progress is visible.
+- Unexpected per-file errors now log `END status=error` rather than a bare `[unit-framework] FAIL`, avoiding false failure markers from the intentional queued-worker negative test while still making the errored file obvious.
+- Focused verification, without running the full suite:
+  - `tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log2-20260709T082000Z unit-framework`: pass, `5/5 tests passed`, `elapsed=96.501s` including Zig test rebuild.
+  - Grep verified per-file `START`/`END` lines with `stdout_bytes` / `stderr_bytes`.
+  - Grep verified no `[unit-framework] FAIL` line remained in the passing step log.
+- Overall progress estimate after this feature: `55%` of the full-test runtime/logging optimization follow-up.
+- Follow-up consistency pass: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use the same START/END/error log shape instead of legacy elapsed-only lines.
+- Focused verification:
+  - `tools/test_steps_timed.sh --heartbeat 10 --timeout 240 --log-dir logs/test_steps/unit-framework-log3-20260709T083000Z unit-framework`: pass, `5/5 tests passed`, `elapsed=101.646s` including Zig test rebuild.
+  - Grep verified the three top-level SA execution paths now have START/END lines.
+  - Grep verified the old `feature_suite.sa all modes elapsed`, `assert_diag.sa elapsed`, and `mock_io_test.sa elapsed` formats are absent from the log.
+- Overall progress estimate after this feature: `60%` of the full-test runtime/logging optimization follow-up.
+- Feature completed: `wasm-matrix` now prints an end-of-step summary ranking the slowest demos and slowest phases.
+- `tests/wasm_matrix_smoke.zig` now accumulates `demo`, `build-exe`, `native-run`, `build-wasm`, and `wasm-run` timings for every demo and prints aggregate phase totals plus top-10 rankings.
+- Focused verification:
+  - `tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-matrix-summary2-20260709T084000Z wasm-matrix`: pass, `1/1 tests passed`, `elapsed=146.982s` including Zig test rebuild.
+  - Summary output: `demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188`.
+  - The top slow phases were all `build-exe`, with the slowest examples at `2154ms` for `demos/rosetta/35_iterator_fold/main.sa` and `2106ms` for `demos/rosetta/81_kv_store/main.sa`.
+- Overall progress estimate after this feature: `65%` of the full-test runtime/logging optimization follow-up. The next real runtime target is repeated `build-exe` cost inside `wasm-matrix`, not wasm execution.
+- Feature completed: default `wasm-matrix` now follows the WASM-fast path and shares the project cache root.
+- CLI compile options now accept `--project-root <dir>` / `--project-root=<dir>` so direct `build-exe`, `build-wasm`, `build-obj`, `run`, and `test` style commands can use an explicit package/cache root instead of deriving one from each source path.
+- `tests/wasm_matrix_smoke.zig` now passes the repo root as `--project-root` and runs native `build-exe` only for a representative sanity subset by default. Full native equivalence remains available with `SA_WASM_MATRIX_NATIVE_ALL=1`.
+- Focused verification:
+  - Cold shared-cache run: `tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-fast-default-20260709T091500Z wasm-matrix`: pass, `elapsed=212.385s`, `native_checked=6`, `build_exe_ms=18404`, `build_wasm_ms=138154`.
+  - Hot shared-cache run: `tools/test_steps_timed.sh --heartbeat 10 --timeout 300 --log-dir logs/test_steps/wasm-fast-hot-20260709T092000Z wasm-matrix`: pass, `elapsed=59.623s`, `native_checked=6`, `build_exe_ms=6255`, `build_wasm_ms=43033`, `wasm_run_ms=7754`.
+  - Compared with the previous logged `wasm-matrix` pass `146.982s`, the hot-cache default path saves `87.359s` (`59.4%`).
+- Version metadata prepared for release: `build.zig.zon` now reports `0.0.4`, and `CHANGELOG.md` records the `0.0.3 -> 0.0.4` changes.
+- Overall progress estimate after this feature: `75%` of the full-test runtime/logging optimization follow-up.
+
+## Active: 2026-07-09 logged full-test step runner
+
+- Added `tools/test_steps_timed.sh` as the diagnostic entry point for the `zig build test` dependency set.
+- The runner prints per-step START/PASS/FAIL/TIMEOUT logs with UTC timestamps, command lines, elapsed time, per-step timeout, slowest-step ranking, and a final summary.
+- The runner now also persists full logs:
+  - default log directory: `logs/test_steps/<utc timestamp>`; this path is ignored by git.
+  - override: `--log-dir <dir>` or `SA_TEST_STEP_LOG_DIR=<dir>`.
+  - each step gets its own numbered log file plus `summary.log`, and console summary lines include `log=...` / `log_dir=...` paths.
+- Default coverage mirrors the `build.zig` `test` dependency set through named steps:
+  - `lib-root-smoke`, `plugin-host-smoke`, `pkg-core-test`, `wasm-matrix`, `bc2sa-smoke`, `workspace-smoke`, `trap-baseline`, `unit-framework`, runtime/std/network steps, `std-smoke`, `whitepaper-lint`, demos, and `hubproxy-test`.
+  - `whitepaper-lint` is used instead of `smoke` for the whitepaper smoke artifact so the runner does not repeat the std-smoke artifacts hidden behind the `smoke` aggregate step.
+- Validation completed without running the full suite:
+  - `bash -n tools/test_steps_timed.sh`: pass.
+  - `tools/test_steps_timed.sh --list`: pass.
+  - `tools/test_steps_timed.sh --timeout 180 lib-root-smoke pkg-core-test`: pass; `lib-root-smoke` took `50.989s`, `pkg-core-test` took `1.419s`, and the runner printed the slowest-step summary.
+  - `tools/test_steps_timed.sh --timeout 180 --log-dir /tmp/sci-test-steps-logs pkg-core-test`: pass; generated `summary.log` and `01-pkg-core-test.log`.
+  - failure-path check with an invalid step preserved exit status `1` and generated both `summary.log` and a step log containing the Zig error output.
+- Added deeper logs inside the known heavy Zig test binaries:
+  - `tests/plugin_host_smoke.zig` now prints `[plugin-host-smoke] START/END test="..." elapsed=...ms` for each of its 12 Zig tests. Focused validation with `tools/test_steps_timed.sh --timeout 420 plugin-host-smoke` passed in `230.858s`; the runtime body exposed the slowest tests around duplicate extern checks and skills optional dependency checks at about `30s` each.
+  - `tests/wasm_matrix_smoke.zig` now prints `[wasm-matrix] START/END demo=... phase=... elapsed=...ms` for each demo and for `build-exe`, `native-run`, `build-wasm`, and `wasm-run`. Focused validation with `tools/test_steps_timed.sh --timeout 420 wasm-matrix` passed in `149.039s`; output now separates the initial Zig test build cost from per-demo SA build/run cost.
+- Milestone logged full dependency pass completed without invoking blind aggregate `zig build test`:
+  - Command: `tools/test_steps_timed.sh --continue --timeout 420 --log-dir logs/test_steps/full-20260709T060333Z`
+  - Result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`.
+  - Slowest steps: `plugin-host-smoke` `209.569s`, `sa-std-runtime` `145.815s`, `wasm-matrix` `121.868s`, `unit-framework` `57.407s`, `std-smoke` `57.155s`.
+  - Full logs are persisted under ignored `logs/test_steps/full-20260709T060333Z`, with `summary.log` plus one numbered step log per dependency.
+- Remaining follow-up is optional optimization work, not required to complete the logging milestone: if more precision is needed later, add phase timing inside plugin installer helper paths and `sa-std-runtime` internals.
+
+## Active: 2026-07-09 large SAB focused test performance
+
+- Baseline was committed before starting this slice: `ee50937 Add extended string macro surfaces`.
+- Checkpoint commit before this continuation: `94d841c Optimize SAB test listing path`.
+- New issue record: `docs/issue14_test_filter_large_sab_performance.md`.
+- Real downstream measurements from `/home/vscode/projects/sla_ecs/.sla-cache/sab` show the split:
+  - Small `parallel_table_erased-ab6b0062c772adb.sab` focused compile-only is close to target: about `elapsed=1.28 maxrss=70252`; focused list is about `elapsed=0.33 maxrss=57136`.
+  - Large `world_table_erased-5d5e95eb4646a2ce.sab` focused list is still about `elapsed=8.87 maxrss=385224`; focused compile-only is about `elapsed=30.61 maxrss=465592`, with a repeat around `elapsed=33.51 maxrss=464808`.
+- Current root cause found in `src/cli.zig`: `executeTest()` compiles/verifies the full source before collecting `test_meta` or applying filters/list mode. For `.sab`, `compileSource()` calls `loadSabFlat()` and `referee.verifyWithOptions()` over the whole decoded module, so `--list --filter` still pays full large-module verification.
+- Completed focused compile-only/list milestone:
+  - `.sab --list --filter` now uses metadata-only test signature decoding and avoids full decode/verify.
+  - `.sab + explicit test selection + --compile-only` now collects selected tests before compile, prunes the SAB to selected-test reachability, uses borrowed SAB symbol pools, trusts the selected SAB as preverified for compile-only, and skips linking the throwaway test executable after LLVM bitcode emit succeeds.
+  - ReleaseFast real downstream gates with local `./zig-out/bin/sa`: large `world_table_erased --list --filter` `elapsed=0.05 maxrss=56576`; large `world_table_erased --compile-only --filter --no-incremental` `elapsed=0.82 maxrss=167528`; small `parallel_table_erased --compile-only --filter --no-incremental` `elapsed=0.17 maxrss=70104`.
+  - Installed `/home/vscode/.sa/bin/sa` gates after `tools/install.sh --no-shell`: large list `elapsed=0.07 maxrss=56960`; large compile-only `elapsed=1.00 maxrss=168132`; small compile-only `elapsed=0.26 maxrss=70664`.
+  - Large compile-only profile: `compile=496.834ms`, `emit=476.366ms`, `link=0.000ms`, `total=985.677ms`.
+- Full test status: initial `timeout 600s zig build test --summary all` did not pass; failures are recorded in `docs/issue15_full_test_suite_failures_20260709.md`.
+- Issue 15 focused fixes completed:
+  - `sa_std/string.sa` splitn/rsplitn limited split aliases now pass the source focused gate with `SA_STD_DIR=/home/vscode/projects/sci/sa_std`.
+  - `src/plugins.zig` formal runtime policy now blocks privileged dev-installed plugins outside `SA_PLUGIN_DEV`, and full `zig build plugin-host-smoke --summary all` passes (`12/12 tests passed`).
+  - `src/runtime/sa_net_uring.zig` loopback netx test no longer hangs on client thread joins; focused netx test and `zig build sa-std-unit --summary all` pass (`63/63 tests passed`).
+- Test gate status: each `zig build test` dependency was rerun individually with explicit step logging and passed; this avoids masking timeout ownership inside the monolithic full-suite command.
+- Install/final focused gate status:
+  - `tools/install.sh --no-shell` passed.
+  - Installed large SAB compile-only focused gate: `elapsed=0.75 maxrss=167856`.
+  - Installed large SAB list focused gate: `elapsed=0.04 maxrss=56960`.
+  - Installed small SAB compile-only focused gate: `elapsed=0.13 maxrss=70912`.
+- Remaining: run-mode selected SAB still verifies/links; full lazy/partial SAB instruction decode is still open.
+
+## Completed: 2026-07-08 str/String reverse slice-needle split/matches batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`STRING_BUF` reverse slice-needle (`&str` needle) split and matches view aliases:
+  - `STR_RSPLIT_NEEDLE_COUNT` / `STRING_RSPLIT_NEEDLE_COUNT` / `STRING_BUF_RSPLIT_NEEDLE_COUNT`
+  - `STR_RMATCHES_NEEDLE_COUNT` / `STRING_RMATCHES_NEEDLE_COUNT` / `STRING_BUF_RMATCHES_NEEDLE_COUNT`
+  - `STR_TRY_RSPLIT_NEEDLE_AT` / `STRING_TRY_RSPLIT_NEEDLE_AT` / `STRING_BUF_TRY_RSPLIT_NEEDLE_AT` / `STR_RSPLIT_NEEDLE_AT` / `STRING_RSPLIT_NEEDLE_AT` / `STRING_BUF_RSPLIT_NEEDLE_AT`
+  - `STR_TRY_RMATCHES_NEEDLE_AT` / `STRING_TRY_RMATCHES_NEEDLE_AT` / `STRING_BUF_TRY_RMATCHES_NEEDLE_AT` / `STR_RMATCHES_NEEDLE_AT` / `STRING_RMATCHES_NEEDLE_AT` / `STRING_BUF_RMATCHES_NEEDLE_AT`
+- Semantics: reverse count aliases reuse the existing forward non-overlapping count. Reverse indexed helpers compute the corresponding forward index (`count - 1 - reverse_index`) and delegate to the existing forward caller-indexed `Slice` view helpers, so empty fields, trailing/consecutive needles, empty-needle split behavior, and empty-needle matches behavior stay aligned with the forward batch. These aliases return explicit `(ok, Slice)` shapes rather than Rust lazy `RSplit` / `RMatches` iterator adapters or Rust `Option<&str>` values. This batch does not claim Rust `Pattern` trait machinery, `&[u8]`-needle or closure pattern variants, `rsplit_terminator`, `splitn`/`rsplitn` limited-count variants, or borrow-scoped reference lifetimes.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Install sync via `tools/install.sh --no-shell`: pass.
+  - Installed-state focused `./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-08 str/String slice-needle split/matches batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`STRING_BUF` slice-needle (`&str` needle) split and matches view helpers over the existing `STR_COUNT` non-overlapping scan:
+  - `STR_SPLIT_NEEDLE_COUNT` / `STRING_SPLIT_NEEDLE_COUNT` / `STRING_BUF_SPLIT_NEEDLE_COUNT` (matches-plus-one `split` count)
+  - `STR_SPLIT_NEEDLE_TERM_COUNT` / `STRING_SPLIT_NEEDLE_TERM_COUNT` / `STRING_BUF_SPLIT_NEEDLE_TERM_COUNT` (`split_terminator` count, subtracting the trailing run of needle-terminated empty fields)
+  - `STR_MATCHES_NEEDLE_COUNT` / `STRING_MATCHES_NEEDLE_COUNT` / `STRING_BUF_MATCHES_NEEDLE_COUNT` (count of non-overlapping needle matches)
+  - `STR_TRY_SPLIT_NEEDLE_AT` / `STRING_TRY_SPLIT_NEEDLE_AT` / `STRING_BUF_TRY_SPLIT_NEEDLE_AT` / `STR_SPLIT_NEEDLE_AT` / `STRING_SPLIT_NEEDLE_AT` / `STRING_BUF_SPLIT_NEEDLE_AT` (caller-indexed `Slice` views over split fields, `ok=1`/`ok=0`)
+  - `STR_TRY_MATCHES_NEEDLE_AT` / `STRING_TRY_MATCHES_NEEDLE_AT` / `STRING_BUF_TRY_MATCHES_NEEDLE_AT` / `STR_MATCHES_NEEDLE_AT` / `STRING_MATCHES_NEEDLE_AT` / `STRING_BUF_MATCHES_NEEDLE_AT` (caller-indexed `Slice` views over each matched needle occurrence)
+- Semantics: the count helpers reuse the `STR_COUNT` non-overlapping slice scan. `STR_SPLIT_NEEDLE_COUNT` returns the field count (`matches + 1`) rather than modeling Rust's lazy `Split` iterator. `STR_SPLIT_NEEDLE_TERM_COUNT` computes the base `split` field count and then subtracts the trailing run of needle-terminated empty fields, so `"a:b::"` with `:` yields 2 terms; an empty string or an empty needle yields 0 terms. `STR_TRY_SPLIT_NEEDLE_AT` walks the haystack, splitting on non-overlapping needle matches, and returns the caller-indexed field as a borrowed `Slice` view with `ok=1` when present and `ok=0` with an empty `Slice` otherwise; empty needles yield the whole haystack at index 0 and absent thereafter. `STR_MATCHES_NEEDLE_COUNT` is the count of non-overlapping needle matches equivalent to Rust `str::matches().count()`, and `STR_TRY_MATCHES_NEEDLE_AT` returns the caller-indexed match occurrence as a `Slice` view; empty needles yield zero matches. The aliases return explicit `(ok, Slice)` shapes rather than Rust lazy `Split`/`RSplit`/`SplitTerminator`/`Matches` iterator adapters or Rust `Option<&str>` values. This batch does not claim Rust `Pattern` trait machinery, `&[u8]`-needle or closure pattern variants, the reverse (`rsplit`/`rsplitn`/`rmatches`/`rsplit_terminator`) view subsets, the `splitn`/`rsplitn` limited-count variants, or borrow-scoped reference lifetimes.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`56 passed; 0 failed; 0 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "split needle aliases"`: pass (`1 passed; 55 skipped`).
+  - Install sync via `tools/install.sh --no-shell` completed; `/home/vscode/.sa/std/string.sa` exposes the new macros.
+
+## Completed: 2026-07-08 str/String replace/replacen char-pattern batch
+## Completed: 2026-07-08 str/String replace/replacen char-pattern batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust replace helpers over the existing `STRING_BUF_REPLACE` scan plus a new limited-replace scan:
+  - `STRING_BUF_REPLACE_N` (limited non-overlapping slice-needle replace)
+  - `STR_REPLACE` / `STRING_REPLACE` (borrowed `str`/`String` -> owned `StringBuf` alias of the full replace)
+  - `STR_REPLACEN` / `STRING_REPLACEN` (limited replace)
+  - `STRING_BUF_REPLACE_CHAR` / `STRING_BUF_REPLACE_N_CHAR` (char-pattern full/limited replace)
+  - `STR_REPLACE_CHAR` / `STRING_REPLACE_CHAR` / `STR_REPLACEN_CHAR` / `STRING_REPLACEN_CHAR`
+  - `STRING_BUF_REMOVE_MATCHES_CHAR` (char-pattern removal alias over `STRING_BUF_REMOVE_MATCHES`)
+- Semantics: the shared `STR_ENCODE_CHAR_SLICE` helper encodes a `char` (`u64` codepoint) into its UTF-8 byte subsequence so the existing slice-needle replace scan is reused. `STRING_BUF_REPLACE_N` replaces at most `limit` non-overlapping matches; a zero `limit` skips matching and copies the source verbatim, mirroring `replacen`. The empty-needle path copies the source in place rather than modeling Rust's panic or the matches-of-empty interpolation. The borrowed `STR_REPLACE`/`STR_REPLACEN` aliases return an owned `StringBuf` rather than a Rust `String`, because SA does not introduce a distinct owned-`String` resource kind. This batch does not claim Rust `Result` object layout, generic `Pattern` trait machinery, `&[u8]`/closure pattern variants, panic behavior, borrow-checker alias/lifetime semantics, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "replace aliases"`: pass (`1 passed; 54 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`55 passed; 0 failed; 0 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "replace aliases"`: pass (`1 passed; 54 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "char pattern aliases"`: pass (`1 passed; 54 skipped`).
+
+## Completed: 2026-07-08 str/String char-pattern find/count batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String` char-pattern search aliases that lower a single Unicode scalar (`char`, provided as a `u64` codepoint) to its UTF-8 byte subsequence and reuse the existing slice-needle scan helpers:
+  - `STR_CONTAINS_CHAR` / `STRING_CONTAINS_CHAR` / `STRING_BUF_CONTAINS_CHAR`
+  - `STR_TRY_FIND_CHAR` / `STR_FIND_CHAR` / `STRING_TRY_FIND_CHAR` / `STRING_FIND_CHAR` / `STRING_BUF_FIND_CHAR`
+  - `STR_TRY_RFIND_CHAR` / `STR_RFIND_CHAR` / `STRING_TRY_RFIND_CHAR` / `STRING_RFIND_CHAR` / `STRING_BUF_RFIND_CHAR`
+  - `STR_COUNT_CHAR` / `STRING_COUNT_CHAR` / `STRING_BUF_COUNT_CHAR`
+- Added a new non-overlapping slice-needle count helper that the `*_CHAR` count macros delegate to, plus the matching borrowed surface:
+  - `STR_COUNT` / `STRING_COUNT`
+- Semantics: the shared `STR_ENCODE_CHAR_SLICE` helper encodes a `char` into a 4-byte stack buffer via `CHAR_TRY_ENCODE_UTF8` and wraps it as a borrowed `Slice`; invalid scalar values produce an empty `Slice` and the delegated scan reports `ok=0`. The search returns explicit `(ok, byte_index)` shapes for `find`/`rfind` and `(count)` for `count` rather than Rust `Option<usize>` values. Because the haystack is valid UTF-8, any `&str`/`char` subsequence match lands on a char boundary, so byte-index results match Rust's `find`/`rfind` byte offsets. The empty-needle case for `STR_COUNT` returns `0` rather than modeling Rust's `'a matches("".count())` returning `len+1`. This batch does not claim Rust `Option`/`Result` object layout, generic `Pattern` trait machinery, `&[u8]`/closure pattern variants, borrow-checker alias/lifetime semantics, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "char pattern aliases"`: pass (`1 passed; 53 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`54 passed; 0 failed; 0 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "char pattern aliases"`: pass (`1 passed; 53 skipped`).
+
+## Completed: 2026-07-08 str/String from_utf8 view alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable borrowed UTF-8 view aliases for Rust `str::from_utf8`, `str::from_utf8_mut`, and unchecked naming:
+  - `STR_TRY_FROM_UTF8` / `STR_FROM_UTF8`
+  - `STR_TRY_FROM_UTF8_MUT` / `STR_FROM_UTF8_MUT`
+  - `STR_FROM_UTF8_UNCHECKED` / `STR_FROM_UTF8_UNCHECKED_MUT`
+  - matching `STRING_*` aliases
+- Semantics: checked forms return the local `(ok, Slice)` shape. Invalid UTF-8 returns `ok=0` and an empty `Slice`; unchecked forms preserve the input pointer and length. This does not claim Rust `Result<&str, Utf8Error>` / `Result<&mut str, Utf8Error>` object layout, unsafe type-state enforcement, borrow-checker alias/lifetime semantics, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "from_utf8 view aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf8 view aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 Vec peek_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Vec `peek_mut` naming aliases for Rust's current nightly-only `vec_peek_mut` method:
+  - `VEC_PEEK_MUT`
+  - `VEC_PEEK_MUT_U64`
+- Semantics: these aliases reuse the existing `VEC_TRY_PEEK_MUT*` raw-pointer helper and preserve the local `(ok, ptr)` result shape. Empty vectors return `ok=0` and a null pointer. This does not claim Rust `Option<&mut T>` object layout, peek guard behavior, generic `T` coverage, allocator-parametric behavior, or borrow-checker alias rules.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "peek_mut aliases"`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "peek_mut aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 str/String as_mut_ptr alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / `String` mutable pointer naming aliases:
+  - `STR_AS_MUT_PTR`
+  - `STRING_AS_MUT_PTR`
+- Semantics: these aliases reuse the existing byte pointer view and return the same raw pointer shape as `STR_AS_PTR`. Owned `StringBuf` already exposes `STRING_BUF_AS_MUT_PTR` over its backing vector buffer. This does not claim Rust scoped `&mut str` borrow rules, alias guarantees, UTF-8 mutation invariant enforcement, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "as_mut_ptr aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "as_mut_ptr aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 str/String as_ascii alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / `String` / `StringBuf` ASCII view naming aliases for Rust's current nightly-only `ascii_char` methods:
+  - `STR_AS_ASCII` / `STRING_AS_ASCII`
+  - `STR_AS_ASCII_UNCHECKED` / `STRING_AS_ASCII_UNCHECKED`
+  - `STRING_BUF_AS_ASCII`
+  - `STRING_BUF_AS_ASCII_UNCHECKED`
+- Semantics: checked forms reuse the existing ASCII slice validation helper and return local `(ok, Slice)` views, failing with `ok=0` and an empty view for non-ASCII bytes. Unchecked forms preserve the original pointer/length and rely on the caller's ASCII precondition. This does not claim Rust `Option<&[AsciiChar]>` object layout, distinct typed ASCII slice references, unsafe type-state enforcement, allocator-parametric behavior, stable API status, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "as_ascii aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "as_ascii aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 str/String split_at_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / `String` / `StringBuf` split-at mutable naming aliases:
+  - `STR_SPLIT_AT_MUT` / `STRING_SPLIT_AT_MUT`
+  - `STR_SPLIT_AT_MUT_CHECKED` / `STRING_SPLIT_AT_MUT_CHECKED`
+  - `STR_TRY_SPLIT_AT_MUT_CHECKED` / `STRING_TRY_SPLIT_AT_MUT_CHECKED`
+  - `STRING_BUF_SPLIT_AT_MUT`
+  - `STRING_BUF_SPLIT_AT_MUT_CHECKED`
+  - `STRING_BUF_TRY_SPLIT_AT_MUT_CHECKED`
+- Semantics: these delegate to the existing UTF-8 char-boundary checked split helper and preserve the local `(ok, left, right)` result shape over `Slice` views. They do not claim Rust panic behavior, `Option` object layout, scoped `&mut str` borrow rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "split_at_mut aliases"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "split_at_mut aliases"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 str/String ASCII case conversion batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable `str` / slice-string ASCII case mutation/copy helpers:
+  - `STR_MAKE_ASCII_UPPERCASE` / `STRING_MAKE_ASCII_UPPERCASE`
+  - `STR_MAKE_ASCII_LOWERCASE` / `STRING_MAKE_ASCII_LOWERCASE`
+  - `STR_TO_ASCII_UPPERCASE` / `STRING_TO_ASCII_UPPERCASE`
+  - `STR_TO_ASCII_LOWERCASE` / `STRING_TO_ASCII_LOWERCASE`
+- Semantics: mutable helpers operate on a caller-provided mutable `Slice` view, and `to_ascii_*` helpers materialize an owned `StringBuf` copy. ASCII letters are converted and non-ASCII UTF-8 bytes are preserved. This does not claim Unicode case folding, locale behavior, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "ascii case conversion"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii case conversion"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 StringBuf ASCII case mutation batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable StringBuf ASCII case mutation/copy helpers:
+  - `STRING_BUF_MAKE_ASCII_UPPERCASE`
+  - `STRING_BUF_MAKE_ASCII_LOWERCASE`
+  - `STRING_BUF_TO_ASCII_UPPERCASE`
+  - `STRING_BUF_TO_ASCII_LOWERCASE`
+- Semantics: these reuse the existing ASCII slice case conversion helper over the StringBuf byte view. ASCII letters are changed in place or in a cloned copy; non-ASCII UTF-8 bytes are preserved. This does not claim Unicode case folding, locale behavior, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer ascii case alias"`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer ascii case alias"`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added/narrow coverage.
+
+## Completed: 2026-07-07 StringBuf parity documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Synced the stale StringBuf implemented-surface report in `docs/std_missing.md` with current `sa_std/string.sa` source facts:
+  - Added current default/reference/deref conveniences.
+  - Added pointer-range, raw-parts, leak, and mutable-view surfaces.
+  - Added conversion/cloning, eager char/string extension and extraction, strict/lossy UTF constructor, retain/drain/remove, replace-first/last, and index-range categories already present in source and historical test coverage.
+- Clarified by placement that these are concrete SA helper surfaces and still do not imply Rust trait objects, lazy iterator models, allocator-parametric behavior, full generic `Pattern`, or borrow-checker alias semantics.
+- Validation status:
+  - Runtime tests intentionally not run because this batch has no runtime or test source changes.
+  - `git diff --check`: pass.
+
+## Completed: 2026-07-07 StringBuf char mutation documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Synced the stale `docs/std_missing.md` String scope note for owned `StringBuf` char mutation helpers:
+  - `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_PUSH_CHAR`
+  - `STRING_BUF_TRY_INSERT_CHAR` / `STRING_BUF_INSERT_CHAR`
+- Semantics: current source encodes any valid Unicode scalar value as UTF-8 before appending or inserting, and rejects invalid scalar values such as surrogate codepoints. Insert still goes through the existing checked insert path, so byte indexes must be in bounds and at a valid UTF-8 character boundary. This does not claim Rust `Pattern` machinery, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Runtime tests intentionally not run because this batch has no runtime or test source changes.
+  - `git diff --check`: pass.
+
+## Completed: 2026-07-07 StringBuf try split-at documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Current source already contains the supportable `String` deref-to-str split-at `TRY` alias, and this batch synced the parity documentation for it:
+  - `STRING_BUF_TRY_SPLIT_AT`
+- Semantics: this delegates through `STRING_BUF_SPLIT_AT`, which uses the existing UTF-8 char-boundary checked split helper, and preserves the local `(ok, left, right)` result shape. It does not claim Rust panic behavior, `Option` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer try split aliases"`: pass (`1 passed; 47 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction; no runtime or test source changed in this documentation-sync batch.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer try split aliases"`: pass (`1 passed; 47 skipped`).
+
+## Completed: 2026-07-07 Vec parity documentation sync batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Synced the stale Vec implemented-surface report in `docs/std_missing.md` with current `sa_std/vec.sa` source facts:
+  - Added current default/reference/deref conveniences.
+  - Added pointer-range, leak, raw-parts, NonNull parts, and spare-capacity surfaces.
+  - Added conversion/cloning, mut-return, `retain_mut`, and explicit U64 alias categories that were already present in source and historical test coverage.
+- Clarified the remaining Vec gap as generic `retain` / `retain_mut` beyond concrete U64 predicate forms, lazy `drain`/`splice` iterator semantics, and generic element support.
+- Validation status:
+  - Runtime tests intentionally not run because this batch has no runtime or macro implementation changes.
+  - `git diff --check`: pass.
+
+## Completed: 2026-07-07 Vec first/last U64 alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice first/last explicit U64 aliases:
+  - `VEC_FIRST_U64`
+  - `VEC_LAST_U64`
+- Semantics: these delegate to the existing front/back helpers and preserve local scalar `u64` result shapes. They do not claim Rust `Option<&T>` object layout, generic `T` coverage, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "vec first last u64 aliases"`: pass (`1 passed; 26 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "vec first last u64 aliases"`: pass (`1 passed; 26 skipped`).
+
+## Completed: 2026-07-07 StringBuf try split alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str `TRY` split aliases:
+  - `STRING_BUF_TRY_SPLIT_ONCE`
+  - `STRING_BUF_TRY_RSPLIT_ONCE`
+  - `STRING_BUF_TRY_SPLIT_AT_CHECKED`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local `(ok, left, right)` result shapes. They do not claim Rust lazy searcher objects, generic `Pattern`, `Option<(&str, &str)>` object layout, panic behavior, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer try split aliases"`: pass (`1 passed; 47 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer try split aliases"`: pass (`1 passed; 47 skipped`).
+
+## Completed: 2026-07-07 StringBuf ASCII case alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str ASCII case-insensitive equality alias:
+  - `STRING_BUF_EQ_IGNORE_ASCII_CASE`
+- Semantics: this delegates through `STRING_BUF_AS_STR` to the existing `str` helper and preserves a local boolean result shape. It does not claim Rust Unicode case folding, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer ascii case alias"`: pass (`1 passed; 46 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer ascii case alias"`: pass (`1 passed; 46 skipped`).
+
+## Completed: 2026-07-07 StringBuf find alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str find aliases:
+  - `STRING_BUF_TRY_FIND`
+  - `STRING_BUF_TRY_RFIND`
+  - `STRING_BUF_TRY_FIND_BYTE`
+  - `STRING_BUF_FIND_BYTE`
+  - `STRING_BUF_TRY_RFIND_BYTE`
+  - `STRING_BUF_RFIND_BYTE`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local `(ok, index)` result shapes. They do not claim Rust lazy searcher objects, generic `Pattern`, `Option<usize>` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer find aliases"`: pass (`1 passed; 45 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer find aliases"`: pass (`1 passed; 45 skipped`).
+
+## Completed: 2026-07-07 StringBuf trim alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str strip/trim aliases:
+  - `STRING_BUF_TRY_STRIP_PREFIX`
+  - `STRING_BUF_TRY_STRIP_SUFFIX`
+  - `STRING_BUF_TRIM_PREFIX`
+  - `STRING_BUF_TRIM_SUFFIX`
+  - `STRING_BUF_TRIM_ASCII_START`
+  - `STRING_BUF_TRIM_ASCII_END`
+  - `STRING_BUF_TRIM_ASCII`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local `(ok, slice)` or borrowed-slice result shapes. They do not claim Rust Unicode whitespace trim, generic `Pattern`, `Option<&str>` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer trim aliases"`: pass (`1 passed; 44 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer trim aliases"`: pass (`1 passed; 44 skipped`).
+
+## Completed: 2026-07-07 StringBuf split line alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str byte split / line view aliases:
+  - `STRING_BUF_COUNT_BYTE`
+  - `STRING_BUF_SPLIT_BYTE_COUNT`
+  - `STRING_BUF_TRY_SPLIT_BYTE_AT`
+  - `STRING_BUF_SPLIT_BYTE_AT`
+  - `STRING_BUF_LINE_COUNT`
+  - `STRING_BUF_TRY_LINE_AT`
+  - `STRING_BUF_LINE_AT`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local count or `(ok, slice)` result shapes. They do not claim Rust lazy iterator adapters, generic `Pattern`, `Option<&str>` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer split line aliases"`: pass (`1 passed; 43 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer split line aliases"`: pass (`1 passed; 43 skipped`).
+
+## Completed: 2026-07-07 StringBuf UTF-8 view alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str UTF-8 byte/char view aliases:
+  - `STRING_BUF_BYTE_LEN`
+  - `STRING_BUF_TRY_BYTE_AT`
+  - `STRING_BUF_IS_UTF8`
+  - `STRING_BUF_CHAR_COUNT`
+  - `STRING_BUF_TRY_CHAR_AT`
+  - `STRING_BUF_TRY_CHAR_AT_BYTE`
+  - `STRING_BUF_TRY_CHAR_RANGE_AT`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local boolean, count, codepoint, byte-length, or `(ok, slice)` result shapes. They do not claim Rust lazy iterator adapters, `Option` / `Result` object layouts, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer utf8 view aliases"`: pass (`1 passed; 42 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer utf8 view aliases"`: pass (`1 passed; 42 skipped`).
+
+## Completed: 2026-07-07 StringBuf char-boundary alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str ASCII / char-boundary aliases:
+  - `STRING_BUF_IS_ASCII`
+  - `STRING_BUF_IS_CHAR_BOUNDARY`
+  - `STRING_BUF_FLOOR_CHAR_BOUNDARY`
+  - `STRING_BUF_CEIL_CHAR_BOUNDARY`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to existing `str` helpers and preserve local boolean or scalar-index result shapes. They do not claim Rust iterator adapters, `Pattern`, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer char boundary aliases"`: pass (`1 passed; 41 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer char boundary aliases"`: pass (`1 passed; 41 skipped`).
+
+## Completed: 2026-07-07 StringBuf try range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str checked range `TRY` aliases:
+  - `STRING_BUF_TRY_GET_RANGE`
+  - `STRING_BUF_TRY_GET_PREFIX`
+  - `STRING_BUF_TRY_GET_SUFFIX`
+  - `STRING_BUF_TRY_GET_RANGE_TO`
+  - `STRING_BUF_TRY_GET_RANGE_FROM`
+  - `STRING_BUF_TRY_GET_RANGE_BETWEEN`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to UTF-8 char-boundary checked `str` range helpers and preserve local `(ok, slice)` result shapes. They do not claim Rust `Option<&str>` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer try range aliases"`: pass (`1 passed; 40 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer try range aliases"`: pass (`1 passed; 40 skipped`).
+
+## Completed: 2026-07-07 StringBuf range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str checked range aliases:
+  - `STRING_BUF_GET_RANGE`
+  - `STRING_BUF_GET_PREFIX`
+  - `STRING_BUF_GET_SUFFIX`
+  - `STRING_BUF_GET_RANGE_TO`
+  - `STRING_BUF_GET_RANGE_FROM`
+  - `STRING_BUF_GET_RANGE_BETWEEN`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to UTF-8 char-boundary checked `str` range helpers and preserve local `(ok, slice)` result shapes. They do not claim Rust `Option<&str>` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer range aliases"`: pass (`1 passed; 39 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer range aliases"`: pass (`1 passed; 39 skipped`).
+
+## Completed: 2026-07-07 StringBuf split_at alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str split-at aliases:
+  - `STRING_BUF_SPLIT_AT`
+  - `STRING_BUF_SPLIT_AT_CHECKED`
+- Semantics: both delegate through `STRING_BUF_AS_STR` to UTF-8 char-boundary checked split helpers and preserve local `(ok, left, right)` result shapes. They do not claim Rust panic behavior, `Option` object layout, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "buffer split_at aliases"`: pass (`1 passed; 38 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "buffer split_at aliases"`: pass (`1 passed; 38 skipped`).
+
+## Completed: 2026-07-07 StringBuf split-once alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str split-once aliases:
+  - `STRING_BUF_SPLIT_ONCE`
+  - `STRING_BUF_RSPLIT_ONCE`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to the existing concrete str slice helpers and preserve local `(ok, left, right)` result shapes. They do not claim Rust generic `Pattern`, `Option<(&str, &str)>` object layout, searcher/iterator object semantics, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 StringBuf strip alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str strip aliases:
+  - `STRING_BUF_STRIP_PREFIX`
+  - `STRING_BUF_STRIP_SUFFIX`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to the existing concrete str slice helpers and preserve local `(ok, slice)` result shapes. They do not claim Rust generic `Pattern`, `Option<&str>` object layout, searcher/iterator object semantics, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 StringBuf str predicate/search alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str predicate/search aliases:
+  - `STRING_BUF_CONTAINS`
+  - `STRING_BUF_STARTS_WITH`
+  - `STRING_BUF_ENDS_WITH`
+  - `STRING_BUF_FIND`
+  - `STRING_BUF_RFIND`
+- Semantics: these delegate through `STRING_BUF_AS_STR` to the existing concrete str slice helpers and preserve local boolean or `(ok, index)` result shapes. They do not claim Rust generic `Pattern`, `Option<usize>` object layout, searcher/iterator object semantics, borrow-checker alias rules, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 StringBuf bytes alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable `String` deref-to-str byte-view alias:
+  - `STRING_BUF_BYTES`
+- Semantics: this delegates to the existing `STRING_BUF_AS_BYTES` view and returns a local byte `Slice` over the StringBuf backing storage. It does not claim Rust's lazy `str::Bytes` iterator object, borrow-checker alias rules, allocator-parametric behavior, or generic trait-object semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 String as_mut_vec pointer alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, `String::as_mut_vec` Rust borrow-checker semantics and UTF-8 invariant enforcement, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable unsafe `String::as_mut_vec`-style local metadata pointer alias:
+  - `STRING_BUF_AS_MUT_VEC_PTR`
+- Semantics: this returns a pointer to the existing StringBuf/Vec-shaped metadata so local SA code can inspect the backing pointer/len/cap through the same layout used by Vec. It does not enforce Rust's unsafe post-mutation UTF-8 invariant, Rust borrow-checker alias rules, allocator-parametric behavior, or generic trait-object semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "default add and from-char"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "default add and from-char"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 String split/line indexed alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str indexed split and line aliases over existing checked view forms:
+  - `STR_SPLIT_BYTE_AT`, `STRING_SPLIT_BYTE_AT`
+  - `STR_LINE_AT`, `STRING_LINE_AT`
+- Semantics: these aliases preserve the existing local `(ok, slice)` result shape used by the `TRY_` forms. They expose indexed eager access to split-byte parts and lines. This does not claim Rust lazy iterator object semantics, generic `Pattern`, Rust `Option<&str>` object layout, or borrow-checker behavior.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "split byte view"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "line view"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "split byte view"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "line view"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 Vec checked get_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec checked mutable get aliases over the existing mutable-slice checked pointer helper:
+  - `VEC_TRY_GET_MUT_PTR_U64`
+  - `VEC_GET_MUT_U64`
+- Semantics: these aliases preserve a local `(ok, ptr)` result shape. Hit paths return a mutable pointer into the Vec allocation and tests verify write-back; misses return `ok=0` and null pointer. This does not claim Rust `Option<&mut T>` object layout, generic `T` coverage, or borrow-checker aliasing semantics.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "clone and from-slice"`: pass (`1 passed; 25 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "clone and from-slice"`: pass (`1 passed; 25 skipped`).
+
+## Completed: 2026-07-07 String exact UTF-16 alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added closer Rust method-name aliases over existing U16 slice UTF-16 constructors:
+  - `STRING_BUF_FROM_UTF16`
+  - `STRING_BUF_FROM_UTF16_LOSSY`
+- Semantics: `STRING_BUF_FROM_UTF16` preserves the existing local `(ok, StringBuf)` strict decode result shape; `STRING_BUF_FROM_UTF16_LOSSY` preserves the existing eager lossy replacement behavior. This does not claim Rust `Result` object layout, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "from_utf16 macros"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "from_utf16 lossy"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf16 macros"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf16 lossy"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 String UTF-16 constructor alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable checked UTF-16 constructor naming aliases over existing strict UTF-16 forms:
+  - `STRING_BUF_FROM_UTF16_U16`
+  - `STRING_BUF_FROM_UTF16LE`
+  - `STRING_BUF_FROM_UTF16BE`
+- Semantics: these aliases preserve the existing local `(ok, StringBuf)` result shape used by the `TRY_` forms. U16 input validates surrogate-pair structure; endian byte-slice input validates even byte length and then delegates to strict UTF-16 decoding. This does not claim Rust `Result` object layout, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "from_utf16 macros"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "utf16 endian byte"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf16 macros"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "utf16 endian byte"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 String UTF-8 constructor alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable checked UTF-8 constructor naming aliases over existing strict UTF-8 forms:
+  - `STRING_BUF_FROM_UTF8`
+  - `STRING_BUF_FROM_UTF8_VEC`
+  - `STRING_BUF_FROM_VEC_U8`
+  - `STRING_BUF_FROM_BYTES_VEC`
+- Semantics: these aliases preserve the existing local `(ok, StringBuf)` and `(ok, StringBuf, err_vec)` result shapes used by the `TRY_` forms. Valid owned-Vec input moves the Vec allocation into the `StringBuf`; invalid owned-Vec input returns the original Vec through the error slot. This does not claim Rust `Result` / `FromUtf8Error` object layout, allocator-parametric behavior, or full trait-object coverage.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "owned buffer utf8 and replace"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "from_utf8 Vec"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "reference conversion"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "owned buffer utf8 and replace"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "from_utf8 Vec"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "reference conversion"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 Vec split_off alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec split-off naming aliases over existing checked split-off forms:
+  - `VEC_SPLIT_OFF`
+  - `VEC_SPLIT_OFF_U64`
+- Semantics: these aliases preserve the existing local `(ok, Vec)` result shape used by the `TRY_` split-off forms. Hit paths move the tail into a new Vec and shrink the source; misses return `ok=0`. This does not claim Rust panic behavior, allocator-parametric behavior, generic `T` coverage beyond the existing element-size/U64 surface, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "vec convenience"`: pass (`1 passed; 25 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "vec convenience"`: pass (`1 passed; 25 skipped`).
+
+## Completed: 2026-07-07 String/str get-range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str checked range-view naming aliases over existing UTF-8 boundary checked forms:
+  - `STR_GET_RANGE`, `STRING_GET_RANGE`
+  - `STR_GET_PREFIX`, `STRING_GET_PREFIX`
+  - `STR_GET_SUFFIX`, `STRING_GET_SUFFIX`
+  - `STR_GET_RANGE_TO`, `STRING_GET_RANGE_TO`
+  - `STR_GET_RANGE_FROM`, `STRING_GET_RANGE_FROM`
+  - `STR_GET_RANGE_BETWEEN`, `STRING_GET_RANGE_BETWEEN`
+- Semantics: these aliases preserve the existing local `(ok, slice)` result shape used by the `TRY_` get-range forms. Bounds and UTF-8 char-boundary checks stay delegated to the existing helpers. This does not claim Rust `Option<&str>` object layout, range trait object coverage, Rust panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 Vec strip alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice strip naming aliases over existing checked U64 slice-view forms:
+  - `VEC_STRIP_PREFIX_U64`
+  - `VEC_STRIP_SUFFIX_U64`
+- Semantics: these aliases preserve the existing local `(ok, slice)` result shape used by the `TRY_` strip forms. Hit paths return the remaining slice view into the Vec allocation; misses return `ok=0` with an empty slice. This does not claim Rust `Option<&[T]>` object layout, generic `T: PartialEq`, Rust panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "vec convenience"`: pass (`1 passed; 25 skipped`).
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_vec_macro_surface.sa --filter "vec convenience"`: pass (`1 passed; 25 skipped`).
+
+## Completed: 2026-07-07 String/str byte find alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str byte find naming aliases over existing checked byte find forms:
+  - `STR_FIND_BYTE`, `STRING_FIND_BYTE`
+  - `STR_RFIND_BYTE`, `STRING_RFIND_BYTE`
+- Semantics: these aliases preserve the existing local `(ok, index)` result shape used by the `TRY_` byte forms. This models concrete byte search only; it does not claim generic `Pattern`, Unicode scalar search, Rust `Option<usize>` object layout, or iterator/searcher object semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string byte scan"`: pass (`1 passed; 37 skipped`).
+  - `git diff --check`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string byte scan"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 String/str find alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str find naming aliases over existing checked find forms:
+  - `STR_FIND`, `STRING_FIND`
+  - `STR_RFIND`, `STRING_RFIND`
+- Semantics: these aliases preserve the existing local `(ok, index)` result shape used by the `TRY_` forms. This does not claim Rust `Option<usize>` object layout, generic `Pattern` coverage beyond existing slice-pattern forms, or iterator/searcher object semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - `git diff --check`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+
+## Completed: 2026-07-07 String/str split/strip alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable String/str naming aliases over existing checked split/strip forms:
+  - `STR_STRIP_PREFIX`, `STRING_STRIP_PREFIX`
+  - `STR_STRIP_SUFFIX`, `STRING_STRIP_SUFFIX`
+  - `STR_SPLIT_AT`, `STRING_SPLIT_AT`
+  - `STR_SPLIT_AT_CHECKED`, `STRING_SPLIT_AT_CHECKED`
+  - `STR_SPLIT_ONCE`, `STRING_SPLIT_ONCE`
+  - `STR_RSPLIT_ONCE`, `STRING_RSPLIT_ONCE`
+- Semantics: these aliases preserve the existing local `(ok, slice...)` result shapes used by the `TRY_` forms. They expose Rust method names where SA returns explicit success flags and empty slice metadata on misses. This does not claim Rust `Option`/tuple object layout, generic `Pattern` coverage beyond existing slice-pattern forms, panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "utf8 byte and char view"`: pass (`1 passed; 37 skipped`).
+  - Source focused `std_slice_vec_macro_surface.sa --filter "rust parity checked view"`: pass (`1 passed; 19 skipped`).
+  - `git diff --check`: pass.
+  - Full test suites intentionally not run for this batch per user instruction to test only newly added coverage.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_string_macro_surface.sa --filter "string convenience"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "ascii and split once"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_string_macro_surface.sa --filter "utf8 byte and char view"`: pass (`1 passed; 37 skipped`).
+  - Installed-state focused `std_slice_vec_macro_surface.sa --filter "rust parity checked view"`: pass (`1 passed; 19 skipped`).
+
+## Completed: 2026-07-07 Vec binary_search alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice binary search naming alias over existing U64 slice machinery:
+  - `VEC_BINARY_SEARCH_U64`
+- Semantics: this alias preserves the existing local `(ok, index)` result shape used by `VEC_TRY_BINARY_SEARCH_U64`, where `ok=1` means a hit index and `ok=0` means the returned insertion point. This models the concrete U64 Vec/slice search path only; it does not claim Rust `Result<usize, usize>` object layout, generic `T: Ord`, comparator/key variants, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "search wrappers"`: pass (`1 passed; 25 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec select_nth alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice select-nth naming aliases over existing U64 slice machinery:
+  - `VEC_SELECT_NTH_UNSTABLE_U64`
+  - `VEC_SELECT_NTH_UNSTABLE_BY_U64`
+  - `VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64`
+- Semantics: these aliases preserve the existing local `(ok, left-slice, pivot-ptr, right-slice)` result shape used by the `TRY_` forms. They expose concrete U64 Vec mutable-slice partitioning through the existing slice implementation and return `ok=0` for out-of-range indexes. This does not claim Rust panic behavior, generic `T: Ord`, comparator/key trait object parity, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "select_nth"`: pass (`1 passed; 19 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec copy alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice copy aliases over existing U64 slice machinery:
+  - `VEC_COPY_FROM_SLICE_U64`
+  - `VEC_CLONE_FROM_SLICE_U64`
+  - `VEC_COPY_WITHIN_U64`
+- Semantics: these aliases expose concrete U64 Vec mutation through the existing mutable slice metadata path. `copy_from_slice` / `clone_from_slice` require equal lengths and return `ok=0` on mismatch. `copy_within` checks source and destination ranges, supports overlapping moves through the existing slice memmove-style implementation, and returns `ok=0` on invalid bounds. This does not claim generic `T`, Clone drop semantics, Rust panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "vec copy aliases"`: pass (`1 passed; 19 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec chunk/window access alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec chunk/window access aliases over existing U64 try forms:
+  - `VEC_CHUNK_AT_U64`
+  - `VEC_RCHUNK_AT_U64`
+  - `VEC_RCHUNK_MUT_AT_U64`
+  - `VEC_CHUNK_EXACT_AT_U64`
+  - `VEC_CHUNK_EXACT_MUT_AT_U64`
+  - `VEC_RCHUNK_EXACT_AT_U64`
+  - `VEC_RCHUNK_EXACT_MUT_AT_U64`
+  - `VEC_WINDOW_AT_U64`
+- Semantics: these aliases preserve the existing local `(ok, slice)` result shape used by the `TRY_` chunk/window access forms. Mut aliases return mutable slice metadata into the Vec allocation. Tests cover chunk/window, reverse chunk and mutable reverse chunk, exact chunk/reverse-exact chunk, miss paths, and mutable write-back; this does not claim lazy iterator objects, generic `T`, Rust panic behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "chunk window"`: pass (`1 passed; 18 skipped`).
+  - Source focused `std_slice_vec_macro_surface.sa --filter "rchunk macros"`: pass (`1 passed; 18 skipped`).
+  - Source focused `std_slice_vec_macro_surface.sa --filter "exact chunk"`: pass (`1 passed; 18 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec slice mutation alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice mutation aliases over existing U64 slice machinery:
+  - `VEC_SWAP_U64`
+  - `VEC_TRY_SWAP_U64`
+  - `VEC_REVERSE_U64`
+  - `VEC_ROTATE_LEFT_U64`
+  - `VEC_ROTATE_RIGHT_U64`
+  - `VEC_SWAP_WITH_SLICE_U64`
+  - `VEC_FILL_U64`
+- Semantics: these aliases expose concrete U64 Vec mutation through the existing mutable slice metadata path. Tests cover swap, try-swap miss, reverse, rotate-left/right, swap-with-slice hit/miss, and fill, then verify Vec and slice contents. This does not claim generic `T`, Rust panic behavior, allocator-parametric behavior, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "slice mutation aliases"`: pass (`1 passed; 18 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec unchecked split/range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec unchecked split/range aliases over existing U64 slice unchecked machinery:
+  - `VEC_SPLIT_AT_UNCHECKED_U64`
+  - `VEC_SPLIT_AT_MUT_UNCHECKED_U64`
+  - `VEC_RANGE_UNCHECKED_U64`
+  - `VEC_GET_RANGE_UNCHECKED_U64`
+  - `VEC_GET_RANGE_MUT_UNCHECKED_U64`
+- Semantics: these aliases model the concrete unsafe Vec-to-slice unchecked view shape for callers that already know the split/range is in bounds. Mut aliases return mutable slice metadata into the Vec allocation and tests verify write-back. The tests intentionally cover only in-bounds behavior and do not claim out-of-bounds safety, Rust borrow-checker semantics, or generic `T` coverage.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "unchecked split range"`: pass (`1 passed; 17 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`18 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`18 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec split/range naming alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice split/range naming aliases over existing U64 slice machinery:
+  - `VEC_SPLIT_AT_U64`
+  - `VEC_TRY_SPLIT_AT_MUT_U64`
+  - `VEC_SPLIT_AT_MUT_U64`
+  - `VEC_SPLIT_AT_CHECKED_U64`
+  - `VEC_SPLIT_AT_MUT_CHECKED_U64`
+  - `VEC_RANGE_U64`
+  - `VEC_GET_RANGE_U64`
+  - `VEC_GET_RANGE_MUT_U64`
+- Semantics: these aliases preserve the existing local `(ok, slice...)` shape. Mut aliases return mutable slice metadata into the Vec allocation and tests verify write-back through those slices. Miss paths return `ok=0` and empty slice metadata. This models concrete U64 Vec/slice views only; it does not claim Rust panic behavior, generic `T`, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "checked range"`: pass (`1 passed; 16 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec chunk naming alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice chunk naming aliases over the existing U64 try forms:
+  - `VEC_SPLIT_FIRST_CHUNK_U64`
+  - `VEC_FIRST_CHUNK_U64`
+  - `VEC_FIRST_CHUNK_MUT_U64`
+  - `VEC_SPLIT_FIRST_CHUNK_MUT_U64`
+  - `VEC_SPLIT_LAST_CHUNK_U64`
+  - `VEC_SPLIT_LAST_CHUNK_MUT_U64`
+  - `VEC_LAST_CHUNK_U64`
+  - `VEC_LAST_CHUNK_MUT_U64`
+- Semantics: these aliases preserve the existing local `(ok, slice...)` result shape used by the `TRY_` chunk forms. Mut aliases return mutable slice metadata into the Vec allocation. The tests cover hit, miss, zero-length chunk, and mutable write-back paths; this does not claim Rust const-generic array-reference layout, generic `T`, or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_slice_vec_macro_surface.sa --filter "first last chunk"`: pass (`1 passed; 16 skipped`).
+  - Source focused `std_slice_vec_macro_surface.sa --filter "split chunk"`: pass (`1 passed; 16 skipped`).
+  - Source full `std_slice_vec_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_slice_vec_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec unchecked alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec unchecked U64 aliases over existing in-bounds pointer/value machinery:
+  - `VEC_GET_UNCHECKED_U64`
+  - `VEC_GET_UNCHECKED_MUT_PTR_U64`
+- Semantics: these aliases model the concrete unsafe unchecked U64 value and mutable pointer access shape for callers that already know the index is in bounds. The tests verify only in-bounds behavior and do not claim out-of-bounds safety, Rust borrow-checker semantics, or generic `T` coverage.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "unchecked aliases"`: pass (`1 passed; 25 skipped`).
+  - Source full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec first_mut/last_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice mutable endpoint aliases over U64 element pointers:
+  - `VEC_TRY_FIRST_MUT_U64`
+  - `VEC_FIRST_MUT_U64`
+  - `VEC_TRY_LAST_MUT_U64`
+  - `VEC_LAST_MUT_U64`
+- Semantics: these aliases preserve the local `(ok, ptr)` shape used by other SA mutable element accessors. Empty Vec returns `ok=0` and a null pointer; non-empty Vec returns a pointer into the current allocation that can be written through. This models the concrete U64 pointer facade only; it does not claim generic `T` or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "peek_mut"`: pass (`1 passed; 24 skipped`).
+  - Source full `std_vec_macro_surface.sa`: pass (`25 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`25 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec split-first/last alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable Vec deref-to-slice split aliases over the existing U64 try forms:
+  - `VEC_SPLIT_FIRST_U64`
+  - `VEC_SPLIT_FIRST_MUT_U64`
+  - `VEC_SPLIT_LAST_U64`
+  - `VEC_SPLIT_LAST_MUT_U64`
+- Semantics: these aliases preserve the existing `(ok, value-or-pointer, rest-slice)` shape. Mut aliases return a pointer into the Vec allocation and rest slice metadata; empty Vec returns `ok=0`, a zero value/null pointer, and an empty rest slice. This models the concrete U64 Vec/slice shape only; it does not claim generic `T` or borrow-checker semantics.
+- Validation status:
+  - Source focused `std_vec_macro_surface.sa --filter "split first last aliases"`: pass (`1 passed; 24 skipped`).
+  - Source full `std_vec_macro_surface.sa`: pass (`25 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`25 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 Vec pop_if_mut alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable U64 mutable-tail predicate aliases for Rust `Vec::pop_if`-style use cases:
+  - `VEC_TRY_POP_IF_MUT_U64`
+  - `VEC_POP_IF_MUT_U64`
+- Semantics: these aliases pass a mutable pointer to the current tail element into the predicate, preserve any predicate mutation when the element is kept, and return the post-mutation tail value when the predicate removes it. Empty Vec returns `ok=0` and `value=0`. This models the concrete U64 pointer-predicate shape only; it does not claim generic `T`, Rust closure traits, or borrow-checker semantics.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+
+## Completed: 2026-07-07 String/Vec pointer range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable slice/String/Vec pointer-range aliases:
+  - `SLICE_AS_PTR_RANGE`, `SLICE_AS_MUT_PTR_RANGE`, `SLICE_AS_PTR_RANGE_U64`, `SLICE_AS_MUT_PTR_RANGE_U64`
+  - `STR_AS_PTR_RANGE`, `STR_AS_MUT_PTR_RANGE`, `STRING_AS_PTR_RANGE`, `STRING_AS_MUT_PTR_RANGE`
+  - `STRING_BUF_AS_PTR_RANGE`, `STRING_BUF_AS_MUT_PTR_RANGE`
+  - `VEC_AS_PTR_RANGE`, `VEC_AS_MUT_PTR_RANGE`, `VEC_AS_PTR_RANGE_U64`, `VEC_AS_MUT_PTR_RANGE_U64`
+- Semantics: these aliases return explicit `start` and `end` pointer outputs, where `end = start + len * elem_size`. This models the supportable pointer-pair shape behind Rust `as_ptr_range` / `as_mut_ptr_range`; it does not claim Rust `Range<*const T>` / `Range<*mut T>` object layout or unsafe `slice::from_ptr_range` / `from_mut_ptr_range` reconstruction APIs.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 str mutable bytes alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable unsafe byte-view aliases for Rust `str::as_bytes_mut` style use cases:
+  - `STR_AS_MUT_BYTES`
+  - `STRING_AS_MUT_BYTES`
+- Semantics: these aliases expose a `str`/string slice as a mutable byte slice using the same Slice metadata shape as `STR_AS_BYTES`. They model the byte view only; they do not enforce Rust's unsafe UTF-8 invariant after mutation, ownership provenance, or borrow-checker semantics.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 String mutable bytes alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` whole-metadata aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added supportable unsafe byte-view aliases for Rust `String::as_bytes_mut` style use cases:
+  - `STRING_BUF_AS_MUT_BYTES`
+  - `STRING_BUF_AS_MUT_REF_BYTES`
+- Semantics: these aliases expose the current `StringBuf` allocation as a mutable byte slice through the existing Vec mutable-slice metadata facade. This models the byte view only; it does not enforce Rust's unsafe UTF-8 invariant after mutation and does not claim `String::as_mut_vec` or borrow-checker coverage.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 String FromStr parse alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128` formatting, float default-format parity, and full generic trait-object coverage.
+- Added concrete String `FromStr` / parse-style aliases:
+  - `STRING_BUF_PARSE_FROM_STR`
+  - `STR_PARSE_STRING_BUF`
+- Semantics: these aliases copy a `&str` slice into an owned `StringBuf` and return `ok=1`, matching Rust's infallible `FromStr for String` shape for concrete strings. This does not claim generic `FromStr`, parser trait objects, or error type modeling.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`38 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 Integer primitive to_string alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128` formatting, float default-format parity, and full generic `Display` / `ToString` coverage.
+- Added concrete integer primitive `to_string` aliases over the existing u64/i64 formatter-backed paths:
+  - `U8_TO_STRING`
+  - `U16_TO_STRING`
+  - `U32_TO_STRING`
+  - `USIZE_TO_STRING`
+  - `I8_TO_STRING`
+  - `I16_TO_STRING`
+  - `I32_TO_STRING`
+  - `ISIZE_TO_STRING`
+- Semantics: these aliases delegate to the existing decimal `U64_TO_STRING` / `I64_TO_STRING` StringBuf-producing paths. This models concrete SA integer values and does not claim Rust `u128`/`i128`, float formatting, or arbitrary `Display` trait coverage.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 Vec AsMut Vec pointer alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow semantics beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, and full generic trait-object coverage.
+- Added a supportable `AsMut<Vec<T>>`-style Vec metadata pointer alias:
+  - `VEC_AS_MUT_VEC_PTR`
+- Semantics: this is a local borrowed metadata pointer facade matching the existing `VEC_AS_REF_VEC_PTR` shape. It exposes the current Vec metadata pointer for macro composition but does not claim Rust borrow-checker enforcement or arbitrary whole-object mutation semantics.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 String primitive to_string alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, and full generic `Display` / `ToString` coverage for arbitrary types.
+- Added supportable concrete primitive `to_string` aliases over existing StringBuf and formatter paths:
+  - `CHAR_TO_STRING`
+  - `BOOL_TO_STRING`
+  - `U64_TO_STRING`
+  - `I64_TO_STRING`
+- Semantics: `CHAR_TO_STRING` uses the existing Unicode scalar StringBuf constructor path, while bool/u64/i64 aliases format through the existing SA formatter and copy the formatted bytes into an owned `StringBuf`. This does not claim generic Rust `Display` / `ToString` trait-object coverage or float/default-format parity.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`37 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 StringBuf/Vec owned conversion alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager owned-copy aliases for Rust `ToOwned` / `ToString` / `to_vec` style use cases:
+  - `STR_TO_OWNED`
+  - `STR_TO_STRING`
+  - `STRING_BUF_TO_OWNED`
+  - `STRING_BUF_TO_STRING`
+  - `SLICE_TO_VEC`
+  - `SLICE_TO_OWNED_VEC`
+  - `SLICE_TO_VEC_U64`
+  - `SLICE_TO_OWNED_VEC_U64`
+  - `VEC_TO_OWNED`
+  - `VEC_TO_OWNED_U64`
+- Semantics: these aliases allocate/copy into independent owned buffers through existing `StringBuf` clone/from-str and Vec from-slice/clone paths. Mutating the source after conversion does not mutate the owned result. This does not claim `Cow`, `Box`, allocator-parametric, trait-object, or full generic trait coverage.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`36 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`24 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`36 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`24 passed`).
+
+## Completed: 2026-07-07 StringBuf/Vec repeat alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager repeat aliases for Rust `str::repeat` and slice/Vec repeat style use cases:
+  - `STR_REPEAT`
+  - `STRING_BUF_REPEAT`
+  - `VEC_REPEAT`
+  - `VEC_REPEAT_U64`
+- Semantics: these aliases eagerly materialize a new `StringBuf` or Vec by copying the source str/slice `count` times. `count=0` returns an empty owned buffer. This does not claim allocator-parametric APIs, `Clone` for arbitrary `T`, or lazy iterator/object-model coverage.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`35 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`23 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`35 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`23 passed`).
+
+## Completed: 2026-07-07 StringBuf owned String iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager owned-String iterator aliases for Rust `FromIterator<String>` / `Extend<String>` style use cases:
+  - `STRING_BUF_DROP_IN_PLACE`
+  - `STRING_BUF_EXTEND_STRING_ITER`
+  - `STRING_BUF_FROM_STRING_ITER`
+- Semantics: these aliases accept an eager `Slice` whose elements are by-value `StringBuf` / Vec metadata entries. Each owned source StringBuf is appended through its `str` view, then its moved-from buffer allocation is dropped in place. This models a Slice-of-StringBuf metadata batch, not a real Rust lazy iterator object model.
+- Compiler support: fixed LLVM-C lowering for indirect call signature provenance when a vtable slot load has a typed field prefix such as `SupportCfiFn_call`; the full unit-framework CFI test now passes instead of losing the indirect callee signature.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
+## Completed: 2026-07-07 StringBuf/Vec hash delegation alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord/Hash`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable local `Hash`-style delegation aliases:
+  - `DEFAULT_HASHER_WRITE_BYTES`
+  - `DEFAULT_HASHER_WRITE_STR`
+  - `DEFAULT_HASHER_WRITE_SLICE_U8`
+  - `DEFAULT_HASHER_WRITE_SLICE_U64`
+  - `HASH_STR`
+  - `HASH_SLICE_U8`
+  - `SLICE_HASH_U64`
+  - `STR_HASH`
+  - `STRING_HASH`
+  - `STRING_BUF_HASH`
+  - `VEC_HASH_U64`
+- Semantics: `StringBuf` hashes through its `str` view, and `Vec<u64>` hashes through its U64 slice view, matching Rust's trait delegation direction. The hashing algorithm is the existing SA `DefaultHasher` macro surface, not a claim of byte-for-byte Rust standard-library hasher parity or generic `T: Hash` coverage.
+- Validation status:
+  - Source focused `std_hash_macro_surface.sa`: pass (`1 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_hash_macro_surface.sa`: pass (`1 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
+## Completed: 2026-07-07 StringBuf lexicographic comparison alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable lexicographic comparison aliases for Rust `String` / `str` `PartialOrd` / `Ord` style use cases:
+  - `STR_CMP`, `STR_LT`, `STR_LE`, `STR_GT`, `STR_GE`
+  - `STRING_BUF_CMP_STR`, `STR_CMP_STRING_BUF`, `STRING_BUF_CMP_STRING`
+  - `STRING_BUF_LT_STR`, `STRING_BUF_LE_STR`, `STRING_BUF_GT_STR`, `STRING_BUF_GE_STR`
+  - `STR_LT_STRING_BUF`, `STR_LE_STRING_BUF`, `STR_GT_STRING_BUF`, `STR_GE_STRING_BUF`
+  - `STRING_BUF_LT_STRING`, `STRING_BUF_LE_STRING`, `STRING_BUF_GT_STRING`, `STRING_BUF_GE_STRING`
+- Semantics: these aliases compare UTF-8 strings by byte lexicographic order, returning `-1` / `0` / `1` for less/equal/greater and bool wrappers for ordering predicates, matching Rust string ordering without adding a new trait object model.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
+## Completed: 2026-07-07 Vec U64 lexicographic comparison alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow / generic `T: PartialEq/Ord`, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable U64 lexicographic comparison aliases for Rust slice-delegated `Vec<T>` `PartialOrd` / `Ord` style use cases:
+  - `SLICE_CMP_U64`
+  - `SLICE_LT_U64`
+  - `SLICE_LE_U64`
+  - `SLICE_GT_U64`
+  - `SLICE_GE_U64`
+  - `VEC_CMP_SLICE_U64`
+  - `SLICE_CMP_VEC_U64`
+  - `VEC_CMP_U64`
+  - `VEC_LT_U64`
+  - `VEC_LE_U64`
+  - `VEC_GT_U64`
+  - `VEC_GE_U64`
+- Semantics: these aliases compare U64 slices lexicographically, returning `-1` / `0` / `1` for less/equal/greater and bool wrappers for ordering predicates, matching the supportable `Vec<u64>`/slice comparison subset without claiming generic `T: Ord` trait-object coverage.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `git diff --check`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
+## Completed: 2026-07-07 Vec U64 equality alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable U64 equality aliases for Rust slice-delegated `Vec<T>` equality style use cases:
+  - `SLICE_EQ_U64`
+  - `SLICE_NE_U64`
+  - `VEC_EQ_SLICE_U64`
+  - `VEC_NE_SLICE_U64`
+  - `SLICE_EQ_VEC_U64`
+  - `SLICE_NE_VEC_U64`
+  - `VEC_EQ_U64`
+  - `VEC_NE_U64`
+- Semantics: these aliases compare U64 slices element-by-element with length checks, matching the supportable `Vec<u64>`/slice equality subset without claiming generic `T: PartialEq` trait-object coverage.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
+## Completed: 2026-07-07 StringBuf equality alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable `PartialEq` / `ne` style naming aliases over existing UTF-8 string view comparison:
+  - `STRING_BUF_EQ_STR`
+  - `STRING_BUF_NE_STR`
+  - `STR_EQ_STRING_BUF`
+  - `STR_NE_STRING_BUF`
+  - `STRING_BUF_EQ_STRING`
+  - `STRING_BUF_NE_STRING`
+- Semantics: these aliases compare `StringBuf` values through `STRING_BUF_AS_STR` and the existing bytewise `STR_EQ`, matching Rust's `String`/`str` equality delegation without adding a new trait object model.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
+## Completed: 2026-07-07 StringBuf ASCII char iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager `core::ascii::Char` and `&core::ascii::Char` aliases for Rust `FromIterator` / `Extend` style use cases:
+  - `STRING_BUF_TRY_EXTEND_ASCII_CHARS`
+  - `STRING_BUF_EXTEND_ASCII_CHARS`
+  - `STRING_BUF_TRY_FROM_ASCII_CHARS`
+  - `STRING_BUF_FROM_ASCII_CHARS`
+  - `STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS`
+  - `STRING_BUF_EXTEND_ASCII_CHAR_REFS`
+  - `STRING_BUF_TRY_FROM_ASCII_CHAR_REFS`
+  - `STRING_BUF_FROM_ASCII_CHAR_REFS`
+- Semantics: accepts eager byte-sized ASCII Char slices or pointer slices, validates every byte is ASCII before mutating, reserves one byte per item, then appends bytes directly. Invalid bytes return `ok=0` and leave the target StringBuf unchanged/empty.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`34 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`34 passed`).
+
+## Completed: 2026-07-07 StringBuf char reference iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager `&char` aliases for Rust `FromIterator<&char>` / `Extend<&char>` style use cases:
+  - `STRING_BUF_TRY_EXTEND_CHAR_REFS_U64`
+  - `STRING_BUF_EXTEND_CHAR_REFS_U64`
+  - `STRING_BUF_TRY_FROM_CHAR_REFS_U64`
+  - `STRING_BUF_FROM_CHAR_REFS_U64`
+- Semantics: accepts an eager `Slice` of pointers to U64 Unicode scalar values, validates every referenced scalar before mutating, reserves up to four UTF-8 bytes per scalar, then appends encoded UTF-8. Invalid scalar values such as surrogate codepoints return `ok=0` and leave the target StringBuf unchanged/empty.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`33 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`33 passed`).
+
+## Completed: 2026-07-07 StringBuf str iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager `&str` sequence aliases for Rust `FromIterator<&str>` / `Extend<&str>` style use cases:
+  - `STRING_BUF_EXTEND_STR_ITER`
+  - `STRING_BUF_FROM_STR_ITER`
+- Semantics: these aliases accept an eager `Slice` whose elements are `Slice` structs, modeling a Slice-of-Slice sequence of `&str` views, and append each view through the existing `STRING_BUF_PUSH_STR` path without claiming a real Rust lazy iterator object model.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`33 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`33 passed`).
+
+## Completed: 2026-07-07 Vec eager iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager slice-shaped aliases for Rust `FromIterator<T>` / `Extend<T>` style use cases:
+  - `VEC_FROM_ITER`
+  - `VEC_FROM_ITER_U64`
+  - `VEC_EXTEND_ITER`
+  - `VEC_EXTEND_ITER_U64`
+- Semantics: these aliases copy from an existing `Slice` into Vec storage or append slice contents to an existing Vec, reusing the existing slice-copy implementation without claiming a real Rust lazy iterator object model.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
+## Completed: 2026-07-07 StringBuf char iterator alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, real lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable eager char-sequence aliases for Rust `FromIterator<char>` / `Extend<char>` style use cases:
+  - `STRING_BUF_TRY_EXTEND_CHARS_U64`
+  - `STRING_BUF_EXTEND_CHARS_U64`
+  - `STRING_BUF_TRY_FROM_CHARS_U64`
+  - `STRING_BUF_FROM_CHARS_U64`
+- Semantics: accepts a `Slice` of U64 Unicode scalar values, validates the whole slice before mutating, reserves up to four UTF-8 bytes per scalar, then appends encoded UTF-8. Invalid scalar values such as surrogate codepoints return `ok=0` and leave the target StringBuf unchanged/empty.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`33 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`33 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec Extend trait alias audit batch
+
+- Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs with String/Vec as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas include allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable trait-style aliases that do not require a new iterator object model:
+  - `STRING_BUF_EXTEND_STR`
+  - `STRING_BUF_TRY_EXTEND_CHAR`
+  - `STRING_BUF_EXTEND_CHAR`
+  - `STRING_BUF_EXTEND_STRING`
+  - `VEC_EXTEND_ONE`
+  - `VEC_EXTEND_ONE_U64`
+  - `VEC_EXTEND_REF_SLICE`
+  - `VEC_EXTEND_REF_SLICE_U64`
+- Semantics: String aliases map to the existing append/Unicode-scalar push paths; `STRING_BUF_EXTEND_STRING` appends a source `StringBuf` view then frees the moved source. Vec aliases map to the existing push and copy-from-slice paths, matching the supportable `Extend<T>` / `Extend<&T>` shapes without claiming full Rust iterator semantics.
+- Validation status:
+  - Source full `std_string_macro_surface.sa`: pass (`32 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`22 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`32 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`22 passed`).
+
+## Completed: 2026-07-06 Unix socket set_mark facade batch
+
+- Added supportable Linux `std::os::net::linux_ext::UnixSocketExt::set_mark` style facades for Unix stream and datagram sockets.
+- Added macro surfaces:
+  - `NET_UNIX_STREAM_SET_MARK`
+  - `NET_UNIX_DATAGRAM_SET_MARK`
+- Added runtime/export surfaces:
+  - `sa_std_net_unix_stream_set_mark`
+  - `sa_std_net_unix_datagram_set_mark`
+- Semantics: Linux-only `SO_MARK` setter over AF_UNIX stream/datagram handles. The runtime validates the SA socket handle kind and AF_UNIX family before calling `setsockopt(SOL_SOCKET, SO_MARK, u32)`. Tests accept success, access denied, or unsupported because unprivileged environments may reject `SO_MARK`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for new `sa_std_net_unix_*_set_mark` symbols: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec Rust API self-reference and index alias audit batch
+
+- Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs with String/Vec as the active priority.
+- Finding remains: current SA facades are broad but not complete Rust API coverage. Remaining unsupported or intentionally unclaimed areas still include allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened`, Vec `AsMut<Vec<T>>` whole-object mutable borrow, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable naming aliases:
+  - `VEC_AS_REF_VEC_PTR`
+  - `STRING_BUF_DEREF_STR`
+  - `STRING_BUF_DEREF_MUT_STR`
+  - `STRING_BUF_TRY_INDEX_RANGE`
+  - `STRING_BUF_TRY_INDEX_RANGE_MUT`
+- Semantics: the Vec self-reference alias returns a shared borrow pointer to the existing Vec metadata and does not copy or transfer ownership. String deref aliases return the existing str slice view shape, and index aliases reuse UTF-8 boundary checked range slicing.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+
+## Completed: 2026-07-06 Unix thread JoinHandleExt pthread facade batch
+
+- Added supportable `std::os::unix::thread::JoinHandleExt` raw pthread facade backed by real runtime `pthread_t` values, not SA registry handle ids.
+- Added macro surfaces:
+  - `THREAD_AS_PTHREAD_T`
+  - `THREAD_INTO_PTHREAD_T`
+  - `THREAD_RAW_PTHREAD_JOIN_STATUS` for SA tests/callers that take ownership through `into_pthread_t` and need to join the transferred raw pthread.
+- Added runtime/export surfaces:
+  - `sa_thread_as_pthread_t`
+  - `sa_thread_into_pthread_t`
+  - `sa_thread_raw_pthread_join`
+- Semantics: `as_pthread_t` reads the underlying raw pthread without consuming the SA join handle. `into_pthread_t` removes the SA join handle from the registry, transfers raw pthread ownership to the caller, and keeps task cleanup associated with the raw pthread join helper. `THREAD_JOIN_STATUS` was also corrected to pass its output buffer as a pointer according to the existing `pthread_join` ABI.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused `std_thread_macro_surface.sa`: pass (`2 passed`).
+  - Runtime export check for new `sa_thread_*pthread*` symbols: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_thread_macro_surface.sa`: pass (`2 passed`).
+  - Installed-state runtime export check: pass.
+
+## Completed: 2026-07-06 Unix ffi OsStr/OsString facade batch
+
+- Added supportable `std::os::unix::ffi::{OsStrExt, OsStringExt}` macro facades.
+- Added macro surfaces:
+  - `OS_STR_FROM_BYTES`
+  - `OS_STR_FROM_BYTES_SLICE`
+  - `OS_STR_AS_BYTES`
+  - `OS_STR_AS_BYTES_SLICE`
+  - `OS_STRING_FROM_VEC`
+  - `OS_STRING_FROM_VEC_U8`
+  - `OS_STRING_INTO_VEC`
+  - `OS_STRING_INTO_VEC_U8`
+- Semantics: borrowed `OsStr` is represented as a byte `Slice` view, with `from_bytes` / `as_bytes` creating fresh Slice wrappers over the same pointer/length so the source view is not moved. Owned `OsString` is represented as the underlying `Vec<u8>` ownership shape, so `from_vec` / `into_vec` are move aliases.
+- Validation status:
+  - Source focused `std_os_unix_ffi_macro_surface.sa`: pass (`2 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`), with `std_os_unix_ffi_macro_surface.sa` included in the runner list.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `std_os_unix_ffi_macro_surface.sa`: pass (`2 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec Rust API naming alias audit batch
+
+- Re-audited `StringBuf` / `Vec` against Rust `alloc::string::String` and `alloc::vec::Vec` APIs after the latest conversion-alias work.
+- Finding remains: the current SA facades are not complete Rust API coverage. Unsupported or intentionally unclaimed areas still include allocator-parametric constructors/accessors, Box/Cow conversions, lazy iterator object models, const-generic array ownership/array extraction, `Vec::into_chunks`/`into_flattened` object shapes, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable naming aliases:
+  - `VEC_AS_REF_SLICE`
+  - `VEC_AS_MUT_REF_SLICE`
+  - `VEC_DEREF_SLICE`
+  - `VEC_DEREF_MUT_SLICE`
+  - `STRING_BUF_WRITE_STR`
+  - `STRING_BUF_WRITE_CHAR`
+- Semantics: Vec aliases return the same slice view shape as existing `VEC_AS_SLICE` / `VEC_AS_MUT_SLICE`, matching Rust `AsRef<[T]>`, `AsMut<[T]>`, `Deref<Target=[T]>`, and `DerefMut` naming without pretending SA has a separate borrowed `Vec<T>` metadata reference object. String write aliases model `fmt::Write for String`: `write_str` appends and returns ok, while `write_char` reuses the existing Unicode scalar validation path.
+- Validation status:
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+
+## Completed: 2026-07-06 UnixDatagram pathname/abstract address facade batch
+
+- Continued `std::os::unix::net::UnixDatagram` parity with pathname and Unix `SocketAddr` handle address paths.
+- Added macro surfaces:
+  - `NET_UNIX_DATAGRAM_BIND`
+  - `NET_UNIX_DATAGRAM_BIND_ADDR`
+  - `NET_UNIX_DATAGRAM_CONNECT`
+  - `NET_UNIX_DATAGRAM_CONNECT_ADDR`
+  - `NET_UNIX_DATAGRAM_SEND_TO`
+  - `NET_UNIX_DATAGRAM_SEND_TO_ADDR`
+  - `NET_UNIX_DATAGRAM_RECV_FROM`
+  - `NET_UNIX_DATAGRAM_PEEK_FROM`
+- Added runtime/export surfaces: `sa_std_net_unix_datagram_bind`, `bind_addr`, `connect`, `connect_addr`, `send_to`, `send_to_addr`, `recv_from`, and `peek_from`.
+- Semantics: pathname bind/connect/send-to use Rust-style Unix pathname addresses; address-handle variants reuse the existing pathname/abstract/unnamed Unix addr resource model. `peek_from` returns the sender address without consuming the datagram, and `recv_from` returns a Unix addr handle for the packet source.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused UnixDatagram address tests: pass (`3 passed`).
+  - Source full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for new `sa_std_net_unix_datagram_*` address symbols: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused UnixDatagram address tests: pass (`3 passed`).
+  - Installed-state full `std_net_unix_macro_surface.sa`: pass (`7 passed`).
+  - Installed-state runtime export check: pass.
+
+## Completed: 2026-07-06 Vec reference/array conversion alias facade batch
+
+- Re-audited `StringBuf` / `Vec` macro surfaces against Rust `alloc::string::String` and `alloc::vec::Vec` APIs.
+- Finding: current SA facades do not and cannot honestly claim complete Rust API coverage. Existing support covers the practical owned-buffer, UTF conversion, mutation, capacity, raw-parts, clone, and slice-view subsets; remaining gaps include allocator-parametric APIs, Box/Cow object conversions, const-generic array ownership, lazy iterator object models, and unsafe `String::as_mut_vec` metadata-level aliasing.
+- Added supportable Vec conversion alias macro surfaces:
+  - `VEC_FROM_MUT_SLICE` / `VEC_FROM_MUT_SLICE_U64`
+  - `VEC_FROM_ARRAY` / `VEC_FROM_ARRAY_U64`
+  - `VEC_FROM_MUT_ARRAY` / `VEC_FROM_MUT_ARRAY_U64`
+- Semantics: these are Rust naming aliases over existing slice-copy construction. They copy the source elements into independent Vec storage, matching `From<&mut [T]>`, `From<&[T; N]>`, and `From<&mut [T; N]>` style behavior for SA slice-shaped inputs.
+- Validation status:
+  - Source focused Vec clone/from-slice test: pass (`1 passed`).
+  - Source focused String owned-buffer test after rejecting the unsafe `as_mut_vec` alias approach: pass (`1 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused Vec clone/from-slice test: pass (`1 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+
+## Completed: 2026-07-06 UnixDatagram basic facade batch
+
+- Added supportable `std::os::unix::net::UnixDatagram` basic facade subset backed by AF_UNIX/SOCK_DGRAM handles.
+- Added macro surfaces:
+  - `NET_UNIX_DATAGRAM_UNBOUND`
+  - `NET_UNIX_DATAGRAM_PAIR`
+  - `NET_UNIX_DATAGRAM_TRY_CLONE`
+  - `NET_UNIX_DATAGRAM_AS_RAW_FD` / `NET_UNIX_DATAGRAM_INTO_RAW_FD` / `NET_UNIX_DATAGRAM_FROM_RAW_FD`
+  - `NET_UNIX_DATAGRAM_INTO_OWNED_FD` / `NET_UNIX_DATAGRAM_FROM_OWNED_FD`
+  - `NET_UNIX_DATAGRAM_LOCAL_ADDR` / `NET_UNIX_DATAGRAM_PEER_ADDR`
+  - `NET_UNIX_DATAGRAM_SET_PASSCRED` / `NET_UNIX_DATAGRAM_PASSCRED`
+  - `NET_UNIX_DATAGRAM_SET_READ_TIMEOUT` / `NET_UNIX_DATAGRAM_READ_TIMEOUT`
+  - `NET_UNIX_DATAGRAM_SET_WRITE_TIMEOUT` / `NET_UNIX_DATAGRAM_WRITE_TIMEOUT`
+  - `NET_UNIX_DATAGRAM_SET_NONBLOCKING` / `NET_UNIX_DATAGRAM_TAKE_ERROR`
+  - `NET_UNIX_DATAGRAM_SEND` / `NET_UNIX_DATAGRAM_RECV` / `NET_UNIX_DATAGRAM_PEEK`
+  - `NET_UNIX_DATAGRAM_SHUTDOWN` / `NET_UNIX_DATAGRAM_CLOSE`
+- Added runtime/export surfaces: `sa_std_net_unix_datagram_unbound`, `pair`, `try_clone`, `from_raw_fd`, `local_addr`, `peer_addr`, `set_passcred`, `passcred`, and `shutdown`.
+- Semantics: UnixDatagram uses the existing owned fd-backed `udp_socket` resource kind while validating AF_UNIX/SOCK_DGRAM where handles are restored or queried as Unix datagrams. `pair` returns connected unnamed datagram sockets, `peek` is non-consuming, passcred maps to Linux `SO_PASSCRED`, and raw/owned fd conversions preserve Rust-style ownership transfer.
+- Scope note: pathname/abstract `bind_addr`, `connect_addr`, `send_to_addr`, and address-returning `recv_from`/`peek_from` paths were completed in the follow-up address batch above.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused UnixDatagram test: pass (`1 passed`).
+  - Source full `std_net_unix_macro_surface.sa`: pass (`5 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for `sa_std_net_unix_datagram_*`: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused UnixDatagram test: pass (`1 passed`).
+  - Installed-state full `std_net_unix_macro_surface.sa`: pass (`5 passed`).
+
+## Completed: 2026-07-06 Unix fs chroot facade batch
+
+- Added supportable `std::os::unix::fs::chroot` current-process facade for Linux.
+- Added macro surfaces:
+  - `FS_CHROOT`
+  - `FS_UNIX_CHROOT`
+- Added runtime/export surface:
+  - `sa_fs_chroot`
+- Semantics: validates SA path input, calls Linux `chroot(2)` on the current process, and maps Linux errno values into existing SA runtime status codes. Test coverage uses `/` only, accepting success under root or permission denial under non-root, so it exercises the syscall path without moving the test process into an unsafe temporary root.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - Source focused chroot test: pass (`1 passed`).
+  - Source full `std_fs_unix_ext_macro_surface.sa`: pass (`7 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for `sa_fs_chroot`: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused chroot test: pass (`1 passed`).
+  - Installed-state full `std_fs_unix_ext_macro_surface.sa`: pass (`7 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec reference conversion alias facade batch
+
+- Continued String/Vec Rust API parity with remaining supportable reference/conversion aliases.
+- Added StringBuf macro surfaces:
+  - `STRING_BUF_FROM_MUT_STR`
+  - `STRING_BUF_FROM_STRING_REF`
+  - `STRING_BUF_TRY_FROM_VEC_U8`
+  - `STRING_BUF_TRY_FROM_BYTES_VEC`
+- Expanded Vec coverage for the existing `VEC_FROM_STRING_BUF` surface, matching Rust `From<String> for Vec<u8>` style ownership transfer.
+- Semantics: `from_mut_str` copies the provided mutable str view just like `from_str`; `from_string_ref` clones the source StringBuf into independent backing storage; TryFrom byte-Vec aliases reuse strict UTF-8 validation and return the original byte Vec on failure.
+- Scope note: `String::as_mut_vec`, Cow/Box conversions, allocator-parametric APIs, const-generic arrays, and lazy iterator object models remain outside the supportable SA surface for now.
+- Validation status:
+  - Source focused reference conversion tests: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`21 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused reference conversion tests: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`31 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`21 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec default and conversion alias facade batch
+
+- Continued String/Vec Rust API parity with supportable trait/conversion naming surfaces.
+- Added Vec macro surfaces:
+  - `VEC_DEFAULT`
+  - `VEC_FROM_STR_BYTES` / `VEC_U8_FROM_STR`
+  - `VEC_FROM_STRING_BUF`
+- Added StringBuf macro surfaces:
+  - `STRING_BUF_DEFAULT`
+  - `STRING_BUF_AS_REF_STR` / `STRING_BUF_AS_MUT_REF_STR` / `STRING_BUF_AS_REF_BYTES`
+  - `STRING_BUF_FROM_CHAR`
+  - `STRING_BUF_ADD_STR` / `STRING_BUF_ADD_ASSIGN_STR`
+- Semantics: default constructors produce empty buffers. `Vec<u8>` from str copies UTF-8 bytes. `StringBuf` add consumes/moves the left StringBuf and appends the right str slice; add-assign mutates in place; from-char encodes a Unicode scalar into UTF-8.
+- Validation status:
+  - Source focused default/conversion tests: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`30 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused default/conversion tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`30 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec clone and from-slice/from-str facade batch
+
+- Continued highest-priority String/Vec Rust API parity work with supportable clone/conversion surfaces.
+- Added Vec macro surfaces:
+  - `VEC_FROM_SLICE` / `VEC_FROM_SLICE_U64`
+  - `VEC_CLONE` / `VEC_CLONE_U64`
+  - `VEC_CLONE_FROM` / `VEC_CLONE_FROM_U64`
+- Added StringBuf macro surfaces:
+  - `STRING_BUF_FROM_STR`
+  - `STRING_BUF_CLONE`
+  - `STRING_BUF_CLONE_FROM`
+- Semantics: Vec copies slice bytes for the supplied element size, with U64 convenience wrappers. StringBuf copies UTF-8 bytes from an existing str view. Clone and clone_from allocate/copy into independent backing storage rather than aliasing the source.
+- Scope note: this covers Rust `Clone` / `clone_from` and `From<&[T]>` / `From<&str>` style shapes that SA can express today; it does not claim allocator-parametric, Cow, Box, const-generic array, or lazy iterator object-model APIs.
+- Validation status:
+  - Source focused clone tests: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`29 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused clone tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`29 passed`).
+
+## Completed: 2026-07-06 Unix XDG env facade batch
+
+- Added supportable `std::os::unix::xdg`-style environment directory facades.
+- Added macro surfaces:
+  - `ENV_XDG_DATA_HOME_DIR`
+  - `ENV_XDG_CONFIG_HOME_DIR`
+  - `ENV_XDG_STATE_HOME_DIR`
+  - `ENV_XDG_CACHE_HOME_DIR`
+  - `ENV_XDG_DATA_DIRS`
+  - `ENV_XDG_CONFIG_DIRS`
+- Semantics: non-empty XDG environment variables win; empty variables fall back. Home subdirs use `$HOME/.local/share`, `$HOME/.config`, `$HOME/.local/state`, and `$HOME/.cache`; empty `HOME` is treated as `/`. Directory lists fall back to `/usr/local/share/:/usr/share/` and `/etc/xdg`.
+- Updated `std_env_macro_surface.sa` coverage for explicit XDG values plus empty/missing default fallbacks.
+- Validation status:
+  - Source full `std_env_macro_surface.sa`: pass (`10 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+  - Runtime export check for `sa_env_xdg_*`: pass.
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused XDG test: pass.
+  - Installed-state full `std_env_macro_surface.sa`: pass (`10 passed`).
+
+## Completed: 2026-07-06 StringBuf unchecked owned-Vec and as_mut_str facade batch
+
+- Continued String Rust API parity work with supportable `String::from_utf8_unchecked(Vec<u8>)` and `String::as_mut_str` surfaces.
+- Added macro surfaces:
+  - `STRING_BUF_FROM_UTF8_UNCHECKED_VEC`
+  - `STRING_BUF_FROM_UTF8_UNCHECKED_OWNED`
+  - `STRING_BUF_AS_MUT_STR`
+- Semantics: unchecked owned-Vec construction moves the byte Vec into `StringBuf` without validation, matching Rust's unsafe caller-obligation shape. `STRING_BUF_AS_MUT_STR` returns a mutable slice view over the StringBuf bytes.
+- Updated `std_string_macro_surface.sa` coverage:
+  - owned Vec containing `rust` moves into `StringBuf` while preserving the backing pointer.
+  - `STRING_BUF_AS_MUT_STR` permits mutating the first ASCII byte and the StringBuf view observes `Rust`.
+- Validation status:
+  - Source focused `owned buffer utf8` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `owned buffer utf8` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf8_lossy invalid-sequence parity correction
+
+- Tightened `STRING_BUF_FROM_UTF8_LOSSY` / owned-Vec lossy semantics to replace one invalid UTF-8 sequence with one U+FFFD, rather than replacing each invalid continuation byte independently.
+- Added runtime helper logic to return the consumed invalid-sequence width for lossy decoding.
+- Updated `std_string_macro_surface.sa` coverage with the Rust-doc-shaped sequence `F0 90 80 W`, which now decodes to `�W` for that invalid sequence plus following ASCII.
+- Validation status:
+  - Source focused `from_utf8 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Runtime export check for `sa_str_utf8_lossy_next`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf8_lossy owned-Vec facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8_lossy_owned` subset.
+- Added owned-Vec lossy UTF-8 constructor macro surfaces:
+  - `STRING_BUF_FROM_UTF8_LOSSY_VEC`
+  - `STRING_BUF_FROM_UTF8_LOSSY_OWNED`
+- Semantics: consumes an owned byte Vec. Valid UTF-8 uses a zero-copy move into `StringBuf`; invalid UTF-8 builds a lossy `StringBuf` with U+FFFD replacement and frees the original Vec.
+- Scope note: this is the SA owned-Vec constructor shape; it does not claim Rust's unstable feature gate or `Cow<'_, str>` API surface.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid owned Vec for `aé🙂z` round-trips and preserves the original buffer pointer.
+  - invalid owned Vec with bytes `a`, `0xff`, `(`, and a truncated UTF-8 starter decodes to `a�(�`.
+- Validation status:
+  - Source focused `from_utf8 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf8_lossy facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8_lossy` subset.
+- Added owned lossy UTF-8 constructor macro surface:
+  - `STRING_BUF_FROM_UTF8_LOSSY`
+- Added runtime helper/export:
+  - `sa_str_utf8_lossy_next`
+- Semantics: scans a byte slice, appends valid UTF-8 codepoints unchanged, and appends U+FFFD for invalid UTF-8 sequences before continuing. The macro returns an owned `StringBuf`.
+- Scope note: this is the SA owned-StringBuf shape; it does not claim Rust's `Cow<'_, str>` borrowed/owned object model.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid `aé🙂z` remains unchanged.
+  - bytes `a`, `0xff`, `(`, and a truncated UTF-8 starter decode to `a�(�`.
+- Validation status:
+  - Source focused `from_utf8 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Runtime export check for `sa_str_utf8_lossy_next`: pass.
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`28 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf8 Vec facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8(Vec<u8>)` subset.
+- Added owned-Vec UTF-8 constructor macro surface:
+  - `STRING_BUF_TRY_FROM_UTF8_VEC`
+- Semantics: validates an owned byte Vec as UTF-8. On success, moves the Vec buffer directly into the output `StringBuf` and returns an empty error Vec. On failure, returns `ok=0`, an empty `StringBuf`, and the original byte Vec as the error Vec for caller cleanup/inspection.
+- Scope note: this is the SA owned-Vec result shape; it does not claim Rust's `FromUtf8Error` object type, but it preserves the original bytes on failure.
+- Updated `std_string_macro_surface.sa` coverage:
+  - a Vec containing the bytes for `aé🙂z` succeeds and round-trips through `STR_EQ`.
+  - invalid bytes containing `0xff` fail, leave the output string empty, and return the original three bytes in the error Vec.
+- Validation status:
+  - Source focused `from_utf8 Vec` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`27 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf8 Vec` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`27 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf UTF-16 endian lossy byte-slice facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16le_lossy` / `String::from_utf16be_lossy` subsets.
+- Added endian lossy byte-slice constructor macro surfaces:
+  - `STRING_BUF_FROM_UTF16_LOSSY_BYTES`
+  - `STRING_BUF_FROM_UTF16LE_LOSSY`
+  - `STRING_BUF_FROM_UTF16BE_LOSSY`
+- Semantics: materializes full 2-byte units into a temporary U16 Vec in the requested endian order, decodes through `STRING_BUF_FROM_UTF16_LOSSY_U16`, and appends U+FFFD for a trailing odd byte.
+- Scope note: this is the SA endian byte-slice lossy constructor shape; it does not claim Rust allocator/object model details.
+- Updated `std_string_macro_surface.sa` coverage:
+  - LE bytes with isolated high surrogate, `z`, isolated low surrogate, and odd trailing byte decode to `a�z��`.
+  - BE bytes with the same code unit sequence decode to `a�z��`.
+- Validation status:
+  - Source focused `utf16 endian lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`26 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `utf16 endian lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`26 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf UTF-16 endian byte-slice facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16le` / `String::from_utf16be` strict subsets.
+- Added endian byte-slice constructor macro surfaces:
+  - `STRING_BUF_TRY_FROM_UTF16_BYTES`
+  - `STRING_BUF_TRY_FROM_UTF16LE`
+  - `STRING_BUF_TRY_FROM_UTF16BE`
+- Semantics: validates that the byte-slice length is even, materializes a temporary U16 Vec in the requested endian order, then reuses `STRING_BUF_TRY_FROM_UTF16_U16` for strict surrogate-pair decoding. Odd byte counts or invalid UTF-16 return `ok=0` with an empty `StringBuf`.
+- Scope note: this batch covers strict endian byte-slice constructors; lossy endian byte-slice variants remain separate work.
+- Updated `std_string_macro_surface.sa` coverage:
+  - LE bytes for `aé🙂z` decode successfully.
+  - BE bytes for `aé🙂z` decode successfully.
+  - odd byte count fails and returns an empty output.
+- Validation status:
+  - Source focused `utf16 endian` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`25 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `utf16 endian` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`25 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf16_lossy facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16_lossy` subset.
+- Added lossy UTF-16 constructor macro surface:
+  - `STRING_BUF_FROM_UTF16_LOSSY_U16`
+- Semantics: decodes a U16 slice into a UTF-8 `StringBuf`, accepts BMP scalars and valid high/low surrogate pairs, replaces isolated high or low surrogate units with U+FFFD, and continues decoding subsequent units.
+- Scope note: this is the SA U16-slice lossy constructor shape; it does not claim Rust's endian-specific byte-slice variants or allocation/error object model.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid U16 units for `aé🙂z` still decode exactly.
+  - an isolated high surrogate followed by `z` is replaced and scanning continues.
+  - an isolated low surrogate is replaced.
+- Validation status:
+  - Source focused `from_utf16 lossy` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`24 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf16 lossy` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`24 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf16 facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf16` subset.
+- Added strict UTF-16 constructor macro surface:
+  - `STRING_BUF_TRY_FROM_UTF16_U16`
+- Semantics: decodes a U16 slice into a UTF-8 `StringBuf`, accepts BMP scalars and valid high/low surrogate pairs, and returns `ok=0` with an empty output for isolated high or low surrogate units.
+- Scope note: this is the SA U16-slice constructor shape; it does not claim Rust's `FromUtf16Error` object model or lossy conversion variants.
+- Updated `std_string_macro_surface.sa` coverage:
+  - U16 units for `aé🙂z` decode to the existing UTF-8 string.
+  - isolated trailing high surrogate fails with an empty output.
+  - isolated low surrogate fails with an empty output.
+- Validation status:
+  - Source focused `from_utf16` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`23 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_utf16` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`23 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf into_chars facade batch
+
+- Continued String Rust API parity work with the supportable `String::into_chars` subset.
+- Added eager codepoint-vector macro surface:
+  - `STRING_BUF_INTO_CHARS_U64`
+- Semantics: consumes the `StringBuf`, decodes the UTF-8 string by Unicode scalar, pushes each codepoint into a returned U64 Vec, and frees the original StringBuf wrapper/allocation after the output Vec has been built.
+- Scope note: this is an eager SA U64 codepoint Vec shape; it does not claim Rust's lazy `IntoChars` iterator object model.
+- Updated `std_string_macro_surface.sa` coverage:
+  - `aé🙂z` becomes `[97, 233, 128578, 122]`.
+  - empty `StringBuf` becomes an empty Vec.
+  - out-of-range get from the produced Vec returns `ok=0` and value `0`.
+- Validation status:
+  - Source focused `into_chars` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`22 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `into_chars` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`22 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 StringBuf from_utf8 facade batch
+
+- Continued String Rust API parity work with the supportable `String::from_utf8` subset.
+- Added full UTF-8 validating constructor macro surface:
+  - `STRING_BUF_TRY_FROM_UTF8`
+- Semantics: constructs an empty `StringBuf`, validates the supplied byte slice with the existing UTF-8 validator, copies the bytes into the StringBuf on success, and returns `ok=0` with an empty StringBuf on invalid UTF-8.
+- Scope note: this is the SA byte-slice constructor shape; it does not claim Rust's `FromUtf8Error` object model or zero-copy Vec ownership transfer.
+- Updated `std_string_macro_surface.sa` coverage:
+  - valid multi-byte UTF-8 `aé🙂z` succeeds and round-trips through `STR_EQ`.
+  - invalid bytes containing `0xff` fail and leave the output empty.
+  - existing ASCII-only constructor coverage remains intact.
+- Validation status:
+  - Source focused `utf8 and replace` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `utf8 and replace` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+
+## Completed: 2026-07-06 Vec spare capacity facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` subset.
+- Added Vec spare-capacity macro surfaces:
+  - `VEC_SPARE_CAPACITY_MUT`
+  - `VEC_SPARE_CAPACITY_MUT_U64`
+  - `VEC_SPLIT_AT_SPARE_MUT`
+  - `VEC_SPLIT_AT_SPARE_MUT_U64`
+- Corrected `VEC_SET_LEN` to match Rust's unsafe `Vec::set_len` shape by directly setting the Vec length instead of truncating only.
+- Semantics: `VEC_SPARE_CAPACITY_MUT` returns a mutable Slice view over `cap - len` spare element slots; `VEC_SPLIT_AT_SPARE_MUT` returns the initialized mutable slice plus the spare mutable slice.
+- Scope note: the spare slice is the SA slice view over uninitialized element slots; it does not model Rust's `MaybeUninit<T>` type directly.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - creates a capacity-4 Vec with length 2.
+  - writes two U64 values through the spare slice.
+  - calls `VEC_SET_LEN` to expose the initialized spare elements.
+  - verifies `split_at_spare_mut` initialized/spare lengths and mutation through the initialized slice.
+- Validation status:
+  - Source focused `spare capacity` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `spare capacity` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`18 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`21 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec leak facade batch
+
+- Continued String/Vec Rust API parity work with the supportable `String::leak` / `Vec::leak` subset.
+- Added leak macro surfaces:
+  - `VEC_LEAK`
+  - `STRING_BUF_LEAK`
+- Semantics: consumes the owning Vec/StringBuf wrapper, moves the underlying allocation into a returned `Slice` view, clears the wrapper length/capacity, and intentionally does not free the allocation.
+- Scope note: this is the SA mutable-slice/string-view shape; it does not claim Rust's full lifetime typing or boxed slice/string object model.
+- Updated macro-surface coverage:
+  - Vec leak returns a length-2 mutable slice with the original U64 values and permits mutation through the leaked slice pointer.
+  - StringBuf leak returns a mutable string slice with the original bytes and permits mutation through the leaked pointer.
+- Validation status:
+  - Source focused Vec `leak` test: pass.
+  - Source focused StringBuf `leak` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`21 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused Vec `leak` test: pass.
+  - Installed-state focused StringBuf `leak` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`21 passed`).
+
+## Completed: 2026-07-06 Vec from_elem facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::from_elem` subset.
+- Added Vec repeated-value constructor macro surfaces:
+  - `VEC_FROM_ELEM`
+  - `VEC_FROM_ELEM_U64`
+- Semantics: constructs a Vec with the requested capacity and pushes the supplied element value `length` times. A zero length returns an empty Vec.
+- Scope note: this is the SA macro shape for repeated scalar/value construction; it does not claim Rust's full generic `Clone` trait dispatch or allocator-parametric surface.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - `VEC_FROM_ELEM_U64 vec, 42, 3` returns length `3` with all three values set to `42`.
+  - zero-length construction returns an empty Vec.
+  - out-of-range get from the constructed Vec returns `ok=0` and value `0`.
+- Validation status:
+  - Source focused `from_elem` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`16 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `from_elem` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`16 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+
+## Completed: 2026-07-06 Vec peek_mut facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::peek_mut` U64 subset.
+- Added Vec mutable-peek macro surfaces:
+  - `VEC_TRY_PEEK_MUT`
+  - `VEC_TRY_PEEK_MUT_U64`
+- Semantics: returns `ok=1` and a mutable pointer to the last element when the Vec is non-empty; returns `ok=0` and a null pointer for an empty Vec.
+- Scope note: this is the SA mutable-pointer shape for U64/general element size. It does not claim Rust's full `PeekMut` guard/drop object model.
+- Implementation note: the macro reads `Vec_ptr` and `Vec_len` directly from the owned Vec wrapper so the returned pointer is not derived from a temporary slice view.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - empty Vec returns failure/null pointer.
+  - non-empty Vec returns a non-null pointer to the last element.
+  - writing through the returned pointer updates `VEC_TRY_LAST_U64` while preserving length.
+- Validation status:
+  - Source focused `peek_mut` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`15 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `peek_mut` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`15 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+
+## Completed: 2026-07-06 Vec retain_mut facade batch
+
+- Continued Vec Rust API parity work with the supportable `Vec::retain_mut` U64 subset.
+- Added Vec mutable-retain macro surface:
+  - `VEC_RETAIN_MUT_U64`
+- Semantics: the predicate receives a pointer to each U64 element, may mutate that element in place, and returns a keep flag. If kept, the macro reloads the possibly mutated value from the read pointer before compacting it into the write position.
+- Scope note: this is the SA function-pointer/U64 shape; it does not claim Rust's full generic closure and allocator-parametric surface.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - predicate adds `10` to every visited element.
+  - predicate keeps elements whose original value was odd.
+  - vector `[1,2,3,4]` becomes `[11,13]`, validating both mutation and retain compaction.
+- Validation status:
+  - Source focused `retain_mut` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`14 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `retain_mut` test: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`14 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+
+## Completed: 2026-07-06 StringBuf Unicode push/insert char batch
+
+- Continued String Rust API parity work by correcting `String::push(char)`, `String::insert(idx, char)`, and `String::insert_str(idx, str)` behavior.
+- Behavior changes:
+  - `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_PUSH_CHAR` now encode any valid Unicode scalar to UTF-8 before appending.
+  - `STRING_BUF_TRY_INSERT_CHAR` / `STRING_BUF_INSERT_CHAR` now encode any valid Unicode scalar to UTF-8 before insertion.
+  - `STRING_BUF_TRY_INSERT_STR` / `STRING_BUF_INSERT_STR` now require the byte index to be a UTF-8 char boundary, matching Rust `String::insert_str`.
+  - invalid scalar values, including surrogate codepoints, are rejected without mutating the string.
+- Implementation note: the macros reuse `CHAR_TRY_ENCODE_UTF8` from `sa_std/char.sa` and route encoded char insertion through `STRING_BUF_TRY_INSERT_STR` so char-boundary behavior is shared.
+- Updated `std_string_macro_surface.sa` coverage:
+  - ASCII push/insert still works.
+  - pushing `é` succeeds.
+  - inserting `🙂` succeeds.
+  - invalid surrogate `55296` is rejected.
+  - insertion at a continuation byte inside `🙂` fails and leaves the string unchanged.
+- Validation status:
+  - Source focused `unicode char` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `unicode char` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 StringBuf retain facade batch
+
+- Continued String Rust API parity work with the supportable `String::retain` subset.
+- Added StringBuf predicate-retain macro surfaces:
+  - `STRING_BUF_TRY_RETAIN`
+  - `STRING_BUF_RETAIN`
+- Semantics: the macro decodes the source by UTF-8 scalar, calls a user predicate with the Unicode codepoint, copies retained scalar slices into a new `StringBuf`, then replaces the original buffer. `TRY_RETAIN` returns `ok=0` and leaves the original unchanged if internal UTF-8 decoding fails.
+- Scope note: this is the SA function-pointer predicate form; it does not claim Rust closure capture or full trait/iterator machinery.
+- Updated `std_string_macro_surface.sa` coverage:
+  - retain `aé` from `aé🙂z` by dropping `🙂` and `z`.
+  - retain-none alias path empties the string and returns length `0`.
+- Validation status:
+  - Source focused `retain` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `retain` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`20 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 StringBuf split_off boundary parity batch
+
+- Continued String Rust API parity work by correcting existing `STRING_BUF_TRY_SPLIT_OFF` / `STRING_BUF_SPLIT_OFF` semantics to match Rust `String::split_off` char-boundary requirements.
+- Behavior change: split indexes must now be UTF-8 char boundaries. Invalid/non-boundary indexes return `ok=0`, return an empty tail `StringBuf`, and leave the original buffer unchanged.
+- Implementation note: the macro now checks `STR_IS_CHAR_BOUNDARY` on the current `StringBuf` view before delegating to the existing Vec split path.
+- Updated `std_string_macro_surface.sa` coverage:
+  - successful UTF-8 split at byte index `3` in `aé🙂z`, leaving `aé` and returning `🙂z`.
+  - failed split at continuation byte index `2`, preserving the original string and returning an empty tail.
+- Validation status:
+  - Source focused `split_off char` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`19 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `split_off char` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`19 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 StringBuf drain(range) facade batch
+
+- Continued String Rust API parity work with the supportable `String::drain(range)` subset.
+- Added StringBuf range-drain macro surfaces:
+  - `STRING_BUF_TRY_DRAIN`
+  - `STRING_BUF_DRAIN`
+- Semantics: successful drain copies the selected UTF-8 range into a returned `StringBuf`, then removes that range from the original buffer. Invalid bounds or non-char-boundary ranges return `ok=0`, return an empty `StringBuf`, and leave the original buffer unchanged.
+- Scope note: this is the SA macro-friendly eager range-drain shape; it does not claim Rust's lazy `Drain` iterator object model.
+- Implementation note: the macro reuses `STR_TRY_GET_RANGE` for bounds and UTF-8 boundary checks, then `STRING_BUF_TRY_REPLACE_RANGE` with an empty replacement.
+- Updated `std_string_macro_surface.sa` coverage:
+  - UTF-8 drain of `é🙂` from `aé🙂z`, returning `é🙂` and leaving `az`.
+  - alias drain of `-` from `rust-std`, returning `-` and leaving `ruststd`.
+  - non-char-boundary drain failure returns empty output and leaves the source unchanged.
+- Validation status:
+  - Source focused `drain` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`18 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `drain` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`18 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 StringBuf pop() facade batch
+
+- Continued String Rust API parity work with the supportable `String::pop()` char-aware subset.
+- Added StringBuf tail-pop macro surfaces:
+  - `STRING_BUF_TRY_POP_CHAR`
+  - `STRING_BUF_POP_CHAR`
+- Semantics: successful pop returns the Unicode codepoint for the final UTF-8 scalar and truncates the buffer to that scalar's start byte; empty strings return `ok=0` and clear the codepoint output. This is distinct from the existing byte-level `STRING_BUF_TRY_POP_BYTE` / `STRING_BUF_POP_BYTE` helpers.
+- Implementation note: the macro is runtime-free and reuses the previous batch's `STR_TRY_CHAR_AT_BYTE` helper plus `STR_FLOOR_CHAR_BOUNDARY`, then truncates in place.
+- Updated `std_string_macro_surface.sa` coverage:
+  - sequentially pops `z`, `🙂`, `é`, and `a` from `aé🙂z`.
+  - verifies returned codepoints and intermediate string values.
+  - verifies popping an empty buffer fails and leaves it empty.
+- Validation status:
+  - Source focused `pop char` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`17 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `pop char` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`17 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 StringBuf remove(idx) facade batch
+
+- Continued String Rust API parity work with the supportable `String::remove(idx)` byte-index subset.
+- Added UTF-8 byte-index decode helper surfaces:
+  - runtime export `sa_str_utf8_char_at_byte`
+  - SA extern `sa_str_utf8_char_at_byte`
+  - macros `STR_TRY_CHAR_AT_BYTE` and `STRING_TRY_CHAR_AT_BYTE`
+- Added StringBuf remove-char macro surfaces:
+  - `STRING_BUF_TRY_REMOVE_CHAR_AT`
+  - `STRING_BUF_REMOVE_CHAR_AT`
+- Semantics: successful removal returns the Unicode codepoint and removes the full UTF-8 scalar at the supplied byte index; out-of-bounds indexes and continuation-byte indexes return `ok=0`, clear the codepoint output, and leave the string unchanged.
+- Updated `std_string_macro_surface.sa` coverage:
+  - byte-index decode for `é` and `🙂`, including UTF-8 byte width.
+  - removal of ASCII, 2-byte, 4-byte, and trailing ASCII chars from `aé🙂z`.
+  - failure on continuation-byte and end indexes leaves the buffer unchanged.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_str_utf8_char_at_byte'`: pass, symbol exported in both libs.
+  - Source focused remove-char test: pass.
+  - Source focused UTF-8 byte/char helper test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`16 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused remove-char test: pass.
+  - Installed-state focused UTF-8 byte/char helper test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`16 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 StringBuf extend_from_within facade batch
+
+- Continued String Rust API parity work with the supportable `String::extend_from_within` subset.
+- Added StringBuf range-copy macro surfaces:
+  - `STRING_BUF_TRY_EXTEND_FROM_WITHIN`
+  - `STRING_BUF_EXTEND_FROM_WITHIN`
+- Implementation note: the macro first copies the selected range into a temporary `StringBuf`, then appends that temporary view back into the original buffer. This avoids dangling source slices if appending triggers reserve/reallocation on the original string.
+- Range semantics reuse `STR_TRY_GET_RANGE`, so both bounds and UTF-8 char-boundary checks are enforced.
+- Updated `std_string_macro_surface.sa` coverage:
+  - normal range append.
+  - alias wrapper append.
+  - out-of-bounds miss leaves the string unchanged.
+  - non-char-boundary UTF-8 range miss leaves the string unchanged.
+- Validation status:
+  - Source focused `extend_from_within` test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`15 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `extend_from_within` test: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`15 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+
+## Completed: 2026-07-06 Vec NonNull parts facade batch
+
+- Continued Vec Rust API parity work with the supportable NonNull parts subset.
+- Added Vec NonNull/parts macro surfaces over the existing `NonNull` wrapper facade:
+  - `VEC_AS_NON_NULL`
+  - `VEC_INTO_PARTS`
+  - `VEC_FROM_PARTS`
+- Implementation note: `VEC_INTO_PARTS` transfers the Vec buffer pointer into a `NonNull` wrapper and zeros the consumed Vec wrapper; `VEC_FROM_PARTS` reloads the pointer and reconstitutes Vec ownership.
+- Updated `std_vec_macro_surface.sa` coverage:
+  - `VEC_AS_NON_NULL` returns a non-null view without consuming the Vec.
+  - `VEC_INTO_PARTS` / `VEC_FROM_PARTS` roundtrip pointer/len/cap and preserve elements.
+- Validation status:
+  - Source focused `raw parts` test: pass.
+  - Source focused `NonNull parts` test: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `raw parts` and `NonNull parts` Vec tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`13 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+
+## Completed: 2026-07-06 StringBuf remove_matches and Vec from_fn facade batch
+
+- Continued String/Vec Rust API parity work with another supportable macro-only batch.
+- Added Vec indexed generation macro surfaces corresponding to the supportable shape of Rust `Vec::from_fn`:
+  - `VEC_FROM_FN`
+  - `VEC_FROM_FN_U64`
+- Added StringBuf slice-pattern removal surface corresponding to the supportable shape of Rust `String::remove_matches`:
+  - `STRING_BUF_REMOVE_MATCHES`
+- Scope note: `STRING_BUF_REMOVE_MATCHES` covers slice patterns via the existing `STRING_BUF_REPLACE` engine; it does not claim full Rust `Pattern` trait coverage.
+- Updated macro-surface tests:
+  - `std_vec_macro_surface.sa`: verifies generated values use ascending indexes and that zero-length generation returns an empty Vec.
+  - `std_string_macro_surface.sa`: verifies match removal, overlapping-match behavior (`banana ana` / `ana`), and miss/no-op behavior.
+- Validation status:
+  - Source focused String remove-matches path: pass.
+  - Source focused Vec from_fn path: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`12 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused String remove-matches and Vec from_fn tests: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`12 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec mut-return and replace facade batch
+
+- Continued the String/Vec Rust API parity audit after the raw-parts batch.
+- Added Vec mut-return macro surfaces matching the supportable shape of Rust `Vec::push_mut` / `Vec::insert_mut`:
+  - `VEC_PUSH_MUT`
+  - `VEC_PUSH_MUT_U64`
+  - `VEC_TRY_INSERT_MUT`
+  - `VEC_TRY_INSERT_MUT_U64`
+  - `VEC_INSERT_MUT`
+  - `VEC_INSERT_MUT_U64`
+- Added StringBuf first/last replacement macro surfaces over existing find/rfind and replace-range helpers:
+  - `STRING_BUF_TRY_REPLACE_FIRST`
+  - `STRING_BUF_REPLACE_FIRST`
+  - `STRING_BUF_TRY_REPLACE_LAST`
+  - `STRING_BUF_REPLACE_LAST`
+- Implementation note: mut-return Vec macros read from the owned Vec fields directly, not through borrow views, so returned element pointers remain usable by the caller.
+- Validation status:
+  - Source focused String replace test: pass.
+  - Source focused Vec mut-return test: pass.
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Source full `std_vec_macro_surface.sa`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused String replace and Vec mut-return tests: pass.
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`11 passed`).
+
+## Completed: 2026-07-06 StringBuf/Vec raw-parts facade batch
+
+- Audited `sa_std/string.sa` and `sa_std/vec.sa` against Rust `alloc::string::String` and `alloc::vec::Vec` public APIs.
+- Finding: current SA facades are broad but not full Rust API coverage; remaining gaps include larger iterator/drain/splice/leak/boxed/UTF conversion/trait surfaces that need separate supportable batches.
+- Added raw-parts macro surfaces for the supportable ownership-transfer subset:
+  - `VEC_INTO_RAW_PARTS`
+  - `VEC_FROM_RAW_PARTS`
+  - `STRING_BUF_INTO_RAW_PARTS`
+  - `STRING_BUF_FROM_RAW_PARTS`
+- Fixed the `Vec` raw-parts implementation to take `Vec_ptr` directly from the owned Vec instead of through a borrow view, so the returned raw pointer remains usable and can be re-owned by `from_raw_parts`.
+- Updated macro-surface tests:
+  - `tests/unit_framework/std_vec_macro_surface.sa`: raw pointer/len/cap extraction and Vec reconstruction preserves elements.
+  - `tests/unit_framework/std_string_macro_surface.sa`: StringBuf raw-parts reconstruction preserves `rust-std` content.
+- Validation status:
+  - Source focused raw-parts String/Vec tests: pass.
+  - Source full `std_vec_macro_surface.sa`: pass (`10 passed`).
+  - Source full `std_string_macro_surface.sa`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused raw-parts String/Vec tests: pass.
+  - Installed-state full `std_vec_macro_surface.sa`: pass (`10 passed`).
+  - Installed-state full `std_string_macro_surface.sa`: pass (`14 passed`).
+
+## Completed: 2026-07-06 RawFd/BorrowedFd named facade batch
+
+- Added Rust-named raw/borrowed fd macro surfaces over the existing fd facade:
+  - `FD_RAW_AS_RAW_FD`
+  - `FD_RAW_INTO_RAW_FD`
+  - `FD_RAW_FROM_RAW_FD`
+  - `FD_BORROWED_BORROW_RAW`
+  - `FD_BORROWED_AS_RAW_FD`
+  - `FD_BORROWED_TRY_CLONE_TO_OWNED`
+- Added runtime/header/SA contract export for cloning a borrowed raw fd into an owned fd handle:
+  - `sa_std_fd_dup_raw`
+- Updated `tests/unit_framework/std_os_fd_macro_surface.sa` coverage:
+  - raw fd reflexive macros preserve the fd value.
+  - borrowed raw fd clone creates an owned fd that remains readable after closing the original File handle.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_std_fd_dup_raw'`: pass, symbol exported in both libs.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "raw borrowed fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "raw borrowed fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
+## Completed: 2026-07-06 OwnedFd named facade batch
+
+- Added Rust-named `OwnedFd` macro aliases over the existing `sa_std/os/fd` raw/dup ABI:
+  - `FD_OWNED_AS_RAW_FD`
+  - `FD_OWNED_INTO_RAW_FD`
+  - `FD_OWNED_FROM_RAW_FD`
+  - `FD_OWNED_TRY_CLONE`
+  - runtime behavior is unchanged; this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_os_fd_macro_surface.sa` coverage:
+  - File is converted into an owned fd, then exercised through the `OwnedFd` named raw-fd and clone macros.
+  - cloned owned fd is roundtripped through raw fd and closed while the original owned fd remains readable, validating independent close lifetime for the fd-dup path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "owned fd named" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "owned fd named" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 File raw/owned fd facade batch
+
+- Added `std::fs::File` raw-fd and owned-fd trait-style macro surfaces:
+  - `FS_FILE_AS_RAW_FD`
+  - `FS_FILE_INTO_RAW_FD`
+  - `FS_FILE_FROM_RAW_FD`
+  - `FS_FILE_INTO_OWNED_FD`
+  - `FS_FILE_FROM_OWNED_FD`
+- Added runtime/header/SA contract export for the File-restoring path:
+  - `sa_std_fs_file_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates non-negative raw fds.
+  - registers valid raw fds back as the existing `.file` resource kind, so File-only APIs such as `FS_READ_AT` keep working after `from_raw_fd` / `from_owned_fd`.
+- Updated `tests/unit_framework/std_os_fd_macro_surface.sa` coverage:
+  - File handle roundtrips through `as_raw_fd`, `into_owned_fd` / `from_owned_fd`, and `into_raw_fd` / `from_raw_fd`.
+  - rebound File handles are verified with `FS_READ_AT` before close and cleanup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass (`5/5 steps succeeded`).
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_std_fs_file_from_raw_fd'`: pass, symbol exported in both libs.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "fs file raw owned fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`2 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --filter "fs file raw owned fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_os_fd_macro_surface.sa --trace-panic --no-incremental`: pass (`2 passed`).
+
+## Completed: 2026-07-06 stdio raw fd alias batch
+
+- Added borrowed stdio handle and raw-fd macro surfaces over the fixed runtime stdio handles and existing `sa_std/os/fd` raw-fd facade:
+  - `IO_STDIN`
+  - `IO_STDOUT`
+  - `IO_STDERR`
+  - `IO_STDIN_AS_RAW_FD`
+  - `IO_STDOUT_AS_RAW_FD`
+  - `IO_STDERR_AS_RAW_FD`
+- Scope note:
+  - this batch intentionally exposes borrowed `as_raw_fd`-style access only for stdio; it does not add `into_raw_fd` or ownership-transfer semantics for the process stdio handles.
+  - runtime continues to use the fixed stdio handles (`1/2/3`) and `handleToFd` mapping to OS fds (`0/1/2`), so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_io_utility_macro_surface.sa` coverage:
+  - stdio handle macros return the fixed SA stdio handles.
+  - stdio raw-fd macros return `SA_IO_OK` and fds `0`, `1`, and `2`.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --filter "stdio raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --filter "stdio raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_io_utility_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
+## Completed: 2026-07-06 UDP socket owned fd alias batch
+
+- Added UDP `UdpSocket` owned-fd conversion macro aliases over the UDP raw-fd facades and `sa_std/os/fd` owned-fd ABI:
+  - `NET_UDP_INTO_OWNED_FD`
+  - `NET_UDP_FROM_OWNED_FD`
+  - runtime continues to use the UDP raw-fd restore export from the previous batch, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_net_macro_surface.sa` UDP fd coverage:
+  - UDP socket now transfers ownership through an owned fd and rebinds before continuing through the existing raw-fd roundtrip, self-send, receive, and close path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+
+## Completed: 2026-07-06 UDP socket raw fd trait batch
+
+- Added UDP `UdpSocket` raw-fd trait-style macro surface:
+  - `NET_UDP_AS_RAW_FD`
+  - `NET_UDP_INTO_RAW_FD`
+  - `NET_UDP_FROM_RAW_FD`
+- Added runtime/header export for the ownership-restoring path:
+  - `sa_std_net_udp_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates restored fds as AF_INET/AF_INET6 datagram sockets.
+  - registers valid raw fds back as the existing `udp_socket` resource kind.
+- Extended `tests/unit_framework/std_net_macro_surface.sa` coverage:
+  - UDP socket handle roundtrips through `as_raw_fd` / `into_raw_fd` / `from_raw_fd`.
+  - rebound socket sends a datagram to its own bound port and receives it back before close.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `nm -g zig-out/lib/libsa_std.a artifacts/sa_std/libsa_std.a | rg 'sa_std_net_udp_from_raw_fd'`: pass, symbol exported in both libs.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "udp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`12 passed`).
+
+## Completed: 2026-07-06 TCP stream/listener owned fd alias batch
+
+- Added TCP `TcpStream` / `TcpListener` owned-fd conversion macro aliases over the TCP raw-fd facades and `sa_std/os/fd` owned-fd ABI:
+  - `NET_TCP_STREAM_INTO_OWNED_FD`
+  - `NET_TCP_STREAM_FROM_OWNED_FD`
+  - `NET_TCP_LISTENER_INTO_OWNED_FD`
+  - `NET_TCP_LISTENER_FROM_OWNED_FD`
+  - runtime continues to use the TCP raw-fd restore exports from the previous batch, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_net_macro_surface.sa` TCP fd coverage:
+  - listener, connected client stream, and accepted server stream now transfer ownership through an owned fd and rebind before continuing through the existing raw-fd roundtrip and byte exchange path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+
+## Completed: 2026-07-06 TCP stream/listener raw fd trait batch
+
+- Added TCP `TcpStream` / `TcpListener` raw-fd trait-style macro surface:
+  - `NET_TCP_STREAM_AS_RAW_FD`
+  - `NET_TCP_STREAM_INTO_RAW_FD`
+  - `NET_TCP_STREAM_FROM_RAW_FD`
+  - `NET_TCP_LISTENER_AS_RAW_FD`
+  - `NET_TCP_LISTENER_INTO_RAW_FD`
+  - `NET_TCP_LISTENER_FROM_RAW_FD`
+- Added runtime/header exports for the ownership-restoring paths:
+  - `sa_std_net_tcp_stream_from_raw_fd`
+  - `sa_std_net_tcp_listener_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates restored fds as AF_INET/AF_INET6 stream sockets.
+  - listener `from_raw_fd` requires `SO_ACCEPTCONN` and restores `std.net.Server.listen_address` from `getsockname`.
+  - stream `from_raw_fd` rejects accepting/listener sockets and registers the fd as a TCP stream handle.
+- Extended `tests/unit_framework/std_net_macro_surface.sa` coverage:
+  - listener, connected client stream, and accepted server stream all roundtrip through `as_raw_fd` / `into_raw_fd` / `from_raw_fd`.
+  - rebound client/server handles exchange bytes before both handles close.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `nm -g zig-out/lib/libsa_std.a | rg 'sa_std_net_tcp_(stream|listener)_from_raw_fd'`: pass, both symbols exported.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "tcp raw fd" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+
+## Completed: 2026-07-06 Child stdout/stderr owned fd alias batch
+
+- Added Unix process child pipe owned-fd trait-style macro aliases over the existing raw-fd and `sa_std/os/fd` owned-fd facades:
+  - `PROCESS_CHILD_STDOUT_INTO_OWNED_FD`
+  - `PROCESS_CHILD_STDOUT_FROM_OWNED_FD`
+  - `PROCESS_CHILD_STDERR_INTO_OWNED_FD`
+  - `PROCESS_CHILD_STDERR_FROM_OWNED_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` stream-spawn coverage:
+  - stdout and stderr handles now transfer ownership through an owned fd and rebind before continuing through the existing raw-fd roundtrip, wait, and close path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
+## Completed: 2026-07-06 PidFd owned fd alias batch
+
+- Added Linux `std::os::linux::process::PidFd` owned-fd trait-style macro aliases over the existing pidfd raw-fd and `sa_std/os/fd` owned-fd facades:
+  - `PIDFD_INTO_OWNED_FD`
+  - `PIDFD_FROM_OWNED_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` pidfd coverage:
+  - `PROCESS_INTO_PIDFD` coverage now transfers the pidfd through an owned fd and rebinds it before continuing through the existing raw-fd roundtrip, kill, and wait path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
+## Completed: 2026-07-06 Unix socket owned fd alias batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait-style macro aliases over the existing raw-fd and `sa_std/os/fd` owned-fd facades:
+  - `NET_UNIX_STREAM_INTO_OWNED_FD`
+  - `NET_UNIX_STREAM_FROM_OWNED_FD`
+  - `NET_UNIX_LISTENER_INTO_OWNED_FD`
+  - `NET_UNIX_LISTENER_FROM_OWNED_FD`
+  - runtime continues to use the existing fd ABI plus Unix stream/listener raw-fd restore paths, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - listener clone coverage transfers the cloned listener through an owned fd and rebinds it before the existing raw-fd roundtrip/close path.
+  - stream clone coverage transfers the cloned stream through an owned fd and rebinds it before the existing raw-fd roundtrip/write/read path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter domain --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter domain --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
+## Completed: 2026-07-06 Child stdout/stderr raw fd alias batch
+
+- Added Unix process child pipe raw-fd trait-style macro aliases over the existing `sa_std/os/fd` owned-fd facade:
+  - `PROCESS_CHILD_STDOUT_AS_RAW_FD`
+  - `PROCESS_CHILD_STDOUT_INTO_RAW_FD`
+  - `PROCESS_CHILD_STDOUT_FROM_RAW_FD`
+  - `PROCESS_CHILD_STDERR_AS_RAW_FD`
+  - `PROCESS_CHILD_STDERR_INTO_RAW_FD`
+  - `PROCESS_CHILD_STDERR_FROM_RAW_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` stream-spawn coverage:
+  - `PROCESS_SPAWN_STREAM_COMMAND_EXT` stdout/stderr handles now validate `as_raw_fd`.
+  - both handles transfer ownership through `into_raw_fd`, rebind through `from_raw_fd`, then continue through the existing wait/close path.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "spawn modes" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
+## Completed: 2026-07-06 Unix socket raw fd trait batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait-style macro surface:
+  - `NET_UNIX_STREAM_AS_RAW_FD`
+  - `NET_UNIX_STREAM_INTO_RAW_FD`
+  - `NET_UNIX_STREAM_FROM_RAW_FD`
+  - `NET_UNIX_LISTENER_AS_RAW_FD`
+  - `NET_UNIX_LISTENER_INTO_RAW_FD`
+  - `NET_UNIX_LISTENER_FROM_RAW_FD`
+- Added runtime/header exports for the ownership-restoring paths:
+  - `sa_std_net_unix_stream_from_raw_fd`
+  - `sa_std_net_unix_listener_from_raw_fd`
+  - `as_raw_fd` and `into_raw_fd` continue to reuse the existing `sa_std/os/fd` ABI.
+- Runtime behavior:
+  - validates raw fds as AF_UNIX stream sockets before registering them.
+  - listener `from_raw_fd` additionally requires `SO_ACCEPTCONN` and restores `std.net.Server.listen_address` from `getsockname`.
+  - stream `from_raw_fd` rejects accepting/listener sockets and registers the fd as a stream handle.
+- Updated `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - listener clone coverage transfers the cloned listener through raw fd ownership and rebinds it before close.
+  - stream clone coverage transfers the cloned stream through raw fd ownership, rebinds it, and then writes through the rebound handle.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `nm -g zig-out/lib/libsa_std.a | rg 'sa_std_net_unix_(stream|listener)_from_raw_fd'`: pass, both symbols exported.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter domain --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter domain --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
+## Completed: 2026-07-06 PidFd raw fd alias batch
+
+- Added Rust raw-fd trait-style pidfd macro aliases over the existing `sa_std/os/fd` owned-fd facade:
+  - `PIDFD_AS_RAW_FD`
+  - `PIDFD_INTO_RAW_FD`
+  - `PIDFD_FROM_RAW_FD`
+  - `PIDFD_CLOSE_RAW_FD`
+  - runtime continues to use the existing fd ABI, so this batch does not add new exported symbols.
+- Updated `tests/unit_framework/std_process_macro_surface.sa` pidfd coverage:
+  - borrowed pidfd handles now validate `as_raw_fd`-style access and close the duplicate pidfd handle explicitly.
+  - `into_pidfd` coverage now validates `as_raw_fd`, transfers the pidfd through `into_raw_fd`, rebinds it through `from_raw_fd`, then uses the rebound handle for kill/wait and explicit close.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+
+## Completed: 2026-07-06 Unix fs symlink/chown alias batch
+
+- Added Rust-named Unix filesystem macro aliases over existing runtime helpers:
+  - `FS_UNIX_SYMLINK`
+  - `FS_UNIX_CHOWN`
+  - `FS_UNIX_LCHOWN`
+  - `FS_UNIX_FCHOWN`
+  - `FS_UNIX_FCHOWN_RAW`
+  - runtime continues to use the existing `sa_fs_symlink`, `sa_fs_chown`, `sa_fs_lchown`, and `sa_fs_fchown` exports, so this batch does not add new ABI symbols.
+- Updated `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` coverage:
+  - chown test now creates the symlink and applies ownership helpers through the `FS_UNIX_*` names.
+  - nofollow/symlink coverage now uses `FS_UNIX_SYMLINK`.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter chown --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter chown --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+
+## Completed: 2026-07-06 Unix SocketAddr as_abstract_name alias batch
+
+- Added Linux `std::os::linux::net::SocketAddrExt::as_abstract_name`-style named macro aliases over the existing Unix abstract-name address accessors:
+  - `NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR`
+  - `NET_UNIX_ADDR_AS_ABSTRACT_NAME_LEN`
+  - runtime continues to use the existing abstract pointer/length accessors, so this batch does not add new ABI symbols.
+- Updated `tests/unit_framework/std_net_unix_macro_surface.sa` abstract address coverage:
+  - abstract address construction now validates the original address and listener local address through the Rust-named `as_abstract_name` macros.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+
+## Completed: 2026-07-06 Unix SocketAddr pathname batch
+
+- Added Unix `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`-style surface over the existing Unix address handle model:
+  - runtime/header export `sa_std_net_unix_addr_from_pathname`
+  - SA extern/macro wrapper `NET_UNIX_ADDR_FROM_PATHNAME`
+  - Rust-named pathname access aliases `NET_UNIX_ADDR_AS_PATHNAME_PTR` and `NET_UNIX_ADDR_AS_PATHNAME_LEN` over the existing path pointer/length accessors.
+- Runtime behavior:
+  - validates pathname socket addresses with Zig's Unix socket address constructor before storing the pathname bytes.
+  - registers a `SA_NET_UNIX_ADDR_PATHNAME` Unix address handle using the existing resource lifetime and `NET_UNIX_ADDR_FREE` cleanup path.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - added a pathname SocketAddr constructor test that validates kind, pathname length, pointer, first/last bytes, and cleanup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pathname --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pathname --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`4 passed`).
+  - `nm` confirms `sa_std_net_unix_addr_from_pathname` is exported.
+
+## Completed: 2026-07-06 UnixListener incoming named surface batch
+
+- Added Unix `std::os::unix::net::UnixListener::incoming`-style named macro surface over the existing listener-backed incoming iterator layout:
+  - `NET_UNIX_INCOMING_NEW`
+  - `NET_UNIX_INCOMING_LISTENER`
+  - `NET_UNIX_INCOMING_NEXT`
+  - `NET_UNIX_LISTENER_INCOMING`
+  - runtime continues to use the existing TCP incoming/listener accept path for Unix listener handles, so this batch does not add new ABI symbols.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - abstract Unix-domain socket roundtrip now wraps the listener through the Unix incoming macro surface.
+  - verifies the incoming wrapper retains the listener handle and accepts the queued connection through `NET_UNIX_INCOMING_NEXT` before the existing stream I/O assertions.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 UnixListener accept_addr batch
+
+- Added Unix `std::os::unix::net::UnixListener::accept`-style address-returning surface:
+  - runtime/header export `sa_std_net_unix_accept_addr`
+  - SA extern/macro wrapper `NET_UNIX_ACCEPT_ADDR` returning both accepted stream and peer Unix socket address handle.
+- Runtime behavior:
+  - validates the listener handle is backed by an AF_UNIX listener socket.
+  - calls `accept` with a `sockaddr_un` output buffer, registers the accepted fd as an existing stream resource, and registers the peer address through the existing Unix address handle model.
+  - keeps the existing `NET_UNIX_ACCEPT` stream-only path intact.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - pathname Unix-domain roundtrip now accepts through `NET_UNIX_ACCEPT_ADDR`.
+  - verifies the returned peer address handle is nonzero, has kind `SA_NET_UNIX_ADDR_UNNAMED`, and frees cleanly before the existing stream I/O continues.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter "domain" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter "domain" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_accept_addr` is exported.
+
+## Completed: 2026-07-06 Unix socket try_clone batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}::try_clone`-style facades over Linux/Unix fd duplication:
+  - runtime/header exports `sa_std_net_unix_stream_try_clone` and `sa_std_net_unix_listener_try_clone`
+  - SA extern/macro wrappers `NET_UNIX_STREAM_TRY_CLONE` and `NET_UNIX_LISTENER_TRY_CLONE`.
+- Runtime behavior:
+  - validates the source handle is backed by an AF_UNIX stream/listener socket.
+  - duplicates the underlying fd with `dup` and registers the clone as the same SA resource kind (`tcp_stream` or `tcp_listener`), preserving existing close/read/write/accept paths.
+  - cloned handles have independent close lifetimes while sharing kernel socket state, matching Rust `try_clone` semantics for this SA-facing subset.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - UnixStream pair test writes through a cloned stream handle, reads the bytes from the peer, closes the clone, then continues using the original stream.
+  - UnixListener roundtrip test clones a listener and closes the clone while the original listener remains usable for the existing connect/accept flow.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_listener_try_clone` and `sa_std_net_unix_stream_try_clone` are exported.
+
+## Completed: 2026-07-06 Unix socket option named surface batch
+
+- Added Unix `std::os::unix::net::{UnixStream,UnixListener}`-style named macro surfaces over existing fd-based stream/listener runtime:
+  - `NET_UNIX_STREAM_SET_READ_TIMEOUT`, `NET_UNIX_STREAM_SET_WRITE_TIMEOUT`, `NET_UNIX_STREAM_READ_TIMEOUT`, and `NET_UNIX_STREAM_WRITE_TIMEOUT`
+  - `NET_UNIX_STREAM_SET_NONBLOCKING` and `NET_UNIX_STREAM_TAKE_ERROR`
+  - `NET_UNIX_LISTENER_SET_NONBLOCKING` and `NET_UNIX_LISTENER_TAKE_ERROR`
+  - runtime continues to use the existing TCP stream/listener option helpers for Unix stream/listener handles, so this batch does not add new ABI symbols.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` coverage:
+  - UnixStream pair test sets/reads read and write timeouts, toggles blocking mode, and checks `take_error` returns no pending socket error.
+  - UnixListener roundtrip test toggles blocking mode and checks listener `take_error` returns no pending socket error.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 UnixStream shutdown named surface batch
+
+- Added Unix `std::os::unix::net::UnixStream::shutdown`-style named macro surface over existing stream shutdown runtime:
+  - SA macro wrapper `NET_UNIX_STREAM_SHUTDOWN`
+  - runtime continues to use the existing `sa_net_tcp_stream_shutdown` path for Unix stream handles, so this batch does not add a new ABI symbol.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - shuts down the writing half of one UnixStream with `SA_NET_SHUTDOWN_WRITE`.
+  - verifies the peer stream reads successfully with length `0`, matching EOF behavior.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 UnixStream peek named surface batch
+
+- Added Unix `std::os::unix::net::UnixStream::peek`-style named macro surface over existing stream peek runtime:
+  - SA macro wrapper `NET_UNIX_STREAM_PEEK`
+  - runtime continues to use the existing `sa_std_net_tcp_stream_peek` path for Unix stream handles, so this batch does not add a new ABI symbol.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - writes `PAIR` across a UnixStream pair.
+  - peeks from the receiving stream and validates `PAIR` is visible.
+  - then reads from the same stream and validates `PAIR` is still present, proving peek does not consume data.
+- Validation status:
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+
+## Completed: 2026-07-06 Linux UnixStream peer_cred batch
+
+- Added Linux `std::os::unix::net::UnixStream::peer_cred`-style surface over existing Unix stream handles:
+  - runtime/header export `sa_std_net_unix_stream_peer_cred`
+  - SA extern/macro wrapper `NET_UNIX_STREAM_PEER_CRED`.
+- Runtime behavior:
+  - accepts only handles backed by AF_UNIX stream sockets.
+  - uses Linux `getsockopt(SOL_SOCKET, SO_PEERCRED)` and returns peer `pid`, `uid`, and `gid` as scalar outputs.
+  - intentionally avoids adding a separate Rust `UCred` object model for this SA-facing subset.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - verifies peer credentials on a UnixStream pair match the current process `pid`, `uid`, and `gid`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_stream_peer_cred` is exported.
+
+## Completed: 2026-07-06 Unix fs mkfifo named surface batch
+
+- Added Rust-named `std::os::unix::fs::mkfifo` macro surface over the existing Linux FIFO runtime helper:
+  - SA macro wrapper `FS_UNIX_MKFIFO`
+  - runtime continues to use the existing `sa_fs_mkfifo` export, so this batch does not add a new ABI symbol.
+- Updated `tests/unit_framework/std_fs_unix_ext_macro_surface.sa`:
+  - the Unix file-type extension test now creates its FIFO through `FS_UNIX_MKFIFO` before checking `FS_METADATA_IS_FIFO`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter "file type" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --filter "file type" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`6 passed`).
+
+## Completed: 2026-07-06 Linux DirEntryExt2 file_name_ref batch
+
+- Added Unix `std::os::unix::fs::DirEntryExt2::file_name_ref`-style named facade over the existing SA directory-entry name view:
+  - runtime/header exports `sa_fs_dir_entry_file_name_ptr` and `sa_fs_dir_entry_file_name_len`
+  - SA extern/macro wrappers `FS_DIR_ENTRY_FILE_NAME_REF_PTR` and `FS_DIR_ENTRY_FILE_NAME_REF_LEN`.
+- Runtime behavior:
+  - reuses the existing directory-entry resource name pointer/length storage, so no new resource lifetime model is introduced.
+  - keeps ownership tied to the directory-entry handle; callers must still free entries through `FS_DIR_ENTRY_FREE`.
+- Updated `tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa`:
+  - directory entry name matching now uses the new file-name-ref macros while retaining inode and kind assertions.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`1 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa --trace-panic --no-incremental`: pass (`1 passed`).
+  - `nm` confirms `sa_fs_dir_entry_file_name_ptr` and `sa_fs_dir_entry_file_name_len` are exported.
+
+## Completed: 2026-07-06 Linux ChildExt kill_process_group batch
+
+- Added Linux `std::os::unix::process::ChildExt::kill_process_group`-style convenience surface over the existing process-group signal path:
+  - runtime/header export `sa_std_process_kill_process_group`
+  - SA extern/macro wrapper `PROCESS_KILL_PROCESS_GROUP`.
+- Runtime behavior:
+  - delegates to the existing effective-PGID-aware `sa_std_process_send_process_group_signal` helper with `SIGKILL`.
+  - preserves the process-group validation and error mapping already used by the explicit signal facade.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a kill-process-group macro-surface test:
+  - spawns `/bin/sleep` into a new process group.
+  - kills the group through `PROCESS_KILL_PROCESS_GROUP`.
+  - verifies raw wait-status signal decoding reports `SIGKILL`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "kill process group" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "kill process group" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`14 passed`).
+  - `nm` confirms `sa_std_process_kill_process_group` is exported.
+
+## Completed: 2026-07-06 Linux UnixSocketExt passcred batch
+
+- Added Linux `std::os::net::linux_ext::UnixSocketExt`-style `SO_PASSCRED` option surface for existing Unix stream handles:
+  - runtime/header exports `sa_std_net_unix_stream_set_passcred` and `sa_std_net_unix_stream_passcred`
+  - SA macro wrappers `NET_UNIX_STREAM_SET_PASSCRED` and `NET_UNIX_STREAM_PASSCRED`.
+- Runtime behavior:
+  - accepts only handles backed by AF_UNIX stream sockets; non-Unix stream handles return invalid-handle status for this Unix-specific extension.
+  - maps set/get directly to Linux `SO_PASSCRED` with boolean `setsockopt` / `getsockopt` semantics.
+  - this batch intentionally covers the existing `UnixStream` resource model; Rust's `UnixDatagram` side remains a larger follow-up because SA does not yet have a Unix datagram handle model.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` pair coverage:
+  - verifies `passcred` enable reads back `1`, then disable reads back `0`, before the existing unnamed-address and pair I/O checks.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter pair --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms the two passcred Unix stream extension exports.
+
+## Completed: 2026-07-06 Linux TcpStreamExt quickack/deferaccept batch
+
+- Added Linux `std::os::net::linux_ext::TcpStreamExt` socket option surface over existing TCP stream handles:
+  - runtime/header exports `sa_std_net_tcp_stream_set_quickack` and `sa_std_net_tcp_stream_quickack`
+  - runtime/header exports `sa_std_net_tcp_stream_set_deferaccept` and `sa_std_net_tcp_stream_deferaccept`
+  - SA macro wrappers `NET_TCP_STREAM_SET_QUICKACK`, `NET_TCP_STREAM_QUICKACK`, `NET_TCP_STREAM_SET_DEFERACCEPT`, and `NET_TCP_STREAM_DEFERACCEPT`.
+- Runtime behavior:
+  - `quickack` maps to Linux `TCP_QUICKACK` as a boolean socket option.
+  - `deferaccept` maps to Linux `TCP_DEFER_ACCEPT` using whole seconds, matching the kernel option ABI.
+  - Unix-domain stream handles that reuse the TCP stream resource kind return a successful neutral result for these TCP-only options, preserving existing UDS compatibility behavior.
+- Extended `tests/unit_framework/std_net_macro_surface.sa` option coverage:
+  - loopback TCP setup now verifies set/get for `quickack(false)` and `deferaccept(1)` alongside nodelay, ttl, timeout, and take_error.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "option getter" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --filter "option getter" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `nm` confirms the four quickack/deferaccept TCP stream extension exports.
+
+## Completed: 2026-07-06 Linux Unix socket abstract address batch
+
+- Added Linux `std::os::linux::net::SocketAddrExt`-style abstract Unix socket address construction on top of the existing Unix address handle model:
+  - runtime/header export `sa_std_net_unix_addr_from_abstract_name`
+  - SA macro wrapper `NET_UNIX_ADDR_FROM_ABSTRACT_NAME`
+  - arbitrary abstract-name bytes are retained in a dedicated `SA_NET_UNIX_ADDR_ABSTRACT` Unix address handle and exposed through the existing kind/ptr/len accessors.
+- Added Unix-domain bind/connect by address handle:
+  - runtime/header exports `sa_std_net_unix_listen_addr` and `sa_std_net_unix_connect_addr`
+  - SA macro wrappers `NET_UNIX_LISTEN_ADDR` and `NET_UNIX_CONNECT_ADDR`
+  - pathname, unnamed, and abstract Unix address handles convert through one sockaddr builder path with Linux abstract-name length validation.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa` with an abstract address roundtrip test:
+  - verifies abstract address kind, byte length, and byte accessors
+  - listens on an abstract UDS name, checks listener local address returns the same abstract name, connects by address handle, accepts, writes `ABS!`, reads it back, and closes/frees all handles.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --filter abstract --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic --no-incremental`: pass (`3 passed`).
+  - `nm` confirms `sa_std_net_unix_addr_from_abstract_name`, `sa_std_net_unix_listen_addr`, and `sa_std_net_unix_connect_addr` are exported.
+
+## Completed: 2026-07-06 Linux CommandExt in-place exec batch
+
+- Added Linux `std::os::unix::process::CommandExt::exec`-style in-place process replacement over the existing CommandExt config model:
+  - runtime/header export `sa_std_process_exec_command_ext`
+  - SA macro wrapper `PROCESS_EXEC_COMMAND_EXT`
+  - supports cwd, arg0, process_group, setsid, uid, gid, groups, and chroot configuration before `execvpeZ`.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with exec macro-surface tests:
+  - success path replaces the test child process with `/bin/true` and is accepted as exit code 0
+  - failure path uses a missing executable and verifies the call returns an error instead of replacing the process.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter exec --trace-panic --no-incremental`: pass (`2 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`13 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter exec --trace-panic --no-incremental`: pass (`2 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`13 passed`).
+  - `nm` confirms the exported symbol for the in-place exec CommandExt helper.
+
+## Completed: 2026-07-06 Linux CommandExt chroot batch
+
+- Added Linux `std::os::unix::process::CommandExt::chroot`-style child root-directory configuration over the existing process spawn model:
+  - runtime/header exports `sa_std_process_run_command_ext_chroot`, `sa_std_process_spawn_command_ext_chroot`, and `sa_std_process_spawn_stream_command_ext_chroot`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_CHROOT`, `PROCESS_SPAWN_COMMAND_EXT_CHROOT`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_CHROOT`
+  - child setup applies `chroot` after identity/group setup and before chdir/exec; existing no-chroot cwd behavior is preserved.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a chroot macro-surface test:
+  - uses `/` as the chroot path so capability-enabled environments can still exec `/bin/true`
+  - exercises run, spawn, and stream CommandExt chroot entry points
+  - accepts child exit code `0` for capability-enabled environments and `127` for non-root Linux environments where `chroot` is denied during child setup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter chroot --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter chroot --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`11 passed`).
+  - `nm` confirms exported symbols for the chroot CommandExt helpers.
+
+## Completed: 2026-07-06 Linux CommandExt groups batch
+
+- Added Linux `std::os::unix::process::CommandExt::groups`-style supplementary group configuration over the existing process spawn model:
+  - runtime/header exports `sa_std_process_run_command_ext_groups`, `sa_std_process_spawn_command_ext_groups`, and `sa_std_process_spawn_stream_command_ext_groups`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_GROUPS`, `PROCESS_SPAWN_COMMAND_EXT_GROUPS`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_GROUPS`
+  - child setup applies `setgroups` before `setgid` / `setuid` and before exec, across capture/inherit/stream modes.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a groups macro-surface test:
+  - passes the current gid as a one-element supplementary group list
+  - exercises run, spawn, and stream CommandExt groups entry points
+  - accepts child exit code `0` for capability-enabled environments and `127` for non-root Linux environments where `setgroups` is denied during child setup.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter groups --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter groups --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`10 passed`).
+  - `nm` confirms exported symbols for the groups CommandExt helpers.
+
+## Completed: 2026-07-06 Linux CommandExt uid/gid batch
+
+- Added Linux `std::os::unix::process::CommandExt::{uid,gid}`-style child identity configuration over the existing process spawn model:
+  - runtime/header exports `sa_std_process_run_command_ext_uid_gid`, `sa_std_process_spawn_command_ext_uid_gid`, and `sa_std_process_spawn_stream_command_ext_uid_gid`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_UID_GID`, `PROCESS_SPAWN_COMMAND_EXT_UID_GID`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_UID_GID`
+  - child setup applies `setgid` before `setuid` immediately before exec, across capture/inherit/stream modes.
+- Added current identity helpers for non-root verification:
+  - runtime/header exports `sa_std_process_user_id` and `sa_std_process_group_id`
+  - SA macro wrappers `PROCESS_USER_ID` and `PROCESS_GROUP_ID`.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a non-root-safe uid/gid test:
+  - formats the current uid/gid through `sa_fmt_u64_into`
+  - runs `/bin/sh -c 'test $(id -u) = "$1" && test $(id -g) = "$2"'` through `PROCESS_RUN_COMMAND_EXT_UID_GID`
+  - verifies the child exits successfully after setting uid/gid to the current process identity.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "uid gid" --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`9 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter "uid gid" --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`9 passed`).
+  - `nm` confirms exported symbols for the uid/gid CommandExt and current identity helpers.
+
+## Next Batch
+
+- Continue the broader Linux std gap closure by re-auditing remaining Linux-only std facades that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-06 Linux pidfd process batch
+
+- Added a Linux pidfd-capable process spawn path over the existing `CommandExt` facade:
+  - runtime/header exports `sa_std_process_run_command_ext_pidfd`, `sa_std_process_spawn_command_ext_pidfd`, and `sa_std_process_spawn_stream_command_ext_pidfd`
+  - SA macro wrappers `PROCESS_RUN_COMMAND_EXT_PIDFD`, `PROCESS_SPAWN_COMMAND_EXT_PIDFD`, and `PROCESS_SPAWN_STREAM_COMMAND_EXT_PIDFD`
+  - process handles optionally retain a pidfd created after fork, and existing `wait` / `wait_raw` / `try_wait` / `try_wait_raw` / `kill` / `send_signal` paths use pidfd syscalls when available.
+- Added pidfd handle extraction and standalone pidfd operations:
+  - `PROCESS_PIDFD` duplicates the retained pidfd into an owned fd handle.
+  - `PROCESS_INTO_PIDFD` transfers the retained pidfd into an owned fd handle.
+  - `PIDFD_KILL`, `PIDFD_SEND_SIGNAL`, `PIDFD_WAIT`, `PIDFD_WAIT_RAW`, `PIDFD_TRY_WAIT`, and `PIDFD_TRY_WAIT_RAW` expose the Linux pidfd wait/signal subset.
+- Fixed process lifecycle behavior when a borrowed/transferred pidfd wait has already reaped the child: closing the original process handle now treats `ECHILD` as an already-consumed child state instead of tripping Zig std's `waitpid` unreachable branch.
+- Extended `tests/unit_framework/std_process_macro_surface.sa` with a pidfd macro-surface test that covers pending `try_wait`, pidfd kill + raw wait-status signal decoding, `PROCESS_PIDFD`, and `PROCESS_INTO_PIDFD`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`8 passed`).
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --filter pidfd --trace-panic --no-incremental`: pass (`1 passed`).
+  - Installed-state smoke with `SA_STD_DIR=/home/vscode/.sa/std /home/vscode/.sa/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic --no-incremental`: pass (`8 passed`).
+
+## Completed: 2026-07-05 Linux std parity batch
+
+- Tracking docs are now explicit: `tasks.md`, `progress.md`, and `current_plan.md` are the memory/acceptance set for this batch.
+- Implementing Linux-focused `sa_std` gaps directly in SCI source, then syncing install state to `/home/vscode/.sa/std`.
+- Targeted surface for this batch:
+  - `sa_std/os/fd`: raw/owned fd facade (`as_raw`, `dup`, `from_raw`, `into_raw`, `close_raw`, `is_terminal`).
+  - `sa_std/fs`: Unix metadata ext fields and richer metadata JSON.
+  - `sa_std/thread`: `current_id` and `yield_now`.
+  - `sa_std/process`: Unix `ExitStatusExt` raw wait-status preservation and parsing.
+  - `sa_std/fs`: Linux `MetadataExt` Rust-named `st_*` field surface.
+  - `sa_std/fs`: Unix `chown` / `lchown` / `fchown` ownership helpers.
+  - `sa_std/process`: Unix `parent_id` and `ChildExt::send_signal` surface.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass.
+  - `zig build unit-framework --summary all`: pass.
+  - Focused local `sa test` also passes for `std_net_unix_macro_surface.sa`, `std_net_dns_macro_surface.sa`, `std_os_fd_macro_surface.sa`, `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, `std_process_macro_surface.sa`.
+  - Installed-state smoke passes for `std_fs_metadata_ext_macro_surface.sa`, `std_fs_unix_ext_macro_surface.sa`, `std_process_macro_surface.sa`, and `std_net_unix_macro_surface.sa`.
+
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass.
+  - Installed payload root: `/home/vscode/.sa/std`.
+
+## Completed: 2026-07-05 Linux std parity batch
+
+- Added Linux fd facade surface under `sa_std/os/fd` and wired runtime/header exports for raw/owned fd operations.
+- Extended `sa_std/fs` metadata with Linux/Unix fields (`mode`, `uid`, `gid`, `dev`, `ino`, `nlink`, `rdev`, `blksize`, `blocks`, `accessedAtMs`, `changedAtMs`) and matching JSON output.
+- Added `sa_std/thread` surface for `current_id` and `yield_now`.
+- Extended `sa_std/process` with raw wait status retention plus `ExitStatusExt`-style parsing (`raw`, `signal`, `core_dumped`, `stopped_signal`, `continued`).
+- Added macro-surface coverage for fd/thread/fs-metadata-ext.
+- Updated process macro-surface coverage for killed-child raw wait status semantics.
+- Fixed UDS test/runtime compatibility by treating TCP-only keepalive/reuse setters as successful no-ops on `AF_UNIX` sockets.
+- Fixed the DNS hostname macro-surface regression caused by a leaked temporary host register in the SA test itself.
+- Final install sync completed via `tools/install.sh --no-shell`; no manual copy path used for the accepted result.
+
+## Completed: 2026-07-05 Linux fs unix-ext batch
+
+- Added Linux `sa_std/fs` `FileExt`-style offset I/O surface:
+  - runtime exports `sa_std_fs_file_read_at`, `sa_std_fs_file_read_exact_at`, `sa_std_fs_file_write_at`, `sa_std_fs_file_write_all_at`
+  - macro layer `FS_READ_AT`, `FS_READ_EXACT_AT`, `FS_WRITE_AT`, `FS_WRITE_ALL_AT`
+  - verification includes offset I/O preserving the shared file cursor and exact/all wrappers through SA macro tests
+- Added Linux `sa_std/fs` `OpenOptionsExt`-style open surface:
+  - runtime export `sa_std_fs_open_options(path, flags, create_mode, custom_flags, &out_handle)`
+  - macro layer `FS_OPEN_OPTIONS` and `FS_OPEN_FLAGS`
+  - fixed the old `append` gap by routing `sa_fs_file_open` through a real POSIX open path that applies `O_APPEND`
+  - added Linux custom-flag defs for the immediately useful open bits (`NOFOLLOW`, `CLOEXEC`, `DIRECT`, `DSYNC`, `NONBLOCK`, `DIRECTORY`, `SYNC`)
+- Added Linux `sa_std/fs` `PermissionsExt`-style convenience surface:
+  - `SaFsPermissions` layout in `fs.sal`
+  - macros `FS_PERMISSIONS_FROM_MODE`, `FS_PERMISSIONS_MODE`, `FS_PERMISSIONS_SET_MODE`
+- Added `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` covering:
+  - file-offset read/write parity
+  - `OpenOptionsExt::mode` create-mode propagation
+  - `OpenOptionsExt::custom_flags` via `NOFOLLOW` failure on symlink open
+  - `PermissionsExt` mode round-trip plus path-level apply
+  - append-open semantics on Linux
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass
+
+## Completed: 2026-07-05 Linux fs file-type/dir-builder batch
+
+- Added Linux `sa_std/fs` `FileTypeExt`-style classification surface:
+  - runtime exports `sa_fs_metadata_is_block_device`, `sa_fs_metadata_is_char_device`, `sa_fs_metadata_is_fifo`, `sa_fs_metadata_is_socket`
+  - macro layer `FS_METADATA_IS_BLOCK_DEVICE`, `FS_METADATA_IS_CHAR_DEVICE`, `FS_METADATA_IS_FIFO`, `FS_METADATA_IS_SOCKET`
+  - coverage uses stable Linux fixtures instead of synthetic device-node creation:
+    - char device: `/dev/null`
+    - block device: `/dev/loop0`
+    - fifo: temporary `mkfifo`
+    - socket: temporary Unix-domain listener path
+- Added Linux `sa_std/fs` `DirBuilderExt`-style mode surface:
+  - runtime exports `sa_fs_create_dir_mode`, `sa_fs_make_dir_mode`
+  - macro layer `FS_CREATE_DIR_MODE`, `FS_MAKE_DIR_MODE`, `FS_CREATE_DIR_ALL_MODE`
+  - verification checks both single-level create and recursive create preserve the requested mode bits through metadata
+- Added Linux `mkfifo` helper surface to support FIFO parity testing:
+  - runtime export `sa_fs_mkfifo`
+  - macro `FS_MKFIFO`
+- Expanded `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` to 5 passing tests covering:
+  - file-offset I/O
+  - `OpenOptionsExt`
+  - `PermissionsExt`
+  - `FileTypeExt`
+  - `DirBuilderExt`
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass
+
+## Next Linux Batch
+
+- Continue the broader Linux std audit. Next high-value gaps are remaining Linux-only facades that can be represented without Rust's trait/lifetime machinery.
+
+## Completed: 2026-07-05 Linux process-group signal batch
+
+- Added the Rust Linux process-group signal subset on top of existing SA process handles:
+  - runtime export `sa_std_process_send_process_group_signal`
+  - SA extern/macro `PROCESS_SEND_PROCESS_GROUP_SIGNAL`
+  - process handles now remember the effective process group configured by `CommandExt::process_group`; `process_group(0)` resolves to the child pid.
+  - parent process also performs best-effort `setpgid(child, pgid)` after `fork` to avoid immediate group-signal races.
+  - negative `process_group` config returns invalid argument at runtime entry.
+- Extended `tests/unit_framework/std_process_macro_surface.sa`:
+  - starts `/bin/sleep 5` in a new process group.
+  - terminates it with `PROCESS_SEND_PROCESS_GROUP_SIGNAL(..., SIGKILL)`.
+  - verifies raw wait status decodes to signal 9.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass twice (`7 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass (`7 passed`)
+  - installed compiler reports `sa 0.0.3.3`
+
+## Completed: 2026-07-05 Linux CommandExt spawn-config batch
+
+- Added a Linux `std::os::unix::process::CommandExt`-style spawn configuration subset over the existing SA process modes:
+  - `arg0` support for overriding `argv[0]` while preserving the executable path.
+  - `process_group` support via child-side `setpgid(0, pgroup)`; `0` gives Rust's “use child pid as PGID” behavior.
+  - `setsid(true)` support via Linux `setsid` before exec.
+  - capture, inherit, and stream process modes all have runtime/SA macro entry points.
+- Added SA macro surface:
+  - `PROCESS_RUN_COMMAND_EXT`, `PROCESS_SPAWN_COMMAND_EXT`, `PROCESS_SPAWN_STREAM_COMMAND_EXT`.
+  - convenience wrappers `PROCESS_RUN_ARG0`, `PROCESS_RUN_PROCESS_GROUP`, `PROCESS_RUN_SETSID`.
+- Extended `tests/unit_framework/std_process_macro_surface.sa`:
+  - verifies `arg0` by checking shell `$0` output.
+  - verifies `process_group(0)` by checking `/proc/$$/stat` PGID equals child pid.
+  - verifies `setsid(true)` by checking `/proc/$$/stat` SID equals child pid.
+  - verifies inherit and stream command-ext entry points compile, link, run, and close their handles.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - installed compiler reports `sa 0.0.3.3`
+
+## Completed: 2026-07-05 Linux unix-domain socket completion batch
+
+- Added `std::os::unix::net`-style Unix stream/listener completeness on top of the existing UDS stream/listener model:
+  - `NET_UNIX_PAIR` / `sa_std_net_unix_pair` for connected `UnixStream::pair` semantics.
+  - `NET_UNIX_LISTENER_LOCAL_ADDR` / `sa_std_net_unix_listener_local_addr`.
+  - `NET_UNIX_STREAM_LOCAL_ADDR` / `sa_std_net_unix_stream_local_addr`.
+  - `NET_UNIX_STREAM_PEER_ADDR` / `sa_std_net_unix_stream_peer_addr`.
+- Added a dedicated Unix socket address resource instead of forcing UDS addresses into IP `NetAddr`:
+  - unnamed, pathname, and Linux abstract address kinds.
+  - path/abstract pointer and length accessors.
+  - explicit `NET_UNIX_ADDR_FREE` lifecycle.
+- Extended `tests/unit_framework/std_net_unix_macro_surface.sa`:
+  - listener local address verifies pathname kind and bytes for `/tmp/sa_uds_test.sock`.
+  - pair test verifies connected stream roundtrip and unnamed local/peer addresses.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic`: pass (`2 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_net_unix_macro_surface.sa --trace-panic`: pass (`2 passed`)
+  - installed compiler reports `sa 0.0.3.3`
+
+## Completed: 2026-07-05 Linux fs dir-entry batch
+
+- Added a real Linux directory-entry resource model instead of the old JSON-compatible facade:
+  - runtime resource variants for directory-entry collections and individual directory entries
+  - Linux `getdents64`-backed directory reads
+  - captured entry name, inode, and basic file kind (`regular`, `dir`, `symlink`, `other`)
+- Added runtime/header exports for directory-entry traversal and lifecycle:
+  - `sa_fs_read_dir_entries` / `sa_std_fs_read_dir_entries`
+  - `sa_fs_dir_entries_len`
+  - `sa_std_fs_dir_entries_get`
+  - `sa_fs_dir_entries_free`
+  - `sa_fs_dir_entry_name_ptr`
+  - `sa_fs_dir_entry_name_len`
+  - `sa_fs_dir_entry_kind`
+  - `sa_fs_dir_entry_ino`
+  - `sa_fs_dir_entry_free`
+- Added `sa_std/fs` extern declarations and macro wrappers for the same surface, including `FS_DIR_ENTRY_INO` for `std::os::unix::fs::DirEntryExt::ino` parity.
+- Added `tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa` and registered it in `tests/unit_framework/runner.zig`.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass
+- Install sync status:
+  - included in the later Linux metadata/process install sync via `./tools/install.sh --no-shell`.
+
+## Completed: 2026-07-05 Linux metadata/process extension batch
+
+- Added Rust-named Linux `std::os::linux::fs::MetadataExt` macro/runtime surface on top of the existing metadata resource:
+  - `st_dev`, `st_ino`, `st_mode`, `st_nlink`, `st_uid`, `st_gid`, `st_rdev`, `st_size`
+  - `st_atime`, `st_atime_nsec`, `st_mtime`, `st_mtime_nsec`, `st_ctime`, `st_ctime_nsec`
+  - `st_blksize`, `st_blocks`
+- Added Unix process extension surface:
+  - `PROCESS_PARENT_ID` / `sa_std_process_parent_id` for `std::os::unix::process::parent_id`
+  - `PROCESS_SEND_SIGNAL` / `sa_std_process_send_signal` for `ChildExt::send_signal`
+  - dynamic signal delivery uses the Linux syscall errno path so invalid signals return `SA_STD_ERR_INVALID_ARGUMENT` instead of hitting Zig `std.posix.kill`'s `unreachable` invalid-signal branch.
+- Extended unit-framework coverage:
+  - `std_fs_metadata_ext_macro_surface.sa` verifies `st_*` aliases and timestamp seconds/nanoseconds macro surface.
+  - `std_process_macro_surface.sa` verifies `parent_id` and `send_signal(0)` before the existing kill/wait raw-status path.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_metadata_ext_macro_surface.sa --trace-panic`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_fs_metadata_ext_macro_surface.sa --trace-panic`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_process_macro_surface.sa --trace-panic`: pass
+  - installed compiler reports `sa 0.0.3.3`
+
+## Completed: 2026-07-05 Linux fs ownership batch
+
+- Added Linux `std::os::unix::fs` ownership helper surface:
+  - `FS_CHOWN` / `sa_fs_chown`
+  - `FS_LCHOWN` / `sa_fs_lchown`
+  - `FS_FCHOWN` / `sa_fs_fchown`
+  - `FS_CHOWN_RAW`, `FS_LCHOWN_RAW`, and `FS_FCHOWN_RAW` for Rust's `u32::MAX` unchanged-sentinel口径.
+- Runtime implementation uses Linux `fchownat` for path and symlink no-follow variants, and `fchown` for fd handles.
+- Extended `tests/unit_framework/std_fs_unix_ext_macro_surface.sa` with a non-root-safe test that changes ownership to the file's current uid/gid and verifies metadata afterward.
+- Validation status:
+  - `zig build sa-std-static --summary all`: pass
+  - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`; queued-fail output is expected negative-test coverage)
+- Install sync status:
+  - `./tools/install.sh --no-shell`: pass
+  - installed-state smoke with `sa test tests/unit_framework/std_fs_unix_ext_macro_surface.sa --trace-panic`: pass (`6 passed`)
+  - installed compiler reports `sa 0.0.3.3`
 
 ## Completed SCI Features
+
+- 2026-07-04: Added JA3/JA4 TLS-fingerprint hashing primitives to `sa_std/net` (Go proxy-fingerprint parity pass).
+  - Motivation: audited two Go LLM-proxy projects (`~/projects/CLIProxyAPI`, `~/projects/sub2api/backend`) for the network primitives behind their URL/TLS fingerprinting. Both center on uTLS (`refraction-networking/utls`) to forge a Chrome/Node.js ClientHello and dodge Cloudflare's TLS-fingerprint wall; sub2api hardcodes concrete targets (JA3 `44f88fca...`, JA4 `t13d1714h1_...`). The full uTLS handshake-forgery is environment-blocked for the same reason as h2-over-TLS (Zig 0.14 std TLS has no ALPN / no ClientHello customization; OpenSSL symbols are versioned-only and unresolvable). But the fingerprint *hashing* itself is pure computation and was entirely missing from SA, which has no crypto primitives of its own.
+  - Runtime (`src/runtime/sa_std.zig`): `sa_std_net_ja3_hash(ja3_str) -> 32-char MD5 hex` (JA3 is `MD5` of the comma/dash-joined ClientHello field string) and `sa_std_net_ja4_hash12(data) -> first 12 chars of SHA256 hex` (the JA4 `_b`/`_c` segments are truncated SHA256 digests of the sorted cipher/extension lists). Both write into a caller-provided buffer (same style as `sa_std_net_addr_format`), no handle lifecycle.
+  - Contracts in `sa_std/net.sai`; macros `NET_JA3_HASH`/`NET_JA4_HASH12` in `sa_std/net.sa`.
+  - Verification: ground-truth vectors generated independently via openssl/python (`JA3 769,47-53-...,0 -> ada70206e40642a3e4461f35503241d5`; JA4 sorted-cipher list `-> f4ad024020fe`). Zig inline tests in `sa_std.zig` assert both against those vectors (exit 0). New SA test `tests/unit_framework/std_net_fingerprint_macro_surface.sa` re-verifies through the macro layer. Full `zig build unit-framework` -> exit 0 across two consecutive runs.
+  - Not implemented (documented as environment-blocked): live uTLS handshake forgery, ALPN negotiation, SOCKS5/CONNECT proxy tunneling before a forged TLS handshake, and HTTP/2 frame-layer (Akamai h2) fingerprinting. These need a TLS stack with ClientHello control, which Zig 0.14 std lacks and OpenSSL cannot provide here.
+
+- 2026-07-03: Filled the codex-parity network gaps in `sa_std/net` (Unix domain sockets + socket-option setters); assessed h2-over-TLS as environment-blocked.
+  - Motivation: audited `~/projects/codex`'s network primitives against `sci` + the `sa_plugins` layer. The plugins (`sa_plugin_http_client` via `std.http.Client`, `http_server`, `node`/`deno` with real `libnode`/`libdeno` fetch/websocket/tls_connect) already cover HTTPS client, SSE streaming, WebSocket client, and TLS client with real backends. The only genuinely missing lower-level primitives were Unix domain sockets (used by codex `app-server-transport`), a few socket-option setters, and h2-over-TLS.
+  - Unix domain sockets: added `sa_std_net_unix_listen(path)`, `sa_std_net_unix_connect(path)`, and `sa_std_net_unix_accept(listener)` in `src/runtime/sa_std.zig`. They reuse the existing `tcp_stream`/`tcp_listener` `Resource` variants, so read/write/shutdown/close and the `NET_TCP_STREAM_*` macros work unchanged on UDS handles. `unix_listen` unlinks any stale socket node before `bind` (avoids `AddrInUse`) and constructs `std.net.Server` manually. Contracts in `sa_std/net.sai`, macros `NET_UNIX_LISTEN`/`NET_UNIX_CONNECT`/`NET_UNIX_ACCEPT` in `sa_std/net.sa`.
+  - Socket-option setters (exposed to SA for the first time): `sa_std_net_tcp_stream_set_keepalive`, `sa_std_net_tcp_stream_set_keepalive_params` (idle/intvl/cnt via `TCP_KEEPIDLE/KEEPINTVL/KEEPCNT`), `sa_std_net_tcp_listener_set_reuseaddr`, `sa_std_net_tcp_listener_set_reuseport`. Macros `NET_TCP_STREAM_SET_KEEPALIVE`, `NET_TCP_STREAM_SET_KEEPALIVE_PARAMS`, `NET_TCP_LISTENER_SET_REUSEADDR`, `NET_TCP_LISTENER_SET_REUSEPORT`.
+  - h2-over-TLS (`sa_std_http2_client_request` currently connects over plaintext TCP): assessed and intentionally NOT implemented, because both viable paths are blocked in this environment. (1) Zig 0.14's `std.crypto.tls.Client` has no ALPN support at all (0 hits for alpn in the std source), and gRPC/HTTP2-over-TLS requires ALPN negotiation of `h2`. (2) OpenSSL's `SSL_CTX_new`/`SSL_CTX_set_alpn_protos` are versioned-only symbols (`@@OPENSSL_3.0.0`) that Zig 0.14's `DynLib.lookup` cannot resolve — the same limitation that already forces `tls_server`/`dtls` to report `supported=0`. Implementing it now would only produce a handshake-that-fails, so it is left as environment-blocked rather than faked.
+  - Verification: `zig build sa-std-unit` -> exit 0; standalone `sa test tests/unit_framework/std_net_unix_macro_surface.sa` -> `1 passed`; full `zig build unit-framework` -> exit 0. `nm` confirms the 7 new symbols are `T` in `libsa_std.{a,so}`. New SA test `tests/unit_framework/std_net_unix_macro_surface.sa` drives a full UDS `listen -> connect -> accept -> write -> read` roundtrip plus the keepalive/reuseaddr setters, registered in the runner suite list.
+
+- 2026-07-03: Closed the two remaining `sa_std` network gaps (DNS hostname resolution + netx SA usability).
+  - DNS: `sa_std_net_tcp_listen`, `sa_std_net_udp_bind`, `sa_std_net_udp_connect`, and `sa_std_net_udp_send_to` previously called `std.net.Address.resolveIp` (IP-literal only). Extracted a shared `resolveFirstAddressFromParts(host, port16)` helper (backed by `std.net.getAddressList`, i.e. real getaddrinfo; IP literals still take the numeric fast path) and routed all four through it. `sa_std_net_tcp_connect` already used `tcpConnectToHost` (DNS-capable). `parseIp4Address`/`parseIp6Address` intentionally keep `resolveIp` since their contract is IP-literal parsing. Error mapping already funnels `UnknownHostName`/`HostLacksNetworkAddresses`/`TemporaryNameServerFailure` into the `SA_NET_ERR_NET` family.
+  - netx was not actually usable from SA: the 7 `sa_netx_*` functions in `src/runtime/sa_net_uring.zig` were `pub fn` (no C-ABI export), and `sa_net_uring.zig` was only ever compiled as a standalone test module — its symbols never entered the runtime library that SA programs link. Changed all 7 to `pub export fn` and added a comptime force-reference in `src/runtime/sa_std.zig` (same technique used for http2/tls_server/dtls/quic) so they emit into `libsa_std.{a,so}`. `nm` now shows `sa_netx_init/listen/recv_ticket/push_outbound/broadcast/close_slot/shutdown` as `T`.
+  - Fixed `sa_std/netx.sai` return types from `i32!` to `i32` (the runtime returns plain status codes, not error-unions; the `!` form would have been decoded as a `Fallible` struct pointer).
+  - Expanded `sa_std/netx.sal` with `SA_NETX_*` status codes, `NETX_OP_*` ticket op codes, and `NETX_FLAG_*` bits (mirroring `TicketOp`/`TicketFlag` in the runtime). Note: `.sal` files only accept `#def` directives — bare `#` comment lines trigger `ForbiddenSyntax`, so the section headers were dropped.
+  - Authored the `sa_std/netx.sa` macro layer (previously just two `@import` lines): thin wrappers for all 7 externs (`NETX_INIT`/`NETX_LISTEN`/`NETX_SHUTDOWN`/`NETX_RECV_TICKET`/`NETX_PUSH_OUTBOUND`/`NETX_BROADCAST`/`NETX_CLOSE_SLOT`), Ticket field readers (`NETX_TICKET_SLOT_ID`/`OP_CODE`/`PROTO`/`FLAGS`/`PAYLOAD`/`PAYLOAD_LEN`), and convenience macros (`NETX_TICKET_HEADER`, `NETX_TICKET_IS_OP`).
+  - Added `tests/unit_framework/std_netx_macro_surface.sa` (registered in `tests/unit_framework/runner.zig`) covering ticket-field macro reads on a hand-filled buffer. The live `init`/`shutdown` round-trip is left to the Zig end-to-end tests in `sa_net_uring.zig`: the in-process unit-framework harness cannot host a live io_uring reactor thread (thread crash), whereas a standalone `sa` process is isolated.
+  - Verification: `zig build sa-std-unit` -> exit 0 (DNS changes); `zig build sa-net-uring-test` -> `1/1 tests passed` (after the export change); `zig build unit-framework` -> exit 0 (netx SA macro surface included); `nm zig-out/lib/libsa_std.so` -> all 7 `sa_netx_*` present as `T`.
+
+- 2026-06-27: Added SAB v3 backend metadata preservation for plugin-generated SAB inputs.
+  - SAB encoding now preserves raw instruction text plus full backend metadata needed by SA LLVM-C lowering: atomic expected/new operand text, native register names, package identity/source hash, upstream locations, and verifier-derived function register ids.
+  - `plugin_bridge.encodeSabFromFlat` verifies flattened SA-compatible input before SAB encoding so decoded SAB carries function signature register metadata instead of relying on text headers.
+  - Decoded instruction-owned metadata now has ownership compatible with both `sab.Module.deinit` and `flattener.FlattenResult.deinit`, fixing double-free diagnostics when plugin-generated SAB is loaded as a flat test input.
+  - Verification used focused commands only: `timeout 120s zig test src/sab.zig --test-filter "sab v3 preserves instruction metadata required by SA backends"`, `timeout 120s zig test src/sab.zig --test-filter "sab borrow roundtrip preserves raw source text"`, `timeout 120s zig test src/sab.zig --test-filter "sab function signatures roundtrip without function header text"`, and `timeout 120s zig test src/plugin_bridge.zig --test-filter "encodeSabFromFlat writes verified register metadata"`.
 
 - 2026-06-18: Audited rosetta package/module README provenance after the 188-260 cleanup batches.
   - Rechecked `demos/rosetta/201_pkg_manifest_basic` through `220_pkg_lib_dynamic`; the copied README template text is no longer present there.

@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../TheAlgorithms/Sa"
+		},
+		{
+			"path": "../sla_bevy"
 		}
 	],
 	"settings": {

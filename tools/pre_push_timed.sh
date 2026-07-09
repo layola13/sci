@@ -43,6 +43,34 @@ if [ "${1:-}" = "--list" ]; then
     shift
 fi
 
+should_run_checks=1
+if [ "$list_only" -eq 0 ]; then
+    should_run_checks=0
+    if [ -t 0 ]; then
+        current_branch="$(git branch --show-current 2>/dev/null || true)"
+        case "$current_branch" in
+            main|master)
+                should_run_checks=1
+                ;;
+        esac
+    else
+        while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+            [ -n "${remote_ref:-}" ] || continue
+            case "$remote_ref" in
+                refs/heads/main|refs/heads/master)
+                    should_run_checks=1
+                    break
+                    ;;
+            esac
+        done
+    fi
+fi
+
+if [ "$should_run_checks" -eq 0 ]; then
+    printf '[pre-push] skip: only refs/heads/main or refs/heads/master trigger checks; this push does not update those branches\n'
+    exit 0
+fi
+
 run_stage() {
     local name="$1"
     shift

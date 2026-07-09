@@ -1,0 +1,141 @@
+@import "sa_std/thread.sa"
+
+@const THREAD_EXT_WORKER_VT = vtable { call = @thread_ext_worker }
+
+#def ThreadExtSlot_SIZE = 8
+#def ThreadExtSlot_value = +0
+
+@thread_ext_worker(&slot: ptr) -> i32:
+L_ENTRY:
+    value = load slot+ThreadExtSlot_value as i32
+    result = add value, 11
+    store slot+ThreadExtSlot_value, result as i32
+    !value
+    !slot
+    return result
+
+@ffi_wrapper thread_ext_spawn_worker(*slot: ptr) -> i32:
+L_ENTRY:
+    worker_vt = &THREAD_EXT_WORKER_VT
+    worker_fn = load worker_vt+0 as ptr
+    worker_safe = assume_safe worker_fn
+    EXPAND THREAD_SPAWN handle, *worker_safe, *slot
+    !worker_vt
+    !worker_fn
+    !worker_safe
+    !slot
+    return handle
+
+@test "sa_std thread current_id and yield_now macros"():
+L_ENTRY:
+    EXPAND THREAD_CURRENT_ID tid
+    EXPAND THREAD_YIELD_NOW yield_status
+    tid_ok = ne tid, 0
+    yield_ok = eq yield_status, 0
+    ok = and tid_ok, yield_ok
+
+    !tid
+    !yield_status
+    !tid_ok
+    !yield_ok
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(1510)
+
+L_PASS:
+    !ok
+    return 0
+
+@test "sa_std thread pthread raw handle macros"():
+L_ENTRY:
+    slot_as = alloc ThreadExtSlot_SIZE
+    store slot_as+ThreadExtSlot_value, 20 as i32
+    handle_as = call @thread_ext_spawn_worker(*slot_as)
+    EXPAND THREAD_AS_PTHREAD_T as_status, raw_as, handle_as
+    join_as_out = stack_alloc 4
+    EXPAND THREAD_JOIN_STATUS join_as_status, handle_as, join_as_out
+    join_as_result = load join_as_out+0 as i32
+    slot_as_value = load slot_as+ThreadExtSlot_value as i32
+
+    slot_into = alloc ThreadExtSlot_SIZE
+    store slot_into+ThreadExtSlot_value, 30 as i32
+    handle_into = call @thread_ext_spawn_worker(*slot_into)
+    EXPAND THREAD_INTO_PTHREAD_T into_status, raw_into, handle_into
+    raw_join_out = stack_alloc 4
+    EXPAND THREAD_RAW_PTHREAD_JOIN_STATUS raw_join_status, raw_into, raw_join_out
+    raw_join_result = load raw_join_out+0 as i32
+    slot_into_value = load slot_into+ThreadExtSlot_value as i32
+
+    handle_as_ok = ne handle_as, 0
+    as_status_ok = eq as_status, 0
+    raw_as_ok = ne raw_as, 0
+    join_as_ok = eq join_as_status, 0
+    join_as_result_ok = eq join_as_result, 31
+    slot_as_ok = eq slot_as_value, 31
+    handle_into_ok = ne handle_into, 0
+    into_status_ok = eq into_status, 0
+    raw_into_ok = ne raw_into, 0
+    raw_join_ok = eq raw_join_status, 0
+    raw_join_result_ok = eq raw_join_result, 41
+    slot_into_ok = eq slot_into_value, 41
+
+    ok01 = and handle_as_ok, as_status_ok
+    ok02 = and ok01, raw_as_ok
+    ok03 = and ok02, join_as_ok
+    ok04 = and ok03, join_as_result_ok
+    ok05 = and ok04, slot_as_ok
+    ok06 = and ok05, handle_into_ok
+    ok07 = and ok06, into_status_ok
+    ok08 = and ok07, raw_into_ok
+    ok09 = and ok08, raw_join_ok
+    ok10 = and ok09, raw_join_result_ok
+    ok = and ok10, slot_into_ok
+
+    !handle_as
+    !as_status
+    !raw_as
+    !join_as_status
+    !join_as_result
+    !slot_as_value
+    !handle_into
+    !into_status
+    !raw_into
+    !raw_join_status
+    !raw_join_result
+    !slot_into_value
+    !handle_as_ok
+    !as_status_ok
+    !raw_as_ok
+    !join_as_ok
+    !join_as_result_ok
+    !slot_as_ok
+    !handle_into_ok
+    !into_status_ok
+    !raw_into_ok
+    !raw_join_ok
+    !raw_join_result_ok
+    !slot_into_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !slot_into
+    !slot_as
+    br ok -> L_RAW_PASS, L_RAW_FAIL
+
+L_RAW_FAIL:
+    !ok
+    panic(1511)
+
+L_RAW_PASS:
+    !ok
+    return 0

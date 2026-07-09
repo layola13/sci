@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
@@ -11,6 +12,14 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.proce
         .allocator = allocator,
         .argv = argv,
     });
+}
+
+fn copyRuntimeArchiveToCwd() !void {
+    var src = try std.fs.openFileAbsolute(build_options.sa_std_archive_path, .{});
+    defer src.close();
+    var dst = try std.fs.cwd().createFile("libsa_std.a", .{ .truncate = true });
+    defer dst.close();
+    _ = try src.copyRangeAll(0, dst, 0, try src.getEndPos());
 }
 
 fn expectSuccess(result: std.process.Child.RunResult) !void {
@@ -190,20 +199,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
     ;
     try writeSource(tmp.dir, "udp.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -297,20 +293,7 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
     ;
     try writeSource(tmp.dir, "udp_multicast.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -411,20 +394,7 @@ test "sa_std udp connected send and recv are usable from C" {
     ;
     try writeSource(tmp.dir, "udp_connected.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -503,20 +473,7 @@ test "sa_std static library exposes a usable C ABI" {
     ;
     try writeSource(tmp.dir, "main.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -611,20 +568,7 @@ test "sa_std tcp stream peek does not consume bytes" {
     ;
     try writeSource(tmp.dir, "tcp_peek.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -760,20 +704,7 @@ test "sa_std fmt and process exports are usable from C" {
     ;
     try writeSource(tmp.dir, "main.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -842,20 +773,7 @@ test "sa_std detached pthread export runs without join" {
     ;
     try writeSource(tmp.dir, "pthread_detached.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -1034,20 +952,7 @@ test "sa_std json exports are usable from C" {
     ;
     try writeSource(tmp.dir, "json.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -1147,20 +1052,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
     ;
     try writeSource(tmp.dir, "json_stream.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -1246,20 +1138,7 @@ test "sa_std regex compile match and group access are usable from C" {
     ;
     try writeSource(tmp.dir, "regex.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -1350,20 +1229,7 @@ test "sa_std json streaming handle exposes stable slices from C" {
     ;
     try writeSource(tmp.dir, "json_stream_direct.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -1459,20 +1325,7 @@ test "sa_std time exports are usable from C" {
     ;
     try writeSource(tmp.dir, "time.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -1585,20 +1438,7 @@ test "sa_std Deno facade runtime helpers are usable from C" {
     ;
     try writeSource(tmp.dir, "deno_facade.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try copyRuntimeArchiveToCwd();
 
     const build_demo_argv = [_][]const u8{
         "zig",

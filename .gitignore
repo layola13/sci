@@ -26,6 +26,7 @@ tmp_*
 *.ll
 bin
 tmp/
+logs/test_steps/
 .claude/
 repro_*.zig
 *tmp.o

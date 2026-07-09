@@ -899,11 +899,15 @@ fn cloneOwnedSourceLines(
     errdefer deinitOwnedSourceLineItems(allocator, owned[0..copied]);
 
     for (lines, 0..) |line, idx| {
+        const owned_text = try allocator.dupe(u8, line.text);
+        errdefer allocator.free(owned_text);
+        const owned_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null;
+        errdefer if (owned_identity) |identity| allocator.free(identity);
         owned[idx] = .{
             .line_no = line.line_no,
-            .text = try allocator.dupe(u8, line.text),
+            .text = owned_text,
             .classified = line.classified,
-            .package_identity = if (line.package_identity) |identity| try allocator.dupe(u8, identity) else null,
+            .package_identity = owned_identity,
             .package_source_sha256 = line.package_source_sha256,
         };
         copied += 1;
@@ -912,14 +916,13 @@ fn cloneOwnedSourceLines(
     return owned;
 }
 
-fn macroDefBodyLines(def: *const MacroDef, lines: []const SourceLine) []const SourceLine {
-    if (def.owned_body_lines.len != 0) return def.owned_body_lines;
-    return lines[def.body_start..def.body_end];
+fn macroDefBodyLines(def: *const MacroDef) ![]const SourceLine {
+    if (def.owned_body_lines.len == 0) return error.InvalidMacroInvocation;
+    return def.owned_body_lines;
 }
 
 fn captureCachedMacroDefs(
     allocator: std.mem.Allocator,
-    lines: []const SourceLine,
     macros: *const std.StringHashMap(MacroDef),
 ) ![]CachedMacroDef {
     const defs = try allocator.alloc(CachedMacroDef, macros.count());
@@ -930,7 +933,7 @@ fn captureCachedMacroDefs(
     var it = macros.iterator();
     while (it.next()) |entry| {
         const def = entry.value_ptr.*;
-        const body_lines = macroDefBodyLines(&def, lines);
+        const body_lines = try macroDefBodyLines(&def);
         var cached = CachedMacroDef{
             .name = try allocator.dupe(u8, entry.key_ptr.*),
             .params = &.{},
@@ -990,7 +993,9 @@ fn restoreCachedMacroDefs(
     macros: *std.StringHashMap(MacroDef),
 ) !void {
     for (defs) |cached| {
-        if (macros.contains(cached.name)) return error.DuplicateDef;
+        if (macros.contains(cached.name)) {
+            continue;
+        }
 
         const owned_body_lines = try allocator.alloc(SourceLine, cached.body_lines.len);
         errdefer allocator.free(owned_body_lines);
@@ -2178,7 +2183,11 @@ fn collectMacroDefinitions(
                 const name = line.classified.parts[0];
                 const parsed_params = try parseMacroParams(allocator, line.classified.parts[1]);
                 errdefer allocator.free(parsed_params.params);
-                if (macros.contains(name)) return error.DuplicateDef;
+                if (macros.contains(name)) {
+                    allocator.free(parsed_params.params);
+                    idx = end;
+                    continue;
+                }
                 const owned_body_lines = try cloneOwnedSourceLines(allocator, lines[idx + 1 .. end]);
                 errdefer deinitOwnedSourceLines(allocator, owned_body_lines);
                 try macros.put(name, .{
@@ -3313,7 +3322,7 @@ fn emitRange(
                     );
                 } else {
                     const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
-                    const body_lines = macroDefBodyLines(&def, lines);
+                    const body_lines = try macroDefBodyLines(&def);
                     const args = try parseTokenList(allocator, rendered_classified.parts[1]);
                     defer allocator.free(args);
                     if (def.variadic_param) |variadic_param| {
@@ -3512,6 +3521,104 @@ fn remapInstructionSymbolIds(instruction: *Instruction, remap: []const u32) !voi
     for (&instruction.operands) |*operand| {
         try remapOperandSymbolIds(operand, remap);
     }
+}
+
+fn isOpaqueMacroArgName(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "__sla_macro_arg_");
+}
+
+fn remappedSymbolName(
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
+    remap: []const u32,
+    name: []const u8,
+) !?[]const u8 {
+    if (isOpaqueMacroArgName(name)) return null;
+    const old_id = source_symbols.findId(name) orelse return null;
+    const new_id = try remapSymbolId(remap, old_id);
+    return target_symbols.lookupName(new_id) orelse error.InvalidOperand;
+}
+
+fn appendRemappedSymbolToken(
+    out: *std.ArrayList(u8),
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
+    remap: []const u32,
+    token: []const u8,
+) !void {
+    if (try remappedSymbolName(source_symbols, target_symbols, remap, token)) |name| {
+        try out.appendSlice(name);
+    } else {
+        try out.appendSlice(token);
+    }
+}
+
+fn cloneRemappedSymbolText(
+    allocator: std.mem.Allocator,
+    owned_text: *std.ArrayList([]const u8),
+    text: []const u8,
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
+    remap: []const u32,
+) ![]const u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+
+        if (c == '"') {
+            try out.append(c);
+            i += 1;
+            while (i < text.len) {
+                const ch = text[i];
+                try out.append(ch);
+                i += 1;
+                if (ch == '\\' and i < text.len) {
+                    try out.append(text[i]);
+                    i += 1;
+                    continue;
+                }
+                if (ch == '"') break;
+            }
+            continue;
+        }
+
+        if (c == '/' and i + 1 < text.len and text[i + 1] == '/') {
+            try out.appendSlice(text[i..]);
+            break;
+        }
+
+        if ((c == '@' or c == '#' or c == '%') and i + 1 < text.len and isIdentStart(text[i + 1])) {
+            try out.append(c);
+            const start = i + 1;
+            i = start + 1;
+            while (i < text.len and isIdentChar(text[i])) : (i += 1) {}
+            if (c == '#') {
+                try out.appendSlice(text[start..i]);
+            } else {
+                try appendRemappedSymbolToken(&out, source_symbols, target_symbols, remap, text[start..i]);
+            }
+            continue;
+        }
+
+        if (isIdentStart(c)) {
+            const start = i;
+            i += 1;
+            while (i < text.len and isIdentChar(text[i])) : (i += 1) {}
+            try appendRemappedSymbolToken(&out, source_symbols, target_symbols, remap, text[start..i]);
+            continue;
+        }
+
+        try out.append(c);
+        i += 1;
+    }
+
+    const owned = try out.toOwnedSlice();
+    errdefer allocator.free(owned);
+    try owned_text.append(owned);
+    return owned;
 }
 
 fn cloneRemappedSymbolIdSlice(allocator: std.mem.Allocator, ids: []const u32, remap: []const u32) ![]const u32 {
@@ -3907,6 +4014,8 @@ fn appendFlattenFragment(
             allocator,
             target_owned_text,
             instruction,
+            &fragment.symbols,
+            target_symbols,
             remap,
             source_line_offset,
             expanded_line_offset,
@@ -3933,6 +4042,8 @@ fn cloneRemappedOperand(
     allocator: std.mem.Allocator,
     owned_text: *std.ArrayList([]const u8),
     operand: Operand,
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
     remap: []const u32,
 ) !Operand {
     return switch (operand) {
@@ -3940,8 +4051,8 @@ fn cloneRemappedOperand(
         .symbol => |old_id| .{ .symbol = try remapSymbolId(remap, old_id) },
         .label => |old_id| .{ .label = try remapSymbolId(remap, old_id) },
         .func => |old_id| .{ .func = try remapSymbolId(remap, old_id) },
-        .text => |text| .{ .text = try ownText(allocator, owned_text, text) },
-        .native_text => |text| .{ .native_text = try ownText(allocator, owned_text, text) },
+        .text => |text| .{ .text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap) },
+        .native_text => |text| .{ .native_text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap) },
         else => operand,
     };
 }
@@ -3980,6 +4091,8 @@ fn cloneRemappedInstruction(
     allocator: std.mem.Allocator,
     owned_text: *std.ArrayList([]const u8),
     source: Instruction,
+    source_symbols: *const SymbolTable,
+    target_symbols: *const SymbolTable,
     remap: []const u32,
     source_line_offset: u32,
     expanded_line_offset: u32,
@@ -3997,7 +4110,7 @@ fn cloneRemappedInstruction(
         try std.math.add(u32, source.source_line, source_line_offset),
         try std.math.add(u32, source.expanded_line, expanded_line_offset),
         null,
-        try ownText(allocator, owned_text, source.raw_text),
+        try cloneRemappedSymbolText(allocator, owned_text, source.raw_text, source_symbols, target_symbols, remap),
     );
     errdefer {
         if (out.package_identity) |identity| allocator.free(identity);
@@ -4022,15 +4135,15 @@ fn cloneRemappedInstruction(
     out.atomic_second_ordering = source.atomic_second_ordering;
     out.atomic_rmw_op = source.atomic_rmw_op;
     if (source.atomic_expected_text) |text| {
-        out.atomic_expected_text = try ownText(allocator, owned_text, text);
+        out.atomic_expected_text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap);
     }
     if (source.atomic_new_text) |text| {
-        out.atomic_new_text = try ownText(allocator, owned_text, text);
+        out.atomic_new_text = try cloneRemappedSymbolText(allocator, owned_text, text, source_symbols, target_symbols, remap);
     }
 
     var cloned_native_text: ?[]const u8 = null;
     for (&out.operands, source.operands) |*dst, operand| {
-        dst.* = try cloneRemappedOperand(allocator, owned_text, operand, remap);
+        dst.* = try cloneRemappedOperand(allocator, owned_text, operand, source_symbols, target_symbols, remap);
         switch (dst.*) {
             .native_text => |text| cloned_native_text = text,
             else => {},
@@ -4780,7 +4893,7 @@ fn flattenInternal(
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
-    const cached_macro_defs = try captureCachedMacroDefs(allocator, lines, &macros);
+    const cached_macro_defs = try captureCachedMacroDefs(allocator, &macros);
     errdefer deinitCachedMacroDefs(allocator, cached_macro_defs);
     const empty_replacements = [_]Replacement{};
     var expansion_counter: u64 = 0;
@@ -5330,7 +5443,7 @@ test "frontend cache clone remaps instruction symbols and owned metadata" {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
     }
-    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, remap, 10, 20);
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &source_symbols, &target_symbols, remap, 10, 20);
     defer {
         if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
         if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
@@ -5359,7 +5472,64 @@ test "frontend cache clone remaps instruction symbols and owned metadata" {
     try std.testing.expect(cloned.atomic_new_text.?.ptr != source.atomic_new_text.?.ptr);
 }
 
+test "frontend cache clone remaps embedded call text tokens with operands" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    const dst_id = try source_symbols.intern("dst");
+    const tmp_id = try source_symbols.intern("tmp_0");
+    const callee_id = try source_symbols.intern("callee");
+    const opaque_arg_id = try source_symbols.intern("__sla_macro_arg_0");
+
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+    _ = try target_symbols.intern("occupied");
+    const remapped_dst_id = try target_symbols.intern("__frag0_dst");
+    const remapped_tmp_id = try target_symbols.intern("__frag1_tmp_0");
+    const remapped_callee_id = try target_symbols.intern("renamed_callee");
+    const remapped_opaque_arg_id = try target_symbols.intern("__frag2_arg");
+
+    const remap = [_]u32{ remapped_dst_id, remapped_tmp_id, remapped_callee_id, remapped_opaque_arg_id };
+
+    var source = common_instruction.makeInstruction(
+        .call,
+        11,
+        4,
+        null,
+        "dst = call @callee(^tmp_0, &__sla_macro_arg_0, \"tmp_0\")",
+    );
+    source.operands[0] = .{ .reg = dst_id };
+    source.operands[1] = .{ .text = "@callee(^tmp_0, &__sla_macro_arg_0, \"tmp_0\")" };
+    source.atomic_expected_text = "tmp_0";
+    source.atomic_new_text = "__sla_macro_arg_0";
+    _ = tmp_id;
+    _ = callee_id;
+    _ = opaque_arg_id;
+
+    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer {
+        for (owned_text.items) |text| std.testing.allocator.free(text);
+        owned_text.deinit();
+    }
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &source_symbols, &target_symbols, remap[0..], 0, 0);
+    defer {
+        if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
+        if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
+        if (cloned.native_reg_names.len != 0) std.testing.allocator.free(cloned.native_reg_names);
+    }
+
+    try std.testing.expectEqual(remapped_dst_id, cloned.operands[0].reg);
+    try std.testing.expectEqualStrings("@renamed_callee(^__frag1_tmp_0, &__sla_macro_arg_0, \"tmp_0\")", cloned.operands[1].text);
+    try std.testing.expectEqualStrings("__frag0_dst = call @renamed_callee(^__frag1_tmp_0, &__sla_macro_arg_0, \"tmp_0\")", cloned.raw_text);
+    try std.testing.expectEqualStrings("__frag1_tmp_0", cloned.atomic_expected_text.?);
+    try std.testing.expectEqualStrings("__sla_macro_arg_0", cloned.atomic_new_text.?);
+}
+
 test "frontend cache clone rebuilds native register name slices" {
+    var source_symbols = SymbolTable.init(std.testing.allocator);
+    defer source_symbols.deinit();
+    var target_symbols = SymbolTable.init(std.testing.allocator);
+    defer target_symbols.deinit();
+
     const native_text = "call side(ptr value, i32 7)";
     var source = common_instruction.makeInstruction(.native, 2, 1, null, "$call side(ptr value, i32 7)$");
     source.operands[0] = .{ .native_text = native_text };
@@ -5371,7 +5541,7 @@ test "frontend cache clone rebuilds native register name slices" {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
     }
-    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &.{}, 4, 8);
+    const cloned = try cloneRemappedInstruction(std.testing.allocator, &owned_text, source, &source_symbols, &target_symbols, &.{}, 4, 8);
     defer {
         if (cloned.package_identity) |identity| std.testing.allocator.free(identity);
         if (cloned.upstream_loc) |loc| std.testing.allocator.free(loc.file);
@@ -5718,35 +5888,27 @@ test "frontend cache append fragment restores imported macro defs for later expa
 test "cached macro helper path survives allocation failure injection" {
     const Ctx = struct {
         fn run(allocator: std.mem.Allocator) !void {
-            const macro_name = "MAKE_TMP";
-            const macro_params = [_][]const u8{"%out"};
             const package_identity = "pkg:macro-cache-test";
-            const body_lines = [_]SourceLine{
-                .{
-                    .line_no = 2,
-                    .text = "    _tmp = add 0, 7",
-                    .classified = classifier.classifyLine("    _tmp = add 0, 7"),
-                    .package_identity = package_identity,
-                    .package_source_sha256 = null,
-                },
-                .{
-                    .line_no = 3,
-                    .text = "    %out = add _tmp, 0",
-                    .classified = classifier.classifyLine("    %out = add _tmp, 0"),
-                    .package_identity = package_identity,
-                    .package_source_sha256 = null,
-                },
+            const source =
+                \\[MACRO] MAKE_TMP %out
+                \\    _tmp = add 0, 7
+                \\    %out = add _tmp, 0
+                \\[END_MACRO]
+            ;
+            const identities = [_]?[]const u8{
+                package_identity,
+                package_identity,
+                package_identity,
+                package_identity,
             };
+            const lines = try scanSource(allocator, source, identities[0..], &.{});
+            defer allocator.free(lines);
 
             var source_macros = std.StringHashMap(MacroDef).init(allocator);
-            defer source_macros.deinit();
-            try source_macros.put(macro_name, .{
-                .params = macro_params[0..],
-                .body_start = 0,
-                .body_end = body_lines.len,
-            });
+            defer deinitMacroMap(allocator, &source_macros);
+            try collectMacroDefinitions(allocator, lines, &source_macros, null);
 
-            const cached_defs = try captureCachedMacroDefs(allocator, body_lines[0..], &source_macros);
+            const cached_defs = try captureCachedMacroDefs(allocator, &source_macros);
             defer deinitCachedMacroDefs(allocator, cached_defs);
 
             var target_macros = std.StringHashMap(MacroDef).init(allocator);
@@ -5762,6 +5924,17 @@ test "cached macro helper path survives allocation failure injection" {
     };
 
     try std.testing.checkAllAllocationFailures(std.testing.allocator, Ctx.run, .{});
+}
+
+test "macroDefBodyLines rejects missing owned macro body" {
+    const macro_params = [_][]const u8{"%out"};
+    const def = MacroDef{
+        .params = macro_params[0..],
+        .body_start = 1,
+        .body_end = 3,
+    };
+
+    try std.testing.expectError(error.InvalidMacroInvocation, macroDefBodyLines(&def));
 }
 
 test "findFirstForbiddenLine skips native blocks and catches keywords" {

@@ -125,13 +125,41 @@ pub const MirrorRule = struct {
     }
 };
 
+pub const PackageDecl = struct {
+    name: []const u8,
+    upstream_loc: UpstreamLoc,
+
+    pub fn deinit(self: *PackageDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.upstream_loc.file);
+        self.* = undefined;
+    }
+};
+
+pub const WorkspaceDecl = struct {
+    members: []const []const u8,
+    default_member: ?[]const u8,
+    upstream_loc: UpstreamLoc,
+
+    pub fn deinit(self: *WorkspaceDecl, allocator: std.mem.Allocator) void {
+        freeStringList(allocator, self.members);
+        if (self.default_member) |member| allocator.free(member);
+        allocator.free(self.upstream_loc.file);
+        self.* = undefined;
+    }
+};
+
 pub const Manifest = struct {
+    package_decl: ?PackageDecl = null,
+    workspace: ?WorkspaceDecl = null,
     requires: []RequireEntry,
     plugin_requires: []PluginRequireEntry,
     permission_sets: []PermissionSet,
     mirrors: []MirrorRule,
 
     pub fn deinit(self: *Manifest, allocator: std.mem.Allocator) void {
+        if (self.package_decl) |*package_decl| package_decl.deinit(allocator);
+        if (self.workspace) |*workspace| workspace.deinit(allocator);
         for (self.requires) |*entry| entry.deinit(allocator);
         allocator.free(self.requires);
         for (self.plugin_requires) |*entry| entry.deinit(allocator);
@@ -210,6 +238,391 @@ fn trim(text: []const u8) []const u8 {
 fn freeStringList(allocator: std.mem.Allocator, list: []const []const u8) void {
     for (list) |item| allocator.free(item);
     allocator.free(list);
+}
+
+fn cloneStringList(allocator: std.mem.Allocator, list: []const []const u8) ParseError![]const []const u8 {
+    var out = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (out.items) |item| allocator.free(item);
+        out.deinit();
+    }
+
+    for (list) |item| try out.append(try allocator.dupe(u8, item));
+    return try out.toOwnedSlice();
+}
+
+fn cloneUpstreamLoc(allocator: std.mem.Allocator, loc: UpstreamLoc) ParseError!UpstreamLoc {
+    return .{
+        .file = try allocator.dupe(u8, loc.file),
+        .line = loc.line,
+        .col = loc.col,
+    };
+}
+
+fn cloneRequireEntry(allocator: std.mem.Allocator, entry: RequireEntry) ParseError!RequireEntry {
+    return .{
+        .url = try allocator.dupe(u8, entry.url),
+        .ref = try allocator.dupe(u8, entry.ref),
+        .source_sha256 = entry.source_sha256,
+        .grants = try allocator.dupe(Capability, entry.grants),
+        .upstream_loc = try cloneUpstreamLoc(allocator, entry.upstream_loc),
+    };
+}
+
+fn clonePluginRequireEntry(allocator: std.mem.Allocator, entry: PluginRequireEntry) ParseError!PluginRequireEntry {
+    return .{
+        .identity = try allocator.dupe(u8, entry.identity),
+        .ref = try allocator.dupe(u8, entry.ref),
+        .abi = entry.abi,
+        .upstream_loc = try cloneUpstreamLoc(allocator, entry.upstream_loc),
+    };
+}
+
+fn clonePermissionSet(allocator: std.mem.Allocator, set: PermissionSet) ParseError!PermissionSet {
+    return .{
+        .name = try allocator.dupe(u8, set.name),
+        .env = try cloneStringList(allocator, set.env),
+        .read = try cloneStringList(allocator, set.read),
+        .write = try cloneStringList(allocator, set.write),
+        .net = try cloneStringList(allocator, set.net),
+        .run = try cloneStringList(allocator, set.run),
+        .upstream_loc = try cloneUpstreamLoc(allocator, set.upstream_loc),
+    };
+}
+
+fn cloneMirrorRule(allocator: std.mem.Allocator, rule: MirrorRule) ParseError!MirrorRule {
+    return .{
+        .host_pattern = try allocator.dupe(u8, rule.host_pattern),
+        .rewrite_to = try allocator.dupe(u8, rule.rewrite_to),
+    };
+}
+
+fn clonePackageDecl(allocator: std.mem.Allocator, package_decl: PackageDecl) ParseError!PackageDecl {
+    return .{
+        .name = try allocator.dupe(u8, package_decl.name),
+        .upstream_loc = try cloneUpstreamLoc(allocator, package_decl.upstream_loc),
+    };
+}
+
+fn cloneWorkspaceDecl(allocator: std.mem.Allocator, workspace: WorkspaceDecl) ParseError!WorkspaceDecl {
+    return .{
+        .members = try cloneStringList(allocator, workspace.members),
+        .default_member = if (workspace.default_member) |member| try allocator.dupe(u8, member) else null,
+        .upstream_loc = try cloneUpstreamLoc(allocator, workspace.upstream_loc),
+    };
+}
+
+pub fn cloneManifest(allocator: std.mem.Allocator, source: Manifest) ParseError!Manifest {
+    var requires = std.ArrayList(RequireEntry).init(allocator);
+    errdefer {
+        for (requires.items) |*entry| entry.deinit(allocator);
+        requires.deinit();
+    }
+    for (source.requires) |entry| try requires.append(try cloneRequireEntry(allocator, entry));
+
+    var plugin_requires = std.ArrayList(PluginRequireEntry).init(allocator);
+    errdefer {
+        for (plugin_requires.items) |*entry| entry.deinit(allocator);
+        plugin_requires.deinit();
+    }
+    for (source.plugin_requires) |entry| try plugin_requires.append(try clonePluginRequireEntry(allocator, entry));
+
+    var permission_sets = std.ArrayList(PermissionSet).init(allocator);
+    errdefer {
+        for (permission_sets.items) |*set| set.deinit(allocator);
+        permission_sets.deinit();
+    }
+    for (source.permission_sets) |set| try permission_sets.append(try clonePermissionSet(allocator, set));
+
+    var mirrors = std.ArrayList(MirrorRule).init(allocator);
+    errdefer {
+        for (mirrors.items) |*rule| rule.deinit(allocator);
+        mirrors.deinit();
+    }
+    for (source.mirrors) |rule| try mirrors.append(try cloneMirrorRule(allocator, rule));
+
+    return .{
+        .package_decl = if (source.package_decl) |package_decl| try clonePackageDecl(allocator, package_decl) else null,
+        .workspace = if (source.workspace) |workspace| try cloneWorkspaceDecl(allocator, workspace) else null,
+        .requires = try requires.toOwnedSlice(),
+        .plugin_requires = try plugin_requires.toOwnedSlice(),
+        .permission_sets = try permission_sets.toOwnedSlice(),
+        .mirrors = try mirrors.toOwnedSlice(),
+    };
+}
+
+fn permissionSetExists(entries: []const PermissionSet, name: []const u8) bool {
+    for (entries) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return true;
+    }
+    return false;
+}
+
+fn packageDeclEqual(a: PackageDecl, b: PackageDecl) bool {
+    return std.mem.eql(u8, a.name, b.name);
+}
+
+fn requireEntryEquivalentForInstall(a: RequireEntry, b: RequireEntry) bool {
+    return std.mem.eql(u8, a.url, b.url) and
+        std.mem.eql(u8, a.ref, b.ref) and
+        std.mem.eql(u8, a.source_sha256[0..], b.source_sha256[0..]);
+}
+
+fn mirrorRuleEquivalent(a: MirrorRule, b: MirrorRule) bool {
+    return std.mem.eql(u8, a.host_pattern, b.host_pattern) and std.mem.eql(u8, a.rewrite_to, b.rewrite_to);
+}
+
+fn upsertMergedRequireEntry(
+    allocator: std.mem.Allocator,
+    requires: *std.ArrayList(RequireEntry),
+    entry: RequireEntry,
+    replace_existing: bool,
+) ParseError!void {
+    for (requires.items, 0..) |*existing, idx| {
+        if (!std.mem.eql(u8, existing.url, entry.url) or !std.mem.eql(u8, existing.ref, entry.ref)) continue;
+        if (!requireEntryEquivalentForInstall(existing.*, entry)) return ParseError.DuplicateEntry;
+        if (replace_existing) {
+            existing.deinit(allocator);
+            requires.items[idx] = try cloneRequireEntry(allocator, entry);
+        }
+        return;
+    }
+
+    try requires.append(try cloneRequireEntry(allocator, entry));
+}
+
+fn upsertMergedPluginRequireEntry(
+    allocator: std.mem.Allocator,
+    plugin_requires: *std.ArrayList(PluginRequireEntry),
+    entry: PluginRequireEntry,
+) ParseError!void {
+    for (plugin_requires.items) |existing| {
+        if (!std.mem.eql(u8, existing.identity, entry.identity) or !std.mem.eql(u8, existing.ref, entry.ref)) continue;
+        if (existing.abi != entry.abi) return ParseError.DuplicateEntry;
+        return;
+    }
+
+    try plugin_requires.append(try clonePluginRequireEntry(allocator, entry));
+}
+
+fn upsertMergedMirrorRule(
+    allocator: std.mem.Allocator,
+    mirrors: *std.ArrayList(MirrorRule),
+    rule: MirrorRule,
+) ParseError!void {
+    for (mirrors.items) |existing| {
+        if (!std.mem.eql(u8, existing.host_pattern, rule.host_pattern)) continue;
+        if (!mirrorRuleEquivalent(existing, rule)) return ParseError.DuplicateMirror;
+        return;
+    }
+
+    try mirrors.append(try cloneMirrorRule(allocator, rule));
+}
+
+fn appendManifestEntries(
+    allocator: std.mem.Allocator,
+    source: *const Manifest,
+    requires: *std.ArrayList(RequireEntry),
+    plugin_requires: *std.ArrayList(PluginRequireEntry),
+    permission_sets: *std.ArrayList(PermissionSet),
+    mirrors: *std.ArrayList(MirrorRule),
+    replace_existing_requires: bool,
+) ParseError!void {
+    for (source.requires) |entry| {
+        try upsertMergedRequireEntry(allocator, requires, entry, replace_existing_requires);
+    }
+    for (source.plugin_requires) |entry| {
+        try upsertMergedPluginRequireEntry(allocator, plugin_requires, entry);
+    }
+    for (source.permission_sets) |set| {
+        if (permissionSetExists(permission_sets.items, set.name)) return ParseError.DuplicateEntry;
+        try permission_sets.append(try clonePermissionSet(allocator, set));
+    }
+    for (source.mirrors) |rule| {
+        try upsertMergedMirrorRule(allocator, mirrors, rule);
+    }
+}
+
+pub fn mergeWorkspaceManifests(
+    allocator: std.mem.Allocator,
+    root_manifest: ?*const Manifest,
+    member_manifest: ?*const Manifest,
+) ParseError!Manifest {
+    if (root_manifest == null and member_manifest == null) {
+        return .{
+            .package_decl = null,
+            .workspace = null,
+            .requires = try allocator.alloc(RequireEntry, 0),
+            .plugin_requires = try allocator.alloc(PluginRequireEntry, 0),
+            .permission_sets = try allocator.alloc(PermissionSet, 0),
+            .mirrors = try allocator.alloc(MirrorRule, 0),
+        };
+    }
+
+    var merged = Manifest{
+        .package_decl = null,
+        .workspace = null,
+        .requires = try allocator.alloc(RequireEntry, 0),
+        .plugin_requires = try allocator.alloc(PluginRequireEntry, 0),
+        .permission_sets = try allocator.alloc(PermissionSet, 0),
+        .mirrors = try allocator.alloc(MirrorRule, 0),
+    };
+    errdefer merged.deinit(allocator);
+
+    var requires = std.ArrayList(RequireEntry).init(allocator);
+    errdefer {
+        for (requires.items) |*entry| entry.deinit(allocator);
+        requires.deinit();
+    }
+    var plugin_requires = std.ArrayList(PluginRequireEntry).init(allocator);
+    errdefer {
+        for (plugin_requires.items) |*entry| entry.deinit(allocator);
+        plugin_requires.deinit();
+    }
+    var permission_sets = std.ArrayList(PermissionSet).init(allocator);
+    errdefer {
+        for (permission_sets.items) |*set| set.deinit(allocator);
+        permission_sets.deinit();
+    }
+    var mirrors = std.ArrayList(MirrorRule).init(allocator);
+    errdefer {
+        for (mirrors.items) |*rule| rule.deinit(allocator);
+        mirrors.deinit();
+    }
+
+    const sources = [_]?*const Manifest{ root_manifest, member_manifest };
+    for (sources, 0..) |maybe_source, idx| {
+        const source = maybe_source orelse continue;
+        try appendManifestEntries(allocator, source, &requires, &plugin_requires, &permission_sets, &mirrors, idx != 0);
+    }
+
+    if (member_manifest) |member| {
+        if (member.package_decl) |package_decl| {
+            merged.package_decl = try clonePackageDecl(allocator, package_decl);
+        }
+    } else if (root_manifest) |root| {
+        if (root.package_decl) |package_decl| {
+            merged.package_decl = try clonePackageDecl(allocator, package_decl);
+        }
+        if (root.workspace) |workspace| {
+            merged.workspace = try cloneWorkspaceDecl(allocator, workspace);
+        }
+    }
+
+    if (root_manifest) |root| {
+        if (merged.package_decl == null) {
+            if (root.package_decl) |package_decl| {
+                merged.package_decl = try clonePackageDecl(allocator, package_decl);
+            }
+        } else if (member_manifest != null and root.package_decl != null and !packageDeclEqual(root.package_decl.?, merged.package_decl.?)) {
+            return ParseError.DuplicateEntry;
+        }
+    }
+
+    merged.requires = try requires.toOwnedSlice();
+    merged.plugin_requires = try plugin_requires.toOwnedSlice();
+    merged.permission_sets = try permission_sets.toOwnedSlice();
+    merged.mirrors = try mirrors.toOwnedSlice();
+    return merged;
+}
+
+pub fn mergeWorkspaceMemberSet(
+    allocator: std.mem.Allocator,
+    root_manifest: ?*const Manifest,
+    member_manifests: []const *const Manifest,
+) ParseError!Manifest {
+    var merged = Manifest{
+        .package_decl = null,
+        .workspace = null,
+        .requires = try allocator.alloc(RequireEntry, 0),
+        .plugin_requires = try allocator.alloc(PluginRequireEntry, 0),
+        .permission_sets = try allocator.alloc(PermissionSet, 0),
+        .mirrors = try allocator.alloc(MirrorRule, 0),
+    };
+    errdefer merged.deinit(allocator);
+
+    var requires = std.ArrayList(RequireEntry).init(allocator);
+    errdefer {
+        for (requires.items) |*entry| entry.deinit(allocator);
+        requires.deinit();
+    }
+    var plugin_requires = std.ArrayList(PluginRequireEntry).init(allocator);
+    errdefer {
+        for (plugin_requires.items) |*entry| entry.deinit(allocator);
+        plugin_requires.deinit();
+    }
+    var mirrors = std.ArrayList(MirrorRule).init(allocator);
+    errdefer {
+        for (mirrors.items) |*rule| rule.deinit(allocator);
+        mirrors.deinit();
+    }
+
+    if (root_manifest) |root| {
+        for (root.requires) |entry| {
+            if (requireExists(requires.items, entry.url, entry.ref)) {
+                for (requires.items) |existing| {
+                    if (std.mem.eql(u8, existing.url, entry.url) and std.mem.eql(u8, existing.ref, entry.ref)) {
+                        if (!requireEntryEquivalentForInstall(existing, entry)) return ParseError.DuplicateEntry;
+                        break;
+                    }
+                }
+                continue;
+            }
+            try requires.append(try cloneRequireEntry(allocator, entry));
+        }
+        for (root.plugin_requires) |entry| {
+            if (pluginRequireExists(plugin_requires.items, entry.identity, entry.ref)) continue;
+            try plugin_requires.append(try clonePluginRequireEntry(allocator, entry));
+        }
+        for (root.mirrors) |rule| {
+            if (mirrorExists(mirrors.items, rule.host_pattern)) {
+                for (mirrors.items) |existing| {
+                    if (std.mem.eql(u8, existing.host_pattern, rule.host_pattern)) {
+                        if (!mirrorRuleEquivalent(existing, rule)) return ParseError.DuplicateMirror;
+                        break;
+                    }
+                }
+                continue;
+            }
+            try mirrors.append(try cloneMirrorRule(allocator, rule));
+        }
+    }
+    for (member_manifests) |member| {
+        for (member.requires) |entry| {
+            if (requireExists(requires.items, entry.url, entry.ref)) {
+                for (requires.items) |existing| {
+                    if (std.mem.eql(u8, existing.url, entry.url) and std.mem.eql(u8, existing.ref, entry.ref)) {
+                        if (!requireEntryEquivalentForInstall(existing, entry)) return ParseError.DuplicateEntry;
+                        break;
+                    }
+                }
+                continue;
+            }
+            try requires.append(try cloneRequireEntry(allocator, entry));
+        }
+        for (member.plugin_requires) |entry| {
+            if (pluginRequireExists(plugin_requires.items, entry.identity, entry.ref)) continue;
+            try plugin_requires.append(try clonePluginRequireEntry(allocator, entry));
+        }
+        for (member.mirrors) |rule| {
+            if (mirrorExists(mirrors.items, rule.host_pattern)) {
+                for (mirrors.items) |existing| {
+                    if (std.mem.eql(u8, existing.host_pattern, rule.host_pattern)) {
+                        if (!mirrorRuleEquivalent(existing, rule)) return ParseError.DuplicateMirror;
+                        break;
+                    }
+                }
+                continue;
+            }
+            try mirrors.append(try cloneMirrorRule(allocator, rule));
+        }
+    }
+
+    merged.requires = try requires.toOwnedSlice();
+    merged.plugin_requires = try plugin_requires.toOwnedSlice();
+    merged.permission_sets = try allocator.alloc(PermissionSet, 0);
+    merged.mirrors = try mirrors.toOwnedSlice();
+    return merged;
 }
 
 fn startsWithWord(text: []const u8, word: []const u8) bool {
@@ -504,6 +917,76 @@ fn parsePermissionSetHeader(allocator: std.mem.Allocator, line: []const u8, sour
     return try PermissionSetBuilder.init(allocator, name, source_file, line_no);
 }
 
+fn parsePackageDecl(
+    allocator: std.mem.Allocator,
+    line: []const u8,
+    line_no: u32,
+    source_file: []const u8,
+) ParseError!PackageDecl {
+    var pos: usize = 0;
+    const keyword = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, keyword, "package")) return ParseError.InvalidFormat;
+    const name = try parseTextValue(allocator, trim(line[pos..]));
+    errdefer allocator.free(name);
+    const file_copy = try allocator.dupe(u8, source_file);
+    errdefer allocator.free(file_copy);
+    return .{
+        .name = name,
+        .upstream_loc = .{ .file = file_copy, .line = line_no, .col = 1 },
+    };
+}
+
+const WorkspaceBuilder = struct {
+    allocator: std.mem.Allocator,
+    file: []const u8,
+    line: u32,
+    members: std.ArrayList([]const u8),
+    default_member: ?[]const u8 = null,
+
+    fn init(allocator: std.mem.Allocator, source_file: []const u8, line_no: u32) ParseError!WorkspaceBuilder {
+        return .{
+            .allocator = allocator,
+            .file = try allocator.dupe(u8, source_file),
+            .line = line_no,
+            .members = std.ArrayList([]const u8).init(allocator),
+        };
+    }
+
+    fn deinit(self: *WorkspaceBuilder) void {
+        self.allocator.free(self.file);
+        freeArrayListStrings(self.allocator, &self.members);
+        if (self.default_member) |member| self.allocator.free(member);
+        self.* = undefined;
+    }
+
+    fn finish(self: *WorkspaceBuilder) ParseError!WorkspaceDecl {
+        const result = WorkspaceDecl{
+            .members = try self.members.toOwnedSlice(),
+            .default_member = self.default_member,
+            .upstream_loc = .{ .file = self.file, .line = self.line, .col = 1 },
+        };
+        self.file = &.{};
+        self.default_member = null;
+        return result;
+    }
+};
+
+fn parseWorkspaceHeader(allocator: std.mem.Allocator, line: []const u8, source_file: []const u8, line_no: u32) ParseError!WorkspaceBuilder {
+    var pos: usize = 0;
+    const keyword = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, keyword, "workspace")) return ParseError.InvalidFormat;
+    const tail = trim(line[pos..]);
+    if (!std.mem.eql(u8, tail, "{")) return ParseError.InvalidFormat;
+    return try WorkspaceBuilder.init(allocator, source_file, line_no);
+}
+
+fn stringListContains(items: []const []const u8, needle: []const u8) bool {
+    for (items) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
+}
+
 fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.ArrayList([]const u8)) ParseError!void {
     const trimmed = trim(text);
     if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') return ParseError.InvalidFormat;
@@ -517,6 +1000,26 @@ fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *st
     }
 }
 
+fn parseUniqueStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.ArrayList([]const u8)) ParseError!void {
+    const before_len = list.items.len;
+    errdefer {
+        while (list.items.len > before_len) {
+            allocator.free(list.pop().?);
+        }
+    }
+    try parseStringListInto(allocator, text, list);
+    for (list.items[before_len..]) |item| {
+        if (stringListContains(list.items[0..before_len], item)) return ParseError.DuplicateEntry;
+    }
+    var i = before_len;
+    while (i < list.items.len) : (i += 1) {
+        var j = i + 1;
+        while (j < list.items.len) : (j += 1) {
+            if (std.mem.eql(u8, list.items[i], list.items[j])) return ParseError.DuplicateEntry;
+        }
+    }
+}
+
 fn parsePermissionSetItem(builder: *PermissionSetBuilder, line: []const u8) ParseError!void {
     var pos: usize = 0;
     const key = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
@@ -526,6 +1029,19 @@ fn parsePermissionSetItem(builder: *PermissionSetBuilder, line: []const u8) Pars
     if (std.mem.eql(u8, key, "write")) return parseStringListInto(builder.allocator, value, &builder.write);
     if (std.mem.eql(u8, key, "net")) return parseStringListInto(builder.allocator, value, &builder.net);
     if (std.mem.eql(u8, key, "run")) return parseStringListInto(builder.allocator, value, &builder.run);
+    return ParseError.InvalidFormat;
+}
+
+fn parseWorkspaceItem(builder: *WorkspaceBuilder, line: []const u8) ParseError!void {
+    var pos: usize = 0;
+    const key = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    const value = trim(line[pos..]);
+    if (std.mem.eql(u8, key, "members")) return parseUniqueStringListInto(builder.allocator, value, &builder.members);
+    if (std.mem.eql(u8, key, "default_member")) {
+        if (builder.default_member != null) return ParseError.DuplicateEntry;
+        builder.default_member = try parseTextValue(builder.allocator, value);
+        return;
+    }
     return ParseError.InvalidFormat;
 }
 
@@ -623,9 +1139,17 @@ pub fn parseManifestWithFile(
         permission_sets.deinit();
     }
 
+    var package_decl: ?PackageDecl = null;
+    errdefer if (package_decl) |*package_value| package_value.deinit(allocator);
+
+    var workspace_decl: ?WorkspaceDecl = null;
+    errdefer if (workspace_decl) |*workspace_value| workspace_value.deinit(allocator);
+
     var in_mirrors = false;
     var permission_builder: ?PermissionSetBuilder = null;
     defer if (permission_builder) |*builder| builder.deinit();
+    var workspace_builder: ?WorkspaceBuilder = null;
+    defer if (workspace_builder) |*builder| builder.deinit();
     var line_no: u32 = 0;
     var it = std.mem.splitScalar(u8, source, '\n');
     while (it.next()) |raw_line| {
@@ -644,6 +1168,17 @@ pub fn parseManifestWithFile(
             continue;
         }
 
+        if (workspace_builder) |*builder| {
+            if (std.mem.eql(u8, line, "}")) {
+                if (workspace_decl != null) return ParseError.DuplicateEntry;
+                workspace_decl = try builder.finish();
+                workspace_builder = null;
+                continue;
+            }
+            try parseWorkspaceItem(builder, line);
+            continue;
+        }
+
         if (std.mem.eql(u8, line, "[mirrors]")) {
             in_mirrors = true;
             continue;
@@ -653,6 +1188,18 @@ pub fn parseManifestWithFile(
         if (startsWithWord(line, "permission_set")) {
             permission_builder = try parsePermissionSetHeader(allocator, line, source_file, line_no);
             in_mirrors = false;
+            continue;
+        }
+
+        if (startsWithWord(line, "workspace")) {
+            workspace_builder = try parseWorkspaceHeader(allocator, line, source_file, line_no);
+            in_mirrors = false;
+            continue;
+        }
+
+        if (startsWithWord(line, "package")) {
+            if (package_decl != null) return ParseError.DuplicateEntry;
+            package_decl = try parsePackageDecl(allocator, line, line_no, source_file);
             continue;
         }
 
@@ -689,9 +1236,11 @@ pub fn parseManifestWithFile(
         return ParseError.InvalidFormat;
     }
 
-    if (permission_builder != null) return ParseError.InvalidFormat;
+    if (permission_builder != null or workspace_builder != null) return ParseError.InvalidFormat;
 
     return .{
+        .package_decl = package_decl,
+        .workspace = workspace_decl,
         .requires = try requires.toOwnedSlice(),
         .plugin_requires = try plugin_requires.toOwnedSlice(),
         .permission_sets = try permission_sets.toOwnedSlice(),
@@ -704,8 +1253,35 @@ pub fn parseManifest(allocator: std.mem.Allocator, source: []const u8) ParseErro
 }
 
 pub fn writeManifest(writer: anytype, manifest: Manifest) !void {
+    var wrote_section = false;
+
+    if (manifest.package_decl) |package_decl| {
+        try writer.print("package \"{s}\"\n", .{package_decl.name});
+        wrote_section = true;
+    }
+
+    if (manifest.workspace) |workspace| {
+        if (wrote_section) try writer.writeByte('\n');
+        try writer.writeAll("workspace {\n");
+        try writer.writeAll("  members [");
+        for (workspace.members, 0..) |member, idx| {
+            if (idx != 0) try writer.writeAll(", ");
+            try writer.print("\"{s}\"", .{member});
+        }
+        try writer.writeAll("]\n");
+        if (workspace.default_member) |member| {
+            try writer.print("  default_member \"{s}\"\n", .{member});
+        }
+        try writer.writeAll("}\n");
+        wrote_section = true;
+    }
+
     for (manifest.requires, 0..) |entry, idx| {
-        if (idx != 0) try writer.writeByte('\n');
+        if (idx == 0) {
+            if (wrote_section) try writer.writeByte('\n');
+        } else {
+            try writer.writeByte('\n');
+        }
         try writer.print("require {s} @{s}", .{ entry.url, entry.ref });
         try writer.writeByte(' ');
         try sha256Text(writer, entry.source_sha256);
@@ -721,14 +1297,14 @@ pub fn writeManifest(writer: anytype, manifest: Manifest) !void {
     }
 
     if (manifest.plugin_requires.len != 0) {
-        if (manifest.requires.len != 0) try writer.writeByte('\n');
+        if (wrote_section or manifest.requires.len != 0) try writer.writeByte('\n');
         for (manifest.plugin_requires) |entry| {
             try writer.print("require_plugin {s} @{s} abi {d}\n", .{ entry.identity, entry.ref, entry.abi });
         }
     }
 
     if (manifest.permission_sets.len != 0) {
-        if (manifest.requires.len != 0 or manifest.plugin_requires.len != 0) try writer.writeByte('\n');
+        if (wrote_section or manifest.requires.len != 0 or manifest.plugin_requires.len != 0) try writer.writeByte('\n');
         for (manifest.permission_sets, 0..) |set, set_idx| {
             if (set_idx != 0) try writer.writeByte('\n');
             try writer.print("permission_set {s} {{\n", .{set.name});
@@ -742,7 +1318,7 @@ pub fn writeManifest(writer: anytype, manifest: Manifest) !void {
     }
 
     if (manifest.mirrors.len != 0) {
-        if (manifest.requires.len != 0 or manifest.plugin_requires.len != 0 or manifest.permission_sets.len != 0) try writer.writeByte('\n');
+        if (wrote_section or manifest.requires.len != 0 or manifest.plugin_requires.len != 0 or manifest.permission_sets.len != 0) try writer.writeByte('\n');
         try writer.writeAll("[mirrors]\n");
         for (manifest.mirrors, 0..) |rule, idx| {
             if (idx != 0) try writer.writeByte('\n');
@@ -1127,6 +1703,124 @@ test "manifest parser preserves requires and mirrors" {
     defer manifest2.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 2), manifest2.requires.len);
     try std.testing.expectEqualStrings(manifest.requires[1].url, manifest2.requires[1].url);
+}
+
+test "manifest parser preserves package and workspace declarations" {
+    const source =
+        \\package "root"
+        \\
+        \\workspace {
+        \\  members ["crates/app", "crates/tool"]
+        \\  default_member "app"
+        \\}
+        \\
+        \\require github.com/org/sa-net @main sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+    ;
+
+    var parsed = try parseManifestWithFile(std.testing.allocator, source, "pkg/sa.mod");
+    defer parsed.deinit(std.testing.allocator);
+
+    try std.testing.expect(parsed.package_decl != null);
+    try std.testing.expectEqualStrings("root", parsed.package_decl.?.name);
+    try std.testing.expect(parsed.workspace != null);
+    try std.testing.expectEqual(@as(usize, 2), parsed.workspace.?.members.len);
+    try std.testing.expectEqualStrings("crates/app", parsed.workspace.?.members[0]);
+    try std.testing.expectEqualStrings("crates/tool", parsed.workspace.?.members[1]);
+    try std.testing.expectEqualStrings("app", parsed.workspace.?.default_member.?);
+
+    var out = std.ArrayList(u8).init(std.testing.allocator);
+    defer out.deinit();
+    try writeManifest(out.writer(), parsed);
+
+    var reparsed = try parseManifestWithFile(std.testing.allocator, out.items, "pkg/sa.mod");
+    defer reparsed.deinit(std.testing.allocator);
+    try std.testing.expect(reparsed.package_decl != null);
+    try std.testing.expect(reparsed.workspace != null);
+    try std.testing.expectEqualStrings("root", reparsed.package_decl.?.name);
+    try std.testing.expectEqualStrings("app", reparsed.workspace.?.default_member.?);
+}
+
+test "mergeWorkspaceManifests combines workspace root and member metadata" {
+    const root_source =
+        \\workspace {
+        \\  members ["members/app"]
+        \\  default_member "app"
+        \\}
+        \\
+        \\require github.com/acme/shared @v1 sha256:1111111111111111111111111111111111111111111111111111111111111111
+        \\require_plugin ../plugins/sa_plugin_demo @0.1.0 abi 1
+        \\
+        \\permission_set dev {
+        \\  env [HOME]
+        \\  read [/tmp]
+        \\  write []
+        \\  net [https://api.example.com]
+        \\  run [/usr/bin/env]
+        \\}
+        \\
+        \\[mirrors]
+        \\github.com = mirror.local/github
+    ;
+    const member_source =
+        \\package "app"
+        \\
+        \\require github.com/acme/app @v2 sha256:2222222222222222222222222222222222222222222222222222222222222222
+    ;
+
+    var root_manifest = try parseManifestWithFile(std.testing.allocator, root_source, "root/sa.mod");
+    defer root_manifest.deinit(std.testing.allocator);
+    var member_manifest = try parseManifestWithFile(std.testing.allocator, member_source, "root/members/app/sa.mod");
+    defer member_manifest.deinit(std.testing.allocator);
+
+    var merged = try mergeWorkspaceManifests(std.testing.allocator, &root_manifest, &member_manifest);
+    defer merged.deinit(std.testing.allocator);
+
+    try std.testing.expect(merged.package_decl != null);
+    try std.testing.expectEqualStrings("app", merged.package_decl.?.name);
+    try std.testing.expect(merged.workspace == null);
+    try std.testing.expectEqual(@as(usize, 2), merged.requires.len);
+    try std.testing.expectEqual(@as(usize, 1), merged.plugin_requires.len);
+    try std.testing.expectEqual(@as(usize, 1), merged.permission_sets.len);
+    try std.testing.expectEqual(@as(usize, 1), merged.mirrors.len);
+}
+
+test "mergeWorkspaceMemberSet deduplicates shared member dependencies for workspace install" {
+    const root_source =
+        \\workspace {
+        \\  members ["members/app", "members/tool"]
+        \\  default_member "app"
+        \\}
+        \\
+        \\require github.com/acme/shared @v1 sha256:1111111111111111111111111111111111111111111111111111111111111111
+        \\require_plugin ../plugins/shared @0.1.0 abi 1
+    ;
+    const app_source =
+        \\package "app"
+        \\
+        \\require github.com/acme/common @v1 sha256:2222222222222222222222222222222222222222222222222222222222222222
+        \\require_plugin ../plugins/shared @0.1.0 abi 1
+    ;
+    const tool_source =
+        \\package "tool"
+        \\
+        \\require github.com/acme/common @v1 sha256:2222222222222222222222222222222222222222222222222222222222222222
+        \\require github.com/acme/tool @v1 sha256:3333333333333333333333333333333333333333333333333333333333333333
+    ;
+
+    var root_manifest = try parseManifestWithFile(std.testing.allocator, root_source, "root/sa.mod");
+    defer root_manifest.deinit(std.testing.allocator);
+    var app_manifest = try parseManifestWithFile(std.testing.allocator, app_source, "root/members/app/sa.mod");
+    defer app_manifest.deinit(std.testing.allocator);
+    var tool_manifest = try parseManifestWithFile(std.testing.allocator, tool_source, "root/members/tool/sa.mod");
+    defer tool_manifest.deinit(std.testing.allocator);
+
+    const members = [_]*const Manifest{ &app_manifest, &tool_manifest };
+    var merged = try mergeWorkspaceMemberSet(std.testing.allocator, &root_manifest, members[0..]);
+    defer merged.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), merged.requires.len);
+    try std.testing.expectEqual(@as(usize, 1), merged.plugin_requires.len);
+    try std.testing.expectEqual(@as(usize, 0), merged.permission_sets.len);
 }
 
 test "manifest parser rejects oversized source" {

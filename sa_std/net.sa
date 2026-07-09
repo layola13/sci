@@ -1,5 +1,6 @@
 @import "net.sal"
 @import "net.sai"
+@import "os/fd.sa"
 
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
     __net_tcp_connect_handle_%out_status = stack_alloc 8
@@ -52,6 +53,34 @@
     __net_tcp_listener_error_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_tcp_listener_take_error(%listener, &__net_tcp_listener_error_%out_status)
     %out_error = load __net_tcp_listener_error_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_AS_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_INTO_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_FROM_RAW_FD %out_status, %out_listener, %fd
+    __net_tcp_listener_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_listener_from_raw_fd(%fd, &__net_tcp_listener_from_raw_%out_status)
+    %out_listener = load __net_tcp_listener_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_INTO_OWNED_FD %out_status, %out_fd_handle, %listener
+    EXPAND NET_TCP_LISTENER_INTO_RAW_FD %out_status, __net_tcp_listener_owned_raw_%out_status, %listener
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_tcp_listener_owned_raw_%out_status
+    !__net_tcp_listener_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_FROM_OWNED_FD %out_status, %out_listener, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_tcp_listener_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_TCP_LISTENER_FROM_RAW_FD %out_status, %out_listener, __net_tcp_listener_from_owned_raw_%out_status
+    !__net_tcp_listener_from_owned_raw_%out_status
 [END_MACRO]
 
 [MACRO] NET_TCP_LISTENER_CLOSE %out_status, %listener
@@ -145,6 +174,26 @@
     %out_status = call @sa_std_net_tcp_stream_set_nodelay(%stream, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_SET_QUICKACK %out_status, %stream, %enabled
+    %out_status = call @sa_std_net_tcp_stream_set_quickack(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_QUICKACK %out_status, %out_enabled, %stream
+    __net_tcp_quickack_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_quickack(%stream, &__net_tcp_quickack_%out_status)
+    %out_enabled = load __net_tcp_quickack_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_DEFERACCEPT %out_status, %stream, %seconds
+    %out_status = call @sa_std_net_tcp_stream_set_deferaccept(%stream, %seconds)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_DEFERACCEPT %out_status, %out_seconds, %stream
+    __net_tcp_deferaccept_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_deferaccept(%stream, &__net_tcp_deferaccept_%out_status)
+    %out_seconds = load __net_tcp_deferaccept_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_SET_TTL %out_status, %stream, %ttl
     %out_status = call @sa_std_net_tcp_stream_set_ttl(%stream, %ttl)
 [END_MACRO]
@@ -179,10 +228,540 @@
     %out_error = load __net_tcp_error_%out_status+0 as i32
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_AS_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_INTO_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_FROM_RAW_FD %out_status, %out_stream, %fd
+    __net_tcp_stream_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_from_raw_fd(%fd, &__net_tcp_stream_from_raw_%out_status)
+    %out_stream = load __net_tcp_stream_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_INTO_OWNED_FD %out_status, %out_fd_handle, %stream
+    EXPAND NET_TCP_STREAM_INTO_RAW_FD %out_status, __net_tcp_stream_owned_raw_%out_status, %stream
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_tcp_stream_owned_raw_%out_status
+    !__net_tcp_stream_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_FROM_OWNED_FD %out_status, %out_stream, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_tcp_stream_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_TCP_STREAM_FROM_RAW_FD %out_status, %out_stream, __net_tcp_stream_from_owned_raw_%out_status
+    !__net_tcp_stream_from_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled
+    %out_status = call @sa_std_net_tcp_stream_set_keepalive(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEPALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
+    %out_status = call @sa_std_net_tcp_stream_set_keepalive_params(%stream, %idle_secs, %intvl_secs, %cnt)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_SET_REUSEADDR %out_status, %listener, %enabled
+    %out_status = call @sa_std_net_tcp_listener_set_reuseaddr(%listener, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_SET_REUSEPORT %out_status, %listener, %enabled
+    %out_status = call @sa_std_net_tcp_listener_set_reuseport(%listener, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTEN %out_status, %out_listener, %path, %path_len
+    __net_unix_listen_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listen(&%path, %path_len, &__net_unix_listen_handle_%out_status)
+    %out_listener = load __net_unix_listen_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_CONNECT %out_status, %out_stream, %path, %path_len
+    __net_unix_connect_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_connect(&%path, %path_len, &__net_unix_connect_handle_%out_status)
+    %out_stream = load __net_unix_connect_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_FROM_ABSTRACT_NAME %out_status, %out_addr, %name, %name_len
+    __net_unix_abstract_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_addr_from_abstract_name(&%name, %name_len, &__net_unix_abstract_addr_%out_status)
+    %out_addr = load __net_unix_abstract_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_FROM_PATHNAME %out_status, %out_addr, %path, %path_len
+    __net_unix_path_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_addr_from_pathname(&%path, %path_len, &__net_unix_path_addr_%out_status)
+    %out_addr = load __net_unix_path_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTEN_ADDR %out_status, %out_listener, %addr
+    __net_unix_listen_addr_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listen_addr(%addr, &__net_unix_listen_addr_handle_%out_status)
+    %out_listener = load __net_unix_listen_addr_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_CONNECT_ADDR %out_status, %out_stream, %addr
+    __net_unix_connect_addr_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_connect_addr(%addr, &__net_unix_connect_addr_handle_%out_status)
+    %out_stream = load __net_unix_connect_addr_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_ACCEPT %out_status, %out_stream, %listener
+    __net_unix_accept_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_accept(%listener, &__net_unix_accept_handle_%out_status)
+    %out_stream = load __net_unix_accept_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_ACCEPT_ADDR %out_status, %out_stream, %out_addr, %listener
+    __net_unix_accept_stream_%out_status = stack_alloc 8
+    __net_unix_accept_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_accept_addr(%listener, &__net_unix_accept_stream_%out_status, &__net_unix_accept_addr_%out_status)
+    %out_stream = load __net_unix_accept_stream_%out_status+0 as u64
+    %out_addr = load __net_unix_accept_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_PAIR %out_status, %out_left, %out_right
+    __net_unix_pair_left_%out_status = stack_alloc 8
+    __net_unix_pair_right_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_pair(&__net_unix_pair_left_%out_status, &__net_unix_pair_right_%out_status)
+    %out_left = load __net_unix_pair_left_%out_status+0 as u64
+    %out_right = load __net_unix_pair_right_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_LOCAL_ADDR %out_status, %out_addr, %listener
+    __net_unix_listener_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listener_local_addr(%listener, &__net_unix_listener_addr_%out_status)
+    %out_addr = load __net_unix_listener_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_TRY_CLONE %out_status, %out_listener, %listener
+    __net_unix_listener_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listener_try_clone(%listener, &__net_unix_listener_clone_%out_status)
+    %out_listener = load __net_unix_listener_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_AS_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_INTO_RAW_FD %out_status, %out_fd, %listener
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_FROM_RAW_FD %out_status, %out_listener, %fd
+    __net_unix_listener_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_listener_from_raw_fd(%fd, &__net_unix_listener_from_raw_%out_status)
+    %out_listener = load __net_unix_listener_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_INTO_OWNED_FD %out_status, %out_fd_handle, %listener
+    EXPAND NET_UNIX_LISTENER_INTO_RAW_FD %out_status, __net_unix_listener_owned_raw_%out_status, %listener
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_unix_listener_owned_raw_%out_status
+    !__net_unix_listener_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_FROM_OWNED_FD %out_status, %out_listener, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_unix_listener_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UNIX_LISTENER_FROM_RAW_FD %out_status, %out_listener, __net_unix_listener_from_owned_raw_%out_status
+    !__net_unix_listener_from_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
+    EXPAND NET_TCP_LISTENER_SET_NONBLOCKING %out_status, %listener, %enabled
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_TAKE_ERROR %out_status, %out_error, %listener
+    EXPAND NET_TCP_LISTENER_TAKE_ERROR %out_status, %out_error, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_INCOMING_NEW %incoming_ptr, %listener
+    EXPAND NET_TCP_INCOMING_NEW %incoming_ptr, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_INCOMING_LISTENER %out_listener, %incoming_ptr
+    EXPAND NET_TCP_INCOMING_LISTENER %out_listener, %incoming_ptr
+[END_MACRO]
+
+[MACRO] NET_UNIX_INCOMING_NEXT %out_status, %out_ok, %out_stream, %incoming_ptr
+    EXPAND NET_TCP_INCOMING_NEXT %out_status, %out_ok, %out_stream, %incoming_ptr
+[END_MACRO]
+
+[MACRO] NET_UNIX_LISTENER_INCOMING %incoming_ptr, %listener
+    EXPAND NET_UNIX_INCOMING_NEW %incoming_ptr, %listener
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_LOCAL_ADDR %out_status, %out_addr, %stream
+    __net_unix_local_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_local_addr(%stream, &__net_unix_local_addr_%out_status)
+    %out_addr = load __net_unix_local_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_TRY_CLONE %out_status, %out_stream, %stream
+    __net_unix_stream_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_try_clone(%stream, &__net_unix_stream_clone_%out_status)
+    %out_stream = load __net_unix_stream_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_AS_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_INTO_RAW_FD %out_status, %out_fd, %stream
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_FROM_RAW_FD %out_status, %out_stream, %fd
+    __net_unix_stream_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_from_raw_fd(%fd, &__net_unix_stream_from_raw_%out_status)
+    %out_stream = load __net_unix_stream_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_INTO_OWNED_FD %out_status, %out_fd_handle, %stream
+    EXPAND NET_UNIX_STREAM_INTO_RAW_FD %out_status, __net_unix_stream_owned_raw_%out_status, %stream
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_unix_stream_owned_raw_%out_status
+    !__net_unix_stream_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_FROM_OWNED_FD %out_status, %out_stream, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_unix_stream_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UNIX_STREAM_FROM_RAW_FD %out_status, %out_stream, __net_unix_stream_from_owned_raw_%out_status
+    !__net_unix_stream_from_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEER_ADDR %out_status, %out_addr, %stream
+    __net_unix_peer_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_stream_peer_addr(%stream, &__net_unix_peer_addr_%out_status)
+    %out_addr = load __net_unix_peer_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_PASSCRED %out_status, %stream, %enabled
+    %out_status = call @sa_std_net_unix_stream_set_passcred(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PASSCRED %out_status, %out_enabled, %stream
+    __net_unix_passcred_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_unix_stream_passcred(%stream, &__net_unix_passcred_%out_status)
+    %out_enabled = load __net_unix_passcred_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_MARK %out_status, %stream, %mark
+    %out_status = call @sa_std_net_unix_stream_set_mark(%stream, %mark)
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEER_CRED %out_status, %out_pid, %out_uid, %out_gid, %stream
+    __net_unix_peer_pid_%out_status = stack_alloc 4
+    __net_unix_peer_uid_%out_status = stack_alloc 4
+    __net_unix_peer_gid_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_unix_stream_peer_cred(%stream, &__net_unix_peer_pid_%out_status, &__net_unix_peer_uid_%out_status, &__net_unix_peer_gid_%out_status)
+    %out_pid = load __net_unix_peer_pid_%out_status+0 as i32
+    %out_uid = load __net_unix_peer_uid_%out_status+0 as u32
+    %out_gid = load __net_unix_peer_gid_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_READ_TIMEOUT %out_status, %stream, %timeout_ns
+    EXPAND NET_TCP_STREAM_SET_READ_TIMEOUT %out_status, %stream, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_WRITE_TIMEOUT %out_status, %stream, %timeout_ns
+    EXPAND NET_TCP_STREAM_SET_WRITE_TIMEOUT %out_status, %stream, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_READ_TIMEOUT %out_status, %out_timeout_ns, %stream
+    EXPAND NET_TCP_STREAM_READ_TIMEOUT %out_status, %out_timeout_ns, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_WRITE_TIMEOUT %out_status, %out_timeout_ns, %stream
+    EXPAND NET_TCP_STREAM_WRITE_TIMEOUT %out_status, %out_timeout_ns, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SET_NONBLOCKING %out_status, %stream, %enabled
+    EXPAND NET_TCP_STREAM_SET_NONBLOCKING %out_status, %stream, %enabled
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_TAKE_ERROR %out_status, %out_error, %stream
+    EXPAND NET_TCP_STREAM_TAKE_ERROR %out_status, %out_error, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_TCP_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_SHUTDOWN %out_status, %stream, %how
+    EXPAND NET_TCP_STREAM_SHUTDOWN %out_status, %stream, %how
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_UNBOUND %out_status, %out_socket
+    __net_unix_datagram_unbound_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_unbound(&__net_unix_datagram_unbound_%out_status)
+    %out_socket = load __net_unix_datagram_unbound_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_BIND %out_status, %out_socket, %path, %path_len
+    __net_unix_datagram_bind_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_bind(&%path, %path_len, &__net_unix_datagram_bind_%out_status)
+    %out_socket = load __net_unix_datagram_bind_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_BIND_ADDR %out_status, %out_socket, %addr
+    __net_unix_datagram_bind_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_bind_addr(%addr, &__net_unix_datagram_bind_addr_%out_status)
+    %out_socket = load __net_unix_datagram_bind_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PAIR %out_status, %out_left, %out_right
+    __net_unix_datagram_pair_left_%out_status = stack_alloc 8
+    __net_unix_datagram_pair_right_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_pair(&__net_unix_datagram_pair_left_%out_status, &__net_unix_datagram_pair_right_%out_status)
+    %out_left = load __net_unix_datagram_pair_left_%out_status+0 as u64
+    %out_right = load __net_unix_datagram_pair_right_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_CONNECT %out_status, %socket, %path, %path_len
+    %out_status = call @sa_std_net_unix_datagram_connect(%socket, &%path, %path_len)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_CONNECT_ADDR %out_status, %socket, %addr
+    %out_status = call @sa_std_net_unix_datagram_connect_addr(%socket, %addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_TRY_CLONE %out_status, %out_socket, %socket
+    __net_unix_datagram_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_try_clone(%socket, &__net_unix_datagram_clone_%out_status)
+    %out_socket = load __net_unix_datagram_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_AS_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_AS_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_INTO_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_FROM_RAW_FD %out_status, %out_socket, %fd
+    __net_unix_datagram_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_from_raw_fd(%fd, &__net_unix_datagram_from_raw_%out_status)
+    %out_socket = load __net_unix_datagram_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_INTO_OWNED_FD %out_status, %out_fd_handle, %socket
+    EXPAND NET_UNIX_DATAGRAM_INTO_RAW_FD %out_status, __net_unix_datagram_owned_raw_%out_status, %socket
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_unix_datagram_owned_raw_%out_status
+    !__net_unix_datagram_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_FROM_OWNED_FD %out_status, %out_socket, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_unix_datagram_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UNIX_DATAGRAM_FROM_RAW_FD %out_status, %out_socket, __net_unix_datagram_from_owned_raw_%out_status
+    !__net_unix_datagram_from_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_LOCAL_ADDR %out_status, %out_addr, %socket
+    __net_unix_datagram_local_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_local_addr(%socket, &__net_unix_datagram_local_addr_%out_status)
+    %out_addr = load __net_unix_datagram_local_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PEER_ADDR %out_status, %out_addr, %socket
+    __net_unix_datagram_peer_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_peer_addr(%socket, &__net_unix_datagram_peer_addr_%out_status)
+    %out_addr = load __net_unix_datagram_peer_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_PASSCRED %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_unix_datagram_set_passcred(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PASSCRED %out_status, %out_enabled, %socket
+    __net_unix_datagram_passcred_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_unix_datagram_passcred(%socket, &__net_unix_datagram_passcred_%out_status)
+    %out_enabled = load __net_unix_datagram_passcred_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_MARK %out_status, %socket, %mark
+    %out_status = call @sa_std_net_unix_datagram_set_mark(%socket, %mark)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns
+    EXPAND NET_UDP_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_WRITE_TIMEOUT %out_status, %socket, %timeout_ns
+    EXPAND NET_UDP_SET_WRITE_TIMEOUT %out_status, %socket, %timeout_ns
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
+    EXPAND NET_UDP_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_WRITE_TIMEOUT %out_status, %out_timeout_ns, %socket
+    EXPAND NET_UDP_WRITE_TIMEOUT %out_status, %out_timeout_ns, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SET_NONBLOCKING %out_status, %socket, %enabled
+    EXPAND NET_UDP_SET_NONBLOCKING %out_status, %socket, %enabled
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_TAKE_ERROR %out_status, %out_error, %socket
+    EXPAND NET_UDP_TAKE_ERROR %out_status, %out_error, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND %out_status, %out_len, %socket, %buf, %len
+    EXPAND NET_UDP_SEND %out_status, %out_len, %socket, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND_TO %out_status, %out_len, %socket, %buf, %len, %path, %path_len
+    __net_unix_datagram_send_to_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_send_to(%socket, &%buf, %len, &%path, %path_len, &__net_unix_datagram_send_to_len_%out_status)
+    %out_len = load __net_unix_datagram_send_to_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND_TO_ADDR %out_status, %out_len, %socket, %buf, %len, %addr
+    __net_unix_datagram_send_to_addr_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_send_to_addr(%socket, &%buf, %len, %addr, &__net_unix_datagram_send_to_addr_len_%out_status)
+    %out_len = load __net_unix_datagram_send_to_addr_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_RECV %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_RECV %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_RECV_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    __net_unix_datagram_recv_from_len_%out_status = stack_alloc 8
+    __net_unix_datagram_recv_from_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_recv_from(%socket, &%buf, %cap, &__net_unix_datagram_recv_from_len_%out_status, &__net_unix_datagram_recv_from_addr_%out_status)
+    %out_len = load __net_unix_datagram_recv_from_len_%out_status+0 as u64
+    %out_addr = load __net_unix_datagram_recv_from_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PEEK %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_PEEK %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_PEEK_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    __net_unix_datagram_peek_from_len_%out_status = stack_alloc 8
+    __net_unix_datagram_peek_from_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_unix_datagram_peek_from(%socket, &%buf, %cap, &__net_unix_datagram_peek_from_len_%out_status, &__net_unix_datagram_peek_from_addr_%out_status)
+    %out_len = load __net_unix_datagram_peek_from_len_%out_status+0 as u64
+    %out_addr = load __net_unix_datagram_peek_from_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SHUTDOWN %out_status, %socket, %how
+    %out_status = call @sa_std_net_unix_datagram_shutdown(%socket, %how)
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_CLOSE %out_status, %socket
+    EXPAND NET_UDP_CLOSE %out_status, %socket
+[END_MACRO]
+
+// TLS ClientHello fingerprints. Given a caller-built JA3 string (decimal
+// TLSVersion,Ciphers,Extensions,EllipticCurves,ECPointFormats), NET_JA3_HASH
+// writes the 32-char lowercase MD5 hex into %buf. NET_JA4_HASH12 writes the
+// 12-char truncated SHA256 hex used by JA4's cipher/extension sub-hashes.
+[MACRO] NET_JA3_HASH %out_status, %out_len, %ja3, %ja3_len, %buf, %cap
+    __net_ja3_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_ja3_hash(&%ja3, %ja3_len, &%buf, %cap, &__net_ja3_len_%out_status)
+    %out_len = load __net_ja3_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_JA4_HASH12 %out_status, %out_len, %data, %data_len, %buf, %cap
+    __net_ja4_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_ja4_hash12(&%data, %data_len, &%buf, %cap, &__net_ja4_len_%out_status)
+    %out_len = load __net_ja4_len_%out_status+0 as u64
+[END_MACRO]
+
+// Shared WebSocket and URL helpers. These macros intentionally keep the
+// protocol codecs in the sci runtime so plugins can wrap one implementation.
+[MACRO] NET_WS_ACCEPT_KEY %out_status, %out_len, %key, %key_len, %buf, %cap
+    __net_ws_accept_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_accept_key(&%key, %key_len, &%buf, %cap, &__net_ws_accept_len_%out_status)
+    %out_len = load __net_ws_accept_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_WS_FRAME_PARSE %out_status, %out_fin, %out_opcode, %out_masked, %out_payload_offset, %out_payload_len, %out_frame_len, %mask_buf, %data, %data_len
+    __net_ws_fin_%out_status = stack_alloc 1
+    __net_ws_opcode_%out_status = stack_alloc 1
+    __net_ws_masked_%out_status = stack_alloc 1
+    __net_ws_payload_offset_%out_status = stack_alloc 8
+    __net_ws_payload_len_%out_status = stack_alloc 8
+    __net_ws_frame_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_frame_parse(&%data, %data_len, &__net_ws_fin_%out_status, &__net_ws_opcode_%out_status, &__net_ws_masked_%out_status, &__net_ws_payload_offset_%out_status, &__net_ws_payload_len_%out_status, &__net_ws_frame_len_%out_status, &%mask_buf)
+    %out_fin = load __net_ws_fin_%out_status+0 as u8
+    %out_opcode = load __net_ws_opcode_%out_status+0 as u8
+    %out_masked = load __net_ws_masked_%out_status+0 as u8
+    %out_payload_offset = load __net_ws_payload_offset_%out_status+0 as u64
+    %out_payload_len = load __net_ws_payload_len_%out_status+0 as u64
+    %out_frame_len = load __net_ws_frame_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_WS_UNMASK %out_status, %payload, %payload_len, %mask
+    %out_status = call @sa_std_ws_unmask(&%payload, %payload_len, &%mask)
+[END_MACRO]
+
+[MACRO] NET_WS_FRAME_BUILD %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %mask, %buf, %cap
+    __net_ws_build_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_frame_build(%opcode, %fin, &%payload, %payload_len, &%mask, &%buf, %cap, &__net_ws_build_len_%out_status)
+    %out_len = load __net_ws_build_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_WS_FRAME_BUILD_UNMASKED %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %buf, %cap
+    __net_ws_build_unmasked_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_frame_build_unmasked(%opcode, %fin, &%payload, %payload_len, &%buf, %cap, &__net_ws_build_unmasked_len_%out_status)
+    %out_len = load __net_ws_build_unmasked_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_URL_PARSE %out_status, %out_port, %url, %url_len, %scheme_buf, %scheme_cap, %scheme_len, %host_buf, %host_cap, %host_len, %path_buf, %path_cap, %path_len
+    __net_url_scheme_len_%out_status = stack_alloc 8
+    __net_url_host_len_%out_status = stack_alloc 8
+    __net_url_path_len_%out_status = stack_alloc 8
+    __net_url_port_%out_status = stack_alloc 4
+    %out_status = call @sa_std_url_parse(&%url, %url_len, &%scheme_buf, %scheme_cap, &__net_url_scheme_len_%out_status, &%host_buf, %host_cap, &__net_url_host_len_%out_status, &%path_buf, %path_cap, &__net_url_path_len_%out_status, &__net_url_port_%out_status)
+    %scheme_len = load __net_url_scheme_len_%out_status+0 as u64
+    %host_len = load __net_url_host_len_%out_status+0 as u64
+    %path_len = load __net_url_path_len_%out_status+0 as u64
+    %out_port = load __net_url_port_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_UDP_BIND %out_status, %out_socket, %host, %host_len, %port
     __net_udp_bind_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_bind(&%host, %host_len, %port, &__net_udp_bind_handle_%out_status)
     %out_socket = load __net_udp_bind_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_AS_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_AS_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UDP_INTO_RAW_FD %out_status, %out_fd, %socket
+    EXPAND FD_INTO_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UDP_FROM_RAW_FD %out_status, %out_socket, %fd
+    __net_udp_from_raw_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_from_raw_fd(%fd, &__net_udp_from_raw_%out_status)
+    %out_socket = load __net_udp_from_raw_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_INTO_OWNED_FD %out_status, %out_fd_handle, %socket
+    EXPAND NET_UDP_INTO_RAW_FD %out_status, __net_udp_owned_raw_%out_status, %socket
+    !%out_status
+    EXPAND FD_FROM_RAW %out_status, %out_fd_handle, __net_udp_owned_raw_%out_status
+    !__net_udp_owned_raw_%out_status
+[END_MACRO]
+
+[MACRO] NET_UDP_FROM_OWNED_FD %out_status, %out_socket, %fd_handle
+    EXPAND FD_INTO_RAW %out_status, __net_udp_from_owned_raw_%out_status, %fd_handle
+    !%out_status
+    EXPAND NET_UDP_FROM_RAW_FD %out_status, %out_socket, __net_udp_from_owned_raw_%out_status
+    !__net_udp_from_owned_raw_%out_status
 [END_MACRO]
 
 [MACRO] NET_UDP_LOCAL_ADDR %out_status, %out_addr, %socket
@@ -379,6 +958,52 @@
     __net_addr_free_%out_status = call @sa_net_addr_free(%addr)
     %out_status = load __net_addr_free_%out_status+0 as i32
     !__net_addr_free_%out_status
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_KIND %out_kind, %addr
+    %out_kind = call @sa_net_unix_addr_kind(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_IS_UNNAMED %out_flag, %addr
+    %out_flag = call @sa_net_unix_addr_is_unnamed(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_PATH_PTR %out_ptr, %addr
+    %out_ptr = call @sa_net_unix_addr_path_ptr(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_PATH_LEN %out_len, %addr
+    %out_len = call @sa_net_unix_addr_path_len(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_PATHNAME_PTR %out_ptr, %addr
+    EXPAND NET_UNIX_ADDR_PATH_PTR %out_ptr, %addr
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_PATHNAME_LEN %out_len, %addr
+    EXPAND NET_UNIX_ADDR_PATH_LEN %out_len, %addr
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_ABSTRACT_PTR %out_ptr, %addr
+    %out_ptr = call @sa_net_unix_addr_abstract_ptr(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_ABSTRACT_LEN %out_len, %addr
+    %out_len = call @sa_net_unix_addr_abstract_len(%addr)
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR %out_ptr, %addr
+    EXPAND NET_UNIX_ADDR_ABSTRACT_PTR %out_ptr, %addr
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_AS_ABSTRACT_NAME_LEN %out_len, %addr
+    EXPAND NET_UNIX_ADDR_ABSTRACT_LEN %out_len, %addr
+[END_MACRO]
+
+[MACRO] NET_UNIX_ADDR_FREE %out_status, %addr
+    __net_unix_addr_free_%out_status = call @sa_net_unix_addr_free(%addr)
+    %out_status = load __net_unix_addr_free_%out_status+0 as i32
+    !__net_unix_addr_free_%out_status
 [END_MACRO]
 
 [MACRO] NET_IPV4_NEW %addr, %a, %b, %c, %d

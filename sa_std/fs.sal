@@ -12,6 +12,17 @@
 #def SA_FS_OPEN_CREATE = 4
 #def SA_FS_OPEN_TRUNCATE = 8
 #def SA_FS_OPEN_APPEND = 16
+#def SA_FS_OPEN_MODE_DEFAULT = 438
+#def SA_FS_CHOWN_ID_UNCHANGED = 4294967295
+
+#def SA_FS_CUSTOM_APPEND = 1024
+#def SA_FS_CUSTOM_NONBLOCK = 2048
+#def SA_FS_CUSTOM_DSYNC = 4096
+#def SA_FS_CUSTOM_DIRECT = 16384
+#def SA_FS_CUSTOM_DIRECTORY = 65536
+#def SA_FS_CUSTOM_NOFOLLOW = 131072
+#def SA_FS_CUSTOM_CLOEXEC = 524288
+#def SA_FS_CUSTOM_SYNC = 1052672
 
 #def SA_FS_SEEK_START = 0
 #def SA_FS_SEEK_CURRENT = 1
@@ -26,6 +37,9 @@
 #def SaFsReadBuffer_ptr = +0
 #def SaFsReadBuffer_len = +8
 #def SaFsReadBuffer_cap = +16
+
+#def SaFsPermissions_SIZE = 4
+#def SaFsPermissions_mode = +0
 
 #def SaFsMetadata_SIZE = 32
 #def SaFsMetadata_kind = +0

@@ -1,5 +1,323 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Active test logging diagnostics (2026-07-09)
+
+- [x] Add a dedicated logged full-test dependency runner: `tools/test_steps_timed.sh`.
+- [x] Cover the `zig build test` dependency set as explicit named build steps so a timeout identifies the owning step instead of hiding inside the aggregate command.
+- [x] Add per-step timeout control (`--timeout` / `SA_TEST_STEP_TIMEOUT`), `--continue`, `--list`, `--jobs`, and `--summary` options.
+- [x] Print START/PASS/FAIL/TIMEOUT logs with UTC timestamps, exact command, elapsed time, slowest-step ranking, and final summary.
+- [x] Persist every step output to a numbered per-step log file plus `summary.log`, with default logs under ignored `logs/test_steps/<utc timestamp>` and override support through `--log-dir` / `SA_TEST_STEP_LOG_DIR`.
+- [x] Avoid duplicate std-smoke work by covering the whitepaper smoke artifact with `whitepaper-lint` rather than the aggregate `smoke` step.
+- [x] Verify script syntax, default step listing, and a focused two-step run (`lib-root-smoke`, `pkg-core-test`) without blind full-suite execution.
+- [x] Verify persisted-log success and failure paths with focused `pkg-core-test` and an invalid-step failure check.
+- [x] Add internal START/END timing to `plugin-host-smoke` so a hang or slowdown identifies the exact Zig test body.
+- [x] Add internal demo/phase START/END timing to `wasm-matrix` so a hang or slowdown identifies the exact demo and build/run phase.
+- [x] Verify the two newly instrumented heavy steps individually through `tools/test_steps_timed.sh --timeout 420 plugin-host-smoke` and `tools/test_steps_timed.sh --timeout 420 wasm-matrix`.
+- [x] At the logging milestone boundary, run the full logged diagnostic pass once instead of `zig build test` directly.
+- [x] Record the full logged pass result: `passed=22 failed=0 timeout=0 total=22 elapsed=789.076s`, logs in `logs/test_steps/full-20260709T060333Z`.
+- [ ] Optional future precision: add timing inside plugin installer helper paths, temporary Zig plugin builds, and `sa-std-runtime` internals if those remain top blockers.
+
+## Active full-test runtime optimization follow-up (2026-07-09)
+
+- [x] Commit the logging/diagnostics milestone before starting the next optimization: `690d57f Add logged test step diagnostics`.
+- [x] Optimize plugin installer failure paths by moving pure preflight checks before temporary plugin dynamic-library builds.
+- [x] Keep plugin install unit tests isolated: `plugin-host-smoke` uses `std.testing.tmpDir()` and test-local `SA_PLUGINS_HOME=state`; no real user plugin installation is required for ordinary unit testing.
+- [x] Verify the plugin optimization with the logged step runner: `plugin-host-smoke` passed in `170.743s`.
+- [x] Record observed improvement: previous logged baseline `209.569s`, optimized run `170.743s`, delta `38.826s` (`18.5%`) for that step; overall optimization follow-up progress estimate `15%`.
+- [x] Optimize `sa-std-runtime` by reusing the build-system `sa_std` archive instead of rebuilding the same static runtime library in every C demo test.
+- [x] Verify the `sa-std-runtime` optimization with the logged step runner: `14/14 tests passed`, `145.815s -> 33.532s`, delta `112.283s` (`77.0%`); overall optimization follow-up progress estimate `35%`.
+- [x] Improve full-test log quality: add per-step heartbeat, failure/timeout log tails, `results.tsv`, `environment.txt`, and `index=current/total` progress fields.
+- [x] Verify log-quality changes without a full run: syntax/list checks pass; `pkg-core-test` pass generates structured logs; invalid step preserves exit `1` and prints log tail; `sa-std-runtime` emits a heartbeat at 5s and passes. Overall optimization/logging progress estimate `45%`.
+- [x] Improve `unit-framework` internal logs: add per-SA-file START/END/error lines with mode, jobs, elapsed time, stdout/stderr byte counts, and queued worker `index=current/total`.
+- [x] Verify `unit-framework` logging with a single build step, not the full suite: `unit-framework` passed, logs contain file-level START/END and no misleading `[unit-framework] FAIL`; overall optimization/logging progress estimate `55%`.
+- [x] Normalize remaining `unit-framework` top-level SA logs: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use START/END/error lines too; single-step verification passed and progress estimate is `60%`.
+- [x] Add `wasm-matrix` slowest-demo and slowest-phase summary output; focused single-step verification passed in `146.982s` and showed repeated `build-exe` dominates (`93156ms` of `103970ms` demo time). Overall optimization/logging progress estimate: `65%`.
+- [x] Convert default `wasm-matrix` to WASM-fast validation: all 110 demos still run through wasm, native `build-exe` is reduced to 6 sanity demos unless `SA_WASM_MATRIX_NATIVE_ALL=1`, and all matrix builds pass `--project-root` so they share the repo `.sa_cache`.
+- [x] Verify the WASM-fast path with focused single-step runs only: cold shared-cache pass `212.385s`; hot shared-cache pass `59.623s`, down from the previous logged `146.982s` (`-87.359s`, `-59.4%`). Overall optimization/logging progress estimate: `75%`.
+- [x] Prepare release metadata for this batch: `build.zig.zon` version `0.0.4` and `CHANGELOG.md` covering `0.0.3 -> 0.0.4`.
+- [ ] Continue with remaining slow owners after the release merge: `plugin-host-smoke`, `unit-framework`, and `std-smoke`, using focused instrumentation before broad changes.
+
+## Active compiler-performance slice: large SAB focused tests (2026-07-09)
+
+- [x] Commit pre-existing String macro-surface work before starting SCI performance changes: `ee50937 Add extended string macro surfaces`.
+- [x] Commit first SCI SAB fast-path checkpoint before continuing: `94d841c Optimize SAB test listing path`.
+- [x] Record the issue in `docs/issue14_test_filter_large_sab_performance.md`.
+- [x] Measure real downstream SAB baselines: small `parallel_table_erased` focused compile-only about 1.28s, small list about 0.33s; large `world_table_erased` focused list about 8.87s and compile-only about 30.61s.
+- [x] Identify root cause in `src/cli.zig`: `executeTest()` calls `compileSource()` before collecting tests or applying filters/list; `.sab` compileSource performs full `loadSabFlat()` + verifier over the whole module.
+- [x] Implement `.sab` `sa test --list` fast path that decodes test metadata/function signatures without full verifier.
+- [x] Implement selected `.sab --compile-only --filter` reachability pruning, borrowed symbol-pool decode, trusted preverified compile-only path, and skip-link after LLVM bitcode emit succeeds.
+- [x] Verify focused ReleaseFast real gates from `docs/issue14_test_filter_large_sab_performance.md`: large list `0.05s`, large compile-only `0.82s`, small compile-only `0.17s`.
+- [x] Install with `tools/install.sh --no-shell` and repeat installed focused gates: large list `0.07s`, large compile-only `1.00s`, small compile-only `0.26s`.
+- [x] Fix focused full-test blockers from `docs/issue15_full_test_suite_failures_20260709.md`: `splitn aliases` source focused gate passes, and full `plugin-host-smoke` passes `12/12`.
+- [x] Isolate and fix the `sa-std-unit` timeout: `sa_net_uring.test.listen accept recv_ticket and outbound commands work end to end` now passes focused, and `zig build sa-std-unit --summary all` passes `63/63`.
+- [x] Complete single build-step reruns for the `zig build test` dependency set; all required steps pass with per-object logs.
+- [x] Install with `tools/install.sh --no-shell`, then rerun installed focused performance gates: large compile-only `0.75s`, large list `0.04s`, small compile-only `0.13s`.
+- [ ] Follow up with lazy/partial SAB instruction decode for selected run-mode and further compile-only headroom.
+- [ ] Fix test cache semantics for filtered linked artifacts if selected linked artifacts are cached in the future.
+
+## 2026-07-05 当前工作集
+
+- [x] Linux `sa_std` 补齐：`os/fd` raw/owned fd facade（`AsRawFd` / `IntoRawFd` / `FromRawFd` / `dup` / `is_terminal`）。
+- [x] Linux `sa_std` 补齐：`fs::MetadataExt` 关键字段（`mode` / `uid` / `gid` / `ino` / `dev` / `nlink` / `rdev` / `blksize` / `blocks` / `atime/ctime` 毫秒口径）。
+- [x] Linux `sa_std` 补齐：`thread` 基础 facade（`current_id` / `yield_now`）。
+- [x] Linux `sa_std` 补齐：`process::ExitStatusExt` 核心能力（`wait_raw` / `try_wait_raw` / `from_raw` / `into_raw` / `signal` / `core_dumped` / `stopped_signal` / `continued`）。
+- [x] 为上述补齐新增 unit-framework 覆盖。
+- [x] 修正 UDS 宏表面回归：`AF_UNIX` 句柄上的 TCP-only keepalive/reuse setter 走成功 no-op，避免打断复用的 `tcp_stream/tcp_listener` 资源模型。
+- [x] 修正 DNS 主机名宏表面回归：清除 `std_net_dns_macro_surface.sa` 中泄漏的临时主机寄存器。
+- [x] 使用 `tools/install.sh --no-shell` 同步安装态 `/home/vscode/.sa/std`。
+- [x] 维持 `progress.md`、`current_plan.md` 与本任务列表一致，验收以 `zig build unit-framework` 和安装态 smoke 为准。
+
+## 下一批锁定（Linux）
+
+- [x] `std::os::unix::fs::FileExt`：`read_at` / `write_at`，以及 `read_exact_at` / `write_all_at` 宏便利层。
+- [x] `std::os::unix::fs::OpenOptionsExt`：`mode` / `custom_flags`。
+- [x] `std::os::unix::fs::PermissionsExt`：`mode` / `set_mode` / `from_mode`。
+- [x] `std::os::unix::fs::FileTypeExt`：`is_block_device` / `is_char_device` / `is_fifo` / `is_socket`。
+- [x] `std::os::unix::fs::DirBuilderExt`：`mode`，覆盖单层建目录和递归建目录。
+
+## 下一候选（Linux）
+
+- [x] `std::os::unix::fs::DirEntryExt`：`ino`（已补真实目录项句柄/迭代模型，不再走 JSON 兼容层）。
+
+## 下一步（Linux）
+
+- [x] 跳出 `std::os::unix::fs` 局部，重新审计更广的 Linux `std` 缺口并锁定下一批高价值模块。
+- [x] `std::os::linux::fs::MetadataExt`：补 Rust 命名的 `st_*` 字段宏表面（`st_dev` / `st_ino` / `st_mode` / `st_nlink` / `st_uid` / `st_gid` / `st_rdev` / `st_size` / `st_atime` / `st_atime_nsec` / `st_mtime` / `st_mtime_nsec` / `st_ctime` / `st_ctime_nsec` / `st_blksize` / `st_blocks`）。
+- [x] `std::os::unix::process::parent_id`：补父进程 ID facade。
+- [x] `std::os::unix::process::ChildExt::send_signal`：补按信号发送到 child 的 Linux facade，非法 signal 返回错误而不是 runtime trap。
+- [x] 新批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::{chown,lchown,fchown}`：补 Linux ownership helpers，支持 Rust `u32::MAX` unchanged sentinel 和显式 `has_uid/has_gid` 宏表面。
+- [x] chown 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net` Unix domain socket 补齐一批：`UnixStream::pair`、`UnixListener::local_addr`、`UnixStream::{local_addr,peer_addr}`，并新增独立 Unix socket address handle（unnamed/pathname/abstract），避免复用 IP `SocketAddr` 语义。
+- [x] `std::os::unix::process::CommandExt` 可落地子集：补 `arg0`、`process_group(0/pgid)`、`setsid(true)` 的 Linux spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式。
+- [x] `std::os::linux::process` / Rust pidfd 路径关联的进程组信号子集：补 `PROCESS_SEND_PROCESS_GROUP_SIGNAL`，记录 effective PGID，并用新进程组 `/bin/sleep` raw wait-status 验证 SIGKILL。
+- [x] 上述 Linux std parity 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装；批次已提交收口。
+- [x] `std::os::linux::process` pidfd 子集：补 create_pidfd 路径、process `pidfd` / `into_pidfd` handle 提取，以及 pidfd `kill` / `send_signal` / `wait` / `wait_raw` / `try_wait` / `try_wait_raw` 宏表面；处理 pidfd wait 消费 child 后 process close 不再触发 runtime trap。
+- [x] pidfd 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::{uid,gid}`：补 Linux child-side `setuid` / `setgid` spawn 配置入口，并新增 `PROCESS_USER_ID` / `PROCESS_GROUP_ID` facade 用于非 root 验收当前身份设置。
+- [x] uid/gid 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::groups`：补 Linux child-side `setgroups` spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式；非 root 环境按 child setup 退出码验收权限拒绝路径。
+- [x] groups 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::chroot`：补 Linux child-side `chroot` spawn 配置入口，并覆盖 capture/inherit/stream 三种现有 process 模式；非 root 环境按 child setup 退出码验收权限拒绝路径。
+- [x] chroot 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::CommandExt::exec`：补 Linux in-place `exec` 入口，支持 cwd/arg0/process_group/setsid/uid/gid/groups/chroot 配置；成功路径替换当前测试子进程，失败路径返回 SA 错误码。
+- [x] exec 批次已完成源码、focused 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::net::SocketAddrExt` 抽象 Unix socket 地址子集：补 `from_abstract_name` / `as_abstract_name` 风格地址句柄，以及按 Unix addr handle listen/connect 的 Linux UDS 路径。
+- [x] abstract Unix socket 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::net::linux_ext::TcpStreamExt`：补 `TCP_QUICKACK` 与 `TCP_DEFER_ACCEPT` 的 set/get Linux socket option facade。
+- [x] TCP Linux extension 批次已完成源码、focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::net::linux_ext::UnixSocketExt` UnixStream 子集：补 Linux `SO_PASSCRED` 的 set/get socket option facade。
+- [x] UnixSocketExt passcred 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::ChildExt::kill_process_group`：补 Linux process-group `SIGKILL` convenience facade，复用已记录的 effective PGID/process-group signal 路径。
+- [x] kill_process_group 批次已完成源码、focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::DirEntryExt2::file_name_ref`：补目录项 file-name reference 命名 facade，复用现有 dir-entry 名称指针/长度资源。
+- [x] DirEntryExt2 file_name_ref 批次已完成源码、focused dir-entry 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::mkfifo`：补 Rust 命名的 `FS_UNIX_MKFIFO` 宏表面，复用已有 Linux `sa_fs_mkfifo` runtime。
+- [x] mkfifo 命名表面批次已完成源码、focused/full Unix fs 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixStream::peer_cred` Linux 子集：补 `SO_PEERCRED` peer pid/uid/gid 标量 facade，不引入 Rust `UCred` 对象模型。
+- [x] UnixStream peer_cred 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixStream::peek`：补 `NET_UNIX_STREAM_PEEK` 命名宏表面，复用现有 stream peek runtime，并验证 peek 不消费数据。
+- [x] UnixStream peek 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixStream::shutdown`：补 `NET_UNIX_STREAM_SHUTDOWN` 命名宏表面，复用现有 stream shutdown runtime，并验证写半边 shutdown 后 peer 读到 EOF。
+- [x] UnixStream shutdown 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}` option 命名表面：补 stream timeout/nonblocking/take_error 与 listener nonblocking/take_error Unix 宏别名，复用现有 fd-based TCP runtime。
+- [x] Unix socket option 命名表面批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}::try_clone`：补 Linux/Unix fd-dup clone facade，保持 stream/listener 资源类型和独立 close 生命周期。
+- [x] Unix socket try_clone 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixListener::accept` 地址返回表面：补 `NET_UNIX_ACCEPT_ADDR`，accept 时同时返回 stream 与 peer Unix addr handle。
+- [x] Unix accept_addr 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixListener::incoming`：补 Unix incoming iterator 命名宏表面，复用现有 listener-backed incoming 布局与 accept path。
+- [x] Unix incoming 命名表面批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::SocketAddr::{from_pathname,as_pathname}`：补 pathname Unix addr 构造和 Rust 命名 pathname 访问宏表面，复用现有 Unix addr handle 生命周期。
+- [x] Unix SocketAddr pathname 批次已完成源码、focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::net::SocketAddrExt::as_abstract_name`：补 `NET_UNIX_ADDR_AS_ABSTRACT_NAME_PTR/LEN` Rust 命名访问宏别名，复用现有 abstract ptr/len accessor。
+- [x] Unix abstract-name alias 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::{symlink,chown,lchown,fchown}` Rust 命名表面：补 `FS_UNIX_SYMLINK`、`FS_UNIX_CHOWN`、`FS_UNIX_LCHOWN`、`FS_UNIX_FCHOWN`、`FS_UNIX_FCHOWN_RAW` 宏别名，复用现有 Unix fs runtime。
+- [x] Unix fs symlink/chown alias 批次已完成 focused/full Unix fs 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::process::PidFd` raw-fd trait 命名表面：补 `PIDFD_AS_RAW_FD`、`PIDFD_INTO_RAW_FD`、`PIDFD_FROM_RAW_FD`、`PIDFD_CLOSE_RAW_FD` 宏别名，复用现有 `sa_std/os/fd` owned-fd runtime。
+- [x] PidFd raw-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::linux::process::PidFd` owned-fd trait 命名表面：补 `PIDFD_INTO_OWNED_FD`、`PIDFD_FROM_OWNED_FD` 宏别名，复用 PidFd raw-fd 与 `sa_std/os/fd` owned-fd facade。
+- [x] PidFd owned-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait 表面：补 stream/listener `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 命名宏；`from_raw_fd` 注册回对应 Unix stream/listener 资源类型。
+- [x] Unix socket raw-fd trait 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait 表面：补 stream/listener `into_owned_fd`、`from_owned_fd` 风格宏别名，复用 raw-fd trait 与 `sa_std/os/fd` owned-fd facade。
+- [x] Unix socket owned-fd alias 批次已完成 focused/full Unix socket 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::{ChildStdout,ChildStderr}` raw-fd trait 命名表面：补 stdout/stderr `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 宏别名，复用现有 owned-fd facade。
+- [x] Child stdout/stderr raw-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::process::{ChildStdout,ChildStderr}` owned-fd trait 命名表面：补 stdout/stderr `into_owned_fd`、`from_owned_fd` 风格宏别名，复用 raw-fd trait 与 `sa_std/os/fd` owned-fd facade。
+- [x] Child stdout/stderr owned-fd alias 批次已完成 focused/full process 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd` / `std::os::unix::io` TCP stream/listener raw-fd trait 表面：补 `TcpStream` / `TcpListener` 的 `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 命名宏；`from_raw_fd` 验证 INET/INET6 stream socket 并按 `SO_ACCEPTCONN` 恢复 stream/listener 资源类型。
+- [x] TCP stream/listener raw-fd trait 批次已完成导出符号检查、focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd::OwnedFd` TCP stream/listener 转换表面：补 `NET_TCP_STREAM_INTO_OWNED_FD`、`NET_TCP_STREAM_FROM_OWNED_FD`、`NET_TCP_LISTENER_INTO_OWNED_FD`、`NET_TCP_LISTENER_FROM_OWNED_FD` 宏别名，复用 TCP raw-fd restore 与 `sa_std/os/fd` owned-fd facade。
+- [x] TCP stream/listener owned-fd alias 批次已完成 focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd` / `std::os::unix::io` UDP socket raw-fd trait 表面：补 `UdpSocket` 的 `as_raw_fd`、`into_raw_fd`、`from_raw_fd` 命名宏；`from_raw_fd` 验证 INET/INET6 datagram socket 并恢复 UDP socket 资源类型。
+- [x] UDP socket raw-fd trait 批次已完成导出符号检查、focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd::OwnedFd` UDP socket 转换表面：补 `NET_UDP_INTO_OWNED_FD`、`NET_UDP_FROM_OWNED_FD` 宏别名，复用 UDP raw-fd restore 与 `sa_std/os/fd` owned-fd facade。
+- [x] UDP socket owned-fd alias 批次已完成 focused/full net 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd` / `std::os::unix::io` stdio borrowed raw-fd trait 表面：补 `IO_STDIN` / `IO_STDOUT` / `IO_STDERR` 句柄宏，以及 `IO_STDIN_AS_RAW_FD` / `IO_STDOUT_AS_RAW_FD` / `IO_STDERR_AS_RAW_FD`，复用固定 stdio handle 与 `sa_std/os/fd` borrowed raw-fd facade。
+- [x] stdio raw-fd alias 批次已完成 focused/full io 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd` / `std::os::unix::io` `std::fs::File` raw/owned fd trait 表面：补 `FS_FILE_AS_RAW_FD`、`FS_FILE_INTO_RAW_FD`、`FS_FILE_FROM_RAW_FD`、`FS_FILE_INTO_OWNED_FD`、`FS_FILE_FROM_OWNED_FD`，其中 `from_raw_fd/from_owned_fd` 恢复为 File 资源以支持 File-only `read_at/write_at` 路径。
+- [x] File raw/owned fd facade 批次已完成导出符号检查、focused/full fd 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd::OwnedFd` Rust 命名表面：补 `FD_OWNED_AS_RAW_FD`、`FD_OWNED_INTO_RAW_FD`、`FD_OWNED_FROM_RAW_FD`、`FD_OWNED_TRY_CLONE` 宏别名，复用现有 `sa_std/os/fd` raw/dup runtime。
+- [x] OwnedFd 命名 facade 批次已完成 focused/full fd 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::fd::{RawFd,BorrowedFd}` Rust 命名表面：补 RawFd reflexive `as_raw_fd/into_raw_fd/from_raw_fd` 宏、BorrowedFd `borrow_raw/as_raw_fd/try_clone_to_owned` 宏，并新增 raw fd dup-to-owned runtime。
+- [x] RawFd/BorrowedFd 命名 facade 批次已完成导出符号检查、focused/full fd 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 审计：确认当前 SA facade 尚未覆盖 Rust 全量 API；本批次优先补可验收的 raw-parts 表面。
+- [x] `Vec::{into_raw_parts,from_raw_parts}` 与 `StringBuf::{into_raw_parts,from_raw_parts}` facade 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String` replace-first/replace-last 风格宏表面，以及 `Vec::push_mut` / `Vec::insert_mut` 风格 mut-return 宏表面。
+- [x] String/Vec mut-return + replace-first/last 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `Vec::from_fn` 风格生成宏与 `String::remove_matches` 风格 slice-pattern 删除宏表面。
+- [x] String remove_matches + Vec from_fn 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::{as_non_null,into_parts,from_parts}` 风格 NonNull parts 宏表面，复用现有 `NonNull` wrapper facade。
+- [x] Vec NonNull parts 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::extend_from_within` 风格宏表面，包含 bounds 与 UTF-8 char boundary 检查，并避免 self-copy reallocation 悬空。
+- [x] String extend_from_within 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::remove(idx)` 风格 byte-index 删除 char 宏表面，并新增 `STR_TRY_CHAR_AT_BYTE` UTF-8 解码 helper。
+- [x] String remove-char-at 批次已完成 runtime 导出检查、focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::pop()` 风格 char-aware 尾部弹出宏表面，区别于既有 byte-level pop。
+- [x] String pop-char 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::drain(range)` 可支撑形态，返回被移除的 `StringBuf` 并从原 buffer 删除合法 UTF-8 range。
+- [x] String drain-range 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 修正：`STRING_BUF_TRY_SPLIT_OFF` / `STRING_BUF_SPLIT_OFF` 对齐 Rust `String::split_off`，要求 split index 是 UTF-8 char boundary。
+- [x] String split_off boundary 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::retain` 可支撑形态，按 Unicode codepoint predicate 保留字符并重建 StringBuf。
+- [x] String retain 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 修正：`push(char)` / `insert(char)` 支持完整有效 Unicode scalar，并为 `insert_str` 补 Rust char-boundary 检查。
+- [x] String Unicode char insert/push 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::retain_mut` 可支撑 U64 形态，predicate 接收元素指针并可修改后决定是否保留。
+- [x] Vec retain_mut 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::peek_mut` 可支撑 U64 形态，返回最后一个元素的 mutable pointer，空 Vec 返回 `ok=0`。
+- [x] Vec peek_mut 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::from_elem` 可支撑形态，按长度重复填充值构造 Vec。
+- [x] Vec from_elem 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String::leak` / `Vec::leak` 可支撑形态，消费 owning wrapper 并返回可变 slice/str 视图。
+- [x] String/Vec leak 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 继续补齐：补 `Vec::spare_capacity_mut` / `Vec::split_at_spare_mut` 可支撑形态，并修正 `VEC_SET_LEN` 为 Rust `set_len` 风格直接设置长度。
+- [x] Vec spare capacity 批次已完成 focused/full Vec/String 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8` 可支撑形态，接受完整有效 UTF-8 字节 slice，拒绝非法 UTF-8。
+- [x] String from_utf8 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::into_chars` 可支撑 eager 形态，消费 StringBuf 并返回 U64 codepoint Vec。
+- [x] String into_chars 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf16` 可支撑严格 U16 slice 形态，支持 BMP 和 surrogate pair，拒绝非法 surrogate。
+- [x] String from_utf16 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf16_lossy` 可支撑 U16 slice 形态，用 U+FFFD 替换非法 surrogate 并继续解码。
+- [x] String from_utf16_lossy 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf16le` / `String::from_utf16be` 可支撑严格 endian byte-slice 形态，复用严格 UTF-16 surrogate 解码。
+- [x] String UTF-16 endian byte-slice 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf16le_lossy` / `String::from_utf16be_lossy` 可支撑 endian byte-slice 形态，奇数字节和非法 surrogate 用 U+FFFD 替换。
+- [x] String UTF-16 endian lossy byte-slice 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8(Vec<u8>)` owned-Vec 可支撑形态，成功零拷贝转 StringBuf，失败返还原始 Vec。
+- [x] String from_utf8 Vec 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8_lossy` 可支撑 owned-StringBuf 形态，非法 UTF-8 序列替换为 U+FFFD 后继续解码。
+- [x] String from_utf8_lossy 批次已完成 runtime 导出检查、focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8_lossy_owned` 可支撑 owned-Vec 形态，合法 UTF-8 零拷贝移动，非法输入 lossy 重建并释放原 Vec。
+- [x] String from_utf8_lossy owned-Vec 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] String from_utf8_lossy 语义修正：按 Rust `utf8_chunks` 风格对连续无效 UTF-8 序列只插入一个 U+FFFD，并用 `F0 90 80 W` 回归覆盖。
+- [x] String from_utf8_lossy 语义修正批次已完成 runtime 导出检查、focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 继续补齐：补 `String::from_utf8_unchecked(Vec<u8>)` owned-Vec 零拷贝入口和 `String::as_mut_str` 可变 str 视图命名表面。
+- [x] String unchecked owned-Vec + as_mut_str 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String::from(&str)` / `Clone` / `clone_from` 可支撑形态，以及 `Vec::from(&[T])` / `Clone` / `clone_from` 可支撑形态（含 U64 便捷宏）。
+- [x] String/Vec clone + from-slice/from-str 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `Default`、`String` AsRef/AsMut 命名别名、`String + &str` / `AddAssign<&str>`、`String::from(char)`、`Vec<u8>::from(&str)` 与 `Vec::from(String)` 可支撑命名表面。
+- [x] String/Vec default + add/from-char/from-str-bytes 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 继续补齐：补 `String::from(&mut str)`、`String::from(&String)`、`TryFrom<Vec<u8>> for String` 命名别名，并为已有 `Vec::from(String)` 表面补完整覆盖。
+- [x] String/Vec reference conversion alias 批次已完成 focused/full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `Vec::from(&mut [T])` / `Vec::from(&[T; N])` / `Vec::from(&mut [T; N])` 可支撑命名别名。
+- [x] Vec reference/array conversion alias 批次已完成 focused/full String/Vec 源码测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装；`String::as_mut_vec` 不能用简单宏精确表达 Rust metadata-level mutable alias，保持为未覆盖缺口。
+- [x] `std::os::unix::xdg` 可支撑环境目录表面：补 `data_home_dir` / `config_home_dir` / `state_home_dir` / `cache_home_dir` / `data_dirs` / `config_dirs` 风格宏表面，按 Rust/XDG 规则处理空 env 与默认值。
+- [x] Unix XDG env facade 批次已完成 focused/full env 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::fs::chroot`：补当前进程 Linux `chroot(2)` facade，新增 `FS_CHROOT` / `FS_UNIX_CHROOT` 宏表面，并用 `/` 安全验收 root 成功或非 root 权限拒绝路径。
+- [x] Unix fs chroot facade 批次已完成源码 focused/full Unix fs 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixDatagram` 基础子集：补 unbound/pair、try_clone、raw/owned fd roundtrip、local/peer addr、passcred、timeout/nonblocking/take_error、send/recv/peek、shutdown/close 宏表面。
+- [x] UnixDatagram 基础子集批次已完成源码 focused/full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::net::UnixDatagram` pathname/abstract 地址路径：补 `bind` / `bind_addr` / `connect` / `connect_addr` / `send_to` / `send_to_addr` / `recv_from` / `peek_from` 宏与 runtime 表面。
+- [x] UnixDatagram 地址路径批次已完成源码 focused/full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `Vec` AsRef/AsMut/Deref-to-slice 命名别名与 `String` fmt::Write `write_str` / `write_char` 风格宏表面。
+- [x] String/Vec naming alias 批次已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::ffi::{OsStrExt,OsStringExt}`：补 Unix 字节语义 `OsStr` / `OsString` facade，覆盖 `from_bytes` / `as_bytes` 与 `from_vec` / `into_vec` 命名表面。
+- [x] Unix ffi OsStr/OsString 批次已完成源码 focused 测试、完整 `unit-framework` runner 覆盖、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `std::os::unix::thread::JoinHandleExt`：补真实 raw `pthread_t` facade，覆盖 `as_pthread_t` / `into_pthread_t`，并提供 raw pthread join 清理路径用于 ownership-transfer 验收。
+- [x] Unix thread JoinHandleExt pthread 批次已完成 `sa-std-static`、源码 focused thread 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装；同时修正 `THREAD_JOIN_STATUS` 输出指针 ABI。
+- [x] `std::os::net::linux_ext::UnixSocketExt::set_mark`：补 UnixStream / UnixDatagram 的 Linux `SO_MARK` setter facade，运行时验证 AF_UNIX stream/datagram 句柄并映射权限拒绝/不支持状态。
+- [x] Unix socket set_mark 批次已完成 `sa-std-static`、源码 full Unix socket 测试、完整 `unit-framework`、安装态回归、导出符号检查，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 String Extend 风格别名与 Vec Extend 风格别名，复用现有 push/append/slice-copy 路径，不引入虚构 iterator object model；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `PartialEq<String, str, &str>` / `ne` 风格命名别名，复用现有 `STR_EQ` 字节比较路径，不引入虚构 trait object model；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `PartialOrd` / `Ord` 风格 String/str 字典序比较别名，复用 UTF-8 字节字典序比较路径，不引入虚构 trait object model；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补本地 `Hash` 风格委托别名，StringBuf 通过 str view 哈希、Vec U64 通过 slice view 哈希，复用 SA `DefaultHasher` 表面，不声明 Rust 标准哈希算法或泛型 `T: Hash` 全覆盖；已完成源码 hash/String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager U64 codepoint slice 的 `FromIterator<char>` / `Extend<char>` 风格别名，整段 Unicode scalar 预验证后再写入，非法 surrogate 路径不修改目标；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager pointer-slice `FromIterator<&char>` / `Extend<&char>` 风格别名，整段引用 codepoint 预验证后再写入，非法 surrogate 路径不修改目标；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager byte-slice / pointer-slice `FromIterator<core::ascii::Char>` / `Extend<core::ascii::Char>` 风格别名，整段 ASCII byte 预验证后再写入，非法 byte 路径不修改目标；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager slice-shaped `FromIterator<T>` / `Extend<T>` 风格别名，复用现有 slice-copy 构造和追加路径，不引入虚构 lazy iterator object model；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 U64 slice-delegated equality / inequality 风格别名，覆盖 Vec-vs-slice、slice-vs-Vec、Vec-vs-Vec 比较，不引入虚构泛型 `T: PartialEq` trait object model；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 U64 slice-delegated lexicographic comparison / ordering predicate 风格别名，覆盖 Vec-vs-slice、slice-vs-Vec、Vec-vs-Vec 比较，不引入虚构泛型 `T: Ord` trait object model；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager Slice-of-Slice `FromIterator<&str>` / `Extend<&str>` 风格别名，复用现有 `STRING_BUF_PUSH_STR` 路径，不引入虚构 lazy iterator object model；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 eager Slice-of-StringBuf metadata `FromIterator<String>` / `Extend<String>` 风格别名，逐个追加 owned String 的 str view 并原地 drop moved buffer，不引入虚构 lazy iterator object model；同时修复 LLVM-C 间接调用 vtable slot 签名 provenance；已完成源码 full String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `str::repeat` 与 slice/Vec repeat 风格 eager 别名，按 `count` 次复制源 str/slice 到新的 owned `StringBuf` / Vec，`count=0` 返回空 buffer，不声明 allocator-parametric 或泛型 `T: Clone` 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `ToOwned` / `ToString` / `to_vec` 风格 eager owned-copy 别名，复用现有 StringBuf/Vec clone 与 from-slice 路径，并验证源对象后续 mutation 不影响 owned 结果，不声明 Cow/Box/allocator-parametric/trait-object 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 char/bool/u64/i64 具体 primitive `to_string` 别名，复用现有 StringBuf 构造与 SA formatter 路径，不声明泛型 `Display` / `ToString` trait-object 全覆盖或浮点默认格式 parity；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec `AsMut<Vec<T>>` 风格 metadata pointer 别名 `VEC_AS_MUT_VEC_PTR`，与现有 `AsRef<Vec<T>>` 本地指针表面保持一致，不声明 Rust borrow checker 或 whole-object mutable borrow 全语义；已完成源码 full Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 u8/u16/u32/usize 与 i8/i16/i32/isize 具体 primitive `to_string` 别名，复用现有 u64/i64 formatter-backed StringBuf 路径，不声明 u128/i128、浮点格式或泛型 `Display` 全覆盖；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补具体 String `FromStr` / parse 风格别名 `STRING_BUF_PARSE_FROM_STR` 与 `STR_PARSE_STRING_BUF`，从 `&str` 复制为 owned `StringBuf` 并返回 `ok=1`，不声明泛型 `FromStr` 或错误类型模型；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String::as_bytes_mut` 风格 unsafe mutable byte-slice 别名 `STRING_BUF_AS_MUT_BYTES` 与 `STRING_BUF_AS_MUT_REF_BYTES`，复用现有 Vec mutable-slice metadata facade，不声明 UTF-8 mutation invariant enforcement、`String::as_mut_vec` 或 Rust borrow checker 全语义；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `str` / string slice Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `str::as_bytes_mut` 风格 unsafe mutable byte-slice 别名 `STR_AS_MUT_BYTES` 与 `STRING_AS_MUT_BYTES`，复用现有 Slice metadata view，不声明 UTF-8 mutation invariant enforcement、ownership provenance 或 Rust borrow checker 全语义；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `Vec` / slice Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `as_ptr_range` / `as_mut_ptr_range` 风格 start/end 指针输出别名，覆盖 Slice、str/string、StringBuf 和 Vec/U64 路径，不声明 Rust `Range<*const T>` / `Range<*mut T>` 对象布局或 unsafe `slice::from_ptr_range` 重建 API；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `Vec::pop_if` 可变尾元素谓词形态的 U64 别名 `VEC_TRY_POP_IF_MUT_U64` / `VEC_POP_IF_MUT_U64`，谓词接收尾元素可变指针，keep 路径保留谓词 mutation，take 路径返回 mutation 后的尾值，不声明泛型 `T`、闭包 trait 或 borrow checker 全语义；已完成源码 full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice 的 split-first/split-last U64 命名别名 `VEC_SPLIT_FIRST_U64` / `VEC_SPLIT_FIRST_MUT_U64` / `VEC_SPLIT_LAST_U64` / `VEC_SPLIT_LAST_MUT_U64`，复用现有 try 形态并覆盖 empty miss 与 mut 指针写回，不声明泛型 `T` 或 borrow checker 全语义；已完成源码 focused/full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice 的 first_mut/last_mut U64 指针别名 `VEC_TRY_FIRST_MUT_U64` / `VEC_FIRST_MUT_U64` / `VEC_TRY_LAST_MUT_U64` / `VEC_LAST_MUT_U64`，覆盖 empty null pointer 与非空写回路径，不声明泛型 `T` 或 borrow checker 全语义；已完成源码 focused/full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec unchecked U64 命名别名 `VEC_GET_UNCHECKED_U64` / `VEC_GET_UNCHECKED_MUT_PTR_U64`，只声明调用者保证 in-bounds 的 unsafe alias 表面并覆盖 in-bounds value 读取与 mutable pointer 写回，不声明越界安全、泛型 `T` 或 borrow checker 全语义；已完成源码 focused/full String/Vec 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice 的 chunk 命名别名 `VEC_SPLIT_FIRST_CHUNK_U64` / `VEC_FIRST_CHUNK_U64` / `VEC_FIRST_CHUNK_MUT_U64` / `VEC_SPLIT_FIRST_CHUNK_MUT_U64` / `VEC_SPLIT_LAST_CHUNK_U64` / `VEC_SPLIT_LAST_CHUNK_MUT_U64` / `VEC_LAST_CHUNK_U64` / `VEC_LAST_CHUNK_MUT_U64`，复用现有 try 形态并覆盖 hit/miss/zero 与 mut slice 写回，不声明 const-generic array reference、泛型 `T` 或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice 的 split/range 命名别名 `VEC_SPLIT_AT_U64` / `VEC_TRY_SPLIT_AT_MUT_U64` / `VEC_SPLIT_AT_MUT_U64` / `VEC_SPLIT_AT_CHECKED_U64` / `VEC_SPLIT_AT_MUT_CHECKED_U64` / `VEC_RANGE_U64` / `VEC_GET_RANGE_U64` / `VEC_GET_RANGE_MUT_U64`，复用现有 slice 形态并覆盖 hit/miss 与 mutable slice 写回，不声明 Rust panic 语义、泛型 `T` 或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec unchecked split/range U64 别名 `VEC_SPLIT_AT_UNCHECKED_U64` / `VEC_SPLIT_AT_MUT_UNCHECKED_U64` / `VEC_RANGE_UNCHECKED_U64` / `VEC_GET_RANGE_UNCHECKED_U64` / `VEC_GET_RANGE_MUT_UNCHECKED_U64`，只声明调用者保证 in-bounds 的 unsafe alias 表面并覆盖 in-bounds slice view 与 mutable slice 写回，不声明越界安全、泛型 `T` 或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice mutation U64 别名 `VEC_SWAP_U64` / `VEC_TRY_SWAP_U64` / `VEC_REVERSE_U64` / `VEC_ROTATE_LEFT_U64` / `VEC_ROTATE_RIGHT_U64` / `VEC_SWAP_WITH_SLICE_U64` / `VEC_FILL_U64`，复用现有 mutable slice 形态并覆盖 swap、miss、reverse、rotate、swap_with_slice 与 fill，不声明泛型 `T`、Rust panic 语义或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec chunk/window access U64 命名别名 `VEC_CHUNK_AT_U64` / `VEC_RCHUNK_AT_U64` / `VEC_RCHUNK_MUT_AT_U64` / `VEC_CHUNK_EXACT_AT_U64` / `VEC_CHUNK_EXACT_MUT_AT_U64` / `VEC_RCHUNK_EXACT_AT_U64` / `VEC_RCHUNK_EXACT_MUT_AT_U64` / `VEC_WINDOW_AT_U64`，复用现有 try 形态并覆盖 chunk/window、reverse chunk、exact chunk、miss 与 mut slice 写回，不声明 lazy iterator object、泛型 `T`、Rust panic 语义或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice copy U64 别名 `VEC_COPY_FROM_SLICE_U64` / `VEC_CLONE_FROM_SLICE_U64` / `VEC_COPY_WITHIN_U64`，复用现有 mutable slice 形态并覆盖等长 copy/clone、长度不匹配 miss、重叠 copy_within 与越界 miss，不声明泛型 `T`、Clone drop 语义、Rust panic 语义或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice select_nth_unstable U64 命名别名 `VEC_SELECT_NTH_UNSTABLE_U64` / `VEC_SELECT_NTH_UNSTABLE_BY_U64` / `VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64`，复用现有 try 形态并覆盖普通、compare、key 三条路径，不声明 Rust panic 语义、泛型 `T: Ord`、comparator/key trait object 或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice binary_search U64 命名别名 `VEC_BINARY_SEARCH_U64`，复用现有 `(ok,index)` 搜索结果形态并覆盖 hit 与 miss 插入点，不声明 Rust `Result<usize,usize>` 对象布局、泛型 `T: Ord`、comparator/key 变体或 borrow checker 全语义；已完成源码 focused/full Slice/Vec/String 测试、完整 `unit-framework`、安装态回归，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 String/str split/strip 命名别名 `STR_STRIP_PREFIX` / `STRING_STRIP_PREFIX` / `STR_STRIP_SUFFIX` / `STRING_STRIP_SUFFIX` / `STR_SPLIT_AT` / `STRING_SPLIT_AT` / `STR_SPLIT_AT_CHECKED` / `STRING_SPLIT_AT_CHECKED` / `STR_SPLIT_ONCE` / `STRING_SPLIT_ONCE` / `STR_RSPLIT_ONCE` / `STRING_RSPLIT_ONCE`，复用现有 `(ok,slice...)` try 形态，不声明 Rust `Option`/tuple 对象布局、泛型 `Pattern` 全覆盖、panic 语义或 borrow checker 全语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 String/str find/rfind 命名别名 `STR_FIND` / `STRING_FIND` / `STR_RFIND` / `STRING_RFIND`，复用现有 `(ok,index)` try 形态，不声明 Rust `Option<usize>` 对象布局、泛型 `Pattern` 全覆盖或 searcher/iterator 对象语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 String/str byte find/rfind 命名别名 `STR_FIND_BYTE` / `STRING_FIND_BYTE` / `STR_RFIND_BYTE` / `STRING_RFIND_BYTE`，复用现有 `(ok,index)` try byte 形态，不声明泛型 `Pattern`、Unicode scalar search、Rust `Option<usize>` 对象布局或 searcher/iterator 对象语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice strip prefix/suffix 命名别名 `VEC_STRIP_PREFIX_U64` / `VEC_STRIP_SUFFIX_U64`，复用现有 `(ok,slice)` checked U64 slice-view 形态，不声明 Rust `Option<&[T]>` 对象布局、泛型 `T: PartialEq`、panic 语义或 borrow checker 全语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 String/str checked range-view 命名别名 `STR_GET_RANGE` / `STRING_GET_RANGE` / `STR_GET_PREFIX` / `STRING_GET_PREFIX` / `STR_GET_SUFFIX` / `STRING_GET_SUFFIX` / `STR_GET_RANGE_TO` / `STRING_GET_RANGE_TO` / `STR_GET_RANGE_FROM` / `STRING_GET_RANGE_FROM` / `STR_GET_RANGE_BETWEEN` / `STRING_GET_RANGE_BETWEEN`，复用现有 `(ok,slice)` UTF-8 boundary checked 形态，不声明 Rust `Option<&str>` 对象布局、range trait object 覆盖、panic 语义或 borrow checker 全语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec split_off 命名别名 `VEC_SPLIT_OFF` / `VEC_SPLIT_OFF_U64`，复用现有 `(ok,Vec)` checked split-off 形态，不声明 Rust panic 语义、allocator-parametric 行为、泛型 `T` 全覆盖或 borrow checker 全语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 checked UTF-8 constructor 命名别名 `STRING_BUF_FROM_UTF8` / `STRING_BUF_FROM_UTF8_VEC` / `STRING_BUF_FROM_VEC_U8` / `STRING_BUF_FROM_BYTES_VEC`，复用现有 `(ok,StringBuf)` 与 `(ok,StringBuf,err_vec)` strict UTF-8 形态，不声明 Rust `Result` / `FromUtf8Error` 对象布局、allocator-parametric 行为或 trait object 全覆盖；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 checked UTF-16 constructor 命名别名 `STRING_BUF_FROM_UTF16_U16` / `STRING_BUF_FROM_UTF16LE` / `STRING_BUF_FROM_UTF16BE`，复用现有 `(ok,StringBuf)` strict UTF-16 形态，不声明 Rust `Result` 对象布局、allocator-parametric 行为或 trait object 全覆盖；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补更贴近 Rust 方法名的 UTF-16 别名 `STRING_BUF_FROM_UTF16` / `STRING_BUF_FROM_UTF16_LOSSY`，复用现有 U16 slice strict/lossy 解码形态，不声明 Rust `Result` 对象布局、allocator-parametric 行为或 trait object 全覆盖；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 checked get_mut U64 指针别名 `VEC_TRY_GET_MUT_PTR_U64` / `VEC_GET_MUT_U64`，复用现有 mutable slice checked pointer helper，命中返回本地 `(ok,ptr)` 且 miss 返回 null pointer，不声明 Rust `Option<&mut T>` 对象布局、泛型 `T` 全覆盖或 borrow checker alias 语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 indexed split/line view 命名别名 `STR_SPLIT_BYTE_AT` / `STRING_SPLIT_BYTE_AT` / `STR_LINE_AT` / `STRING_LINE_AT`，复用现有 `(ok,slice)` checked view 形态，不声明 Rust lazy iterator 对象语义、泛型 `Pattern`、`Option<&str>` 对象布局或 borrow checker 全语义；已完成新增相关源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 unsafe `String::as_mut_vec` 风格本地 metadata pointer 别名 `STRING_BUF_AS_MUT_VEC_PTR`，复用 StringBuf/Vec 三字段布局，不声明 Rust borrow checker alias 规则、UTF-8 mutation invariant enforcement、allocator-parametric 行为或 trait-object 全覆盖；已完成新增相关源码 focused 测试。
+- [x] String as_mut_vec pointer alias 批次已完成安装态同步/回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str byte-view 别名 `STRING_BUF_BYTES`，复用现有 `STRING_BUF_AS_BYTES` 本地 Slice 视图，不声明 Rust lazy `str::Bytes` iterator 对象、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str 谓词/搜索别名 `STRING_BUF_CONTAINS` / `STRING_BUF_STARTS_WITH` / `STRING_BUF_ENDS_WITH` / `STRING_BUF_FIND` / `STRING_BUF_RFIND`，复用现有 str slice helper，不声明 Rust generic `Pattern`、`Option<usize>` 对象布局、searcher/iterator 对象语义、borrow checker alias 规则或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str strip 别名 `STRING_BUF_STRIP_PREFIX` / `STRING_BUF_STRIP_SUFFIX`，复用现有 str slice helper，不声明 Rust generic `Pattern`、`Option<&str>` 对象布局、searcher/iterator 对象语义、borrow checker alias 规则或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str split_once/rsplit_once 别名 `STRING_BUF_SPLIT_ONCE` / `STRING_BUF_RSPLIT_ONCE`，复用现有 str slice helper，不声明 Rust generic `Pattern`、`Option<(&str,&str)>` 对象布局、searcher/iterator 对象语义、borrow checker alias 规则或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str split_at 别名 `STRING_BUF_SPLIT_AT` / `STRING_BUF_SPLIT_AT_CHECKED`，通过 UTF-8 char-boundary checked helper 返回本地 `(ok,left,right)`，不声明 Rust panic 行为、`Option` 对象布局、borrow checker alias 规则或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str checked range view 别名 `STRING_BUF_GET_RANGE` / `STRING_BUF_GET_PREFIX` / `STRING_BUF_GET_SUFFIX` / `STRING_BUF_GET_RANGE_TO` / `STRING_BUF_GET_RANGE_FROM` / `STRING_BUF_GET_RANGE_BETWEEN`，通过 UTF-8 char-boundary checked helper 返回本地 `(ok,slice)`，不声明 Rust `Option<&str>` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str checked range `TRY` 命名别名 `STRING_BUF_TRY_GET_RANGE` / `STRING_BUF_TRY_GET_PREFIX` / `STRING_BUF_TRY_GET_SUFFIX` / `STRING_BUF_TRY_GET_RANGE_TO` / `STRING_BUF_TRY_GET_RANGE_FROM` / `STRING_BUF_TRY_GET_RANGE_BETWEEN`，复用现有 UTF-8 char-boundary checked helper 返回本地 `(ok,slice)`，不声明 Rust `Option<&str>` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str ASCII / char-boundary 查询别名 `STRING_BUF_IS_ASCII` / `STRING_BUF_IS_CHAR_BOUNDARY` / `STRING_BUF_FLOOR_CHAR_BOUNDARY` / `STRING_BUF_CEIL_CHAR_BOUNDARY`，复用现有 str slice helper 返回本地 bool/index 标量，不声明 Rust iterator、Pattern、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str UTF-8 byte/char view 别名 `STRING_BUF_BYTE_LEN` / `STRING_BUF_TRY_BYTE_AT` / `STRING_BUF_IS_UTF8` / `STRING_BUF_CHAR_COUNT` / `STRING_BUF_TRY_CHAR_AT` / `STRING_BUF_TRY_CHAR_AT_BYTE` / `STRING_BUF_TRY_CHAR_RANGE_AT`，复用现有 str slice helper 返回本地 bool/count/codepoint/slice 形态，不声明 Rust lazy iterator、`Option`/`Result` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str byte split / line view 别名 `STRING_BUF_COUNT_BYTE` / `STRING_BUF_SPLIT_BYTE_COUNT` / `STRING_BUF_TRY_SPLIT_BYTE_AT` / `STRING_BUF_SPLIT_BYTE_AT` / `STRING_BUF_LINE_COUNT` / `STRING_BUF_TRY_LINE_AT` / `STRING_BUF_LINE_AT`，复用现有 str slice helper 返回本地 count 或 `(ok,slice)` 形态，不声明 Rust lazy iterator、泛型 `Pattern`、`Option<&str>` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str strip/trim 别名 `STRING_BUF_TRY_STRIP_PREFIX` / `STRING_BUF_TRY_STRIP_SUFFIX` / `STRING_BUF_TRIM_PREFIX` / `STRING_BUF_TRIM_SUFFIX` / `STRING_BUF_TRIM_ASCII_START` / `STRING_BUF_TRIM_ASCII_END` / `STRING_BUF_TRIM_ASCII`，复用现有 str slice helper 返回本地 `(ok,slice)` 或 borrowed slice 形态，不声明 Rust Unicode whitespace trim、泛型 `Pattern`、`Option<&str>` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str find 命名别名 `STRING_BUF_TRY_FIND` / `STRING_BUF_TRY_RFIND` / `STRING_BUF_TRY_FIND_BYTE` / `STRING_BUF_FIND_BYTE` / `STRING_BUF_TRY_RFIND_BYTE` / `STRING_BUF_RFIND_BYTE`，复用现有 str slice helper 返回本地 `(ok,index)`，不声明 Rust lazy searcher、泛型 `Pattern`、`Option<usize>` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str ASCII case-insensitive equality 别名 `STRING_BUF_EQ_IGNORE_ASCII_CASE`，复用现有 str slice helper 返回本地 bool，不声明 Rust Unicode case folding、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `StringBuf` / `str` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 `String` deref-to-str `TRY` split 别名 `STRING_BUF_TRY_SPLIT_ONCE` / `STRING_BUF_TRY_RSPLIT_ONCE` / `STRING_BUF_TRY_SPLIT_AT_CHECKED`，复用现有 str slice helper 返回本地 `(ok,left,right)`，不声明 Rust lazy searcher、泛型 `Pattern`、`Option<(&str,&str)>` 对象布局、panic 行为、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 复审：确认当前 SA facade 仍不是 Rust 全量 API；本批补 Vec deref-to-slice first/last 显式 U64 命名别名 `VEC_FIRST_U64` / `VEC_LAST_U64`，复用现有 front/back helper 返回本地 `u64` 标量，不声明 Rust `Option<&T>` 对象布局、泛型 `T` 全覆盖或 borrow checker alias 语义；已完成新增源码 focused 测试、安装态 focused 回归，并通过 `tools/install.sh --no-shell` 一次性安装；本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 文档复审：同步 `docs/std_missing.md` 中滞后的 Vec implemented 清单，补记当前源码已存在的 default/reference/deref、pointer-range/raw-parts/NonNull/spare-capacity、conversion/cloning、mut-return、retain_mut 以及显式 U64 alias 类别；明确剩余缺口是泛型 `retain`/`retain_mut`、lazy drain/splice iterator 与泛型元素支持，不把当前 U64 子集误标为缺失；本批无运行时代码变更，按用户要求不跑测试套件，仅做 diff/whitespace 审计。
+- [x] `StringBuf` / `str` Rust API parity 文档复审：确认当前源码已存在 `String` deref-to-str split-at `TRY` 命名别名 `STRING_BUF_TRY_SPLIT_AT`，通过现有 `STRING_BUF_SPLIT_AT` 走 UTF-8 char-boundary checked helper 并返回本地 `(ok,left,right)`，不声明 Rust panic 行为、`Option` 对象布局、borrow checker alias 规则、allocator-parametric 行为或 trait-object 全覆盖；本批同步 `docs/std_missing.md` 记录并复跑 focused 源码/安装态测试；无运行时代码变更，按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 文档复审：同步 `docs/std_missing.md` 中滞后的 char mutation 范围说明，确认 `STRING_BUF_TRY_PUSH_CHAR` / `STRING_BUF_PUSH_CHAR` 与 `STRING_BUF_TRY_INSERT_CHAR` / `STRING_BUF_INSERT_CHAR` 已按有效 Unicode scalar 编码为 UTF-8，非法 scalar 不应被记录成已支持；本批无运行时代码变更，按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 文档复审：同步 `docs/std_missing.md` 中滞后的 StringBuf implemented surface，补记当前源码已存在的 default/reference/deref、pointer-range/raw-parts/leak、conversion/cloning、UTF strict/lossy constructors、eager char/string extension/extraction、retain/drain/remove/replace-first-last/index-range 等类别；本批无运行时代码变更，按用户要求不跑全量测试。
+- [x] `StringBuf` Rust API parity 复审：补 `String::make_ascii_uppercase` / `make_ascii_lowercase` 与 `to_ascii_uppercase` / `to_ascii_lowercase` 风格 owned-buffer 宏表面，复用 ASCII slice case mutation helper；只声明 ASCII-only case conversion，不声明 Unicode case folding；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `str` / `String` Rust API parity 复审：补 `str::make_ascii_uppercase` / `make_ascii_lowercase` 与 `to_ascii_uppercase` / `to_ascii_lowercase` 风格宏表面，复用 ASCII slice mutation 与 StringBuf owned-copy helper；只声明 ASCII-only case conversion，不声明 Unicode case folding；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `str` / `String` / `StringBuf` Rust API parity 复审：补 `split_at_mut` / `split_at_mut_checked` 风格命名别名，复用 UTF-8 char-boundary checked split helper 返回本地 `(ok,left,right)` Slice 视图；不声明 Rust panic 行为、`Option` 对象布局或 scoped `&mut str` borrow 语义；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `str` / `String` / `StringBuf` Rust API parity 复审：补当前 Rust nightly-only `ascii_char` 的 `as_ascii` / `as_ascii_unchecked` 风格命名别名，复用现有 ASCII slice checked/unchecked view helpers；checked 形态返回本地 `(ok,slice)`，unchecked 形态保持原指针/长度，不声明 Rust `Option<&[AsciiChar]>` 对象布局、typed ASCII slice reference、unsafe type-state 或稳定 API 覆盖；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `str` / `String` Rust API parity 复审：补 `str::as_mut_ptr` 风格命名别名 `STR_AS_MUT_PTR` / `STRING_AS_MUT_PTR`，复用现有 byte pointer view；只返回 raw pointer，不声明 Rust scoped `&mut str` borrow、alias 保证或 UTF-8 mutation invariant enforcement；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `Vec` Rust API parity 复审：补当前 Rust nightly-only `vec_peek_mut` 的 `VEC_PEEK_MUT` / `VEC_PEEK_MUT_U64` 命名别名，复用现有 `VEC_TRY_PEEK_MUT*` raw-pointer helper；返回本地 `(ok,ptr)`，空 vec 返回 null pointer，不声明 Rust `Option<&mut T>`、peek guard、泛型 `T` 或 borrow checker alias 语义；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] `str` / `String` Rust API parity 复审：补 `str::from_utf8` / `from_utf8_mut` / unchecked 风格 borrowed view 命名别名 `STR_TRY_FROM_UTF8` / `STR_FROM_UTF8` / `STR_TRY_FROM_UTF8_MUT` / `STR_FROM_UTF8_MUT` / `STR_FROM_UTF8_UNCHECKED` / `STR_FROM_UTF8_UNCHECKED_MUT` 及匹配 `STRING_*` 别名；checked 形态返回本地 `(ok,slice)`，非法 UTF-8 返回空 slice，unchecked 形态保持原指针/长度；不声明 Rust `Result<&str, Utf8Error>`、`Result<&mut str, Utf8Error>`、unsafe type-state 或 borrow checker 语义；已完成新增 focused 源码/安装态测试，本批按用户要求不跑全量测试。
+- [x] str/String/STRING_BUF slice-needle split/matches 视图批次已补齐 `STR_SPLIT_NEEDLE_COUNT` / `STRING_SPLIT_NEEDLE_COUNT` / `STRING_BUF_SPLIT_NEEDLE_COUNT`、`STR_SPLIT_NEEDLE_TERM_COUNT` / `STRING_SPLIT_NEEDLE_TERM_COUNT` / `STRING_BUF_SPLIT_NEEDLE_TERM_COUNT`、`STR_MATCHES_NEEDLE_COUNT` / `STRING_MATCHES_NEEDLE_COUNT` / `STRING_BUF_MATCHES_NEEDLE_COUNT`，以及 caller-indexed `*_TRY_SPLIT_NEEDLE_AT` / `*_SPLIT_NEEDLE_AT` 与 `*_TRY_MATCHES_NEEDLE_AT` / `*_MATCHES_NEEDLE_AT` `Slice` 视图；复用 `STR_COUNT` 非重叠扫描，返回 `(ok, Slice)` 而非 Rust lazy 迭代器。
+- [x] str/String slice-needle split/matches 批次已完成源码、focused/full `std_string_macro_surface.sa` 测试，并通过 `tools/install.sh --no-shell` 一次性安装。
+- [x] str/String/STRING_BUF reverse slice-needle split/matches 视图批次已补齐 `STR_RSPLIT_NEEDLE_COUNT` / `STRING_RSPLIT_NEEDLE_COUNT` / `STRING_BUF_RSPLIT_NEEDLE_COUNT`、`STR_RMATCHES_NEEDLE_COUNT` / `STRING_RMATCHES_NEEDLE_COUNT` / `STRING_BUF_RMATCHES_NEEDLE_COUNT`，以及 caller-indexed `*_TRY_RSPLIT_NEEDLE_AT` / `*_RSPLIT_NEEDLE_AT` 与 `*_TRY_RMATCHES_NEEDLE_AT` / `*_RMATCHES_NEEDLE_AT` `Slice` 视图；reverse 视图通过计算 forward caller index (`count - 1 - reverse_index`) 并委托现有 forward `*_TRY_SPLIT_NEEDLE_AT` / `*_TRY_MATCHES_NEEDLE_AT` 实现，返回 `(ok, Slice)` 而非 Rust lazy `RSplit` / `RMatches` 迭代器。
+- [x] str/String reverse slice-needle split/matches 批次已完成源码、focused `std_string_macro_surface.sa` 测试，并通过 `tools/install.sh --no-shell` 同步至 `/home/vscode/.sa/std`；未声明 `rsplit_terminator`、`splitn`/`rsplitn` 有限计数变体。
+- [ ] 下一轮继续按最高优先级复审 String/Vec 可支撑缺口；若没有可诚实表达的小批次，再回到更大 Linux-only `std` facade 缺口。
+
 > **实施准则**：所有任务实现必须遵循 `docs/design.md` 中的架构规范；`docs/requirements.md` 是需求口径。
 > - **工业级性能 (P0)**：[`docs/design.md §1.10`](docs/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
 > - **宏驱动高级特性**：[`docs/design.md §1.4`](docs/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)
@@ -31,6 +349,7 @@
   - [x] P0.5b-memslot：LLVM-C 后端将 SA 可变寄存器固化为按函数实际 slot 数分配的 entry `i64` mem-slot，消除分支/循环合流处的 SSA dominance 错误；`sort_probe` / `hashmap_probe` / `hashset_probe` / `once_probe` / `mpsc_probe` 已通过纯 `.sa.bc` native smoke 且不生成 `.ll`。
   - [x] P0.5b-debug-min：LLVM-C 后端在纯 `.sa.bc` 流中写入最小 DWARF metadata（compile unit / subprogram / instruction location）；`build-exe -g` 通过，`llvm-bcanalyzer-14` 可见 `llvm.dbg.cu`，且未生成 `.ll`。
   - [x] P0.5b-bitcode-reader：修正 LLVM-C sys argv runtime 的 typed-pointer GEP，`demos/support/sys_runtime_probe.sa` 生成的 `.sa.bc` 可被 `llvm-dis-14` 严格反汇编，native 运行输出 `ok`，且未生成 `.ll`。
+  - [x] P0.5b-sab-v3-metadata：SAB v3 保留 LLVM-C 后端需要的 raw instruction text、atomic operand text、native register names、package/upstream metadata 和 verifier-derived function register ids；插件桥接编码前先 verify flattened input，decoded SAB 可作为 `sa test/build-exe` 输入而不丢 SA 语义元数据。
   - [x] P0.5b-debug-vars：LLVM-C 后端在 debug 模式下为函数参数和 SA slot alloca 写入 `llvm.dbg.declare` / `DILocalVariable`；`build-exe -g` 产物可被 `llvm-dis-14` 反汇编并可见变量元数据，native 运行输出 `21`，且未生成 `.ll`。
   - [x] P0.5b-wasm-sys-e2e：`tests/cli_smoke.zig` 已将 `sys_runtime_probe.sa` 扩展为 native + wasm32-WASI 双轨验收，覆盖 argv、文件读写、打印、退出码、`.wasm.sa.bc` 产物和 Node/WASI 运行，且未生成 `.ll`。
   - [x] P0.5b-wasm-demo-matrix：新增独立 `zig build wasm-matrix` rosetta/support native + wasm32-WASI 等价矩阵，覆盖 110 个 demo：基础 print/control-flow/struct/array/slice/string/loop/while/break/nested-loop/factorial/fibonacci、mutability/box/reference/move/borrow/refcount/resource、常量结构体、Option、generic、method、associated fn、enum/match/tuple/destructuring/tagged union、iterator map/filter/fold、module/import/export/config、cache/mem fill/queue、router/parser/serializer、service/pipeline/graph/component、metrics/workflow/kv/sql/blob/sync/scheduler、protocol/text/job/db/query/log/build/release、state/event/channel/actor/async/counter、fallible `?`/Result、vtable/trait object、callback contract、sort/hashmap/hashset/once/mpsc；修正 wasm32 vtable 8 字节槽宽 ABI，补 `sa_time_sleep_ns` fallible weak fallback，并补 LLVM-C `struct_` 常量字节展开；验证通过且主线不保留文本 LLVM 产物路径，同时从巨大的 `cli_smoke` 拆出，避免单项 matrix 重新编译整套 CLI smoke。
@@ -869,45 +1188,20 @@ sa/
   - 保留 `--via-zigcc` 开关以便对比回归
   - 更新白皮书与 design 文档中的 WASM 章节
 
-- [ ] 21b. `#mode compact` 紧凑糖前处理器（R24）
+- [x] 21b. `#mode compact` 紧凑糖前处理器（R24）— **由外部 SLA 插件替代，主线不再实现**
 
-  - [ ] 21b.1 在 Flattener 前端（行分类器之前）新增 mode 解析阶段
-    - 扫描首个顶层声明之前的 `#mode` 伪指令
-    - 出现次数 > 1 或位置错误 → `Trap: InvalidModeDirective`
-    - _Requirements: R24.1, R24.6_
+  > **📌 2026-07-01 更新：`#mode compact` 已被外部 SLA 插件（`sa_plugin_sla`）取代。**
+  > SLA 提供了完整的 Rust 风格语言前端（泛型、模式匹配、trait、枚举、闭包、完整表达式解析等），编译到 SA-ASM。
+  > SA 核心主线不再实现 `#mode compact`。以下子任务全部标记为已完成（由 SLA 替代实现）。
+  > 详见 `~/projects/sa_plugins/sa_plugin_sla`。
 
-  - [ ] 21b.2 8 条中缀形态白名单正则匹配器
-    - 严格匹配 `^(\w+)\s*=\s*(\w+|-?\d+)\s*([+\-*/%&|^])\s*(\w+|-?\d+)\s*$`
-    - 以及一元 `^(\w+)\s*=\s*-(\w+|-?\d+)\s*$` → `neg`
-    - 命中即做单行纯文本替换 → 关键字形态
-    - 多操作符（`a + b * c`）→ `Trap: CompactMultipleInfix`
-    - _Requirements: R24.2, R24.3_
-
-  - [ ] 21b.3 未启用 `#mode compact` 时的严格拒绝
-    - 源码中出现 `+` `-` `*` `/` `%` 作为中缀算术 → `Trap: InfixSugarDisabled`
-    - 注意：`^` 作为所有权前缀、`&` 作为借用前缀、`*` 作为裸指针前缀不受此规则影响
-    - _Requirements: R24.5_
-
-  - [ ] 21b.4 Trap 报告 `original_text` 字段扩展
-    - 若糖被展开，Trap 的 `source_line` 指向原始行，`original_text` 保留糖形式（如 `d = a + b`）
-    - LLM 可用此字段反向定位并修复
-    - _Requirements: R24.7_
-
-  - [ ]* 21b.5 **Property 30 (NEW)**：紧凑糖语义等价性
-    - 生成器：随机合法 SA 代码（关键字形态）→ 同构转为紧凑形态 → 分别跑 Flattener
-    - 断言：两次产出的 `Instruction[]` 逐字段深度相等（即糖仅影响源码文本层）
-    - 最少 100 次迭代
-    - _Requirements: R24.4_
-
-  - [ ]* 21b.6 非法糖用例基线
-    - 10 个黄金用例：多操作符、有符号除写成 `/`、`&&`/`||`、`==`、链式、优先级错误预期
-    - 每个都必须产出对应 Trap
-    - _Requirements: R24.3, R24.5, R24.9_
-
-  - [ ] 21b.7 白皮书章节追加
-    - 在 `docs/whitepaper.md` 新增"附录 F：紧凑糖 v0.2"章节
-    - 3–5 行代码片段演示关键字/紧凑两种写法的等价性
-    - _Requirements: R23.2 (扩展)_
+  - [x] 21b.1 ~~在 Flattener 前端新增 mode 解析阶段~~ — 由 SLA parser.zig 的完整词法/语法解析替代
+  - [x] 21b.2 ~~8 条中缀形态白名单正则匹配器~~ — 由 SLA 的完整 Pratt 解析器替代（支持完整优先级和比较操作符）
+  - [x] 21b.3 ~~未启用 `#mode compact` 时的严格拒绝~~ — 由 SLA 编译器自动处理，不接受 SA 中缀糖
+  - [x] 21b.4 ~~Trap 报告 `original_text` 字段扩展~~ — SLA 使用自己的诊断框架
+  - [x] 21b.5 ~~Property 30：紧凑糖语义等价性~~ — 由 SLA 的 lowerer 等价性保证替代
+  - [x] 21b.6 ~~非法糖用例基线~~ — 由 SLA 的错误诊断替代
+  - [x] 21b.7 ~~白皮书章节追加~~ — SLA 有自己的独立文档 `~/projects/sa_plugins/sa_plugin_sla/README.md`
 
 ---
 
@@ -1687,7 +1981,9 @@ sa/
 - [x] 45. 登记 SA 端契约骨架（仅文件骨架，不接入 build）
   - [x] 45.1 创建 `sa_std/netx.sai`：7 条 `@extern` 声明
   - [x] 45.2 创建 `sa_std/netx.sal`：`Ticket_*` 偏移 + `NetxProto_*` 枚举
-  - [x] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件
+  - [x] 45.3 创建 `sa_std/netx.sa`：`@import` 上面两个文件 + `NETX_*` 宏层
+    - 说明（2026-07-03）：`netx.sa` 已从裸 `@import` 扩为完整宏层：7 条 extern 薄封装（`NETX_INIT/LISTEN/SHUTDOWN/RECV_TICKET/PUSH_OUTBOUND/BROADCAST/CLOSE_SLOT`）+ Ticket 字段直读（`NETX_TICKET_SLOT_ID/OP_CODE/PROTO/FLAGS/PAYLOAD/PAYLOAD_LEN`）+ 便利宏（`NETX_TICKET_HEADER` / `NETX_TICKET_IS_OP`）。`netx.sal` 补齐 `SA_NETX_*` 状态码、`NETX_OP_*`、`NETX_FLAG_*` 常量（镜像 runtime）。`netx.sai` 返回类型由 `i32!` 修正为 `i32`（实现返回 plain 状态码，非 error-union）。SA 单测 `tests/unit_framework/std_netx_macro_surface.sa` 覆盖 Ticket 字段偏移/宽度直读，`unit-framework` 全套件通过。
+    - 关键修复：`sa_netx_*` 7 函数原为 `pub fn`（无 C-ABI 导出）且 `sa_net_uring.zig` 从未被 SA 链接的 runtime 根 `sa_std.zig` 引入 → SA 程序调用会链接失败。已改为 `pub export fn` 并在 `sa_std.zig` comptime 强引用块加入 `sa_net_uring.zig`（与 http2/tls/dtls/quic 同手法）。`nm libsa_std.so` 确认 7 个 `sa_netx_*` 均为 `T`（已定义）。
   - _Requirements: R35.10_
 
 ### M1：物理基座（W1–W3）

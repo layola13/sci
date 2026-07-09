@@ -251,7 +251,7 @@
 - SAX Phase 2 复核结论：外部插件有 `lowerer emits lifecycle hooks for docs phase 2 shapes`、`lowerer emits selective render for state writes`、`lowerer emits router metadata and init when pages are present` 等测试，已支撑当前已勾的 79.1/79.2、80.1/80.2、81.1/81.2。剩余 80.3、81.3、82.2、82.3 不满足：未见 hook 无参无返签名校验测试，router 只有 metadata/init 而非 route change mount/unmount，dev server 代码是 mtime 轮询而非 inotify/kqueue，也没有 WASM 热替换保留 SA 状态的测试。
 - pkg 复核结论：外部 pkg 插件测试再次通过 25/25。仍不能补勾的原因不变：35.5 只证明预编译产物拒绝，未证明重复导出和版本冲突；35d.2/35f.5 只有 lock helper 幂等和源码变化清理，不是端到端跳审判/重弹；35e.9 的 CI 测试只覆盖单信号/双轨子集，不是四种信号非空交集 PBT 和 stdin 全拒绝；35e.4/35f.9 仍缺运行时红字不可被 `--release` 移除的证据。
 - 8.22 Agent-First 复核结论：`sa explain` / `sa fix --plan` / `sa skills` 与 CLI JSON 诊断已有测试和实现，但任务文本明确还要求 trap 侧稳定 `SA-XXX` 错误码与统一 trap 词表；当前 trap JSON 是 `trap_code` 数字与 `repair` 对象，`docs/errorcode.md` 仍标注多项 roadmap-only。因此 8.22 继续保持未勾。
-- VTable / `.sal` / debug / compact mode 复核结论：`VTableSignatureMismatch`、`SnapshotVersionMismatch`、`GasExceeded` 仍在 `docs/errorcode.md` 标注为 roadmap-only 或未完全接线；`.sal` 后续缺版本冲突、版本递增 CI、影响扫描；`#mode compact` 仍只见文档和 trap `original_text` 字段，未见前处理器语义与非法糖基线；WASM atomics/SIMD/WASI 仍由 `src/emit_wasm/opcodes.zig` 明确返回 unsupported。
+- VTable / `.sal` / debug / compact mode 复核结论：`VTableSignatureMismatch`、`SnapshotVersionMismatch`、`GasExceeded` 仍在 `docs/errorcode.md` 标注为 roadmap-only 或未完全接线；`.sal` 后续缺版本冲突、版本递增 CI、影响扫描；`#mode compact` 仍只见文档和 trap `original_text` 字段，未见前处理器语义与非法糖基线；WASM atomics/SIMD/WASI 仍由 `src/emit_wasm/opcodes.zig` 明确返回 unsupported。（**2026-07-01 更新：`#mode compact` 已被外部 SLA 插件 `sa_plugin_sla` 替代，SA 主线不再实现。**）
 - 机械一致性检查：未发现“父项未勾但所有直接子项已勾”的结构性遗漏。剩余未勾项旁边的“已/通过/覆盖”描述均为部分实现说明、反证说明或覆盖范围不足的宽项，按当前严格口径不能据此补勾。
 
 ## Continuation Pass 6 2026-06-01

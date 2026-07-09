@@ -1,6 +1,92 @@
 @import "sa_std/io.sa"
 @import "sa_std/testing/assert.sai"
 
+@test "sa_std io stdio raw fd macro surface"():
+L_ENTRY:
+    EXPAND IO_STDIN stdin_handle
+    EXPAND IO_STDOUT stdout_handle
+    EXPAND IO_STDERR stderr_handle
+    EXPAND IO_STDIN_AS_RAW_FD stdin_raw_status, stdin_raw_fd
+    EXPAND IO_STDOUT_AS_RAW_FD stdout_raw_status, stdout_raw_fd
+    EXPAND IO_STDERR_AS_RAW_FD stderr_raw_status, stderr_raw_fd
+
+    stdin_handle_ok = eq stdin_handle, 1
+    stdout_handle_ok = eq stdout_handle, 2
+    stderr_handle_ok = eq stderr_handle, 3
+    stdin_status_ok = eq stdin_raw_status, SA_IO_OK
+    stdout_status_ok = eq stdout_raw_status, SA_IO_OK
+    stderr_status_ok = eq stderr_raw_status, SA_IO_OK
+    stdin_fd_ok = eq stdin_raw_fd, 0
+    stdout_fd_ok = eq stdout_raw_fd, 1
+    stderr_fd_ok = eq stderr_raw_fd, 2
+    ok01 = and stdin_handle_ok, stdout_handle_ok
+    ok02 = and ok01, stderr_handle_ok
+    ok03 = and ok02, stdin_status_ok
+    ok04 = and ok03, stdout_status_ok
+    ok05 = and ok04, stderr_status_ok
+    ok06 = and ok05, stdin_fd_ok
+    ok07 = and ok06, stdout_fd_ok
+    ok = and ok07, stderr_fd_ok
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !stderr_fd_ok
+    !stdout_fd_ok
+    !stdin_fd_ok
+    !stderr_status_ok
+    !stdout_status_ok
+    !stdin_status_ok
+    !stderr_handle_ok
+    !stdout_handle_ok
+    !stdin_handle_ok
+    !stderr_raw_fd
+    !stdout_raw_fd
+    !stdin_raw_fd
+    !stderr_raw_status
+    !stdout_raw_status
+    !stdin_raw_status
+    !stderr_handle
+    !stdout_handle
+    !stdin_handle
+    panic(10025)
+
+L_OK:
+    !ok
+    !ok07
+    !ok06
+    !ok05
+    !ok04
+    !ok03
+    !ok02
+    !ok01
+    !stderr_fd_ok
+    !stdout_fd_ok
+    !stdin_fd_ok
+    !stderr_status_ok
+    !stdout_status_ok
+    !stdin_status_ok
+    !stderr_handle_ok
+    !stdout_handle_ok
+    !stdin_handle_ok
+    !stderr_raw_fd
+    !stdout_raw_fd
+    !stdin_raw_fd
+    !stderr_raw_status
+    !stdout_raw_status
+    !stdin_raw_status
+    !stderr_handle
+    !stdout_handle
+    !stdin_handle
+    return
+
 @test "sa_std io error and slice utility macros"():
 L_ENTRY:
     EXPAND IO_ERROR_KIND_FROM_STATUS kind_eof, SA_IO_ERR_EOF

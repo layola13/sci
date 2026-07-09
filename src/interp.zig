@@ -626,6 +626,19 @@ const FunctionRange = struct {
     }
 };
 
+const FunctionSymbolLookup = struct {
+    symbols: *const symbol.SymbolTable,
+    fsig: *const sig.FunctionSig,
+
+    pub fn lookupName(self: FunctionSymbolLookup, id: u32) ?[]const u8 {
+        const slot_index: usize = @intCast(id);
+        if (slot_index < self.fsig.reg_ids.len) {
+            return self.symbols.lookupName(self.fsig.globalId(id));
+        }
+        return self.symbols.lookupName(id);
+    }
+};
+
 const Interpreter = struct {
     allocator: std.mem.Allocator,
     program: *const referee.VerifyOk,
@@ -751,7 +764,7 @@ const Interpreter = struct {
                 else => continue,
             }
 
-            var parsed = call.parseCall(self.allocator, item.base.raw_text) catch |err| switch (err) {
+            var parsed = call.parseInstructionCall(self.allocator, item.base, &self.program.symbols) catch |err| switch (err) {
                 error.InvalidCallSyntax => continue,
                 else => return err,
             };
@@ -2088,7 +2101,8 @@ const Interpreter = struct {
                     continue;
                 },
                 .call, .call_indirect, .panic, .panic_msg => call_case: {
-                    var parsed = call.parseCall(self.allocator, base.raw_text) catch return RunError.InvalidOperand;
+                    const lookup = FunctionSymbolLookup{ .symbols = &self.program.symbols, .fsig = &fsig };
+                    var parsed = call.parseInstructionCall(self.allocator, base, lookup) catch return RunError.InvalidOperand;
                     defer parsed.deinit(self.allocator);
 
                     if (parsed.is_indirect) {

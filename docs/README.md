@@ -25,6 +25,8 @@
   说明插件作为独立工程交付 `sap.json + .so + .sa + .sai + .sal` 的真实契约、插件依赖、权限声明、ABI smoke、能力发现与当前限制。
 - ⚙️ **[Network Engine Plan (极速网络基座)](./network_engine_plan.md)**  
   详述 `sa_net_uring` 如何通过 io_uring 和零拷贝实现 10 万并发无开销。
+- 🔗 **[Network Protocol Bindings Sinking (网络协议 binding 下沉)](./net_bindings_sink.md)**  
+  HTTP/2 (nghttp2) / TLS-server / DTLS (OpenSSL) / QUIC / HTTP/3 真后端从 `sa_plugin_node` 下沉到 `sci` runtime 与 `sa_std` ABI/宏的分级进展、真机状态与严格单测证明。
 - 💻 **[Multi-Platform Architecture (全平台架构)](./multi_platform_architecture.md)**  
   PAL 抽象层设计，支持 Windows IOCP 与 macOS kqueue。
 

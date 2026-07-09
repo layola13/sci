@@ -30,6 +30,7 @@ pub const EmitOptions = struct {
     function_task_index: ?usize = null,
     dce: DceMode = .std,
     std_root: ?[]const u8 = null,
+    selected_test_names: []const []const u8 = &.{},
 };
 
 const std = @import("std");

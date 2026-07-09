@@ -292,6 +292,23 @@ pub fn build(b: *std.Build) void {
     const cli_skills_smoke_step = b.step("cli-skills-smoke", "Run the sa skills focused CLI smoke tests");
     cli_skills_smoke_step.dependOn(&run_cli_skills_smoke.step);
 
+    const workspace_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    workspace_smoke_module.addImport("saasm", lib_module);
+    workspace_smoke_module.addOptions("build_options", build_options);
+    const workspace_smoke = b.addTest(.{
+        .root_module = workspace_smoke_module,
+        .filters = &.{"workspace install aggregates member manifests at root and pkg install falls back to builtin workspace flow"},
+    });
+    const run_workspace_smoke = b.addRunArtifact(workspace_smoke);
+    run_workspace_smoke.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_workspace_smoke.step);
+    const workspace_smoke_step = b.step("workspace-smoke", "Run workspace package-management smoke tests");
+    workspace_smoke_step.dependOn(&run_workspace_smoke.step);
+
     const pthread_vtable_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,
@@ -409,6 +426,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_sa_std_runtime = b.addRunArtifact(sa_std_runtime);
     run_sa_std_runtime.setCwd(repo_root_lazy);
+    run_sa_std_runtime.step.dependOn(&sync_sa_std_artifact.step);
     test_step.dependOn(&run_sa_std_runtime.step);
     const sa_std_runtime_step = b.step("sa-std-runtime", "Run SA standard runtime integration tests");
     sa_std_runtime_step.dependOn(&run_sa_std_runtime.step);
@@ -428,6 +446,66 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_sa_net_uring_tests.step);
     const sa_net_uring_test_step = b.step("sa-net-uring-test", "Run io_uring network runtime tests");
     sa_net_uring_test_step.dependOn(&run_sa_net_uring_tests.step);
+    const sa_http2_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_http2.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sa_http2_module.addOptions("build_options", build_options);
+    const sa_http2_tests = b.addTest(.{
+        .root_module = sa_http2_module,
+    });
+    const run_sa_http2_tests = b.addRunArtifact(sa_http2_tests);
+    run_sa_http2_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_sa_http2_tests.step);
+    const sa_http2_test_step = b.step("sa-http2-test", "Run HTTP/2 (libnghttp2) runtime tests");
+    sa_http2_test_step.dependOn(&run_sa_http2_tests.step);
+    const sa_tls_server_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_tls_server.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sa_tls_server_module.addOptions("build_options", build_options);
+    const sa_tls_server_tests = b.addTest(.{
+        .root_module = sa_tls_server_module,
+    });
+    const run_sa_tls_server_tests = b.addRunArtifact(sa_tls_server_tests);
+    run_sa_tls_server_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_sa_tls_server_tests.step);
+    const sa_tls_server_test_step = b.step("sa-tls-server-test", "Run TLS-server (OpenSSL) runtime tests");
+    sa_tls_server_test_step.dependOn(&run_sa_tls_server_tests.step);
+    const sa_dtls_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_dtls.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sa_dtls_module.addOptions("build_options", build_options);
+    const sa_dtls_tests = b.addTest(.{
+        .root_module = sa_dtls_module,
+    });
+    const run_sa_dtls_tests = b.addRunArtifact(sa_dtls_tests);
+    run_sa_dtls_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_sa_dtls_tests.step);
+    const sa_dtls_test_step = b.step("sa-dtls-test", "Run DTLS (OpenSSL) runtime tests");
+    sa_dtls_test_step.dependOn(&run_sa_dtls_tests.step);
+    const sa_quic_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_quic.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sa_quic_module.addOptions("build_options", build_options);
+    const sa_quic_tests = b.addTest(.{
+        .root_module = sa_quic_module,
+    });
+    const run_sa_quic_tests = b.addRunArtifact(sa_quic_tests);
+    run_sa_quic_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_sa_quic_tests.step);
+    const sa_quic_test_step = b.step("sa-quic-test", "Run QUIC/HTTP3 runtime capability tests");
+    sa_quic_test_step.dependOn(&run_sa_quic_tests.step);
 
     const sa_term_runtime_module = b.createModule(.{
         .root_source_file = b.path("tests/sa_term_runtime.zig"),
