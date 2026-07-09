@@ -243,6 +243,37 @@ rg -n "START file=tests/unit_framework/feature_suite\\.sa|END   file=tests/unit_
 
 Result: `unit-framework` passed (`5/5 tests passed`). The first grep returned no matches for the old elapsed-only formats or misleading `[unit-framework] FAIL`; the second grep found the new START/END lines.
 
+## 2026-07-09 `wasm-matrix` Slowest Summary
+
+The `wasm-matrix` step now prints an end-of-step summary with aggregate phase totals and top-10 rankings for slow demos and slow phases. This keeps the existing per-demo START/END lines, but avoids manually scanning more than 100 demo records when a run is slow.
+
+Focused verification:
+
+```sh
+tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-matrix-summary2-20260709T084000Z wasm-matrix
+rg -n "\\[wasm-matrix\\] SUMMARY|demo_rank=|phase_rank=" logs/test_steps/wasm-matrix-summary2-20260709T084000Z/01-wasm-matrix.log
+```
+
+Result: pass, `1/1 tests passed`, `elapsed=146.982s` including Zig test rebuild.
+
+Summary from the successful run:
+
+```text
+[wasm-matrix] SUMMARY demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188
+```
+
+Slowest demos:
+
+| Rank | Demo | Elapsed | build-exe |
+| ---: | --- | ---: | ---: |
+| 1 | `demos/rosetta/81_kv_store/main.sa` | 2252ms | 2106ms |
+| 2 | `demos/rosetta/35_iterator_fold/main.sa` | 2236ms | 2154ms |
+| 3 | `demos/rosetta/176_result_flattening/main.sa` | 1780ms | 1680ms |
+| 4 | `demos/rosetta/32_trait_object_vector/main.sa` | 1631ms | 1543ms |
+| 5 | `demos/rosetta/83_blob_chunk/main.sa` | 1589ms | 1497ms |
+
+The top-10 slowest individual phases were all `build-exe`. Current evidence points at repeated SA native build cost as the next optimization target; wasm execution itself was only `8188ms` across all 110 demos.
+
 ## Sample Timings
 
 Command: `tools/pre_push_timed.sh`

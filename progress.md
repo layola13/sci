@@ -2,7 +2,7 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-Current progress: 60% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+Current progress: 65% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
@@ -48,6 +48,13 @@ Current progress: 60% for the active full-test runtime/logging optimization foll
   - Grep verified the three top-level SA execution paths now have START/END lines.
   - Grep verified the old `feature_suite.sa all modes elapsed`, `assert_diag.sa elapsed`, and `mock_io_test.sa elapsed` formats are absent from the log.
 - Overall progress estimate after this feature: `60%` of the full-test runtime/logging optimization follow-up.
+- Feature completed: `wasm-matrix` now prints an end-of-step summary ranking the slowest demos and slowest phases.
+- `tests/wasm_matrix_smoke.zig` now accumulates `demo`, `build-exe`, `native-run`, `build-wasm`, and `wasm-run` timings for every demo and prints aggregate phase totals plus top-10 rankings.
+- Focused verification:
+  - `tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-matrix-summary2-20260709T084000Z wasm-matrix`: pass, `1/1 tests passed`, `elapsed=146.982s` including Zig test rebuild.
+  - Summary output: `demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188`.
+  - The top slow phases were all `build-exe`, with the slowest examples at `2154ms` for `demos/rosetta/35_iterator_fold/main.sa` and `2106ms` for `demos/rosetta/81_kv_store/main.sa`.
+- Overall progress estimate after this feature: `65%` of the full-test runtime/logging optimization follow-up. The next real runtime target is repeated `build-exe` cost inside `wasm-matrix`, not wasm execution.
 
 ## Active: 2026-07-09 logged full-test step runner
 

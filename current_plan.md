@@ -35,7 +35,12 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - Follow-up consistency pass: `feature_suite.sa`, `assert_diag.sa`, and `mock_io_test.sa` now use the same START/END/error shape as the macro surface files.
    - Verification with `logs/test_steps/unit-framework-log3-20260709T083000Z` passed, and grep confirmed the old elapsed-only lines are gone.
    - Overall progress estimate after this consistency pass: `60%` of the full-test runtime/logging optimization follow-up.
-   - Next candidates: evaluate `wasm-matrix` repeated compile phases, then `unit-framework` and the remaining `plugin-host-smoke` runtime. Do not run a full suite until the next large milestone.
+   - Fifth completed feature: `wasm-matrix` slowest-demo and slowest-phase summary output.
+   - `tests/wasm_matrix_smoke.zig` now records per-demo totals and per-phase timings for `build-exe`, `native-run`, `build-wasm`, and `wasm-run`, then prints aggregate phase totals plus top-10 slowest demo and phase rankings at the end of the step.
+   - Focused verification passed with the single `wasm-matrix` step only: `tools/test_steps_timed.sh --heartbeat 15 --timeout 420 --log-dir logs/test_steps/wasm-matrix-summary2-20260709T084000Z wasm-matrix`, `1/1 tests passed`, `elapsed=146.982s`.
+   - Observed matrix body summary: `demos=110 total_demo_ms=103970 build_exe_ms=93156 native_run_ms=502 build_wasm_ms=1711 wasm_run_ms=8188`. The slowest phases are all `build-exe`, so the next runtime work should target repeated SA native build cost rather than wasm execution.
+   - Overall progress estimate after this feature: `65%` of the full-test runtime/logging optimization follow-up.
+   - Next candidates: reduce `wasm-matrix` repeated `build-exe` cost, then revisit remaining `plugin-host-smoke`, `unit-framework`, and `std-smoke` runtime. Do not run a full suite until the next large milestone.
 
 1. Active test logging/timeout diagnostics:
    - `tools/test_steps_timed.sh` is the new diagnostic entry point for the `zig build test` dependency set.
