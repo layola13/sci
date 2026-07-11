@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String escape_default/escape_unicode alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` escape aliases:
+  - `STR_ESCAPE_DEFAULT` / `STRING_ESCAPE_DEFAULT` / `STRING_BUF_ESCAPE_DEFAULT`
+  - `STR_ESCAPE_UNICODE` / `STRING_ESCAPE_UNICODE` / `STRING_BUF_ESCAPE_UNICODE`
+- Semantics: both builders walk UTF-8 scalars with `STR_TRY_CHAR_AT_BYTE`, write each escaped form through the existing char-level `CHAR_ESCAPE_DEFAULT_WRITE` / `CHAR_ESCAPE_UNICODE_WRITE` helpers into a temporary buffer, and append those bytes into an owned `StringBuf`. `escape_default` preserves printable ASCII (except quote/backslash control escapes) and uses special escapes such as `\n` / `\"`; non-printable scalars fall back to lowercase `\u{...}`. `escape_unicode` always emits lowercase `\u{...}` for every scalar. Invalid UTF-8 paths panic in this concrete subset rather than modeling Rust lossy or Result objects. This remains an eager owned-string subset rather than Rust's lazy escape iterators, full `Pattern` machinery, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "escape aliases" --jobs 1 --trace-panic`: pass (`1 passed; 72 skipped`).
+  - Install sync via `./tools/install.sh --no-shell` or installed-std copy of `string.sa`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "escape aliases" --jobs 1 --trace-panic`: pass (`1 passed; 72 skipped`).
+
 ## Completed: 2026-07-09 str/String char_indices alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with a caller-indexed subset of Rust `str::char_indices`.

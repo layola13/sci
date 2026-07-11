@@ -2374,6 +2374,7 @@ sa/
   - `STR_TRIM_END_MATCHES_NEEDLE` / `STRING_TRIM_END_MATCHES_NEEDLE` / `STRING_BUF_TRIM_END_MATCHES_NEEDLE`
   - `STR_TRIM_MATCHES_NEEDLE` / `STRING_TRIM_MATCHES_NEEDLE` / `STRING_BUF_TRIM_MATCHES_NEEDLE`
   - Scope: concrete `&str` needle subset; no claim of generic Rust `Pattern` / char / closure / slice-of-char coverage.
+- [x] str/String/STRING_BUF escape_default/escape_unicode 批次已补齐 `STR_ESCAPE_DEFAULT` / `STRING_ESCAPE_DEFAULT` / `STRING_BUF_ESCAPE_DEFAULT`、`STR_ESCAPE_UNICODE` / `STRING_ESCAPE_UNICODE` / `STRING_BUF_ESCAPE_UNICODE`；按 UTF-8 scalar 扫描并复用 char 级 escape writer，产出 eager owned `StringBuf`，不声明 Rust lazy escape iterator、泛型 Pattern 或 borrow checker lifetime 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---

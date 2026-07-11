@@ -8523,6 +8523,128 @@ L_STR_SPLIT_CHECKED_DONE_%out_ok:
     EXPAND STR_MAKE_ASCII_LOWERCASE %out_ok, %slice_reg
 [END_MACRO]
 
+[MACRO] STR_ESCAPE_DEFAULT %out_string, %slice_reg
+    __str_escape_default_ptr_%out_string = load %slice_reg+Slice_ptr as ptr
+    __str_escape_default_len_%out_string = load %slice_reg+Slice_len as u64
+    __str_escape_default_cap_%out_string = mul __str_escape_default_len_%out_string, 10
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __str_escape_default_cap_%out_string
+    __str_escape_default_idx_slot_%out_string = stack_alloc 8
+    __str_escape_default_tmp_%out_string = stack_alloc 16
+    __str_escape_default_tmp_slice_%out_string = alloc Slice_SIZE
+    store __str_escape_default_idx_slot_%out_string+0, 0 as u64
+    jmp L_STR_ESCAPE_DEFAULT_HEAD_%out_string
+
+L_STR_ESCAPE_DEFAULT_HEAD_%out_string:
+    __str_escape_default_idx_%out_string = load __str_escape_default_idx_slot_%out_string+0 as u64
+    __str_escape_default_done_%out_string = uge __str_escape_default_idx_%out_string, __str_escape_default_len_%out_string
+    br __str_escape_default_done_%out_string -> L_STR_ESCAPE_DEFAULT_DONE_%out_string, L_STR_ESCAPE_DEFAULT_BODY_%out_string
+
+L_STR_ESCAPE_DEFAULT_BODY_%out_string:
+    EXPAND STR_TRY_CHAR_AT_BYTE __str_escape_default_ok_%out_string, __str_escape_default_code_%out_string, __str_escape_default_width_%out_string, %slice_reg, __str_escape_default_idx_%out_string
+    br __str_escape_default_ok_%out_string -> L_STR_ESCAPE_DEFAULT_WRITE_%out_string, L_STR_ESCAPE_DEFAULT_FAIL_%out_string
+
+L_STR_ESCAPE_DEFAULT_WRITE_%out_string:
+    EXPAND CHAR_ESCAPE_DEFAULT_WRITE __str_escape_default_write_ok_%out_string, __str_escape_default_write_len_%out_string, __str_escape_default_tmp_%out_string, 16, __str_escape_default_code_%out_string
+    br __str_escape_default_write_ok_%out_string -> L_STR_ESCAPE_DEFAULT_PUSH_%out_string, L_STR_ESCAPE_DEFAULT_FAIL_%out_string
+
+L_STR_ESCAPE_DEFAULT_PUSH_%out_string:
+    EXPAND SLICE_NEW __str_escape_default_tmp_slice_%out_string, __str_escape_default_tmp_%out_string, __str_escape_default_write_len_%out_string
+    EXPAND STRING_BUF_PUSH_STR %out_string, __str_escape_default_tmp_slice_%out_string
+    __str_escape_default_next_%out_string = add __str_escape_default_idx_%out_string, __str_escape_default_width_%out_string
+    store __str_escape_default_idx_slot_%out_string+0, __str_escape_default_next_%out_string as u64
+    !__str_escape_default_next_%out_string
+    !__str_escape_default_write_len_%out_string
+    !__str_escape_default_write_ok_%out_string
+    !__str_escape_default_width_%out_string
+    !__str_escape_default_code_%out_string
+    !__str_escape_default_ok_%out_string
+    !__str_escape_default_done_%out_string
+    !__str_escape_default_idx_%out_string
+    jmp L_STR_ESCAPE_DEFAULT_HEAD_%out_string
+
+L_STR_ESCAPE_DEFAULT_FAIL_%out_string:
+    panic(1220)
+
+L_STR_ESCAPE_DEFAULT_DONE_%out_string:
+    !__str_escape_default_tmp_slice_%out_string
+    !__str_escape_default_done_%out_string
+    !__str_escape_default_idx_%out_string
+    !__str_escape_default_cap_%out_string
+    !__str_escape_default_len_%out_string
+    !__str_escape_default_ptr_%out_string
+[END_MACRO]
+
+[MACRO] STRING_ESCAPE_DEFAULT %out_string, %slice_reg
+    EXPAND STR_ESCAPE_DEFAULT %out_string, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_ESCAPE_DEFAULT %out_string, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_escape_default_view_%out_string, %string_reg
+    EXPAND STR_ESCAPE_DEFAULT %out_string, __string_buf_escape_default_view_%out_string
+    !__string_buf_escape_default_view_%out_string
+[END_MACRO]
+
+[MACRO] STR_ESCAPE_UNICODE %out_string, %slice_reg
+    __str_escape_unicode_ptr_%out_string = load %slice_reg+Slice_ptr as ptr
+    __str_escape_unicode_len_%out_string = load %slice_reg+Slice_len as u64
+    __str_escape_unicode_cap_%out_string = mul __str_escape_unicode_len_%out_string, 10
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __str_escape_unicode_cap_%out_string
+    __str_escape_unicode_idx_slot_%out_string = stack_alloc 8
+    __str_escape_unicode_tmp_%out_string = stack_alloc 16
+    __str_escape_unicode_tmp_slice_%out_string = alloc Slice_SIZE
+    store __str_escape_unicode_idx_slot_%out_string+0, 0 as u64
+    jmp L_STR_ESCAPE_UNICODE_HEAD_%out_string
+
+L_STR_ESCAPE_UNICODE_HEAD_%out_string:
+    __str_escape_unicode_idx_%out_string = load __str_escape_unicode_idx_slot_%out_string+0 as u64
+    __str_escape_unicode_done_%out_string = uge __str_escape_unicode_idx_%out_string, __str_escape_unicode_len_%out_string
+    br __str_escape_unicode_done_%out_string -> L_STR_ESCAPE_UNICODE_DONE_%out_string, L_STR_ESCAPE_UNICODE_BODY_%out_string
+
+L_STR_ESCAPE_UNICODE_BODY_%out_string:
+    EXPAND STR_TRY_CHAR_AT_BYTE __str_escape_unicode_ok_%out_string, __str_escape_unicode_code_%out_string, __str_escape_unicode_width_%out_string, %slice_reg, __str_escape_unicode_idx_%out_string
+    br __str_escape_unicode_ok_%out_string -> L_STR_ESCAPE_UNICODE_WRITE_%out_string, L_STR_ESCAPE_UNICODE_FAIL_%out_string
+
+L_STR_ESCAPE_UNICODE_WRITE_%out_string:
+    EXPAND CHAR_ESCAPE_UNICODE_WRITE __str_escape_unicode_write_ok_%out_string, __str_escape_unicode_write_len_%out_string, __str_escape_unicode_tmp_%out_string, 16, __str_escape_unicode_code_%out_string
+    br __str_escape_unicode_write_ok_%out_string -> L_STR_ESCAPE_UNICODE_PUSH_%out_string, L_STR_ESCAPE_UNICODE_FAIL_%out_string
+
+L_STR_ESCAPE_UNICODE_PUSH_%out_string:
+    EXPAND SLICE_NEW __str_escape_unicode_tmp_slice_%out_string, __str_escape_unicode_tmp_%out_string, __str_escape_unicode_write_len_%out_string
+    EXPAND STRING_BUF_PUSH_STR %out_string, __str_escape_unicode_tmp_slice_%out_string
+    __str_escape_unicode_next_%out_string = add __str_escape_unicode_idx_%out_string, __str_escape_unicode_width_%out_string
+    store __str_escape_unicode_idx_slot_%out_string+0, __str_escape_unicode_next_%out_string as u64
+    !__str_escape_unicode_next_%out_string
+    !__str_escape_unicode_write_len_%out_string
+    !__str_escape_unicode_write_ok_%out_string
+    !__str_escape_unicode_width_%out_string
+    !__str_escape_unicode_code_%out_string
+    !__str_escape_unicode_ok_%out_string
+    !__str_escape_unicode_done_%out_string
+    !__str_escape_unicode_idx_%out_string
+    jmp L_STR_ESCAPE_UNICODE_HEAD_%out_string
+
+L_STR_ESCAPE_UNICODE_FAIL_%out_string:
+    panic(1221)
+
+L_STR_ESCAPE_UNICODE_DONE_%out_string:
+    !__str_escape_unicode_tmp_slice_%out_string
+    !__str_escape_unicode_done_%out_string
+    !__str_escape_unicode_idx_%out_string
+    !__str_escape_unicode_cap_%out_string
+    !__str_escape_unicode_len_%out_string
+    !__str_escape_unicode_ptr_%out_string
+[END_MACRO]
+
+[MACRO] STRING_ESCAPE_UNICODE %out_string, %slice_reg
+    EXPAND STR_ESCAPE_UNICODE %out_string, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_ESCAPE_UNICODE %out_string, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_escape_unicode_view_%out_string, %string_reg
+    EXPAND STR_ESCAPE_UNICODE %out_string, __string_buf_escape_unicode_view_%out_string
+    !__string_buf_escape_unicode_view_%out_string
+[END_MACRO]
+
 [MACRO] STR_TO_ASCII_UPPERCASE %out_string, %slice_reg
     EXPAND STRING_BUF_FROM_STR %out_string, %slice_reg
     EXPAND STRING_BUF_MAKE_ASCII_UPPERCASE __str_to_ascii_upper_ok_%out_string, %out_string

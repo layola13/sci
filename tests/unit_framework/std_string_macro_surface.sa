@@ -94,6 +94,7 @@
 @const SPLIT_INCL_PART0 = utf8:"a:"
 @const SPLIT_INCL_PART1 = utf8:"b:"
 @const SPLIT_REST = utf8:"b::"
+@const ESCAPE_PLAIN = utf8:"A"
 @const SPLIT_PART2 = utf8:""
 @const SPLIT_PART3 = utf8:""
 @const TERM_HAY = utf8:"a:b:"
@@ -10683,3 +10684,233 @@ L_STR_SPLITN_OK:
     !rsplitn1s_spn
     !rsplitn0u_spn
     return
+
+@test "sa_std string escape aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS plain_esc, &ESCAPE_PLAIN, 1
+    hay_data = stack_alloc 3
+    store hay_data+0, 65 as u8
+    store hay_data+1, 34 as u8
+    store hay_data+2, 10 as u8
+    EXPAND STR_FROM_PARTS hay_esc, hay_data, 3
+    EXPAND STRING_BUF_FROM_STR hay_buf_esc, hay_esc
+
+    EXPAND STR_ESCAPE_DEFAULT def_owned, hay_esc
+    EXPAND STRING_ESCAPE_DEFAULT def_owned_s, hay_esc
+    EXPAND STRING_BUF_ESCAPE_DEFAULT def_owned_b, hay_buf_esc
+    EXPAND STR_ESCAPE_UNICODE uni_owned, plain_esc
+    EXPAND STRING_ESCAPE_UNICODE uni_owned_s, plain_esc
+    EXPAND STRING_BUF_ESCAPE_UNICODE uni_owned_b, hay_buf_esc
+
+    EXPAND STRING_BUF_AS_STR def_view, def_owned
+    EXPAND STRING_BUF_AS_STR def_view_s, def_owned_s
+    EXPAND STRING_BUF_AS_STR def_view_b, def_owned_b
+    EXPAND STRING_BUF_AS_STR uni_view, uni_owned
+    EXPAND STRING_BUF_AS_STR uni_view_s, uni_owned_s
+    EXPAND STRING_BUF_AS_STR uni_view_b, uni_owned_b
+
+    EXPAND STRING_BUF_LEN def_len, def_owned
+    EXPAND STRING_BUF_LEN uni_len, uni_owned
+    EXPAND STRING_BUF_LEN uni_len_b, uni_owned_b
+    EXPAND STRING_BUF_AS_PTR def_ptr, def_owned
+    EXPAND STRING_BUF_AS_PTR uni_ptr, uni_owned
+    EXPAND STRING_BUF_AS_PTR uni_ptr_b, uni_owned_b
+
+    def0 = load def_ptr+0 as u8
+    def1 = load def_ptr+1 as u8
+    def2 = load def_ptr+2 as u8
+    def3 = load def_ptr+3 as u8
+    def4 = load def_ptr+4 as u8
+    uni0 = load uni_ptr+0 as u8
+    uni1 = load uni_ptr+1 as u8
+    uni2 = load uni_ptr+2 as u8
+    uni3 = load uni_ptr+3 as u8
+    uni4 = load uni_ptr+4 as u8
+    uni5 = load uni_ptr+5 as u8
+    unib0 = load uni_ptr_b+0 as u8
+    unib1 = load uni_ptr_b+1 as u8
+    unib2 = load uni_ptr_b+2 as u8
+    unib3 = load uni_ptr_b+3 as u8
+    unib4 = load uni_ptr_b+4 as u8
+    unib5 = load uni_ptr_b+5 as u8
+    unib6 = load uni_ptr_b+6 as u8
+    unib7 = load uni_ptr_b+7 as u8
+    unib8 = load uni_ptr_b+8 as u8
+    unib9 = load uni_ptr_b+9 as u8
+    unib10 = load uni_ptr_b+10 as u8
+    unib11 = load uni_ptr_b+11 as u8
+    unib12 = load uni_ptr_b+12 as u8
+    unib13 = load uni_ptr_b+13 as u8
+    unib14 = load uni_ptr_b+14 as u8
+    unib15 = load uni_ptr_b+15 as u8
+    unib16 = load uni_ptr_b+16 as u8
+
+    EXPAND STR_EQ def_eq_s, def_view, def_view_s
+    EXPAND STR_EQ def_eq_b, def_view, def_view_b
+    EXPAND STR_EQ uni_eq_s, uni_view, uni_view_s
+
+    def_len_ok = eq def_len, 5
+    uni_len_ok = eq uni_len, 6
+    uni_len_b_ok = eq uni_len_b, 17
+    def0_ok = eq def0, 65
+    def1_ok = eq def1, 92
+    def2_ok = eq def2, 34
+    def3_ok = eq def3, 92
+    def4_ok = eq def4, 110
+    uni0_ok = eq uni0, 92
+    uni1_ok = eq uni1, 117
+    uni2_ok = eq uni2, 123
+    uni3_ok = eq uni3, 52
+    uni4_ok = eq uni4, 49
+    uni5_ok = eq uni5, 125
+    unib0_ok = eq unib0, 92
+    unib1_ok = eq unib1, 117
+    unib2_ok = eq unib2, 123
+    unib3_ok = eq unib3, 52
+    unib4_ok = eq unib4, 49
+    unib5_ok = eq unib5, 125
+    unib6_ok = eq unib6, 92
+    unib7_ok = eq unib7, 117
+    unib8_ok = eq unib8, 123
+    unib9_ok = eq unib9, 50
+    unib10_ok = eq unib10, 50
+    unib11_ok = eq unib11, 125
+    unib12_ok = eq unib12, 92
+    unib13_ok = eq unib13, 117
+    unib14_ok = eq unib14, 123
+    unib15_ok = eq unib15, 97
+    unib16_ok = eq unib16, 125
+    def_eq_s_ok = eq def_eq_s, 1
+    def_eq_b_ok = eq def_eq_b, 1
+    uni_eq_s_ok = eq uni_eq_s, 1
+
+    ok = and def_len_ok, uni_len_ok
+    ok = and ok, uni_len_b_ok
+    ok = and ok, def0_ok
+    ok = and ok, def1_ok
+    ok = and ok, def2_ok
+    ok = and ok, def3_ok
+    ok = and ok, def4_ok
+    ok = and ok, uni0_ok
+    ok = and ok, uni1_ok
+    ok = and ok, uni2_ok
+    ok = and ok, uni3_ok
+    ok = and ok, uni4_ok
+    ok = and ok, uni5_ok
+    ok = and ok, unib0_ok
+    ok = and ok, unib1_ok
+    ok = and ok, unib2_ok
+    ok = and ok, unib3_ok
+    ok = and ok, unib4_ok
+    ok = and ok, unib5_ok
+    ok = and ok, unib6_ok
+    ok = and ok, unib7_ok
+    ok = and ok, unib8_ok
+    ok = and ok, unib9_ok
+    ok = and ok, unib10_ok
+    ok = and ok, unib11_ok
+    ok = and ok, unib12_ok
+    ok = and ok, unib13_ok
+    ok = and ok, unib14_ok
+    ok = and ok, unib15_ok
+    ok = and ok, unib16_ok
+    ok = and ok, def_eq_s_ok
+    ok = and ok, def_eq_b_ok
+    ok = and ok, uni_eq_s_ok
+
+    EXPAND STRING_BUF_FREE def_owned
+    EXPAND STRING_BUF_FREE def_owned_s
+    EXPAND STRING_BUF_FREE def_owned_b
+    EXPAND STRING_BUF_FREE uni_owned
+    EXPAND STRING_BUF_FREE uni_owned_s
+    EXPAND STRING_BUF_FREE uni_owned_b
+    EXPAND STRING_BUF_FREE hay_buf_esc
+    !plain_esc
+    !hay_esc
+    !def_view
+    !def_view_s
+    !def_view_b
+    !uni_view
+    !uni_view_s
+    !uni_view_b
+    !def_len
+    !uni_len
+    !uni_len_b
+    !def_ptr
+    !uni_ptr
+    !uni_ptr_b
+    !def0
+    !def1
+    !def2
+    !def3
+    !def4
+    !uni0
+    !uni1
+    !uni2
+    !uni3
+    !uni4
+    !uni5
+    !unib0
+    !unib1
+    !unib2
+    !unib3
+    !unib4
+    !unib5
+    !unib6
+    !unib7
+    !unib8
+    !unib9
+    !unib10
+    !unib11
+    !unib12
+    !unib13
+    !unib14
+    !unib15
+    !unib16
+    !def_eq_s
+    !def_eq_b
+    !uni_eq_s
+    !def_len_ok
+    !uni_len_ok
+    !uni_len_b_ok
+    !def0_ok
+    !def1_ok
+    !def2_ok
+    !def3_ok
+    !def4_ok
+    !uni0_ok
+    !uni1_ok
+    !uni2_ok
+    !uni3_ok
+    !uni4_ok
+    !uni5_ok
+    !unib0_ok
+    !unib1_ok
+    !unib2_ok
+    !unib3_ok
+    !unib4_ok
+    !unib5_ok
+    !unib6_ok
+    !unib7_ok
+    !unib8_ok
+    !unib9_ok
+    !unib10_ok
+    !unib11_ok
+    !unib12_ok
+    !unib13_ok
+    !unib14_ok
+    !unib15_ok
+    !unib16_ok
+    !def_eq_s_ok
+    !def_eq_b_ok
+    !uni_eq_s_ok
+    br ok -> L_STR_ESCAPE_OK, L_STR_ESCAPE_FAIL
+
+L_STR_ESCAPE_FAIL:
+    !ok
+    panic(1040)
+
+L_STR_ESCAPE_OK:
+    !ok
+    return
+

@@ -610,7 +610,7 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 
 ## Next Priority
 
-- Continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch. Natural next candidates are additional byte/slice search aliases, remaining concrete view subsets, or Vec-only gaps that can be represented as eager slice/Vec macros without claiming generic Rust trait-object semantics.
+- Continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch. The str/String escape_default/escape_unicode owned-string batch is complete. Natural next candidates are remaining concrete view subsets such as `encode_utf16` owned buffers, `utf8_chunks`/`substr_range` helpers, or Vec-only gaps that can be represented as eager slice/Vec macros without claiming generic Rust trait-object semantics.
 
 ## Notes
 
