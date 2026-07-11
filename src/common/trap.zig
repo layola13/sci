@@ -593,3 +593,14 @@ test "db trap names and codes are stable" {
     try std.testing.expectEqual(@as(u32, 1031), trapCode(.db_capability_escalation));
     try std.testing.expectEqual(@as(u32, 1042), trapCode(.db_forbidden_sql_string));
 }
+
+// Agent-facing diagnostic explanation surface (all 57 traps).
+// Implemented in trap_agent.zig; re-exported here for callers.
+pub const trap_agent = @import("trap_agent.zig");
+pub const allTraps = trap_agent.allTraps;
+pub const trapStableCode = trap_agent.trapStableCode;
+pub const explainTrap = trap_agent.explainTrap;
+pub const TrapExplanation = trap_agent.TrapExplanation;
+pub const trapFromName = trap_agent.trapFromName;
+pub const trapFromStableCode = trap_agent.trapFromStableCode;
+pub const trapFromNumericCode = trap_agent.trapFromNumericCode;

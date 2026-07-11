@@ -27,6 +27,8 @@ const test_formatter = @import("test_formatter.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
+const daemon_cancel = @import("daemon_cancel.zig");
+const daemon_client = @import("daemon_client.zig");
 const common_signature = @import("common/signature.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 
@@ -712,6 +714,7 @@ const Command = enum {
     explain,
     fix,
     skills,
+    daemon,
     help,
     version,
 };
@@ -1132,6 +1135,7 @@ fn commandName(cmd: Command) []const u8 {
         .explain => "explain",
         .fix => "fix",
         .skills => "skills",
+        .daemon => "daemon",
         .help => "help",
         .version => "version",
     };
@@ -1430,6 +1434,13 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --json                         Emit skills as JSON\n");
             try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .daemon => {
+            try writer.writeAll("usage: sa daemon [--socket path] [--max-workers N]\n\n");
+            try writer.writeAll("Run a persistent compile/verify/test server over a Unix socket.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --socket <path>                Unix socket path (default /tmp/sa-daemon.sock)\n");
+            try writer.writeAll("  --max-workers <N>              Max concurrent request workers (default 8)\n");
         },
         .help => {
             try writer.writeAll("usage: sa help [command]\n\n");
@@ -2351,11 +2362,45 @@ fn writeFixPlanText(writer: anytype, code: []const u8, plan: FixPlan) !void {
     }
 }
 
+fn writeTrapExplanation(writer: anytype, t: trap.Trap, json_mode: bool) !void {
+    const ex = trap.explainTrap(t);
+    const name = trap.trapName(t);
+    const numeric = trap.trapCode(t);
+    if (json_mode) {
+        try writer.writeAll("{\"status\":\"ok\",\"explain\":{\"name\":");
+        try writeJsonString(writer, name);
+        try writer.writeAll(",\"stable_code\":");
+        try writeJsonString(writer, ex.stable_code);
+        try writer.print(",\"numeric_code\":{d},\"summary\":", .{numeric});
+        try writeJsonString(writer, ex.summary);
+        try writer.writeAll(",\"fix_hint\":");
+        try writeJsonString(writer, ex.fix_hint);
+        try writer.writeAll("}}\n");
+    } else {
+        try writer.print("{s} [{s} / {d}]: {s}\n", .{ name, ex.stable_code, numeric, ex.summary });
+        try writer.print("fix: {s}\n", .{ex.fix_hint});
+    }
+}
+
 fn explainCommand(writer: anytype, args: []const []const u8, json_mode: bool) !u8 {
     if (args.len < 3) return error.MissingSourcePath;
     const code = args[2];
+    // Resolve by trap name, stable code (SA-REF-010), or numeric code (1006).
+    // Covers all 57 traps via trap_agent.
+    const maybe_trap = trap.trapFromName(code) orelse trap.trapFromStableCode(code) orelse blk: {
+        const n = std.fmt.parseInt(u32, code, 10) catch break :blk null;
+        break :blk trap.trapFromNumericCode(n);
+    };
+    if (maybe_trap) |t| {
+        try writeTrapExplanation(writer, t, json_mode);
+        return 0;
+    }
     const entry = explainEntryForCode(code) orelse {
-        try writer.print("unknown code: {s}\n", .{code});
+        if (json_mode) {
+            try writer.writeAll("{\"status\":\"error\",\"explain\":null}\n");
+        } else {
+            try writer.print("unknown code: {s}\n", .{code});
+        }
         return 1;
     };
     if (json_mode) {
@@ -3132,6 +3177,135 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
         for (sections) |section| {
             try writeSkillSectionText(writer, section.name, section.summary, section.items);
         }
+    }
+    return 0;
+}
+
+fn daemonWorker(allocator: std.mem.Allocator, conn: std.net.Server.Connection, in_flight: *std.atomic.Value(usize)) void {
+    defer _ = in_flight.fetchSub(1, .monotonic);
+    handleDaemonConnection(allocator, conn);
+}
+
+fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Connection) void {
+    defer conn.stream.close();
+    var read_buf: [65536]u8 = undefined;
+    const n = conn.stream.read(read_buf[0..]) catch return;
+    if (n == 0) return;
+    const request_line = std.mem.trimRight(u8, read_buf[0..n], "\n\r ");
+
+    // Cooperative cancellation: skip work if a newer generation superseded this.
+    const agent_id = daemon_cancel.parseJsonStrField(request_line, "\"agent_id\"") orelse "";
+    const generation = daemon_cancel.parseJsonU64Field(request_line, "\"generation\"") orelse 0;
+    if (agent_id.len != 0) {
+        _ = daemon_cancel.registerGeneration(agent_id, generation);
+        if (!daemon_cancel.generationIsCurrent(agent_id, generation)) {
+            conn.stream.writeAll("{\"status\":\"canceled\"}\n") catch {};
+            return;
+        }
+    }
+
+    const parsed = parseDaemonArgv(allocator, request_line) catch {
+        conn.stream.writeAll("{\"status\":\"error\",\"message\":\"invalid request\"}\n") catch {};
+        return;
+    };
+    defer freeDaemonArgv(allocator, parsed);
+
+    var resp = std.ArrayList(u8).init(allocator);
+    defer resp.deinit();
+    const code: u8 = executeWithWritersAndOptions(allocator, parsed, resp.writer(), resp.writer(), .{}) catch |err| blk: {
+        resp.clearRetainingCapacity();
+        resp.writer().print("execution error: {s}", .{@errorName(err)}) catch {};
+        break :blk @as(u8, 1);
+    };
+
+    var header = std.ArrayList(u8).init(allocator);
+    defer header.deinit();
+    header.writer().print("{{\"status\":\"ok\",\"code\":{d},\"len\":{d}}}\n", .{ code, resp.items.len }) catch return;
+    conn.stream.writeAll(header.items) catch {};
+    conn.stream.writeAll(resp.items) catch {};
+}
+
+fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const []const u8 {
+    // Minimal JSON request: {"argv":["build","file.sa"]}. Extract string items
+    // from the first [...] array.
+    const lb = std.mem.indexOfScalar(u8, request, '[') orelse return error.InvalidRequest;
+    const rb = std.mem.lastIndexOfScalar(u8, request, ']') orelse return error.InvalidRequest;
+    if (rb <= lb) return error.InvalidRequest;
+    const inner = request[lb + 1 .. rb];
+
+    var list = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (list.items) |it| allocator.free(it);
+        list.deinit();
+    }
+    var i: usize = 0;
+    while (i < inner.len) {
+        if (inner[i] != '"') {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        var item = std.ArrayList(u8).init(allocator);
+        errdefer item.deinit();
+        while (i < inner.len and inner[i] != '"') {
+            if (inner[i] == '\\' and i + 1 < inner.len) {
+                i += 1;
+            }
+            try item.append(inner[i]);
+            i += 1;
+        }
+        i += 1; // closing quote
+        try list.append(try item.toOwnedSlice());
+    }
+    return try list.toOwnedSlice();
+}
+
+fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
+    for (argv) |a| allocator.free(a);
+    allocator.free(argv);
+}
+
+fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    var socket_path: []const u8 = "/tmp/sa-daemon.sock";
+    var max_workers: usize = 8;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--socket") and i + 1 < args.len) {
+            socket_path = args[i + 1];
+            i += 1;
+        } else if (std.mem.eql(u8, args[i], "--max-workers") and i + 1 < args.len) {
+            max_workers = std.fmt.parseInt(usize, args[i + 1], 10) catch 8;
+            i += 1;
+        }
+    }
+    std.fs.cwd().deleteFile(socket_path) catch {};
+    const addr = try std.net.Address.initUnix(socket_path);
+    var server = addr.listen(.{}) catch |err| {
+        try stderr.print("daemon: failed to listen on {s}: {s}\n", .{ socket_path, @errorName(err) });
+        return 1;
+    };
+    defer server.deinit();
+    try stdout.print("sa daemon listening on {s} (max_workers={d})\n", .{ socket_path, max_workers });
+
+    var in_flight = std.atomic.Value(usize).init(0);
+    while (true) {
+        const conn = server.accept() catch |err| {
+            try stderr.print("daemon: accept failed: {s}\n", .{@errorName(err)});
+            continue;
+        };
+        // Backpressure: at capacity, handle inline (blocks accept) instead of
+        // spawning unbounded threads. Bounds memory under many agents.
+        if (in_flight.load(.monotonic) >= max_workers) {
+            handleDaemonConnection(allocator, conn);
+            continue;
+        }
+        _ = in_flight.fetchAdd(1, .monotonic);
+        const thread = std.Thread.spawn(.{}, daemonWorker, .{ allocator, conn, &in_flight }) catch {
+            _ = in_flight.fetchSub(1, .monotonic);
+            handleDaemonConnection(allocator, conn);
+            continue;
+        };
+        thread.detach();
     }
     return 0;
 }
@@ -7249,6 +7423,7 @@ pub fn executeWithWritersAndOptions(
         .explain => return try explainCommand(stdout, args, json_mode),
         .fix => return try fixCommand(stdout, args, json_mode),
         .skills => return try skillsCommand(allocator, stdout, json_mode),
+        .daemon => return try daemonCommand(allocator, args[2..], stdout, stderr),
         .init => return try executeInit(allocator, args[2..], stdout),
         .install => return try executeInstall(allocator, args[2..], stdout),
         .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
@@ -7599,6 +7774,7 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
 }
 
 pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
+    if (try daemon_client.tryDaemonClient(allocator, argv, std.io.getStdOut().writer())) |code| return code;
     return executeWithWriters(allocator, argv, std.io.getStdOut().writer(), std.io.getStdErr().writer());
 }
 
