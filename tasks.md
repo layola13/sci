@@ -2386,6 +2386,7 @@ sa/
 - [x] StringBuf try_truncate 批次已补齐 `STRING_BUF_TRY_TRUNCATE`；`new_len > len` 时 no-op 返回 `ok=1`，缩小时要求 UTF-8 char boundary，mid-scalar 返回 `ok=0` 且不修改；不声明 Rust panic-on-boundary 模型；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] str/String/STRING_BUF get_mut range naming 批次已补齐 `*_TRY_GET_RANGE_MUT` / `*_GET_RANGE_MUT`、`*_TRY_GET_PREFIX_MUT` / `*_GET_PREFIX_MUT`、`*_TRY_GET_SUFFIX_MUT` / `*_GET_SUFFIX_MUT`、`*_TRY_GET_RANGE_BETWEEN_MUT` / `*_GET_RANGE_BETWEEN_MUT`；复用现有 checked get-range 边界语义，`STRING_BUF_*` 经 `AS_MUT_STR` 写回；不声明 Rust `Option<&mut str>` 或 exclusive borrow 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] str/String/STRING_BUF get_mut range_to/from naming 批次已补齐 `*_TRY_GET_RANGE_TO_MUT` / `*_GET_RANGE_TO_MUT`、`*_TRY_GET_RANGE_FROM_MUT` / `*_GET_RANGE_FROM_MUT`；复用现有 checked prefix/suffix 边界语义，`STRING_BUF_*` 经 `AS_MUT_STR` 写回；不声明 Rust `Option<&mut str>` 或 exclusive borrow 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归。
+- [x] StringBuf insert_within_capacity 批次已补齐 `STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY` / `STRING_BUF_INSERT_STR_WITHIN_CAPACITY`、`STRING_BUF_TRY_INSERT_BYTE_WITHIN_CAPACITY` / `STRING_BUF_INSERT_BYTE_WITHIN_CAPACITY`、`STRING_BUF_TRY_INSERT_CHAR_WITHIN_CAPACITY` / `STRING_BUF_INSERT_CHAR_WITHIN_CAPACITY`；仅在剩余容量足够且 index 为 char boundary 时原地右移并插入，空插入 no-op，容量不足/mid-scalar/非法 scalar 返回 `ok=0` 且不 realloc；不声明 Rust panic 模型；已完成新增源码 focused 测试、安装态 focused 回归。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---

@@ -3374,6 +3374,149 @@ L_STRING_BUF_INSERT_STR_END_%out_ok:
     EXPAND STRING_BUF_TRY_INSERT_STR %out_ok, %string_reg, %index, %insert_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %insert_slice
+    __string_buf_iswc_len_%out_ok = load %insert_slice+Slice_len as u64
+    __string_buf_iswc_view_%out_ok = & %string_reg
+    __string_buf_iswc_old_len_%out_ok = load __string_buf_iswc_view_%out_ok+Vec_len as u64
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_buf_iswc_remaining_%out_ok, %string_reg
+    __string_buf_iswc_room_ok_%out_ok = uge __string_buf_iswc_remaining_%out_ok, __string_buf_iswc_len_%out_ok
+    br __string_buf_iswc_room_ok_%out_ok -> L_STRING_BUF_ISWC_BOUNDARY_%out_ok, L_STRING_BUF_ISWC_MISS_ROOM_%out_ok
+
+L_STRING_BUF_ISWC_BOUNDARY_%out_ok:
+    EXPAND STRING_BUF_AS_STR __string_buf_iswc_boundary_view_%out_ok, %string_reg
+    EXPAND STR_IS_CHAR_BOUNDARY __string_buf_iswc_boundary_%out_ok, __string_buf_iswc_boundary_view_%out_ok, %index
+    !__string_buf_iswc_boundary_view_%out_ok
+    br __string_buf_iswc_boundary_%out_ok -> L_STRING_BUF_ISWC_EMPTY_CHECK_%out_ok, L_STRING_BUF_ISWC_MISS_BOUNDARY_%out_ok
+
+L_STRING_BUF_ISWC_EMPTY_CHECK_%out_ok:
+    __string_buf_iswc_empty_insert_%out_ok = eq __string_buf_iswc_len_%out_ok, 0
+    br __string_buf_iswc_empty_insert_%out_ok -> L_STRING_BUF_ISWC_EMPTY_HIT_%out_ok, L_STRING_BUF_ISWC_SHIFT_SETUP_%out_ok
+
+L_STRING_BUF_ISWC_EMPTY_HIT_%out_ok:
+    %out_ok = add 0, 1
+    !__string_buf_iswc_empty_insert_%out_ok
+    !__string_buf_iswc_boundary_%out_ok
+    !__string_buf_iswc_room_ok_%out_ok
+    !__string_buf_iswc_remaining_%out_ok
+    !__string_buf_iswc_old_len_%out_ok
+    !__string_buf_iswc_view_%out_ok
+    !__string_buf_iswc_len_%out_ok
+    jmp L_STRING_BUF_ISWC_DONE_%out_ok
+
+L_STRING_BUF_ISWC_SHIFT_SETUP_%out_ok:
+    __string_buf_iswc_ptr_%out_ok = load __string_buf_iswc_view_%out_ok+Vec_ptr as ptr
+    __string_buf_iswc_suffix_len_%out_ok = sub __string_buf_iswc_old_len_%out_ok, %index
+    __string_buf_iswc_pos_slot_%out_ok = stack_alloc 8
+    store __string_buf_iswc_pos_slot_%out_ok+0, __string_buf_iswc_old_len_%out_ok as u64
+    jmp L_STRING_BUF_ISWC_SHIFT_HEAD_%out_ok
+
+L_STRING_BUF_ISWC_SHIFT_HEAD_%out_ok:
+    __string_buf_iswc_pos_%out_ok = load __string_buf_iswc_pos_slot_%out_ok+0 as u64
+    __string_buf_iswc_more_%out_ok = ugt __string_buf_iswc_pos_%out_ok, %index
+    br __string_buf_iswc_more_%out_ok -> L_STRING_BUF_ISWC_SHIFT_BODY_%out_ok, L_STRING_BUF_ISWC_COPY_%out_ok
+
+L_STRING_BUF_ISWC_SHIFT_BODY_%out_ok:
+    __string_buf_iswc_prev_%out_ok = sub __string_buf_iswc_pos_%out_ok, 1
+    __string_buf_iswc_src_i_%out_ok = ptr_add __string_buf_iswc_ptr_%out_ok, __string_buf_iswc_prev_%out_ok
+    __string_buf_iswc_dst_i_%out_ok = ptr_add __string_buf_iswc_src_i_%out_ok, __string_buf_iswc_len_%out_ok
+    __string_buf_iswc_byte_%out_ok = load __string_buf_iswc_src_i_%out_ok+0 as u8
+    store __string_buf_iswc_dst_i_%out_ok+0, __string_buf_iswc_byte_%out_ok as u8
+    store __string_buf_iswc_pos_slot_%out_ok+0, __string_buf_iswc_prev_%out_ok as u64
+    !__string_buf_iswc_byte_%out_ok
+    !__string_buf_iswc_dst_i_%out_ok
+    !__string_buf_iswc_src_i_%out_ok
+    !__string_buf_iswc_prev_%out_ok
+    !__string_buf_iswc_more_%out_ok
+    !__string_buf_iswc_pos_%out_ok
+    jmp L_STRING_BUF_ISWC_SHIFT_HEAD_%out_ok
+
+L_STRING_BUF_ISWC_COPY_%out_ok:
+    __string_buf_iswc_dst_%out_ok = ptr_add __string_buf_iswc_ptr_%out_ok, %index
+    __string_buf_iswc_src_%out_ok = load %insert_slice+Slice_ptr as ptr
+    call @sa_mem_copy(&__string_buf_iswc_dst_%out_ok, &__string_buf_iswc_src_%out_ok, __string_buf_iswc_len_%out_ok)
+    __string_buf_iswc_new_len_%out_ok = add __string_buf_iswc_old_len_%out_ok, __string_buf_iswc_len_%out_ok
+    store __string_buf_iswc_view_%out_ok+Vec_len, __string_buf_iswc_new_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_iswc_new_len_%out_ok
+    !__string_buf_iswc_src_%out_ok
+    !__string_buf_iswc_dst_%out_ok
+    !__string_buf_iswc_more_%out_ok
+    !__string_buf_iswc_pos_%out_ok
+    !__string_buf_iswc_suffix_len_%out_ok
+    !__string_buf_iswc_ptr_%out_ok
+    !__string_buf_iswc_empty_insert_%out_ok
+    !__string_buf_iswc_boundary_%out_ok
+    !__string_buf_iswc_room_ok_%out_ok
+    !__string_buf_iswc_remaining_%out_ok
+    !__string_buf_iswc_old_len_%out_ok
+    !__string_buf_iswc_view_%out_ok
+    !__string_buf_iswc_len_%out_ok
+    jmp L_STRING_BUF_ISWC_DONE_%out_ok
+
+L_STRING_BUF_ISWC_MISS_BOUNDARY_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_iswc_boundary_%out_ok
+    !__string_buf_iswc_room_ok_%out_ok
+    !__string_buf_iswc_remaining_%out_ok
+    !__string_buf_iswc_old_len_%out_ok
+    !__string_buf_iswc_view_%out_ok
+    !__string_buf_iswc_len_%out_ok
+    jmp L_STRING_BUF_ISWC_DONE_%out_ok
+
+L_STRING_BUF_ISWC_MISS_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_iswc_room_ok_%out_ok
+    !__string_buf_iswc_remaining_%out_ok
+    !__string_buf_iswc_old_len_%out_ok
+    !__string_buf_iswc_view_%out_ok
+    !__string_buf_iswc_len_%out_ok
+
+L_STRING_BUF_ISWC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_INSERT_STR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %insert_slice
+    EXPAND STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %insert_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_INSERT_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %index, %byte_value
+    __string_buf_ibwc_tmp_%out_ok = stack_alloc 1
+    store __string_buf_ibwc_tmp_%out_ok+0, %byte_value as u8
+    __string_buf_ibwc_slice_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_ibwc_slice_%out_ok, __string_buf_ibwc_tmp_%out_ok, 1
+    EXPAND STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY %out_ok, %string_reg, %index, __string_buf_ibwc_slice_%out_ok
+    !__string_buf_ibwc_slice_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_INSERT_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %index, %byte_value
+    EXPAND STRING_BUF_TRY_INSERT_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %index, %byte_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_INSERT_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %char_value
+    __string_buf_icwc_tmp_%out_ok = stack_alloc 4
+    EXPAND CHAR_TRY_ENCODE_UTF8 __string_buf_icwc_enc_ok_%out_ok, __string_buf_icwc_width_%out_ok, __string_buf_icwc_tmp_%out_ok, 4, %char_value
+    br __string_buf_icwc_enc_ok_%out_ok -> L_STRING_BUF_ICWC_HIT_%out_ok, L_STRING_BUF_ICWC_MISS_%out_ok
+
+L_STRING_BUF_ICWC_HIT_%out_ok:
+    __string_buf_icwc_slice_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_icwc_slice_%out_ok, __string_buf_icwc_tmp_%out_ok, __string_buf_icwc_width_%out_ok
+    EXPAND STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY %out_ok, %string_reg, %index, __string_buf_icwc_slice_%out_ok
+    !__string_buf_icwc_slice_%out_ok
+    !__string_buf_icwc_width_%out_ok
+    !__string_buf_icwc_enc_ok_%out_ok
+    jmp L_STRING_BUF_ICWC_DONE_%out_ok
+
+L_STRING_BUF_ICWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_icwc_width_%out_ok
+    !__string_buf_icwc_enc_ok_%out_ok
+
+L_STRING_BUF_ICWC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_INSERT_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %char_value
+    EXPAND STRING_BUF_TRY_INSERT_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %char_value
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
     __string_buf_replace_view_%out_ok = & %string_reg
     __string_buf_replace_old_len_%out_ok = load __string_buf_replace_view_%out_ok+Vec_len as u64

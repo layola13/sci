@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf insert_within_capacity alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving insert helpers:
+  - `STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY` / `STRING_BUF_INSERT_STR_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_INSERT_BYTE_WITHIN_CAPACITY` / `STRING_BUF_INSERT_BYTE_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_INSERT_CHAR_WITHIN_CAPACITY` / `STRING_BUF_INSERT_CHAR_WITHIN_CAPACITY`
+- Semantics: insert only when remaining capacity is large enough for the inserted bytes and the insert index is a UTF-8 char boundary. On success, bytes after the index are shifted right in place and the insertion is copied without reallocation. Empty inserts succeed as no-ops. Insufficient room, mid-scalar indices, and invalid scalar char encodings return `ok=0` with no mutation. These helpers do not claim Rust panic-on-capacity/boundary models, `Option` layouts, or allocator-parametric behavior.
+- Validation status:
+  - Source focused minimal harness: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "insert within capacity aliases"`: pass (`1 passed; 86 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 str/String get_mut range_to/from naming alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

@@ -12131,3 +12131,104 @@ L_STR_GET_MUT_TOF_FAIL:
 L_STR_GET_MUT_TOF_OK:
     !ok
     return
+
+@test "sa_std string insert within capacity aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS mid, &INFIX, 2
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY ok_mid, buf, 2, mid
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_AS_STR view1, buf
+    EXPAND STR_AS_PTR p1, view1
+    b0 = load p1+0 as u8
+    b1 = load p1+1 as u8
+    b2 = load p1+2 as u8
+    b3 = load p1+3 as u8
+    b4 = load p1+4 as u8
+    b5 = load p1+5 as u8
+    EXPAND STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY ok_full, buf, 0, mid
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_INSERT_BYTE_WITHIN_CAPACITY ok_byte_full, buf, 1, 120
+    EXPAND STRING_BUF_TRY_INSERT_CHAR_WITHIN_CAPACITY ok_char_full, buf, 1, 121
+
+    EXPAND STRING_BUF_WITH_CAPACITY mbuf, 8
+    EXPAND STR_FROM_PARTS multi, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STRING_BUF_PUSH_STR mbuf, multi
+    EXPAND STRING_BUF_TRY_INSERT_STR_WITHIN_CAPACITY ok_mid_scalar, mbuf, 2, mid
+    EXPAND STRING_BUF_LEN mlen, mbuf
+
+    ok_mid_flag = eq ok_mid, 1
+    len1_ok = eq len1, 6
+    b0_ok = eq b0, 114
+    b1_ok = eq b1, 117
+    b2_ok = eq b2, 117
+    b3_ok = eq b3, 115
+    b4_ok = eq b4, 115
+    b5_ok = eq b5, 116
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 6
+    ok_byte_full_flag = eq ok_byte_full, 0
+    ok_char_full_flag = eq ok_char_full, 0
+    ok_mid_scalar_flag = eq ok_mid_scalar, 0
+    mlen_ok = eq mlen, 8
+
+    ok = and ok_mid_flag, len1_ok
+    ok = and ok, b0_ok
+    ok = and ok, b1_ok
+    ok = and ok, b2_ok
+    ok = and ok, b3_ok
+    ok = and ok, b4_ok
+    ok = and ok, b5_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_byte_full_flag
+    ok = and ok, ok_char_full_flag
+    ok = and ok, ok_mid_scalar_flag
+    ok = and ok, mlen_ok
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE mbuf
+    !hi
+    !mid
+    !multi
+    !view1
+    !ok_mid
+    !len1
+    !p1
+    !b0
+    !b1
+    !b2
+    !b3
+    !b4
+    !b5
+    !ok_full
+    !len2
+    !ok_byte_full
+    !ok_char_full
+    !ok_mid_scalar
+    !mlen
+    !ok_mid_flag
+    !len1_ok
+    !b0_ok
+    !b1_ok
+    !b2_ok
+    !b3_ok
+    !b4_ok
+    !b5_ok
+    !ok_full_flag
+    !len2_ok
+    !ok_byte_full_flag
+    !ok_char_full_flag
+    !ok_mid_scalar_flag
+    !mlen_ok
+    br ok -> L_STR_INSERT_WC_OK, L_STR_INSERT_WC_FAIL
+
+L_STR_INSERT_WC_FAIL:
+    !ok
+    panic(1057)
+
+L_STR_INSERT_WC_OK:
+    !ok
+    return
