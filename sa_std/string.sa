@@ -2818,6 +2818,22 @@ L_STRING_BUF_PCC_DONE_%out_ok:
     EXPAND STRING_BUF_PUSH_CHAR %string_reg, %char_value
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_EXTEND_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+    EXPAND STRING_BUF_TRY_PUSH_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+    EXPAND STRING_BUF_TRY_EXTEND_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+[END_MACRO]
+
 [MACRO] STRING_BUF_EXTEND_STRING %dst_string_reg, %src_string_reg
     EXPAND STRING_BUF_AS_STR __string_buf_extend_string_slice_%dst_string_reg, %src_string_reg
     EXPAND STRING_BUF_PUSH_STR %dst_string_reg, __string_buf_extend_string_slice_%dst_string_reg

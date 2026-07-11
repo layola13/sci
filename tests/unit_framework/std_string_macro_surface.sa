@@ -12233,6 +12233,67 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string extend char byte within capacity aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 4
+    EXPAND STRING_BUF_TRY_EXTEND_BYTE_WITHIN_CAPACITY ok_b1, buf, 97
+    EXPAND STRING_BUF_TRY_EXTEND_BYTE_WITHIN_CAPACITY ok_b2, buf, 98
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_WITHIN_CAPACITY ok_c1, buf, 99
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_WITHIN_CAPACITY ok_smile, buf, 128512
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_EXTEND_BYTE_WITHIN_CAPACITY ok_full, buf, 120
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_WITHIN_CAPACITY ok_bad, buf, 55296
+    EXPAND STRING_BUF_LEN len3, buf
+
+    ok_b1_flag = eq ok_b1, 1
+    ok_b2_flag = eq ok_b2, 1
+    ok_c1_flag = eq ok_c1, 1
+    len1_ok = eq len1, 3
+    ok_smile_flag = eq ok_smile, 0
+    len2_ok = eq len2, 3
+    ok_full_flag = eq ok_full, 1
+    ok_bad_flag = eq ok_bad, 0
+    len3_ok = eq len3, 4
+
+    ok = and ok_b1_flag, ok_b2_flag
+    ok = and ok, ok_c1_flag
+    ok = and ok, len1_ok
+    ok = and ok, ok_smile_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, ok_bad_flag
+    ok = and ok, len3_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !ok_b1
+    !ok_b2
+    !ok_c1
+    !len1
+    !ok_smile
+    !len2
+    !ok_full
+    !ok_bad
+    !len3
+    !ok_b1_flag
+    !ok_b2_flag
+    !ok_c1_flag
+    !len1_ok
+    !ok_smile_flag
+    !len2_ok
+    !ok_full_flag
+    !ok_bad_flag
+    !len3_ok
+    br ok -> L_STR_EXT_CB_WC_OK, L_STR_EXT_CB_WC_FAIL
+
+L_STR_EXT_CB_WC_FAIL:
+    !ok
+    panic(1064)
+
+L_STR_EXT_CB_WC_OK:
+    !ok
+    return
+
 @test "sa_std string extend within capacity aliases"():
 L_ENTRY:
     EXPAND STRING_BUF_WITH_CAPACITY buf, 6

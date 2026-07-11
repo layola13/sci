@@ -4,6 +4,25 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 Vec extend_from_within + StringBuf extend char/byte within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helpers:
+  - `VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64` / `VEC_EXTEND_FROM_WITHIN_CAPACITY_U64`
+  - `STRING_BUF_TRY_EXTEND_CHAR_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_CHAR_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_EXTEND_BYTE_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_BYTE_WITHIN_CAPACITY`
+- Semantics:
+  - Vec extend-from-within capacity checks range bounds and remaining capacity first. On success it copies the selected range through a temporary Vec so self-overlap is safe, then appends without reallocation. Empty ranges succeed as no-ops; out-of-bounds or insufficient room returns `ok=0` with no mutation.
+  - String extend char/byte within capacity are thin aliases over the existing non-reallocating push_char/push_byte within-capacity helpers.
+  - These helpers do not claim Rust panic-on-capacity models, partial append, lazy iterators, or allocator-parametric APIs.
+- Validation status:
+  - Source focused minimal harness `/tmp/efwwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "extend_from_within capacity aliases"`: pass (`1 passed; 34 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "extend char byte within capacity aliases"`: pass (`1 passed; 88 skipped`).
+  - Install sync via installed-std copy of `string.sa` + `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf/Vec extend and append within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

@@ -4006,6 +4006,78 @@ L_VEC_EFSWC_OK:
     !ok
     return
 
+@test "sa_std vec extend_from_within capacity aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 6
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_PUSH_U64 vec, 3
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 ok1, vec, 1, 2
+    EXPAND VEC_LEN len1, vec
+    EXPAND VEC_TRY_GET_U64 g3_ok, v3, vec, 3
+    EXPAND VEC_TRY_GET_U64 g4_ok, v4, vec, 4
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 ok2, vec, 0, 2
+    EXPAND VEC_LEN len2, vec
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 ok_miss, vec, 9, 1
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 ok_empty, vec, 0, 0
+    EXPAND VEC_LEN len3, vec
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 5
+    g3_flag = eq g3_ok, 1
+    g3_val = eq v3, 2
+    g4_flag = eq g4_ok, 1
+    g4_val = eq v4, 3
+    ok2_flag = eq ok2, 0
+    len2_ok = eq len2, 5
+    ok_miss_flag = eq ok_miss, 0
+    ok_empty_flag = eq ok_empty, 1
+    len3_ok = eq len3, 5
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, g3_flag
+    ok = and ok, g3_val
+    ok = and ok, g4_flag
+    ok = and ok, g4_val
+    ok = and ok, ok2_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, ok_empty_flag
+    ok = and ok, len3_ok
+
+    EXPAND VEC_FREE vec
+    !ok1
+    !len1
+    !g3_ok
+    !v3
+    !g4_ok
+    !v4
+    !ok2
+    !len2
+    !ok_miss
+    !ok_empty
+    !len3
+    !ok1_flag
+    !len1_ok
+    !g3_flag
+    !g3_val
+    !g4_flag
+    !g4_val
+    !ok2_flag
+    !len2_ok
+    !ok_miss_flag
+    !ok_empty_flag
+    !len3_ok
+    br ok -> L_VEC_EFWWC_OK, L_VEC_EFWWC_FAIL
+
+L_VEC_EFWWC_FAIL:
+    !ok
+    panic(1063)
+
+L_VEC_EFWWC_OK:
+    !ok
+    return
+
 @test "sa_std vec append within capacity aliases"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 dst, 4
