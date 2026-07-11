@@ -11218,3 +11218,120 @@ L_STR_UTF8_CHUNKS_OK:
     !ok
     return
 
+
+@test "sa_std string escape debug aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS plain_dbg, &ESCAPE_PLAIN, 1
+    hay6 = stack_alloc 6
+    store hay6+0, 65 as u8
+    store hay6+1, 34 as u8
+    store hay6+2, 10 as u8
+    store hay6+3, 226 as u8
+    store hay6+4, 157 as u8
+    store hay6+5, 164 as u8
+    EXPAND STR_FROM_PARTS hay_dbg, hay6, 6
+    EXPAND STRING_BUF_FROM_STR hay_buf_dbg, hay_dbg
+
+    EXPAND STR_ESCAPE_DEBUG dbg_owned, hay_dbg
+    EXPAND STRING_ESCAPE_DEBUG dbg_owned_s, hay_dbg
+    EXPAND STRING_BUF_ESCAPE_DEBUG dbg_owned_b, hay_buf_dbg
+    EXPAND STR_ESCAPE_DEBUG plain_owned, plain_dbg
+
+    EXPAND STRING_BUF_AS_STR dbg_view, dbg_owned
+    EXPAND STRING_BUF_AS_STR dbg_view_s, dbg_owned_s
+    EXPAND STRING_BUF_AS_STR dbg_view_b, dbg_owned_b
+    EXPAND STRING_BUF_AS_STR plain_view, plain_owned
+
+    EXPAND STRING_BUF_LEN dbg_len, dbg_owned
+    EXPAND STRING_BUF_LEN plain_len, plain_owned
+    EXPAND STRING_BUF_AS_PTR dbg_ptr, dbg_owned
+    EXPAND STRING_BUF_AS_PTR plain_ptr, plain_owned
+
+    d0 = load dbg_ptr+0 as u8
+    d1 = load dbg_ptr+1 as u8
+    d2 = load dbg_ptr+2 as u8
+    d3 = load dbg_ptr+3 as u8
+    d4 = load dbg_ptr+4 as u8
+    d5 = load dbg_ptr+5 as u8
+    d6 = load dbg_ptr+6 as u8
+    d7 = load dbg_ptr+7 as u8
+    plain0 = load plain_ptr+0 as u8
+
+    EXPAND STR_EQ dbg_eq_s, dbg_view, dbg_view_s
+    EXPAND STR_EQ dbg_eq_b, dbg_view, dbg_view_b
+
+    dbg_len_ok = eq dbg_len, 8
+    plain_len_ok = eq plain_len, 1
+    d0_ok = eq d0, 65
+    d1_ok = eq d1, 92
+    d2_ok = eq d2, 34
+    d3_ok = eq d3, 92
+    d4_ok = eq d4, 110
+    d5_ok = eq d5, 226
+    d6_ok = eq d6, 157
+    d7_ok = eq d7, 164
+    plain0_ok = eq plain0, 65
+    dbg_eq_s_ok = eq dbg_eq_s, 1
+    dbg_eq_b_ok = eq dbg_eq_b, 1
+
+    ok = and dbg_len_ok, plain_len_ok
+    ok = and ok, d0_ok
+    ok = and ok, d1_ok
+    ok = and ok, d2_ok
+    ok = and ok, d3_ok
+    ok = and ok, d4_ok
+    ok = and ok, d5_ok
+    ok = and ok, d6_ok
+    ok = and ok, d7_ok
+    ok = and ok, plain0_ok
+    ok = and ok, dbg_eq_s_ok
+    ok = and ok, dbg_eq_b_ok
+
+    EXPAND STRING_BUF_FREE dbg_owned
+    EXPAND STRING_BUF_FREE dbg_owned_s
+    EXPAND STRING_BUF_FREE dbg_owned_b
+    EXPAND STRING_BUF_FREE plain_owned
+    EXPAND STRING_BUF_FREE hay_buf_dbg
+    !plain_dbg
+    !hay_dbg
+    !dbg_view
+    !dbg_view_s
+    !dbg_view_b
+    !plain_view
+    !dbg_len
+    !plain_len
+    !dbg_ptr
+    !plain_ptr
+    !d0
+    !d1
+    !d2
+    !d3
+    !d4
+    !d5
+    !d6
+    !d7
+    !plain0
+    !dbg_eq_s
+    !dbg_eq_b
+    !dbg_len_ok
+    !plain_len_ok
+    !d0_ok
+    !d1_ok
+    !d2_ok
+    !d3_ok
+    !d4_ok
+    !d5_ok
+    !d6_ok
+    !d7_ok
+    !plain0_ok
+    !dbg_eq_s_ok
+    !dbg_eq_b_ok
+    br ok -> L_STR_ESCAPE_DEBUG_OK, L_STR_ESCAPE_DEBUG_FAIL
+
+L_STR_ESCAPE_DEBUG_FAIL:
+    !ok
+    panic(1043)
+
+L_STR_ESCAPE_DEBUG_OK:
+    !ok
+    return

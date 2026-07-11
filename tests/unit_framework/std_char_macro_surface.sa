@@ -477,6 +477,99 @@ L_FAIL:
 L_PASS:
     return 0
 
+@test "sa_std char escape_debug write macro"():
+L_ENTRY:
+    out = stack_alloc 16
+
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_raw_ok, dbg_raw_len, out, 16, 65
+    raw_b0 = load out+0 as u8
+
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_lf_ok, dbg_lf_len, out, 16, 10
+    lf_b0 = load out+0 as u8
+    lf_b1 = load out+1 as u8
+
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_quote_ok, dbg_quote_len, out, 16, 34
+    quote_b0 = load out+0 as u8
+    quote_b1 = load out+1 as u8
+
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_zero_ok, dbg_zero_len, out, 16, 0
+    zero_b0 = load out+0 as u8
+    zero_b1 = load out+1 as u8
+    zero_b2 = load out+2 as u8
+    zero_b3 = load out+3 as u8
+    zero_b4 = load out+4 as u8
+
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_heart_ok, dbg_heart_len, out, 16, 10084
+    heart_b0 = load out+0 as u8
+    heart_b1 = load out+1 as u8
+    heart_b2 = load out+2 as u8
+
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_short_ok, dbg_short_len, out, 1, 10
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE dbg_bad_ok, dbg_bad_len, out, 16, CHAR_SURROGATE_MIN
+
+    ok_raw_flag = eq dbg_raw_ok, 1
+    ok_raw_len = eq dbg_raw_len, 1
+    ok_raw_b0 = eq raw_b0, 65
+    ok_lf_flag = eq dbg_lf_ok, 1
+    ok_lf_len = eq dbg_lf_len, 2
+    ok_lf_b0 = eq lf_b0, 92
+    ok_lf_b1 = eq lf_b1, 110
+    ok_quote_flag = eq dbg_quote_ok, 1
+    ok_quote_len = eq dbg_quote_len, 2
+    ok_quote_b0 = eq quote_b0, 92
+    ok_quote_b1 = eq quote_b1, 34
+    ok_zero_flag = eq dbg_zero_ok, 1
+    ok_zero_len = eq dbg_zero_len, 5
+    ok_zero_b0 = eq zero_b0, 92
+    ok_zero_b1 = eq zero_b1, 117
+    ok_zero_b2 = eq zero_b2, 123
+    ok_zero_b3 = eq zero_b3, 48
+    ok_zero_b4 = eq zero_b4, 125
+    ok_heart_flag = eq dbg_heart_ok, 1
+    ok_heart_len = eq dbg_heart_len, 3
+    ok_heart_b0 = eq heart_b0, 226
+    ok_heart_b1 = eq heart_b1, 157
+    ok_heart_b2 = eq heart_b2, 164
+    ok_short_flag = eq dbg_short_ok, 0
+    ok_short_len = eq dbg_short_len, 0
+    ok_bad_flag = eq dbg_bad_ok, 0
+    ok_bad_len = eq dbg_bad_len, 0
+
+    ok01 = and ok_raw_flag, ok_raw_len
+    ok02 = and ok01, ok_raw_b0
+    ok03 = and ok02, ok_lf_flag
+    ok04 = and ok03, ok_lf_len
+    ok05 = and ok04, ok_lf_b0
+    ok06 = and ok05, ok_lf_b1
+    ok07 = and ok06, ok_quote_flag
+    ok08 = and ok07, ok_quote_len
+    ok09 = and ok08, ok_quote_b0
+    ok10 = and ok09, ok_quote_b1
+    ok11 = and ok10, ok_zero_flag
+    ok12 = and ok11, ok_zero_len
+    ok13 = and ok12, ok_zero_b0
+    ok14 = and ok13, ok_zero_b1
+    ok15 = and ok14, ok_zero_b2
+    ok16 = and ok15, ok_zero_b3
+    ok17 = and ok16, ok_zero_b4
+    ok18 = and ok17, ok_heart_flag
+    ok19 = and ok18, ok_heart_len
+    ok20 = and ok19, ok_heart_b0
+    ok21 = and ok20, ok_heart_b1
+    ok22 = and ok21, ok_heart_b2
+    ok23 = and ok22, ok_short_flag
+    ok24 = and ok23, ok_short_len
+    ok25 = and ok24, ok_bad_flag
+    ok = and ok25, ok_bad_len
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(974)
+
+L_PASS:
+    return 0
+
 @test "sa_std char ascii and radix macros"():
 L_ENTRY:
     EXPAND CHAR_IS_ASCII ascii_a, 65

@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String escape_debug alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `char`/`str`/`String`/`StringBuf` escape-debug aliases:
+  - `CHAR_ESCAPE_DEBUG_WRITE`
+  - `STR_ESCAPE_DEBUG` / `STRING_ESCAPE_DEBUG` / `STRING_BUF_ESCAPE_DEBUG`
+- Semantics: `CHAR_ESCAPE_DEBUG_WRITE` mirrors the supportable `escape_default` special ASCII escapes (`\t`/`\n`/`\r`/`\\`/`\'`/`\"`), keeps printable ASCII as raw bytes, writes non-ASCII scalars as raw UTF-8, and falls back to lowercase `\u{...}` for non-printable ASCII controls. String aliases walk UTF-8 scalars with `STR_TRY_CHAR_AT_BYTE`, write each escaped form into a temporary buffer, and append into an owned `StringBuf`. Invalid UTF-8 paths panic in this concrete subset. This remains an eager owned-string / writer subset rather than Rust's lazy `EscapeDebug` iterator, full Unicode general-category graphic classification, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_char_macro_surface.sa --filter "escape_debug write" --jobs 1 --trace-panic`: pass (`1 passed; 4 skipped`).
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "escape debug aliases" --jobs 1 --trace-panic`: pass (`1 passed; 75 skipped`).
+  - Install sync via installed-std copy of `char.sa` / `string.sa`: pass.
+  - Installed-state focused `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test` over the same escape_debug macros (minimal dedicated harness): pass (`1 passed; 0 failed; 0 skipped`).
+
 ## Completed: 2026-07-11 str/String utf8_chunks alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

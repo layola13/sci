@@ -994,6 +994,177 @@ L_CHAR_ENC_FAIL_%out_ok:
 L_CHAR_ENC_END_%out_ok:
 [END_MACRO]
 
+[MACRO] CHAR_ESCAPE_DEBUG_WRITE %out_ok, %out_len, %dst_ptr, %dst_len, %code
+    __char_debug_pair_slot_%out_ok = stack_alloc 8
+    EXPAND CHAR_IS_VALID_SCALAR __char_debug_valid_%out_ok, %code
+    br __char_debug_valid_%out_ok -> L_CHAR_DEBUG_CHECK_TAB_%out_ok, L_CHAR_DEBUG_FAIL_%out_ok
+
+L_CHAR_DEBUG_CHECK_TAB_%out_ok:
+    __char_debug_is_tab_%out_ok = eq %code, ASCII_TAB
+    br __char_debug_is_tab_%out_ok -> L_CHAR_DEBUG_TAB_%out_ok, L_CHAR_DEBUG_CHECK_LF_%out_ok
+
+L_CHAR_DEBUG_CHECK_LF_%out_ok:
+    __char_debug_is_lf_%out_ok = eq %code, ASCII_LF
+    br __char_debug_is_lf_%out_ok -> L_CHAR_DEBUG_LF_%out_ok, L_CHAR_DEBUG_CHECK_CR_%out_ok
+
+L_CHAR_DEBUG_CHECK_CR_%out_ok:
+    __char_debug_is_cr_%out_ok = eq %code, ASCII_CR
+    br __char_debug_is_cr_%out_ok -> L_CHAR_DEBUG_CR_%out_ok, L_CHAR_DEBUG_CHECK_BACKSLASH_%out_ok
+
+L_CHAR_DEBUG_CHECK_BACKSLASH_%out_ok:
+    __char_debug_is_backslash_%out_ok = eq %code, ASCII_BACKSLASH
+    br __char_debug_is_backslash_%out_ok -> L_CHAR_DEBUG_BACKSLASH_%out_ok, L_CHAR_DEBUG_CHECK_SINGLE_%out_ok
+
+L_CHAR_DEBUG_CHECK_SINGLE_%out_ok:
+    __char_debug_is_single_%out_ok = eq %code, ASCII_SINGLE_QUOTE
+    br __char_debug_is_single_%out_ok -> L_CHAR_DEBUG_SINGLE_%out_ok, L_CHAR_DEBUG_CHECK_DOUBLE_%out_ok
+
+L_CHAR_DEBUG_CHECK_DOUBLE_%out_ok:
+    __char_debug_is_double_%out_ok = eq %code, ASCII_DOUBLE_QUOTE
+    br __char_debug_is_double_%out_ok -> L_CHAR_DEBUG_DOUBLE_%out_ok, L_CHAR_DEBUG_CHECK_ASCII_PRINTABLE_%out_ok
+
+L_CHAR_DEBUG_CHECK_ASCII_PRINTABLE_%out_ok:
+    __char_debug_ge_space_%out_ok = uge %code, ASCII_SPACE
+    __char_debug_le_tilde_%out_ok = ule %code, ASCII_GRAPHIC_MAX
+    __char_debug_ascii_printable_%out_ok = and __char_debug_ge_space_%out_ok, __char_debug_le_tilde_%out_ok
+    br __char_debug_ascii_printable_%out_ok -> L_CHAR_DEBUG_ASCII_RAW_%out_ok, L_CHAR_DEBUG_CHECK_UNICODE_PRINTABLE_%out_ok
+
+L_CHAR_DEBUG_CHECK_UNICODE_PRINTABLE_%out_ok:
+    __char_debug_is_ascii_%out_ok = ule %code, 127
+    br __char_debug_is_ascii_%out_ok -> L_CHAR_DEBUG_UNICODE_%out_ok, L_CHAR_DEBUG_UNICODE_RAW_%out_ok
+
+L_CHAR_DEBUG_TAB_%out_ok:
+    store __char_debug_pair_slot_%out_ok+0, ASCII_ESCAPE_T as u8
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_PAIR_%out_ok
+
+L_CHAR_DEBUG_LF_%out_ok:
+    store __char_debug_pair_slot_%out_ok+0, ASCII_ESCAPE_N as u8
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_PAIR_%out_ok
+
+L_CHAR_DEBUG_CR_%out_ok:
+    store __char_debug_pair_slot_%out_ok+0, ASCII_ESCAPE_R as u8
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_PAIR_%out_ok
+
+L_CHAR_DEBUG_BACKSLASH_%out_ok:
+    store __char_debug_pair_slot_%out_ok+0, ASCII_BACKSLASH as u8
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_PAIR_%out_ok
+
+L_CHAR_DEBUG_SINGLE_%out_ok:
+    store __char_debug_pair_slot_%out_ok+0, ASCII_SINGLE_QUOTE as u8
+    !__char_debug_is_single_%out_ok
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_PAIR_%out_ok
+
+L_CHAR_DEBUG_DOUBLE_%out_ok:
+    store __char_debug_pair_slot_%out_ok+0, ASCII_DOUBLE_QUOTE as u8
+    !__char_debug_is_double_%out_ok
+    !__char_debug_is_single_%out_ok
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_PAIR_%out_ok
+
+L_CHAR_DEBUG_PAIR_%out_ok:
+    __char_debug_pair_byte_%out_ok = load __char_debug_pair_slot_%out_ok+0 as u8
+    EXPAND ASCII_ESCAPE_DEFAULT_WRITE_PAIR %out_ok, %out_len, %dst_ptr, %dst_len, __char_debug_pair_byte_%out_ok
+    !__char_debug_pair_byte_%out_ok
+    jmp L_CHAR_DEBUG_END_%out_ok
+
+L_CHAR_DEBUG_ASCII_RAW_%out_ok:
+    __char_debug_raw_fits_%out_ok = uge %dst_len, 1
+    br __char_debug_raw_fits_%out_ok -> L_CHAR_DEBUG_ASCII_RAW_WRITE_%out_ok, L_CHAR_DEBUG_ASCII_RAW_FAIL_%out_ok
+
+L_CHAR_DEBUG_ASCII_RAW_WRITE_%out_ok:
+    store %dst_ptr+0, %code as u8
+    %out_len = add 0, 1
+    %out_ok = add 0, 1
+    !__char_debug_raw_fits_%out_ok
+    !__char_debug_ascii_printable_%out_ok
+    !__char_debug_le_tilde_%out_ok
+    !__char_debug_ge_space_%out_ok
+    !__char_debug_is_double_%out_ok
+    !__char_debug_is_single_%out_ok
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_END_%out_ok
+
+L_CHAR_DEBUG_ASCII_RAW_FAIL_%out_ok:
+    %out_len = add 0, 0
+    %out_ok = add 0, 0
+    !__char_debug_raw_fits_%out_ok
+    !__char_debug_ascii_printable_%out_ok
+    !__char_debug_le_tilde_%out_ok
+    !__char_debug_ge_space_%out_ok
+    !__char_debug_is_double_%out_ok
+    !__char_debug_is_single_%out_ok
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    jmp L_CHAR_DEBUG_END_%out_ok
+
+L_CHAR_DEBUG_UNICODE_RAW_%out_ok:
+    !__char_debug_is_ascii_%out_ok
+    !__char_debug_ascii_printable_%out_ok
+    !__char_debug_le_tilde_%out_ok
+    !__char_debug_ge_space_%out_ok
+    !__char_debug_is_double_%out_ok
+    !__char_debug_is_single_%out_ok
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    EXPAND CHAR_TRY_ENCODE_UTF8 %out_ok, %out_len, %dst_ptr, %dst_len, %code
+    jmp L_CHAR_DEBUG_END_%out_ok
+
+L_CHAR_DEBUG_UNICODE_%out_ok:
+    !__char_debug_is_ascii_%out_ok
+    !__char_debug_ascii_printable_%out_ok
+    !__char_debug_le_tilde_%out_ok
+    !__char_debug_ge_space_%out_ok
+    !__char_debug_is_double_%out_ok
+    !__char_debug_is_single_%out_ok
+    !__char_debug_is_backslash_%out_ok
+    !__char_debug_is_cr_%out_ok
+    !__char_debug_is_lf_%out_ok
+    !__char_debug_is_tab_%out_ok
+    !__char_debug_valid_%out_ok
+    EXPAND CHAR_ESCAPE_UNICODE_WRITE %out_ok, %out_len, %dst_ptr, %dst_len, %code
+    jmp L_CHAR_DEBUG_END_%out_ok
+
+L_CHAR_DEBUG_FAIL_%out_ok:
+    %out_len = add 0, 0
+    %out_ok = add 0, 0
+    !__char_debug_valid_%out_ok
+
+L_CHAR_DEBUG_END_%out_ok:
+[END_MACRO]
+
 [MACRO] CHAR_TRY_ENCODE_UTF16 %out_ok, %out_len, %dst_ptr, %dst_len, %code
     EXPAND CHAR_IS_VALID_SCALAR __char_enc16_valid_%out_ok, %code
     EXPAND CHAR_LEN_UTF16 __char_enc16_len_%out_ok, %code

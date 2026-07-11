@@ -8645,6 +8645,67 @@ L_STR_ESCAPE_UNICODE_DONE_%out_string:
     !__string_buf_escape_unicode_view_%out_string
 [END_MACRO]
 
+[MACRO] STR_ESCAPE_DEBUG %out_string, %slice_reg
+    __str_escape_debug_ptr_%out_string = load %slice_reg+Slice_ptr as ptr
+    __str_escape_debug_len_%out_string = load %slice_reg+Slice_len as u64
+    __str_escape_debug_cap_%out_string = mul __str_escape_debug_len_%out_string, 10
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __str_escape_debug_cap_%out_string
+    __str_escape_debug_idx_slot_%out_string = stack_alloc 8
+    __str_escape_debug_tmp_%out_string = stack_alloc 16
+    __str_escape_debug_tmp_slice_%out_string = alloc Slice_SIZE
+    store __str_escape_debug_idx_slot_%out_string+0, 0 as u64
+    jmp L_STR_ESCAPE_DEBUG_HEAD_%out_string
+
+L_STR_ESCAPE_DEBUG_HEAD_%out_string:
+    __str_escape_debug_idx_%out_string = load __str_escape_debug_idx_slot_%out_string+0 as u64
+    __str_escape_debug_done_%out_string = uge __str_escape_debug_idx_%out_string, __str_escape_debug_len_%out_string
+    br __str_escape_debug_done_%out_string -> L_STR_ESCAPE_DEBUG_DONE_%out_string, L_STR_ESCAPE_DEBUG_BODY_%out_string
+
+L_STR_ESCAPE_DEBUG_BODY_%out_string:
+    EXPAND STR_TRY_CHAR_AT_BYTE __str_escape_debug_ok_%out_string, __str_escape_debug_code_%out_string, __str_escape_debug_width_%out_string, %slice_reg, __str_escape_debug_idx_%out_string
+    br __str_escape_debug_ok_%out_string -> L_STR_ESCAPE_DEBUG_WRITE_%out_string, L_STR_ESCAPE_DEBUG_FAIL_%out_string
+
+L_STR_ESCAPE_DEBUG_WRITE_%out_string:
+    EXPAND CHAR_ESCAPE_DEBUG_WRITE __str_escape_debug_write_ok_%out_string, __str_escape_debug_write_len_%out_string, __str_escape_debug_tmp_%out_string, 16, __str_escape_debug_code_%out_string
+    br __str_escape_debug_write_ok_%out_string -> L_STR_ESCAPE_DEBUG_PUSH_%out_string, L_STR_ESCAPE_DEBUG_FAIL_%out_string
+
+L_STR_ESCAPE_DEBUG_PUSH_%out_string:
+    EXPAND SLICE_NEW __str_escape_debug_tmp_slice_%out_string, __str_escape_debug_tmp_%out_string, __str_escape_debug_write_len_%out_string
+    EXPAND STRING_BUF_PUSH_STR %out_string, __str_escape_debug_tmp_slice_%out_string
+    __str_escape_debug_next_%out_string = add __str_escape_debug_idx_%out_string, __str_escape_debug_width_%out_string
+    store __str_escape_debug_idx_slot_%out_string+0, __str_escape_debug_next_%out_string as u64
+    !__str_escape_debug_next_%out_string
+    !__str_escape_debug_write_len_%out_string
+    !__str_escape_debug_write_ok_%out_string
+    !__str_escape_debug_width_%out_string
+    !__str_escape_debug_code_%out_string
+    !__str_escape_debug_ok_%out_string
+    !__str_escape_debug_done_%out_string
+    !__str_escape_debug_idx_%out_string
+    jmp L_STR_ESCAPE_DEBUG_HEAD_%out_string
+
+L_STR_ESCAPE_DEBUG_FAIL_%out_string:
+    panic(1226)
+
+L_STR_ESCAPE_DEBUG_DONE_%out_string:
+    !__str_escape_debug_tmp_slice_%out_string
+    !__str_escape_debug_done_%out_string
+    !__str_escape_debug_idx_%out_string
+    !__str_escape_debug_cap_%out_string
+    !__str_escape_debug_len_%out_string
+    !__str_escape_debug_ptr_%out_string
+[END_MACRO]
+
+[MACRO] STRING_ESCAPE_DEBUG %out_string, %slice_reg
+    EXPAND STR_ESCAPE_DEBUG %out_string, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_ESCAPE_DEBUG %out_string, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_escape_debug_view_%out_string, %string_reg
+    EXPAND STR_ESCAPE_DEBUG %out_string, __string_buf_escape_debug_view_%out_string
+    !__string_buf_escape_debug_view_%out_string
+[END_MACRO]
+
 [MACRO] STR_ENCODE_UTF16_LEN %out_count, %slice_reg
     __str_encode_utf16_len_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
     __str_encode_utf16_len_bytes_%out_count = load %slice_reg+Slice_len as u64
