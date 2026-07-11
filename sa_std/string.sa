@@ -2792,6 +2792,24 @@ L_STRING_BUF_PCC_DONE_%out_ok:
     EXPAND STRING_BUF_PUSH_STR %string_reg, %suffix_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_EXTEND_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_TRY_EXTEND_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_STRING_WITHIN_CAPACITY %out_ok, %dst_string_reg, %src_string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_eswc_src_%out_ok, %src_string_reg
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %dst_string_reg, __string_buf_eswc_src_%out_ok
+    !__string_buf_eswc_src_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_STRING_WITHIN_CAPACITY %out_ok, %dst_string_reg, %src_string_reg
+    EXPAND STRING_BUF_TRY_EXTEND_STRING_WITHIN_CAPACITY %out_ok, %dst_string_reg, %src_string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_EXTEND_CHAR %out_ok, %string_reg, %char_value
     EXPAND STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value
 [END_MACRO]
@@ -2986,6 +3004,52 @@ L_STRING_BUF_EFW_END_%out_ok:
 [MACRO] STRING_BUF_EXTEND_FROM_WITHIN %string_reg, %start, %length
     EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN __string_buf_efw_ok_%string_reg, %string_reg, %start, %length
     !__string_buf_efw_ok_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_FROM_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length
+    EXPAND STRING_BUF_AS_STR __string_buf_efwc_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_RANGE __string_buf_efwc_range_ok_%out_ok, __string_buf_efwc_range_%out_ok, __string_buf_efwc_view_%out_ok, %start, %length
+    br __string_buf_efwc_range_ok_%out_ok -> L_STRING_BUF_EFWC_ROOM_%out_ok, L_STRING_BUF_EFWC_MISS_%out_ok
+
+L_STRING_BUF_EFWC_ROOM_%out_ok:
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_buf_efwc_remaining_%out_ok, %string_reg
+    __string_buf_efwc_room_ok_%out_ok = uge __string_buf_efwc_remaining_%out_ok, %length
+    br __string_buf_efwc_room_ok_%out_ok -> L_STRING_BUF_EFWC_COPY_%out_ok, L_STRING_BUF_EFWC_NO_ROOM_%out_ok
+
+L_STRING_BUF_EFWC_COPY_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_efwc_tmp_%out_ok, %length
+    EXPAND STRING_BUF_PUSH_STR __string_buf_efwc_tmp_%out_ok, __string_buf_efwc_range_%out_ok
+    EXPAND STRING_BUF_AS_STR __string_buf_efwc_tmp_view_%out_ok, __string_buf_efwc_tmp_%out_ok
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, __string_buf_efwc_tmp_view_%out_ok
+    !__string_buf_efwc_tmp_view_%out_ok
+    EXPAND STRING_BUF_FREE __string_buf_efwc_tmp_%out_ok
+    !__string_buf_efwc_room_ok_%out_ok
+    !__string_buf_efwc_remaining_%out_ok
+    !__string_buf_efwc_range_%out_ok
+    !__string_buf_efwc_range_ok_%out_ok
+    !__string_buf_efwc_view_%out_ok
+    jmp L_STRING_BUF_EFWC_END_%out_ok
+
+L_STRING_BUF_EFWC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_efwc_room_ok_%out_ok
+    !__string_buf_efwc_remaining_%out_ok
+    !__string_buf_efwc_range_%out_ok
+    !__string_buf_efwc_range_ok_%out_ok
+    !__string_buf_efwc_view_%out_ok
+    jmp L_STRING_BUF_EFWC_END_%out_ok
+
+L_STRING_BUF_EFWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_efwc_range_%out_ok
+    !__string_buf_efwc_range_ok_%out_ok
+    !__string_buf_efwc_view_%out_ok
+
+L_STRING_BUF_EFWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_FROM_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_POP_BYTE %out_ok, %out_byte, %string_reg

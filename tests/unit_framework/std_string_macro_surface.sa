@@ -12232,3 +12232,118 @@ L_STR_INSERT_WC_FAIL:
 L_STR_INSERT_WC_OK:
     !ok
     return
+
+@test "sa_std string extend within capacity aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS tail, &SUFFIX, 2
+    EXPAND STR_FROM_PARTS more, &PREFIX, 2
+    EXPAND STRING_BUF_TRY_EXTEND_STR_WITHIN_CAPACITY ok1, buf, hi
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_EXTEND_STR_WITHIN_CAPACITY ok2, buf, tail
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_EXTEND_STR_WITHIN_CAPACITY ok3, buf, more
+    EXPAND STRING_BUF_LEN len3, buf
+
+    EXPAND STRING_BUF_WITH_CAPACITY owned, 4
+    EXPAND STRING_BUF_PUSH_STR owned, more
+    EXPAND STRING_BUF_WITH_CAPACITY dst, 3
+    EXPAND STRING_BUF_TRY_EXTEND_STRING_WITHIN_CAPACITY ok_owned, dst, owned
+    EXPAND STRING_BUF_LEN owned_len, dst
+    EXPAND STRING_BUF_LEN owned_src_len, owned
+    EXPAND STRING_BUF_WITH_CAPACITY owned2, 4
+    EXPAND STRING_BUF_PUSH_STR owned2, more
+    EXPAND STRING_BUF_TRY_EXTEND_STRING_WITHIN_CAPACITY ok_owned_full, dst, owned2
+    EXPAND STRING_BUF_LEN owned2_len, owned2
+    EXPAND STRING_BUF_LEN owned_full_dst_len, dst
+
+    EXPAND STRING_BUF_WITH_CAPACITY ebuf, 8
+    EXPAND STRING_BUF_PUSH_STR ebuf, hi
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN_CAPACITY ok_efw, ebuf, 0, 2
+    EXPAND STRING_BUF_LEN elen1, ebuf
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN_CAPACITY ok_efw_full, ebuf, 0, 4
+    EXPAND STRING_BUF_LEN elen2, ebuf
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 4
+    ok2_flag = eq ok2, 1
+    len2_ok = eq len2, 6
+    ok3_flag = eq ok3, 0
+    len3_ok = eq len3, 6
+    ok_owned_flag = eq ok_owned, 1
+    owned_len_ok = eq owned_len, 2
+    owned_src_len_ok = eq owned_src_len, 2
+    ok_owned_full_flag = eq ok_owned_full, 0
+    owned2_len_ok = eq owned2_len, 2
+    owned_full_dst_len_ok = eq owned_full_dst_len, 2
+    ok_efw_flag = eq ok_efw, 1
+    elen1_ok = eq elen1, 6
+    ok_efw_full_flag = eq ok_efw_full, 0
+    elen2_ok = eq elen2, 6
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, ok2_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok3_flag
+    ok = and ok, len3_ok
+    ok = and ok, ok_owned_flag
+    ok = and ok, owned_len_ok
+    ok = and ok, owned_src_len_ok
+    ok = and ok, ok_owned_full_flag
+    ok = and ok, owned2_len_ok
+    ok = and ok, owned_full_dst_len_ok
+    ok = and ok, ok_efw_flag
+    ok = and ok, elen1_ok
+    ok = and ok, ok_efw_full_flag
+    ok = and ok, elen2_ok
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE dst
+    EXPAND STRING_BUF_FREE owned
+    EXPAND STRING_BUF_FREE owned2
+    EXPAND STRING_BUF_FREE ebuf
+    !hi
+    !tail
+    !more
+    !ok1
+    !len1
+    !ok2
+    !len2
+    !ok3
+    !len3
+    !ok_owned
+    !owned_len
+    !owned_src_len
+    !ok_owned_full
+    !owned2_len
+    !owned_full_dst_len
+    !ok_efw
+    !elen1
+    !ok_efw_full
+    !elen2
+    !ok1_flag
+    !len1_ok
+    !ok2_flag
+    !len2_ok
+    !ok3_flag
+    !len3_ok
+    !ok_owned_flag
+    !owned_len_ok
+    !owned_src_len_ok
+    !ok_owned_full_flag
+    !owned2_len_ok
+    !owned_full_dst_len_ok
+    !ok_efw_flag
+    !elen1_ok
+    !ok_efw_full_flag
+    !elen2_ok
+    br ok -> L_STR_EXT_WC_OK, L_STR_EXT_WC_FAIL
+
+L_STR_EXT_WC_FAIL:
+    !ok
+    panic(1060)
+
+L_STR_EXT_WC_OK:
+    !ok
+    return

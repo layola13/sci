@@ -4,6 +4,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf/Vec extend and append within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving extend/append helpers:
+  - `STRING_BUF_TRY_EXTEND_STR_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_STR_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_EXTEND_STRING_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_STRING_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_EXTEND_FROM_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_FROM_WITHIN_CAPACITY`
+  - `VEC_TRY_APPEND_WITHIN_CAPACITY` / `VEC_APPEND_WITHIN_CAPACITY`
+  - `VEC_TRY_APPEND_WITHIN_CAPACITY_U64` / `VEC_APPEND_WITHIN_CAPACITY_U64`
+- Semantics:
+  - String `extend_str`/`extend_string` within capacity alias the existing non-reallocating `push_str_within_capacity` path. `extend_string` views the source StringBuf and does **not** free or move it.
+  - `extend_from_within_capacity` requires a valid char-boundary range and enough remaining capacity; it copies the selected range through a temporary buffer so self-overlap remains safe, then appends without reallocation.
+  - Vec `append_within_capacity` extends destination from the source slice only when remaining capacity is sufficient for the full source length. On success it clears source `len` to 0 (consume-src append semantics matching `sa_vec_append`); on failure neither destination nor source is mutated.
+  - These helpers do not claim Rust panic-on-capacity models, partial append, lazy iterators, or allocator-parametric APIs.
+- Validation status:
+  - Source focused minimal harness `/tmp/ext_append_wc_min.sa`: pass (`1 passed`).
+  - Source focused owned extend-string min `/tmp/ext_string_owned_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "append within capacity aliases"`: pass (`1 passed; 33 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "extend within capacity aliases"`: pass (`1 passed; 87 skipped`).
+  - Install sync via installed-std copy of `string.sa` + `vec.sa`: pass.
+  - Installed-state focused min harnesses: pass (`1 passed` each).
+
 ## Completed: 2026-07-11 Vec extend_from_slice_within_capacity alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
