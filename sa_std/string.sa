@@ -1233,6 +1233,117 @@ L_STRING_EXTEND_CHARS_END_%out_ok:
     !__string_extend_chars_ok_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
+    __string_ecwc_idx_slot_%out_ok = stack_alloc 8
+    __string_ecwc_bytes_slot_%out_ok = stack_alloc 8
+    store __string_ecwc_idx_slot_%out_ok+0, 0 as u64
+    store __string_ecwc_bytes_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_ECWC_VALIDATE_HEAD_%out_ok
+
+L_STRING_ECWC_VALIDATE_HEAD_%out_ok:
+    __string_ecwc_idx_%out_ok = load __string_ecwc_idx_slot_%out_ok+0 as u64
+    __string_ecwc_len_%out_ok = load %chars_slice+Slice_len as u64
+    __string_ecwc_validate_done_%out_ok = eq __string_ecwc_idx_%out_ok, __string_ecwc_len_%out_ok
+    !__string_ecwc_len_%out_ok
+    br __string_ecwc_validate_done_%out_ok -> L_STRING_ECWC_ROOM_%out_ok, L_STRING_ECWC_VALIDATE_BODY_%out_ok
+
+L_STRING_ECWC_VALIDATE_BODY_%out_ok:
+    __string_ecwc_ptr_%out_ok = load %chars_slice+Slice_ptr as ptr
+    __string_ecwc_off_%out_ok = mul __string_ecwc_idx_%out_ok, 8
+    __string_ecwc_item_%out_ok = ptr_add __string_ecwc_ptr_%out_ok, __string_ecwc_off_%out_ok
+    __string_ecwc_code_%out_ok = load __string_ecwc_item_%out_ok+0 as u64
+    !__string_ecwc_item_%out_ok
+    !__string_ecwc_off_%out_ok
+    !__string_ecwc_ptr_%out_ok
+    EXPAND CHAR_IS_VALID_SCALAR __string_ecwc_valid_%out_ok, __string_ecwc_code_%out_ok
+    br __string_ecwc_valid_%out_ok -> L_STRING_ECWC_VALIDATE_NEXT_%out_ok, L_STRING_ECWC_INVALID_%out_ok
+
+L_STRING_ECWC_VALIDATE_NEXT_%out_ok:
+    EXPAND CHAR_LEN_UTF8 __string_ecwc_width_%out_ok, __string_ecwc_code_%out_ok
+    __string_ecwc_bytes_%out_ok = load __string_ecwc_bytes_slot_%out_ok+0 as u64
+    __string_ecwc_bytes_next_%out_ok = add __string_ecwc_bytes_%out_ok, __string_ecwc_width_%out_ok
+    store __string_ecwc_bytes_slot_%out_ok+0, __string_ecwc_bytes_next_%out_ok as u64
+    __string_ecwc_next_%out_ok = add __string_ecwc_idx_%out_ok, 1
+    store __string_ecwc_idx_slot_%out_ok+0, __string_ecwc_next_%out_ok as u64
+    !__string_ecwc_next_%out_ok
+    !__string_ecwc_bytes_next_%out_ok
+    !__string_ecwc_bytes_%out_ok
+    !__string_ecwc_width_%out_ok
+    !__string_ecwc_valid_%out_ok
+    !__string_ecwc_code_%out_ok
+    !__string_ecwc_validate_done_%out_ok
+    !__string_ecwc_idx_%out_ok
+    jmp L_STRING_ECWC_VALIDATE_HEAD_%out_ok
+
+L_STRING_ECWC_ROOM_%out_ok:
+    __string_ecwc_need_%out_ok = load __string_ecwc_bytes_slot_%out_ok+0 as u64
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_ecwc_remaining_%out_ok, %string_reg
+    __string_ecwc_room_ok_%out_ok = uge __string_ecwc_remaining_%out_ok, __string_ecwc_need_%out_ok
+    br __string_ecwc_room_ok_%out_ok -> L_STRING_ECWC_APPEND_INIT_%out_ok, L_STRING_ECWC_NO_ROOM_%out_ok
+
+L_STRING_ECWC_APPEND_INIT_%out_ok:
+    store __string_ecwc_idx_slot_%out_ok+0, 0 as u64
+    !__string_ecwc_room_ok_%out_ok
+    !__string_ecwc_remaining_%out_ok
+    !__string_ecwc_need_%out_ok
+    !__string_ecwc_validate_done_%out_ok
+    !__string_ecwc_idx_%out_ok
+    jmp L_STRING_ECWC_APPEND_HEAD_%out_ok
+
+L_STRING_ECWC_APPEND_HEAD_%out_ok:
+    __string_ecwc_append_idx_%out_ok = load __string_ecwc_idx_slot_%out_ok+0 as u64
+    __string_ecwc_append_len_%out_ok = load %chars_slice+Slice_len as u64
+    __string_ecwc_append_done_%out_ok = eq __string_ecwc_append_idx_%out_ok, __string_ecwc_append_len_%out_ok
+    !__string_ecwc_append_len_%out_ok
+    br __string_ecwc_append_done_%out_ok -> L_STRING_ECWC_DONE_%out_ok, L_STRING_ECWC_APPEND_BODY_%out_ok
+
+L_STRING_ECWC_APPEND_BODY_%out_ok:
+    __string_ecwc_append_ptr_%out_ok = load %chars_slice+Slice_ptr as ptr
+    __string_ecwc_append_off_%out_ok = mul __string_ecwc_append_idx_%out_ok, 8
+    __string_ecwc_append_item_%out_ok = ptr_add __string_ecwc_append_ptr_%out_ok, __string_ecwc_append_off_%out_ok
+    __string_ecwc_append_code_%out_ok = load __string_ecwc_append_item_%out_ok+0 as u64
+    __string_ecwc_append_next_%out_ok = add __string_ecwc_append_idx_%out_ok, 1
+    store __string_ecwc_idx_slot_%out_ok+0, __string_ecwc_append_next_%out_ok as u64
+    !__string_ecwc_append_next_%out_ok
+    !__string_ecwc_append_item_%out_ok
+    !__string_ecwc_append_off_%out_ok
+    !__string_ecwc_append_ptr_%out_ok
+    !__string_ecwc_append_done_%out_ok
+    !__string_ecwc_append_idx_%out_ok
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_WITHIN_CAPACITY __string_ecwc_push_ok_%out_ok, %string_reg, __string_ecwc_append_code_%out_ok
+    !__string_ecwc_push_ok_%out_ok
+    !__string_ecwc_append_code_%out_ok
+    jmp L_STRING_ECWC_APPEND_HEAD_%out_ok
+
+L_STRING_ECWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_ecwc_append_done_%out_ok
+    !__string_ecwc_append_idx_%out_ok
+    jmp L_STRING_ECWC_END_%out_ok
+
+L_STRING_ECWC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__string_ecwc_room_ok_%out_ok
+    !__string_ecwc_remaining_%out_ok
+    !__string_ecwc_need_%out_ok
+    !__string_ecwc_validate_done_%out_ok
+    !__string_ecwc_idx_%out_ok
+    jmp L_STRING_ECWC_END_%out_ok
+
+L_STRING_ECWC_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__string_ecwc_valid_%out_ok
+    !__string_ecwc_code_%out_ok
+    !__string_ecwc_validate_done_%out_ok
+    !__string_ecwc_idx_%out_ok
+
+L_STRING_ECWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_CHARS_U64 %out_ok, %out_string, %chars_slice
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 %out_ok, %out_string, %chars_slice
@@ -1428,6 +1539,104 @@ L_STRING_EXTEND_ASCII_END_%out_ok:
 [MACRO] STRING_BUF_EXTEND_ASCII_CHARS %string_reg, %ascii_chars_slice
     EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS __string_extend_ascii_ok_%string_reg, %string_reg, %ascii_chars_slice
     !__string_extend_ascii_ok_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_EXTEND_ASCII_CHARS_WITHIN_CAPACITY %out_ok, %string_reg, %ascii_chars_slice
+    __string_eawc_idx_slot_%out_ok = stack_alloc 8
+    store __string_eawc_idx_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_EAWC_VALIDATE_HEAD_%out_ok
+
+L_STRING_EAWC_VALIDATE_HEAD_%out_ok:
+    __string_eawc_idx_%out_ok = load __string_eawc_idx_slot_%out_ok+0 as u64
+    __string_eawc_len_%out_ok = load %ascii_chars_slice+Slice_len as u64
+    __string_eawc_validate_done_%out_ok = eq __string_eawc_idx_%out_ok, __string_eawc_len_%out_ok
+    !__string_eawc_len_%out_ok
+    br __string_eawc_validate_done_%out_ok -> L_STRING_EAWC_ROOM_%out_ok, L_STRING_EAWC_VALIDATE_BODY_%out_ok
+
+L_STRING_EAWC_VALIDATE_BODY_%out_ok:
+    __string_eawc_ptr_%out_ok = load %ascii_chars_slice+Slice_ptr as ptr
+    __string_eawc_item_%out_ok = ptr_add __string_eawc_ptr_%out_ok, __string_eawc_idx_%out_ok
+    __string_eawc_byte_%out_ok = load __string_eawc_item_%out_ok+0 as u8
+    !__string_eawc_item_%out_ok
+    !__string_eawc_ptr_%out_ok
+    EXPAND ASCII_IS_ASCII __string_eawc_valid_%out_ok, __string_eawc_byte_%out_ok
+    br __string_eawc_valid_%out_ok -> L_STRING_EAWC_VALIDATE_NEXT_%out_ok, L_STRING_EAWC_INVALID_%out_ok
+
+L_STRING_EAWC_VALIDATE_NEXT_%out_ok:
+    __string_eawc_next_%out_ok = add __string_eawc_idx_%out_ok, 1
+    store __string_eawc_idx_slot_%out_ok+0, __string_eawc_next_%out_ok as u64
+    !__string_eawc_next_%out_ok
+    !__string_eawc_valid_%out_ok
+    !__string_eawc_byte_%out_ok
+    !__string_eawc_validate_done_%out_ok
+    !__string_eawc_idx_%out_ok
+    jmp L_STRING_EAWC_VALIDATE_HEAD_%out_ok
+
+L_STRING_EAWC_ROOM_%out_ok:
+    __string_eawc_need_%out_ok = load %ascii_chars_slice+Slice_len as u64
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_eawc_remaining_%out_ok, %string_reg
+    __string_eawc_room_ok_%out_ok = uge __string_eawc_remaining_%out_ok, __string_eawc_need_%out_ok
+    br __string_eawc_room_ok_%out_ok -> L_STRING_EAWC_APPEND_INIT_%out_ok, L_STRING_EAWC_NO_ROOM_%out_ok
+
+L_STRING_EAWC_APPEND_INIT_%out_ok:
+    store __string_eawc_idx_slot_%out_ok+0, 0 as u64
+    !__string_eawc_room_ok_%out_ok
+    !__string_eawc_remaining_%out_ok
+    !__string_eawc_need_%out_ok
+    !__string_eawc_validate_done_%out_ok
+    !__string_eawc_idx_%out_ok
+    jmp L_STRING_EAWC_APPEND_HEAD_%out_ok
+
+L_STRING_EAWC_APPEND_HEAD_%out_ok:
+    __string_eawc_append_idx_%out_ok = load __string_eawc_idx_slot_%out_ok+0 as u64
+    __string_eawc_append_len_%out_ok = load %ascii_chars_slice+Slice_len as u64
+    __string_eawc_append_done_%out_ok = eq __string_eawc_append_idx_%out_ok, __string_eawc_append_len_%out_ok
+    !__string_eawc_append_len_%out_ok
+    br __string_eawc_append_done_%out_ok -> L_STRING_EAWC_DONE_%out_ok, L_STRING_EAWC_APPEND_BODY_%out_ok
+
+L_STRING_EAWC_APPEND_BODY_%out_ok:
+    __string_eawc_append_ptr_%out_ok = load %ascii_chars_slice+Slice_ptr as ptr
+    __string_eawc_append_item_%out_ok = ptr_add __string_eawc_append_ptr_%out_ok, __string_eawc_append_idx_%out_ok
+    __string_eawc_append_byte_%out_ok = load __string_eawc_append_item_%out_ok+0 as u8
+    __string_eawc_append_next_%out_ok = add __string_eawc_append_idx_%out_ok, 1
+    store __string_eawc_idx_slot_%out_ok+0, __string_eawc_append_next_%out_ok as u64
+    !__string_eawc_append_next_%out_ok
+    !__string_eawc_append_item_%out_ok
+    !__string_eawc_append_ptr_%out_ok
+    !__string_eawc_append_done_%out_ok
+    !__string_eawc_append_idx_%out_ok
+    EXPAND STRING_BUF_TRY_PUSH_BYTE_WITHIN_CAPACITY __string_eawc_push_ok_%out_ok, %string_reg, __string_eawc_append_byte_%out_ok
+    !__string_eawc_push_ok_%out_ok
+    !__string_eawc_append_byte_%out_ok
+    jmp L_STRING_EAWC_APPEND_HEAD_%out_ok
+
+L_STRING_EAWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_eawc_append_done_%out_ok
+    !__string_eawc_append_idx_%out_ok
+    jmp L_STRING_EAWC_END_%out_ok
+
+L_STRING_EAWC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__string_eawc_room_ok_%out_ok
+    !__string_eawc_remaining_%out_ok
+    !__string_eawc_need_%out_ok
+    !__string_eawc_validate_done_%out_ok
+    !__string_eawc_idx_%out_ok
+    jmp L_STRING_EAWC_END_%out_ok
+
+L_STRING_EAWC_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__string_eawc_valid_%out_ok
+    !__string_eawc_byte_%out_ok
+    !__string_eawc_validate_done_%out_ok
+    !__string_eawc_idx_%out_ok
+
+L_STRING_EAWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_EXTEND_ASCII_CHARS_WITHIN_CAPACITY %out_ok, %string_reg, %ascii_chars_slice
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS_WITHIN_CAPACITY %out_ok, %string_reg, %ascii_chars_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_FROM_ASCII_CHARS %out_ok, %out_string, %ascii_chars_slice

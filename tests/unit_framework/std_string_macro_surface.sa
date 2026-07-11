@@ -12233,6 +12233,150 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string extend chars ascii within capacity aliases"():
+L_ENTRY:
+    chars_data = alloc 16
+    store chars_data+0, 97 as u64
+    store chars_data+8, 98 as u64
+    chars_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW chars_slice, chars_data, 2
+
+    EXPAND STRING_BUF_WITH_CAPACITY char_buf, 3
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 ok_chars, char_buf, chars_slice
+    EXPAND STRING_BUF_LEN clen1, char_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT cb0_ok, cb0, char_buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT cb1_ok, cb1, char_buf, 1
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 ok_chars_full, char_buf, chars_slice
+    EXPAND STRING_BUF_LEN clen2, char_buf
+
+    invalid_data = alloc 8
+    store invalid_data+0, 55296 as u64
+    invalid_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW invalid_slice, invalid_data, 1
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 ok_chars_bad, char_buf, invalid_slice
+    EXPAND STRING_BUF_LEN clen3, char_buf
+
+    ascii_data = alloc 2
+    store ascii_data+0, 120 as u8
+    store ascii_data+1, 121 as u8
+    ascii_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW ascii_slice, ascii_data, 2
+    EXPAND STRING_BUF_WITH_CAPACITY ascii_buf, 3
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS_WITHIN_CAPACITY ok_ascii, ascii_buf, ascii_slice
+    EXPAND STRING_BUF_LEN alen1, ascii_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT ab0_ok, ab0, ascii_buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT ab1_ok, ab1, ascii_buf, 1
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS_WITHIN_CAPACITY ok_ascii_full, ascii_buf, ascii_slice
+    EXPAND STRING_BUF_LEN alen2, ascii_buf
+
+    bad_ascii_data = alloc 1
+    store bad_ascii_data+0, 200 as u8
+    bad_ascii_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW bad_ascii_slice, bad_ascii_data, 1
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHARS_WITHIN_CAPACITY ok_ascii_bad, ascii_buf, bad_ascii_slice
+    EXPAND STRING_BUF_LEN alen3, ascii_buf
+
+    ok_chars_flag = eq ok_chars, 1
+    clen1_ok = eq clen1, 2
+    cb0_flag = eq cb0_ok, 1
+    cb0_val = eq cb0, 97
+    cb1_flag = eq cb1_ok, 1
+    cb1_val = eq cb1, 98
+    ok_chars_full_flag = eq ok_chars_full, 0
+    clen2_ok = eq clen2, 2
+    ok_chars_bad_flag = eq ok_chars_bad, 0
+    clen3_ok = eq clen3, 2
+    ok_ascii_flag = eq ok_ascii, 1
+    alen1_ok = eq alen1, 2
+    ab0_flag = eq ab0_ok, 1
+    ab0_val = eq ab0, 120
+    ab1_flag = eq ab1_ok, 1
+    ab1_val = eq ab1, 121
+    ok_ascii_full_flag = eq ok_ascii_full, 0
+    alen2_ok = eq alen2, 2
+    ok_ascii_bad_flag = eq ok_ascii_bad, 0
+    alen3_ok = eq alen3, 2
+
+    ok = and ok_chars_flag, clen1_ok
+    ok = and ok, cb0_flag
+    ok = and ok, cb0_val
+    ok = and ok, cb1_flag
+    ok = and ok, cb1_val
+    ok = and ok, ok_chars_full_flag
+    ok = and ok, clen2_ok
+    ok = and ok, ok_chars_bad_flag
+    ok = and ok, clen3_ok
+    ok = and ok, ok_ascii_flag
+    ok = and ok, alen1_ok
+    ok = and ok, ab0_flag
+    ok = and ok, ab0_val
+    ok = and ok, ab1_flag
+    ok = and ok, ab1_val
+    ok = and ok, ok_ascii_full_flag
+    ok = and ok, alen2_ok
+    ok = and ok, ok_ascii_bad_flag
+    ok = and ok, alen3_ok
+
+    EXPAND STRING_BUF_FREE char_buf
+    EXPAND STRING_BUF_FREE ascii_buf
+    !chars_slice
+    !chars_data
+    !invalid_slice
+    !invalid_data
+    !ascii_slice
+    !ascii_data
+    !bad_ascii_slice
+    !bad_ascii_data
+    !ok_chars
+    !clen1
+    !cb0_ok
+    !cb0
+    !cb1_ok
+    !cb1
+    !ok_chars_full
+    !clen2
+    !ok_chars_bad
+    !clen3
+    !ok_ascii
+    !alen1
+    !ab0_ok
+    !ab0
+    !ab1_ok
+    !ab1
+    !ok_ascii_full
+    !alen2
+    !ok_ascii_bad
+    !alen3
+    !ok_chars_flag
+    !clen1_ok
+    !cb0_flag
+    !cb0_val
+    !cb1_flag
+    !cb1_val
+    !ok_chars_full_flag
+    !clen2_ok
+    !ok_chars_bad_flag
+    !clen3_ok
+    !ok_ascii_flag
+    !alen1_ok
+    !ab0_flag
+    !ab0_val
+    !ab1_flag
+    !ab1_val
+    !ok_ascii_full_flag
+    !alen2_ok
+    !ok_ascii_bad_flag
+    !alen3_ok
+    br ok -> L_STR_ECAWC_OK, L_STR_ECAWC_FAIL
+
+L_STR_ECAWC_FAIL:
+    !ok
+    panic(1069)
+
+L_STR_ECAWC_OK:
+    !ok
+    return
+
 @test "sa_std string replace_first_last char within capacity aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4
