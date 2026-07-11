@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String get_mut range naming alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable mutable range/prefix/suffix/between get naming aliases:
+  - `STR_TRY_GET_RANGE_MUT` / `STRING_TRY_GET_RANGE_MUT` / `STRING_BUF_TRY_GET_RANGE_MUT`
+  - `STR_GET_RANGE_MUT` / `STRING_GET_RANGE_MUT` / `STRING_BUF_GET_RANGE_MUT`
+  - `STR_TRY_GET_PREFIX_MUT` / `STRING_TRY_GET_PREFIX_MUT` / `STRING_BUF_TRY_GET_PREFIX_MUT`
+  - `STR_GET_PREFIX_MUT` / `STRING_GET_PREFIX_MUT` / `STRING_BUF_GET_PREFIX_MUT`
+  - `STR_TRY_GET_SUFFIX_MUT` / `STRING_TRY_GET_SUFFIX_MUT` / `STRING_BUF_TRY_GET_SUFFIX_MUT`
+  - `STR_GET_SUFFIX_MUT` / `STRING_GET_SUFFIX_MUT` / `STRING_BUF_GET_SUFFIX_MUT`
+  - `STR_TRY_GET_RANGE_BETWEEN_MUT` / `STRING_TRY_GET_RANGE_BETWEEN_MUT` / `STRING_BUF_TRY_GET_RANGE_BETWEEN_MUT`
+  - `STR_GET_RANGE_BETWEEN_MUT` / `STRING_GET_RANGE_BETWEEN_MUT` / `STRING_BUF_GET_RANGE_BETWEEN_MUT`
+- Semantics: mutable range helpers reuse the existing checked get-range helpers; `STRING_BUF_*` forms view through `STRING_BUF_AS_MUT_STR` so successful slices write back into the buffer. Bounds and UTF-8 char-boundary checks remain delegated to the existing helpers. These aliases do not claim Rust `Option<&mut str>` layout, exclusive mutable-reference borrow rules, or range-trait object coverage.
+- Validation status:
+  - Source focused minimal harness: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "get_mut range naming aliases"`: pass (`1 passed; 84 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf try_truncate alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

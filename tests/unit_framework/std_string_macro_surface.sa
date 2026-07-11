@@ -11991,3 +11991,78 @@ L_STR_TRY_TRUNC_FAIL:
 L_STR_TRY_TRUNC_OK:
     !ok
     return
+
+@test "sa_std string get_mut range naming aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_GET_RANGE_MUT ok_range, range, buf, 1, 2
+    EXPAND STRING_BUF_TRY_GET_PREFIX_MUT ok_prefix, prefix, buf, 2
+    EXPAND STRING_BUF_TRY_GET_SUFFIX_MUT ok_suffix, suffix, buf, 2
+    EXPAND STRING_BUF_TRY_GET_RANGE_BETWEEN_MUT ok_between, between, buf, 1, 3
+    EXPAND STR_AS_PTR range_ptr, range
+    r0 = load range_ptr+0 as u8
+    store range_ptr+0, 85 as u8
+    EXPAND STRING_BUF_AS_STR view, buf
+    EXPAND STR_AS_PTR view_ptr, view
+    wrote = load view_ptr+1 as u8
+    EXPAND STR_LEN prefix_len, prefix
+    EXPAND STR_LEN suffix_len, suffix
+    EXPAND STR_LEN between_len, between
+
+    ok_range_flag = eq ok_range, 1
+    ok_prefix_flag = eq ok_prefix, 1
+    ok_suffix_flag = eq ok_suffix, 1
+    ok_between_flag = eq ok_between, 1
+    r0_ok = eq r0, 117
+    wrote_ok = eq wrote, 85
+    prefix_len_ok = eq prefix_len, 2
+    suffix_len_ok = eq suffix_len, 2
+    between_len_ok = eq between_len, 2
+
+    ok = and ok_range_flag, ok_prefix_flag
+    ok = and ok, ok_suffix_flag
+    ok = and ok, ok_between_flag
+    ok = and ok, r0_ok
+    ok = and ok, wrote_ok
+    ok = and ok, prefix_len_ok
+    ok = and ok, suffix_len_ok
+    ok = and ok, between_len_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !range
+    !prefix
+    !suffix
+    !between
+    !view
+    !ok_range
+    !ok_prefix
+    !ok_suffix
+    !ok_between
+    !range_ptr
+    !r0
+    !view_ptr
+    !wrote
+    !prefix_len
+    !suffix_len
+    !between_len
+    !ok_range_flag
+    !ok_prefix_flag
+    !ok_suffix_flag
+    !ok_between_flag
+    !r0_ok
+    !wrote_ok
+    !prefix_len_ok
+    !suffix_len_ok
+    !between_len_ok
+    br ok -> L_STR_GET_MUT_RANGE_OK, L_STR_GET_MUT_RANGE_FAIL
+
+L_STR_GET_MUT_RANGE_FAIL:
+    !ok
+    panic(1055)
+
+L_STR_GET_MUT_RANGE_OK:
+    !ok
+    return
