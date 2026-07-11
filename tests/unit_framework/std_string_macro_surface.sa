@@ -12233,6 +12233,84 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string replace_range char within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 7
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY ok_same, buf, 1, 1, 120
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, buf, 1
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY ok_grow, buf, 2, 1, 128512
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY ok_full, buf, 0, 1, 128512
+    EXPAND STRING_BUF_LEN len3, buf
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY ok_bad, buf, 1, 1, 55296
+    EXPAND STRING_BUF_LEN len4, buf
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY ok_miss, buf, 9, 1, 97
+    EXPAND STRING_BUF_LEN len5, buf
+
+    ok_same_flag = eq ok_same, 1
+    len1_ok = eq len1, 4
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 120
+    ok_grow_flag = eq ok_grow, 1
+    len2_ok = eq len2, 7
+    ok_full_flag = eq ok_full, 0
+    len3_ok = eq len3, 7
+    ok_bad_flag = eq ok_bad, 0
+    len4_ok = eq len4, 7
+    ok_miss_flag = eq ok_miss, 0
+    len5_ok = eq len5, 7
+
+    ok = and ok_same_flag, len1_ok
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, ok_grow_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len3_ok
+    ok = and ok, ok_bad_flag
+    ok = and ok, len4_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, len5_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !ok_same
+    !len1
+    !b1_ok
+    !b1
+    !ok_grow
+    !len2
+    !ok_full
+    !len3
+    !ok_bad
+    !len4
+    !ok_miss
+    !len5
+    !ok_same_flag
+    !len1_ok
+    !b1_flag
+    !b1_val
+    !ok_grow_flag
+    !len2_ok
+    !ok_full_flag
+    !len3_ok
+    !ok_bad_flag
+    !len4_ok
+    !ok_miss_flag
+    !len5_ok
+    br ok -> L_STR_RRCWC_OK, L_STR_RRCWC_FAIL
+
+L_STR_RRCWC_FAIL:
+    !ok
+    panic(1071)
+
+L_STR_RRCWC_OK:
+    !ok
+    return
+
 @test "sa_std string extend char ascii refs within capacity aliases"():
 L_ENTRY:
     c0 = alloc 8

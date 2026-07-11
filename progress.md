@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf replace_range char within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving char range-replace helpers:
+  - `STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY` / `STRING_BUF_REPLACE_RANGE_CHAR_WITHIN_CAPACITY`
+- Semantics: encode a Unicode scalar to UTF-8 via `STR_ENCODE_CHAR_SLICE`, then reuse `STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY`. Invalid scalars, out-of-range/non-boundary ranges, and insufficient remaining capacity return `ok=0` with no mutation. These helpers do not claim Rust `Pattern` trait coverage or panic-on-capacity models.
+- Validation status:
+  - Source focused minimal harness `/tmp/rrcwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "replace_range char within capacity aliases"`: pass (`1 passed; 94 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf extend char/ascii refs within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

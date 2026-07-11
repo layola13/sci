@@ -4237,6 +4237,28 @@ L_STRING_BUF_RRWC_END_%out_ok:
     EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %replace_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rrcwc_slice_%out_ok, __string_buf_rrcwc_valid_%out_ok, %code
+    br __string_buf_rrcwc_valid_%out_ok -> L_STRING_BUF_RRCWC_HIT_%out_ok, L_STRING_BUF_RRCWC_MISS_%out_ok
+
+L_STRING_BUF_RRCWC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, __string_buf_rrcwc_slice_%out_ok
+    !__string_buf_rrcwc_valid_%out_ok
+    !__string_buf_rrcwc_slice_%out_ok
+    jmp L_STRING_BUF_RRCWC_END_%out_ok
+
+L_STRING_BUF_RRCWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrcwc_valid_%out_ok
+    !__string_buf_rrcwc_slice_%out_ok
+
+L_STRING_BUF_RRCWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_RANGE_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %code
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %code
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
     __string_buf_replace_view_%out_ok = & %string_reg
     __string_buf_replace_old_len_%out_ok = load __string_buf_replace_view_%out_ok+Vec_len as u64
