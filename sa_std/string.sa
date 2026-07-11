@@ -2671,6 +2671,14 @@ L_STRING_BUF_SET_LEN_DONE_%out_ok:
     EXPAND VEC_PUSH %string_reg, %byte_value, 1
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_PUSH_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+    EXPAND STRING_BUF_TRY_PUSH_BYTE_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_PUSH_CHAR %out_ok, %string_reg, %char_value
     __string_buf_push_char_tmp_%out_ok = stack_alloc 4
     EXPAND CHAR_TRY_ENCODE_UTF8 %out_ok, __string_buf_push_char_width_%out_ok, __string_buf_push_char_tmp_%out_ok, 4, %char_value
@@ -2693,6 +2701,47 @@ L_STRING_BUF_PUSH_CHAR_END_%out_ok:
 [MACRO] STRING_BUF_PUSH_CHAR %string_reg, %char_value
     EXPAND STRING_BUF_TRY_PUSH_CHAR __string_buf_push_char_ok_%string_reg, %string_reg, %char_value
     !__string_buf_push_char_ok_%string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_PUSH_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
+    __string_buf_pcc_tmp_%out_ok = stack_alloc 4
+    EXPAND CHAR_TRY_ENCODE_UTF8 __string_buf_pcc_enc_ok_%out_ok, __string_buf_pcc_width_%out_ok, __string_buf_pcc_tmp_%out_ok, 4, %char_value
+    br __string_buf_pcc_enc_ok_%out_ok -> L_STRING_BUF_PCC_CHECK_%out_ok, L_STRING_BUF_PCC_BAD_CHAR_%out_ok
+
+L_STRING_BUF_PCC_CHECK_%out_ok:
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_buf_pcc_remaining_%out_ok, %string_reg
+    __string_buf_pcc_has_room_%out_ok = uge __string_buf_pcc_remaining_%out_ok, __string_buf_pcc_width_%out_ok
+    br __string_buf_pcc_has_room_%out_ok -> L_STRING_BUF_PCC_HIT_%out_ok, L_STRING_BUF_PCC_NO_ROOM_%out_ok
+
+L_STRING_BUF_PCC_HIT_%out_ok:
+    __string_buf_pcc_slice_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_pcc_slice_%out_ok, __string_buf_pcc_tmp_%out_ok, __string_buf_pcc_width_%out_ok
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, __string_buf_pcc_slice_%out_ok
+    !__string_buf_pcc_slice_%out_ok
+    !__string_buf_pcc_has_room_%out_ok
+    !__string_buf_pcc_remaining_%out_ok
+    !__string_buf_pcc_width_%out_ok
+    !__string_buf_pcc_enc_ok_%out_ok
+    jmp L_STRING_BUF_PCC_DONE_%out_ok
+
+L_STRING_BUF_PCC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_pcc_has_room_%out_ok
+    !__string_buf_pcc_remaining_%out_ok
+    !__string_buf_pcc_width_%out_ok
+    !__string_buf_pcc_enc_ok_%out_ok
+    jmp L_STRING_BUF_PCC_DONE_%out_ok
+
+L_STRING_BUF_PCC_BAD_CHAR_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_pcc_width_%out_ok
+    !__string_buf_pcc_enc_ok_%out_ok
+
+L_STRING_BUF_PCC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %char_value
 [END_MACRO]
 
 [MACRO] STRING_BUF_WRITE_STR %out_ok, %string_reg, %suffix_slice

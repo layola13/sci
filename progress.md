@@ -4,6 +4,22 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf push_byte/char_within_capacity + Vec try_set_len batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving push helpers and checked Vec length updates:
+  - `STRING_BUF_TRY_PUSH_BYTE_WITHIN_CAPACITY` / `STRING_BUF_PUSH_BYTE_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_PUSH_CHAR_WITHIN_CAPACITY` / `STRING_BUF_PUSH_CHAR_WITHIN_CAPACITY`
+  - `VEC_TRY_SET_LEN` / `VEC_TRY_SET_LEN_U64`
+- Semantics: push-byte-within-capacity reuses `VEC_TRY_PUSH_WITHIN_CAPACITY` with `elem_size=1`. push-char-within-capacity encodes a Unicode scalar to UTF-8 first, then appends only when remaining capacity is large enough for the encoded width; invalid scalars and insufficient room return `ok=0` without mutation and never reallocate. `VEC_TRY_SET_LEN` accepts `new_len <= cap` and returns `ok=0` without mutation when over capacity; it does not claim Rust unsafe `set_len` panic semantics, caller-initialized spare proofs, or generic allocator integration.
+- Validation status:
+  - Source focused minimal harness covering both families: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "push_byte and push_char within capacity aliases"`: pass (`1 passed; 82 skipped`).
+  - Source focused `std_vec_macro_surface.sa --filter "try_set_len aliases"`: pass (`1 passed; 30 skipped`).
+  - Install sync via installed-std copy of `string.sa` / `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 str/String get_mut + StringBuf push_str_within_capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

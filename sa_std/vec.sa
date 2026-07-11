@@ -651,6 +651,30 @@ L_VEC_PEEK_MUT_END_%out_ok:
     store %vec_reg+Vec_len, %new_len as u64
 [END_MACRO]
 
+[MACRO] VEC_TRY_SET_LEN %out_ok, %vec_reg, %new_len
+    __vec_try_set_len_cap_%out_ok = load %vec_reg+Vec_cap as u64
+    __vec_try_set_len_ok_%out_ok = ule %new_len, __vec_try_set_len_cap_%out_ok
+    br __vec_try_set_len_ok_%out_ok -> L_VEC_TRY_SET_LEN_HIT_%out_ok, L_VEC_TRY_SET_LEN_MISS_%out_ok
+
+L_VEC_TRY_SET_LEN_HIT_%out_ok:
+    store %vec_reg+Vec_len, %new_len as u64
+    %out_ok = add 0, 1
+    !__vec_try_set_len_ok_%out_ok
+    !__vec_try_set_len_cap_%out_ok
+    jmp L_VEC_TRY_SET_LEN_DONE_%out_ok
+
+L_VEC_TRY_SET_LEN_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_try_set_len_ok_%out_ok
+    !__vec_try_set_len_cap_%out_ok
+
+L_VEC_TRY_SET_LEN_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_TRY_SET_LEN_U64 %out_ok, %vec_reg, %new_len
+    EXPAND VEC_TRY_SET_LEN %out_ok, %vec_reg, %new_len
+[END_MACRO]
+
 [MACRO] VEC_TRY_POP %out_ok, %out_value, %vec_reg
     __vec_value_slot_%out_ok = stack_alloc 8
     __vec_ok_%out_ok = call @sa_vec_try_pop(&%vec_reg, &__vec_value_slot_%out_ok)

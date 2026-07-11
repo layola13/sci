@@ -3805,3 +3805,71 @@ L_VEC_CAP_REM_FAIL:
 L_VEC_CAP_REM_OK:
     !ok
     return
+
+@test "sa_std vec try_set_len aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 20
+    EXPAND VEC_PUSH_U64 vec, 30
+    EXPAND VEC_PUSH_U64 vec, 40
+    EXPAND VEC_TRY_SET_LEN_U64 ok_shrink, vec, 2
+    EXPAND VEC_LEN len1, vec
+    EXPAND VEC_TRY_GET_U64 g0_ok, v0, vec, 0
+    EXPAND VEC_TRY_GET_U64 g1_ok, v1, vec, 1
+    EXPAND VEC_TRY_SET_LEN_U64 ok_extend, vec, 4
+    EXPAND VEC_LEN len2, vec
+    EXPAND VEC_TRY_SET_LEN_U64 ok_over, vec, 8
+    EXPAND VEC_LEN len3, vec
+
+    ok_shrink_flag = eq ok_shrink, 1
+    len1_ok = eq len1, 2
+    g0_flag = eq g0_ok, 1
+    g0_val = eq v0, 10
+    g1_flag = eq g1_ok, 1
+    g1_val = eq v1, 20
+    ok_extend_flag = eq ok_extend, 1
+    len2_ok = eq len2, 4
+    ok_over_flag = eq ok_over, 0
+    len3_ok = eq len3, 4
+
+    ok = and ok_shrink_flag, len1_ok
+    ok = and ok, g0_flag
+    ok = and ok, g0_val
+    ok = and ok, g1_flag
+    ok = and ok, g1_val
+    ok = and ok, ok_extend_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_over_flag
+    ok = and ok, len3_ok
+
+    EXPAND VEC_FREE vec
+    !ok_shrink
+    !len1
+    !g0_ok
+    !v0
+    !g1_ok
+    !v1
+    !ok_extend
+    !len2
+    !ok_over
+    !len3
+    !ok_shrink_flag
+    !len1_ok
+    !g0_flag
+    !g0_val
+    !g1_flag
+    !g1_val
+    !ok_extend_flag
+    !len2_ok
+    !ok_over_flag
+    !len3_ok
+    br ok -> L_VEC_TRY_SET_LEN_OK, L_VEC_TRY_SET_LEN_FAIL
+
+L_VEC_TRY_SET_LEN_FAIL:
+    !ok
+    panic(1052)
+
+L_VEC_TRY_SET_LEN_OK:
+    !ok
+    return
