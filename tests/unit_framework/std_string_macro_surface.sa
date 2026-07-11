@@ -11746,3 +11746,127 @@ L_STR_SET_LEN_OK:
     !ok
     return
 
+
+@test "sa_std string get_mut naming aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_GET_MUT ok_mid, mid, buf, 1, 3
+    EXPAND STRING_BUF_GET_MUT ok_full, full, buf, 0, 4
+    EXPAND STRING_BUF_TRY_GET_MUT ok_bad, bad, buf, 3, 1
+    EXPAND STRING_BUF_TRY_GET_UNCHECKED_MUT ok_uc, uc, buf, 1, 3
+    EXPAND STR_LEN mid_len, mid
+    EXPAND STR_AS_PTR mid_ptr, mid
+    mid0 = load mid_ptr+0 as u8
+    store mid_ptr+0, 85 as u8
+    EXPAND STRING_BUF_AS_STR view, buf
+    EXPAND STR_AS_PTR view_ptr, view
+    wrote = load view_ptr+1 as u8
+
+    ok_mid_flag = eq ok_mid, 1
+    ok_full_flag = eq ok_full, 1
+    ok_bad_flag = eq ok_bad, 0
+    ok_uc_flag = eq ok_uc, 1
+    mid_len_ok = eq mid_len, 2
+    mid0_ok = eq mid0, 117
+    wrote_ok = eq wrote, 85
+
+    ok = and ok_mid_flag, ok_full_flag
+    ok = and ok, ok_bad_flag
+    ok = and ok, ok_uc_flag
+    ok = and ok, mid_len_ok
+    ok = and ok, mid0_ok
+    ok = and ok, wrote_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !mid
+    !full
+    !bad
+    !uc
+    !view
+    !ok_mid
+    !ok_full
+    !ok_bad
+    !ok_uc
+    !mid_len
+    !mid_ptr
+    !mid0
+    !view_ptr
+    !wrote
+    !ok_mid_flag
+    !ok_full_flag
+    !ok_bad_flag
+    !ok_uc_flag
+    !mid_len_ok
+    !mid0_ok
+    !wrote_ok
+    br ok -> L_STR_GET_MUT_OK, L_STR_GET_MUT_FAIL
+
+L_STR_GET_MUT_FAIL:
+    !ok
+    panic(1048)
+
+L_STR_GET_MUT_OK:
+    !ok
+    return
+
+@test "sa_std string push_str within capacity aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS tail, &SUFFIX, 2
+    EXPAND STR_FROM_PARTS more, &PREFIX, 2
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY ok1, buf, hi
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY ok2, buf, tail
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY ok3, buf, more
+    EXPAND STRING_BUF_LEN len3, buf
+    EXPAND STRING_BUF_AS_STR view, buf
+    EXPAND STR_LEN view_len, view
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 4
+    ok2_flag = eq ok2, 1
+    len2_ok = eq len2, 6
+    ok3_flag = eq ok3, 0
+    len3_ok = eq len3, 6
+    view_len_ok = eq view_len, 6
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, ok2_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok3_flag
+    ok = and ok, len3_ok
+    ok = and ok, view_len_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !tail
+    !more
+    !view
+    !ok1
+    !len1
+    !ok2
+    !len2
+    !ok3
+    !len3
+    !view_len
+    !ok1_flag
+    !len1_ok
+    !ok2_flag
+    !len2_ok
+    !ok3_flag
+    !len3_ok
+    !view_len_ok
+    br ok -> L_STR_PWC_OK, L_STR_PWC_FAIL
+
+L_STR_PWC_FAIL:
+    !ok
+    panic(1049)
+
+L_STR_PWC_OK:
+    !ok
+    return

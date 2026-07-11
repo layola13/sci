@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String get_mut + StringBuf push_str_within_capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable mutable get naming aliases and capacity-preserving `push_str` helpers:
+  - `STR_TRY_GET_MUT` / `STRING_TRY_GET_MUT` / `STRING_BUF_TRY_GET_MUT`
+  - `STR_GET_MUT` / `STRING_GET_MUT` / `STRING_BUF_GET_MUT`
+  - `STR_TRY_GET_UNCHECKED_MUT` / `STRING_TRY_GET_UNCHECKED_MUT` / `STRING_BUF_TRY_GET_UNCHECKED_MUT`
+  - `STR_GET_UNCHECKED_MUT` / `STRING_GET_UNCHECKED_MUT` / `STRING_BUF_GET_UNCHECKED_MUT`
+  - `STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY` / `STRING_BUF_PUSH_STR_WITHIN_CAPACITY`
+- Semantics: mutable get aliases reuse the existing checked/unchecked get range helpers; `STRING_BUF_*` forms view through `STRING_BUF_AS_MUT_STR` so successful slices write back into the buffer. Unchecked mut forms remain bounds/order-only and skip char-boundary validation. `push_str_within_capacity` appends only when `remaining_capacity >= suffix_len`, returns `ok=0` without mutation when room is insufficient, and never reallocates. These helpers do not claim Rust `Option<&mut str>` layout, borrow-checker exclusive mutable reference rules, or allocator-parametric behavior.
+- Validation status:
+  - Source focused minimal harness covering get_mut + push_str_within_capacity: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "get_mut naming aliases"`: pass (`1 passed; 81 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "push_str within capacity aliases"`: pass (`1 passed; 81 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 str/String get naming + StringBuf set_len batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

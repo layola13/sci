@@ -2832,6 +2832,46 @@ L_STRING_BUF_STR_ITER_DONE_%string_reg:
     !__string_buf_suffix_len_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+    __string_buf_pwc_suffix_len_%out_ok = load %suffix_slice+Slice_len as u64
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_buf_pwc_remaining_%out_ok, %string_reg
+    __string_buf_pwc_has_room_%out_ok = uge __string_buf_pwc_remaining_%out_ok, __string_buf_pwc_suffix_len_%out_ok
+    br __string_buf_pwc_has_room_%out_ok -> L_STRING_BUF_PWC_HIT_%out_ok, L_STRING_BUF_PWC_MISS_%out_ok
+
+L_STRING_BUF_PWC_HIT_%out_ok:
+    __string_buf_pwc_view_%out_ok = & %string_reg
+    __string_buf_pwc_dst_buf_%out_ok = load __string_buf_pwc_view_%out_ok+Vec_ptr as ptr
+    __string_buf_pwc_dst_len_%out_ok = load __string_buf_pwc_view_%out_ok+Vec_len as u64
+    __string_buf_pwc_dst_ptr_%out_ok = ptr_add __string_buf_pwc_dst_buf_%out_ok, __string_buf_pwc_dst_len_%out_ok
+    __string_buf_pwc_src_ptr_%out_ok = load %suffix_slice+Slice_ptr as ptr
+    call @sa_mem_copy(&__string_buf_pwc_dst_ptr_%out_ok, &__string_buf_pwc_src_ptr_%out_ok, __string_buf_pwc_suffix_len_%out_ok)
+    __string_buf_pwc_next_len_%out_ok = add __string_buf_pwc_dst_len_%out_ok, __string_buf_pwc_suffix_len_%out_ok
+    store __string_buf_pwc_view_%out_ok+Vec_len, __string_buf_pwc_next_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_pwc_next_len_%out_ok
+    !__string_buf_pwc_src_ptr_%out_ok
+    !__string_buf_pwc_dst_ptr_%out_ok
+    !__string_buf_pwc_dst_len_%out_ok
+    !__string_buf_pwc_dst_buf_%out_ok
+    !__string_buf_pwc_view_%out_ok
+    !__string_buf_pwc_has_room_%out_ok
+    !__string_buf_pwc_remaining_%out_ok
+    !__string_buf_pwc_suffix_len_%out_ok
+    jmp L_STRING_BUF_PWC_DONE_%out_ok
+
+L_STRING_BUF_PWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_pwc_has_room_%out_ok
+    !__string_buf_pwc_remaining_%out_ok
+    !__string_buf_pwc_suffix_len_%out_ok
+
+L_STRING_BUF_PWC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_EXTEND_FROM_WITHIN %out_ok, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_STR __string_buf_efw_view_%out_ok, %string_reg
     EXPAND STR_TRY_GET_RANGE __string_buf_efw_range_ok_%out_ok, __string_buf_efw_range_%out_ok, __string_buf_efw_view_%out_ok, %start, %length
@@ -8600,6 +8640,58 @@ L_STR_GET_UC_DONE_%out_ok:
 
 [MACRO] STRING_BUF_GET_UNCHECKED %out_ok, %out_slice, %string_reg, %start, %end
     EXPAND STRING_BUF_TRY_GET_UNCHECKED %out_ok, %out_slice, %string_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_GET_MUT %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_AS_MUT_STR __string_buf_try_get_mut_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET %out_ok, %out_slice, __string_buf_try_get_mut_view_%out_ok, %start, %end
+    !__string_buf_try_get_mut_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_GET_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_MUT %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_TRY_GET_MUT %out_ok, %out_slice, %string_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_GET_UNCHECKED_MUT %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_AS_MUT_STR __string_buf_try_get_uc_mut_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_UNCHECKED %out_ok, %out_slice, __string_buf_try_get_uc_mut_view_%out_ok, %start, %end
+    !__string_buf_try_get_uc_mut_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_GET_UNCHECKED_MUT %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_UNCHECKED_MUT %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_TRY_GET_UNCHECKED_MUT %out_ok, %out_slice, %string_reg, %start, %end
 [END_MACRO]
 
 [MACRO] STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
