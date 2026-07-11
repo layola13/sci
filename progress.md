@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf push_str_n within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helper:
+  - `STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY` / `STRING_BUF_PUSH_STR_N_WITHIN_CAPACITY`
+- Semantics: compute total repeated suffix length first and append `count` copies only when remaining capacity covers the whole sequence. Zero counts succeed as no-ops; insufficient room returns `ok=0` with no mutation. This reuses within-capacity `push_str` and does not claim Rust `repeat` allocator growth or partial append.
+- Validation status:
+  - Source focused minimal harness `/tmp/psnwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "push_str_n within capacity aliases"`: pass (`1 passed; 101 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf pop_if aliases batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

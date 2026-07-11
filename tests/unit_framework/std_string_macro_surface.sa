@@ -12258,6 +12258,80 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string push_str_n within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &PREFIX, 2
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY ok1, buf, hi, 2
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b0_ok, b0, buf, 2
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, buf, 4
+    EXPAND STRING_BUF_CAPACITY cap1, buf
+
+    EXPAND STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY ok_full, buf, hi, 1
+    EXPAND STRING_BUF_LEN len2, buf
+
+    EXPAND STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY ok_zero, buf, hi, 0
+    EXPAND STRING_BUF_LEN len3, buf
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 6
+    b0_flag = eq b0_ok, 1
+    b0_val = eq b0, 114
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 114
+    cap1_ok = eq cap1, 6
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 6
+    ok_zero_flag = eq ok_zero, 1
+    len3_ok = eq len3, 6
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, b0_flag
+    ok = and ok, b0_val
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_zero_flag
+    ok = and ok, len3_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !ok1
+    !len1
+    !b0_ok
+    !b0
+    !b1_ok
+    !b1
+    !cap1
+    !ok_full
+    !len2
+    !ok_zero
+    !len3
+    !ok1_flag
+    !len1_ok
+    !b0_flag
+    !b0_val
+    !b1_flag
+    !b1_val
+    !cap1_ok
+    !ok_full_flag
+    !len2_ok
+    !ok_zero_flag
+    !len3_ok
+    br ok -> L_STR_PSNWC_OK, L_STR_PSNWC_FAIL
+
+L_STR_PSNWC_FAIL:
+    !ok
+    panic(1080)
+
+L_STR_PSNWC_OK:
+    !ok
+    return
+
 @test "sa_std string pop_if aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

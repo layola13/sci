@@ -3584,6 +3584,68 @@ L_STRING_BUF_PWC_DONE_%out_ok:
     EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice, %count
+    __string_buf_psnwc_suffix_len_%out_ok = load %suffix_slice+Slice_len as u64
+    __string_buf_psnwc_total_%out_ok = mul __string_buf_psnwc_suffix_len_%out_ok, %count
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_buf_psnwc_remaining_%out_ok, %string_reg
+    __string_buf_psnwc_has_room_%out_ok = uge __string_buf_psnwc_remaining_%out_ok, __string_buf_psnwc_total_%out_ok
+    br __string_buf_psnwc_has_room_%out_ok -> L_STRING_BUF_PSNWC_SETUP_%out_ok, L_STRING_BUF_PSNWC_MISS_%out_ok
+
+L_STRING_BUF_PSNWC_SETUP_%out_ok:
+    __string_buf_psnwc_idx_slot_%out_ok = stack_alloc 8
+    store __string_buf_psnwc_idx_slot_%out_ok+0, 0 as u64
+    !__string_buf_psnwc_has_room_%out_ok
+    !__string_buf_psnwc_remaining_%out_ok
+    !__string_buf_psnwc_total_%out_ok
+    !__string_buf_psnwc_suffix_len_%out_ok
+    jmp L_STRING_BUF_PSNWC_HEAD_%out_ok
+
+L_STRING_BUF_PSNWC_HEAD_%out_ok:
+    __string_buf_psnwc_idx_%out_ok = load __string_buf_psnwc_idx_slot_%out_ok+0 as u64
+    __string_buf_psnwc_done_%out_ok = eq __string_buf_psnwc_idx_%out_ok, %count
+    br __string_buf_psnwc_done_%out_ok -> L_STRING_BUF_PSNWC_DONE_%out_ok, L_STRING_BUF_PSNWC_BODY_%out_ok
+
+L_STRING_BUF_PSNWC_BODY_%out_ok:
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY __string_buf_psnwc_push_ok_%out_ok, %string_reg, %suffix_slice
+    br __string_buf_psnwc_push_ok_%out_ok -> L_STRING_BUF_PSNWC_NEXT_%out_ok, L_STRING_BUF_PSNWC_FAIL_%out_ok
+
+L_STRING_BUF_PSNWC_NEXT_%out_ok:
+    __string_buf_psnwc_next_%out_ok = add __string_buf_psnwc_idx_%out_ok, 1
+    store __string_buf_psnwc_idx_slot_%out_ok+0, __string_buf_psnwc_next_%out_ok as u64
+    !__string_buf_psnwc_next_%out_ok
+    !__string_buf_psnwc_push_ok_%out_ok
+    !__string_buf_psnwc_done_%out_ok
+    !__string_buf_psnwc_idx_%out_ok
+    jmp L_STRING_BUF_PSNWC_HEAD_%out_ok
+
+L_STRING_BUF_PSNWC_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_psnwc_push_ok_%out_ok
+    !__string_buf_psnwc_done_%out_ok
+    !__string_buf_psnwc_idx_%out_ok
+    jmp L_STRING_BUF_PSNWC_END_%out_ok
+
+L_STRING_BUF_PSNWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_buf_psnwc_done_%out_ok
+    !__string_buf_psnwc_idx_%out_ok
+    jmp L_STRING_BUF_PSNWC_END_%out_ok
+
+L_STRING_BUF_PSNWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_psnwc_has_room_%out_ok
+    !__string_buf_psnwc_remaining_%out_ok
+    !__string_buf_psnwc_total_%out_ok
+    !__string_buf_psnwc_suffix_len_%out_ok
+
+L_STRING_BUF_PSNWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_STR_N_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice, %count
+    EXPAND STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice, %count
+[END_MACRO]
+
+
 [MACRO] STRING_BUF_TRY_EXTEND_FROM_WITHIN %out_ok, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_STR __string_buf_efw_view_%out_ok, %string_reg
     EXPAND STR_TRY_GET_RANGE __string_buf_efw_range_ok_%out_ok, __string_buf_efw_range_%out_ok, __string_buf_efw_view_%out_ok, %start, %length
