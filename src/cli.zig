@@ -3171,6 +3171,19 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
     var sections_list = std.ArrayList(SkillSection).init(allocator);
     errdefer sections_list.deinit();
     try sections_list.appendSlice(base_sections[0..]);
+    // Diagnostic catalog: expose all verifier/flattener traps (name + stable
+    // code) so Agents can discover the full diagnostic surface. Items live for
+    // the function scope; sections are rendered before this list is freed.
+    var trap_items = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (trap_items.items) |it| allocator.free(it);
+        trap_items.deinit();
+    }
+    for (trap.allTraps()) |t| {
+        const it = std.fmt.allocPrint(allocator, "{s} ({s})", .{ trap.trapName(t), trap.trapStableCode(t) }) catch continue;
+        trap_items.append(it) catch continue;
+    }
+    try sections_list.append(.{ .name = "diagnostic catalog", .summary = "All verifier/flattener traps; use sa explain <name|code> for details", .items = trap_items.items });
     var plugin_runtime = try plugins.Runtime.initFromEnv(allocator);
     defer plugin_runtime.deinit();
     try plugin_runtime.appendSkills(&sections_list);
