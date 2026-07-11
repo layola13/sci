@@ -12233,6 +12233,71 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string retain within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS source, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STR_FROM_PARTS expected, &UTF8_A_E, 3
+    EXPAND STR_EMPTY empty_expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED buf, source
+    EXPAND STRING_BUF_CAPACITY cap0, buf
+    EXPAND STRING_BUF_TRY_RETAIN_WITHIN_CAPACITY ok1, len1, buf, @string_retain_not_smile_z
+    EXPAND STRING_BUF_CAPACITY cap1, buf
+    EXPAND STRING_BUF_AS_STR view1, buf
+    EXPAND STR_EQ eq1, view1, expected
+
+    EXPAND STRING_BUF_FROM_UTF8_UNCHECKED none_buf, source
+    EXPAND STRING_BUF_TRY_RETAIN_WITHIN_CAPACITY ok2, len2, none_buf, @string_retain_none
+    EXPAND STRING_BUF_AS_STR view2, none_buf
+    EXPAND STR_EQ eq2, view2, empty_expected
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 3
+    eq1_flag = eq eq1, 1
+    cap_ok = eq cap1, cap0
+    ok2_flag = eq ok2, 1
+    len2_ok = eq len2, 0
+    eq2_flag = eq eq2, 1
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, eq1_flag
+    ok = and ok, cap_ok
+    ok = and ok, ok2_flag
+    ok = and ok, len2_ok
+    ok = and ok, eq2_flag
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE none_buf
+    !source
+    !expected
+    !empty_expected
+    !cap0
+    !ok1
+    !len1
+    !cap1
+    !view1
+    !eq1
+    !ok2
+    !len2
+    !view2
+    !eq2
+    !ok1_flag
+    !len1_ok
+    !eq1_flag
+    !cap_ok
+    !ok2_flag
+    !len2_ok
+    !eq2_flag
+    br ok -> L_STR_RTWC_OK, L_STR_RTWC_FAIL
+
+L_STR_RTWC_FAIL:
+    !ok
+    panic(1075)
+
+L_STR_RTWC_OK:
+    !ok
+    return
+
 @test "sa_std string remove matches within capacity aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

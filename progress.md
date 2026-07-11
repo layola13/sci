@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 Vec splice + StringBuf retain within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helpers:
+  - `VEC_TRY_SPLICE_WITHIN_CAPACITY_U64` / `VEC_SPLICE_WITHIN_CAPACITY_U64`
+  - `STRING_BUF_TRY_RETAIN_WITHIN_CAPACITY` / `STRING_BUF_RETAIN_WITHIN_CAPACITY`
+- Semantics:
+  - Vec splice within capacity drains the selected range into a new output Vec, stages replacement values in a temporary Vec for self-overlap safety, then right-shifts the suffix and copies replacements in place only when the final length fits in the existing capacity. Out-of-range ranges or insufficient capacity return `ok=0`, an empty drained Vec, and no mutation of the owner.
+  - StringBuf retain within capacity walks UTF-8 scalars with a caller predicate and compacts kept scalar bytes in place. Decode failure returns `ok=0` with the original length preserved. Because retain only shrinks, the owner capacity is unchanged.
+  - These helpers do not claim Rust lazy drain/splice iterators, generic `T` element support beyond the concrete `u64` Vec subset, or allocator-parametric APIs.
+- Validation status:
+  - Source focused minimal harnesses `/tmp/swc_min.sa` and `/tmp/rtwc_min.sa`: pass (`1 passed` each).
+  - Source focused `std_vec_macro_surface.sa --filter "splice within capacity aliases"`: pass (`1 passed; 36 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "retain within capacity aliases"`: pass (`1 passed; 97 skipped`).
+  - Install sync via installed-std copy of `vec.sa` / `string.sa`: pass.
+  - Installed-state focused min harnesses: pass (`1 passed` each).
+
 ## Completed: 2026-07-11 StringBuf remove_matches within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
