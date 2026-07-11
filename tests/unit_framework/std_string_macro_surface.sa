@@ -12233,6 +12233,118 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string replace_first_last within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS needle, &PREFIX, 2
+    EXPAND STR_FROM_PARTS with, &SUFFIX, 2
+    EXPAND STR_FROM_PARTS long, &WORD, 4
+
+    EXPAND STRING_BUF_WITH_CAPACITY first_buf, 8
+    EXPAND STRING_BUF_PUSH_STR first_buf, hi
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_WITHIN_CAPACITY ok_first, first_buf, needle, with
+    EXPAND STRING_BUF_LEN len1, first_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b0_ok, b0, first_buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, first_buf, 1
+
+    EXPAND STRING_BUF_WITH_CAPACITY last_buf, 8
+    EXPAND STRING_BUF_PUSH_STR last_buf, hi
+    EXPAND STRING_BUF_TRY_REPLACE_LAST_WITHIN_CAPACITY ok_last, last_buf, with, needle
+    EXPAND STRING_BUF_LEN len2, last_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b2_ok, b2, last_buf, 2
+    EXPAND STRING_BUF_TRY_BYTE_AT b3_ok, b3, last_buf, 3
+
+    EXPAND STRING_BUF_WITH_CAPACITY tight, 4
+    EXPAND STRING_BUF_PUSH_STR tight, hi
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_WITHIN_CAPACITY ok_full, tight, needle, long
+    EXPAND STRING_BUF_LEN tight_len, tight
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_WITHIN_CAPACITY ok_miss, tight, miss, needle
+    EXPAND STRING_BUF_LEN tight_len2, tight
+
+    ok_first_flag = eq ok_first, 1
+    len1_ok = eq len1, 4
+    b0_flag = eq b0_ok, 1
+    b0_val = eq b0, 115
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 116
+    ok_last_flag = eq ok_last, 1
+    len2_ok = eq len2, 4
+    b2_flag = eq b2_ok, 1
+    b2_val = eq b2, 114
+    b3_flag = eq b3_ok, 1
+    b3_val = eq b3, 117
+    ok_full_flag = eq ok_full, 0
+    tight_len_ok = eq tight_len, 4
+    ok_miss_flag = eq ok_miss, 0
+    tight_len2_ok = eq tight_len2, 4
+
+    ok = and ok_first_flag, len1_ok
+    ok = and ok, b0_flag
+    ok = and ok, b0_val
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, ok_last_flag
+    ok = and ok, len2_ok
+    ok = and ok, b2_flag
+    ok = and ok, b2_val
+    ok = and ok, b3_flag
+    ok = and ok, b3_val
+    ok = and ok, ok_full_flag
+    ok = and ok, tight_len_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, tight_len2_ok
+
+    EXPAND STRING_BUF_FREE first_buf
+    EXPAND STRING_BUF_FREE last_buf
+    EXPAND STRING_BUF_FREE tight
+    !hi
+    !needle
+    !with
+    !long
+    !miss
+    !ok_first
+    !len1
+    !b0_ok
+    !b0
+    !b1_ok
+    !b1
+    !ok_last
+    !len2
+    !b2_ok
+    !b2
+    !b3_ok
+    !b3
+    !ok_full
+    !tight_len
+    !ok_miss
+    !tight_len2
+    !ok_first_flag
+    !len1_ok
+    !b0_flag
+    !b0_val
+    !b1_flag
+    !b1_val
+    !ok_last_flag
+    !len2_ok
+    !b2_flag
+    !b2_val
+    !b3_flag
+    !b3_val
+    !ok_full_flag
+    !tight_len_ok
+    !ok_miss_flag
+    !tight_len2_ok
+    br ok -> L_STR_RFLWC_OK, L_STR_RFLWC_FAIL
+
+L_STR_RFLWC_FAIL:
+    !ok
+    panic(1066)
+
+L_STR_RFLWC_OK:
+    !ok
+    return
+
 @test "sa_std string replace_range within capacity aliases"():
 L_ENTRY:
     EXPAND STRING_BUF_WITH_CAPACITY buf, 6

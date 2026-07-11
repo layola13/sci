@@ -4006,6 +4006,77 @@ L_VEC_EFSWC_OK:
     !ok
     return
 
+@test "sa_std vec resize within capacity aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_TRY_RESIZE_WITHIN_CAPACITY_U64 ok_grow, vec, 4, 9
+    EXPAND VEC_LEN len1, vec
+    EXPAND VEC_TRY_GET_U64 g2_ok, v2, vec, 2
+    EXPAND VEC_TRY_GET_U64 g3_ok, v3, vec, 3
+    EXPAND VEC_TRY_RESIZE_WITHIN_CAPACITY_U64 ok_full, vec, 5, 7
+    EXPAND VEC_LEN len2, vec
+    EXPAND VEC_TRY_RESIZE_WITHIN_CAPACITY_U64 ok_shrink, vec, 1, 0
+    EXPAND VEC_LEN len3, vec
+    EXPAND VEC_CAPACITY cap, vec
+
+    ok_grow_flag = eq ok_grow, 1
+    len1_ok = eq len1, 4
+    g2_flag = eq g2_ok, 1
+    g2_val = eq v2, 9
+    g3_flag = eq g3_ok, 1
+    g3_val = eq v3, 9
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 4
+    ok_shrink_flag = eq ok_shrink, 1
+    len3_ok = eq len3, 1
+    cap_ok = eq cap, 4
+
+    ok = and ok_grow_flag, len1_ok
+    ok = and ok, g2_flag
+    ok = and ok, g2_val
+    ok = and ok, g3_flag
+    ok = and ok, g3_val
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_shrink_flag
+    ok = and ok, len3_ok
+    ok = and ok, cap_ok
+
+    EXPAND VEC_FREE vec
+    !ok_grow
+    !len1
+    !g2_ok
+    !v2
+    !g3_ok
+    !v3
+    !ok_full
+    !len2
+    !ok_shrink
+    !len3
+    !cap
+    !ok_grow_flag
+    !len1_ok
+    !g2_flag
+    !g2_val
+    !g3_flag
+    !g3_val
+    !ok_full_flag
+    !len2_ok
+    !ok_shrink_flag
+    !len3_ok
+    !cap_ok
+    br ok -> L_VEC_RSWC_OK, L_VEC_RSWC_FAIL
+
+L_VEC_RSWC_FAIL:
+    !ok
+    panic(1067)
+
+L_VEC_RSWC_OK:
+    !ok
+    return
+
 @test "sa_std vec extend_from_within capacity aliases"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 6

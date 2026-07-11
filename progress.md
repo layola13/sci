@@ -4,6 +4,26 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf replace_first/last + Vec resize within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helpers:
+  - `STRING_BUF_TRY_REPLACE_FIRST_WITHIN_CAPACITY` / `STRING_BUF_REPLACE_FIRST_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_REPLACE_LAST_WITHIN_CAPACITY` / `STRING_BUF_REPLACE_LAST_WITHIN_CAPACITY`
+  - `VEC_TRY_RESIZE_WITHIN_CAPACITY` / `VEC_RESIZE_WITHIN_CAPACITY`
+  - `VEC_TRY_RESIZE_WITHIN_CAPACITY_U64` / `VEC_RESIZE_WITHIN_CAPACITY_U64`
+- Semantics:
+  - String replace-first/last within capacity locate the first/last needle occurrence and then reuse `STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY`. Missing needles or insufficient remaining capacity return `ok=0` with no mutation.
+  - Vec resize within capacity truncates immediately when shrinking. Growth succeeds only when `new_len <= cap`, filling newly exposed slots with the provided value via within-capacity push; over-capacity growth returns `ok=0` and leaves length unchanged.
+  - These helpers do not claim Rust panic-on-capacity models, partial growth, or allocator-parametric APIs.
+- Validation status:
+  - Source focused minimal harness `/tmp/rfl_rswc_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "resize within capacity aliases"`: pass (`1 passed; 35 skipped`).
+  - Source focused `std_string_macro_surface.sa --filter "replace_first_last within capacity aliases"`: pass (`1 passed; 90 skipped`).
+  - Install sync via installed-std copy of `string.sa` + `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf replace_range within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
