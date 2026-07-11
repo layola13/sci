@@ -11335,3 +11335,161 @@ L_STR_ESCAPE_DEBUG_FAIL:
 L_STR_ESCAPE_DEBUG_OK:
     !ok
     return
+
+@test "sa_std string substr range aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay_sub, &WORD, 4
+    EXPAND STRING_BUF_FROM_STR hay_buf_sub, hay_sub
+    EXPAND STRING_BUF_AS_STR hay_view_b, hay_buf_sub
+
+    EXPAND STR_TRY_GET_RANGE mid_ok, mid_sub, hay_sub, 1, 2
+    EXPAND STR_TRY_GET_RANGE prefix_ok, prefix_sub, hay_sub, 0, 2
+    EXPAND STR_TRY_GET_RANGE full_ok, full_sub, hay_sub, 0, 4
+    EXPAND STR_TRY_GET_RANGE mid_ok_b, mid_sub_b, hay_view_b, 1, 2
+    EXPAND STR_TRY_GET_RANGE full_ok_b, full_sub_b, hay_view_b, 0, 4
+    EXPAND STR_FROM_PARTS other_sub, &MISS, 2
+
+    EXPAND STR_TRY_SUBSTR_RANGE ok_mid, start_mid, end_mid, hay_sub, mid_sub
+    EXPAND STRING_TRY_SUBSTR_RANGE ok_mid_s, start_mid_s, end_mid_s, hay_sub, mid_sub
+    EXPAND STRING_BUF_TRY_SUBSTR_RANGE ok_mid_b, start_mid_b, end_mid_b, hay_buf_sub, mid_sub_b
+    EXPAND STR_SUBSTR_RANGE ok_prefix, start_prefix, end_prefix, hay_sub, prefix_sub
+    EXPAND STR_TRY_SUBSTR_RANGE ok_full, start_full, end_full, hay_sub, full_sub
+    EXPAND STR_TRY_SUBSTR_RANGE ok_miss, start_miss, end_miss, hay_sub, other_sub
+    EXPAND STRING_SUBSTR_RANGE ok_prefix_s, start_prefix_s, end_prefix_s, hay_sub, prefix_sub
+    EXPAND STRING_BUF_SUBSTR_RANGE ok_full_b, start_full_b, end_full_b, hay_buf_sub, full_sub_b
+
+    mid_ok_flag = eq mid_ok, 1
+    prefix_ok_flag = eq prefix_ok, 1
+    full_ok_flag = eq full_ok, 1
+    mid_ok_b_flag = eq mid_ok_b, 1
+    full_ok_b_flag = eq full_ok_b, 1
+    ok_mid_flag = eq ok_mid, 1
+    ok_mid_s_flag = eq ok_mid_s, 1
+    ok_mid_b_flag = eq ok_mid_b, 1
+    ok_prefix_flag = eq ok_prefix, 1
+    ok_full_flag = eq ok_full, 1
+    ok_miss_flag = eq ok_miss, 0
+    ok_prefix_s_flag = eq ok_prefix_s, 1
+    ok_full_b_flag = eq ok_full_b, 1
+    start_mid_ok = eq start_mid, 1
+    end_mid_ok = eq end_mid, 3
+    start_mid_s_ok = eq start_mid_s, 1
+    end_mid_s_ok = eq end_mid_s, 3
+    start_mid_b_ok = eq start_mid_b, 1
+    end_mid_b_ok = eq end_mid_b, 3
+    start_prefix_ok = eq start_prefix, 0
+    end_prefix_ok = eq end_prefix, 2
+    start_full_ok = eq start_full, 0
+    end_full_ok = eq end_full, 4
+    start_miss_ok = eq start_miss, 0
+    end_miss_ok = eq end_miss, 0
+    start_prefix_s_ok = eq start_prefix_s, 0
+    end_prefix_s_ok = eq end_prefix_s, 2
+    start_full_b_ok = eq start_full_b, 0
+    end_full_b_ok = eq end_full_b, 4
+
+    ok = and mid_ok_flag, prefix_ok_flag
+    ok = and ok, full_ok_flag
+    ok = and ok, mid_ok_b_flag
+    ok = and ok, full_ok_b_flag
+    ok = and ok, ok_mid_flag
+    ok = and ok, ok_mid_s_flag
+    ok = and ok, ok_mid_b_flag
+    ok = and ok, ok_prefix_flag
+    ok = and ok, ok_full_flag
+    ok = and ok, ok_miss_flag
+    ok = and ok, ok_prefix_s_flag
+    ok = and ok, ok_full_b_flag
+    ok = and ok, start_mid_ok
+    ok = and ok, end_mid_ok
+    ok = and ok, start_mid_s_ok
+    ok = and ok, end_mid_s_ok
+    ok = and ok, start_mid_b_ok
+    ok = and ok, end_mid_b_ok
+    ok = and ok, start_prefix_ok
+    ok = and ok, end_prefix_ok
+    ok = and ok, start_full_ok
+    ok = and ok, end_full_ok
+    ok = and ok, start_miss_ok
+    ok = and ok, end_miss_ok
+    ok = and ok, start_prefix_s_ok
+    ok = and ok, end_prefix_s_ok
+    ok = and ok, start_full_b_ok
+    ok = and ok, end_full_b_ok
+
+    EXPAND STRING_BUF_FREE hay_buf_sub
+    !hay_sub
+    !hay_view_b
+    !mid_sub
+    !prefix_sub
+    !full_sub
+    !mid_sub_b
+    !full_sub_b
+    !other_sub
+    !mid_ok
+    !prefix_ok
+    !full_ok
+    !mid_ok_b
+    !full_ok_b
+    !ok_mid
+    !start_mid
+    !end_mid
+    !ok_mid_s
+    !start_mid_s
+    !end_mid_s
+    !ok_mid_b
+    !start_mid_b
+    !end_mid_b
+    !ok_prefix
+    !start_prefix
+    !end_prefix
+    !ok_full
+    !start_full
+    !end_full
+    !ok_miss
+    !start_miss
+    !end_miss
+    !ok_prefix_s
+    !start_prefix_s
+    !end_prefix_s
+    !ok_full_b
+    !start_full_b
+    !end_full_b
+    !mid_ok_flag
+    !prefix_ok_flag
+    !full_ok_flag
+    !mid_ok_b_flag
+    !full_ok_b_flag
+    !ok_mid_flag
+    !ok_mid_s_flag
+    !ok_mid_b_flag
+    !ok_prefix_flag
+    !ok_full_flag
+    !ok_miss_flag
+    !ok_prefix_s_flag
+    !ok_full_b_flag
+    !start_mid_ok
+    !end_mid_ok
+    !start_mid_s_ok
+    !end_mid_s_ok
+    !start_mid_b_ok
+    !end_mid_b_ok
+    !start_prefix_ok
+    !end_prefix_ok
+    !start_full_ok
+    !end_full_ok
+    !start_miss_ok
+    !end_miss_ok
+    !start_prefix_s_ok
+    !end_prefix_s_ok
+    !start_full_b_ok
+    !end_full_b_ok
+    br ok -> L_STR_SUBSTR_RANGE_OK, L_STR_SUBSTR_RANGE_FAIL
+
+L_STR_SUBSTR_RANGE_FAIL:
+    !ok
+    panic(1044)
+
+L_STR_SUBSTR_RANGE_OK:
+    !ok
+    return

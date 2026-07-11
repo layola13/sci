@@ -8433,6 +8433,112 @@ L_STR_GET_BETWEEN_DONE_%out_ok:
     EXPAND STR_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
 [END_MACRO]
 
+[MACRO] STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+    __str_substr_range_hay_ptr_%out_ok = load %hay_slice+Slice_ptr as ptr
+    __str_substr_range_hay_len_%out_ok = load %hay_slice+Slice_len as u64
+    __str_substr_range_sub_ptr_%out_ok = load %sub_slice+Slice_ptr as ptr
+    __str_substr_range_sub_len_%out_ok = load %sub_slice+Slice_len as u64
+    __str_substr_range_hay_addr_%out_ok = bitcast __str_substr_range_hay_ptr_%out_ok as u64
+    __str_substr_range_sub_addr_%out_ok = bitcast __str_substr_range_sub_ptr_%out_ok as u64
+    __str_substr_range_addr_ok_%out_ok = uge __str_substr_range_sub_addr_%out_ok, __str_substr_range_hay_addr_%out_ok
+    br __str_substr_range_addr_ok_%out_ok -> L_STR_SUBSTR_RANGE_START_%out_ok, L_STR_SUBSTR_RANGE_MISS_%out_ok
+
+L_STR_SUBSTR_RANGE_START_%out_ok:
+    __str_substr_range_start_%out_ok = sub __str_substr_range_sub_addr_%out_ok, __str_substr_range_hay_addr_%out_ok
+    __str_substr_range_start_ok_%out_ok = ule __str_substr_range_start_%out_ok, __str_substr_range_hay_len_%out_ok
+    br __str_substr_range_start_ok_%out_ok -> L_STR_SUBSTR_RANGE_END_%out_ok, L_STR_SUBSTR_RANGE_MISS_START_%out_ok
+
+L_STR_SUBSTR_RANGE_END_%out_ok:
+    __str_substr_range_remaining_%out_ok = sub __str_substr_range_hay_len_%out_ok, __str_substr_range_start_%out_ok
+    __str_substr_range_len_ok_%out_ok = ule __str_substr_range_sub_len_%out_ok, __str_substr_range_remaining_%out_ok
+    br __str_substr_range_len_ok_%out_ok -> L_STR_SUBSTR_RANGE_HIT_%out_ok, L_STR_SUBSTR_RANGE_MISS_LEN_%out_ok
+
+L_STR_SUBSTR_RANGE_HIT_%out_ok:
+    %out_start = add __str_substr_range_start_%out_ok, 0
+    %out_end = add __str_substr_range_start_%out_ok, __str_substr_range_sub_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_substr_range_len_ok_%out_ok
+    !__str_substr_range_remaining_%out_ok
+    !__str_substr_range_start_ok_%out_ok
+    !__str_substr_range_start_%out_ok
+    !__str_substr_range_addr_ok_%out_ok
+    !__str_substr_range_sub_addr_%out_ok
+    !__str_substr_range_hay_addr_%out_ok
+    !__str_substr_range_sub_len_%out_ok
+    !__str_substr_range_sub_ptr_%out_ok
+    !__str_substr_range_hay_len_%out_ok
+    !__str_substr_range_hay_ptr_%out_ok
+    jmp L_STR_SUBSTR_RANGE_DONE_%out_ok
+
+L_STR_SUBSTR_RANGE_MISS_LEN_%out_ok:
+    %out_start = add 0, 0
+    %out_end = add 0, 0
+    %out_ok = add 0, 0
+    !__str_substr_range_len_ok_%out_ok
+    !__str_substr_range_remaining_%out_ok
+    !__str_substr_range_start_ok_%out_ok
+    !__str_substr_range_start_%out_ok
+    !__str_substr_range_addr_ok_%out_ok
+    !__str_substr_range_sub_addr_%out_ok
+    !__str_substr_range_hay_addr_%out_ok
+    !__str_substr_range_sub_len_%out_ok
+    !__str_substr_range_sub_ptr_%out_ok
+    !__str_substr_range_hay_len_%out_ok
+    !__str_substr_range_hay_ptr_%out_ok
+    jmp L_STR_SUBSTR_RANGE_DONE_%out_ok
+
+L_STR_SUBSTR_RANGE_MISS_START_%out_ok:
+    %out_start = add 0, 0
+    %out_end = add 0, 0
+    %out_ok = add 0, 0
+    !__str_substr_range_start_ok_%out_ok
+    !__str_substr_range_start_%out_ok
+    !__str_substr_range_addr_ok_%out_ok
+    !__str_substr_range_sub_addr_%out_ok
+    !__str_substr_range_hay_addr_%out_ok
+    !__str_substr_range_sub_len_%out_ok
+    !__str_substr_range_sub_ptr_%out_ok
+    !__str_substr_range_hay_len_%out_ok
+    !__str_substr_range_hay_ptr_%out_ok
+    jmp L_STR_SUBSTR_RANGE_DONE_%out_ok
+
+L_STR_SUBSTR_RANGE_MISS_%out_ok:
+    %out_start = add 0, 0
+    %out_end = add 0, 0
+    %out_ok = add 0, 0
+    !__str_substr_range_addr_ok_%out_ok
+    !__str_substr_range_sub_addr_%out_ok
+    !__str_substr_range_hay_addr_%out_ok
+    !__str_substr_range_sub_len_%out_ok
+    !__str_substr_range_sub_ptr_%out_ok
+    !__str_substr_range_hay_len_%out_ok
+    !__str_substr_range_hay_ptr_%out_ok
+
+L_STR_SUBSTR_RANGE_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+    EXPAND STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %string_reg, %sub_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_substr_range_view_%out_ok, %string_reg
+    EXPAND STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, __string_buf_substr_range_view_%out_ok, %sub_slice
+    !__string_buf_substr_range_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+    EXPAND STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+[END_MACRO]
+
+[MACRO] STRING_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+    EXPAND STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_SUBSTR_RANGE %out_ok, %out_start, %out_end, %string_reg, %sub_slice
+    EXPAND STRING_BUF_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %string_reg, %sub_slice
+[END_MACRO]
+
 [MACRO] STR_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
     EXPAND STR_TRY_GET_PREFIX __str_split_checked_left_ok_%out_ok, %out_left, %slice_reg, %mid
     br __str_split_checked_left_ok_%out_ok -> L_STR_SPLIT_CHECKED_RIGHT_%out_ok, L_STR_SPLIT_CHECKED_MISS_%out_ok

@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String substr_range alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` substr-range aliases:
+  - `STR_TRY_SUBSTR_RANGE` / `STRING_TRY_SUBSTR_RANGE` / `STRING_BUF_TRY_SUBSTR_RANGE`
+  - `STR_SUBSTR_RANGE` / `STRING_SUBSTR_RANGE` / `STRING_BUF_SUBSTR_RANGE`
+- Semantics: recover the byte range of a borrowed sub-`Slice` inside a haystack `Slice` by pointer arithmetic. Success requires the sub-slice pointer to be inside the haystack address range and the sub length to fit; the result is `(ok, start, end)` where `end = start + sub_len`. Outside/non-overlapping subslices return `ok=0`, `start=0`, `end=0`. This remains a concrete pointer-range recovery subset rather than Rust's full `substr_range`/`substr_range_unchecked` panic/unsafe variants, lifetime proofs, or provenance model.
+- Validation status:
+  - Source focused minimal harness over the same macros: pass (`1 passed`).
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "substr range aliases" --jobs 1 --trace-panic`: pass (`1 passed; 76 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test` over the same substr_range macros (minimal dedicated harness): pass (`1 passed; 0 failed; 0 skipped`).
+
 ## Completed: 2026-07-11 str/String escape_debug alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
