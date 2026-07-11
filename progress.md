@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf push_byte_n / push_char_n within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helpers:
+  - `STRING_BUF_TRY_PUSH_BYTE_N_WITHIN_CAPACITY` / `STRING_BUF_PUSH_BYTE_N_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY` / `STRING_BUF_PUSH_CHAR_N_WITHIN_CAPACITY`
+- Semantics: append the same byte or Unicode scalar `count` times only when remaining capacity covers the whole sequence. Byte path reuses Vec push_n within capacity; char path encodes once, checks total UTF-8 width * count, then reuses within-capacity push_str. Zero counts succeed as no-ops; invalid scalars or insufficient room return `ok=0` with no mutation. Does not claim Rust `repeat` allocator growth or partial append.
+- Validation status:
+  - Source focused minimal harness `/tmp/sbcnwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "push_byte_n and push_char_n within capacity aliases"`: pass (`1 passed; 102 skipped`).
+  - Install sync via installed-std copy of `string.sa`/`vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 Vec push_n within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
