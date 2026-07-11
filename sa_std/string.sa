@@ -8882,6 +8882,58 @@ L_STR_GET_UC_DONE_%out_ok:
     EXPAND STRING_BUF_TRY_GET_RANGE_BETWEEN_MUT %out_ok, %out_slice, %string_reg, %start, %end
 [END_MACRO]
 
+[MACRO] STR_TRY_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_RANGE_TO %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_GET_RANGE_TO_MUT %out_ok, %out_slice, %string_reg, %end
+    EXPAND STRING_BUF_AS_MUT_STR __string_buf_try_get_range_to_mut_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_RANGE_TO %out_ok, %out_slice, __string_buf_try_get_range_to_mut_view_%out_ok, %end
+    !__string_buf_try_get_range_to_mut_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_TRY_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+    EXPAND STR_GET_RANGE_TO_MUT %out_ok, %out_slice, %slice_reg, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_RANGE_TO_MUT %out_ok, %out_slice, %string_reg, %end
+    EXPAND STRING_BUF_TRY_GET_RANGE_TO_MUT %out_ok, %out_slice, %string_reg, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_GET_RANGE_FROM_MUT %out_ok, %out_slice, %string_reg, %start
+    EXPAND STRING_BUF_AS_MUT_STR __string_buf_try_get_range_from_mut_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_RANGE_FROM %out_ok, %out_slice, __string_buf_try_get_range_from_mut_view_%out_ok, %start
+    !__string_buf_try_get_range_from_mut_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_TRY_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+    EXPAND STR_GET_RANGE_FROM_MUT %out_ok, %out_slice, %slice_reg, %start
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_RANGE_FROM_MUT %out_ok, %out_slice, %string_reg, %start
+    EXPAND STRING_BUF_TRY_GET_RANGE_FROM_MUT %out_ok, %out_slice, %string_reg, %start
+[END_MACRO]
+
 [MACRO] STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice
     __str_substr_range_hay_ptr_%out_ok = load %hay_slice+Slice_ptr as ptr
     __str_substr_range_hay_len_%out_ok = load %hay_slice+Slice_len as u64

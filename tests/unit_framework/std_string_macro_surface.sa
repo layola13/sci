@@ -12066,3 +12066,68 @@ L_STR_GET_MUT_RANGE_FAIL:
 L_STR_GET_MUT_RANGE_OK:
     !ok
     return
+
+@test "sa_std string get_mut range_to_from naming aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_GET_RANGE_TO_MUT ok_to, to_view, buf, 2
+    EXPAND STRING_BUF_TRY_GET_RANGE_FROM_MUT ok_from, from_view, buf, 2
+    EXPAND STR_AS_PTR to_ptr, to_view
+    t0 = load to_ptr+0 as u8
+    store to_ptr+0, 82 as u8
+    EXPAND STRING_BUF_AS_STR view, buf
+    EXPAND STR_AS_PTR view_ptr, view
+    wrote = load view_ptr+0 as u8
+    EXPAND STR_LEN to_len, to_view
+    EXPAND STR_LEN from_len, from_view
+    EXPAND STR_AS_PTR from_ptr, from_view
+    f0b = load from_ptr+0 as u8
+
+    ok_to_flag = eq ok_to, 1
+    ok_from_flag = eq ok_from, 1
+    t0_ok = eq t0, 114
+    wrote_ok = eq wrote, 82
+    to_len_ok = eq to_len, 2
+    from_len_ok = eq from_len, 2
+    f0_ok = eq f0b, 115
+
+    ok = and ok_to_flag, ok_from_flag
+    ok = and ok, t0_ok
+    ok = and ok, wrote_ok
+    ok = and ok, to_len_ok
+    ok = and ok, from_len_ok
+    ok = and ok, f0_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !to_view
+    !from_view
+    !view
+    !ok_to
+    !ok_from
+    !to_ptr
+    !t0
+    !view_ptr
+    !wrote
+    !to_len
+    !from_len
+    !from_ptr
+    !f0b
+    !ok_to_flag
+    !ok_from_flag
+    !t0_ok
+    !wrote_ok
+    !to_len_ok
+    !from_len_ok
+    !f0_ok
+    br ok -> L_STR_GET_MUT_TOF_OK, L_STR_GET_MUT_TOF_FAIL
+
+L_STR_GET_MUT_TOF_FAIL:
+    !ok
+    panic(1056)
+
+L_STR_GET_MUT_TOF_OK:
+    !ok
+    return
