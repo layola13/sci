@@ -4,6 +4,23 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf extend char/ascii refs within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving ref-slice extend helpers:
+  - `STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64` / `STRING_BUF_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64`
+  - `STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_ASCII_CHAR_REFS_WITHIN_CAPACITY`
+- Semantics:
+  - Char-ref within-capacity extend loads each `*u64` scalar through the ref slice, validates all scalars first, sums exact UTF-8 widths, and only appends when remaining capacity covers the whole sequence.
+  - ASCII-ref within-capacity extend loads each `*u8` through the ref slice, validates all bytes as ASCII, and requires remaining capacity for the full source length before appending.
+  - Invalid values or insufficient room return `ok=0` with no mutation. These helpers do not claim Rust iterator/Pattern adapters, partial append, or allocator-parametric APIs.
+- Validation status:
+  - Source focused minimal harness `/tmp/ecrawc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "extend char ascii refs within capacity aliases"`: pass (`1 passed; 93 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf extend chars/ascii within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

@@ -12233,6 +12233,168 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string extend char ascii refs within capacity aliases"():
+L_ENTRY:
+    c0 = alloc 8
+    c1 = alloc 8
+    store c0+0, 97 as u64
+    store c1+0, 98 as u64
+    refs_data = alloc 16
+    store refs_data+0, c0 as ptr
+    store refs_data+8, c1 as ptr
+    refs_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW refs_slice, refs_data, 2
+
+    EXPAND STRING_BUF_WITH_CAPACITY char_buf, 3
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 ok_refs, char_buf, refs_slice
+    EXPAND STRING_BUF_LEN clen1, char_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT cb0_ok, cb0, char_buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT cb1_ok, cb1, char_buf, 1
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 ok_refs_full, char_buf, refs_slice
+    EXPAND STRING_BUF_LEN clen2, char_buf
+
+    bad_c = alloc 8
+    store bad_c+0, 55296 as u64
+    bad_refs_data = alloc 8
+    store bad_refs_data+0, bad_c as ptr
+    bad_refs_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW bad_refs_slice, bad_refs_data, 1
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 ok_refs_bad, char_buf, bad_refs_slice
+    EXPAND STRING_BUF_LEN clen3, char_buf
+
+    a0 = alloc 1
+    a1 = alloc 1
+    store a0+0, 120 as u8
+    store a1+0, 121 as u8
+    arefs_data = alloc 16
+    store arefs_data+0, a0 as ptr
+    store arefs_data+8, a1 as ptr
+    arefs_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW arefs_slice, arefs_data, 2
+    EXPAND STRING_BUF_WITH_CAPACITY ascii_buf, 3
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS_WITHIN_CAPACITY ok_arefs, ascii_buf, arefs_slice
+    EXPAND STRING_BUF_LEN alen1, ascii_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT ab0_ok, ab0, ascii_buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT ab1_ok, ab1, ascii_buf, 1
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS_WITHIN_CAPACITY ok_arefs_full, ascii_buf, arefs_slice
+    EXPAND STRING_BUF_LEN alen2, ascii_buf
+
+    bad_a = alloc 1
+    store bad_a+0, 200 as u8
+    bad_arefs_data = alloc 8
+    store bad_arefs_data+0, bad_a as ptr
+    bad_arefs_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW bad_arefs_slice, bad_arefs_data, 1
+    EXPAND STRING_BUF_TRY_EXTEND_ASCII_CHAR_REFS_WITHIN_CAPACITY ok_arefs_bad, ascii_buf, bad_arefs_slice
+    EXPAND STRING_BUF_LEN alen3, ascii_buf
+
+    ok_refs_flag = eq ok_refs, 1
+    clen1_ok = eq clen1, 2
+    cb0_flag = eq cb0_ok, 1
+    cb0_val = eq cb0, 97
+    cb1_flag = eq cb1_ok, 1
+    cb1_val = eq cb1, 98
+    ok_refs_full_flag = eq ok_refs_full, 0
+    clen2_ok = eq clen2, 2
+    ok_refs_bad_flag = eq ok_refs_bad, 0
+    clen3_ok = eq clen3, 2
+    ok_arefs_flag = eq ok_arefs, 1
+    alen1_ok = eq alen1, 2
+    ab0_flag = eq ab0_ok, 1
+    ab0_val = eq ab0, 120
+    ab1_flag = eq ab1_ok, 1
+    ab1_val = eq ab1, 121
+    ok_arefs_full_flag = eq ok_arefs_full, 0
+    alen2_ok = eq alen2, 2
+    ok_arefs_bad_flag = eq ok_arefs_bad, 0
+    alen3_ok = eq alen3, 2
+
+    ok = and ok_refs_flag, clen1_ok
+    ok = and ok, cb0_flag
+    ok = and ok, cb0_val
+    ok = and ok, cb1_flag
+    ok = and ok, cb1_val
+    ok = and ok, ok_refs_full_flag
+    ok = and ok, clen2_ok
+    ok = and ok, ok_refs_bad_flag
+    ok = and ok, clen3_ok
+    ok = and ok, ok_arefs_flag
+    ok = and ok, alen1_ok
+    ok = and ok, ab0_flag
+    ok = and ok, ab0_val
+    ok = and ok, ab1_flag
+    ok = and ok, ab1_val
+    ok = and ok, ok_arefs_full_flag
+    ok = and ok, alen2_ok
+    ok = and ok, ok_arefs_bad_flag
+    ok = and ok, alen3_ok
+
+    EXPAND STRING_BUF_FREE char_buf
+    EXPAND STRING_BUF_FREE ascii_buf
+    !refs_slice
+    !refs_data
+    !c0
+    !c1
+    !bad_refs_slice
+    !bad_refs_data
+    !bad_c
+    !arefs_slice
+    !arefs_data
+    !a0
+    !a1
+    !bad_arefs_slice
+    !bad_arefs_data
+    !bad_a
+    !ok_refs
+    !clen1
+    !cb0_ok
+    !cb0
+    !cb1_ok
+    !cb1
+    !ok_refs_full
+    !clen2
+    !ok_refs_bad
+    !clen3
+    !ok_arefs
+    !alen1
+    !ab0_ok
+    !ab0
+    !ab1_ok
+    !ab1
+    !ok_arefs_full
+    !alen2
+    !ok_arefs_bad
+    !alen3
+    !ok_refs_flag
+    !clen1_ok
+    !cb0_flag
+    !cb0_val
+    !cb1_flag
+    !cb1_val
+    !ok_refs_full_flag
+    !clen2_ok
+    !ok_refs_bad_flag
+    !clen3_ok
+    !ok_arefs_flag
+    !alen1_ok
+    !ab0_flag
+    !ab0_val
+    !ab1_flag
+    !ab1_val
+    !ok_arefs_full_flag
+    !alen2_ok
+    !ok_arefs_bad_flag
+    !alen3_ok
+    br ok -> L_STR_ECRAWC_OK, L_STR_ECRAWC_FAIL
+
+L_STR_ECRAWC_FAIL:
+    !ok
+    panic(1070)
+
+L_STR_ECRAWC_OK:
+    !ok
+    return
+
 @test "sa_std string extend chars ascii within capacity aliases"():
 L_ENTRY:
     chars_data = alloc 16
