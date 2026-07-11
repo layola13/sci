@@ -11049,3 +11049,172 @@ L_STR_ENCODE_UTF16_OK:
     !ok
     return
 
+@test "sa_std string utf8 chunks aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS valid_chunk_src, &ESCAPE_PLAIN, 1
+    bad_data = stack_alloc 4
+    store bad_data+0, 65 as u8
+    store bad_data+1, 255 as u8
+    store bad_data+2, 66 as u8
+    store bad_data+3, 67 as u8
+    EXPAND STR_FROM_PARTS mixed_chunk_src, bad_data, 4
+    EXPAND STRING_BUF_FROM_STR mixed_chunk_buf, mixed_chunk_src
+
+    EXPAND STR_UTF8_CHUNKS_COUNT valid_count, valid_chunk_src
+    EXPAND STR_UTF8_CHUNKS_COUNT mixed_count, mixed_chunk_src
+    EXPAND STRING_UTF8_CHUNKS_COUNT mixed_count_s, mixed_chunk_src
+    EXPAND STRING_BUF_UTF8_CHUNKS_COUNT mixed_count_b, mixed_chunk_buf
+
+    EXPAND STR_TRY_UTF8_CHUNK_AT ok0, valid0, chunk0, mixed_chunk_src, 0
+    EXPAND STR_TRY_UTF8_CHUNK_AT ok1, valid1, chunk1, mixed_chunk_src, 1
+    EXPAND STR_TRY_UTF8_CHUNK_AT ok2, valid2, chunk2, mixed_chunk_src, 2
+    EXPAND STR_TRY_UTF8_CHUNK_AT ok3, valid3, chunk3, mixed_chunk_src, 3
+    EXPAND STRING_TRY_UTF8_CHUNK_AT ok1s, valid1s, chunk1s, mixed_chunk_src, 1
+    EXPAND STRING_BUF_TRY_UTF8_CHUNK_AT ok2b, valid2b, chunk2b, mixed_chunk_buf, 2
+    EXPAND STR_UTF8_CHUNK_AT ok0u, valid0u, chunk0u, mixed_chunk_src, 0
+
+    EXPAND STR_LEN chunk0_len, chunk0
+    EXPAND STR_LEN chunk1_len, chunk1
+    EXPAND STR_LEN chunk2_len, chunk2
+    EXPAND STR_LEN chunk1s_len, chunk1s
+    EXPAND STR_LEN chunk2b_len, chunk2b
+    EXPAND STR_AS_PTR chunk0_ptr, chunk0
+    EXPAND STR_AS_PTR chunk1_ptr, chunk1
+    EXPAND STR_AS_PTR chunk2_ptr, chunk2
+    chunk0_b0 = load chunk0_ptr+0 as u8
+    chunk1_b0 = load chunk1_ptr+0 as u8
+    chunk2_b0 = load chunk2_ptr+0 as u8
+    chunk2_b1 = load chunk2_ptr+1 as u8
+
+    valid_count_ok = eq valid_count, 1
+    mixed_count_ok = eq mixed_count, 3
+    mixed_count_s_ok = eq mixed_count_s, 3
+    mixed_count_b_ok = eq mixed_count_b, 3
+    ok0_flag = eq ok0, 1
+    ok1_flag = eq ok1, 1
+    ok2_flag = eq ok2, 1
+    ok3_flag = eq ok3, 0
+    ok1s_flag = eq ok1s, 1
+    ok2b_flag = eq ok2b, 1
+    ok0u_flag = eq ok0u, 1
+    valid0_flag = eq valid0, 1
+    valid1_flag = eq valid1, 0
+    valid2_flag = eq valid2, 1
+    valid3_flag = eq valid3, 0
+    valid1s_flag = eq valid1s, 0
+    valid2b_flag = eq valid2b, 1
+    valid0u_flag = eq valid0u, 1
+    chunk0_len_ok = eq chunk0_len, 1
+    chunk1_len_ok = eq chunk1_len, 1
+    chunk2_len_ok = eq chunk2_len, 2
+    chunk1s_len_ok = eq chunk1s_len, 1
+    chunk2b_len_ok = eq chunk2b_len, 2
+    chunk0_b0_ok = eq chunk0_b0, 65
+    chunk1_b0_ok = eq chunk1_b0, 255
+    chunk2_b0_ok = eq chunk2_b0, 66
+    chunk2_b1_ok = eq chunk2_b1, 67
+
+    ok = and valid_count_ok, mixed_count_ok
+    ok = and ok, mixed_count_s_ok
+    ok = and ok, mixed_count_b_ok
+    ok = and ok, ok0_flag
+    ok = and ok, ok1_flag
+    ok = and ok, ok2_flag
+    ok = and ok, ok3_flag
+    ok = and ok, ok1s_flag
+    ok = and ok, ok2b_flag
+    ok = and ok, ok0u_flag
+    ok = and ok, valid0_flag
+    ok = and ok, valid1_flag
+    ok = and ok, valid2_flag
+    ok = and ok, valid3_flag
+    ok = and ok, valid1s_flag
+    ok = and ok, valid2b_flag
+    ok = and ok, valid0u_flag
+    ok = and ok, chunk0_len_ok
+    ok = and ok, chunk1_len_ok
+    ok = and ok, chunk2_len_ok
+    ok = and ok, chunk1s_len_ok
+    ok = and ok, chunk2b_len_ok
+    ok = and ok, chunk0_b0_ok
+    ok = and ok, chunk1_b0_ok
+    ok = and ok, chunk2_b0_ok
+    ok = and ok, chunk2_b1_ok
+
+    EXPAND STRING_BUF_FREE mixed_chunk_buf
+    !valid_chunk_src
+    !mixed_chunk_src
+    !valid_count
+    !mixed_count
+    !mixed_count_s
+    !mixed_count_b
+    !ok0
+    !valid0
+    !chunk0
+    !ok1
+    !valid1
+    !chunk1
+    !ok2
+    !valid2
+    !chunk2
+    !ok3
+    !valid3
+    !chunk3
+    !ok1s
+    !valid1s
+    !chunk1s
+    !ok2b
+    !valid2b
+    !chunk2b
+    !ok0u
+    !valid0u
+    !chunk0u
+    !chunk0_len
+    !chunk1_len
+    !chunk2_len
+    !chunk1s_len
+    !chunk2b_len
+    !chunk0_ptr
+    !chunk1_ptr
+    !chunk2_ptr
+    !chunk0_b0
+    !chunk1_b0
+    !chunk2_b0
+    !chunk2_b1
+    !valid_count_ok
+    !mixed_count_ok
+    !mixed_count_s_ok
+    !mixed_count_b_ok
+    !ok0_flag
+    !ok1_flag
+    !ok2_flag
+    !ok3_flag
+    !ok1s_flag
+    !ok2b_flag
+    !ok0u_flag
+    !valid0_flag
+    !valid1_flag
+    !valid2_flag
+    !valid3_flag
+    !valid1s_flag
+    !valid2b_flag
+    !valid0u_flag
+    !chunk0_len_ok
+    !chunk1_len_ok
+    !chunk2_len_ok
+    !chunk1s_len_ok
+    !chunk2b_len_ok
+    !chunk0_b0_ok
+    !chunk1_b0_ok
+    !chunk2_b0_ok
+    !chunk2_b1_ok
+    br ok -> L_STR_UTF8_CHUNKS_OK, L_STR_UTF8_CHUNKS_FAIL
+
+L_STR_UTF8_CHUNKS_FAIL:
+    !ok
+    panic(1042)
+
+L_STR_UTF8_CHUNKS_OK:
+    !ok
+    return
+

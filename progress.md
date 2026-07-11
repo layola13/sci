@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String utf8_chunks alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` utf8-chunks aliases:
+  - `STR_UTF8_CHUNKS_COUNT` / `STRING_UTF8_CHUNKS_COUNT` / `STRING_BUF_UTF8_CHUNKS_COUNT`
+  - `STR_TRY_UTF8_CHUNK_AT` / `STRING_TRY_UTF8_CHUNK_AT` / `STRING_BUF_TRY_UTF8_CHUNK_AT`
+  - `STR_UTF8_CHUNK_AT` / `STRING_UTF8_CHUNK_AT` / `STRING_BUF_UTF8_CHUNK_AT`
+- Semantics: walk haystack bytes with `@sa_str_utf8_lossy_next`, merge contiguous valid UTF-8 scalars into one valid chunk, and emit each invalid lossy unit as its own invalid chunk (`valid=0`). Count aliases return the number of such chunks; indexed aliases return `(ok, valid_flag, Slice)` for a caller-selected chunk ordinal and return `ok=0`, `valid=0`, plus an empty slice on misses. This remains a concrete count/caller-indexed view subset rather than Rust's lazy `Utf8Chunks` / `Utf8Chunk` iterator object model, borrow-scoped lifetimes, or full lossy-iterator adapter surface.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "utf8 chunks aliases" --jobs 1 --trace-panic`: pass (`1 passed; 74 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test` over a minimal harness exercising the same utf8_chunks macros: pass (`1 passed; 0 failed; 0 skipped`).
+
 ## Completed: 2026-07-11 str/String encode_utf16 alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
