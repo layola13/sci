@@ -2458,6 +2458,25 @@ fn fixCommand(writer: anytype, args: []const []const u8, json_mode: bool) !u8 {
         return error.UnexpectedArgument;
     }
     const target = code orelse return error.MissingSourcePath;
+    // Trap-code fix: resolve by name/stable/numeric and synthesize a one-step
+    // plan from the trap's fix_hint. Covers all 57 traps.
+    if (trap.trapFromName(target) orelse trap.trapFromStableCode(target) orelse blk: {
+        const num = std.fmt.parseInt(u32, target, 10) catch break :blk null;
+        break :blk trap.trapFromNumericCode(num);
+    }) |t| {
+        const ex = trap.explainTrap(t);
+        const steps = [_]FixPlanStep{.{ .action = "apply", .target = trap.trapStableCode(t), .detail = ex.fix_hint }};
+        const rationale = [_][]const u8{ex.summary};
+        const tplan = FixPlan{ .steps = &steps, .rationale = &rationale };
+        if (json_mode) {
+            try writer.writeAll("{\"status\":\"ok\",\"fix\":");
+            try writeFixPlanJson(writer, trap.trapStableCode(t), tplan);
+            try writer.writeAll("}\n");
+        } else {
+            try writeFixPlanText(writer, trap.trapStableCode(t), tplan);
+        }
+        return 0;
+    }
     const plan = fixPlanForCode(target) orelse {
         try writer.print("unknown code: {s}\n", .{target});
         return 1;
