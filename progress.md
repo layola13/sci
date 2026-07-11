@@ -4,6 +4,22 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 Vec/StringBuf capacity remaining alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-remaining and StringBuf spare aliases:
+  - `VEC_CAPACITY_REMAINING` / `VEC_REMAINING_CAPACITY`
+  - `STRING_BUF_CAPACITY_REMAINING` / `STRING_BUF_REMAINING_CAPACITY`
+  - `STRING_BUF_SPARE_CAPACITY_MUT` / `STRING_BUF_SPLIT_AT_SPARE_MUT`
+- Semantics: remaining-capacity helpers return `cap - len` element/byte count without allocating. StringBuf spare helpers expose the uninitialized spare region as a mutable byte `Slice` (`elem_size=1`) and split initialized bytes from spare capacity, matching the existing Vec spare-capacity subset. These helpers do not claim Rust's generic `MaybeUninit` spare view object model, allocator trait integration, or full provenance semantics.
+- Validation status:
+  - Source focused minimal harness over the same macros: pass (`1 passed`).
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_macro_surface.sa --filter "capacity remaining aliases" --jobs 1 --trace-panic`: pass (`1 passed; 29 skipped`).
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "capacity remaining and spare aliases" --jobs 1 --trace-panic`: pass (`1 passed; 77 skipped`).
+  - Install sync via installed-std copy of `vec.sa` / `string.sa`: pass.
+  - Installed-state focused `SA_STD_DIR=/home/vscode/.sa/std` minimal harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 str/String substr_range alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

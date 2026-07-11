@@ -11493,3 +11493,56 @@ L_STR_SUBSTR_RANGE_FAIL:
 L_STR_SUBSTR_RANGE_OK:
     !ok
     return
+
+@test "sa_std string capacity remaining and spare aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STR_FROM_PARTS hi, &WORD, 2
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_CAPACITY cap, buf
+    EXPAND STRING_BUF_CAPACITY_REMAINING rem, buf
+    EXPAND STRING_BUF_REMAINING_CAPACITY rem2, buf
+    EXPAND STRING_BUF_SPARE_CAPACITY_MUT spare, buf
+    EXPAND SLICE_GET_LEN spare_len, spare
+    EXPAND STRING_BUF_SPLIT_AT_SPARE_MUT init, spare_after, buf
+    EXPAND SLICE_GET_LEN init_len, init
+    EXPAND SLICE_GET_LEN spare_after_len, spare_after
+    expected = sub cap, 2
+    rem_ok = eq rem, expected
+    rem2_ok = eq rem2, expected
+    spare_len_ok = eq spare_len, expected
+    init_len_ok = eq init_len, 2
+    spare_after_ok = eq spare_after_len, expected
+    cap_ok = uge cap, 8
+    ok = and cap_ok, rem_ok
+    ok = and ok, rem2_ok
+    ok = and ok, spare_len_ok
+    ok = and ok, init_len_ok
+    ok = and ok, spare_after_ok
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !cap
+    !rem
+    !rem2
+    !spare
+    !spare_len
+    !init
+    !spare_after
+    !init_len
+    !spare_after_len
+    !expected
+    !rem_ok
+    !rem2_ok
+    !spare_len_ok
+    !init_len_ok
+    !spare_after_ok
+    !cap_ok
+    br ok -> L_STR_CAP_REM_OK, L_STR_CAP_REM_FAIL
+
+L_STR_CAP_REM_FAIL:
+    !ok
+    panic(1045)
+
+L_STR_CAP_REM_OK:
+    !ok
+    return

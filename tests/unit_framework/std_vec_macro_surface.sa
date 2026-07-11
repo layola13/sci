@@ -3773,3 +3773,35 @@ L_VEC_TO_OWNED_FAIL:
 L_VEC_TO_OWNED_OK:
     !ok
     return
+
+@test "sa_std vec capacity remaining aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 11
+    EXPAND VEC_PUSH_U64 vec, 22
+    EXPAND VEC_CAPACITY cap, vec
+    EXPAND VEC_CAPACITY_REMAINING rem, vec
+    EXPAND VEC_REMAINING_CAPACITY rem2, vec
+    expected = sub cap, 2
+    rem_ok = eq rem, expected
+    rem2_ok = eq rem2, expected
+    cap_ok = uge cap, 4
+    ok = and cap_ok, rem_ok
+    ok = and ok, rem2_ok
+    !cap
+    !rem
+    !rem2
+    !expected
+    !cap_ok
+    !rem_ok
+    !rem2_ok
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_CAP_REM_OK, L_VEC_CAP_REM_FAIL
+
+L_VEC_CAP_REM_FAIL:
+    !ok
+    panic(930)
+
+L_VEC_CAP_REM_OK:
+    !ok
+    return

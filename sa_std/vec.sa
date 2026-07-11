@@ -517,6 +517,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     %out_cap = call @sa_vec_capacity(&%vec_reg)
 [END_MACRO]
 
+[MACRO] VEC_CAPACITY_REMAINING %out_remaining, %vec_reg
+    __vec_cap_rem_cap_%out_remaining = load %vec_reg+Vec_cap as u64
+    __vec_cap_rem_len_%out_remaining = load %vec_reg+Vec_len as u64
+    %out_remaining = sub __vec_cap_rem_cap_%out_remaining, __vec_cap_rem_len_%out_remaining
+    !__vec_cap_rem_len_%out_remaining
+    !__vec_cap_rem_cap_%out_remaining
+[END_MACRO]
+
+[MACRO] VEC_REMAINING_CAPACITY %out_remaining, %vec_reg
+    EXPAND VEC_CAPACITY_REMAINING %out_remaining, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_SPARE_CAPACITY_MUT %out_slice, %vec_reg, %elem_size
     __vec_spare_ptr_%out_slice = load %vec_reg+Vec_ptr as ptr
     __vec_spare_len_%out_slice = load %vec_reg+Vec_len as u64

@@ -240,6 +240,23 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     EXPAND VEC_CAPACITY %out_cap, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_CAPACITY_REMAINING %out_remaining, %string_reg
+    EXPAND VEC_CAPACITY_REMAINING %out_remaining, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_REMAINING_CAPACITY %out_remaining, %string_reg
+    EXPAND STRING_BUF_CAPACITY_REMAINING %out_remaining, %string_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPARE_CAPACITY_MUT %out_slice, %string_reg
+    EXPAND VEC_SPARE_CAPACITY_MUT %out_slice, %string_reg, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_AT_SPARE_MUT %out_init_slice, %out_spare_slice, %string_reg
+    EXPAND STRING_BUF_AS_MUT_BYTES %out_init_slice, %string_reg
+    EXPAND STRING_BUF_SPARE_CAPACITY_MUT %out_spare_slice, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_INTO_RAW_PARTS %out_ptr, %out_len, %out_cap, %string_reg
     EXPAND VEC_INTO_RAW_PARTS %out_ptr, %out_len, %out_cap, %string_reg
 [END_MACRO]
