@@ -3236,6 +3236,14 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
         }
     }
 
+    // Per-agent quota: reject if this agent already has too many in-flight
+    // requests. Prevents one agent from starving others. Empty id = unlimited.
+    if (agent_id.len != 0 and !daemon_cancel.acquireSlot(agent_id)) {
+        conn.stream.writeAll("{\"status\":\"busy\",\"message\":\"per-agent quota exceeded\"}\n") catch {};
+        return;
+    }
+    defer if (agent_id.len != 0) daemon_cancel.releaseSlot(agent_id);
+
     const parsed = parseDaemonArgv(allocator, request_line) catch {
         conn.stream.writeAll("{\"status\":\"error\",\"message\":\"invalid request\"}\n") catch {};
         return;
@@ -3307,6 +3315,9 @@ fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout:
             i += 1;
         } else if (std.mem.eql(u8, args[i], "--max-workers") and i + 1 < args.len) {
             max_workers = std.fmt.parseInt(usize, args[i + 1], 10) catch 8;
+            i += 1;
+        } else if (std.mem.eql(u8, args[i], "--per-agent-limit") and i + 1 < args.len) {
+            daemon_cancel.setPerAgentLimit(std.fmt.parseInt(u32, args[i + 1], 10) catch 4);
             i += 1;
         }
     }
