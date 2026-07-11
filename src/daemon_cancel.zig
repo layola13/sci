@@ -88,63 +88,6 @@ test "json field parsing" {
     try std.testing.expectEqual(@as(u64, 42), parseJsonU64Field(req, "\"generation\"").?);
     try std.testing.expect(parseJsonStrField(req, "\"missing\"") == null);
 }
-
-// Per-agent in-flight quota: bounds how many concurrent requests a single agent
-// may hold, so one agent cannot monopolize the daemon's worker pool. Pure,
-// mutex-protected counters keyed by agent_id.
-var agent_inflight_mutex: std.Thread.Mutex = .{};
-var agent_inflight_map: ?std.StringHashMap(u32) = null;
-
-fn agentInflightMap() *std.StringHashMap(u32) {
-    if (agent_inflight_map == null) {
-        agent_inflight_map = std.StringHashMap(u32).init(std.heap.page_allocator);
-    }
-    return &agent_inflight_map.?;
-}
-
-// Try to acquire an in-flight slot for agent_id. Returns true and increments if
-// the agent is below max_per_agent; returns false (no increment) if at/over the
-// limit. An empty agent_id or max_per_agent==0 means unlimited (always true).
-pub fn tryAcquireSlot(agent_id: []const u8, max_per_agent: u32) bool {
-    if (agent_id.len == 0 or max_per_agent == 0) return true;
-    agent_inflight_mutex.lock();
-    defer agent_inflight_mutex.unlock();
-    const map = agentInflightMap();
-    const gop = map.getOrPut(agent_id) catch return true;
-    if (!gop.found_existing) {
-        const owned = std.heap.page_allocator.dupe(u8, agent_id) catch return true;
-        gop.key_ptr.* = owned;
-        gop.value_ptr.* = 0;
-    }
-    if (gop.value_ptr.* >= max_per_agent) return false;
-    gop.value_ptr.* += 1;
-    return true;
-}
-
-// Release a previously acquired in-flight slot for agent_id.
-pub fn releaseSlot(agent_id: []const u8) void {
-    if (agent_id.len == 0) return;
-    agent_inflight_mutex.lock();
-    defer agent_inflight_mutex.unlock();
-    const map = agentInflightMap();
-    if (map.getPtr(agent_id)) |count| {
-        if (count.* > 0) count.* -= 1;
-    }
-}
-
-test "per-agent quota acquire and release" {
-    // Under limit: two acquires with max=2 succeed, third fails.
-    try std.testing.expect(tryAcquireSlot("qA", 2));
-    try std.testing.expect(tryAcquireSlot("qA", 2));
-    try std.testing.expect(!tryAcquireSlot("qA", 2));
-    // Release one, then another acquire succeeds.
-    releaseSlot("qA");
-    try std.testing.expect(tryAcquireSlot("qA", 2));
-    // Empty agent id and max=0 are unlimited.
-    try std.testing.expect(tryAcquireSlot("", 1));
-    try std.testing.expect(tryAcquireSlot("qB", 0));
-}
-
 // Per-agent in-flight quota: prevents a single agent from occupying all daemon
 // workers and starving others. agent_id == "" is unlimited.
 var agent_inflight_mutex: std.Thread.Mutex = .{};
