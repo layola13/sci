@@ -414,6 +414,22 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     !__string_buf_try_char_range_at_view_%out_ok
 [END_MACRO]
 
+[MACRO] STRING_BUF_CHAR_INDICES_COUNT %out_count, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_char_indices_count_view_%out_count, %string_reg
+    EXPAND STR_CHAR_INDICES_COUNT %out_count, __string_buf_char_indices_count_view_%out_count
+    !__string_buf_char_indices_count_view_%out_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %string_reg, %char_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_char_indices_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, __string_buf_try_char_indices_at_view_%out_ok, %char_index
+    !__string_buf_try_char_indices_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %string_reg, %char_index
+    EXPAND STRING_BUF_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %string_reg, %char_index
+[END_MACRO]
+
 [MACRO] STRING_BUF_FIND %out_ok, %out_index, %string_reg, %needle_slice
     EXPAND STRING_BUF_AS_STR __string_buf_find_view_%out_ok, %string_reg
     EXPAND STR_FIND %out_ok, %out_index, __string_buf_find_view_%out_ok, %needle_slice
@@ -696,6 +712,24 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     EXPAND STRING_BUF_AS_STR __string_buf_split_byte_at_view_%out_ok, %string_reg
     EXPAND STR_SPLIT_BYTE_AT %out_ok, %out_part, __string_buf_split_byte_at_view_%out_ok, %byte_value, %part_index
     !__string_buf_split_byte_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_ASCII_WHITESPACE_COUNT %out_count, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_split_ascii_ws_count_view_%out_count, %string_reg
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_COUNT %out_count, __string_buf_split_ascii_ws_count_view_%out_count
+    !__string_buf_split_ascii_ws_count_view_%out_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %string_reg, %part_index
+    EXPAND STRING_BUF_AS_STR __string_buf_try_split_ascii_ws_at_view_%out_ok, %string_reg
+    EXPAND STR_TRY_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, __string_buf_try_split_ascii_ws_at_view_%out_ok, %part_index
+    !__string_buf_try_split_ascii_ws_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %string_reg, %part_index
+    EXPAND STRING_BUF_AS_STR __string_buf_split_ascii_ws_at_view_%out_ok, %string_reg
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, __string_buf_split_ascii_ws_at_view_%out_ok, %part_index
+    !__string_buf_split_ascii_ws_at_view_%out_ok
 [END_MACRO]
 
 [MACRO] STRING_BUF_LINE_COUNT %out_count, %string_reg
@@ -4131,6 +4165,80 @@ L_STR_COUNT_END_%out_count:
     EXPAND STR_RSPLIT_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
 [END_MACRO]
 
+[MACRO] STR_SPLIT_INCLUSIVE_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    __str_split_incl_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
+    __str_split_incl_len_%out_count = load %slice_reg+Slice_len as u64
+    __str_split_incl_needle_len_%out_count = load %needle_slice+Slice_len as u64
+    __str_split_incl_empty_needle_%out_count = eq __str_split_incl_needle_len_%out_count, 0
+    br __str_split_incl_empty_needle_%out_count -> L_STR_SPLIT_INCL_ZERO_%out_count, L_STR_SPLIT_INCL_CHECK_HAY_%out_count
+
+L_STR_SPLIT_INCL_CHECK_HAY_%out_count:
+    __str_split_incl_empty_hay_%out_count = eq __str_split_incl_len_%out_count, 0
+    br __str_split_incl_empty_hay_%out_count -> L_STR_SPLIT_INCL_ZERO_HAY_%out_count, L_STR_SPLIT_INCL_COUNT_MATCHES_%out_count
+
+L_STR_SPLIT_INCL_ZERO_%out_count:
+    %out_count = add 0, 0
+    jmp L_STR_SPLIT_INCL_END_%out_count
+
+L_STR_SPLIT_INCL_ZERO_HAY_%out_count:
+    %out_count = add 0, 0
+    !__str_split_incl_empty_hay_%out_count
+    jmp L_STR_SPLIT_INCL_END_%out_count
+
+L_STR_SPLIT_INCL_COUNT_MATCHES_%out_count:
+    EXPAND STR_COUNT __str_split_incl_matches_%out_count, %slice_reg, %needle_slice
+    __str_split_incl_no_matches_%out_count = eq __str_split_incl_matches_%out_count, 0
+    br __str_split_incl_no_matches_%out_count -> L_STR_SPLIT_INCL_ONE_%out_count, L_STR_SPLIT_INCL_TRAIL_%out_count
+
+L_STR_SPLIT_INCL_ONE_%out_count:
+    %out_count = add 0, 1
+    !__str_split_incl_no_matches_%out_count
+    !__str_split_incl_matches_%out_count
+    !__str_split_incl_empty_hay_%out_count
+    jmp L_STR_SPLIT_INCL_END_%out_count
+
+L_STR_SPLIT_INCL_TRAIL_%out_count:
+    __str_split_incl_trail_start_%out_count = sub __str_split_incl_len_%out_count, __str_split_incl_needle_len_%out_count
+    __str_split_incl_trail_ptr_%out_count = ptr_add __str_split_incl_ptr_%out_count, __str_split_incl_trail_start_%out_count
+    __str_split_incl_trail_view_%out_count = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __str_split_incl_trail_view_%out_count, __str_split_incl_trail_ptr_%out_count, __str_split_incl_needle_len_%out_count
+    EXPAND STR_EQ __str_split_incl_trail_eq_%out_count, __str_split_incl_trail_view_%out_count, %needle_slice
+    br __str_split_incl_trail_eq_%out_count -> L_STR_SPLIT_INCL_USE_MATCHES_%out_count, L_STR_SPLIT_INCL_USE_MATCHES_PLUS_ONE_%out_count
+
+L_STR_SPLIT_INCL_USE_MATCHES_%out_count:
+    %out_count = add __str_split_incl_matches_%out_count, 0
+    !__str_split_incl_trail_eq_%out_count
+    !__str_split_incl_trail_ptr_%out_count
+    !__str_split_incl_trail_start_%out_count
+    !__str_split_incl_no_matches_%out_count
+    !__str_split_incl_matches_%out_count
+    !__str_split_incl_empty_hay_%out_count
+    jmp L_STR_SPLIT_INCL_END_%out_count
+
+L_STR_SPLIT_INCL_USE_MATCHES_PLUS_ONE_%out_count:
+    %out_count = add __str_split_incl_matches_%out_count, 1
+    !__str_split_incl_trail_eq_%out_count
+    !__str_split_incl_trail_ptr_%out_count
+    !__str_split_incl_trail_start_%out_count
+    !__str_split_incl_no_matches_%out_count
+    !__str_split_incl_matches_%out_count
+    !__str_split_incl_empty_hay_%out_count
+
+L_STR_SPLIT_INCL_END_%out_count:
+    !__str_split_incl_empty_needle_%out_count
+    !__str_split_incl_needle_len_%out_count
+    !__str_split_incl_len_%out_count
+    !__str_split_incl_ptr_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_INCLUSIVE_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_INCLUSIVE_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
 [MACRO] STR_SPLIT_NEEDLE_TERM_COUNT %out_count, %slice_reg, %needle_slice
     __str_term_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
     __str_term_len_%out_count = load %slice_reg+Slice_len as u64
@@ -4199,6 +4307,66 @@ L_STR_SPLIT_NEEDLE_TERM_END_%out_count:
 
 [MACRO] STRING_BUF_SPLIT_NEEDLE_TERM_COUNT %out_count, %string_reg, %needle_slice
     EXPAND STR_SPLIT_NEEDLE_TERM_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_NEEDLE_TERM_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_RSPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_RSPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_SPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_term_char_needle_%out_count, __str_split_term_char_valid_%out_count, %code
+    br __str_split_term_char_valid_%out_count -> L_STR_SPLIT_TERM_CHAR_COUNT_VALID_%out_count, L_STR_SPLIT_TERM_CHAR_COUNT_INVALID_%out_count
+
+L_STR_SPLIT_TERM_CHAR_COUNT_VALID_%out_count:
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT %out_count, %slice_reg, __str_split_term_char_needle_%out_count
+    jmp L_STR_SPLIT_TERM_CHAR_COUNT_END_%out_count
+
+L_STR_SPLIT_TERM_CHAR_COUNT_INVALID_%out_count:
+    %out_count = add 0, 0
+
+L_STR_SPLIT_TERM_CHAR_COUNT_END_%out_count:
+    !__str_split_term_char_valid_%out_count
+    !__str_split_term_char_needle_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_TERMINATOR_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_RSPLIT_TERMINATOR_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_TERMINATOR_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_RSPLIT_TERMINATOR_CHAR_COUNT %out_count, %string_reg, %code
 [END_MACRO]
 
 [MACRO] STR_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
@@ -4670,8 +4838,849 @@ L_STR_RMATCHES_NEEDLE_END_%out_ok:
     EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %match_index
 [END_MACRO]
 
+[MACRO] STR_SPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_char_needle_%out_count, __str_split_char_valid_%out_count, %code
+    br __str_split_char_valid_%out_count -> L_STR_SPLIT_CHAR_COUNT_VALID_%out_count, L_STR_SPLIT_CHAR_COUNT_INVALID_%out_count
+
+L_STR_SPLIT_CHAR_COUNT_VALID_%out_count:
+    EXPAND STR_SPLIT_NEEDLE_COUNT %out_count, %slice_reg, __str_split_char_needle_%out_count
+    jmp L_STR_SPLIT_CHAR_COUNT_END_%out_count
+
+L_STR_SPLIT_CHAR_COUNT_INVALID_%out_count:
+    %out_count = add 0, 0
+
+L_STR_SPLIT_CHAR_COUNT_END_%out_count:
+    !__str_split_char_valid_%out_count
+    !__str_split_char_needle_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_SPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_SPLIT_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_SPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_RSPLIT_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_RSPLIT_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_MATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_matches_char_needle_%out_count, __str_matches_char_valid_%out_count, %code
+    br __str_matches_char_valid_%out_count -> L_STR_MATCHES_CHAR_COUNT_VALID_%out_count, L_STR_MATCHES_CHAR_COUNT_INVALID_%out_count
+
+L_STR_MATCHES_CHAR_COUNT_VALID_%out_count:
+    EXPAND STR_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, __str_matches_char_needle_%out_count
+    jmp L_STR_MATCHES_CHAR_COUNT_END_%out_count
+
+L_STR_MATCHES_CHAR_COUNT_INVALID_%out_count:
+    %out_count = add 0, 0
+
+L_STR_MATCHES_CHAR_COUNT_END_%out_count:
+    !__str_matches_char_valid_%out_count
+    !__str_matches_char_needle_%out_count
+[END_MACRO]
+
+[MACRO] STRING_MATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_MATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCHES_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_MATCHES_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_RMATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_MATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_RMATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_RMATCHES_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCHES_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_RMATCHES_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_char_at_needle_%out_ok, __str_split_char_at_valid_%out_ok, %code
+    br __str_split_char_at_valid_%out_ok -> L_STR_SPLIT_CHAR_AT_VALID_%out_ok, L_STR_SPLIT_CHAR_AT_INVALID_%out_ok
+
+L_STR_SPLIT_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_split_char_at_needle_%out_ok, %part_index
+    jmp L_STR_SPLIT_CHAR_AT_END_%out_ok
+
+L_STR_SPLIT_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_split_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_char_at_empty_%out_ok
+
+L_STR_SPLIT_CHAR_AT_END_%out_ok:
+    !__str_split_char_at_valid_%out_ok
+    !__str_split_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_rsplit_char_at_needle_%out_ok, __str_rsplit_char_at_valid_%out_ok, %code
+    br __str_rsplit_char_at_valid_%out_ok -> L_STR_RSPLIT_CHAR_AT_VALID_%out_ok, L_STR_RSPLIT_CHAR_AT_INVALID_%out_ok
+
+L_STR_RSPLIT_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_RSPLIT_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_rsplit_char_at_needle_%out_ok, %part_index
+    jmp L_STR_RSPLIT_CHAR_AT_END_%out_ok
+
+L_STR_RSPLIT_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplit_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rsplit_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplit_char_at_empty_%out_ok
+
+L_STR_RSPLIT_CHAR_AT_END_%out_ok:
+    !__str_rsplit_char_at_valid_%out_ok
+    !__str_rsplit_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_matches_char_at_needle_%out_ok, __str_matches_char_at_valid_%out_ok, %code
+    br __str_matches_char_at_valid_%out_ok -> L_STR_MATCHES_CHAR_AT_VALID_%out_ok, L_STR_MATCHES_CHAR_AT_INVALID_%out_ok
+
+L_STR_MATCHES_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_MATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_matches_char_at_needle_%out_ok, %match_index
+    jmp L_STR_MATCHES_CHAR_AT_END_%out_ok
+
+L_STR_MATCHES_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_matches_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_matches_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_matches_char_at_empty_%out_ok
+
+L_STR_MATCHES_CHAR_AT_END_%out_ok:
+    !__str_matches_char_at_valid_%out_ok
+    !__str_matches_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_MATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_rmatches_char_at_needle_%out_ok, __str_rmatches_char_at_valid_%out_ok, %code
+    br __str_rmatches_char_at_valid_%out_ok -> L_STR_RMATCHES_CHAR_AT_VALID_%out_ok, L_STR_RMATCHES_CHAR_AT_INVALID_%out_ok
+
+L_STR_RMATCHES_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_RMATCHES_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_rmatches_char_at_needle_%out_ok, %match_index
+    jmp L_STR_RMATCHES_CHAR_AT_END_%out_ok
+
+L_STR_RMATCHES_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rmatches_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rmatches_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rmatches_char_at_empty_%out_ok
+
+L_STR_RMATCHES_CHAR_AT_END_%out_ok:
+    !__str_rmatches_char_at_valid_%out_ok
+    !__str_rmatches_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCHES_CHAR_AT %out_ok, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_MATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_MATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_MATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_MATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCH_INDICES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_MATCH_INDICES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_RMATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_RMATCHES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_RMATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+    EXPAND STR_RMATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCH_INDICES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+    EXPAND STR_RMATCH_INDICES_NEEDLE_COUNT %out_count, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    %out_part = alloc Slice_SIZE
+    __str_match_indices_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_match_indices_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_match_indices_needle_ptr_%out_ok = load %needle_slice+Slice_ptr as ptr
+    __str_match_indices_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __str_match_indices_scan_slot_%out_ok = stack_alloc 8
+    __str_match_indices_inner_slot_%out_ok = stack_alloc 8
+    __str_match_indices_current_slot_%out_ok = stack_alloc 8
+    store __str_match_indices_scan_slot_%out_ok+0, 0 as u64
+    store __str_match_indices_inner_slot_%out_ok+0, 0 as u64
+    store __str_match_indices_current_slot_%out_ok+0, 0 as u64
+    __str_match_indices_empty_%out_ok = eq __str_match_indices_needle_len_%out_ok, 0
+    br __str_match_indices_empty_%out_ok -> L_STR_MATCH_INDICES_EMPTY_%out_ok, L_STR_MATCH_INDICES_HEAD_%out_ok
+
+L_STR_MATCH_INDICES_EMPTY_%out_ok:
+    __str_match_indices_empty_zero_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_match_indices_empty_zero_%out_ok, 0
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__str_match_indices_empty_zero_%out_ok
+    jmp L_STR_MATCH_INDICES_END_%out_ok
+
+L_STR_MATCH_INDICES_HEAD_%out_ok:
+    __str_match_indices_scan_%out_ok = load __str_match_indices_scan_slot_%out_ok+0 as u64
+    __str_match_indices_done_%out_ok = eq __str_match_indices_scan_%out_ok, __str_match_indices_len_%out_ok
+    br __str_match_indices_done_%out_ok -> L_STR_MATCH_INDICES_FINAL_%out_ok, L_STR_MATCH_INDICES_RANGE_%out_ok
+
+L_STR_MATCH_INDICES_RANGE_%out_ok:
+    __str_match_indices_remaining_%out_ok = sub __str_match_indices_len_%out_ok, __str_match_indices_scan_%out_ok
+    __str_match_indices_can_match_%out_ok = uge __str_match_indices_remaining_%out_ok, __str_match_indices_needle_len_%out_ok
+    br __str_match_indices_can_match_%out_ok -> L_STR_MATCH_INDICES_INNER_INIT_%out_ok, L_STR_MATCH_INDICES_NEXT_%out_ok
+
+L_STR_MATCH_INDICES_INNER_INIT_%out_ok:
+    store __str_match_indices_inner_slot_%out_ok+0, 0 as u64
+    jmp L_STR_MATCH_INDICES_INNER_HEAD_%out_ok
+
+L_STR_MATCH_INDICES_INNER_HEAD_%out_ok:
+    __str_match_indices_inner_%out_ok = load __str_match_indices_inner_slot_%out_ok+0 as u64
+    __str_match_indices_inner_done_%out_ok = eq __str_match_indices_inner_%out_ok, __str_match_indices_needle_len_%out_ok
+    br __str_match_indices_inner_done_%out_ok -> L_STR_MATCH_INDICES_HIT_%out_ok, L_STR_MATCH_INDICES_INNER_BODY_%out_ok
+
+L_STR_MATCH_INDICES_INNER_BODY_%out_ok:
+    __str_match_indices_hay_off_%out_ok = add __str_match_indices_scan_%out_ok, __str_match_indices_inner_%out_ok
+    __str_match_indices_hay_ip_%out_ok = ptr_add __str_match_indices_ptr_%out_ok, __str_match_indices_hay_off_%out_ok
+    __str_match_indices_needle_ip_%out_ok = ptr_add __str_match_indices_needle_ptr_%out_ok, __str_match_indices_inner_%out_ok
+    __str_match_indices_hay_byte_%out_ok = load __str_match_indices_hay_ip_%out_ok+0 as u8
+    __str_match_indices_needle_byte_%out_ok = load __str_match_indices_needle_ip_%out_ok+0 as u8
+    __str_match_indices_match_%out_ok = eq __str_match_indices_hay_byte_%out_ok, __str_match_indices_needle_byte_%out_ok
+    br __str_match_indices_match_%out_ok -> L_STR_MATCH_INDICES_INNER_NEXT_%out_ok, L_STR_MATCH_INDICES_KEEP_%out_ok
+
+L_STR_MATCH_INDICES_INNER_NEXT_%out_ok:
+    __str_match_indices_inner_next_%out_ok = add __str_match_indices_inner_%out_ok, 1
+    store __str_match_indices_inner_slot_%out_ok+0, __str_match_indices_inner_next_%out_ok as u64
+    !__str_match_indices_inner_next_%out_ok
+    !__str_match_indices_match_%out_ok
+    !__str_match_indices_needle_byte_%out_ok
+    !__str_match_indices_hay_byte_%out_ok
+    !__str_match_indices_needle_ip_%out_ok
+    !__str_match_indices_hay_ip_%out_ok
+    !__str_match_indices_hay_off_%out_ok
+    !__str_match_indices_inner_done_%out_ok
+    !__str_match_indices_inner_%out_ok
+    jmp L_STR_MATCH_INDICES_INNER_HEAD_%out_ok
+
+L_STR_MATCH_INDICES_HIT_%out_ok:
+    __str_match_indices_current_%out_ok = load __str_match_indices_current_slot_%out_ok+0 as u64
+    __str_match_indices_target_%out_ok = eq __str_match_indices_current_%out_ok, %match_index
+    br __str_match_indices_target_%out_ok -> L_STR_MATCH_INDICES_HIT_MATCH_%out_ok, L_STR_MATCH_INDICES_ADVANCE_%out_ok
+
+L_STR_MATCH_INDICES_HIT_MATCH_%out_ok:
+    __str_match_indices_match_ptr_%out_ok = ptr_add __str_match_indices_ptr_%out_ok, __str_match_indices_scan_%out_ok
+    EXPAND SLICE_NEW %out_part, __str_match_indices_match_ptr_%out_ok, __str_match_indices_needle_len_%out_ok
+    %out_index = add __str_match_indices_scan_%out_ok, 0
+    %out_ok = add 0, 1
+    !__str_match_indices_match_ptr_%out_ok
+    !__str_match_indices_target_%out_ok
+    !__str_match_indices_current_%out_ok
+    !__str_match_indices_inner_done_%out_ok
+    !__str_match_indices_inner_%out_ok
+    !__str_match_indices_can_match_%out_ok
+    !__str_match_indices_remaining_%out_ok
+    !__str_match_indices_done_%out_ok
+    !__str_match_indices_scan_%out_ok
+    jmp L_STR_MATCH_INDICES_END_%out_ok
+
+L_STR_MATCH_INDICES_ADVANCE_%out_ok:
+    __str_match_indices_next_current_%out_ok = add __str_match_indices_current_%out_ok, 1
+    __str_match_indices_after_%out_ok = add __str_match_indices_scan_%out_ok, __str_match_indices_needle_len_%out_ok
+    store __str_match_indices_current_slot_%out_ok+0, __str_match_indices_next_current_%out_ok as u64
+    store __str_match_indices_scan_slot_%out_ok+0, __str_match_indices_after_%out_ok as u64
+    !__str_match_indices_after_%out_ok
+    !__str_match_indices_next_current_%out_ok
+    !__str_match_indices_target_%out_ok
+    !__str_match_indices_current_%out_ok
+    !__str_match_indices_inner_done_%out_ok
+    !__str_match_indices_inner_%out_ok
+    !__str_match_indices_can_match_%out_ok
+    !__str_match_indices_remaining_%out_ok
+    !__str_match_indices_done_%out_ok
+    !__str_match_indices_scan_%out_ok
+    jmp L_STR_MATCH_INDICES_HEAD_%out_ok
+
+L_STR_MATCH_INDICES_KEEP_%out_ok:
+    !__str_match_indices_match_%out_ok
+    !__str_match_indices_needle_byte_%out_ok
+    !__str_match_indices_hay_byte_%out_ok
+    !__str_match_indices_needle_ip_%out_ok
+    !__str_match_indices_hay_ip_%out_ok
+    !__str_match_indices_hay_off_%out_ok
+    !__str_match_indices_inner_done_%out_ok
+    !__str_match_indices_inner_%out_ok
+    jmp L_STR_MATCH_INDICES_NEXT_%out_ok
+
+L_STR_MATCH_INDICES_NEXT_%out_ok:
+    __str_match_indices_next_%out_ok = add __str_match_indices_scan_%out_ok, 1
+    store __str_match_indices_scan_slot_%out_ok+0, __str_match_indices_next_%out_ok as u64
+    !__str_match_indices_next_%out_ok
+    !__str_match_indices_can_match_%out_ok
+    !__str_match_indices_remaining_%out_ok
+    !__str_match_indices_done_%out_ok
+    !__str_match_indices_scan_%out_ok
+    jmp L_STR_MATCH_INDICES_HEAD_%out_ok
+
+L_STR_MATCH_INDICES_FINAL_%out_ok:
+    __str_match_indices_empty_final_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_match_indices_empty_final_ptr_%out_ok, 0
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__str_match_indices_empty_final_ptr_%out_ok
+    !__str_match_indices_done_%out_ok
+    !__str_match_indices_scan_%out_ok
+
+L_STR_MATCH_INDICES_END_%out_ok:
+    !__str_match_indices_empty_%out_ok
+    !__str_match_indices_needle_len_%out_ok
+    !__str_match_indices_needle_ptr_%out_ok
+    !__str_match_indices_len_%out_ok
+    !__str_match_indices_ptr_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_MATCHES_NEEDLE_COUNT __str_rmatch_indices_count_%out_ok, %slice_reg, %needle_slice
+    __str_rmatch_indices_has_%out_ok = ugt __str_rmatch_indices_count_%out_ok, %match_index
+    br __str_rmatch_indices_has_%out_ok -> L_STR_RMATCH_INDICES_HIT_%out_ok, L_STR_RMATCH_INDICES_MISS_%out_ok
+
+L_STR_RMATCH_INDICES_HIT_%out_ok:
+    __str_rmatch_indices_last_%out_ok = sub __str_rmatch_indices_count_%out_ok, 1
+    __str_rmatch_indices_forward_%out_ok = sub __str_rmatch_indices_last_%out_ok, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT __str_rmatch_indices_found_%out_ok, %out_index, %out_part, %slice_reg, %needle_slice, __str_rmatch_indices_forward_%out_ok
+    %out_ok = add __str_rmatch_indices_found_%out_ok, 0
+    !__str_rmatch_indices_found_%out_ok
+    !__str_rmatch_indices_forward_%out_ok
+    !__str_rmatch_indices_last_%out_ok
+    jmp L_STR_RMATCH_INDICES_END_%out_ok
+
+L_STR_RMATCH_INDICES_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rmatch_indices_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rmatch_indices_empty_%out_ok, 0
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__str_rmatch_indices_empty_%out_ok
+
+L_STR_RMATCH_INDICES_END_%out_ok:
+    !__str_rmatch_indices_has_%out_ok
+    !__str_rmatch_indices_count_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %string_reg, %needle_slice, %match_index
+[END_MACRO]
+
+[MACRO] STR_MATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_match_indices_char_needle_%out_count, __str_match_indices_char_valid_%out_count, %code
+    br __str_match_indices_char_valid_%out_count -> L_STR_MATCH_INDICES_CHAR_COUNT_VALID_%out_count, L_STR_MATCH_INDICES_CHAR_COUNT_INVALID_%out_count
+
+L_STR_MATCH_INDICES_CHAR_COUNT_VALID_%out_count:
+    EXPAND STR_MATCH_INDICES_NEEDLE_COUNT %out_count, %slice_reg, __str_match_indices_char_needle_%out_count
+    jmp L_STR_MATCH_INDICES_CHAR_COUNT_END_%out_count
+
+L_STR_MATCH_INDICES_CHAR_COUNT_INVALID_%out_count:
+    %out_count = add 0, 0
+
+L_STR_MATCH_INDICES_CHAR_COUNT_END_%out_count:
+    !__str_match_indices_char_valid_%out_count
+    !__str_match_indices_char_needle_%out_count
+[END_MACRO]
+
+[MACRO] STRING_MATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_MATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCH_INDICES_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_MATCH_INDICES_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_RMATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_MATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_RMATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_RMATCH_INDICES_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCH_INDICES_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_RMATCH_INDICES_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_match_indices_char_at_needle_%out_ok, __str_match_indices_char_at_valid_%out_ok, %code
+    br __str_match_indices_char_at_valid_%out_ok -> L_STR_MATCH_INDICES_CHAR_AT_VALID_%out_ok, L_STR_MATCH_INDICES_CHAR_AT_INVALID_%out_ok
+
+L_STR_MATCH_INDICES_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, __str_match_indices_char_at_needle_%out_ok, %match_index
+    jmp L_STR_MATCH_INDICES_CHAR_AT_END_%out_ok
+
+L_STR_MATCH_INDICES_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_match_indices_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_match_indices_char_at_empty_%out_ok, 0
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__str_match_indices_char_at_empty_%out_ok
+
+L_STR_MATCH_INDICES_CHAR_AT_END_%out_ok:
+    !__str_match_indices_char_at_valid_%out_ok
+    !__str_match_indices_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_rmatch_indices_char_at_needle_%out_ok, __str_rmatch_indices_char_at_valid_%out_ok, %code
+    br __str_rmatch_indices_char_at_valid_%out_ok -> L_STR_RMATCH_INDICES_CHAR_AT_VALID_%out_ok, L_STR_RMATCH_INDICES_CHAR_AT_INVALID_%out_ok
+
+L_STR_RMATCH_INDICES_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT %out_ok, %out_index, %out_part, %slice_reg, __str_rmatch_indices_char_at_needle_%out_ok, %match_index
+    jmp L_STR_RMATCH_INDICES_CHAR_AT_END_%out_ok
+
+L_STR_RMATCH_INDICES_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rmatch_indices_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rmatch_indices_char_at_empty_%out_ok, 0
+    %out_index = add 0, 0
+    %out_ok = add 0, 0
+    !__str_rmatch_indices_char_at_empty_%out_ok
+
+L_STR_RMATCH_INDICES_CHAR_AT_END_%out_ok:
+    !__str_rmatch_indices_char_at_valid_%out_ok
+    !__str_rmatch_indices_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %slice_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT %out_ok, %out_index, %out_part, %string_reg, %code, %match_index
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT __str_split_incl_at_count_%out_ok, %slice_reg, %needle_slice
+    __str_split_incl_at_has_%out_ok = ugt __str_split_incl_at_count_%out_ok, %part_index
+    br __str_split_incl_at_has_%out_ok -> L_STR_SPLIT_INCL_AT_HIT_%out_ok, L_STR_SPLIT_INCL_AT_MISS_%out_ok
+
+L_STR_SPLIT_INCL_AT_HIT_%out_ok:
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT __str_split_incl_at_found_%out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    br __str_split_incl_at_found_%out_ok -> L_STR_SPLIT_INCL_AT_DECIDE_%out_ok, L_STR_SPLIT_INCL_AT_SPLIT_MISS_%out_ok
+
+L_STR_SPLIT_INCL_AT_DECIDE_%out_ok:
+    EXPAND STR_MATCHES_NEEDLE_COUNT __str_split_incl_at_matches_%out_ok, %slice_reg, %needle_slice
+    __str_split_incl_at_has_delim_%out_ok = ugt __str_split_incl_at_matches_%out_ok, %part_index
+    br __str_split_incl_at_has_delim_%out_ok -> L_STR_SPLIT_INCL_AT_EXTEND_%out_ok, L_STR_SPLIT_INCL_AT_KEEP_%out_ok
+
+L_STR_SPLIT_INCL_AT_EXTEND_%out_ok:
+    __str_split_incl_at_part_ptr_%out_ok = load %out_part+Slice_ptr as ptr
+    __str_split_incl_at_part_len_%out_ok = load %out_part+Slice_len as u64
+    __str_split_incl_at_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __str_split_incl_at_len_%out_ok = add __str_split_incl_at_part_len_%out_ok, __str_split_incl_at_needle_len_%out_ok
+    EXPAND SLICE_NEW %out_part, __str_split_incl_at_part_ptr_%out_ok, __str_split_incl_at_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_split_incl_at_len_%out_ok
+    !__str_split_incl_at_needle_len_%out_ok
+    !__str_split_incl_at_part_len_%out_ok
+    !__str_split_incl_at_part_ptr_%out_ok
+    !__str_split_incl_at_has_delim_%out_ok
+    !__str_split_incl_at_matches_%out_ok
+    !__str_split_incl_at_found_%out_ok
+    jmp L_STR_SPLIT_INCL_AT_END_%out_ok
+
+L_STR_SPLIT_INCL_AT_KEEP_%out_ok:
+    %out_ok = add 0, 1
+    !__str_split_incl_at_has_delim_%out_ok
+    !__str_split_incl_at_matches_%out_ok
+    !__str_split_incl_at_found_%out_ok
+    jmp L_STR_SPLIT_INCL_AT_END_%out_ok
+
+L_STR_SPLIT_INCL_AT_SPLIT_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__str_split_incl_at_found_%out_ok
+    jmp L_STR_SPLIT_INCL_AT_END_%out_ok
+
+L_STR_SPLIT_INCL_AT_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_split_incl_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_incl_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_incl_at_empty_%out_ok
+
+L_STR_SPLIT_INCL_AT_END_%out_ok:
+    !__str_split_incl_at_has_%out_ok
+    !__str_split_incl_at_count_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_INCLUSIVE_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_incl_char_needle_%out_count, __str_split_incl_char_valid_%out_count, %code
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT %out_count, %slice_reg, __str_split_incl_char_needle_%out_count
+    !__str_split_incl_char_valid_%out_count
+    !__str_split_incl_char_needle_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_INCLUSIVE_CHAR_COUNT %out_count, %slice_reg, %code
+    EXPAND STR_SPLIT_INCLUSIVE_CHAR_COUNT %out_count, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_INCLUSIVE_CHAR_COUNT %out_count, %string_reg, %code
+    EXPAND STR_SPLIT_INCLUSIVE_CHAR_COUNT %out_count, %string_reg, %code
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_incl_char_at_needle_%out_ok, __str_split_incl_char_at_valid_%out_ok, %code
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_split_incl_char_at_needle_%out_ok, %part_index
+    !__str_split_incl_char_at_valid_%out_ok
+    !__str_split_incl_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT __str_split_term_count_%out_ok, %slice_reg, %needle_slice
+    __str_split_term_has_%out_ok = ugt __str_split_term_count_%out_ok, %part_index
+    br __str_split_term_has_%out_ok -> L_STR_SPLIT_TERM_HIT_%out_ok, L_STR_SPLIT_TERM_MISS_%out_ok
+
+L_STR_SPLIT_TERM_HIT_%out_ok:
+    EXPAND STR_TRY_SPLIT_NEEDLE_AT __str_split_term_found_%out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    %out_ok = add __str_split_term_found_%out_ok, 0
+    !__str_split_term_found_%out_ok
+    jmp L_STR_SPLIT_TERM_END_%out_ok
+
+L_STR_SPLIT_TERM_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_split_term_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_term_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_term_empty_%out_ok
+
+L_STR_SPLIT_TERM_END_%out_ok:
+    !__str_split_term_has_%out_ok
+    !__str_split_term_count_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+    __str_splitn_count_zero_%out_count = eq %split_count, 0
+    br __str_splitn_count_zero_%out_count -> L_STR_SPLITN_COUNT_ZERO_%out_count, L_STR_SPLITN_COUNT_NONZERO_%out_count
+
+L_STR_SPLITN_COUNT_ZERO_%out_count:
+    %out_count = add 0, 0
+    jmp L_STR_SPLITN_COUNT_END_%out_count
+
+L_STR_SPLITN_COUNT_NONZERO_%out_count:
+    __str_splitn_count_needle_len_%out_count = load %needle_slice+Slice_len as u64
+    __str_splitn_count_empty_needle_%out_count = eq __str_splitn_count_needle_len_%out_count, 0
+    br __str_splitn_count_empty_needle_%out_count -> L_STR_SPLITN_COUNT_EMPTY_NEEDLE_%out_count, L_STR_SPLITN_COUNT_BASE_%out_count
+
+L_STR_SPLITN_COUNT_EMPTY_NEEDLE_%out_count:
+    %out_count = add 0, 1
+    !__str_splitn_count_empty_needle_%out_count
+    !__str_splitn_count_needle_len_%out_count
+    jmp L_STR_SPLITN_COUNT_END_%out_count
+
+L_STR_SPLITN_COUNT_BASE_%out_count:
+    EXPAND STR_SPLIT_NEEDLE_COUNT __str_splitn_count_base_%out_count, %slice_reg, %needle_slice
+    __str_splitn_count_over_%out_count = ugt __str_splitn_count_base_%out_count, %split_count
+    br __str_splitn_count_over_%out_count -> L_STR_SPLITN_COUNT_LIMIT_%out_count, L_STR_SPLITN_COUNT_USE_BASE_%out_count
+
+L_STR_SPLITN_COUNT_LIMIT_%out_count:
+    %out_count = add %split_count, 0
+    !__str_splitn_count_over_%out_count
+    !__str_splitn_count_base_%out_count
+    !__str_splitn_count_empty_needle_%out_count
+    !__str_splitn_count_needle_len_%out_count
+    jmp L_STR_SPLITN_COUNT_END_%out_count
+
+L_STR_SPLITN_COUNT_USE_BASE_%out_count:
+    %out_count = add __str_splitn_count_base_%out_count, 0
+    !__str_splitn_count_over_%out_count
+    !__str_splitn_count_base_%out_count
+    !__str_splitn_count_empty_needle_%out_count
+    !__str_splitn_count_needle_len_%out_count
+
+L_STR_SPLITN_COUNT_END_%out_count:
+    !__str_splitn_count_zero_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_N_NEEDLE_COUNT %out_count, %string_reg, %needle_slice, %split_count
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT %out_count, %string_reg, %needle_slice, %split_count
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+    EXPAND STR_RSPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, %needle_slice, %split_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_N_NEEDLE_COUNT %out_count, %string_reg, %needle_slice, %split_count
+    EXPAND STR_RSPLIT_N_NEEDLE_COUNT %out_count, %string_reg, %needle_slice, %split_count
+[END_MACRO]
+
+[MACRO] STR_SPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+    EXPAND STR_ENCODE_CHAR_SLICE __str_splitn_char_count_needle_%out_count, __str_splitn_char_count_valid_%out_count, %code
+    br __str_splitn_char_count_valid_%out_count -> L_STR_SPLITN_CHAR_COUNT_VALID_%out_count, L_STR_SPLITN_CHAR_COUNT_INVALID_%out_count
+
+L_STR_SPLITN_CHAR_COUNT_VALID_%out_count:
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT %out_count, %slice_reg, __str_splitn_char_count_needle_%out_count, %split_count
+    jmp L_STR_SPLITN_CHAR_COUNT_END_%out_count
+
+L_STR_SPLITN_CHAR_COUNT_INVALID_%out_count:
+    %out_count = add 0, 0
+
+L_STR_SPLITN_CHAR_COUNT_END_%out_count:
+    !__str_splitn_char_count_valid_%out_count
+    !__str_splitn_char_count_needle_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+    EXPAND STR_SPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_N_CHAR_COUNT %out_count, %string_reg, %code, %split_count
+    EXPAND STR_SPLIT_N_CHAR_COUNT %out_count, %string_reg, %code, %split_count
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+    EXPAND STR_SPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+    EXPAND STR_RSPLIT_N_CHAR_COUNT %out_count, %slice_reg, %code, %split_count
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_N_CHAR_COUNT %out_count, %string_reg, %code, %split_count
+    EXPAND STR_RSPLIT_N_CHAR_COUNT %out_count, %string_reg, %code, %split_count
+[END_MACRO]
+
 [MACRO] STR_TRY_RSPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %part_index
-    EXPAND STR_SPLIT_NEEDLE_TERM_COUNT __str_rsplit_term_count_%out_ok, %slice_reg, %needle_slice
+    EXPAND STR_RSPLIT_TERMINATOR_NEEDLE_COUNT __str_rsplit_term_count_%out_ok, %slice_reg, %needle_slice
     __str_rsplit_term_has_%out_ok = ugt __str_rsplit_term_count_%out_ok, %part_index
     br __str_rsplit_term_has_%out_ok -> L_STR_RSPLIT_TERM_HIT_%out_ok, L_STR_RSPLIT_TERM_MISS_%out_ok
 
@@ -4717,7 +5726,134 @@ L_STR_RSPLIT_TERM_END_%out_ok:
     EXPAND STR_TRY_RSPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %part_index
 [END_MACRO]
 
+[MACRO] STR_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_term_char_at_needle_%out_ok, __str_split_term_char_at_valid_%out_ok, %code
+    br __str_split_term_char_at_valid_%out_ok -> L_STR_SPLIT_TERM_CHAR_AT_VALID_%out_ok, L_STR_SPLIT_TERM_CHAR_AT_INVALID_%out_ok
+
+L_STR_SPLIT_TERM_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_split_term_char_at_needle_%out_ok, %part_index
+    jmp L_STR_SPLIT_TERM_CHAR_AT_END_%out_ok
+
+L_STR_SPLIT_TERM_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_split_term_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_term_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_term_char_at_empty_%out_ok
+
+L_STR_SPLIT_TERM_CHAR_AT_END_%out_ok:
+    !__str_split_term_char_at_valid_%out_ok
+    !__str_split_term_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_rsplit_term_char_at_needle_%out_ok, __str_rsplit_term_char_at_valid_%out_ok, %code
+    br __str_rsplit_term_char_at_valid_%out_ok -> L_STR_RSPLIT_TERM_CHAR_AT_VALID_%out_ok, L_STR_RSPLIT_TERM_CHAR_AT_INVALID_%out_ok
+
+L_STR_RSPLIT_TERM_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_rsplit_term_char_at_needle_%out_ok, %part_index
+    jmp L_STR_RSPLIT_TERM_CHAR_AT_END_%out_ok
+
+L_STR_RSPLIT_TERM_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplit_term_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rsplit_term_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplit_term_char_at_empty_%out_ok
+
+L_STR_RSPLIT_TERM_CHAR_AT_END_%out_ok:
+    !__str_rsplit_term_char_at_valid_%out_ok
+    !__str_rsplit_term_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT %out_ok, %out_part, %string_reg, %code, %part_index
+[END_MACRO]
+
 [MACRO] STR_TRY_SPLIT_N_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %split_count, %part_index
+    __str_splitn_zero_%out_ok = eq %split_count, 0
+    br __str_splitn_zero_%out_ok -> L_STR_SPLITN_ZERO_%out_ok, L_STR_SPLITN_NEEDLE_CHECK_%out_ok
+
+L_STR_SPLITN_ZERO_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_splitn_zero_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_splitn_zero_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_splitn_zero_empty_%out_ok
+    jmp L_STR_SPLITN_TOP_END_%out_ok
+
+L_STR_SPLITN_NEEDLE_CHECK_%out_ok:
+    __str_splitn_top_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __str_splitn_top_empty_needle_%out_ok = eq __str_splitn_top_needle_len_%out_ok, 0
+    br __str_splitn_top_empty_needle_%out_ok -> L_STR_SPLITN_EMPTY_NEEDLE_%out_ok, L_STR_SPLITN_NONEMPTY_NEEDLE_%out_ok
+
+L_STR_SPLITN_EMPTY_NEEDLE_%out_ok:
+    __str_splitn_empty_target0_%out_ok = eq %part_index, 0
+    br __str_splitn_empty_target0_%out_ok -> L_STR_SPLITN_EMPTY_HIT_%out_ok, L_STR_SPLITN_EMPTY_MISS_%out_ok
+
+L_STR_SPLITN_EMPTY_HIT_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_splitn_empty_hay_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_splitn_empty_hay_len_%out_ok = load %slice_reg+Slice_len as u64
+    EXPAND SLICE_NEW %out_part, __str_splitn_empty_hay_ptr_%out_ok, __str_splitn_empty_hay_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_splitn_empty_hay_len_%out_ok
+    !__str_splitn_empty_hay_ptr_%out_ok
+    !__str_splitn_empty_target0_%out_ok
+    !__str_splitn_top_empty_needle_%out_ok
+    !__str_splitn_top_needle_len_%out_ok
+    jmp L_STR_SPLITN_TOP_END_%out_ok
+
+L_STR_SPLITN_EMPTY_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_splitn_empty_miss_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_splitn_empty_miss_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_splitn_empty_miss_ptr_%out_ok
+    !__str_splitn_empty_target0_%out_ok
+    !__str_splitn_top_empty_needle_%out_ok
+    !__str_splitn_top_needle_len_%out_ok
+    jmp L_STR_SPLITN_TOP_END_%out_ok
+
+L_STR_SPLITN_NONEMPTY_NEEDLE_%out_ok:
+    !__str_splitn_top_empty_needle_%out_ok
+    !__str_splitn_top_needle_len_%out_ok
     __str_splitn_limit_%out_ok = sub %split_count, 1
     __str_splitn_target_%out_ok = ult %part_index, __str_splitn_limit_%out_ok
     br __str_splitn_target_%out_ok -> L_STR_SPLITN_MATCH_%out_ok, L_STR_SPLITN_FINAL_%out_ok
@@ -4885,6 +6021,10 @@ L_STR_SPLITN_FINAL_MISS_%out_ok:
 L_STR_SPLITN_END_%out_ok:
     !__str_splitn_target_%out_ok
     !__str_splitn_limit_%out_ok
+    jmp L_STR_SPLITN_TOP_END_%out_ok
+
+L_STR_SPLITN_TOP_END_%out_ok:
+    !__str_splitn_zero_%out_ok
 [END_MACRO]
 
 [MACRO] STRING_TRY_SPLIT_N_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %split_count, %part_index
@@ -4908,6 +6048,53 @@ L_STR_SPLITN_END_%out_ok:
 [END_MACRO]
 
 [MACRO] STR_TRY_RSPLIT_N_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %split_count, %part_index
+    __str_rsplitn_zero_%out_ok = eq %split_count, 0
+    br __str_rsplitn_zero_%out_ok -> L_STR_RSPLITN_ZERO_%out_ok, L_STR_RSPLITN_NEEDLE_CHECK_%out_ok
+
+L_STR_RSPLITN_ZERO_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplitn_zero_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rsplitn_zero_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplitn_zero_empty_%out_ok
+    jmp L_STR_RSPLITN_TOP_END_%out_ok
+
+L_STR_RSPLITN_NEEDLE_CHECK_%out_ok:
+    __str_rsplitn_top_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __str_rsplitn_top_empty_needle_%out_ok = eq __str_rsplitn_top_needle_len_%out_ok, 0
+    br __str_rsplitn_top_empty_needle_%out_ok -> L_STR_RSPLITN_EMPTY_NEEDLE_%out_ok, L_STR_RSPLITN_NONEMPTY_NEEDLE_%out_ok
+
+L_STR_RSPLITN_EMPTY_NEEDLE_%out_ok:
+    __str_rsplitn_empty_target0_%out_ok = eq %part_index, 0
+    br __str_rsplitn_empty_target0_%out_ok -> L_STR_RSPLITN_EMPTY_HIT_%out_ok, L_STR_RSPLITN_EMPTY_MISS_%out_ok
+
+L_STR_RSPLITN_EMPTY_HIT_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplitn_empty_hay_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_rsplitn_empty_hay_len_%out_ok = load %slice_reg+Slice_len as u64
+    EXPAND SLICE_NEW %out_part, __str_rsplitn_empty_hay_ptr_%out_ok, __str_rsplitn_empty_hay_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_rsplitn_empty_hay_len_%out_ok
+    !__str_rsplitn_empty_hay_ptr_%out_ok
+    !__str_rsplitn_empty_target0_%out_ok
+    !__str_rsplitn_top_empty_needle_%out_ok
+    !__str_rsplitn_top_needle_len_%out_ok
+    jmp L_STR_RSPLITN_TOP_END_%out_ok
+
+L_STR_RSPLITN_EMPTY_MISS_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplitn_empty_miss_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rsplitn_empty_miss_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplitn_empty_miss_ptr_%out_ok
+    !__str_rsplitn_empty_target0_%out_ok
+    !__str_rsplitn_top_empty_needle_%out_ok
+    !__str_rsplitn_top_needle_len_%out_ok
+    jmp L_STR_RSPLITN_TOP_END_%out_ok
+
+L_STR_RSPLITN_NONEMPTY_NEEDLE_%out_ok:
+    !__str_rsplitn_top_empty_needle_%out_ok
+    !__str_rsplitn_top_needle_len_%out_ok
     __str_rsplitn_limit_%out_ok = sub %split_count, 1
     __str_rsplitn_has_%out_ok = ule %part_index, __str_rsplitn_limit_%out_ok
     br __str_rsplitn_has_%out_ok -> L_STR_RSPLITN_HIT_%out_ok, L_STR_RSPLITN_FINAL_MISS_%out_ok
@@ -4930,6 +6117,10 @@ L_STR_RSPLITN_FINAL_MISS_%out_ok:
 L_STR_RSPLITN_END_%out_ok:
     !__str_rsplitn_has_%out_ok
     !__str_rsplitn_limit_%out_ok
+    jmp L_STR_RSPLITN_TOP_END_%out_ok
+
+L_STR_RSPLITN_TOP_END_%out_ok:
+    !__str_rsplitn_zero_%out_ok
 [END_MACRO]
 
 [MACRO] STRING_TRY_RSPLIT_N_NEEDLE_AT %out_ok, %out_part, %slice_reg, %needle_slice, %split_count, %part_index
@@ -4950,6 +6141,86 @@ L_STR_RSPLITN_END_%out_ok:
 
 [MACRO] STRING_BUF_RSPLIT_N_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %split_count, %part_index
     EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT %out_ok, %out_part, %string_reg, %needle_slice, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_splitn_char_at_needle_%out_ok, __str_splitn_char_at_valid_%out_ok, %code
+    br __str_splitn_char_at_valid_%out_ok -> L_STR_SPLITN_CHAR_AT_VALID_%out_ok, L_STR_SPLITN_CHAR_AT_INVALID_%out_ok
+
+L_STR_SPLITN_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_splitn_char_at_needle_%out_ok, %split_count, %part_index
+    jmp L_STR_SPLITN_CHAR_AT_END_%out_ok
+
+L_STR_SPLITN_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_splitn_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_splitn_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_splitn_char_at_empty_%out_ok
+
+L_STR_SPLITN_CHAR_AT_END_%out_ok:
+    !__str_splitn_char_at_valid_%out_ok
+    !__str_splitn_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STR_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_ENCODE_CHAR_SLICE __str_rsplitn_char_at_needle_%out_ok, __str_rsplitn_char_at_valid_%out_ok, %code
+    br __str_rsplitn_char_at_valid_%out_ok -> L_STR_RSPLITN_CHAR_AT_VALID_%out_ok, L_STR_RSPLITN_CHAR_AT_INVALID_%out_ok
+
+L_STR_RSPLITN_CHAR_AT_VALID_%out_ok:
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT %out_ok, %out_part, %slice_reg, __str_rsplitn_char_at_needle_%out_ok, %split_count, %part_index
+    jmp L_STR_RSPLITN_CHAR_AT_END_%out_ok
+
+L_STR_RSPLITN_CHAR_AT_INVALID_%out_ok:
+    %out_part = alloc Slice_SIZE
+    __str_rsplitn_char_at_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_rsplitn_char_at_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplitn_char_at_empty_%out_ok
+
+L_STR_RSPLITN_CHAR_AT_END_%out_ok:
+    !__str_rsplitn_char_at_valid_%out_ok
+    !__str_rsplitn_char_at_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %slice_reg, %code, %split_count, %part_index
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT %out_ok, %out_part, %string_reg, %code, %split_count, %part_index
 [END_MACRO]
 
 [MACRO] STR_SPLIT_BYTE_COUNT %out_count, %slice_reg, %byte_value
@@ -5080,6 +6351,234 @@ L_STR_SPLIT_BYTE_END_%out_ok:
 
 [MACRO] STRING_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
     EXPAND STR_SPLIT_BYTE_AT %out_ok, %out_part, %slice_reg, %byte_value, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_ASCII_WHITESPACE_COUNT %out_count, %slice_reg
+    __str_split_ascii_ws_count_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
+    __str_split_ascii_ws_count_len_%out_count = load %slice_reg+Slice_len as u64
+    __str_split_ascii_ws_count_idx_slot_%out_count = stack_alloc 8
+    __str_split_ascii_ws_count_in_slot_%out_count = stack_alloc 8
+    store __str_split_ascii_ws_count_idx_slot_%out_count+0, 0 as u64
+    store __str_split_ascii_ws_count_in_slot_%out_count+0, 0 as u64
+    %out_count = add 0, 0
+    jmp L_STR_SPLIT_ASCII_WS_COUNT_HEAD_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_HEAD_%out_count:
+    __str_split_ascii_ws_count_idx_%out_count = load __str_split_ascii_ws_count_idx_slot_%out_count+0 as u64
+    __str_split_ascii_ws_count_done_%out_count = eq __str_split_ascii_ws_count_idx_%out_count, __str_split_ascii_ws_count_len_%out_count
+    br __str_split_ascii_ws_count_done_%out_count -> L_STR_SPLIT_ASCII_WS_COUNT_DONE_%out_count, L_STR_SPLIT_ASCII_WS_COUNT_BODY_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_BODY_%out_count:
+    __str_split_ascii_ws_count_ip_%out_count = ptr_add __str_split_ascii_ws_count_ptr_%out_count, __str_split_ascii_ws_count_idx_%out_count
+    __str_split_ascii_ws_count_byte_%out_count = load __str_split_ascii_ws_count_ip_%out_count+0 as u8
+    EXPAND ASCII_IS_WHITESPACE __str_split_ascii_ws_count_is_ws_%out_count, __str_split_ascii_ws_count_byte_%out_count
+    br __str_split_ascii_ws_count_is_ws_%out_count -> L_STR_SPLIT_ASCII_WS_COUNT_WS_%out_count, L_STR_SPLIT_ASCII_WS_COUNT_NON_WS_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_WS_%out_count:
+    store __str_split_ascii_ws_count_in_slot_%out_count+0, 0 as u64
+    jmp L_STR_SPLIT_ASCII_WS_COUNT_NEXT_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_NON_WS_%out_count:
+    __str_split_ascii_ws_count_in_%out_count = load __str_split_ascii_ws_count_in_slot_%out_count+0 as u64
+    br __str_split_ascii_ws_count_in_%out_count -> L_STR_SPLIT_ASCII_WS_COUNT_CONTINUE_%out_count, L_STR_SPLIT_ASCII_WS_COUNT_START_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_START_%out_count:
+    %out_count = add %out_count, 1
+    store __str_split_ascii_ws_count_in_slot_%out_count+0, 1 as u64
+    !__str_split_ascii_ws_count_in_%out_count
+    jmp L_STR_SPLIT_ASCII_WS_COUNT_NEXT_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_CONTINUE_%out_count:
+    !__str_split_ascii_ws_count_in_%out_count
+    jmp L_STR_SPLIT_ASCII_WS_COUNT_NEXT_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_NEXT_%out_count:
+    __str_split_ascii_ws_count_next_%out_count = add __str_split_ascii_ws_count_idx_%out_count, 1
+    store __str_split_ascii_ws_count_idx_slot_%out_count+0, __str_split_ascii_ws_count_next_%out_count as u64
+    !__str_split_ascii_ws_count_next_%out_count
+    !__str_split_ascii_ws_count_is_ws_%out_count
+    !__str_split_ascii_ws_count_byte_%out_count
+    !__str_split_ascii_ws_count_ip_%out_count
+    !__str_split_ascii_ws_count_done_%out_count
+    !__str_split_ascii_ws_count_idx_%out_count
+    jmp L_STR_SPLIT_ASCII_WS_COUNT_HEAD_%out_count
+
+L_STR_SPLIT_ASCII_WS_COUNT_DONE_%out_count:
+    !__str_split_ascii_ws_count_done_%out_count
+    !__str_split_ascii_ws_count_idx_%out_count
+    !__str_split_ascii_ws_count_len_%out_count
+    !__str_split_ascii_ws_count_ptr_%out_count
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_ASCII_WHITESPACE_COUNT %out_count, %slice_reg
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_COUNT %out_count, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
+    %out_part = alloc Slice_SIZE
+    __str_split_ascii_ws_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_split_ascii_ws_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_split_ascii_ws_scan_slot_%out_ok = stack_alloc 8
+    __str_split_ascii_ws_current_slot_%out_ok = stack_alloc 8
+    __str_split_ascii_ws_token_start_slot_%out_ok = stack_alloc 8
+    __str_split_ascii_ws_end_slot_%out_ok = stack_alloc 8
+    store __str_split_ascii_ws_scan_slot_%out_ok+0, 0 as u64
+    store __str_split_ascii_ws_current_slot_%out_ok+0, 0 as u64
+    store __str_split_ascii_ws_token_start_slot_%out_ok+0, 0 as u64
+    store __str_split_ascii_ws_end_slot_%out_ok+0, 0 as u64
+    jmp L_STR_SPLIT_ASCII_WS_AT_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HEAD_%out_ok:
+    __str_split_ascii_ws_scan_%out_ok = load __str_split_ascii_ws_scan_slot_%out_ok+0 as u64
+    __str_split_ascii_ws_done_%out_ok = eq __str_split_ascii_ws_scan_%out_ok, __str_split_ascii_ws_len_%out_ok
+    br __str_split_ascii_ws_done_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_MISS_%out_ok, L_STR_SPLIT_ASCII_WS_AT_BODY_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_BODY_%out_ok:
+    __str_split_ascii_ws_ip_%out_ok = ptr_add __str_split_ascii_ws_ptr_%out_ok, __str_split_ascii_ws_scan_%out_ok
+    __str_split_ascii_ws_byte_%out_ok = load __str_split_ascii_ws_ip_%out_ok+0 as u8
+    EXPAND ASCII_IS_WHITESPACE __str_split_ascii_ws_is_ws_%out_ok, __str_split_ascii_ws_byte_%out_ok
+    br __str_split_ascii_ws_is_ws_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_SKIP_WS_%out_ok, L_STR_SPLIT_ASCII_WS_AT_TOKEN_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_WS_%out_ok:
+    __str_split_ascii_ws_next_ws_%out_ok = add __str_split_ascii_ws_scan_%out_ok, 1
+    store __str_split_ascii_ws_scan_slot_%out_ok+0, __str_split_ascii_ws_next_ws_%out_ok as u64
+    !__str_split_ascii_ws_next_ws_%out_ok
+    !__str_split_ascii_ws_is_ws_%out_ok
+    !__str_split_ascii_ws_byte_%out_ok
+    !__str_split_ascii_ws_ip_%out_ok
+    !__str_split_ascii_ws_done_%out_ok
+    !__str_split_ascii_ws_scan_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_TOKEN_%out_ok:
+    __str_split_ascii_ws_current_%out_ok = load __str_split_ascii_ws_current_slot_%out_ok+0 as u64
+    __str_split_ascii_ws_target_%out_ok = eq __str_split_ascii_ws_current_%out_ok, %part_index
+    br __str_split_ascii_ws_target_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_HIT_PREP_%out_ok, L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_PREP_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HIT_PREP_%out_ok:
+    store __str_split_ascii_ws_token_start_slot_%out_ok+0, __str_split_ascii_ws_scan_%out_ok as u64
+    store __str_split_ascii_ws_end_slot_%out_ok+0, __str_split_ascii_ws_scan_%out_ok as u64
+    !__str_split_ascii_ws_target_%out_ok
+    !__str_split_ascii_ws_current_%out_ok
+    !__str_split_ascii_ws_is_ws_%out_ok
+    !__str_split_ascii_ws_byte_%out_ok
+    !__str_split_ascii_ws_ip_%out_ok
+    !__str_split_ascii_ws_done_%out_ok
+    !__str_split_ascii_ws_scan_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_HEAD_%out_ok:
+    __str_split_ascii_ws_end_%out_ok = load __str_split_ascii_ws_end_slot_%out_ok+0 as u64
+    __str_split_ascii_ws_end_done_%out_ok = eq __str_split_ascii_ws_end_%out_ok, __str_split_ascii_ws_len_%out_ok
+    br __str_split_ascii_ws_end_done_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_HIT_MAKE_%out_ok, L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_BODY_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_BODY_%out_ok:
+    __str_split_ascii_ws_end_ip_%out_ok = ptr_add __str_split_ascii_ws_ptr_%out_ok, __str_split_ascii_ws_end_%out_ok
+    __str_split_ascii_ws_end_byte_%out_ok = load __str_split_ascii_ws_end_ip_%out_ok+0 as u8
+    EXPAND ASCII_IS_WHITESPACE __str_split_ascii_ws_end_is_ws_%out_ok, __str_split_ascii_ws_end_byte_%out_ok
+    br __str_split_ascii_ws_end_is_ws_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_HIT_STOP_WS_%out_ok, L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_NEXT_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_NEXT_%out_ok:
+    __str_split_ascii_ws_end_next_%out_ok = add __str_split_ascii_ws_end_%out_ok, 1
+    store __str_split_ascii_ws_end_slot_%out_ok+0, __str_split_ascii_ws_end_next_%out_ok as u64
+    !__str_split_ascii_ws_end_next_%out_ok
+    !__str_split_ascii_ws_end_is_ws_%out_ok
+    !__str_split_ascii_ws_end_byte_%out_ok
+    !__str_split_ascii_ws_end_ip_%out_ok
+    !__str_split_ascii_ws_end_done_%out_ok
+    !__str_split_ascii_ws_end_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_HIT_FIND_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HIT_STOP_WS_%out_ok:
+    !__str_split_ascii_ws_end_is_ws_%out_ok
+    !__str_split_ascii_ws_end_byte_%out_ok
+    !__str_split_ascii_ws_end_ip_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_HIT_MAKE_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_HIT_MAKE_%out_ok:
+    __str_split_ascii_ws_token_start_%out_ok = load __str_split_ascii_ws_token_start_slot_%out_ok+0 as u64
+    __str_split_ascii_ws_part_len_%out_ok = sub __str_split_ascii_ws_end_%out_ok, __str_split_ascii_ws_token_start_%out_ok
+    __str_split_ascii_ws_part_ptr_%out_ok = ptr_add __str_split_ascii_ws_ptr_%out_ok, __str_split_ascii_ws_token_start_%out_ok
+    EXPAND SLICE_NEW %out_part, __str_split_ascii_ws_part_ptr_%out_ok, __str_split_ascii_ws_part_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_split_ascii_ws_part_ptr_%out_ok
+    !__str_split_ascii_ws_part_len_%out_ok
+    !__str_split_ascii_ws_token_start_%out_ok
+    !__str_split_ascii_ws_end_done_%out_ok
+    !__str_split_ascii_ws_end_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_END_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_PREP_%out_ok:
+    !__str_split_ascii_ws_target_%out_ok
+    !__str_split_ascii_ws_current_%out_ok
+    !__str_split_ascii_ws_is_ws_%out_ok
+    !__str_split_ascii_ws_byte_%out_ok
+    !__str_split_ascii_ws_ip_%out_ok
+    !__str_split_ascii_ws_done_%out_ok
+    !__str_split_ascii_ws_scan_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_HEAD_%out_ok:
+    __str_split_ascii_ws_skip_%out_ok = load __str_split_ascii_ws_scan_slot_%out_ok+0 as u64
+    __str_split_ascii_ws_skip_done_%out_ok = eq __str_split_ascii_ws_skip_%out_ok, __str_split_ascii_ws_len_%out_ok
+    br __str_split_ascii_ws_skip_done_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_FINISH_%out_ok, L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_BODY_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_BODY_%out_ok:
+    __str_split_ascii_ws_skip_ip_%out_ok = ptr_add __str_split_ascii_ws_ptr_%out_ok, __str_split_ascii_ws_skip_%out_ok
+    __str_split_ascii_ws_skip_byte_%out_ok = load __str_split_ascii_ws_skip_ip_%out_ok+0 as u8
+    EXPAND ASCII_IS_WHITESPACE __str_split_ascii_ws_skip_is_ws_%out_ok, __str_split_ascii_ws_skip_byte_%out_ok
+    br __str_split_ascii_ws_skip_is_ws_%out_ok -> L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_STOP_WS_%out_ok, L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_NEXT_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_NEXT_%out_ok:
+    __str_split_ascii_ws_skip_next_%out_ok = add __str_split_ascii_ws_skip_%out_ok, 1
+    store __str_split_ascii_ws_scan_slot_%out_ok+0, __str_split_ascii_ws_skip_next_%out_ok as u64
+    !__str_split_ascii_ws_skip_next_%out_ok
+    !__str_split_ascii_ws_skip_is_ws_%out_ok
+    !__str_split_ascii_ws_skip_byte_%out_ok
+    !__str_split_ascii_ws_skip_ip_%out_ok
+    !__str_split_ascii_ws_skip_done_%out_ok
+    !__str_split_ascii_ws_skip_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_STOP_WS_%out_ok:
+    !__str_split_ascii_ws_skip_is_ws_%out_ok
+    !__str_split_ascii_ws_skip_byte_%out_ok
+    !__str_split_ascii_ws_skip_ip_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_FINISH_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_SKIP_TOKEN_FINISH_%out_ok:
+    __str_split_ascii_ws_current_finish_%out_ok = load __str_split_ascii_ws_current_slot_%out_ok+0 as u64
+    __str_split_ascii_ws_next_token_%out_ok = add __str_split_ascii_ws_current_finish_%out_ok, 1
+    store __str_split_ascii_ws_current_slot_%out_ok+0, __str_split_ascii_ws_next_token_%out_ok as u64
+    !__str_split_ascii_ws_next_token_%out_ok
+    !__str_split_ascii_ws_current_finish_%out_ok
+    !__str_split_ascii_ws_skip_done_%out_ok
+    !__str_split_ascii_ws_skip_%out_ok
+    jmp L_STR_SPLIT_ASCII_WS_AT_HEAD_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_MISS_%out_ok:
+    __str_split_ascii_ws_empty_ptr_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_part, __str_split_ascii_ws_empty_ptr_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_ascii_ws_empty_ptr_%out_ok
+    !__str_split_ascii_ws_done_%out_ok
+    !__str_split_ascii_ws_scan_%out_ok
+
+L_STR_SPLIT_ASCII_WS_AT_END_%out_ok:
+    !__str_split_ascii_ws_len_%out_ok
+    !__str_split_ascii_ws_ptr_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
+    EXPAND STR_TRY_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
+[END_MACRO]
+
+[MACRO] STR_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
+    EXPAND STR_TRY_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_AT %out_ok, %out_part, %slice_reg, %part_index
 [END_MACRO]
 
 [MACRO] STR_LINE_COUNT %out_count, %slice_reg
@@ -5640,6 +7139,146 @@ L_STR_STRIP_SUFFIX_END_%out_ok:
     EXPAND STR_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
 [END_MACRO]
 
+[MACRO] STR_STARTS_WITH_CHAR %out_bool, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_starts_char_needle_%out_bool, __str_starts_char_valid_%out_bool, %code
+    br __str_starts_char_valid_%out_bool -> L_STR_STARTS_WITH_CHAR_VALID_%out_bool, L_STR_STARTS_WITH_CHAR_INVALID_%out_bool
+
+L_STR_STARTS_WITH_CHAR_VALID_%out_bool:
+    EXPAND STR_STARTS_WITH %out_bool, %slice_reg, __str_starts_char_needle_%out_bool
+    jmp L_STR_STARTS_WITH_CHAR_END_%out_bool
+
+L_STR_STARTS_WITH_CHAR_INVALID_%out_bool:
+    %out_bool = add 0, 0
+
+L_STR_STARTS_WITH_CHAR_END_%out_bool:
+    !__str_starts_char_valid_%out_bool
+    !__str_starts_char_needle_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_STARTS_WITH_CHAR %out_bool, %slice_reg, %code
+    EXPAND STR_STARTS_WITH_CHAR %out_bool, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_STARTS_WITH_CHAR %out_bool, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_starts_char_view_%out_bool, %string_reg
+    EXPAND STR_STARTS_WITH_CHAR %out_bool, __string_buf_starts_char_view_%out_bool, %code
+    !__string_buf_starts_char_view_%out_bool
+[END_MACRO]
+
+[MACRO] STR_ENDS_WITH_CHAR %out_bool, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_ends_char_needle_%out_bool, __str_ends_char_valid_%out_bool, %code
+    br __str_ends_char_valid_%out_bool -> L_STR_ENDS_WITH_CHAR_VALID_%out_bool, L_STR_ENDS_WITH_CHAR_INVALID_%out_bool
+
+L_STR_ENDS_WITH_CHAR_VALID_%out_bool:
+    EXPAND STR_ENDS_WITH %out_bool, %slice_reg, __str_ends_char_needle_%out_bool
+    jmp L_STR_ENDS_WITH_CHAR_END_%out_bool
+
+L_STR_ENDS_WITH_CHAR_INVALID_%out_bool:
+    %out_bool = add 0, 0
+
+L_STR_ENDS_WITH_CHAR_END_%out_bool:
+    !__str_ends_char_valid_%out_bool
+    !__str_ends_char_needle_%out_bool
+[END_MACRO]
+
+[MACRO] STRING_ENDS_WITH_CHAR %out_bool, %slice_reg, %code
+    EXPAND STR_ENDS_WITH_CHAR %out_bool, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_ENDS_WITH_CHAR %out_bool, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_ends_char_view_%out_bool, %string_reg
+    EXPAND STR_ENDS_WITH_CHAR %out_bool, __string_buf_ends_char_view_%out_bool, %code
+    !__string_buf_ends_char_view_%out_bool
+[END_MACRO]
+
+[MACRO] STR_TRY_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_strip_prefix_char_needle_%out_ok, __str_strip_prefix_char_valid_%out_ok, %code
+    br __str_strip_prefix_char_valid_%out_ok -> L_STR_STRIP_PREFIX_CHAR_VALID_%out_ok, L_STR_STRIP_PREFIX_CHAR_INVALID_%out_ok
+
+L_STR_STRIP_PREFIX_CHAR_VALID_%out_ok:
+    EXPAND STR_TRY_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, __str_strip_prefix_char_needle_%out_ok
+    jmp L_STR_STRIP_PREFIX_CHAR_END_%out_ok
+
+L_STR_STRIP_PREFIX_CHAR_INVALID_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_strip_prefix_char_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_strip_prefix_char_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_strip_prefix_char_empty_%out_ok
+
+L_STR_STRIP_PREFIX_CHAR_END_%out_ok:
+    !__str_strip_prefix_char_valid_%out_ok
+    !__str_strip_prefix_char_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_STRIP_PREFIX_CHAR %out_ok, %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_try_strip_prefix_char_view_%out_ok, %string_reg
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR %out_ok, %out_slice, __string_buf_try_strip_prefix_char_view_%out_ok, %code
+    !__string_buf_try_strip_prefix_char_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_STRIP_PREFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_STRIP_PREFIX_CHAR %out_ok, %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_strip_prefix_char_view_%out_ok, %string_reg
+    EXPAND STR_STRIP_PREFIX_CHAR %out_ok, %out_slice, __string_buf_strip_prefix_char_view_%out_ok, %code
+    !__string_buf_strip_prefix_char_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_TRY_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_strip_suffix_char_needle_%out_ok, __str_strip_suffix_char_valid_%out_ok, %code
+    br __str_strip_suffix_char_valid_%out_ok -> L_STR_STRIP_SUFFIX_CHAR_VALID_%out_ok, L_STR_STRIP_SUFFIX_CHAR_INVALID_%out_ok
+
+L_STR_STRIP_SUFFIX_CHAR_VALID_%out_ok:
+    EXPAND STR_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, __str_strip_suffix_char_needle_%out_ok
+    jmp L_STR_STRIP_SUFFIX_CHAR_END_%out_ok
+
+L_STR_STRIP_SUFFIX_CHAR_INVALID_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_strip_suffix_char_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_strip_suffix_char_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_strip_suffix_char_empty_%out_ok
+
+L_STR_STRIP_SUFFIX_CHAR_END_%out_ok:
+    !__str_strip_suffix_char_valid_%out_ok
+    !__str_strip_suffix_char_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_try_strip_suffix_char_view_%out_ok, %string_reg
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR %out_ok, %out_slice, __string_buf_try_strip_suffix_char_view_%out_ok, %code
+    !__string_buf_try_strip_suffix_char_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+    EXPAND STR_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_STRIP_SUFFIX_CHAR %out_ok, %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_strip_suffix_char_view_%out_ok, %string_reg
+    EXPAND STR_STRIP_SUFFIX_CHAR %out_ok, %out_slice, __string_buf_strip_suffix_char_view_%out_ok, %code
+    !__string_buf_strip_suffix_char_view_%out_ok
+[END_MACRO]
+
 [MACRO] STR_TRIM_PREFIX %out_slice, %slice_reg, %prefix_slice
     %out_slice = alloc Slice_SIZE
     __str_len_%out_slice = load %slice_reg+Slice_len as u64
@@ -5706,6 +7345,252 @@ L_STR_TRIM_SUFFIX_END_%out_slice:
 
 [MACRO] STRING_TRIM_SUFFIX %out_slice, %slice_reg, %suffix_slice
     EXPAND STR_TRIM_SUFFIX %out_slice, %slice_reg, %suffix_slice
+[END_MACRO]
+
+[MACRO] STR_TRIM_START_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+    %out_slice = alloc Slice_SIZE
+    __str_trim_start_base_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __str_trim_start_len_%out_slice = load %slice_reg+Slice_len as u64
+    __str_trim_start_needle_len_%out_slice = load %needle_slice+Slice_len as u64
+    __str_trim_start_empty_needle_%out_slice = eq __str_trim_start_needle_len_%out_slice, 0
+    br __str_trim_start_empty_needle_%out_slice -> L_STR_TRIM_START_MATCHES_ORIGINAL_%out_slice, L_STR_TRIM_START_MATCHES_INIT_%out_slice
+
+L_STR_TRIM_START_MATCHES_ORIGINAL_%out_slice:
+    EXPAND SLICE_NEW %out_slice, __str_trim_start_base_ptr_%out_slice, __str_trim_start_len_%out_slice
+    jmp L_STR_TRIM_START_MATCHES_END_%out_slice
+
+L_STR_TRIM_START_MATCHES_INIT_%out_slice:
+    __str_trim_start_start_slot_%out_slice = stack_alloc 8
+    store __str_trim_start_start_slot_%out_slice+0, 0 as u64
+    jmp L_STR_TRIM_START_MATCHES_HEAD_%out_slice
+
+L_STR_TRIM_START_MATCHES_HEAD_%out_slice:
+    __str_trim_start_start_%out_slice = load __str_trim_start_start_slot_%out_slice+0 as u64
+    __str_trim_start_remaining_%out_slice = sub __str_trim_start_len_%out_slice, __str_trim_start_start_%out_slice
+    __str_trim_start_can_match_%out_slice = uge __str_trim_start_remaining_%out_slice, __str_trim_start_needle_len_%out_slice
+    br __str_trim_start_can_match_%out_slice -> L_STR_TRIM_START_MATCHES_CHECK_%out_slice, L_STR_TRIM_START_MATCHES_DONE_HEAD_%out_slice
+
+L_STR_TRIM_START_MATCHES_CHECK_%out_slice:
+    __str_trim_start_ptr_%out_slice = ptr_add __str_trim_start_base_ptr_%out_slice, __str_trim_start_start_%out_slice
+    __str_trim_start_view_%out_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __str_trim_start_view_%out_slice, __str_trim_start_ptr_%out_slice, __str_trim_start_remaining_%out_slice
+    EXPAND STR_STARTS_WITH __str_trim_start_match_%out_slice, __str_trim_start_view_%out_slice, %needle_slice
+    br __str_trim_start_match_%out_slice -> L_STR_TRIM_START_MATCHES_ADVANCE_%out_slice, L_STR_TRIM_START_MATCHES_DONE_CHECK_%out_slice
+
+L_STR_TRIM_START_MATCHES_ADVANCE_%out_slice:
+    __str_trim_start_next_%out_slice = add __str_trim_start_start_%out_slice, __str_trim_start_needle_len_%out_slice
+    store __str_trim_start_start_slot_%out_slice+0, __str_trim_start_next_%out_slice as u64
+    !__str_trim_start_next_%out_slice
+    !__str_trim_start_match_%out_slice
+    !__str_trim_start_ptr_%out_slice
+    !__str_trim_start_can_match_%out_slice
+    !__str_trim_start_remaining_%out_slice
+    !__str_trim_start_start_%out_slice
+    jmp L_STR_TRIM_START_MATCHES_HEAD_%out_slice
+
+L_STR_TRIM_START_MATCHES_DONE_CHECK_%out_slice:
+    EXPAND SLICE_NEW %out_slice, __str_trim_start_ptr_%out_slice, __str_trim_start_remaining_%out_slice
+    !__str_trim_start_match_%out_slice
+    !__str_trim_start_ptr_%out_slice
+    !__str_trim_start_can_match_%out_slice
+    !__str_trim_start_remaining_%out_slice
+    !__str_trim_start_start_%out_slice
+    jmp L_STR_TRIM_START_MATCHES_END_%out_slice
+
+L_STR_TRIM_START_MATCHES_DONE_HEAD_%out_slice:
+    __str_trim_start_done_ptr_%out_slice = ptr_add __str_trim_start_base_ptr_%out_slice, __str_trim_start_start_%out_slice
+    EXPAND SLICE_NEW %out_slice, __str_trim_start_done_ptr_%out_slice, __str_trim_start_remaining_%out_slice
+    !__str_trim_start_done_ptr_%out_slice
+    !__str_trim_start_can_match_%out_slice
+    !__str_trim_start_remaining_%out_slice
+    !__str_trim_start_start_%out_slice
+
+L_STR_TRIM_START_MATCHES_END_%out_slice:
+    !__str_trim_start_empty_needle_%out_slice
+    !__str_trim_start_needle_len_%out_slice
+    !__str_trim_start_len_%out_slice
+    !__str_trim_start_base_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_TRIM_START_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+    EXPAND STR_TRIM_START_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_START_MATCHES_NEEDLE %out_slice, %string_reg, %needle_slice
+    EXPAND STR_TRIM_START_MATCHES_NEEDLE %out_slice, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_TRIM_END_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+    %out_slice = alloc Slice_SIZE
+    __str_trim_end_base_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __str_trim_end_len_%out_slice = load %slice_reg+Slice_len as u64
+    __str_trim_end_needle_len_%out_slice = load %needle_slice+Slice_len as u64
+    __str_trim_end_empty_needle_%out_slice = eq __str_trim_end_needle_len_%out_slice, 0
+    br __str_trim_end_empty_needle_%out_slice -> L_STR_TRIM_END_MATCHES_ORIGINAL_%out_slice, L_STR_TRIM_END_MATCHES_INIT_%out_slice
+
+L_STR_TRIM_END_MATCHES_ORIGINAL_%out_slice:
+    EXPAND SLICE_NEW %out_slice, __str_trim_end_base_ptr_%out_slice, __str_trim_end_len_%out_slice
+    jmp L_STR_TRIM_END_MATCHES_END_%out_slice
+
+L_STR_TRIM_END_MATCHES_INIT_%out_slice:
+    __str_trim_end_end_slot_%out_slice = stack_alloc 8
+    store __str_trim_end_end_slot_%out_slice+0, __str_trim_end_len_%out_slice as u64
+    jmp L_STR_TRIM_END_MATCHES_HEAD_%out_slice
+
+L_STR_TRIM_END_MATCHES_HEAD_%out_slice:
+    __str_trim_end_end_%out_slice = load __str_trim_end_end_slot_%out_slice+0 as u64
+    __str_trim_end_can_match_%out_slice = uge __str_trim_end_end_%out_slice, __str_trim_end_needle_len_%out_slice
+    br __str_trim_end_can_match_%out_slice -> L_STR_TRIM_END_MATCHES_CHECK_%out_slice, L_STR_TRIM_END_MATCHES_DONE_HEAD_%out_slice
+
+L_STR_TRIM_END_MATCHES_CHECK_%out_slice:
+    __str_trim_end_view_%out_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __str_trim_end_view_%out_slice, __str_trim_end_base_ptr_%out_slice, __str_trim_end_end_%out_slice
+    EXPAND STR_ENDS_WITH __str_trim_end_match_%out_slice, __str_trim_end_view_%out_slice, %needle_slice
+    br __str_trim_end_match_%out_slice -> L_STR_TRIM_END_MATCHES_ADVANCE_%out_slice, L_STR_TRIM_END_MATCHES_DONE_CHECK_%out_slice
+
+L_STR_TRIM_END_MATCHES_ADVANCE_%out_slice:
+    __str_trim_end_next_%out_slice = sub __str_trim_end_end_%out_slice, __str_trim_end_needle_len_%out_slice
+    store __str_trim_end_end_slot_%out_slice+0, __str_trim_end_next_%out_slice as u64
+    !__str_trim_end_next_%out_slice
+    !__str_trim_end_match_%out_slice
+    !__str_trim_end_can_match_%out_slice
+    !__str_trim_end_end_%out_slice
+    jmp L_STR_TRIM_END_MATCHES_HEAD_%out_slice
+
+L_STR_TRIM_END_MATCHES_DONE_CHECK_%out_slice:
+    EXPAND SLICE_NEW %out_slice, __str_trim_end_base_ptr_%out_slice, __str_trim_end_end_%out_slice
+    !__str_trim_end_match_%out_slice
+    !__str_trim_end_can_match_%out_slice
+    !__str_trim_end_end_%out_slice
+    jmp L_STR_TRIM_END_MATCHES_END_%out_slice
+
+L_STR_TRIM_END_MATCHES_DONE_HEAD_%out_slice:
+    EXPAND SLICE_NEW %out_slice, __str_trim_end_base_ptr_%out_slice, __str_trim_end_end_%out_slice
+    !__str_trim_end_can_match_%out_slice
+    !__str_trim_end_end_%out_slice
+
+L_STR_TRIM_END_MATCHES_END_%out_slice:
+    !__str_trim_end_empty_needle_%out_slice
+    !__str_trim_end_needle_len_%out_slice
+    !__str_trim_end_len_%out_slice
+    !__str_trim_end_base_ptr_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_TRIM_END_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+    EXPAND STR_TRIM_END_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_END_MATCHES_NEEDLE %out_slice, %string_reg, %needle_slice
+    EXPAND STR_TRIM_END_MATCHES_NEEDLE %out_slice, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_TRIM_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+    EXPAND STR_TRIM_START_MATCHES_NEEDLE __str_trim_matches_start_%out_slice, %slice_reg, %needle_slice
+    EXPAND STR_TRIM_END_MATCHES_NEEDLE %out_slice, __str_trim_matches_start_%out_slice, %needle_slice
+    !__str_trim_matches_start_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_TRIM_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+    EXPAND STR_TRIM_MATCHES_NEEDLE %out_slice, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_MATCHES_NEEDLE %out_slice, %string_reg, %needle_slice
+    EXPAND STR_TRIM_MATCHES_NEEDLE %out_slice, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_TRIM_START_MATCHES_CHAR %out_slice, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_trim_start_char_needle_%out_slice, __str_trim_start_char_valid_%out_slice, %code
+    br __str_trim_start_char_valid_%out_slice -> L_STR_TRIM_START_MATCHES_CHAR_VALID_%out_slice, L_STR_TRIM_START_MATCHES_CHAR_INVALID_%out_slice
+
+L_STR_TRIM_START_MATCHES_CHAR_VALID_%out_slice:
+    EXPAND STR_TRIM_START_MATCHES_NEEDLE %out_slice, %slice_reg, __str_trim_start_char_needle_%out_slice
+    jmp L_STR_TRIM_START_MATCHES_CHAR_END_%out_slice
+
+L_STR_TRIM_START_MATCHES_CHAR_INVALID_%out_slice:
+    %out_slice = alloc Slice_SIZE
+    __str_trim_start_char_src_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __str_trim_start_char_src_len_%out_slice = load %slice_reg+Slice_len as u64
+    EXPAND SLICE_NEW %out_slice, __str_trim_start_char_src_ptr_%out_slice, __str_trim_start_char_src_len_%out_slice
+    !__str_trim_start_char_src_len_%out_slice
+    !__str_trim_start_char_src_ptr_%out_slice
+
+L_STR_TRIM_START_MATCHES_CHAR_END_%out_slice:
+    !__str_trim_start_char_valid_%out_slice
+    !__str_trim_start_char_needle_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_TRIM_START_MATCHES_CHAR %out_slice, %slice_reg, %code
+    EXPAND STR_TRIM_START_MATCHES_CHAR %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_START_MATCHES_CHAR %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_start_matches_char_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_START_MATCHES_CHAR %out_slice, __string_buf_trim_start_matches_char_view_%out_slice, %code
+    !__string_buf_trim_start_matches_char_view_%out_slice
+[END_MACRO]
+
+[MACRO] STR_TRIM_END_MATCHES_CHAR %out_slice, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_trim_end_char_needle_%out_slice, __str_trim_end_char_valid_%out_slice, %code
+    br __str_trim_end_char_valid_%out_slice -> L_STR_TRIM_END_MATCHES_CHAR_VALID_%out_slice, L_STR_TRIM_END_MATCHES_CHAR_INVALID_%out_slice
+
+L_STR_TRIM_END_MATCHES_CHAR_VALID_%out_slice:
+    EXPAND STR_TRIM_END_MATCHES_NEEDLE %out_slice, %slice_reg, __str_trim_end_char_needle_%out_slice
+    jmp L_STR_TRIM_END_MATCHES_CHAR_END_%out_slice
+
+L_STR_TRIM_END_MATCHES_CHAR_INVALID_%out_slice:
+    %out_slice = alloc Slice_SIZE
+    __str_trim_end_char_src_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __str_trim_end_char_src_len_%out_slice = load %slice_reg+Slice_len as u64
+    EXPAND SLICE_NEW %out_slice, __str_trim_end_char_src_ptr_%out_slice, __str_trim_end_char_src_len_%out_slice
+    !__str_trim_end_char_src_len_%out_slice
+    !__str_trim_end_char_src_ptr_%out_slice
+
+L_STR_TRIM_END_MATCHES_CHAR_END_%out_slice:
+    !__str_trim_end_char_valid_%out_slice
+    !__str_trim_end_char_needle_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_TRIM_END_MATCHES_CHAR %out_slice, %slice_reg, %code
+    EXPAND STR_TRIM_END_MATCHES_CHAR %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_END_MATCHES_CHAR %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_end_matches_char_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_END_MATCHES_CHAR %out_slice, __string_buf_trim_end_matches_char_view_%out_slice, %code
+    !__string_buf_trim_end_matches_char_view_%out_slice
+[END_MACRO]
+
+[MACRO] STR_TRIM_MATCHES_CHAR %out_slice, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_trim_matches_char_needle_%out_slice, __str_trim_matches_char_valid_%out_slice, %code
+    br __str_trim_matches_char_valid_%out_slice -> L_STR_TRIM_MATCHES_CHAR_VALID_%out_slice, L_STR_TRIM_MATCHES_CHAR_INVALID_%out_slice
+
+L_STR_TRIM_MATCHES_CHAR_VALID_%out_slice:
+    EXPAND STR_TRIM_START_MATCHES_NEEDLE __str_trim_matches_char_start_%out_slice, %slice_reg, __str_trim_matches_char_needle_%out_slice
+    EXPAND STR_TRIM_END_MATCHES_NEEDLE %out_slice, __str_trim_matches_char_start_%out_slice, __str_trim_matches_char_needle_%out_slice
+    !__str_trim_matches_char_start_%out_slice
+    jmp L_STR_TRIM_MATCHES_CHAR_END_%out_slice
+
+L_STR_TRIM_MATCHES_CHAR_INVALID_%out_slice:
+    %out_slice = alloc Slice_SIZE
+    __str_trim_matches_char_src_ptr_%out_slice = load %slice_reg+Slice_ptr as ptr
+    __str_trim_matches_char_src_len_%out_slice = load %slice_reg+Slice_len as u64
+    EXPAND SLICE_NEW %out_slice, __str_trim_matches_char_src_ptr_%out_slice, __str_trim_matches_char_src_len_%out_slice
+    !__str_trim_matches_char_src_len_%out_slice
+    !__str_trim_matches_char_src_ptr_%out_slice
+
+L_STR_TRIM_MATCHES_CHAR_END_%out_slice:
+    !__str_trim_matches_char_valid_%out_slice
+    !__str_trim_matches_char_needle_%out_slice
+[END_MACRO]
+
+[MACRO] STRING_TRIM_MATCHES_CHAR %out_slice, %slice_reg, %code
+    EXPAND STR_TRIM_MATCHES_CHAR %out_slice, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRIM_MATCHES_CHAR %out_slice, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_trim_matches_char_view_%out_slice, %string_reg
+    EXPAND STR_TRIM_MATCHES_CHAR %out_slice, __string_buf_trim_matches_char_view_%out_slice, %code
+    !__string_buf_trim_matches_char_view_%out_slice
 [END_MACRO]
 
 [MACRO] STR_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
@@ -5851,6 +7736,98 @@ L_STR_RSPLIT_ONCE_END_%out_ok:
 
 [MACRO] STRING_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
     EXPAND STR_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STR_TRY_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_split_once_char_needle_%out_ok, __str_split_once_char_valid_%out_ok, %code
+    br __str_split_once_char_valid_%out_ok -> L_STR_SPLIT_ONCE_CHAR_VALID_%out_ok, L_STR_SPLIT_ONCE_CHAR_INVALID_%out_ok
+
+L_STR_SPLIT_ONCE_CHAR_VALID_%out_ok:
+    EXPAND STR_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, __str_split_once_char_needle_%out_ok
+    jmp L_STR_SPLIT_ONCE_CHAR_END_%out_ok
+
+L_STR_SPLIT_ONCE_CHAR_INVALID_%out_ok:
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __str_split_once_char_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_left, __str_split_once_char_empty_%out_ok, 0
+    EXPAND SLICE_NEW %out_right, __str_split_once_char_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_split_once_char_empty_%out_ok
+
+L_STR_SPLIT_ONCE_CHAR_END_%out_ok:
+    !__str_split_once_char_valid_%out_ok
+    !__str_split_once_char_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_TRY_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_try_split_once_char_view_%out_ok, %string_reg
+    EXPAND STR_TRY_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, __string_buf_try_split_once_char_view_%out_ok, %code
+    !__string_buf_try_split_once_char_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_TRY_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_split_once_char_view_%out_ok, %string_reg
+    EXPAND STR_SPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, __string_buf_split_once_char_view_%out_ok, %code
+    !__string_buf_split_once_char_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_TRY_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __str_rsplit_once_char_needle_%out_ok, __str_rsplit_once_char_valid_%out_ok, %code
+    br __str_rsplit_once_char_valid_%out_ok -> L_STR_RSPLIT_ONCE_CHAR_VALID_%out_ok, L_STR_RSPLIT_ONCE_CHAR_INVALID_%out_ok
+
+L_STR_RSPLIT_ONCE_CHAR_VALID_%out_ok:
+    EXPAND STR_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, __str_rsplit_once_char_needle_%out_ok
+    jmp L_STR_RSPLIT_ONCE_CHAR_END_%out_ok
+
+L_STR_RSPLIT_ONCE_CHAR_INVALID_%out_ok:
+    %out_left = alloc Slice_SIZE
+    %out_right = alloc Slice_SIZE
+    __str_rsplit_once_char_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_left, __str_rsplit_once_char_empty_%out_ok, 0
+    EXPAND SLICE_NEW %out_right, __str_rsplit_once_char_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_rsplit_once_char_empty_%out_ok
+
+L_STR_RSPLIT_ONCE_CHAR_END_%out_ok:
+    !__str_rsplit_once_char_valid_%out_ok
+    !__str_rsplit_once_char_needle_%out_ok
+[END_MACRO]
+
+[MACRO] STRING_TRY_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_TRY_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_try_rsplit_once_char_view_%out_ok, %string_reg
+    EXPAND STR_TRY_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, __string_buf_try_rsplit_once_char_view_%out_ok, %code
+    !__string_buf_try_rsplit_once_char_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_TRY_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+    EXPAND STR_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %slice_reg, %code
+[END_MACRO]
+
+[MACRO] STRING_BUF_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, %string_reg, %code
+    EXPAND STRING_BUF_AS_STR __string_buf_rsplit_once_char_view_%out_ok, %string_reg
+    EXPAND STR_RSPLIT_ONCE_CHAR %out_ok, %out_left, %out_right, __string_buf_rsplit_once_char_view_%out_ok, %code
+    !__string_buf_rsplit_once_char_view_%out_ok
 [END_MACRO]
 
 [MACRO] STR_IS_ASCII %out_bool, %slice_reg
@@ -6006,6 +7983,103 @@ L_STR_BYTE_AT_END_%out_ok:
 
 [MACRO] STRING_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %slice_reg, %byte_index
     EXPAND STR_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %slice_reg, %byte_index
+[END_MACRO]
+
+[MACRO] STR_CHAR_INDICES_COUNT %out_count, %slice_reg
+    EXPAND STR_CHAR_COUNT %out_count, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_CHAR_INDICES_COUNT %out_count, %slice_reg
+    EXPAND STR_CHAR_INDICES_COUNT %out_count, %slice_reg
+[END_MACRO]
+
+[MACRO] STR_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
+    __str_char_indices_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_char_indices_byte_slot_%out_ok = stack_alloc 8
+    __str_char_indices_char_slot_%out_ok = stack_alloc 8
+    store __str_char_indices_byte_slot_%out_ok+0, 0 as u64
+    store __str_char_indices_char_slot_%out_ok+0, 0 as u64
+    jmp L_STR_CHAR_INDICES_HEAD_%out_ok
+
+L_STR_CHAR_INDICES_HEAD_%out_ok:
+    __str_char_indices_byte_%out_ok = load __str_char_indices_byte_slot_%out_ok+0 as u64
+    __str_char_indices_char_%out_ok = load __str_char_indices_char_slot_%out_ok+0 as u64
+    __str_char_indices_done_%out_ok = eq __str_char_indices_byte_%out_ok, __str_char_indices_len_%out_ok
+    br __str_char_indices_done_%out_ok -> L_STR_CHAR_INDICES_MISS_%out_ok, L_STR_CHAR_INDICES_BODY_%out_ok
+
+L_STR_CHAR_INDICES_BODY_%out_ok:
+    EXPAND STR_TRY_CHAR_AT_BYTE __str_char_indices_decode_ok_%out_ok, __str_char_indices_code_%out_ok, __str_char_indices_width_%out_ok, %slice_reg, __str_char_indices_byte_%out_ok
+    br __str_char_indices_decode_ok_%out_ok -> L_STR_CHAR_INDICES_CHECK_%out_ok, L_STR_CHAR_INDICES_DECODE_MISS_%out_ok
+
+L_STR_CHAR_INDICES_CHECK_%out_ok:
+    __str_char_indices_target_%out_ok = eq __str_char_indices_char_%out_ok, %char_index
+    br __str_char_indices_target_%out_ok -> L_STR_CHAR_INDICES_HIT_%out_ok, L_STR_CHAR_INDICES_NEXT_%out_ok
+
+L_STR_CHAR_INDICES_NEXT_%out_ok:
+    __str_char_indices_next_byte_%out_ok = add __str_char_indices_byte_%out_ok, __str_char_indices_width_%out_ok
+    __str_char_indices_next_char_%out_ok = add __str_char_indices_char_%out_ok, 1
+    store __str_char_indices_byte_slot_%out_ok+0, __str_char_indices_next_byte_%out_ok as u64
+    store __str_char_indices_char_slot_%out_ok+0, __str_char_indices_next_char_%out_ok as u64
+    !__str_char_indices_next_char_%out_ok
+    !__str_char_indices_next_byte_%out_ok
+    !__str_char_indices_target_%out_ok
+    !__str_char_indices_width_%out_ok
+    !__str_char_indices_code_%out_ok
+    !__str_char_indices_decode_ok_%out_ok
+    !__str_char_indices_done_%out_ok
+    !__str_char_indices_char_%out_ok
+    !__str_char_indices_byte_%out_ok
+    jmp L_STR_CHAR_INDICES_HEAD_%out_ok
+
+L_STR_CHAR_INDICES_HIT_%out_ok:
+    %out_ok = add 0, 1
+    %out_byte_index = add __str_char_indices_byte_%out_ok, 0
+    %out_codepoint = add __str_char_indices_code_%out_ok, 0
+    !__str_char_indices_target_%out_ok
+    !__str_char_indices_width_%out_ok
+    !__str_char_indices_code_%out_ok
+    !__str_char_indices_decode_ok_%out_ok
+    !__str_char_indices_done_%out_ok
+    !__str_char_indices_char_%out_ok
+    !__str_char_indices_byte_%out_ok
+    !__str_char_indices_len_%out_ok
+    jmp L_STR_CHAR_INDICES_END_%out_ok
+
+L_STR_CHAR_INDICES_DECODE_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_byte_index = add 0, 0
+    %out_codepoint = add 0, 0
+    !__str_char_indices_width_%out_ok
+    !__str_char_indices_code_%out_ok
+    !__str_char_indices_decode_ok_%out_ok
+    !__str_char_indices_done_%out_ok
+    !__str_char_indices_char_%out_ok
+    !__str_char_indices_byte_%out_ok
+    !__str_char_indices_len_%out_ok
+    jmp L_STR_CHAR_INDICES_END_%out_ok
+
+L_STR_CHAR_INDICES_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_byte_index = add 0, 0
+    %out_codepoint = add 0, 0
+    !__str_char_indices_done_%out_ok
+    !__str_char_indices_char_%out_ok
+    !__str_char_indices_byte_%out_ok
+    !__str_char_indices_len_%out_ok
+
+L_STR_CHAR_INDICES_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
+    EXPAND STR_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
+[END_MACRO]
+
+[MACRO] STR_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
+    EXPAND STR_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
+[END_MACRO]
+
+[MACRO] STRING_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
+    EXPAND STR_TRY_CHAR_INDICES_AT %out_ok, %out_byte_index, %out_codepoint, %slice_reg, %char_index
 [END_MACRO]
 
 [MACRO] STR_TRY_CHAR_RANGE_AT %out_ok, %out_slice, %slice_reg, %char_index

@@ -4,6 +4,279 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-09 str/String char_indices alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with a caller-indexed subset of Rust `str::char_indices`.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-index aliases:
+  - `STR_CHAR_INDICES_COUNT` / `STRING_CHAR_INDICES_COUNT` / `STRING_BUF_CHAR_INDICES_COUNT`
+  - `STR_TRY_CHAR_INDICES_AT` / `STRING_TRY_CHAR_INDICES_AT` / `STRING_BUF_TRY_CHAR_INDICES_AT`
+  - `STR_CHAR_INDICES_AT` / `STRING_CHAR_INDICES_AT` / `STRING_BUF_CHAR_INDICES_AT`
+- Semantics: count aliases reuse the existing UTF-8 scalar count, and caller-indexed aliases scan from the start of the slice to return the local `(ok, byte_index, codepoint)` result for a requested scalar ordinal. Missing ordinals or invalid UTF-8 decoding paths return `ok=0`, byte index `0`, and codepoint `0`. This remains a concrete count/caller-indexed subset rather than Rust's lazy `CharIndices` iterator object, tuple object layout, borrow-scoped lifetime model, or invalid-UTF-8 impossible-type invariant.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "char indices aliases" --jobs 1 --trace-panic`: pass (`1 passed; 71 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`72 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "char indices aliases" --jobs 1 --trace-panic`: pass (`1 passed; 71 skipped`).
+
+## Completed: 2026-07-09 str/String trim_matches char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with char-pattern counterparts to the slice-needle trim-match aliases.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern trim-match aliases:
+  - `STR_TRIM_START_MATCHES_CHAR` / `STRING_TRIM_START_MATCHES_CHAR` / `STRING_BUF_TRIM_START_MATCHES_CHAR`
+  - `STR_TRIM_END_MATCHES_CHAR` / `STRING_TRIM_END_MATCHES_CHAR` / `STRING_BUF_TRIM_END_MATCHES_CHAR`
+  - `STR_TRIM_MATCHES_CHAR` / `STRING_TRIM_MATCHES_CHAR` / `STRING_BUF_TRIM_MATCHES_CHAR`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle `trim_start_matches` / `trim_end_matches` / `trim_matches` helpers. Valid scalars repeatedly strip exact UTF-8 scalar occurrences at the requested edge; invalid scalar values return the original borrowed `Slice` view as a no-op. This remains a concrete char-pattern subset rather than Rust's full generic `Pattern` machinery, closure or slice-of-char patterns, searcher internals, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "trim matches char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 70 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`71 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "trim matches char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 70 skipped`).
+
+## Completed: 2026-07-09 str/String prefix/suffix char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with char-pattern counterparts to `starts_with`, `ends_with`, `strip_prefix`, and `strip_suffix`.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern prefix/suffix aliases:
+  - `STR_STARTS_WITH_CHAR` / `STRING_STARTS_WITH_CHAR` / `STRING_BUF_STARTS_WITH_CHAR`
+  - `STR_ENDS_WITH_CHAR` / `STRING_ENDS_WITH_CHAR` / `STRING_BUF_ENDS_WITH_CHAR`
+  - `STR_TRY_STRIP_PREFIX_CHAR` / `STRING_TRY_STRIP_PREFIX_CHAR` / `STRING_BUF_TRY_STRIP_PREFIX_CHAR`
+  - `STR_STRIP_PREFIX_CHAR` / `STRING_STRIP_PREFIX_CHAR` / `STRING_BUF_STRIP_PREFIX_CHAR`
+  - `STR_TRY_STRIP_SUFFIX_CHAR` / `STRING_TRY_STRIP_SUFFIX_CHAR` / `STRING_BUF_TRY_STRIP_SUFFIX_CHAR`
+  - `STR_STRIP_SUFFIX_CHAR` / `STRING_STRIP_SUFFIX_CHAR` / `STRING_BUF_STRIP_SUFFIX_CHAR`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle prefix/suffix helpers. Invalid scalar values return false for predicates or `ok=0` plus an empty `Slice` for strip helpers; misses use the same local `ok=0` empty-slice shape. This remains a concrete char-pattern subset rather than Rust's full generic `Pattern` machinery, `Option<&str>` layout, searcher internals, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "prefix suffix char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 69 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`70 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "prefix suffix char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 69 skipped`).
+
+## Completed: 2026-07-09 str/String split_once char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with a char-pattern counterpart to the split_once/rsplit_once slice-needle aliases.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern split-once aliases:
+  - `STR_TRY_SPLIT_ONCE_CHAR` / `STRING_TRY_SPLIT_ONCE_CHAR` / `STRING_BUF_TRY_SPLIT_ONCE_CHAR`
+  - `STR_SPLIT_ONCE_CHAR` / `STRING_SPLIT_ONCE_CHAR` / `STRING_BUF_SPLIT_ONCE_CHAR`
+  - `STR_TRY_RSPLIT_ONCE_CHAR` / `STRING_TRY_RSPLIT_ONCE_CHAR` / `STRING_BUF_TRY_RSPLIT_ONCE_CHAR`
+  - `STR_RSPLIT_ONCE_CHAR` / `STRING_RSPLIT_ONCE_CHAR` / `STRING_BUF_RSPLIT_ONCE_CHAR`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle `split_once` / `rsplit_once` helpers. Caller results use the existing local `(ok, left, right)` `Slice` view shape; invalid scalar values or misses return `ok=0` plus empty left/right slices. This remains a concrete one-shot split subset rather than Rust's full generic `Pattern` machinery, `Option<(&str, &str)>` layout, searcher internals, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split once char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 68 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`69 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split once char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 68 skipped`).
+
+## Completed: 2026-07-09 str/String splitn char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with the char-pattern counterpart to the splitn/rsplitn slice-needle batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern splitn aliases:
+  - `STR_SPLIT_N_CHAR_COUNT` / `STRING_SPLIT_N_CHAR_COUNT` / `STRING_BUF_SPLIT_N_CHAR_COUNT`
+  - `STR_RSPLIT_N_CHAR_COUNT` / `STRING_RSPLIT_N_CHAR_COUNT` / `STRING_BUF_RSPLIT_N_CHAR_COUNT`
+  - `STR_TRY_SPLIT_N_CHAR_AT` / `STRING_TRY_SPLIT_N_CHAR_AT` / `STRING_BUF_TRY_SPLIT_N_CHAR_AT`
+  - `STR_SPLIT_N_CHAR_AT` / `STRING_SPLIT_N_CHAR_AT` / `STRING_BUF_SPLIT_N_CHAR_AT`
+  - `STR_TRY_RSPLIT_N_CHAR_AT` / `STRING_TRY_RSPLIT_N_CHAR_AT` / `STRING_BUF_TRY_RSPLIT_N_CHAR_AT`
+  - `STR_RSPLIT_N_CHAR_AT` / `STRING_RSPLIT_N_CHAR_AT` / `STRING_BUF_RSPLIT_N_CHAR_AT`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle `splitn` / `rsplitn` helpers. They preserve the existing local split-count subset: `split_count == 0` returns zero entries or `ok=0`, positive counts cap the number of returned fields, and the current `rsplitn` subset reverse-enumerates the same local splitn field set. Invalid scalar values return zero counts or `ok=0` plus an empty slice. This remains a concrete count/caller-indexed `Slice` subset rather than Rust's lazy iterator objects, full generic `Pattern` machinery, `Option<&str>` layout, full right-to-left `rsplitn` pattern semantics, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "splitn char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 68 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`68 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "splitn char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 68 skipped`).
+
+## Completed: 2026-07-09 str/String split_terminator char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with the char-pattern counterpart to the split-terminator slice-needle batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern split-terminator aliases:
+  - `STR_SPLIT_TERMINATOR_CHAR_COUNT` / `STRING_SPLIT_TERMINATOR_CHAR_COUNT` / `STRING_BUF_SPLIT_TERMINATOR_CHAR_COUNT`
+  - `STR_RSPLIT_TERMINATOR_CHAR_COUNT` / `STRING_RSPLIT_TERMINATOR_CHAR_COUNT` / `STRING_BUF_RSPLIT_TERMINATOR_CHAR_COUNT`
+  - `STR_TRY_SPLIT_TERMINATOR_CHAR_AT` / `STRING_TRY_SPLIT_TERMINATOR_CHAR_AT` / `STRING_BUF_TRY_SPLIT_TERMINATOR_CHAR_AT`
+  - `STR_SPLIT_TERMINATOR_CHAR_AT` / `STRING_SPLIT_TERMINATOR_CHAR_AT` / `STRING_BUF_SPLIT_TERMINATOR_CHAR_AT`
+  - `STR_TRY_RSPLIT_TERMINATOR_CHAR_AT` / `STRING_TRY_RSPLIT_TERMINATOR_CHAR_AT` / `STRING_BUF_TRY_RSPLIT_TERMINATOR_CHAR_AT`
+  - `STR_RSPLIT_TERMINATOR_CHAR_AT` / `STRING_RSPLIT_TERMINATOR_CHAR_AT` / `STRING_BUF_RSPLIT_TERMINATOR_CHAR_AT`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle `split_terminator` / `rsplit_terminator` helpers. They reuse the terminator count semantics that drop trailing terminator-produced empty fields; invalid scalar values return zero counts or `ok=0` plus an empty slice. This remains a concrete count/caller-indexed `Slice` subset rather than Rust's lazy iterator objects, full generic `Pattern` machinery, `Option<&str>` layout, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split terminator char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 66 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`67 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split terminator char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 66 skipped`).
+
+## Completed: 2026-07-09 str/String match_indices char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with the char-pattern counterpart to the match-indices slice-needle batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern match-index aliases:
+  - `STR_MATCH_INDICES_CHAR_COUNT` / `STRING_MATCH_INDICES_CHAR_COUNT` / `STRING_BUF_MATCH_INDICES_CHAR_COUNT`
+  - `STR_RMATCH_INDICES_CHAR_COUNT` / `STRING_RMATCH_INDICES_CHAR_COUNT` / `STRING_BUF_RMATCH_INDICES_CHAR_COUNT`
+  - `STR_TRY_MATCH_INDICES_CHAR_AT` / `STRING_TRY_MATCH_INDICES_CHAR_AT` / `STRING_BUF_TRY_MATCH_INDICES_CHAR_AT`
+  - `STR_MATCH_INDICES_CHAR_AT` / `STRING_MATCH_INDICES_CHAR_AT` / `STRING_BUF_MATCH_INDICES_CHAR_AT`
+  - `STR_TRY_RMATCH_INDICES_CHAR_AT` / `STRING_TRY_RMATCH_INDICES_CHAR_AT` / `STRING_BUF_TRY_RMATCH_INDICES_CHAR_AT`
+  - `STR_RMATCH_INDICES_CHAR_AT` / `STRING_RMATCH_INDICES_CHAR_AT` / `STRING_BUF_RMATCH_INDICES_CHAR_AT`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle `match_indices` / `rmatch_indices` helpers. Caller-indexed aliases return local `(ok, byte_index, Slice)` values, reverse aliases preserve the original forward byte offset, and invalid scalar values or missing entries return `ok=0`, index `0`, and an empty slice. This remains a concrete count/caller-indexed subset rather than Rust's lazy iterator objects, full generic `Pattern` machinery, `Option<(usize, &str)>` layout, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "match indices char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 65 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`66 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "match indices char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 65 skipped`).
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split and matches char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 65 skipped`).
+
+## Completed: 2026-07-09 str/String split and matches char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with a concrete char-pattern follow-up to the slice-needle split/matches view batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` char-pattern aliases for basic split and matches families:
+  - `STR_SPLIT_CHAR_COUNT` / `STRING_SPLIT_CHAR_COUNT` / `STRING_BUF_SPLIT_CHAR_COUNT`
+  - `STR_RSPLIT_CHAR_COUNT` / `STRING_RSPLIT_CHAR_COUNT` / `STRING_BUF_RSPLIT_CHAR_COUNT`
+  - `STR_MATCHES_CHAR_COUNT` / `STRING_MATCHES_CHAR_COUNT` / `STRING_BUF_MATCHES_CHAR_COUNT`
+  - `STR_RMATCHES_CHAR_COUNT` / `STRING_RMATCHES_CHAR_COUNT` / `STRING_BUF_RMATCHES_CHAR_COUNT`
+  - `STR_TRY_SPLIT_CHAR_AT` / `STRING_TRY_SPLIT_CHAR_AT` / `STRING_BUF_TRY_SPLIT_CHAR_AT`
+  - `STR_SPLIT_CHAR_AT` / `STRING_SPLIT_CHAR_AT` / `STRING_BUF_SPLIT_CHAR_AT`
+  - `STR_TRY_RSPLIT_CHAR_AT` / `STRING_TRY_RSPLIT_CHAR_AT` / `STRING_BUF_TRY_RSPLIT_CHAR_AT`
+  - `STR_RSPLIT_CHAR_AT` / `STRING_RSPLIT_CHAR_AT` / `STRING_BUF_RSPLIT_CHAR_AT`
+  - `STR_TRY_MATCHES_CHAR_AT` / `STRING_TRY_MATCHES_CHAR_AT` / `STRING_BUF_TRY_MATCHES_CHAR_AT`
+  - `STR_MATCHES_CHAR_AT` / `STRING_MATCHES_CHAR_AT` / `STRING_BUF_MATCHES_CHAR_AT`
+  - `STR_TRY_RMATCHES_CHAR_AT` / `STRING_TRY_RMATCHES_CHAR_AT` / `STRING_BUF_TRY_RMATCHES_CHAR_AT`
+  - `STR_RMATCHES_CHAR_AT` / `STRING_RMATCHES_CHAR_AT` / `STRING_BUF_RMATCHES_CHAR_AT`
+- Semantics: aliases encode a valid `u64` Unicode scalar as UTF-8 and delegate to the existing slice-needle `split`/`rsplit` and `matches`/`rmatches` helpers. Invalid scalar values return zero counts or `ok=0` plus an empty slice. Results remain concrete count/caller-indexed `Slice` views, not Rust's lazy iterator objects, full generic `Pattern` machinery, `Option<&str>` layout, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split and matches char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 64 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`65 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split and matches char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 64 skipped`).
+
+## Completed: 2026-07-09 str/String split_inclusive char alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with a concrete char-pattern follow-up to the split-inclusive slice-needle batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` split-inclusive char-pattern aliases:
+  - `STR_SPLIT_INCLUSIVE_CHAR_COUNT` / `STRING_SPLIT_INCLUSIVE_CHAR_COUNT` / `STRING_BUF_SPLIT_INCLUSIVE_CHAR_COUNT`
+  - `STR_TRY_SPLIT_INCLUSIVE_CHAR_AT` / `STRING_TRY_SPLIT_INCLUSIVE_CHAR_AT` / `STRING_BUF_TRY_SPLIT_INCLUSIVE_CHAR_AT`
+  - `STR_SPLIT_INCLUSIVE_CHAR_AT` / `STRING_SPLIT_INCLUSIVE_CHAR_AT` / `STRING_BUF_SPLIT_INCLUSIVE_CHAR_AT`
+- Semantics: aliases encode a `u64` Unicode scalar as UTF-8 and delegate to the existing split-inclusive slice-needle subset. Valid char delimiters retain the encoded delimiter at the end of delimiter-terminated fields; trailing delimiters do not produce a final empty field. Invalid scalar values, empty haystacks, and missing indexes return the existing explicit miss shapes (`0` count or `ok=0` plus empty slice). This remains a concrete char-pattern/count-indexed subset rather than Rust's lazy `SplitInclusive` iterator object, generic `Pattern` machinery, `Option<&str>` layout, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split inclusive char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 63 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`64 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split inclusive char aliases" --jobs 1 --trace-panic`: pass (`1 passed; 63 skipped`).
+
+## Completed: 2026-07-09 str/String split_inclusive needle alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with a String/str slice-needle split family sub-batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` split-inclusive aliases:
+  - `STR_SPLIT_INCLUSIVE_NEEDLE_COUNT` / `STRING_SPLIT_INCLUSIVE_NEEDLE_COUNT` / `STRING_BUF_SPLIT_INCLUSIVE_NEEDLE_COUNT`
+  - `STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT` / `STRING_TRY_SPLIT_INCLUSIVE_NEEDLE_AT` / `STRING_BUF_TRY_SPLIT_INCLUSIVE_NEEDLE_AT`
+  - `STR_SPLIT_INCLUSIVE_NEEDLE_AT` / `STRING_SPLIT_INCLUSIVE_NEEDLE_AT` / `STRING_BUF_SPLIT_INCLUSIVE_NEEDLE_AT`
+- Semantics: aliases enumerate non-overlapping `&str`-needle split fields while retaining the matched delimiter at the end of each delimiter-terminated field. Empty haystacks and empty needles return zero entries, trailing delimiters do not produce a final empty entry, and missing caller indexes return `ok=0` plus an empty slice. This is a concrete count/caller-indexed `Slice` subset rather than Rust's lazy `SplitInclusive` iterator object, generic `Pattern` machinery, `Option<&str>` layout, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split inclusive needle aliases" --jobs 1 --trace-panic`: pass (`1 passed; 62 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`63 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split inclusive needle aliases" --jobs 1 --trace-panic`: pass (`1 passed; 62 skipped`).
+
+## Completed: 2026-07-09 str/String match_indices needle alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with a String/str slice-needle naming parity sub-batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` match-index aliases:
+  - `STR_MATCH_INDICES_NEEDLE_COUNT` / `STRING_MATCH_INDICES_NEEDLE_COUNT` / `STRING_BUF_MATCH_INDICES_NEEDLE_COUNT`
+  - `STR_RMATCH_INDICES_NEEDLE_COUNT` / `STRING_RMATCH_INDICES_NEEDLE_COUNT` / `STRING_BUF_RMATCH_INDICES_NEEDLE_COUNT`
+  - `STR_TRY_MATCH_INDICES_NEEDLE_AT` / `STRING_TRY_MATCH_INDICES_NEEDLE_AT` / `STRING_BUF_TRY_MATCH_INDICES_NEEDLE_AT`
+  - `STR_MATCH_INDICES_NEEDLE_AT` / `STRING_MATCH_INDICES_NEEDLE_AT` / `STRING_BUF_MATCH_INDICES_NEEDLE_AT`
+  - `STR_TRY_RMATCH_INDICES_NEEDLE_AT` / `STRING_TRY_RMATCH_INDICES_NEEDLE_AT` / `STRING_BUF_TRY_RMATCH_INDICES_NEEDLE_AT`
+  - `STR_RMATCH_INDICES_NEEDLE_AT` / `STRING_RMATCH_INDICES_NEEDLE_AT` / `STRING_BUF_RMATCH_INDICES_NEEDLE_AT`
+- Semantics: aliases enumerate non-overlapping `&str`-needle matches, return explicit `(ok, byte_index, Slice)` results for caller-selected entries, and return `ok=0`, index `0`, and an empty slice for absent entries or empty needles. Reverse aliases compute the corresponding forward caller index (`count - 1 - reverse_index`) and keep the original forward byte offset. This is a concrete eager/count-indexed subset rather than Rust's lazy `MatchIndices` / `RMatchIndices` iterator object, generic `Pattern` machinery, `Option<(usize, &str)>` layout, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "match indices needle aliases" --jobs 1 --trace-panic`: pass (`1 passed; 61 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`62 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "match indices needle aliases" --jobs 1 --trace-panic`: pass (`1 passed; 61 skipped`).
+
+## Completed: 2026-07-09 Vec push_within_capacity alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with Vec-only naming parity as the active sub-batch.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Vec checked push-within-capacity aliases:
+  - `VEC_TRY_PUSH_WITHIN_CAPACITY` / `VEC_TRY_PUSH_WITHIN_CAPACITY_U64`
+  - `VEC_TRY_PUSH_WITHIN_CAPACITY_MUT` / `VEC_TRY_PUSH_WITHIN_CAPACITY_MUT_U64`
+  - `VEC_PUSH_WITHIN_CAPACITY_MUT` / `VEC_PUSH_WITHIN_CAPACITY_MUT_U64`
+- Semantics: the `TRY` aliases reuse the existing no-grow capacity check. The mut-return forms insert only when spare capacity exists, return the inserted element pointer on success, and return `ok=0` plus a null pointer when full. This is a concrete local `(ok, ptr)` shape rather than Rust's `Result<&mut T, T>` object layout, generic `T` support, or borrow-checker alias/lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_macro_surface.sa --filter "push within capacity aliases" --jobs 1 --trace-panic`: pass (`1 passed; 28 skipped`).
+  - Full source `std_vec_macro_surface.sa`: pass (`29 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_vec_macro_surface.sa --filter "push within capacity aliases" --jobs 1 --trace-panic`: pass (`1 passed; 28 skipped`).
+  - Full `zig build unit-framework --summary all` was attempted, stayed silent/idle for more than 6 minutes, and was interrupted; it is not counted as a passing gate for this batch.
+
+## Completed: 2026-07-09 str/String splitn count alias and edge-case batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` limited split count aliases:
+  - `STR_SPLIT_N_NEEDLE_COUNT` / `STRING_SPLIT_N_NEEDLE_COUNT` / `STRING_BUF_SPLIT_N_NEEDLE_COUNT`
+  - `STR_RSPLIT_N_NEEDLE_COUNT` / `STRING_RSPLIT_N_NEEDLE_COUNT` / `STRING_BUF_RSPLIT_N_NEEDLE_COUNT`
+- Corrected the existing caller-indexed limited split aliases so `split_count == 0` returns `ok=0` with an empty slice instead of subtracting one before checking the count.
+- Aligned empty-needle behavior with the existing concrete slice-needle subset: for `split_count > 0`, index `0` returns the whole haystack and later indexes miss. This remains a concrete `&str` needle/count/indexed-view subset; it does not claim Rust's full empty-pattern semantics, generic `Pattern` machinery, lazy `SplitN` / `RSplitN` iterator objects, `Option<&str>` layout, or borrow-checker lifetime enforcement.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "splitn count aliases" --jobs 1 --trace-panic`: pass (`1 passed; 60 skipped`).
+  - Existing source focused `splitn aliases`: pass (`1 passed; 60 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`61 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "splitn count aliases" --jobs 1 --trace-panic`: pass (`1 passed; 60 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-09 str/String split_terminator needle alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` slice-needle split-terminator aliases:
+  - `STR_SPLIT_TERMINATOR_NEEDLE_COUNT` / `STRING_SPLIT_TERMINATOR_NEEDLE_COUNT` / `STRING_BUF_SPLIT_TERMINATOR_NEEDLE_COUNT`
+  - `STR_RSPLIT_TERMINATOR_NEEDLE_COUNT` / `STRING_RSPLIT_TERMINATOR_NEEDLE_COUNT` / `STRING_BUF_RSPLIT_TERMINATOR_NEEDLE_COUNT`
+  - `STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT` / `STRING_TRY_SPLIT_TERMINATOR_NEEDLE_AT` / `STRING_BUF_TRY_SPLIT_TERMINATOR_NEEDLE_AT`
+  - `STR_SPLIT_TERMINATOR_NEEDLE_AT` / `STRING_SPLIT_TERMINATOR_NEEDLE_AT` / `STRING_BUF_SPLIT_TERMINATOR_NEEDLE_AT`
+- Semantics: count aliases delegate to the existing terminator count, which drops the trailing run of terminator-produced empty fields. Forward caller-indexed aliases return borrowed `Slice` views for indexes below that terminator count and return `ok=0` with an empty slice for out-of-range or empty-needle cases. Reverse count aliases share the same count as forward `split_terminator`. This is a concrete `&str` needle/count/indexed-view subset; it does not claim Rust's generic `Pattern` machinery, lazy `SplitTerminator` / `RSplitTerminator` iterator objects, `Option<&str>` layout, or borrow-checker lifetime enforcement.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split terminator needle aliases" --jobs 1 --trace-panic`: pass (`1 passed; 59 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`60 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split terminator needle aliases" --jobs 1 --trace-panic`: pass (`1 passed; 59 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-09 str/String split_ascii_whitespace alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` ASCII-whitespace token view aliases:
+  - `STR_SPLIT_ASCII_WHITESPACE_COUNT` / `STRING_SPLIT_ASCII_WHITESPACE_COUNT` / `STRING_BUF_SPLIT_ASCII_WHITESPACE_COUNT`
+  - `STR_TRY_SPLIT_ASCII_WHITESPACE_AT` / `STRING_TRY_SPLIT_ASCII_WHITESPACE_AT` / `STRING_BUF_TRY_SPLIT_ASCII_WHITESPACE_AT`
+  - `STR_SPLIT_ASCII_WHITESPACE_AT` / `STRING_SPLIT_ASCII_WHITESPACE_AT` / `STRING_BUF_SPLIT_ASCII_WHITESPACE_AT`
+- Semantics: leading/trailing ASCII whitespace is skipped, consecutive ASCII whitespace is collapsed, and each token result is a borrowed `Slice` view into the original string data. Missing indexes return `ok=0` and an empty slice. The implementation delegates whitespace classification to the existing `ASCII_IS_WHITESPACE` predicate, so vertical tab remains non-whitespace. This is a count/caller-indexed view subset, not Rust's lazy `SplitAsciiWhitespace` iterator object, generic pattern machinery, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split ascii whitespace aliases" --jobs 1 --trace-panic`: pass (`1 passed; 58 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`59 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "split ascii whitespace aliases" --jobs 1 --trace-panic`: pass (`1 passed; 58 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-09 str/String trim_matches needle alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` slice-needle trim-match aliases:
+  - `STR_TRIM_START_MATCHES_NEEDLE` / `STRING_TRIM_START_MATCHES_NEEDLE` / `STRING_BUF_TRIM_START_MATCHES_NEEDLE`
+  - `STR_TRIM_END_MATCHES_NEEDLE` / `STRING_TRIM_END_MATCHES_NEEDLE` / `STRING_BUF_TRIM_END_MATCHES_NEEDLE`
+  - `STR_TRIM_MATCHES_NEEDLE` / `STRING_TRIM_MATCHES_NEEDLE` / `STRING_BUF_TRIM_MATCHES_NEEDLE`
+- Semantics: non-empty `&str` needles are repeatedly stripped from the requested edge and return borrowed `Slice` views into the original string data. Empty needles return the original slice unchanged to avoid zero-length match loops. This batch does not claim Rust's generic `Pattern` machinery, closure/char/slice-of-char pattern variants, lazy iterator object models, or borrow-checker lifetime enforcement.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "trim matches aliases" --jobs 1 --trace-panic`: pass (`1 passed; 57 skipped`).
+  - Full source `std_string_macro_surface.sa`: pass (`58 passed; 0 failed; 0 skipped`).
+  - Install sync via `./tools/install.sh --no-shell`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "trim matches aliases" --jobs 1 --trace-panic`: pass (`1 passed; 57 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
 ## Active: 2026-07-09 full-test runtime optimization follow-up
 
 - Feature completed: plugin installer failure preflight now runs pure checks before building temporary plugin dynamic libraries.

@@ -22,6 +22,15 @@
 @const SPACED_WORD = utf8:"  Rust  "
 @const WORD_TRAILING = utf8:"Rust  "
 @const WORD_LEADING = utf8:"  Rust"
+@const TRIM_MATCHES_HAY = utf8:"ababrustab"
+@const TRIM_MATCHES_NEEDLE = utf8:"ab"
+@const TRIM_MATCHES_START_EXPECTED = utf8:"rustab"
+@const TRIM_MATCHES_END_EXPECTED = utf8:"ababrust"
+@const TRIM_MATCHES_BOTH_EXPECTED = utf8:"rust"
+@const TRIM_CHAR_HAY = utf8:"::rust::"
+@const TRIM_CHAR_START_EXPECTED = utf8:"rust::"
+@const TRIM_CHAR_END_EXPECTED = utf8:"::rust"
+@const TRIM_CHAR_BOTH_EXPECTED = utf8:"rust"
 @const JOIN_LEFT = utf8:"rust"
 @const JOIN_RIGHT = utf8:"-std"
 @const JOINED = utf8:"rust-std"
@@ -42,6 +51,10 @@
 @const CHAR_HAY = utf8:"rust:r"
 @const CHAR_HAY_COLON_COUNT = utf8:"a:b:c"
 @const CHAR_HAY_MULTI = utf8:"aéaé"
+@const CHAR_PREFIX_STRIPPED = utf8:"ust:r"
+@const CHAR_SUFFIX_STRIPPED = utf8:"rust:"
+@const CHAR_MULTI_PREFIX_STRIPPED = utf8:"éaé"
+@const CHAR_MULTI_SUFFIX_STRIPPED = utf8:"aéa"
 @const REPLACE_HAY = utf8:"rust-core-std"
 @const REPLACE_NEEDLE = utf8:"-"
 @const REPLACE_WITH = utf8:"_"
@@ -78,6 +91,8 @@
 @const SPLIT_NEEDLE = utf8:":"
 @const SPLIT_PART0 = utf8:"a"
 @const SPLIT_PART1 = utf8:"b"
+@const SPLIT_INCL_PART0 = utf8:"a:"
+@const SPLIT_INCL_PART1 = utf8:"b:"
 @const SPLIT_REST = utf8:"b::"
 @const SPLIT_PART2 = utf8:""
 @const SPLIT_PART3 = utf8:""
@@ -91,6 +106,8 @@
 @const MULTI_PART0 = utf8:"a"
 @const MULTI_PART1 = utf8:"b"
 @const MULTI_PART2 = utf8:"c"
+@const MULTI_INCL_PART0 = utf8:"a::"
+@const MULTI_INCL_PART1 = utf8:"b::"
 @const BUF_REPLACE_LAST_EXPECTED = utf8:"a-b-a::b"
 @const BUF_REMOVE_MATCHES_EXPECTED = utf8:"abab"
 @const BUF_REPLACE_EMPTY_EXPECTED = utf8:"a-b-a-b"
@@ -115,6 +132,11 @@
 @const SPLIT_TEXT = utf8:":a::b:"
 @const SPLIT_A = utf8:"a"
 @const SPLIT_B = utf8:"b"
+@const ASCII_WS_TEXT = utf8:"  rust  std\nvec  "
+@const ASCII_WS_RUST = utf8:"rust"
+@const ASCII_WS_STD = utf8:"std"
+@const ASCII_WS_VEC = utf8:"vec"
+@const ASCII_WS_ONLY = utf8:" \n "
 @const UTF8_BOUNDARY_TEXT = utf8:"aé🙂z"
 @const UTF8_A_E = utf8:"aé"
 @const UTF8_E_ACUTE = utf8:"é"
@@ -2442,6 +2464,174 @@ L_SPLIT_BYTE_OK:
     !ok
     return
 
+@test "sa_std string split ascii whitespace aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS ws_text, &ASCII_WS_TEXT, 17
+    EXPAND STR_FROM_PARTS expected_rust, &ASCII_WS_RUST, 4
+    EXPAND STR_FROM_PARTS expected_std, &ASCII_WS_STD, 3
+    EXPAND STR_FROM_PARTS expected_vec, &ASCII_WS_VEC, 3
+    EXPAND STR_FROM_PARTS only_ws, &ASCII_WS_ONLY, 3
+    EXPAND STR_EMPTY empty
+    EXPAND STRING_BUF_FROM_STR owned_ws, ws_text
+    EXPAND STRING_BUF_FROM_STR owned_only_ws, only_ws
+
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_COUNT str_count, ws_text
+    EXPAND STRING_SPLIT_ASCII_WHITESPACE_COUNT string_count, ws_text
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_AT part0_ok, part0, ws_text, 0
+    EXPAND STRING_SPLIT_ASCII_WHITESPACE_AT part1_ok, part1, ws_text, 1
+    EXPAND STR_TRY_SPLIT_ASCII_WHITESPACE_AT part2_ok, part2, ws_text, 2
+    EXPAND STRING_TRY_SPLIT_ASCII_WHITESPACE_AT part3_ok, part3, ws_text, 3
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_COUNT empty_count, empty
+    EXPAND STR_TRY_SPLIT_ASCII_WHITESPACE_AT empty_part_ok, empty_part, empty, 0
+    EXPAND STR_SPLIT_ASCII_WHITESPACE_COUNT only_count, only_ws
+    EXPAND STRING_SPLIT_ASCII_WHITESPACE_AT only_part_ok, only_part, only_ws, 0
+    EXPAND STRING_BUF_SPLIT_ASCII_WHITESPACE_COUNT owned_count, owned_ws
+    EXPAND STRING_BUF_SPLIT_ASCII_WHITESPACE_AT owned_part1_ok, owned_part1, owned_ws, 1
+    EXPAND STRING_BUF_TRY_SPLIT_ASCII_WHITESPACE_AT owned_part3_ok, owned_part3, owned_ws, 3
+    EXPAND STRING_BUF_SPLIT_ASCII_WHITESPACE_COUNT owned_only_count, owned_only_ws
+
+    EXPAND STR_EQ part0_eq, part0, expected_rust
+    EXPAND STR_EQ part1_eq, part1, expected_std
+    EXPAND STR_EQ part2_eq, part2, expected_vec
+    EXPAND STR_IS_EMPTY part3_empty, part3
+    EXPAND STR_IS_EMPTY empty_part_empty, empty_part
+    EXPAND STR_IS_EMPTY only_part_empty, only_part
+    EXPAND STR_EQ owned_part1_eq, owned_part1, expected_std
+    EXPAND STR_IS_EMPTY owned_part3_empty, owned_part3
+
+    str_count_ok = eq str_count, 3
+    string_count_ok = eq string_count, 3
+    part0_flag_ok = eq part0_ok, 1
+    part0_value_ok = eq part0_eq, 1
+    part1_flag_ok = eq part1_ok, 1
+    part1_value_ok = eq part1_eq, 1
+    part2_flag_ok = eq part2_ok, 1
+    part2_value_ok = eq part2_eq, 1
+    part3_flag_ok = eq part3_ok, 0
+    part3_value_ok = eq part3_empty, 1
+    empty_count_ok = eq empty_count, 0
+    empty_part_flag_ok = eq empty_part_ok, 0
+    empty_part_value_ok = eq empty_part_empty, 1
+    only_count_ok = eq only_count, 0
+    only_part_flag_ok = eq only_part_ok, 0
+    only_part_value_ok = eq only_part_empty, 1
+    owned_count_ok = eq owned_count, 3
+    owned_part1_flag_ok = eq owned_part1_ok, 1
+    owned_part1_value_ok = eq owned_part1_eq, 1
+    owned_part3_flag_ok = eq owned_part3_ok, 0
+    owned_part3_value_ok = eq owned_part3_empty, 1
+    owned_only_count_ok = eq owned_only_count, 0
+    ok01 = and str_count_ok, string_count_ok
+    ok02 = and ok01, part0_flag_ok
+    ok03 = and ok02, part0_value_ok
+    ok04 = and ok03, part1_flag_ok
+    ok05 = and ok04, part1_value_ok
+    ok06 = and ok05, part2_flag_ok
+    ok07 = and ok06, part2_value_ok
+    ok08 = and ok07, part3_flag_ok
+    ok09 = and ok08, part3_value_ok
+    ok10 = and ok09, empty_count_ok
+    ok11 = and ok10, empty_part_flag_ok
+    ok12 = and ok11, empty_part_value_ok
+    ok13 = and ok12, only_count_ok
+    ok14 = and ok13, only_part_flag_ok
+    ok15 = and ok14, only_part_value_ok
+    ok16 = and ok15, owned_count_ok
+    ok17 = and ok16, owned_part1_flag_ok
+    ok18 = and ok17, owned_part1_value_ok
+    ok19 = and ok18, owned_part3_flag_ok
+    ok20 = and ok19, owned_part3_value_ok
+    ok = and ok20, owned_only_count_ok
+    EXPAND STRING_BUF_FREE owned_ws
+    EXPAND STRING_BUF_FREE owned_only_ws
+    !ws_text
+    !expected_rust
+    !expected_std
+    !expected_vec
+    !only_ws
+    !empty
+    !str_count
+    !string_count
+    !part0_ok
+    !part0
+    !part1_ok
+    !part1
+    !part2_ok
+    !part2
+    !part3_ok
+    !part3
+    !empty_count
+    !empty_part_ok
+    !empty_part
+    !only_count
+    !only_part_ok
+    !only_part
+    !owned_count
+    !owned_part1_ok
+    !owned_part1
+    !owned_part3_ok
+    !owned_part3
+    !owned_only_count
+    !part0_eq
+    !part1_eq
+    !part2_eq
+    !part3_empty
+    !empty_part_empty
+    !only_part_empty
+    !owned_part1_eq
+    !owned_part3_empty
+    !str_count_ok
+    !string_count_ok
+    !part0_flag_ok
+    !part0_value_ok
+    !part1_flag_ok
+    !part1_value_ok
+    !part2_flag_ok
+    !part2_value_ok
+    !part3_flag_ok
+    !part3_value_ok
+    !empty_count_ok
+    !empty_part_flag_ok
+    !empty_part_value_ok
+    !only_count_ok
+    !only_part_flag_ok
+    !only_part_value_ok
+    !owned_count_ok
+    !owned_part1_flag_ok
+    !owned_part1_value_ok
+    !owned_part3_flag_ok
+    !owned_part3_value_ok
+    !owned_only_count_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    br ok -> L_SPLIT_ASCII_WS_OK, L_SPLIT_ASCII_WS_FAIL
+
+L_SPLIT_ASCII_WS_FAIL:
+    !ok
+    panic(915)
+
+L_SPLIT_ASCII_WS_OK:
+    !ok
+    return
+
 @test "sa_std string line view macros"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS lines_text, &LINES_TEXT, 18
@@ -3027,6 +3217,156 @@ L_ASCII_FAIL:
     panic(908)
 
 L_ASCII_OK:
+    !ok
+    return
+
+@test "sa_std string split once char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS pathish, &PATHISH, 5
+    EXPAND STR_FROM_PARTS left_exp, &PATH_LEFT, 1
+    EXPAND STR_FROM_PARTS right_exp, &PATH_RIGHT, 3
+    EXPAND STR_FROM_PARTS rleft_exp, &PATH_RLEFT, 3
+    EXPAND STR_FROM_PARTS rright_exp, &PATH_RRIGHT, 1
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS multi_left_exp, &MULTI_PART0, 1
+    EXPAND STR_FROM_PARTS multi_right_exp, &UTF8_A_E, 3
+    EXPAND STR_FROM_PARTS multi_rleft_exp, &CHAR_HAY_MULTI, 4
+    EXPAND STRING_BUF_FROM_STR path_buf, pathish
+    EXPAND STRING_BUF_FROM_STR multi_buf, multi_hay
+
+    EXPAND STR_TRY_SPLIT_ONCE_CHAR ok0, left0, right0, pathish, 58
+    EXPAND STRING_TRY_SPLIT_ONCE_CHAR ok1t, left1t, right1t, pathish, 58
+    EXPAND STRING_BUF_TRY_SPLIT_ONCE_CHAR ok1bt, left1bt, right1bt, path_buf, 58
+    EXPAND STR_SPLIT_ONCE_CHAR ok0u, left0u, right0u, pathish, 58
+    EXPAND STRING_SPLIT_ONCE_CHAR ok1u, left1u, right1u, pathish, 58
+    EXPAND STRING_BUF_SPLIT_ONCE_CHAR ok1bu, left1bu, right1bu, path_buf, 58
+
+    EXPAND STR_TRY_RSPLIT_ONCE_CHAR rok0, rleft0, rright0, pathish, 58
+    EXPAND STRING_TRY_RSPLIT_ONCE_CHAR rok1t, rleft1t, rright1t, pathish, 58
+    EXPAND STRING_BUF_TRY_RSPLIT_ONCE_CHAR rok1bt, rleft1bt, rright1bt, path_buf, 58
+    EXPAND STR_RSPLIT_ONCE_CHAR rok0u, rleft0u, rright0u, pathish, 58
+    EXPAND STRING_RSPLIT_ONCE_CHAR rok1u, rleft1u, rright1u, pathish, 58
+    EXPAND STRING_BUF_RSPLIT_ONCE_CHAR rok1bu, rleft1bu, rright1bu, path_buf, 58
+
+    EXPAND STR_TRY_SPLIT_ONCE_CHAR ok_multi, left_multi, right_multi, multi_hay, 233
+    EXPAND STR_TRY_RSPLIT_ONCE_CHAR rok_multi, rleft_multi, rright_multi, multi_hay, 233
+    EXPAND STRING_BUF_RSPLIT_ONCE_CHAR rok_multi_b, rleft_multi_b, rright_multi_b, multi_buf, 233
+    EXPAND STR_TRY_SPLIT_ONCE_CHAR ok_invalid, left_invalid, right_invalid, pathish, 55296
+    EXPAND STR_TRY_RSPLIT_ONCE_CHAR rok_invalid, rleft_invalid, rright_invalid, pathish, 55296
+
+    EXPAND STR_EQ eq_left0, left0, left_exp
+    EXPAND STR_EQ eq_right0, right0, right_exp
+    EXPAND STR_EQ eq_left1t, left1t, left_exp
+    EXPAND STR_EQ eq_right1t, right1t, right_exp
+    EXPAND STR_EQ eq_left1bt, left1bt, left_exp
+    EXPAND STR_EQ eq_right1bt, right1bt, right_exp
+    EXPAND STR_EQ eq_left0u, left0u, left_exp
+    EXPAND STR_EQ eq_right0u, right0u, right_exp
+    EXPAND STR_EQ eq_left1u, left1u, left_exp
+    EXPAND STR_EQ eq_right1u, right1u, right_exp
+    EXPAND STR_EQ eq_left1bu, left1bu, left_exp
+    EXPAND STR_EQ eq_right1bu, right1bu, right_exp
+    EXPAND STR_EQ eq_rleft0, rleft0, rleft_exp
+    EXPAND STR_EQ eq_rright0, rright0, rright_exp
+    EXPAND STR_EQ eq_rleft1t, rleft1t, rleft_exp
+    EXPAND STR_EQ eq_rright1t, rright1t, rright_exp
+    EXPAND STR_EQ eq_rleft1bt, rleft1bt, rleft_exp
+    EXPAND STR_EQ eq_rright1bt, rright1bt, rright_exp
+    EXPAND STR_EQ eq_rleft0u, rleft0u, rleft_exp
+    EXPAND STR_EQ eq_rright0u, rright0u, rright_exp
+    EXPAND STR_EQ eq_rleft1u, rleft1u, rleft_exp
+    EXPAND STR_EQ eq_rright1u, rright1u, rright_exp
+    EXPAND STR_EQ eq_rleft1bu, rleft1bu, rleft_exp
+    EXPAND STR_EQ eq_rright1bu, rright1bu, rright_exp
+    EXPAND STR_EQ eq_multi_left, left_multi, multi_left_exp
+    EXPAND STR_EQ eq_multi_right, right_multi, multi_right_exp
+    EXPAND STR_EQ eq_rmulti_left, rleft_multi, multi_rleft_exp
+    EXPAND STR_IS_EMPTY rmulti_right_empty, rright_multi
+    EXPAND STR_EQ eq_rmulti_left_b, rleft_multi_b, multi_rleft_exp
+    EXPAND STR_IS_EMPTY rmulti_right_b_empty, rright_multi_b
+    EXPAND STR_IS_EMPTY invalid_left_empty, left_invalid
+    EXPAND STR_IS_EMPTY invalid_right_empty, right_invalid
+    EXPAND STR_IS_EMPTY rinvalid_left_empty, rleft_invalid
+    EXPAND STR_IS_EMPTY rinvalid_right_empty, rright_invalid
+
+    ok0_flag = eq ok0, 1
+    ok1t_flag = eq ok1t, 1
+    ok1bt_flag = eq ok1bt, 1
+    ok0u_flag = eq ok0u, 1
+    ok1u_flag = eq ok1u, 1
+    ok1bu_flag = eq ok1bu, 1
+    rok0_flag = eq rok0, 1
+    rok1t_flag = eq rok1t, 1
+    rok1bt_flag = eq rok1bt, 1
+    rok0u_flag = eq rok0u, 1
+    rok1u_flag = eq rok1u, 1
+    rok1bu_flag = eq rok1bu, 1
+    ok_multi_flag = eq ok_multi, 1
+    rok_multi_flag = eq rok_multi, 1
+    rok_multi_b_flag = eq rok_multi_b, 1
+    ok_invalid_flag = eq ok_invalid, 0
+    rok_invalid_flag = eq rok_invalid, 0
+
+    ok = and ok0_flag, ok1t_flag
+    ok = and ok, ok1bt_flag
+    ok = and ok, ok0u_flag
+    ok = and ok, ok1u_flag
+    ok = and ok, ok1bu_flag
+    ok = and ok, rok0_flag
+    ok = and ok, rok1t_flag
+    ok = and ok, rok1bt_flag
+    ok = and ok, rok0u_flag
+    ok = and ok, rok1u_flag
+    ok = and ok, rok1bu_flag
+    ok = and ok, ok_multi_flag
+    ok = and ok, rok_multi_flag
+    ok = and ok, rok_multi_b_flag
+    ok = and ok, ok_invalid_flag
+    ok = and ok, rok_invalid_flag
+    ok = and ok, eq_left0
+    ok = and ok, eq_right0
+    ok = and ok, eq_left1t
+    ok = and ok, eq_right1t
+    ok = and ok, eq_left1bt
+    ok = and ok, eq_right1bt
+    ok = and ok, eq_left0u
+    ok = and ok, eq_right0u
+    ok = and ok, eq_left1u
+    ok = and ok, eq_right1u
+    ok = and ok, eq_left1bu
+    ok = and ok, eq_right1bu
+    ok = and ok, eq_rleft0
+    ok = and ok, eq_rright0
+    ok = and ok, eq_rleft1t
+    ok = and ok, eq_rright1t
+    ok = and ok, eq_rleft1bt
+    ok = and ok, eq_rright1bt
+    ok = and ok, eq_rleft0u
+    ok = and ok, eq_rright0u
+    ok = and ok, eq_rleft1u
+    ok = and ok, eq_rright1u
+    ok = and ok, eq_rleft1bu
+    ok = and ok, eq_rright1bu
+    ok = and ok, eq_multi_left
+    ok = and ok, eq_multi_right
+    ok = and ok, eq_rmulti_left
+    ok = and ok, rmulti_right_empty
+    ok = and ok, eq_rmulti_left_b
+    ok = and ok, rmulti_right_b_empty
+    ok = and ok, invalid_left_empty
+    ok = and ok, invalid_right_empty
+    ok = and ok, rinvalid_left_empty
+    ok = and ok, rinvalid_right_empty
+
+    EXPAND STRING_BUF_FREE path_buf
+    EXPAND STRING_BUF_FREE multi_buf
+    br ok -> L_SPLIT_ONCE_CHAR_OK, L_SPLIT_ONCE_CHAR_FAIL
+
+L_SPLIT_ONCE_CHAR_FAIL:
+    !ok
+    panic(1039)
+
+L_SPLIT_ONCE_CHAR_OK:
     !ok
     return
 
@@ -4417,6 +4757,232 @@ L_STRING_BUF_TRIM_ALIAS_OK:
     !ok
     return
 
+@test "sa_std string trim matches aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay, &TRIM_MATCHES_HAY, 10
+    EXPAND STR_FROM_PARTS needle, &TRIM_MATCHES_NEEDLE, 2
+    EXPAND STR_FROM_PARTS expected_start, &TRIM_MATCHES_START_EXPECTED, 6
+    EXPAND STR_FROM_PARTS expected_end, &TRIM_MATCHES_END_EXPECTED, 8
+    EXPAND STR_FROM_PARTS expected_both, &TRIM_MATCHES_BOTH_EXPECTED, 4
+    EXPAND STR_EMPTY empty_needle
+    EXPAND STRING_BUF_FROM_STR owned_hay, hay
+
+    EXPAND STR_TRIM_START_MATCHES_NEEDLE trim_start, hay, needle
+    EXPAND STRING_TRIM_END_MATCHES_NEEDLE trim_end, hay, needle
+    EXPAND STR_TRIM_MATCHES_NEEDLE trim_both, hay, needle
+    EXPAND STRING_TRIM_MATCHES_NEEDLE string_both, hay, needle
+    EXPAND STRING_BUF_TRIM_START_MATCHES_NEEDLE owned_start, owned_hay, needle
+    EXPAND STRING_BUF_TRIM_END_MATCHES_NEEDLE owned_end, owned_hay, needle
+    EXPAND STRING_BUF_TRIM_MATCHES_NEEDLE owned_both, owned_hay, needle
+    EXPAND STR_TRIM_MATCHES_NEEDLE empty_noop, hay, empty_needle
+
+    EXPAND STR_EQ trim_start_eq, trim_start, expected_start
+    EXPAND STR_EQ trim_end_eq, trim_end, expected_end
+    EXPAND STR_EQ trim_both_eq, trim_both, expected_both
+    EXPAND STR_EQ string_both_eq, string_both, expected_both
+    EXPAND STR_EQ owned_start_eq, owned_start, expected_start
+    EXPAND STR_EQ owned_end_eq, owned_end, expected_end
+    EXPAND STR_EQ owned_both_eq, owned_both, expected_both
+    EXPAND STR_EQ empty_noop_eq, empty_noop, hay
+
+    trim_start_ok = eq trim_start_eq, 1
+    trim_end_ok = eq trim_end_eq, 1
+    trim_both_ok = eq trim_both_eq, 1
+    string_both_ok = eq string_both_eq, 1
+    owned_start_ok = eq owned_start_eq, 1
+    owned_end_ok = eq owned_end_eq, 1
+    owned_both_ok = eq owned_both_eq, 1
+    empty_noop_ok = eq empty_noop_eq, 1
+    ok01 = and trim_start_ok, trim_end_ok
+    ok02 = and ok01, trim_both_ok
+    ok03 = and ok02, string_both_ok
+    ok04 = and ok03, owned_start_ok
+    ok05 = and ok04, owned_end_ok
+    ok06 = and ok05, owned_both_ok
+    ok = and ok06, empty_noop_ok
+
+    EXPAND STRING_BUF_FREE owned_hay
+    !hay
+    !needle
+    !expected_start
+    !expected_end
+    !expected_both
+    !empty_needle
+    !trim_start
+    !trim_end
+    !trim_both
+    !string_both
+    !owned_start
+    !owned_end
+    !owned_both
+    !empty_noop
+    !trim_start_eq
+    !trim_end_eq
+    !trim_both_eq
+    !string_both_eq
+    !owned_start_eq
+    !owned_end_eq
+    !owned_both_eq
+    !empty_noop_eq
+    !trim_start_ok
+    !trim_end_ok
+    !trim_both_ok
+    !string_both_ok
+    !owned_start_ok
+    !owned_end_ok
+    !owned_both_ok
+    !empty_noop_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    br ok -> L_STRING_TRIM_MATCHES_OK, L_STRING_TRIM_MATCHES_FAIL
+
+L_STRING_TRIM_MATCHES_FAIL:
+    !ok
+    panic(1030)
+
+L_STRING_TRIM_MATCHES_OK:
+    !ok
+    return
+
+@test "sa_std string trim matches char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay, &TRIM_CHAR_HAY, 8
+    EXPAND STR_FROM_PARTS expected_start, &TRIM_CHAR_START_EXPECTED, 6
+    EXPAND STR_FROM_PARTS expected_end, &TRIM_CHAR_END_EXPECTED, 6
+    EXPAND STR_FROM_PARTS expected_both, &TRIM_CHAR_BOTH_EXPECTED, 4
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS multi_start_expected, &CHAR_MULTI_PREFIX_STRIPPED, 5
+    EXPAND STR_FROM_PARTS multi_end_expected, &CHAR_MULTI_SUFFIX_STRIPPED, 4
+    EXPAND STRING_BUF_FROM_STR owned_hay, hay
+    EXPAND STRING_BUF_FROM_STR owned_multi, multi_hay
+
+    EXPAND STR_TRIM_START_MATCHES_CHAR trim_start, hay, 58
+    EXPAND STRING_TRIM_END_MATCHES_CHAR trim_end, hay, 58
+    EXPAND STR_TRIM_MATCHES_CHAR trim_both, hay, 58
+    EXPAND STRING_TRIM_MATCHES_CHAR string_both, hay, 58
+    EXPAND STRING_BUF_TRIM_START_MATCHES_CHAR owned_start, owned_hay, 58
+    EXPAND STRING_BUF_TRIM_END_MATCHES_CHAR owned_end, owned_hay, 58
+    EXPAND STRING_BUF_TRIM_MATCHES_CHAR owned_both, owned_hay, 58
+    EXPAND STR_TRIM_START_MATCHES_CHAR miss_start, hay, 114
+    EXPAND STR_TRIM_END_MATCHES_CHAR miss_end, hay, 114
+    EXPAND STR_TRIM_MATCHES_CHAR invalid_noop, hay, 55296
+    EXPAND STR_TRIM_START_MATCHES_CHAR multi_start, multi_hay, 97
+    EXPAND STR_TRIM_END_MATCHES_CHAR multi_end, multi_hay, 233
+    EXPAND STRING_BUF_TRIM_END_MATCHES_CHAR owned_multi_end, owned_multi, 233
+
+    EXPAND STR_EQ trim_start_eq, trim_start, expected_start
+    EXPAND STR_EQ trim_end_eq, trim_end, expected_end
+    EXPAND STR_EQ trim_both_eq, trim_both, expected_both
+    EXPAND STR_EQ string_both_eq, string_both, expected_both
+    EXPAND STR_EQ owned_start_eq, owned_start, expected_start
+    EXPAND STR_EQ owned_end_eq, owned_end, expected_end
+    EXPAND STR_EQ owned_both_eq, owned_both, expected_both
+    EXPAND STR_EQ miss_start_eq, miss_start, hay
+    EXPAND STR_EQ miss_end_eq, miss_end, hay
+    EXPAND STR_EQ invalid_noop_eq, invalid_noop, hay
+    EXPAND STR_EQ multi_start_eq, multi_start, multi_start_expected
+    EXPAND STR_EQ multi_end_eq, multi_end, multi_end_expected
+    EXPAND STR_EQ owned_multi_end_eq, owned_multi_end, multi_end_expected
+
+    trim_start_ok = eq trim_start_eq, 1
+    trim_end_ok = eq trim_end_eq, 1
+    trim_both_ok = eq trim_both_eq, 1
+    string_both_ok = eq string_both_eq, 1
+    owned_start_ok = eq owned_start_eq, 1
+    owned_end_ok = eq owned_end_eq, 1
+    owned_both_ok = eq owned_both_eq, 1
+    miss_start_ok = eq miss_start_eq, 1
+    miss_end_ok = eq miss_end_eq, 1
+    invalid_noop_ok = eq invalid_noop_eq, 1
+    multi_start_ok = eq multi_start_eq, 1
+    multi_end_ok = eq multi_end_eq, 1
+    owned_multi_end_ok = eq owned_multi_end_eq, 1
+    ok01 = and trim_start_ok, trim_end_ok
+    ok02 = and ok01, trim_both_ok
+    ok03 = and ok02, string_both_ok
+    ok04 = and ok03, owned_start_ok
+    ok05 = and ok04, owned_end_ok
+    ok06 = and ok05, owned_both_ok
+    ok07 = and ok06, miss_start_ok
+    ok08 = and ok07, miss_end_ok
+    ok09 = and ok08, invalid_noop_ok
+    ok10 = and ok09, multi_start_ok
+    ok11 = and ok10, multi_end_ok
+    ok = and ok11, owned_multi_end_ok
+
+    EXPAND STRING_BUF_FREE owned_hay
+    EXPAND STRING_BUF_FREE owned_multi
+    !hay
+    !expected_start
+    !expected_end
+    !expected_both
+    !multi_hay
+    !multi_start_expected
+    !multi_end_expected
+    !trim_start
+    !trim_end
+    !trim_both
+    !string_both
+    !owned_start
+    !owned_end
+    !owned_both
+    !miss_start
+    !miss_end
+    !invalid_noop
+    !multi_start
+    !multi_end
+    !owned_multi_end
+    !trim_start_eq
+    !trim_end_eq
+    !trim_both_eq
+    !string_both_eq
+    !owned_start_eq
+    !owned_end_eq
+    !owned_both_eq
+    !miss_start_eq
+    !miss_end_eq
+    !invalid_noop_eq
+    !multi_start_eq
+    !multi_end_eq
+    !owned_multi_end_eq
+    !trim_start_ok
+    !trim_end_ok
+    !trim_both_ok
+    !string_both_ok
+    !owned_start_ok
+    !owned_end_ok
+    !owned_both_ok
+    !miss_start_ok
+    !miss_end_ok
+    !invalid_noop_ok
+    !multi_start_ok
+    !multi_end_ok
+    !owned_multi_end_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    br ok -> L_STRING_TRIM_MATCHES_CHAR_OK, L_STRING_TRIM_MATCHES_CHAR_FAIL
+
+L_STRING_TRIM_MATCHES_CHAR_FAIL:
+    !ok
+    panic(1041)
+
+L_STRING_TRIM_MATCHES_CHAR_OK:
+    !ok
+    return
+
 @test "sa_std string buffer find aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS word, &WORD, 4
@@ -5029,6 +5595,173 @@ L_UTF8_VIEW_FAIL:
     panic(909)
 
 L_UTF8_VIEW_OK:
+    !ok
+    return
+
+@test "sa_std string char indices aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS utf8_boundary, &UTF8_BOUNDARY_TEXT, 8
+    invalid_data = stack_alloc 2
+    store invalid_data+0, 128 as u8
+    store invalid_data+1, 40 as u8
+    EXPAND STR_FROM_PARTS invalid_utf8, invalid_data, 2
+    EXPAND STRING_BUF_FROM_STR owned_utf8, utf8_boundary
+
+    EXPAND STR_CHAR_INDICES_COUNT count, utf8_boundary
+    EXPAND STRING_CHAR_INDICES_COUNT count_s, utf8_boundary
+    EXPAND STRING_BUF_CHAR_INDICES_COUNT count_b, owned_utf8
+    EXPAND STR_TRY_CHAR_INDICES_AT ok0, idx0, cp0, utf8_boundary, 0
+    EXPAND STRING_CHAR_INDICES_AT ok1, idx1, cp1, utf8_boundary, 1
+    EXPAND STR_CHAR_INDICES_AT ok2, idx2, cp2, utf8_boundary, 2
+    EXPAND STRING_TRY_CHAR_INDICES_AT ok3, idx3, cp3, utf8_boundary, 3
+    EXPAND STRING_BUF_TRY_CHAR_INDICES_AT ok2b, idx2b, cp2b, owned_utf8, 2
+    EXPAND STRING_BUF_CHAR_INDICES_AT ok3b, idx3b, cp3b, owned_utf8, 3
+    EXPAND STR_TRY_CHAR_INDICES_AT miss_ok, miss_idx, miss_cp, utf8_boundary, 4
+    EXPAND STR_TRY_CHAR_INDICES_AT invalid_ok, invalid_idx, invalid_cp, invalid_utf8, 0
+
+    count_ok = eq count, 4
+    count_s_ok = eq count_s, 4
+    count_b_ok = eq count_b, 4
+    ok0_flag = eq ok0, 1
+    idx0_ok = eq idx0, 0
+    cp0_ok = eq cp0, 97
+    ok1_flag = eq ok1, 1
+    idx1_ok = eq idx1, 1
+    cp1_ok = eq cp1, 233
+    ok2_flag = eq ok2, 1
+    idx2_ok = eq idx2, 3
+    cp2_ok = eq cp2, 128578
+    ok3_flag = eq ok3, 1
+    idx3_ok = eq idx3, 7
+    cp3_ok = eq cp3, 122
+    ok2b_flag = eq ok2b, 1
+    idx2b_ok = eq idx2b, 3
+    cp2b_ok = eq cp2b, 128578
+    ok3b_flag = eq ok3b, 1
+    idx3b_ok = eq idx3b, 7
+    cp3b_ok = eq cp3b, 122
+    miss_flag = eq miss_ok, 0
+    miss_idx_ok = eq miss_idx, 0
+    miss_cp_ok = eq miss_cp, 0
+    invalid_flag = eq invalid_ok, 0
+    invalid_idx_ok = eq invalid_idx, 0
+    invalid_cp_ok = eq invalid_cp, 0
+    ok01 = and count_ok, count_s_ok
+    ok02 = and ok01, count_b_ok
+    ok03 = and ok02, ok0_flag
+    ok04 = and ok03, idx0_ok
+    ok05 = and ok04, cp0_ok
+    ok06 = and ok05, ok1_flag
+    ok07 = and ok06, idx1_ok
+    ok08 = and ok07, cp1_ok
+    ok09 = and ok08, ok2_flag
+    ok10 = and ok09, idx2_ok
+    ok11 = and ok10, cp2_ok
+    ok12 = and ok11, ok3_flag
+    ok13 = and ok12, idx3_ok
+    ok14 = and ok13, cp3_ok
+    ok15 = and ok14, ok2b_flag
+    ok16 = and ok15, idx2b_ok
+    ok17 = and ok16, cp2b_ok
+    ok18 = and ok17, ok3b_flag
+    ok19 = and ok18, idx3b_ok
+    ok20 = and ok19, cp3b_ok
+    ok21 = and ok20, miss_flag
+    ok22 = and ok21, miss_idx_ok
+    ok23 = and ok22, miss_cp_ok
+    ok24 = and ok23, invalid_flag
+    ok25 = and ok24, invalid_idx_ok
+    ok = and ok25, invalid_cp_ok
+
+    EXPAND STRING_BUF_FREE owned_utf8
+    !utf8_boundary
+    !invalid_utf8
+    !count
+    !count_s
+    !count_b
+    !ok0
+    !idx0
+    !cp0
+    !ok1
+    !idx1
+    !cp1
+    !ok2
+    !idx2
+    !cp2
+    !ok3
+    !idx3
+    !cp3
+    !ok2b
+    !idx2b
+    !cp2b
+    !ok3b
+    !idx3b
+    !cp3b
+    !miss_ok
+    !miss_idx
+    !miss_cp
+    !invalid_ok
+    !invalid_idx
+    !invalid_cp
+    !count_ok
+    !count_s_ok
+    !count_b_ok
+    !ok0_flag
+    !idx0_ok
+    !cp0_ok
+    !ok1_flag
+    !idx1_ok
+    !cp1_ok
+    !ok2_flag
+    !idx2_ok
+    !cp2_ok
+    !ok3_flag
+    !idx3_ok
+    !cp3_ok
+    !ok2b_flag
+    !idx2b_ok
+    !cp2b_ok
+    !ok3b_flag
+    !idx3b_ok
+    !cp3b_ok
+    !miss_flag
+    !miss_idx_ok
+    !miss_cp_ok
+    !invalid_flag
+    !invalid_idx_ok
+    !invalid_cp_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    !ok23
+    !ok24
+    !ok25
+    br ok -> L_STRING_CHAR_INDICES_OK, L_STRING_CHAR_INDICES_FAIL
+
+L_STRING_CHAR_INDICES_FAIL:
+    !ok
+    panic(1042)
+
+L_STRING_CHAR_INDICES_OK:
     !ok
     return
 
@@ -7180,6 +7913,246 @@ L_CHAR_PATTERN_OK:
     !ok
     return
 
+@test "sa_std string prefix suffix char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay, &CHAR_HAY, 6
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS prefix_expected, &CHAR_PREFIX_STRIPPED, 5
+    EXPAND STR_FROM_PARTS suffix_expected, &CHAR_SUFFIX_STRIPPED, 5
+    EXPAND STR_FROM_PARTS multi_prefix_expected, &CHAR_MULTI_PREFIX_STRIPPED, 5
+    EXPAND STR_FROM_PARTS multi_suffix_expected, &CHAR_MULTI_SUFFIX_STRIPPED, 4
+    EXPAND STRING_BUF_FROM_STR hay_buf, hay
+    EXPAND STRING_BUF_FROM_STR multi_buf, multi_hay
+
+    EXPAND STR_STARTS_WITH_CHAR starts_r, hay, 114
+    EXPAND STRING_STARTS_WITH_CHAR starts_r_s, hay, 114
+    EXPAND STRING_BUF_STARTS_WITH_CHAR starts_r_b, hay_buf, 114
+    EXPAND STR_STARTS_WITH_CHAR starts_miss, hay, 117
+    EXPAND STR_STARTS_WITH_CHAR starts_invalid, hay, 55296
+    EXPAND STR_STARTS_WITH_CHAR starts_multi, multi_hay, 97
+    EXPAND STRING_BUF_STARTS_WITH_CHAR starts_multi_b, multi_buf, 97
+    EXPAND STR_ENDS_WITH_CHAR ends_r, hay, 114
+    EXPAND STRING_ENDS_WITH_CHAR ends_r_s, hay, 114
+    EXPAND STRING_BUF_ENDS_WITH_CHAR ends_r_b, hay_buf, 114
+    EXPAND STR_ENDS_WITH_CHAR ends_miss, hay, 116
+    EXPAND STR_ENDS_WITH_CHAR ends_invalid, hay, 55296
+    EXPAND STR_ENDS_WITH_CHAR ends_multi, multi_hay, 233
+    EXPAND STRING_BUF_ENDS_WITH_CHAR ends_multi_b, multi_buf, 233
+
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR p_ok, p_part, hay, 114
+    EXPAND STRING_TRY_STRIP_PREFIX_CHAR p_ok_s, p_part_s, hay, 114
+    EXPAND STRING_BUF_TRY_STRIP_PREFIX_CHAR p_ok_b, p_part_b, hay_buf, 114
+    EXPAND STR_STRIP_PREFIX_CHAR p_ok_u, p_part_u, hay, 114
+    EXPAND STRING_STRIP_PREFIX_CHAR p_ok_su, p_part_su, hay, 114
+    EXPAND STRING_BUF_STRIP_PREFIX_CHAR p_ok_bu, p_part_bu, hay_buf, 114
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR p_miss_ok, p_miss, hay, 117
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR p_invalid_ok, p_invalid, hay, 55296
+    EXPAND STR_TRY_STRIP_PREFIX_CHAR mp_ok, mp_part, multi_hay, 97
+    EXPAND STRING_BUF_STRIP_PREFIX_CHAR mp_ok_b, mp_part_b, multi_buf, 97
+
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR s_ok, s_part, hay, 114
+    EXPAND STRING_TRY_STRIP_SUFFIX_CHAR s_ok_s, s_part_s, hay, 114
+    EXPAND STRING_BUF_TRY_STRIP_SUFFIX_CHAR s_ok_b, s_part_b, hay_buf, 114
+    EXPAND STR_STRIP_SUFFIX_CHAR s_ok_u, s_part_u, hay, 114
+    EXPAND STRING_STRIP_SUFFIX_CHAR s_ok_su, s_part_su, hay, 114
+    EXPAND STRING_BUF_STRIP_SUFFIX_CHAR s_ok_bu, s_part_bu, hay_buf, 114
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR s_miss_ok, s_miss, hay, 116
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR s_invalid_ok, s_invalid, hay, 55296
+    EXPAND STR_TRY_STRIP_SUFFIX_CHAR ms_ok, ms_part, multi_hay, 233
+    EXPAND STRING_BUF_STRIP_SUFFIX_CHAR ms_ok_b, ms_part_b, multi_buf, 233
+
+    EXPAND STR_EQ p_eq, p_part, prefix_expected
+    EXPAND STR_EQ p_eq_s, p_part_s, prefix_expected
+    EXPAND STR_EQ p_eq_b, p_part_b, prefix_expected
+    EXPAND STR_EQ p_eq_u, p_part_u, prefix_expected
+    EXPAND STR_EQ p_eq_su, p_part_su, prefix_expected
+    EXPAND STR_EQ p_eq_bu, p_part_bu, prefix_expected
+    EXPAND STR_EQ mp_eq, mp_part, multi_prefix_expected
+    EXPAND STR_EQ mp_eq_b, mp_part_b, multi_prefix_expected
+    EXPAND STR_EQ s_eq, s_part, suffix_expected
+    EXPAND STR_EQ s_eq_s, s_part_s, suffix_expected
+    EXPAND STR_EQ s_eq_b, s_part_b, suffix_expected
+    EXPAND STR_EQ s_eq_u, s_part_u, suffix_expected
+    EXPAND STR_EQ s_eq_su, s_part_su, suffix_expected
+    EXPAND STR_EQ s_eq_bu, s_part_bu, suffix_expected
+    EXPAND STR_EQ ms_eq, ms_part, multi_suffix_expected
+    EXPAND STR_EQ ms_eq_b, ms_part_b, multi_suffix_expected
+    EXPAND STR_IS_EMPTY p_miss_empty, p_miss
+    EXPAND STR_IS_EMPTY p_invalid_empty, p_invalid
+    EXPAND STR_IS_EMPTY s_miss_empty, s_miss
+    EXPAND STR_IS_EMPTY s_invalid_empty, s_invalid
+
+    starts_miss_ok = eq starts_miss, 0
+    starts_invalid_ok = eq starts_invalid, 0
+    ends_miss_ok = eq ends_miss, 0
+    ends_invalid_ok = eq ends_invalid, 0
+    p_miss_flag = eq p_miss_ok, 0
+    p_invalid_flag = eq p_invalid_ok, 0
+    s_miss_flag = eq s_miss_ok, 0
+    s_invalid_flag = eq s_invalid_ok, 0
+    p_miss_empty_ok = eq p_miss_empty, 1
+    p_invalid_empty_ok = eq p_invalid_empty, 1
+    s_miss_empty_ok = eq s_miss_empty, 1
+    s_invalid_empty_ok = eq s_invalid_empty, 1
+
+    ok = and starts_r, starts_r_s
+    ok = and ok, starts_r_b
+    ok = and ok, starts_miss_ok
+    ok = and ok, starts_invalid_ok
+    ok = and ok, starts_multi
+    ok = and ok, starts_multi_b
+    ok = and ok, ends_r
+    ok = and ok, ends_r_s
+    ok = and ok, ends_r_b
+    ok = and ok, ends_miss_ok
+    ok = and ok, ends_invalid_ok
+    ok = and ok, ends_multi
+    ok = and ok, ends_multi_b
+    ok = and ok, p_ok
+    ok = and ok, p_ok_s
+    ok = and ok, p_ok_b
+    ok = and ok, p_ok_u
+    ok = and ok, p_ok_su
+    ok = and ok, p_ok_bu
+    ok = and ok, p_miss_flag
+    ok = and ok, p_invalid_flag
+    ok = and ok, mp_ok
+    ok = and ok, mp_ok_b
+    ok = and ok, s_ok
+    ok = and ok, s_ok_s
+    ok = and ok, s_ok_b
+    ok = and ok, s_ok_u
+    ok = and ok, s_ok_su
+    ok = and ok, s_ok_bu
+    ok = and ok, s_miss_flag
+    ok = and ok, s_invalid_flag
+    ok = and ok, ms_ok
+    ok = and ok, ms_ok_b
+    ok = and ok, p_eq
+    ok = and ok, p_eq_s
+    ok = and ok, p_eq_b
+    ok = and ok, p_eq_u
+    ok = and ok, p_eq_su
+    ok = and ok, p_eq_bu
+    ok = and ok, mp_eq
+    ok = and ok, mp_eq_b
+    ok = and ok, s_eq
+    ok = and ok, s_eq_s
+    ok = and ok, s_eq_b
+    ok = and ok, s_eq_u
+    ok = and ok, s_eq_su
+    ok = and ok, s_eq_bu
+    ok = and ok, ms_eq
+    ok = and ok, ms_eq_b
+    ok = and ok, p_miss_empty_ok
+    ok = and ok, p_invalid_empty_ok
+    ok = and ok, s_miss_empty_ok
+    ok = and ok, s_invalid_empty_ok
+
+    EXPAND STRING_BUF_FREE hay_buf
+    EXPAND STRING_BUF_FREE multi_buf
+    !hay
+    !multi_hay
+    !prefix_expected
+    !suffix_expected
+    !multi_prefix_expected
+    !multi_suffix_expected
+    !starts_r
+    !starts_r_s
+    !starts_r_b
+    !starts_miss
+    !starts_invalid
+    !starts_multi
+    !starts_multi_b
+    !ends_r
+    !ends_r_s
+    !ends_r_b
+    !ends_miss
+    !ends_invalid
+    !ends_multi
+    !ends_multi_b
+    !p_ok
+    !p_part
+    !p_ok_s
+    !p_part_s
+    !p_ok_b
+    !p_part_b
+    !p_ok_u
+    !p_part_u
+    !p_ok_su
+    !p_part_su
+    !p_ok_bu
+    !p_part_bu
+    !p_miss_ok
+    !p_miss
+    !p_invalid_ok
+    !p_invalid
+    !mp_ok
+    !mp_part
+    !mp_ok_b
+    !mp_part_b
+    !s_ok
+    !s_part
+    !s_ok_s
+    !s_part_s
+    !s_ok_b
+    !s_part_b
+    !s_ok_u
+    !s_part_u
+    !s_ok_su
+    !s_part_su
+    !s_ok_bu
+    !s_part_bu
+    !s_miss_ok
+    !s_miss
+    !s_invalid_ok
+    !s_invalid
+    !ms_ok
+    !ms_part
+    !ms_ok_b
+    !ms_part_b
+    !p_eq
+    !p_eq_s
+    !p_eq_b
+    !p_eq_u
+    !p_eq_su
+    !p_eq_bu
+    !mp_eq
+    !mp_eq_b
+    !s_eq
+    !s_eq_s
+    !s_eq_b
+    !s_eq_u
+    !s_eq_su
+    !s_eq_bu
+    !ms_eq
+    !ms_eq_b
+    !p_miss_empty
+    !p_invalid_empty
+    !s_miss_empty
+    !s_invalid_empty
+    !starts_miss_ok
+    !starts_invalid_ok
+    !ends_miss_ok
+    !ends_invalid_ok
+    !p_miss_flag
+    !p_invalid_flag
+    !s_miss_flag
+    !s_invalid_flag
+    !p_miss_empty_ok
+    !p_invalid_empty_ok
+    !s_miss_empty_ok
+    !s_invalid_empty_ok
+    br ok -> L_PREFIX_SUFFIX_CHAR_OK, L_PREFIX_SUFFIX_CHAR_FAIL
+
+L_PREFIX_SUFFIX_CHAR_FAIL:
+    !ok
+    panic(1040)
+
+L_PREFIX_SUFFIX_CHAR_OK:
+    !ok
+    return
+
 @test "sa_std string replace aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hay, &REPLACE_HAY, 13
@@ -7683,6 +8656,1787 @@ L_STR_SPLIT_NEEDLE_FAIL:
 L_STR_SPLIT_NEEDLE_OK:
     !ok
     return
+
+@test "sa_std string split and matches char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_hay, &CHAR_HAY_COLON_COUNT, 5
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS part_a, &MULTI_PART0, 1
+    EXPAND STR_FROM_PARTS part_b, &MULTI_PART1, 1
+    EXPAND STR_FROM_PARTS part_c, &MULTI_PART2, 1
+    EXPAND STR_FROM_PARTS colon, &MATCHES_NEEDLE, 1
+    EXPAND STR_FROM_PARTS eacute, &UTF8_E_ACUTE, 2
+    EXPAND STRING_BUF_FROM_STR split_buf, split_hay
+    EXPAND STRING_BUF_FROM_STR multi_buf, multi_hay
+
+    EXPAND STR_SPLIT_CHAR_COUNT split_count, split_hay, 58
+    EXPAND STRING_SPLIT_CHAR_COUNT split_count_s, split_hay, 58
+    EXPAND STRING_BUF_SPLIT_CHAR_COUNT split_count_b, split_buf, 58
+    EXPAND STR_RSPLIT_CHAR_COUNT rsplit_count, split_hay, 58
+    EXPAND STRING_RSPLIT_CHAR_COUNT rsplit_count_s, split_hay, 58
+    EXPAND STRING_BUF_RSPLIT_CHAR_COUNT rsplit_count_b, split_buf, 58
+    EXPAND STR_MATCHES_CHAR_COUNT matches_count, split_hay, 58
+    EXPAND STRING_MATCHES_CHAR_COUNT matches_count_s, split_hay, 58
+    EXPAND STRING_BUF_MATCHES_CHAR_COUNT matches_count_b, split_buf, 58
+    EXPAND STR_RMATCHES_CHAR_COUNT rmatches_count, split_hay, 58
+    EXPAND STRING_RMATCHES_CHAR_COUNT rmatches_count_s, split_hay, 58
+    EXPAND STRING_BUF_RMATCHES_CHAR_COUNT rmatches_count_b, split_buf, 58
+    EXPAND STR_SPLIT_CHAR_COUNT multi_split_count, multi_hay, 233
+    EXPAND STRING_BUF_MATCHES_CHAR_COUNT multi_matches_count, multi_buf, 233
+    EXPAND STR_SPLIT_CHAR_COUNT invalid_split_count, split_hay, 55296
+    EXPAND STR_MATCHES_CHAR_COUNT invalid_matches_count, split_hay, 55296
+
+    EXPAND STR_TRY_SPLIT_CHAR_AT ok_s0, part_s0, split_hay, 58, 0
+    EXPAND STRING_SPLIT_CHAR_AT ok_s1, part_s1, split_hay, 58, 1
+    EXPAND STRING_BUF_TRY_SPLIT_CHAR_AT ok_s2, part_s2, split_buf, 58, 2
+    EXPAND STR_SPLIT_CHAR_AT ok_s3, part_s3, split_hay, 58, 3
+    EXPAND STR_TRY_RSPLIT_CHAR_AT ok_rs0, part_rs0, split_hay, 58, 0
+    EXPAND STRING_RSPLIT_CHAR_AT ok_rs1, part_rs1, split_hay, 58, 1
+    EXPAND STRING_BUF_TRY_RSPLIT_CHAR_AT ok_rs2, part_rs2, split_buf, 58, 2
+    EXPAND STR_RSPLIT_CHAR_AT ok_rs3, part_rs3, split_hay, 58, 3
+    EXPAND STR_TRY_MATCHES_CHAR_AT ok_m0, part_m0, split_hay, 58, 0
+    EXPAND STRING_MATCHES_CHAR_AT ok_m1, part_m1, split_hay, 58, 1
+    EXPAND STRING_BUF_TRY_MATCHES_CHAR_AT ok_m2, part_m2, split_buf, 58, 2
+    EXPAND STR_TRY_RMATCHES_CHAR_AT ok_rm0, part_rm0, split_hay, 58, 0
+    EXPAND STRING_RMATCHES_CHAR_AT ok_rm1, part_rm1, split_hay, 58, 1
+    EXPAND STRING_BUF_TRY_RMATCHES_CHAR_AT ok_rm2, part_rm2, split_buf, 58, 2
+    EXPAND STR_TRY_SPLIT_CHAR_AT ok_multi1, part_multi1, multi_hay, 233, 1
+    EXPAND STR_SPLIT_CHAR_AT ok_multi2, part_multi2, multi_hay, 233, 2
+    EXPAND STR_MATCHES_CHAR_AT ok_multi_match, part_multi_match, multi_hay, 233, 0
+    EXPAND STR_TRY_SPLIT_CHAR_AT ok_invalid_split, part_invalid_split, split_hay, 55296, 0
+    EXPAND STR_TRY_MATCHES_CHAR_AT ok_invalid_match, part_invalid_match, split_hay, 55296, 0
+
+    EXPAND STR_EQ eq_s0, part_s0, part_a
+    EXPAND STR_EQ eq_s1, part_s1, part_b
+    EXPAND STR_EQ eq_s2, part_s2, part_c
+    EXPAND STR_EQ eq_rs0, part_rs0, part_c
+    EXPAND STR_EQ eq_rs1, part_rs1, part_b
+    EXPAND STR_EQ eq_rs2, part_rs2, part_a
+    EXPAND STR_EQ eq_m0, part_m0, colon
+    EXPAND STR_EQ eq_m1, part_m1, colon
+    EXPAND STR_EQ eq_rm0, part_rm0, colon
+    EXPAND STR_EQ eq_rm1, part_rm1, colon
+    EXPAND STR_EQ eq_multi1, part_multi1, part_a
+    EXPAND STR_EQ eq_multi_match, part_multi_match, eacute
+    EXPAND SLICE_GET_LEN part_s3_len, part_s3
+    EXPAND SLICE_GET_LEN part_rs3_len, part_rs3
+    EXPAND SLICE_GET_LEN part_m2_len, part_m2
+    EXPAND SLICE_GET_LEN part_rm2_len, part_rm2
+    EXPAND SLICE_GET_LEN part_multi2_len, part_multi2
+    EXPAND SLICE_GET_LEN invalid_split_len, part_invalid_split
+    EXPAND SLICE_GET_LEN invalid_match_len, part_invalid_match
+
+    split_count_ok = eq split_count, 3
+    split_count_s_ok = eq split_count_s, 3
+    split_count_b_ok = eq split_count_b, 3
+    rsplit_count_ok = eq rsplit_count, 3
+    rsplit_count_s_ok = eq rsplit_count_s, 3
+    rsplit_count_b_ok = eq rsplit_count_b, 3
+    matches_count_ok = eq matches_count, 2
+    matches_count_s_ok = eq matches_count_s, 2
+    matches_count_b_ok = eq matches_count_b, 2
+    rmatches_count_ok = eq rmatches_count, 2
+    rmatches_count_s_ok = eq rmatches_count_s, 2
+    rmatches_count_b_ok = eq rmatches_count_b, 2
+    multi_split_count_ok = eq multi_split_count, 3
+    multi_matches_count_ok = eq multi_matches_count, 2
+    invalid_split_count_ok = eq invalid_split_count, 0
+    invalid_matches_count_ok = eq invalid_matches_count, 0
+    ok_s0_flag = eq ok_s0, 1
+    ok_s1_flag = eq ok_s1, 1
+    ok_s2_flag = eq ok_s2, 1
+    ok_s3_flag = eq ok_s3, 0
+    ok_rs0_flag = eq ok_rs0, 1
+    ok_rs1_flag = eq ok_rs1, 1
+    ok_rs2_flag = eq ok_rs2, 1
+    ok_rs3_flag = eq ok_rs3, 0
+    ok_m0_flag = eq ok_m0, 1
+    ok_m1_flag = eq ok_m1, 1
+    ok_m2_flag = eq ok_m2, 0
+    ok_rm0_flag = eq ok_rm0, 1
+    ok_rm1_flag = eq ok_rm1, 1
+    ok_rm2_flag = eq ok_rm2, 0
+    ok_multi1_flag = eq ok_multi1, 1
+    ok_multi2_flag = eq ok_multi2, 1
+    ok_multi_match_flag = eq ok_multi_match, 1
+    ok_invalid_split_flag = eq ok_invalid_split, 0
+    ok_invalid_match_flag = eq ok_invalid_match, 0
+    eq_s0_ok = eq eq_s0, 1
+    eq_s1_ok = eq eq_s1, 1
+    eq_s2_ok = eq eq_s2, 1
+    eq_rs0_ok = eq eq_rs0, 1
+    eq_rs1_ok = eq eq_rs1, 1
+    eq_rs2_ok = eq eq_rs2, 1
+    eq_m0_ok = eq eq_m0, 1
+    eq_m1_ok = eq eq_m1, 1
+    eq_rm0_ok = eq eq_rm0, 1
+    eq_rm1_ok = eq eq_rm1, 1
+    eq_multi1_ok = eq eq_multi1, 1
+    eq_multi_match_ok = eq eq_multi_match, 1
+    part_s3_len_ok = eq part_s3_len, 0
+    part_rs3_len_ok = eq part_rs3_len, 0
+    part_m2_len_ok = eq part_m2_len, 0
+    part_rm2_len_ok = eq part_rm2_len, 0
+    part_multi2_len_ok = eq part_multi2_len, 0
+    invalid_split_len_ok = eq invalid_split_len, 0
+    invalid_match_len_ok = eq invalid_match_len, 0
+
+    ok = and split_count_ok, split_count_s_ok
+    ok = and ok, split_count_b_ok
+    ok = and ok, rsplit_count_ok
+    ok = and ok, rsplit_count_s_ok
+    ok = and ok, rsplit_count_b_ok
+    ok = and ok, matches_count_ok
+    ok = and ok, matches_count_s_ok
+    ok = and ok, matches_count_b_ok
+    ok = and ok, rmatches_count_ok
+    ok = and ok, rmatches_count_s_ok
+    ok = and ok, rmatches_count_b_ok
+    ok = and ok, multi_split_count_ok
+    ok = and ok, multi_matches_count_ok
+    ok = and ok, invalid_split_count_ok
+    ok = and ok, invalid_matches_count_ok
+    ok = and ok, ok_s0_flag
+    ok = and ok, ok_s1_flag
+    ok = and ok, ok_s2_flag
+    ok = and ok, ok_s3_flag
+    ok = and ok, ok_rs0_flag
+    ok = and ok, ok_rs1_flag
+    ok = and ok, ok_rs2_flag
+    ok = and ok, ok_rs3_flag
+    ok = and ok, ok_m0_flag
+    ok = and ok, ok_m1_flag
+    ok = and ok, ok_m2_flag
+    ok = and ok, ok_rm0_flag
+    ok = and ok, ok_rm1_flag
+    ok = and ok, ok_rm2_flag
+    ok = and ok, ok_multi1_flag
+    ok = and ok, ok_multi2_flag
+    ok = and ok, ok_multi_match_flag
+    ok = and ok, ok_invalid_split_flag
+    ok = and ok, ok_invalid_match_flag
+    ok = and ok, eq_s0_ok
+    ok = and ok, eq_s1_ok
+    ok = and ok, eq_s2_ok
+    ok = and ok, eq_rs0_ok
+    ok = and ok, eq_rs1_ok
+    ok = and ok, eq_rs2_ok
+    ok = and ok, eq_m0_ok
+    ok = and ok, eq_m1_ok
+    ok = and ok, eq_rm0_ok
+    ok = and ok, eq_rm1_ok
+    ok = and ok, eq_multi1_ok
+    ok = and ok, eq_multi_match_ok
+    ok = and ok, part_s3_len_ok
+    ok = and ok, part_rs3_len_ok
+    ok = and ok, part_m2_len_ok
+    ok = and ok, part_rm2_len_ok
+    ok = and ok, part_multi2_len_ok
+    ok = and ok, invalid_split_len_ok
+    ok = and ok, invalid_match_len_ok
+
+    !part_s0
+    !part_s1
+    !part_s2
+    !part_s3
+    !part_rs0
+    !part_rs1
+    !part_rs2
+    !part_rs3
+    !part_m0
+    !part_m1
+    !part_m2
+    !part_rm0
+    !part_rm1
+    !part_rm2
+    !part_multi1
+    !part_multi2
+    !part_multi_match
+    !part_invalid_split
+    !part_invalid_match
+    EXPAND STRING_BUF_FREE split_buf
+    EXPAND STRING_BUF_FREE multi_buf
+    !split_hay
+    !multi_hay
+    !part_a
+    !part_b
+    !part_c
+    !colon
+    !eacute
+    br ok -> L_STR_SPLIT_MATCHES_CHAR_OK, L_STR_SPLIT_MATCHES_CHAR_FAIL
+
+L_STR_SPLIT_MATCHES_CHAR_FAIL:
+    !ok
+    panic(965)
+
+L_STR_SPLIT_MATCHES_CHAR_OK:
+    !ok
+    return
+
+@test "sa_std string match indices needle aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS matches_hay, &MATCHES_HAY, 5
+    EXPAND STR_FROM_PARTS colon, &MATCHES_NEEDLE, 1
+    EXPAND STR_FROM_PARTS multi_hay, &MULTI_HAY, 7
+    EXPAND STR_FROM_PARTS multi_needle, &MULTI_NEEDLE, 2
+    EXPAND STR_EMPTY empty_needle
+    EXPAND STRING_BUF_FROM_STR match_buf, matches_hay
+
+    EXPAND STR_MATCH_INDICES_NEEDLE_COUNT count, matches_hay, colon
+    EXPAND STRING_MATCH_INDICES_NEEDLE_COUNT count_s, matches_hay, colon
+    EXPAND STRING_BUF_MATCH_INDICES_NEEDLE_COUNT count_b, match_buf, colon
+    EXPAND STR_RMATCH_INDICES_NEEDLE_COUNT rcount, matches_hay, colon
+    EXPAND STRING_RMATCH_INDICES_NEEDLE_COUNT rcount_s, matches_hay, colon
+    EXPAND STRING_BUF_RMATCH_INDICES_NEEDLE_COUNT rcount_b, match_buf, colon
+
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT ok0, idx0, part0, matches_hay, colon, 0
+    EXPAND STR_MATCH_INDICES_NEEDLE_AT ok1, idx1, part1, matches_hay, colon, 1
+    EXPAND STRING_TRY_MATCH_INDICES_NEEDLE_AT ok1s, idx1s, part1s, matches_hay, colon, 1
+    EXPAND STRING_BUF_MATCH_INDICES_NEEDLE_AT ok0b, idx0b, part0b, match_buf, colon, 0
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT ok_miss, idx_miss, part_miss, matches_hay, colon, 2
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT ok_empty, idx_empty, part_empty, matches_hay, empty_needle, 0
+    EXPAND STR_TRY_MATCH_INDICES_NEEDLE_AT ok_multi0, idx_multi0, part_multi0, multi_hay, multi_needle, 0
+    EXPAND STR_MATCH_INDICES_NEEDLE_AT ok_multi1, idx_multi1, part_multi1, multi_hay, multi_needle, 1
+
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT rok0, ridx0, rpart0, matches_hay, colon, 0
+    EXPAND STR_RMATCH_INDICES_NEEDLE_AT rok1, ridx1, rpart1, matches_hay, colon, 1
+    EXPAND STRING_TRY_RMATCH_INDICES_NEEDLE_AT rok1s, ridx1s, rpart1s, matches_hay, colon, 1
+    EXPAND STRING_BUF_RMATCH_INDICES_NEEDLE_AT rok0b, ridx0b, rpart0b, match_buf, colon, 0
+    EXPAND STR_TRY_RMATCH_INDICES_NEEDLE_AT rok_miss, ridx_miss, rpart_miss, matches_hay, colon, 2
+
+    EXPAND STR_EQ eq0, part0, colon
+    EXPAND STR_EQ eq1, part1, colon
+    EXPAND STR_EQ eq1s, part1s, colon
+    EXPAND STR_EQ eq0b, part0b, colon
+    EXPAND STR_EQ eq_multi0, part_multi0, multi_needle
+    EXPAND STR_EQ eq_multi1, part_multi1, multi_needle
+    EXPAND STR_EQ req0, rpart0, colon
+    EXPAND STR_EQ req1, rpart1, colon
+    EXPAND STR_EQ req1s, rpart1s, colon
+    EXPAND STR_EQ req0b, rpart0b, colon
+    EXPAND SLICE_GET_LEN miss_len, part_miss
+    EXPAND SLICE_GET_LEN empty_len, part_empty
+    EXPAND SLICE_GET_LEN rmiss_len, rpart_miss
+
+    count_ok = eq count, 2
+    count_s_ok = eq count_s, 2
+    count_b_ok = eq count_b, 2
+    rcount_ok = eq rcount, 2
+    rcount_s_ok = eq rcount_s, 2
+    rcount_b_ok = eq rcount_b, 2
+    ok0_flag = eq ok0, 1
+    idx0_ok = eq idx0, 1
+    ok1_flag = eq ok1, 1
+    idx1_ok = eq idx1, 3
+    ok1s_flag = eq ok1s, 1
+    idx1s_ok = eq idx1s, 3
+    ok0b_flag = eq ok0b, 1
+    idx0b_ok = eq idx0b, 1
+    miss_flag = eq ok_miss, 0
+    miss_idx_ok = eq idx_miss, 0
+    miss_len_ok = eq miss_len, 0
+    empty_flag = eq ok_empty, 0
+    empty_idx_ok = eq idx_empty, 0
+    empty_len_ok = eq empty_len, 0
+    multi0_flag = eq ok_multi0, 1
+    multi0_idx_ok = eq idx_multi0, 1
+    multi1_flag = eq ok_multi1, 1
+    multi1_idx_ok = eq idx_multi1, 4
+    rok0_flag = eq rok0, 1
+    ridx0_ok = eq ridx0, 3
+    rok1_flag = eq rok1, 1
+    ridx1_ok = eq ridx1, 1
+    rok1s_flag = eq rok1s, 1
+    ridx1s_ok = eq ridx1s, 1
+    rok0b_flag = eq rok0b, 1
+    ridx0b_ok = eq ridx0b, 3
+    rmiss_flag = eq rok_miss, 0
+    rmiss_idx_ok = eq ridx_miss, 0
+    rmiss_len_ok = eq rmiss_len, 0
+    eq0_ok = eq eq0, 1
+    eq1_ok = eq eq1, 1
+    eq1s_ok = eq eq1s, 1
+    eq0b_ok = eq eq0b, 1
+    eq_multi0_ok = eq eq_multi0, 1
+    eq_multi1_ok = eq eq_multi1, 1
+    req0_ok = eq req0, 1
+    req1_ok = eq req1, 1
+    req1s_ok = eq req1s, 1
+    req0b_ok = eq req0b, 1
+
+    ok = and count_ok, count_s_ok
+    ok = and ok, count_b_ok
+    ok = and ok, rcount_ok
+    ok = and ok, rcount_s_ok
+    ok = and ok, rcount_b_ok
+    ok = and ok, ok0_flag
+    ok = and ok, idx0_ok
+    ok = and ok, ok1_flag
+    ok = and ok, idx1_ok
+    ok = and ok, ok1s_flag
+    ok = and ok, idx1s_ok
+    ok = and ok, ok0b_flag
+    ok = and ok, idx0b_ok
+    ok = and ok, miss_flag
+    ok = and ok, miss_idx_ok
+    ok = and ok, miss_len_ok
+    ok = and ok, empty_flag
+    ok = and ok, empty_idx_ok
+    ok = and ok, empty_len_ok
+    ok = and ok, multi0_flag
+    ok = and ok, multi0_idx_ok
+    ok = and ok, multi1_flag
+    ok = and ok, multi1_idx_ok
+    ok = and ok, rok0_flag
+    ok = and ok, ridx0_ok
+    ok = and ok, rok1_flag
+    ok = and ok, ridx1_ok
+    ok = and ok, rok1s_flag
+    ok = and ok, ridx1s_ok
+    ok = and ok, rok0b_flag
+    ok = and ok, ridx0b_ok
+    ok = and ok, rmiss_flag
+    ok = and ok, rmiss_idx_ok
+    ok = and ok, rmiss_len_ok
+    ok = and ok, eq0_ok
+    ok = and ok, eq1_ok
+    ok = and ok, eq1s_ok
+    ok = and ok, eq0b_ok
+    ok = and ok, eq_multi0_ok
+    ok = and ok, eq_multi1_ok
+    ok = and ok, req0_ok
+    ok = and ok, req1_ok
+    ok = and ok, req1s_ok
+    ok = and ok, req0b_ok
+
+    !part0
+    !part1
+    !part1s
+    !part0b
+    !part_miss
+    !part_empty
+    !part_multi0
+    !part_multi1
+    !rpart0
+    !rpart1
+    !rpart1s
+    !rpart0b
+    !rpart_miss
+    !count
+    !count_s
+    !count_b
+    !rcount
+    !rcount_s
+    !rcount_b
+    !ok0
+    !idx0
+    !ok1
+    !idx1
+    !ok1s
+    !idx1s
+    !ok0b
+    !idx0b
+    !ok_miss
+    !idx_miss
+    !ok_empty
+    !idx_empty
+    !ok_multi0
+    !idx_multi0
+    !ok_multi1
+    !idx_multi1
+    !rok0
+    !ridx0
+    !rok1
+    !ridx1
+    !rok1s
+    !ridx1s
+    !rok0b
+    !ridx0b
+    !rok_miss
+    !ridx_miss
+    !eq0
+    !eq1
+    !eq1s
+    !eq0b
+    !eq_multi0
+    !eq_multi1
+    !req0
+    !req1
+    !req1s
+    !req0b
+    !miss_len
+    !empty_len
+    !rmiss_len
+    !count_ok
+    !count_s_ok
+    !count_b_ok
+    !rcount_ok
+    !rcount_s_ok
+    !rcount_b_ok
+    !ok0_flag
+    !idx0_ok
+    !ok1_flag
+    !idx1_ok
+    !ok1s_flag
+    !idx1s_ok
+    !ok0b_flag
+    !idx0b_ok
+    !miss_flag
+    !miss_idx_ok
+    !miss_len_ok
+    !empty_flag
+    !empty_idx_ok
+    !empty_len_ok
+    !multi0_flag
+    !multi0_idx_ok
+    !multi1_flag
+    !multi1_idx_ok
+    !rok0_flag
+    !ridx0_ok
+    !rok1_flag
+    !ridx1_ok
+    !rok1s_flag
+    !ridx1s_ok
+    !rok0b_flag
+    !ridx0b_ok
+    !rmiss_flag
+    !rmiss_idx_ok
+    !rmiss_len_ok
+    !eq0_ok
+    !eq1_ok
+    !eq1s_ok
+    !eq0b_ok
+    !eq_multi0_ok
+    !eq_multi1_ok
+    !req0_ok
+    !req1_ok
+    !req1s_ok
+    !req0b_ok
+    EXPAND STRING_BUF_FREE match_buf
+    !matches_hay
+    !colon
+    !multi_hay
+    !multi_needle
+    !empty_needle
+    br ok -> L_STR_MATCH_INDICES_NEEDLE_OK, L_STR_MATCH_INDICES_NEEDLE_FAIL
+
+L_STR_MATCH_INDICES_NEEDLE_FAIL:
+    !ok
+    panic(1033)
+
+L_STR_MATCH_INDICES_NEEDLE_OK:
+    !ok
+    return
+
+@test "sa_std string match indices char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS matches_hay, &MATCHES_HAY, 5
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS colon, &MATCHES_NEEDLE, 1
+    EXPAND STR_FROM_PARTS eacute, &UTF8_E_ACUTE, 2
+    EXPAND STRING_BUF_FROM_STR match_buf, matches_hay
+    EXPAND STRING_BUF_FROM_STR multi_buf, multi_hay
+
+    EXPAND STR_MATCH_INDICES_CHAR_COUNT count, matches_hay, 58
+    EXPAND STRING_MATCH_INDICES_CHAR_COUNT count_s, matches_hay, 58
+    EXPAND STRING_BUF_MATCH_INDICES_CHAR_COUNT count_b, match_buf, 58
+    EXPAND STR_RMATCH_INDICES_CHAR_COUNT rcount, matches_hay, 58
+    EXPAND STRING_RMATCH_INDICES_CHAR_COUNT rcount_s, matches_hay, 58
+    EXPAND STRING_BUF_RMATCH_INDICES_CHAR_COUNT rcount_b, match_buf, 58
+    EXPAND STR_MATCH_INDICES_CHAR_COUNT multi_count, multi_hay, 233
+    EXPAND STRING_BUF_RMATCH_INDICES_CHAR_COUNT multi_rcount_b, multi_buf, 233
+    EXPAND STR_MATCH_INDICES_CHAR_COUNT invalid_count, matches_hay, 55296
+
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT ok0, idx0, part0, matches_hay, 58, 0
+    EXPAND STR_MATCH_INDICES_CHAR_AT ok1, idx1, part1, matches_hay, 58, 1
+    EXPAND STRING_TRY_MATCH_INDICES_CHAR_AT ok1s, idx1s, part1s, matches_hay, 58, 1
+    EXPAND STRING_BUF_MATCH_INDICES_CHAR_AT ok0b, idx0b, part0b, match_buf, 58, 0
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT ok_miss, idx_miss, part_miss, matches_hay, 58, 2
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT ok_invalid, idx_invalid, part_invalid, matches_hay, 55296, 0
+
+    EXPAND STR_TRY_MATCH_INDICES_CHAR_AT ok_multi0, idx_multi0, part_multi0, multi_hay, 233, 0
+    EXPAND STRING_BUF_MATCH_INDICES_CHAR_AT ok_multi1b, idx_multi1b, part_multi1b, multi_buf, 233, 1
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT rok_multi0, ridx_multi0, rpart_multi0, multi_hay, 233, 0
+    EXPAND STRING_RMATCH_INDICES_CHAR_AT rok_multi1, ridx_multi1, rpart_multi1, multi_hay, 233, 1
+
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT rok0, ridx0, rpart0, matches_hay, 58, 0
+    EXPAND STR_RMATCH_INDICES_CHAR_AT rok1, ridx1, rpart1, matches_hay, 58, 1
+    EXPAND STRING_TRY_RMATCH_INDICES_CHAR_AT rok1s, ridx1s, rpart1s, matches_hay, 58, 1
+    EXPAND STRING_BUF_RMATCH_INDICES_CHAR_AT rok0b, ridx0b, rpart0b, match_buf, 58, 0
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT rok_miss, ridx_miss, rpart_miss, matches_hay, 58, 2
+    EXPAND STR_TRY_RMATCH_INDICES_CHAR_AT rok_invalid, ridx_invalid, rpart_invalid, matches_hay, 55296, 0
+
+    EXPAND STR_EQ eq0, part0, colon
+    EXPAND STR_EQ eq1, part1, colon
+    EXPAND STR_EQ eq1s, part1s, colon
+    EXPAND STR_EQ eq0b, part0b, colon
+    EXPAND STR_EQ req0, rpart0, colon
+    EXPAND STR_EQ req1, rpart1, colon
+    EXPAND STR_EQ req1s, rpart1s, colon
+    EXPAND STR_EQ req0b, rpart0b, colon
+    EXPAND STR_EQ eq_multi0, part_multi0, eacute
+    EXPAND STR_EQ eq_multi1b, part_multi1b, eacute
+    EXPAND STR_EQ req_multi0, rpart_multi0, eacute
+    EXPAND STR_EQ req_multi1, rpart_multi1, eacute
+    EXPAND SLICE_GET_LEN miss_len, part_miss
+    EXPAND SLICE_GET_LEN invalid_len, part_invalid
+    EXPAND SLICE_GET_LEN rmiss_len, rpart_miss
+    EXPAND SLICE_GET_LEN rinvalid_len, rpart_invalid
+
+    count_ok = eq count, 2
+    count_s_ok = eq count_s, 2
+    count_b_ok = eq count_b, 2
+    rcount_ok = eq rcount, 2
+    rcount_s_ok = eq rcount_s, 2
+    rcount_b_ok = eq rcount_b, 2
+    multi_count_ok = eq multi_count, 2
+    multi_rcount_b_ok = eq multi_rcount_b, 2
+    invalid_count_ok = eq invalid_count, 0
+    ok0_flag = eq ok0, 1
+    idx0_ok = eq idx0, 1
+    ok1_flag = eq ok1, 1
+    idx1_ok = eq idx1, 3
+    ok1s_flag = eq ok1s, 1
+    idx1s_ok = eq idx1s, 3
+    ok0b_flag = eq ok0b, 1
+    idx0b_ok = eq idx0b, 1
+    miss_flag = eq ok_miss, 0
+    miss_idx_ok = eq idx_miss, 0
+    miss_len_ok = eq miss_len, 0
+    invalid_flag = eq ok_invalid, 0
+    invalid_idx_ok = eq idx_invalid, 0
+    invalid_len_ok = eq invalid_len, 0
+    multi0_flag = eq ok_multi0, 1
+    multi0_idx_ok = eq idx_multi0, 1
+    multi1b_flag = eq ok_multi1b, 1
+    multi1b_idx_ok = eq idx_multi1b, 4
+    rmulti0_flag = eq rok_multi0, 1
+    rmulti0_idx_ok = eq ridx_multi0, 4
+    rmulti1_flag = eq rok_multi1, 1
+    rmulti1_idx_ok = eq ridx_multi1, 1
+    rok0_flag = eq rok0, 1
+    ridx0_ok = eq ridx0, 3
+    rok1_flag = eq rok1, 1
+    ridx1_ok = eq ridx1, 1
+    rok1s_flag = eq rok1s, 1
+    ridx1s_ok = eq ridx1s, 1
+    rok0b_flag = eq rok0b, 1
+    ridx0b_ok = eq ridx0b, 3
+    rmiss_flag = eq rok_miss, 0
+    rmiss_idx_ok = eq ridx_miss, 0
+    rmiss_len_ok = eq rmiss_len, 0
+    rinvalid_flag = eq rok_invalid, 0
+    rinvalid_idx_ok = eq ridx_invalid, 0
+    rinvalid_len_ok = eq rinvalid_len, 0
+    eq0_ok = eq eq0, 1
+    eq1_ok = eq eq1, 1
+    eq1s_ok = eq eq1s, 1
+    eq0b_ok = eq eq0b, 1
+    req0_ok = eq req0, 1
+    req1_ok = eq req1, 1
+    req1s_ok = eq req1s, 1
+    req0b_ok = eq req0b, 1
+    eq_multi0_ok = eq eq_multi0, 1
+    eq_multi1b_ok = eq eq_multi1b, 1
+    req_multi0_ok = eq req_multi0, 1
+    req_multi1_ok = eq req_multi1, 1
+
+    ok = and count_ok, count_s_ok
+    ok = and ok, count_b_ok
+    ok = and ok, rcount_ok
+    ok = and ok, rcount_s_ok
+    ok = and ok, rcount_b_ok
+    ok = and ok, multi_count_ok
+    ok = and ok, multi_rcount_b_ok
+    ok = and ok, invalid_count_ok
+    ok = and ok, ok0_flag
+    ok = and ok, idx0_ok
+    ok = and ok, ok1_flag
+    ok = and ok, idx1_ok
+    ok = and ok, ok1s_flag
+    ok = and ok, idx1s_ok
+    ok = and ok, ok0b_flag
+    ok = and ok, idx0b_ok
+    ok = and ok, miss_flag
+    ok = and ok, miss_idx_ok
+    ok = and ok, miss_len_ok
+    ok = and ok, invalid_flag
+    ok = and ok, invalid_idx_ok
+    ok = and ok, invalid_len_ok
+    ok = and ok, multi0_flag
+    ok = and ok, multi0_idx_ok
+    ok = and ok, multi1b_flag
+    ok = and ok, multi1b_idx_ok
+    ok = and ok, rmulti0_flag
+    ok = and ok, rmulti0_idx_ok
+    ok = and ok, rmulti1_flag
+    ok = and ok, rmulti1_idx_ok
+    ok = and ok, rok0_flag
+    ok = and ok, ridx0_ok
+    ok = and ok, rok1_flag
+    ok = and ok, ridx1_ok
+    ok = and ok, rok1s_flag
+    ok = and ok, ridx1s_ok
+    ok = and ok, rok0b_flag
+    ok = and ok, ridx0b_ok
+    ok = and ok, rmiss_flag
+    ok = and ok, rmiss_idx_ok
+    ok = and ok, rmiss_len_ok
+    ok = and ok, rinvalid_flag
+    ok = and ok, rinvalid_idx_ok
+    ok = and ok, rinvalid_len_ok
+    ok = and ok, eq0_ok
+    ok = and ok, eq1_ok
+    ok = and ok, eq1s_ok
+    ok = and ok, eq0b_ok
+    ok = and ok, req0_ok
+    ok = and ok, req1_ok
+    ok = and ok, req1s_ok
+    ok = and ok, req0b_ok
+    ok = and ok, eq_multi0_ok
+    ok = and ok, eq_multi1b_ok
+    ok = and ok, req_multi0_ok
+    ok = and ok, req_multi1_ok
+
+    !part0
+    !part1
+    !part1s
+    !part0b
+    !part_miss
+    !part_invalid
+    !part_multi0
+    !part_multi1b
+    !rpart_multi0
+    !rpart_multi1
+    !rpart0
+    !rpart1
+    !rpart1s
+    !rpart0b
+    !rpart_miss
+    !rpart_invalid
+    EXPAND STRING_BUF_FREE match_buf
+    EXPAND STRING_BUF_FREE multi_buf
+    !matches_hay
+    !multi_hay
+    !colon
+    !eacute
+    br ok -> L_STR_MATCH_INDICES_CHAR_OK, L_STR_MATCH_INDICES_CHAR_FAIL
+
+L_STR_MATCH_INDICES_CHAR_FAIL:
+    !ok
+    panic(1036)
+
+L_STR_MATCH_INDICES_CHAR_OK:
+    !ok
+    return
+
+@test "sa_std string split inclusive needle aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS term_hay, &TERM_HAY, 4
+    EXPAND STR_FROM_PARTS split_hay, &SPLIT_HAY, 5
+    EXPAND STR_FROM_PARTS matches_hay, &MATCHES_HAY, 5
+    EXPAND STR_FROM_PARTS multi_hay, &MULTI_HAY, 7
+    EXPAND STR_FROM_PARTS colon, &SPLIT_NEEDLE, 1
+    EXPAND STR_FROM_PARTS multi_needle, &MULTI_NEEDLE, 2
+    EXPAND STR_FROM_PARTS incl0_exp, &SPLIT_INCL_PART0, 2
+    EXPAND STR_FROM_PARTS incl1_exp, &SPLIT_INCL_PART1, 2
+    EXPAND STR_FROM_PARTS multi0_exp, &MULTI_INCL_PART0, 3
+    EXPAND STR_FROM_PARTS multi1_exp, &MULTI_INCL_PART1, 3
+    EXPAND STR_FROM_PARTS tail_exp, &MULTI_PART2, 1
+    EXPAND STR_EMPTY empty_hay
+    EXPAND STR_EMPTY empty_needle
+    EXPAND STRING_BUF_FROM_STR match_buf, matches_hay
+
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT term_count, term_hay, colon
+    EXPAND STRING_SPLIT_INCLUSIVE_NEEDLE_COUNT match_count_s, matches_hay, colon
+    EXPAND STRING_BUF_SPLIT_INCLUSIVE_NEEDLE_COUNT match_count_b, match_buf, colon
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT split_count, split_hay, colon
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT multi_count, multi_hay, multi_needle
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT empty_hay_count, empty_hay, colon
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_COUNT empty_needle_count, term_hay, empty_needle
+
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_t0, term0, term_hay, colon, 0
+    EXPAND STRING_SPLIT_INCLUSIVE_NEEDLE_AT ok_t1, term1, term_hay, colon, 1
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_t2, term2, term_hay, colon, 2
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_AT ok_s2, split2, split_hay, colon, 2
+    EXPAND STRING_BUF_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_b2, bpart2, match_buf, colon, 2
+    EXPAND STRING_BUF_SPLIT_INCLUSIVE_NEEDLE_AT ok_b3, bpart3, match_buf, colon, 3
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_m0, mpart0, multi_hay, multi_needle, 0
+    EXPAND STR_SPLIT_INCLUSIVE_NEEDLE_AT ok_m1, mpart1, multi_hay, multi_needle, 1
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_m2, mpart2, multi_hay, multi_needle, 2
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_empty_hay, empty_hay_part, empty_hay, colon, 0
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT ok_empty_needle, empty_needle_part, term_hay, empty_needle, 0
+
+    EXPAND STR_EQ eq_t0, term0, incl0_exp
+    EXPAND STR_EQ eq_t1, term1, incl1_exp
+    EXPAND STR_EQ eq_s2, split2, colon
+    EXPAND STR_EQ eq_b2, bpart2, tail_exp
+    EXPAND STR_EQ eq_m0, mpart0, multi0_exp
+    EXPAND STR_EQ eq_m1, mpart1, multi1_exp
+    EXPAND STR_EQ eq_m2, mpart2, tail_exp
+    EXPAND SLICE_GET_LEN term2_len, term2
+    EXPAND SLICE_GET_LEN bpart3_len, bpart3
+    EXPAND SLICE_GET_LEN empty_hay_len, empty_hay_part
+    EXPAND SLICE_GET_LEN empty_needle_len, empty_needle_part
+
+    term_count_ok = eq term_count, 2
+    match_count_s_ok = eq match_count_s, 3
+    match_count_b_ok = eq match_count_b, 3
+    split_count_ok = eq split_count, 3
+    multi_count_ok = eq multi_count, 3
+    empty_hay_count_ok = eq empty_hay_count, 0
+    empty_needle_count_ok = eq empty_needle_count, 0
+    ok_t0_flag = eq ok_t0, 1
+    ok_t1_flag = eq ok_t1, 1
+    ok_t2_flag = eq ok_t2, 0
+    ok_s2_flag = eq ok_s2, 1
+    ok_b2_flag = eq ok_b2, 1
+    ok_b3_flag = eq ok_b3, 0
+    ok_m0_flag = eq ok_m0, 1
+    ok_m1_flag = eq ok_m1, 1
+    ok_m2_flag = eq ok_m2, 1
+    ok_empty_hay_flag = eq ok_empty_hay, 0
+    ok_empty_needle_flag = eq ok_empty_needle, 0
+    eq_t0_ok = eq eq_t0, 1
+    eq_t1_ok = eq eq_t1, 1
+    eq_s2_ok = eq eq_s2, 1
+    eq_b2_ok = eq eq_b2, 1
+    eq_m0_ok = eq eq_m0, 1
+    eq_m1_ok = eq eq_m1, 1
+    eq_m2_ok = eq eq_m2, 1
+    term2_len_ok = eq term2_len, 0
+    bpart3_len_ok = eq bpart3_len, 0
+    empty_hay_len_ok = eq empty_hay_len, 0
+    empty_needle_len_ok = eq empty_needle_len, 0
+
+    ok = and term_count_ok, match_count_s_ok
+    ok = and ok, match_count_b_ok
+    ok = and ok, split_count_ok
+    ok = and ok, multi_count_ok
+    ok = and ok, empty_hay_count_ok
+    ok = and ok, empty_needle_count_ok
+    ok = and ok, ok_t0_flag
+    ok = and ok, ok_t1_flag
+    ok = and ok, ok_t2_flag
+    ok = and ok, ok_s2_flag
+    ok = and ok, ok_b2_flag
+    ok = and ok, ok_b3_flag
+    ok = and ok, ok_m0_flag
+    ok = and ok, ok_m1_flag
+    ok = and ok, ok_m2_flag
+    ok = and ok, ok_empty_hay_flag
+    ok = and ok, ok_empty_needle_flag
+    ok = and ok, eq_t0_ok
+    ok = and ok, eq_t1_ok
+    ok = and ok, eq_s2_ok
+    ok = and ok, eq_b2_ok
+    ok = and ok, eq_m0_ok
+    ok = and ok, eq_m1_ok
+    ok = and ok, eq_m2_ok
+    ok = and ok, term2_len_ok
+    ok = and ok, bpart3_len_ok
+    ok = and ok, empty_hay_len_ok
+    ok = and ok, empty_needle_len_ok
+
+    !term0
+    !term1
+    !term2
+    !split2
+    !bpart2
+    !bpart3
+    !mpart0
+    !mpart1
+    !mpart2
+    !empty_hay_part
+    !empty_needle_part
+    !term_count
+    !match_count_s
+    !match_count_b
+    !split_count
+    !multi_count
+    !empty_hay_count
+    !empty_needle_count
+    !ok_t0
+    !ok_t1
+    !ok_t2
+    !ok_s2
+    !ok_b2
+    !ok_b3
+    !ok_m0
+    !ok_m1
+    !ok_m2
+    !ok_empty_hay
+    !ok_empty_needle
+    !eq_t0
+    !eq_t1
+    !eq_s2
+    !eq_b2
+    !eq_m0
+    !eq_m1
+    !eq_m2
+    !term2_len
+    !bpart3_len
+    !empty_hay_len
+    !empty_needle_len
+    !term_count_ok
+    !match_count_s_ok
+    !match_count_b_ok
+    !split_count_ok
+    !multi_count_ok
+    !empty_hay_count_ok
+    !empty_needle_count_ok
+    !ok_t0_flag
+    !ok_t1_flag
+    !ok_t2_flag
+    !ok_s2_flag
+    !ok_b2_flag
+    !ok_b3_flag
+    !ok_m0_flag
+    !ok_m1_flag
+    !ok_m2_flag
+    !ok_empty_hay_flag
+    !ok_empty_needle_flag
+    !eq_t0_ok
+    !eq_t1_ok
+    !eq_s2_ok
+    !eq_b2_ok
+    !eq_m0_ok
+    !eq_m1_ok
+    !eq_m2_ok
+    !term2_len_ok
+    !bpart3_len_ok
+    !empty_hay_len_ok
+    !empty_needle_len_ok
+    EXPAND STRING_BUF_FREE match_buf
+    !term_hay
+    !split_hay
+    !matches_hay
+    !multi_hay
+    !colon
+    !multi_needle
+    !incl0_exp
+    !incl1_exp
+    !multi0_exp
+    !multi1_exp
+    !tail_exp
+    !empty_hay
+    !empty_needle
+    br ok -> L_STR_SPLIT_INCL_NEEDLE_OK, L_STR_SPLIT_INCL_NEEDLE_FAIL
+
+L_STR_SPLIT_INCL_NEEDLE_FAIL:
+    !ok
+    panic(1034)
+
+L_STR_SPLIT_INCL_NEEDLE_OK:
+    !ok
+    return
+
+@test "sa_std string split inclusive char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay_colon, &CHAR_HAY_COLON_COUNT, 5
+    EXPAND STR_FROM_PARTS hay_multi, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS incl0_exp, &SPLIT_INCL_PART0, 2
+    EXPAND STR_FROM_PARTS incl1_exp, &SPLIT_INCL_PART1, 2
+    EXPAND STR_FROM_PARTS tail_exp, &MULTI_PART2, 1
+    EXPAND STR_FROM_PARTS eacute_exp, &UTF8_A_E, 3
+    EXPAND STRING_BUF_FROM_STR char_buf, hay_colon
+
+    EXPAND STR_SPLIT_INCLUSIVE_CHAR_COUNT colon_count, hay_colon, 58
+    EXPAND STRING_SPLIT_INCLUSIVE_CHAR_COUNT eacute_count, hay_multi, 233
+    EXPAND STRING_BUF_SPLIT_INCLUSIVE_CHAR_COUNT buf_count, char_buf, 58
+    EXPAND STR_SPLIT_INCLUSIVE_CHAR_COUNT invalid_count, hay_colon, 55296
+
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT ok0, part0, hay_colon, 58, 0
+    EXPAND STRING_SPLIT_INCLUSIVE_CHAR_AT ok1, part1, hay_colon, 58, 1
+    EXPAND STRING_BUF_TRY_SPLIT_INCLUSIVE_CHAR_AT ok2, part2, char_buf, 58, 2
+    EXPAND STRING_BUF_SPLIT_INCLUSIVE_CHAR_AT ok3, part3, char_buf, 58, 3
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT ok_e0, epart0, hay_multi, 233, 0
+    EXPAND STR_SPLIT_INCLUSIVE_CHAR_AT ok_e1, epart1, hay_multi, 233, 1
+    EXPAND STR_TRY_SPLIT_INCLUSIVE_CHAR_AT ok_invalid, invalid_part, hay_colon, 55296, 0
+
+    EXPAND STR_EQ eq0, part0, incl0_exp
+    EXPAND STR_EQ eq1, part1, incl1_exp
+    EXPAND STR_EQ eq2, part2, tail_exp
+    EXPAND STR_EQ eq_e0, epart0, eacute_exp
+    EXPAND STR_EQ eq_e1, epart1, eacute_exp
+    EXPAND SLICE_GET_LEN part3_len, part3
+    EXPAND SLICE_GET_LEN invalid_len, invalid_part
+
+    colon_count_ok = eq colon_count, 3
+    eacute_count_ok = eq eacute_count, 2
+    buf_count_ok = eq buf_count, 3
+    invalid_count_ok = eq invalid_count, 0
+    ok0_flag = eq ok0, 1
+    ok1_flag = eq ok1, 1
+    ok2_flag = eq ok2, 1
+    ok3_flag = eq ok3, 0
+    ok_e0_flag = eq ok_e0, 1
+    ok_e1_flag = eq ok_e1, 1
+    ok_invalid_flag = eq ok_invalid, 0
+    eq0_ok = eq eq0, 1
+    eq1_ok = eq eq1, 1
+    eq2_ok = eq eq2, 1
+    eq_e0_ok = eq eq_e0, 1
+    eq_e1_ok = eq eq_e1, 1
+    part3_len_ok = eq part3_len, 0
+    invalid_len_ok = eq invalid_len, 0
+
+    ok = and colon_count_ok, eacute_count_ok
+    ok = and ok, buf_count_ok
+    ok = and ok, invalid_count_ok
+    ok = and ok, ok0_flag
+    ok = and ok, ok1_flag
+    ok = and ok, ok2_flag
+    ok = and ok, ok3_flag
+    ok = and ok, ok_e0_flag
+    ok = and ok, ok_e1_flag
+    ok = and ok, ok_invalid_flag
+    ok = and ok, eq0_ok
+    ok = and ok, eq1_ok
+    ok = and ok, eq2_ok
+    ok = and ok, eq_e0_ok
+    ok = and ok, eq_e1_ok
+    ok = and ok, part3_len_ok
+    ok = and ok, invalid_len_ok
+
+    !part0
+    !part1
+    !part2
+    !part3
+    !epart0
+    !epart1
+    !invalid_part
+    !colon_count
+    !eacute_count
+    !buf_count
+    !invalid_count
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok_e0
+    !ok_e1
+    !ok_invalid
+    !eq0
+    !eq1
+    !eq2
+    !eq_e0
+    !eq_e1
+    !part3_len
+    !invalid_len
+    !colon_count_ok
+    !eacute_count_ok
+    !buf_count_ok
+    !invalid_count_ok
+    !ok0_flag
+    !ok1_flag
+    !ok2_flag
+    !ok3_flag
+    !ok_e0_flag
+    !ok_e1_flag
+    !ok_invalid_flag
+    !eq0_ok
+    !eq1_ok
+    !eq2_ok
+    !eq_e0_ok
+    !eq_e1_ok
+    !part3_len_ok
+    !invalid_len_ok
+    EXPAND STRING_BUF_FREE char_buf
+    !hay_colon
+    !hay_multi
+    !incl0_exp
+    !incl1_exp
+    !tail_exp
+    !eacute_exp
+    br ok -> L_STR_SPLIT_INCL_CHAR_OK, L_STR_SPLIT_INCL_CHAR_FAIL
+
+L_STR_SPLIT_INCL_CHAR_FAIL:
+    !ok
+    panic(1035)
+
+L_STR_SPLIT_INCL_CHAR_OK:
+    !ok
+    return
+
+@test "sa_std string split terminator needle aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_hay, &SPLIT_HAY, 5
+    EXPAND STR_FROM_PARTS term_hay, &TERM_HAY, 4
+    EXPAND STR_FROM_PARTS colon, &SPLIT_NEEDLE, 1
+    EXPAND STR_FROM_PARTS p0, &SPLIT_PART0, 1
+    EXPAND STR_FROM_PARTS p1, &SPLIT_PART1, 1
+    EXPAND STR_EMPTY empty_needle
+    EXPAND STRING_BUF_FROM_STR split_buf, split_hay
+
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT term_count, term_hay, colon
+    EXPAND STRING_SPLIT_TERMINATOR_NEEDLE_COUNT split_count_s, split_hay, colon
+    EXPAND STRING_BUF_SPLIT_TERMINATOR_NEEDLE_COUNT split_count_b, split_buf, colon
+    EXPAND STR_RSPLIT_TERMINATOR_NEEDLE_COUNT rterm_count, term_hay, colon
+    EXPAND STRING_RSPLIT_TERMINATOR_NEEDLE_COUNT rsplit_count_s, split_hay, colon
+    EXPAND STRING_BUF_RSPLIT_TERMINATOR_NEEDLE_COUNT rsplit_count_b, split_buf, colon
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_COUNT empty_needle_count, term_hay, empty_needle
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT ok_t0, term0, term_hay, colon, 0
+    EXPAND STRING_TRY_SPLIT_TERMINATOR_NEEDLE_AT ok_t1, term1, term_hay, colon, 1
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT ok_t2, term2, term_hay, colon, 2
+    EXPAND STRING_BUF_TRY_SPLIT_TERMINATOR_NEEDLE_AT ok_b1, bterm1, split_buf, colon, 1
+    EXPAND STRING_BUF_SPLIT_TERMINATOR_NEEDLE_AT ok_b2, bterm2, split_buf, colon, 2
+    EXPAND STR_SPLIT_TERMINATOR_NEEDLE_AT ok_t0u, term0u, split_hay, colon, 0
+    EXPAND STRING_SPLIT_TERMINATOR_NEEDLE_AT ok_t1u, term1u, split_hay, colon, 1
+    EXPAND STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT ok_empty_needle, empty_part, term_hay, empty_needle, 0
+
+    EXPAND STR_EQ eq_t0, term0, p0
+    EXPAND STR_EQ eq_t1, term1, p1
+    EXPAND STR_EQ eq_b1, bterm1, p1
+    EXPAND STR_EQ eq_t0u, term0u, p0
+    EXPAND STR_EQ eq_t1u, term1u, p1
+    EXPAND STR_IS_EMPTY term2_empty, term2
+    EXPAND STR_IS_EMPTY bterm2_empty, bterm2
+    EXPAND STR_IS_EMPTY empty_part_empty, empty_part
+
+    term_count_ok = eq term_count, 2
+    split_count_s_ok = eq split_count_s, 2
+    split_count_b_ok = eq split_count_b, 2
+    rterm_count_ok = eq rterm_count, 2
+    rsplit_count_s_ok = eq rsplit_count_s, 2
+    rsplit_count_b_ok = eq rsplit_count_b, 2
+    empty_needle_count_ok = eq empty_needle_count, 0
+    ok_t0_flag = eq ok_t0, 1
+    ok_t1_flag = eq ok_t1, 1
+    ok_t2_flag = eq ok_t2, 0
+    ok_b1_flag = eq ok_b1, 1
+    ok_b2_flag = eq ok_b2, 0
+    ok_t0u_flag = eq ok_t0u, 1
+    ok_t1u_flag = eq ok_t1u, 1
+    ok_empty_needle_flag = eq ok_empty_needle, 0
+    eq_t0_ok = eq eq_t0, 1
+    eq_t1_ok = eq eq_t1, 1
+    eq_b1_ok = eq eq_b1, 1
+    eq_t0u_ok = eq eq_t0u, 1
+    eq_t1u_ok = eq eq_t1u, 1
+    term2_empty_ok = eq term2_empty, 1
+    bterm2_empty_ok = eq bterm2_empty, 1
+    empty_part_empty_ok = eq empty_part_empty, 1
+    ok = and term_count_ok, split_count_s_ok
+    ok = and ok, split_count_b_ok
+    ok = and ok, rterm_count_ok
+    ok = and ok, rsplit_count_s_ok
+    ok = and ok, rsplit_count_b_ok
+    ok = and ok, empty_needle_count_ok
+    ok = and ok, ok_t0_flag
+    ok = and ok, ok_t1_flag
+    ok = and ok, ok_t2_flag
+    ok = and ok, ok_b1_flag
+    ok = and ok, ok_b2_flag
+    ok = and ok, ok_t0u_flag
+    ok = and ok, ok_t1u_flag
+    ok = and ok, ok_empty_needle_flag
+    ok = and ok, eq_t0_ok
+    ok = and ok, eq_t1_ok
+    ok = and ok, eq_b1_ok
+    ok = and ok, eq_t0u_ok
+    ok = and ok, eq_t1u_ok
+    ok = and ok, term2_empty_ok
+    ok = and ok, bterm2_empty_ok
+    ok = and ok, empty_part_empty_ok
+    EXPAND STRING_BUF_FREE split_buf
+    !split_hay
+    !term_hay
+    !colon
+    !p0
+    !p1
+    !empty_needle
+    !term_count
+    !split_count_s
+    !split_count_b
+    !rterm_count
+    !rsplit_count_s
+    !rsplit_count_b
+    !empty_needle_count
+    !ok_t0
+    !term0
+    !ok_t1
+    !term1
+    !ok_t2
+    !term2
+    !ok_b1
+    !bterm1
+    !ok_b2
+    !bterm2
+    !ok_t0u
+    !term0u
+    !ok_t1u
+    !term1u
+    !ok_empty_needle
+    !empty_part
+    !eq_t0
+    !eq_t1
+    !eq_b1
+    !eq_t0u
+    !eq_t1u
+    !term2_empty
+    !bterm2_empty
+    !empty_part_empty
+    !term_count_ok
+    !split_count_s_ok
+    !split_count_b_ok
+    !rterm_count_ok
+    !rsplit_count_s_ok
+    !rsplit_count_b_ok
+    !empty_needle_count_ok
+    !ok_t0_flag
+    !ok_t1_flag
+    !ok_t2_flag
+    !ok_b1_flag
+    !ok_b2_flag
+    !ok_t0u_flag
+    !ok_t1u_flag
+    !ok_empty_needle_flag
+    !eq_t0_ok
+    !eq_t1_ok
+    !eq_b1_ok
+    !eq_t0u_ok
+    !eq_t1u_ok
+    !term2_empty_ok
+    !bterm2_empty_ok
+    !empty_part_empty_ok
+    br ok -> L_SPLIT_TERM_NEEDLE_OK, L_SPLIT_TERM_NEEDLE_FAIL
+
+L_SPLIT_TERM_NEEDLE_FAIL:
+    !ok
+    panic(1031)
+
+L_SPLIT_TERM_NEEDLE_OK:
+    !ok
+    return
+
+@test "sa_std string split terminator char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_hay, &SPLIT_HAY, 5
+    EXPAND STR_FROM_PARTS term_hay, &TERM_HAY, 4
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS p0, &SPLIT_PART0, 1
+    EXPAND STR_FROM_PARTS p1, &SPLIT_PART1, 1
+    EXPAND STRING_BUF_FROM_STR split_buf, split_hay
+    EXPAND STRING_BUF_FROM_STR multi_buf, multi_hay
+
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_COUNT term_count, term_hay, 58
+    EXPAND STRING_SPLIT_TERMINATOR_CHAR_COUNT split_count_s, split_hay, 58
+    EXPAND STRING_BUF_SPLIT_TERMINATOR_CHAR_COUNT split_count_b, split_buf, 58
+    EXPAND STR_RSPLIT_TERMINATOR_CHAR_COUNT rterm_count, term_hay, 58
+    EXPAND STRING_RSPLIT_TERMINATOR_CHAR_COUNT rsplit_count_s, split_hay, 58
+    EXPAND STRING_BUF_RSPLIT_TERMINATOR_CHAR_COUNT rsplit_count_b, split_buf, 58
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_COUNT multi_count, multi_hay, 233
+    EXPAND STRING_BUF_RSPLIT_TERMINATOR_CHAR_COUNT multi_rcount_b, multi_buf, 233
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_COUNT invalid_count, term_hay, 55296
+    EXPAND STR_RSPLIT_TERMINATOR_CHAR_COUNT invalid_rcount, term_hay, 55296
+
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT ok_t0, term0, term_hay, 58, 0
+    EXPAND STRING_TRY_SPLIT_TERMINATOR_CHAR_AT ok_t1, term1, term_hay, 58, 1
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_AT ok_t2, term2, term_hay, 58, 2
+    EXPAND STRING_SPLIT_TERMINATOR_CHAR_AT ok_t1u, term1u, split_hay, 58, 1
+    EXPAND STRING_BUF_TRY_SPLIT_TERMINATOR_CHAR_AT ok_b1, bterm1, split_buf, 58, 1
+    EXPAND STRING_BUF_SPLIT_TERMINATOR_CHAR_AT ok_b2, bterm2, split_buf, 58, 2
+
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT ok_rt0, rterm0, term_hay, 58, 0
+    EXPAND STRING_TRY_RSPLIT_TERMINATOR_CHAR_AT ok_rt0s, rterm0s, term_hay, 58, 0
+    EXPAND STRING_RSPLIT_TERMINATOR_CHAR_AT ok_rt1, rterm1, term_hay, 58, 1
+    EXPAND STRING_BUF_TRY_RSPLIT_TERMINATOR_CHAR_AT ok_rb1, rbterm1, split_buf, 58, 1
+    EXPAND STR_RSPLIT_TERMINATOR_CHAR_AT ok_rt2, rterm2, term_hay, 58, 2
+    EXPAND STRING_BUF_RSPLIT_TERMINATOR_CHAR_AT ok_rb2, rbterm2, split_buf, 58, 2
+
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT ok_multi0, multi0, multi_hay, 233, 0
+    EXPAND STR_SPLIT_TERMINATOR_CHAR_AT ok_multi1, multi1, multi_hay, 233, 1
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT ok_rmulti0, rmulti0, multi_hay, 233, 0
+    EXPAND STR_TRY_SPLIT_TERMINATOR_CHAR_AT ok_invalid, invalid_part, term_hay, 55296, 0
+    EXPAND STR_TRY_RSPLIT_TERMINATOR_CHAR_AT ok_rinvalid, rinvalid_part, term_hay, 55296, 0
+
+    EXPAND STR_EQ eq_t0, term0, p0
+    EXPAND STR_EQ eq_t1, term1, p1
+    EXPAND STR_EQ eq_t1u, term1u, p1
+    EXPAND STR_EQ eq_b1, bterm1, p1
+    EXPAND STR_EQ eq_rt0, rterm0, p1
+    EXPAND STR_EQ eq_rt0s, rterm0s, p1
+    EXPAND STR_EQ eq_rt1, rterm1, p0
+    EXPAND STR_EQ eq_rb1, rbterm1, p0
+    EXPAND STR_EQ eq_multi0, multi0, p0
+    EXPAND STR_EQ eq_multi1, multi1, p0
+    EXPAND STR_EQ eq_rmulti0, rmulti0, p0
+    EXPAND STR_IS_EMPTY term2_empty, term2
+    EXPAND STR_IS_EMPTY bterm2_empty, bterm2
+    EXPAND STR_IS_EMPTY rterm2_empty, rterm2
+    EXPAND STR_IS_EMPTY rbterm2_empty, rbterm2
+    EXPAND STR_IS_EMPTY invalid_empty, invalid_part
+    EXPAND STR_IS_EMPTY rinvalid_empty, rinvalid_part
+
+    term_count_ok = eq term_count, 2
+    split_count_s_ok = eq split_count_s, 2
+    split_count_b_ok = eq split_count_b, 2
+    rterm_count_ok = eq rterm_count, 2
+    rsplit_count_s_ok = eq rsplit_count_s, 2
+    rsplit_count_b_ok = eq rsplit_count_b, 2
+    multi_count_ok = eq multi_count, 2
+    multi_rcount_b_ok = eq multi_rcount_b, 2
+    invalid_count_ok = eq invalid_count, 0
+    invalid_rcount_ok = eq invalid_rcount, 0
+    ok_t0_flag = eq ok_t0, 1
+    ok_t1_flag = eq ok_t1, 1
+    ok_t2_flag = eq ok_t2, 0
+    ok_t1u_flag = eq ok_t1u, 1
+    ok_b1_flag = eq ok_b1, 1
+    ok_b2_flag = eq ok_b2, 0
+    ok_rt0_flag = eq ok_rt0, 1
+    ok_rt0s_flag = eq ok_rt0s, 1
+    ok_rt1_flag = eq ok_rt1, 1
+    ok_rb1_flag = eq ok_rb1, 1
+    ok_rt2_flag = eq ok_rt2, 0
+    ok_rb2_flag = eq ok_rb2, 0
+    ok_multi0_flag = eq ok_multi0, 1
+    ok_multi1_flag = eq ok_multi1, 1
+    ok_rmulti0_flag = eq ok_rmulti0, 1
+    ok_invalid_flag = eq ok_invalid, 0
+    ok_rinvalid_flag = eq ok_rinvalid, 0
+    eq_t0_ok = eq eq_t0, 1
+    eq_t1_ok = eq eq_t1, 1
+    eq_t1u_ok = eq eq_t1u, 1
+    eq_b1_ok = eq eq_b1, 1
+    eq_rt0_ok = eq eq_rt0, 1
+    eq_rt0s_ok = eq eq_rt0s, 1
+    eq_rt1_ok = eq eq_rt1, 1
+    eq_rb1_ok = eq eq_rb1, 1
+    eq_multi0_ok = eq eq_multi0, 1
+    eq_multi1_ok = eq eq_multi1, 1
+    eq_rmulti0_ok = eq eq_rmulti0, 1
+    term2_empty_ok = eq term2_empty, 1
+    bterm2_empty_ok = eq bterm2_empty, 1
+    rterm2_empty_ok = eq rterm2_empty, 1
+    rbterm2_empty_ok = eq rbterm2_empty, 1
+    invalid_empty_ok = eq invalid_empty, 1
+    rinvalid_empty_ok = eq rinvalid_empty, 1
+
+    ok = and term_count_ok, split_count_s_ok
+    ok = and ok, split_count_b_ok
+    ok = and ok, rterm_count_ok
+    ok = and ok, rsplit_count_s_ok
+    ok = and ok, rsplit_count_b_ok
+    ok = and ok, multi_count_ok
+    ok = and ok, multi_rcount_b_ok
+    ok = and ok, invalid_count_ok
+    ok = and ok, invalid_rcount_ok
+    ok = and ok, ok_t0_flag
+    ok = and ok, ok_t1_flag
+    ok = and ok, ok_t2_flag
+    ok = and ok, ok_t1u_flag
+    ok = and ok, ok_b1_flag
+    ok = and ok, ok_b2_flag
+    ok = and ok, ok_rt0_flag
+    ok = and ok, ok_rt0s_flag
+    ok = and ok, ok_rt1_flag
+    ok = and ok, ok_rb1_flag
+    ok = and ok, ok_rt2_flag
+    ok = and ok, ok_rb2_flag
+    ok = and ok, ok_multi0_flag
+    ok = and ok, ok_multi1_flag
+    ok = and ok, ok_rmulti0_flag
+    ok = and ok, ok_invalid_flag
+    ok = and ok, ok_rinvalid_flag
+    ok = and ok, eq_t0_ok
+    ok = and ok, eq_t1_ok
+    ok = and ok, eq_t1u_ok
+    ok = and ok, eq_b1_ok
+    ok = and ok, eq_rt0_ok
+    ok = and ok, eq_rt0s_ok
+    ok = and ok, eq_rt1_ok
+    ok = and ok, eq_rb1_ok
+    ok = and ok, eq_multi0_ok
+    ok = and ok, eq_multi1_ok
+    ok = and ok, eq_rmulti0_ok
+    ok = and ok, term2_empty_ok
+    ok = and ok, bterm2_empty_ok
+    ok = and ok, rterm2_empty_ok
+    ok = and ok, rbterm2_empty_ok
+    ok = and ok, invalid_empty_ok
+    ok = and ok, rinvalid_empty_ok
+
+    EXPAND STRING_BUF_FREE split_buf
+    EXPAND STRING_BUF_FREE multi_buf
+    !split_hay
+    !term_hay
+    !multi_hay
+    !p0
+    !p1
+    !term_count
+    !split_count_s
+    !split_count_b
+    !rterm_count
+    !rsplit_count_s
+    !rsplit_count_b
+    !multi_count
+    !multi_rcount_b
+    !invalid_count
+    !invalid_rcount
+    !ok_t0
+    !term0
+    !ok_t1
+    !term1
+    !ok_t2
+    !term2
+    !ok_t1u
+    !term1u
+    !ok_b1
+    !bterm1
+    !ok_b2
+    !bterm2
+    !ok_rt0
+    !rterm0
+    !ok_rt0s
+    !rterm0s
+    !ok_rt1
+    !rterm1
+    !ok_rb1
+    !rbterm1
+    !ok_rt2
+    !rterm2
+    !ok_rb2
+    !rbterm2
+    !ok_multi0
+    !multi0
+    !ok_multi1
+    !multi1
+    !ok_rmulti0
+    !rmulti0
+    !ok_invalid
+    !invalid_part
+    !ok_rinvalid
+    !rinvalid_part
+    !eq_t0
+    !eq_t1
+    !eq_t1u
+    !eq_b1
+    !eq_rt0
+    !eq_rt0s
+    !eq_rt1
+    !eq_rb1
+    !eq_multi0
+    !eq_multi1
+    !eq_rmulti0
+    !term2_empty
+    !bterm2_empty
+    !rterm2_empty
+    !rbterm2_empty
+    !invalid_empty
+    !rinvalid_empty
+    !term_count_ok
+    !split_count_s_ok
+    !split_count_b_ok
+    !rterm_count_ok
+    !rsplit_count_s_ok
+    !rsplit_count_b_ok
+    !multi_count_ok
+    !multi_rcount_b_ok
+    !invalid_count_ok
+    !invalid_rcount_ok
+    !ok_t0_flag
+    !ok_t1_flag
+    !ok_t2_flag
+    !ok_t1u_flag
+    !ok_b1_flag
+    !ok_b2_flag
+    !ok_rt0_flag
+    !ok_rt0s_flag
+    !ok_rt1_flag
+    !ok_rb1_flag
+    !ok_rt2_flag
+    !ok_rb2_flag
+    !ok_multi0_flag
+    !ok_multi1_flag
+    !ok_rmulti0_flag
+    !ok_invalid_flag
+    !ok_rinvalid_flag
+    !eq_t0_ok
+    !eq_t1_ok
+    !eq_t1u_ok
+    !eq_b1_ok
+    !eq_rt0_ok
+    !eq_rt0s_ok
+    !eq_rt1_ok
+    !eq_rb1_ok
+    !eq_multi0_ok
+    !eq_multi1_ok
+    !eq_rmulti0_ok
+    !term2_empty_ok
+    !bterm2_empty_ok
+    !rterm2_empty_ok
+    !rbterm2_empty_ok
+    !invalid_empty_ok
+    !rinvalid_empty_ok
+    br ok -> L_SPLIT_TERM_CHAR_OK, L_SPLIT_TERM_CHAR_FAIL
+
+L_SPLIT_TERM_CHAR_FAIL:
+    !ok
+    panic(1037)
+
+L_SPLIT_TERM_CHAR_OK:
+    !ok
+    return
+
+@test "sa_std string splitn count aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_hay, &SPLIT_HAY, 5
+    EXPAND STR_FROM_PARTS colon, &SPLIT_NEEDLE, 1
+    EXPAND STR_EMPTY empty_needle
+    EXPAND STRING_BUF_FROM_STR split_buf, split_hay
+
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT splitn2_count, split_hay, colon, 2
+    EXPAND STRING_SPLIT_N_NEEDLE_COUNT splitn10_count, split_hay, colon, 10
+    EXPAND STRING_BUF_SPLIT_N_NEEDLE_COUNT splitn2_count_b, split_buf, colon, 2
+    EXPAND STR_RSPLIT_N_NEEDLE_COUNT rsplitn2_count, split_hay, colon, 2
+    EXPAND STRING_RSPLIT_N_NEEDLE_COUNT rsplitn10_count, split_hay, colon, 10
+    EXPAND STRING_BUF_RSPLIT_N_NEEDLE_COUNT rsplitn2_count_b, split_buf, colon, 2
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT zero_count, split_hay, colon, 0
+    EXPAND STR_RSPLIT_N_NEEDLE_COUNT zero_r_count, split_hay, colon, 0
+    EXPAND STR_SPLIT_N_NEEDLE_COUNT empty_needle_count, split_hay, empty_needle, 3
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT zero_ok, zero_part, split_hay, colon, 0, 0
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT zero_r_ok, zero_r_part, split_hay, colon, 0, 0
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT empty0_ok, empty0_part, split_hay, empty_needle, 3, 0
+    EXPAND STR_TRY_SPLIT_N_NEEDLE_AT empty1_ok, empty1_part, split_hay, empty_needle, 3, 1
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT empty_r0_ok, empty_r0_part, split_hay, empty_needle, 3, 0
+    EXPAND STR_TRY_RSPLIT_N_NEEDLE_AT empty_r1_ok, empty_r1_part, split_hay, empty_needle, 3, 1
+
+    EXPAND STR_IS_EMPTY zero_part_empty, zero_part
+    EXPAND STR_IS_EMPTY zero_r_part_empty, zero_r_part
+    EXPAND STR_EQ empty0_eq, empty0_part, split_hay
+    EXPAND STR_IS_EMPTY empty1_empty, empty1_part
+    EXPAND STR_EQ empty_r0_eq, empty_r0_part, split_hay
+    EXPAND STR_IS_EMPTY empty_r1_empty, empty_r1_part
+
+    splitn2_count_ok = eq splitn2_count, 2
+    splitn10_count_ok = eq splitn10_count, 4
+    splitn2_count_b_ok = eq splitn2_count_b, 2
+    rsplitn2_count_ok = eq rsplitn2_count, 2
+    rsplitn10_count_ok = eq rsplitn10_count, 4
+    rsplitn2_count_b_ok = eq rsplitn2_count_b, 2
+    zero_count_ok = eq zero_count, 0
+    zero_r_count_ok = eq zero_r_count, 0
+    empty_needle_count_ok = eq empty_needle_count, 1
+    zero_flag_ok = eq zero_ok, 0
+    zero_value_ok = eq zero_part_empty, 1
+    zero_r_flag_ok = eq zero_r_ok, 0
+    zero_r_value_ok = eq zero_r_part_empty, 1
+    empty0_flag_ok = eq empty0_ok, 1
+    empty0_value_ok = eq empty0_eq, 1
+    empty1_flag_ok = eq empty1_ok, 0
+    empty1_value_ok = eq empty1_empty, 1
+    empty_r0_flag_ok = eq empty_r0_ok, 1
+    empty_r0_value_ok = eq empty_r0_eq, 1
+    empty_r1_flag_ok = eq empty_r1_ok, 0
+    empty_r1_value_ok = eq empty_r1_empty, 1
+    ok = and splitn2_count_ok, splitn10_count_ok
+    ok = and ok, splitn2_count_b_ok
+    ok = and ok, rsplitn2_count_ok
+    ok = and ok, rsplitn10_count_ok
+    ok = and ok, rsplitn2_count_b_ok
+    ok = and ok, zero_count_ok
+    ok = and ok, zero_r_count_ok
+    ok = and ok, empty_needle_count_ok
+    ok = and ok, zero_flag_ok
+    ok = and ok, zero_value_ok
+    ok = and ok, zero_r_flag_ok
+    ok = and ok, zero_r_value_ok
+    ok = and ok, empty0_flag_ok
+    ok = and ok, empty0_value_ok
+    ok = and ok, empty1_flag_ok
+    ok = and ok, empty1_value_ok
+    ok = and ok, empty_r0_flag_ok
+    ok = and ok, empty_r0_value_ok
+    ok = and ok, empty_r1_flag_ok
+    ok = and ok, empty_r1_value_ok
+    EXPAND STRING_BUF_FREE split_buf
+    !split_hay
+    !colon
+    !empty_needle
+    !splitn2_count
+    !splitn10_count
+    !splitn2_count_b
+    !rsplitn2_count
+    !rsplitn10_count
+    !rsplitn2_count_b
+    !zero_count
+    !zero_r_count
+    !empty_needle_count
+    !zero_ok
+    !zero_part
+    !zero_r_ok
+    !zero_r_part
+    !empty0_ok
+    !empty0_part
+    !empty1_ok
+    !empty1_part
+    !empty_r0_ok
+    !empty_r0_part
+    !empty_r1_ok
+    !empty_r1_part
+    !zero_part_empty
+    !zero_r_part_empty
+    !empty0_eq
+    !empty1_empty
+    !empty_r0_eq
+    !empty_r1_empty
+    !splitn2_count_ok
+    !splitn10_count_ok
+    !splitn2_count_b_ok
+    !rsplitn2_count_ok
+    !rsplitn10_count_ok
+    !rsplitn2_count_b_ok
+    !zero_count_ok
+    !zero_r_count_ok
+    !empty_needle_count_ok
+    !zero_flag_ok
+    !zero_value_ok
+    !zero_r_flag_ok
+    !zero_r_value_ok
+    !empty0_flag_ok
+    !empty0_value_ok
+    !empty1_flag_ok
+    !empty1_value_ok
+    !empty_r0_flag_ok
+    !empty_r0_value_ok
+    !empty_r1_flag_ok
+    !empty_r1_value_ok
+    br ok -> L_SPLITN_COUNT_OK, L_SPLITN_COUNT_FAIL
+
+L_SPLITN_COUNT_FAIL:
+    !ok
+    panic(1032)
+
+L_SPLITN_COUNT_OK:
+    !ok
+    return
+
+@test "sa_std string splitn char aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS split_hay, &SPLIT_HAY, 5
+    EXPAND STR_FROM_PARTS multi_hay, &CHAR_HAY_MULTI, 6
+    EXPAND STR_FROM_PARTS p0, &SPLIT_PART0, 1
+    EXPAND STR_FROM_PARTS rest, &SPLIT_REST, 3
+    EXPAND STR_FROM_PARTS utf8_a_e, &UTF8_A_E, 3
+    EXPAND STRING_BUF_FROM_STR split_buf, split_hay
+    EXPAND STRING_BUF_FROM_STR multi_buf, multi_hay
+
+    EXPAND STR_SPLIT_N_CHAR_COUNT splitn2_count, split_hay, 58, 2
+    EXPAND STRING_SPLIT_N_CHAR_COUNT splitn10_count_s, split_hay, 58, 10
+    EXPAND STRING_BUF_SPLIT_N_CHAR_COUNT splitn2_count_b, split_buf, 58, 2
+    EXPAND STR_RSPLIT_N_CHAR_COUNT rsplitn2_count, split_hay, 58, 2
+    EXPAND STRING_RSPLIT_N_CHAR_COUNT rsplitn10_count_s, split_hay, 58, 10
+    EXPAND STRING_BUF_RSPLIT_N_CHAR_COUNT rsplitn2_count_b, split_buf, 58, 2
+    EXPAND STR_SPLIT_N_CHAR_COUNT zero_count, split_hay, 58, 0
+    EXPAND STR_SPLIT_N_CHAR_COUNT invalid_count, split_hay, 55296, 2
+    EXPAND STR_RSPLIT_N_CHAR_COUNT invalid_rcount, split_hay, 55296, 2
+    EXPAND STR_SPLIT_N_CHAR_COUNT multi_count, multi_hay, 233, 2
+    EXPAND STRING_BUF_RSPLIT_N_CHAR_COUNT multi_rcount_b, multi_buf, 233, 2
+
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT ok_s0, part_s0, split_hay, 58, 2, 0
+    EXPAND STRING_TRY_SPLIT_N_CHAR_AT ok_s1t, part_s1t, split_hay, 58, 2, 1
+    EXPAND STRING_BUF_TRY_SPLIT_N_CHAR_AT ok_s1bt, part_s1bt, split_buf, 58, 2, 1
+    EXPAND STR_SPLIT_N_CHAR_AT ok_s0u, part_s0u, split_hay, 58, 2, 0
+    EXPAND STRING_SPLIT_N_CHAR_AT ok_s1u, part_s1u, split_hay, 58, 2, 1
+    EXPAND STRING_BUF_SPLIT_N_CHAR_AT ok_s1bu, part_s1bu, split_buf, 58, 2, 1
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT ok_s2, part_s2, split_hay, 58, 2, 2
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT ok_zero, part_zero, split_hay, 58, 0, 0
+
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT ok_rs0, part_rs0, split_hay, 58, 2, 0
+    EXPAND STRING_TRY_RSPLIT_N_CHAR_AT ok_rs1t, part_rs1t, split_hay, 58, 2, 1
+    EXPAND STRING_BUF_TRY_RSPLIT_N_CHAR_AT ok_rs1bt, part_rs1bt, split_buf, 58, 2, 1
+    EXPAND STR_RSPLIT_N_CHAR_AT ok_rs0u, part_rs0u, split_hay, 58, 2, 0
+    EXPAND STRING_RSPLIT_N_CHAR_AT ok_rs1u, part_rs1u, split_hay, 58, 2, 1
+    EXPAND STRING_BUF_RSPLIT_N_CHAR_AT ok_rs1bu, part_rs1bu, split_buf, 58, 2, 1
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT ok_rs2, part_rs2, split_hay, 58, 2, 2
+
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT ok_multi0, part_multi0, multi_hay, 233, 2, 0
+    EXPAND STR_SPLIT_N_CHAR_AT ok_multi1, part_multi1, multi_hay, 233, 2, 1
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT ok_rmulti0, part_rmulti0, multi_hay, 233, 2, 0
+    EXPAND STRING_BUF_SPLIT_N_CHAR_AT ok_multi1b, part_multi1b, multi_buf, 233, 2, 1
+    EXPAND STR_TRY_SPLIT_N_CHAR_AT ok_invalid, part_invalid, split_hay, 55296, 2, 0
+    EXPAND STR_TRY_RSPLIT_N_CHAR_AT ok_rinvalid, part_rinvalid, split_hay, 55296, 2, 0
+
+    EXPAND STR_EQ eq_s0, part_s0, p0
+    EXPAND STR_EQ eq_s1t, part_s1t, rest
+    EXPAND STR_EQ eq_s1bt, part_s1bt, rest
+    EXPAND STR_EQ eq_s0u, part_s0u, p0
+    EXPAND STR_EQ eq_s1u, part_s1u, rest
+    EXPAND STR_EQ eq_s1bu, part_s1bu, rest
+    EXPAND STR_EQ eq_rs0, part_rs0, rest
+    EXPAND STR_EQ eq_rs1t, part_rs1t, p0
+    EXPAND STR_EQ eq_rs1bt, part_rs1bt, p0
+    EXPAND STR_EQ eq_rs0u, part_rs0u, rest
+    EXPAND STR_EQ eq_rs1u, part_rs1u, p0
+    EXPAND STR_EQ eq_rs1bu, part_rs1bu, p0
+    EXPAND STR_EQ eq_multi0, part_multi0, p0
+    EXPAND STR_EQ eq_multi1, part_multi1, utf8_a_e
+    EXPAND STR_EQ eq_rmulti0, part_rmulti0, utf8_a_e
+    EXPAND STR_EQ eq_multi1b, part_multi1b, utf8_a_e
+    EXPAND STR_IS_EMPTY empty_s2, part_s2
+    EXPAND STR_IS_EMPTY empty_zero, part_zero
+    EXPAND STR_IS_EMPTY empty_rs2, part_rs2
+    EXPAND STR_IS_EMPTY empty_invalid, part_invalid
+    EXPAND STR_IS_EMPTY empty_rinvalid, part_rinvalid
+
+    splitn2_count_ok = eq splitn2_count, 2
+    splitn10_count_s_ok = eq splitn10_count_s, 4
+    splitn2_count_b_ok = eq splitn2_count_b, 2
+    rsplitn2_count_ok = eq rsplitn2_count, 2
+    rsplitn10_count_s_ok = eq rsplitn10_count_s, 4
+    rsplitn2_count_b_ok = eq rsplitn2_count_b, 2
+    zero_count_ok = eq zero_count, 0
+    invalid_count_ok = eq invalid_count, 0
+    invalid_rcount_ok = eq invalid_rcount, 0
+    multi_count_ok = eq multi_count, 2
+    multi_rcount_b_ok = eq multi_rcount_b, 2
+    ok_s0_flag = eq ok_s0, 1
+    ok_s1t_flag = eq ok_s1t, 1
+    ok_s1bt_flag = eq ok_s1bt, 1
+    ok_s0u_flag = eq ok_s0u, 1
+    ok_s1u_flag = eq ok_s1u, 1
+    ok_s1bu_flag = eq ok_s1bu, 1
+    ok_s2_flag = eq ok_s2, 0
+    ok_zero_flag = eq ok_zero, 0
+    ok_rs0_flag = eq ok_rs0, 1
+    ok_rs1t_flag = eq ok_rs1t, 1
+    ok_rs1bt_flag = eq ok_rs1bt, 1
+    ok_rs0u_flag = eq ok_rs0u, 1
+    ok_rs1u_flag = eq ok_rs1u, 1
+    ok_rs1bu_flag = eq ok_rs1bu, 1
+    ok_rs2_flag = eq ok_rs2, 0
+    ok_multi0_flag = eq ok_multi0, 1
+    ok_multi1_flag = eq ok_multi1, 1
+    ok_rmulti0_flag = eq ok_rmulti0, 1
+    ok_multi1b_flag = eq ok_multi1b, 1
+    ok_invalid_flag = eq ok_invalid, 0
+    ok_rinvalid_flag = eq ok_rinvalid, 0
+    eq_s0_ok = eq eq_s0, 1
+    eq_s1t_ok = eq eq_s1t, 1
+    eq_s1bt_ok = eq eq_s1bt, 1
+    eq_s0u_ok = eq eq_s0u, 1
+    eq_s1u_ok = eq eq_s1u, 1
+    eq_s1bu_ok = eq eq_s1bu, 1
+    eq_rs0_ok = eq eq_rs0, 1
+    eq_rs1t_ok = eq eq_rs1t, 1
+    eq_rs1bt_ok = eq eq_rs1bt, 1
+    eq_rs0u_ok = eq eq_rs0u, 1
+    eq_rs1u_ok = eq eq_rs1u, 1
+    eq_rs1bu_ok = eq eq_rs1bu, 1
+    eq_multi0_ok = eq eq_multi0, 1
+    eq_multi1_ok = eq eq_multi1, 1
+    eq_rmulti0_ok = eq eq_rmulti0, 1
+    eq_multi1b_ok = eq eq_multi1b, 1
+    empty_s2_ok = eq empty_s2, 1
+    empty_zero_ok = eq empty_zero, 1
+    empty_rs2_ok = eq empty_rs2, 1
+    empty_invalid_ok = eq empty_invalid, 1
+    empty_rinvalid_ok = eq empty_rinvalid, 1
+
+    ok = and splitn2_count_ok, splitn10_count_s_ok
+    ok = and ok, splitn2_count_b_ok
+    ok = and ok, rsplitn2_count_ok
+    ok = and ok, rsplitn10_count_s_ok
+    ok = and ok, rsplitn2_count_b_ok
+    ok = and ok, zero_count_ok
+    ok = and ok, invalid_count_ok
+    ok = and ok, invalid_rcount_ok
+    ok = and ok, multi_count_ok
+    ok = and ok, multi_rcount_b_ok
+    ok = and ok, ok_s0_flag
+    ok = and ok, ok_s1t_flag
+    ok = and ok, ok_s1bt_flag
+    ok = and ok, ok_s0u_flag
+    ok = and ok, ok_s1u_flag
+    ok = and ok, ok_s1bu_flag
+    ok = and ok, ok_s2_flag
+    ok = and ok, ok_zero_flag
+    ok = and ok, ok_rs0_flag
+    ok = and ok, ok_rs1t_flag
+    ok = and ok, ok_rs1bt_flag
+    ok = and ok, ok_rs0u_flag
+    ok = and ok, ok_rs1u_flag
+    ok = and ok, ok_rs1bu_flag
+    ok = and ok, ok_rs2_flag
+    ok = and ok, ok_multi0_flag
+    ok = and ok, ok_multi1_flag
+    ok = and ok, ok_rmulti0_flag
+    ok = and ok, ok_multi1b_flag
+    ok = and ok, ok_invalid_flag
+    ok = and ok, ok_rinvalid_flag
+    ok = and ok, eq_s0_ok
+    ok = and ok, eq_s1t_ok
+    ok = and ok, eq_s1bt_ok
+    ok = and ok, eq_s0u_ok
+    ok = and ok, eq_s1u_ok
+    ok = and ok, eq_s1bu_ok
+    ok = and ok, eq_rs0_ok
+    ok = and ok, eq_rs1t_ok
+    ok = and ok, eq_rs1bt_ok
+    ok = and ok, eq_rs0u_ok
+    ok = and ok, eq_rs1u_ok
+    ok = and ok, eq_rs1bu_ok
+    ok = and ok, eq_multi0_ok
+    ok = and ok, eq_multi1_ok
+    ok = and ok, eq_rmulti0_ok
+    ok = and ok, eq_multi1b_ok
+    ok = and ok, empty_s2_ok
+    ok = and ok, empty_zero_ok
+    ok = and ok, empty_rs2_ok
+    ok = and ok, empty_invalid_ok
+    ok = and ok, empty_rinvalid_ok
+
+    EXPAND STRING_BUF_FREE split_buf
+    EXPAND STRING_BUF_FREE multi_buf
+    !split_hay
+    !multi_hay
+    !p0
+    !rest
+    !utf8_a_e
+    !splitn2_count
+    !splitn10_count_s
+    !splitn2_count_b
+    !rsplitn2_count
+    !rsplitn10_count_s
+    !rsplitn2_count_b
+    !zero_count
+    !invalid_count
+    !invalid_rcount
+    !multi_count
+    !multi_rcount_b
+    !part_s0
+    !part_s1t
+    !part_s1bt
+    !part_s0u
+    !part_s1u
+    !part_s1bu
+    !part_s2
+    !part_zero
+    !part_rs0
+    !part_rs1t
+    !part_rs1bt
+    !part_rs0u
+    !part_rs1u
+    !part_rs1bu
+    !part_rs2
+    !part_multi0
+    !part_multi1
+    !part_rmulti0
+    !part_multi1b
+    !part_invalid
+    !part_rinvalid
+    br ok -> L_SPLITN_CHAR_OK, L_SPLITN_CHAR_FAIL
+
+L_SPLITN_CHAR_FAIL:
+    !ok
+    panic(1038)
+
+L_SPLITN_CHAR_OK:
+    !ok
+    return
+
 @test "sa_std string splitn aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS split_hay_spn, &SPLIT_HAY, 5

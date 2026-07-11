@@ -1822,6 +1822,130 @@ L_VEC_INSERT_OK:
     !ok
     return
 
+@test "sa_std vec push within capacity aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 2
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY_U64 first_ok, vec, 10
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY_MUT_U64 second_ok, second_ptr, vec, 20
+    second_ptr_ok = ne second_ptr, 0
+    store second_ptr+0, 22 as u64
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY_U64 third_ok, vec, 30
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY_MUT_U64 fourth_ok, fourth_ptr, vec, 40
+    fourth_ptr_ok = eq fourth_ptr, 0
+    EXPAND VEC_LEN len_after, vec
+    EXPAND VEC_TRY_GET_U64 first_get_ok, first, vec, 0
+    EXPAND VEC_TRY_GET_U64 second_get_ok, second, vec, 1
+    EXPAND VEC_TRY_GET_U64 third_get_ok, third, vec, 2
+
+    EXPAND VEC_WITH_CAPACITY_U64 alias_vec, 1
+    EXPAND VEC_PUSH_WITHIN_CAPACITY_MUT_U64 alias_ok, alias_ptr, alias_vec, 55
+    alias_ptr_ok = ne alias_ptr, 0
+    store alias_ptr+0, 56 as u64
+    EXPAND VEC_PUSH_WITHIN_CAPACITY_MUT_U64 alias_full_ok, alias_full_ptr, alias_vec, 57
+    alias_full_ptr_ok = eq alias_full_ptr, 0
+    EXPAND VEC_TRY_GET_U64 alias_get_ok, alias_value, alias_vec, 0
+
+    first_flag_ok = eq first_ok, 1
+    second_flag_ok = eq second_ok, 1
+    third_flag_ok = eq third_ok, 0
+    fourth_flag_ok = eq fourth_ok, 0
+    len_ok = eq len_after, 2
+    first_get_flag_ok = eq first_get_ok, 1
+    first_value_ok = eq first, 10
+    second_get_flag_ok = eq second_get_ok, 1
+    second_value_ok = eq second, 22
+    third_get_flag_ok = eq third_get_ok, 0
+    third_value_ok = eq third, 0
+    alias_flag_ok = eq alias_ok, 1
+    alias_full_flag_ok = eq alias_full_ok, 0
+    alias_get_flag_ok = eq alias_get_ok, 1
+    alias_value_ok = eq alias_value, 56
+    ok01 = and first_flag_ok, second_flag_ok
+    ok02 = and ok01, second_ptr_ok
+    ok03 = and ok02, third_flag_ok
+    ok04 = and ok03, fourth_flag_ok
+    ok05 = and ok04, fourth_ptr_ok
+    ok06 = and ok05, len_ok
+    ok07 = and ok06, first_get_flag_ok
+    ok08 = and ok07, first_value_ok
+    ok09 = and ok08, second_get_flag_ok
+    ok10 = and ok09, second_value_ok
+    ok11 = and ok10, third_get_flag_ok
+    ok12 = and ok11, third_value_ok
+    ok13 = and ok12, alias_flag_ok
+    ok14 = and ok13, alias_ptr_ok
+    ok15 = and ok14, alias_full_flag_ok
+    ok16 = and ok15, alias_full_ptr_ok
+    ok17 = and ok16, alias_get_flag_ok
+    ok = and ok17, alias_value_ok
+
+    !first_ok
+    !second_ok
+    !second_ptr
+    !second_ptr_ok
+    !third_ok
+    !fourth_ok
+    !fourth_ptr
+    !fourth_ptr_ok
+    !len_after
+    !first_get_ok
+    !first
+    !second_get_ok
+    !second
+    !third_get_ok
+    !third
+    !alias_ok
+    !alias_ptr
+    !alias_ptr_ok
+    !alias_full_ok
+    !alias_full_ptr
+    !alias_full_ptr_ok
+    !alias_get_ok
+    !alias_value
+    !first_flag_ok
+    !second_flag_ok
+    !third_flag_ok
+    !fourth_flag_ok
+    !len_ok
+    !first_get_flag_ok
+    !first_value_ok
+    !second_get_flag_ok
+    !second_value_ok
+    !third_get_flag_ok
+    !third_value_ok
+    !alias_flag_ok
+    !alias_full_flag_ok
+    !alias_get_flag_ok
+    !alias_value_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    EXPAND VEC_FREE alias_vec
+    EXPAND VEC_FREE vec
+    br ok -> L_VEC_PUSH_WITHIN_CAPACITY_ALIAS_OK, L_VEC_PUSH_WITHIN_CAPACITY_ALIAS_FAIL
+
+L_VEC_PUSH_WITHIN_CAPACITY_ALIAS_FAIL:
+    !ok
+    panic(930)
+
+L_VEC_PUSH_WITHIN_CAPACITY_ALIAS_OK:
+    !ok
+    return
+
 @test "sa_std vec retain macros"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 6

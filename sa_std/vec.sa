@@ -1718,6 +1718,43 @@ L_VEC_PWC_END_%out_ok:
     EXPAND VEC_PUSH_WITHIN_CAPACITY %out_ok, %vec_reg, %value, 8
 [END_MACRO]
 
+[MACRO] VEC_TRY_PUSH_WITHIN_CAPACITY %out_ok, %vec_reg, %value, %elem_size
+    EXPAND VEC_PUSH_WITHIN_CAPACITY %out_ok, %vec_reg, %value, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_TRY_PUSH_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %value
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY %out_ok, %vec_reg, %value, 8
+[END_MACRO]
+
+[MACRO] VEC_TRY_PUSH_WITHIN_CAPACITY_MUT %out_ok, %out_ptr, %vec_reg, %value, %elem_size
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY __vec_pwc_mut_ok_%out_ok, %vec_reg, %value, %elem_size
+    br __vec_pwc_mut_ok_%out_ok -> L_VEC_PWC_MUT_HIT_%out_ok, L_VEC_PWC_MUT_MISS_%out_ok
+
+L_VEC_PWC_MUT_HIT_%out_ok:
+    EXPAND VEC_TRY_PEEK_MUT %out_ok, %out_ptr, %vec_reg, %elem_size
+    !__vec_pwc_mut_ok_%out_ok
+    jmp L_VEC_PWC_MUT_END_%out_ok
+
+L_VEC_PWC_MUT_MISS_%out_ok:
+    %out_ok = add 0, 0
+    %out_ptr = 0 as ptr
+    !__vec_pwc_mut_ok_%out_ok
+
+L_VEC_PWC_MUT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_TRY_PUSH_WITHIN_CAPACITY_MUT_U64 %out_ok, %out_ptr, %vec_reg, %value
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY_MUT %out_ok, %out_ptr, %vec_reg, %value, 8
+[END_MACRO]
+
+[MACRO] VEC_PUSH_WITHIN_CAPACITY_MUT %out_ok, %out_ptr, %vec_reg, %value, %elem_size
+    EXPAND VEC_TRY_PUSH_WITHIN_CAPACITY_MUT %out_ok, %out_ptr, %vec_reg, %value, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_PUSH_WITHIN_CAPACITY_MUT_U64 %out_ok, %out_ptr, %vec_reg, %value
+    EXPAND VEC_PUSH_WITHIN_CAPACITY_MUT %out_ok, %out_ptr, %vec_reg, %value, 8
+[END_MACRO]
+
 [MACRO] VEC_TRY_INSERT %out_ok, %vec_reg, %index, %value, %elem_size
     __vec_insert_view_%out_ok = & %vec_reg
     __vec_insert_len_%out_ok = load __vec_insert_view_%out_ok+Vec_len as u64

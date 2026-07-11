@@ -199,6 +199,17 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - `StringBuf` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed closer Rust method-name UTF-16 aliases `STRING_BUF_FROM_UTF16` and `STRING_BUF_FROM_UTF16_LOSSY` over existing U16 slice strict/lossy decode forms.
    - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable checked get_mut aliases `VEC_TRY_GET_MUT_PTR_U64` and `VEC_GET_MUT_U64` over the existing mutable-slice checked pointer helper.
    - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable indexed split/line aliases `STR_SPLIT_BYTE_AT`, `STRING_SPLIT_BYTE_AT`, `STR_LINE_AT`, and `STRING_LINE_AT` over existing checked `(ok, slice)` view forms.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable slice-needle `trim_start_matches` / `trim_end_matches` / `trim_matches` aliases for `STR`, `STRING`, and `STRING_BUF`, returning borrowed `Slice` views and treating empty needles as no-op.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable `split_ascii_whitespace` count and caller-indexed token-view aliases for `STR`, `STRING`, and `STRING_BUF`, returning borrowed `Slice` views and collapsing ASCII whitespace without claiming Rust's lazy iterator object model.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable slice-needle `split_terminator` / `rsplit_terminator` count aliases and forward caller-indexed `split_terminator` aliases for `STR`, `STRING`, and `STRING_BUF`, returning borrowed `Slice` views without claiming Rust's lazy iterator object model.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable slice-needle `splitn` / `rsplitn` count aliases for `STR`, `STRING`, and `STRING_BUF`, plus `split_count == 0` and empty-needle consistency fixes for the existing caller-indexed limited split aliases.
+   - `Vec` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable `push_within_capacity` checked aliases and mut-return pointer aliases, preserving local `(ok, ptr)` shapes without claiming Rust `Result<&mut T,T>` object layout or borrow-checker semantics.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable slice-needle `match_indices` / `rmatch_indices` count and caller-indexed aliases for `STR`, `STRING`, and `STRING_BUF`, returning local `(ok, byte_index, Slice)` results without claiming Rust's lazy iterator object model.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable slice-needle `split_inclusive` count and caller-indexed aliases for `STR`, `STRING`, and `STRING_BUF`, returning delimiter-retaining borrowed `Slice` views without claiming Rust's lazy iterator object model.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable char-pattern `split_inclusive` count and caller-indexed aliases for `STR`, `STRING`, and `STRING_BUF`, lowering valid Unicode scalar values to UTF-8 needle slices.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable char-pattern `starts_with` / `ends_with` / `strip_prefix` / `strip_suffix` aliases for `STR`, `STRING`, and `STRING_BUF`, lowering valid Unicode scalar values to UTF-8 needle slices and preserving local false / `(ok, Slice)` miss shapes.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable char-pattern `trim_start_matches` / `trim_end_matches` / `trim_matches` aliases for `STR`, `STRING`, and `STRING_BUF`, lowering valid Unicode scalar values to UTF-8 needle slices and treating invalid scalars as no-op borrowed views.
+   - `StringBuf` / `str` Rust API parity re-audit: confirmed current SA facades are still not complete Rust API coverage; completed supportable `char_indices` count and caller-indexed aliases for `STR`, `STRING`, and `STRING_BUF`, returning local `(ok, byte_index, codepoint)` values without claiming Rust's lazy iterator object model.
    - `std::os::unix::xdg` supportable env-dir surface: `data_home_dir`, `config_home_dir`, `state_home_dir`, `cache_home_dir`, `data_dirs`, and `config_dirs` style macros with XDG empty-value fallback semantics.
    - `std::os::unix::fs::chroot`: current-process Linux `chroot(2)` facade with `FS_CHROOT` / `FS_UNIX_CHROOT` macro surfaces and safe `/`-only validation accepting root success or non-root permission denial.
    - `std::os::unix::net::UnixListener::accept`: address-returning `NET_UNIX_ACCEPT_ADDR` surface using the existing Unix addr handle model.
@@ -348,6 +359,17 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 - Full test suites are skipped for the String exact UTF-16 alias batch by user instruction; only newly added focused source and installed-state tests were run.
 - Full test suites are skipped for the Vec checked get_mut alias batch by user instruction; only newly added focused source and installed-state tests were run.
 - Full test suites are skipped for the String split/line indexed alias batch by user instruction; only newly added focused source and installed-state tests were run.
+- `zig build unit-framework --summary all` passes after the String trim_matches needle alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the String split_ascii_whitespace alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the String split_terminator needle alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- `zig build unit-framework --summary all` passes after the String splitn count alias batch (`6/6 steps succeeded; 5/5 tests passed`).
+- Full `zig build unit-framework --summary all` was attempted after the Vec push_within_capacity alias batch, stayed silent/idle for more than 6 minutes, and was interrupted; focused source, full Vec macro-surface, install sync, and installed-state focused tests passed.
+- Full test suites are skipped for the String match_indices needle alias batch; focused source, full String macro-surface, install sync, and installed-state focused tests passed.
+- Full test suites are skipped for the String split_inclusive needle alias batch; focused source, full String macro-surface, install sync, and installed-state focused tests passed.
+- Full test suites are skipped for the String split_inclusive char alias batch; focused source, full String macro-surface, install sync, and installed-state focused tests passed.
+- Full test suites are skipped for the String prefix/suffix char alias batch; focused source, full String macro-surface, install sync, and installed-state focused tests passed.
+- Full test suites are skipped for the String trim-matches char alias batch; focused source, full String macro-surface, install sync, and installed-state focused tests passed.
+- Full test suites are skipped for the String char_indices alias batch; focused source, full String macro-surface, install sync, and installed-state focused tests passed.
 - New macro-surface tests pass:
   - `std_os_fd_macro_surface.sa`
   - `std_fs_metadata_ext_macro_surface.sa`
@@ -453,9 +475,25 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
   - `std_string_macro_surface.sa`
 - Updated String macro-surface tests pass with Unicode char push/insert and insert boundary assertions:
   - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with trim_start_matches/trim_end_matches/trim_matches slice-needle assertions:
+  - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with match_indices/rmatch_indices slice-needle byte-index assertions:
+  - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with split_inclusive slice-needle delimiter-retaining assertions:
+  - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with split_inclusive char-pattern delimiter-retaining assertions:
+  - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with prefix/suffix char-pattern assertions:
+  - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with trim_start_matches/trim_end_matches/trim_matches char-pattern assertions:
+  - `std_string_macro_surface.sa`
+- Updated String macro-surface tests pass with char_indices byte-offset/codepoint assertions:
+  - `std_string_macro_surface.sa`
 - Updated Vec macro-surface tests pass with retain_mut mutation and compaction assertions:
   - `std_vec_macro_surface.sa`
 - Updated Vec macro-surface tests pass with peek_mut empty/null and mutable-last-element assertions:
+  - `std_vec_macro_surface.sa`
+- Updated Vec macro-surface tests pass with push_within_capacity checked and mut-return assertions:
   - `std_vec_macro_surface.sa`
 - Updated Unix-domain socket macro-surface test passes with Linux `SO_PASSCRED` assertions:
   - `std_net_unix_macro_surface.sa`
@@ -500,18 +538,79 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 - Installed-state smoke passes for `std_os_fd_macro_surface.sa` after the File raw/owned fd facade install sync.
 - Installed-state smoke passes for `std_os_fd_macro_surface.sa` after the OwnedFd named facade install sync.
 - Installed-state smoke passes for `std_os_fd_macro_surface.sa` after the RawFd/BorrowedFd named facade install sync.
+- Installed-state focused String trim-matches alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "trim matches aliases"`
+- Installed-state focused String split-ascii-whitespace alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split ascii whitespace aliases"`
+- Installed-state focused String split-terminator alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split terminator needle aliases"`
+- Installed-state focused String splitn count alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "splitn count aliases"`
+- Installed-state focused String match-indices alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "match indices needle aliases"`
+- Installed-state focused String split-inclusive alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split inclusive needle aliases"`
+- Installed-state focused String split-inclusive char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split inclusive char aliases"`
+- Installed-state focused String split/matches char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split and matches char aliases"`
+- Installed-state focused String match-indices char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "match indices char aliases"`
+- Installed-state focused String split-terminator char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split terminator char aliases"`
+- Installed-state focused String splitn char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "splitn char aliases"`
+- Installed-state focused String split-once char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "split once char aliases"`
+- Installed-state focused String prefix/suffix char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "prefix suffix char aliases"`
+- Installed-state focused String trim-matches char alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "trim matches char aliases"`
+- Installed-state focused String char_indices alias test passes after install sync:
+  - `std_string_macro_surface.sa --filter "char indices aliases"`
+- Installed-state focused Vec push-within-capacity alias test passes after install sync:
+  - `std_vec_macro_surface.sa --filter "push within capacity aliases"`
 - `src/runtime/sa_std.h`, `sa_std/*.sai`, `sa_std/*.sa`, and installed `/home/vscode/.sa/std` expose the same ABI after `./tools/install.sh --no-shell`.
 
 ## Current Status
 
-- Source/facade/test changes are complete for the str/String reverse slice-needle split/matches batch (`STR_RSPLIT_NEEDLE_COUNT`, `STR_RMATCHES_NEEDLE_COUNT`, and the matching `*_TRY_RSPLIT_NEEDLE_AT` / `*_TRY_RMATCHES_NEEDLE_AT` caller-indexed `Slice` view aliases across `STR` / `STRING` / `STRING_BUF`), building on the earlier forward slice-needle split/matches batch (`STR_SPLIT_NEEDLE_COUNT`, `STR_SPLIT_NEEDLE_TERM_COUNT`, `STR_MATCHES_NEEDLE_COUNT`, and the `*_TRY_SPLIT_NEEDLE_AT` / `*_TRY_MATCHES_NEEDLE_AT` aliases).
-- Focused source tests for the split needle aliases pass (`std_string_macro_surface.sa --filter "split needle aliases"`), the full source `std_string_macro_surface.sa` passes (`56 passed`), install sync passes, and focused installed-state tests for the same aliases pass. Full test suites are intentionally not run for this batch per user instruction.
-- The reverse slice-needle split/matches batch computes the corresponding forward caller index (`count - 1 - reverse_index`) and delegates to the existing forward `*_TRY_SPLIT_NEEDLE_AT` / `*_TRY_MATCHES_NEEDLE_AT` helpers, so reverse field/match enumeration, empty-field, and empty-needle behavior stay aligned with the forward batch; the aliases return explicit `(ok, Slice)` shapes rather than Rust lazy `RSplit` / `RMatches` iterator adapters.
-- The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas are allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, the `rsplit_terminator` and `splitn`/`rsplitn` limited-count slice-needle variants, and full generic trait-object coverage.
+- Source/facade/test changes are complete for the str/String/StringBuf slice-needle trim-match batch, the ASCII-whitespace split token-view batch, the char_indices caller-indexed batch, the split-once char-pattern batch, the prefix/suffix char-pattern batch, the trim-matches char-pattern batch, the split-terminator needle alias batch, the split_terminator/rsplit_terminator char-pattern batch, the splitn count/edge-case batch, the splitn/rsplitn char-pattern batch, the Vec push_within_capacity alias batch, the str/String/StringBuf match_indices/rmatch_indices slice-needle batch, the str/String/StringBuf split_inclusive slice-needle batch, the str/String/StringBuf split_inclusive char-pattern batch, the str/String/StringBuf split/matches char-pattern batch, and the str/String/StringBuf match_indices/rmatch_indices char-pattern batch.
+- The Vec push_within_capacity batch adds `VEC_TRY_PUSH_WITHIN_CAPACITY`, `VEC_TRY_PUSH_WITHIN_CAPACITY_U64`, `VEC_TRY_PUSH_WITHIN_CAPACITY_MUT`, `VEC_TRY_PUSH_WITHIN_CAPACITY_MUT_U64`, `VEC_PUSH_WITHIN_CAPACITY_MUT`, and `VEC_PUSH_WITHIN_CAPACITY_MUT_U64`.
+- The split-ascii-whitespace batch adds `STR_SPLIT_ASCII_WHITESPACE_COUNT`, `STR_TRY_SPLIT_ASCII_WHITESPACE_AT`, `STR_SPLIT_ASCII_WHITESPACE_AT`, and matching `STRING_*` / `STRING_BUF_*` aliases.
+- The char_indices batch adds `STR_CHAR_INDICES_COUNT`, `STR_TRY_CHAR_INDICES_AT`, and `STR_CHAR_INDICES_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The split-once char-pattern batch adds `STR_TRY_SPLIT_ONCE_CHAR`, `STR_SPLIT_ONCE_CHAR`, `STR_TRY_RSPLIT_ONCE_CHAR`, and `STR_RSPLIT_ONCE_CHAR`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The prefix/suffix char-pattern batch adds `STR_STARTS_WITH_CHAR`, `STR_ENDS_WITH_CHAR`, `STR_TRY_STRIP_PREFIX_CHAR`, `STR_STRIP_PREFIX_CHAR`, `STR_TRY_STRIP_SUFFIX_CHAR`, and `STR_STRIP_SUFFIX_CHAR`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The trim-matches char-pattern batch adds `STR_TRIM_START_MATCHES_CHAR`, `STR_TRIM_END_MATCHES_CHAR`, and `STR_TRIM_MATCHES_CHAR`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The split-terminator batch adds `STR_SPLIT_TERMINATOR_NEEDLE_COUNT`, `STR_RSPLIT_TERMINATOR_NEEDLE_COUNT`, `STR_TRY_SPLIT_TERMINATOR_NEEDLE_AT`, `STR_SPLIT_TERMINATOR_NEEDLE_AT`, and matching `STRING_*` / `STRING_BUF_*` aliases.
+- The split-terminator char-pattern batch adds `STR_SPLIT_TERMINATOR_CHAR_COUNT`, `STR_RSPLIT_TERMINATOR_CHAR_COUNT`, `STR_TRY_SPLIT_TERMINATOR_CHAR_AT`, `STR_SPLIT_TERMINATOR_CHAR_AT`, `STR_TRY_RSPLIT_TERMINATOR_CHAR_AT`, and `STR_RSPLIT_TERMINATOR_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The splitn count batch adds `STR_SPLIT_N_NEEDLE_COUNT`, `STR_RSPLIT_N_NEEDLE_COUNT`, and matching `STRING_*` / `STRING_BUF_*` aliases, and makes existing indexed splitn helpers return `ok=0` for `split_count == 0`.
+- The splitn char-pattern batch adds `STR_SPLIT_N_CHAR_COUNT`, `STR_RSPLIT_N_CHAR_COUNT`, `STR_TRY_SPLIT_N_CHAR_AT`, `STR_SPLIT_N_CHAR_AT`, `STR_TRY_RSPLIT_N_CHAR_AT`, and `STR_RSPLIT_N_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The match-indices batch adds `STR_MATCH_INDICES_NEEDLE_COUNT`, `STR_RMATCH_INDICES_NEEDLE_COUNT`, `STR_TRY_MATCH_INDICES_NEEDLE_AT`, `STR_MATCH_INDICES_NEEDLE_AT`, `STR_TRY_RMATCH_INDICES_NEEDLE_AT`, and `STR_RMATCH_INDICES_NEEDLE_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The split-inclusive batch adds `STR_SPLIT_INCLUSIVE_NEEDLE_COUNT`, `STR_TRY_SPLIT_INCLUSIVE_NEEDLE_AT`, and `STR_SPLIT_INCLUSIVE_NEEDLE_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The split-inclusive char-pattern batch adds `STR_SPLIT_INCLUSIVE_CHAR_COUNT`, `STR_TRY_SPLIT_INCLUSIVE_CHAR_AT`, and `STR_SPLIT_INCLUSIVE_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The split/matches char-pattern batch adds `STR_SPLIT_CHAR_COUNT`, `STR_RSPLIT_CHAR_COUNT`, `STR_MATCHES_CHAR_COUNT`, `STR_RMATCHES_CHAR_COUNT`, `STR_TRY_SPLIT_CHAR_AT`, `STR_SPLIT_CHAR_AT`, `STR_TRY_RSPLIT_CHAR_AT`, `STR_RSPLIT_CHAR_AT`, `STR_TRY_MATCHES_CHAR_AT`, `STR_MATCHES_CHAR_AT`, `STR_TRY_RMATCHES_CHAR_AT`, and `STR_RMATCHES_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- The match-indices char-pattern batch adds `STR_MATCH_INDICES_CHAR_COUNT`, `STR_RMATCH_INDICES_CHAR_COUNT`, `STR_TRY_MATCH_INDICES_CHAR_AT`, `STR_MATCH_INDICES_CHAR_AT`, `STR_TRY_RMATCH_INDICES_CHAR_AT`, and `STR_RMATCH_INDICES_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- Focused source tests for `trim matches aliases`, `trim matches char aliases`, `char indices aliases`, `split ascii whitespace aliases`, `split once char aliases`, `prefix suffix char aliases`, `split terminator needle aliases`, `split terminator char aliases`, `splitn count aliases`, `splitn char aliases`, existing `splitn aliases`, `push within capacity aliases`, `match indices needle aliases`, `split inclusive needle aliases`, `split inclusive char aliases`, `split and matches char aliases`, and `match indices char aliases` pass; the full source `std_string_macro_surface.sa` passes (`72 passed`) and full source `std_vec_macro_surface.sa` passes (`29 passed`); install sync via `./tools/install.sh --no-shell` passes; installed focused splitn-count, splitn-char, split-once-char, prefix/suffix-char, trim-matches-char, char-indices, Vec push-within-capacity, String match-indices, String split-inclusive, String split-inclusive-char, String split/matches-char, String match-indices-char, and String split-terminator-char tests pass. The latest full `zig build unit-framework --summary all` attempt was interrupted after more than 6 minutes of silent/idle runtime, so it is not counted as a passing gate for the Vec batch.
+- The match-indices char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle match-index subsets. They return local `(ok, byte_index, Slice)` values, preserve forward byte offsets for reverse enumeration, and return `ok=0`, index `0`, and an empty slice for invalid scalars or missing indexes. This is a concrete char-pattern count/caller-indexed view subset, not Rust's full `Pattern` machinery, lazy iterator object model, or `Option<(usize, &str)>` layout.
+- The char_indices aliases scan UTF-8 scalar positions and return local `(ok, byte_index, codepoint)` values for a caller-selected scalar ordinal. Missing ordinals or invalid decoding paths return `ok=0`, byte index `0`, and codepoint `0`. This is a concrete count/caller-indexed subset, not Rust's lazy `CharIndices` iterator object, tuple object layout, borrow-scoped lifetime model, or invalid-UTF-8 impossible-type invariant.
+- The split-once char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle split_once/rsplit_once subsets. They return the local `(ok, left, right)` `Slice` shape and return `ok=0` plus empty left/right views for invalid scalars or misses. This is a concrete char-pattern one-shot split subset, not Rust's full `Pattern` machinery, searcher internals, lazy iterator object model, or `Option<(&str, &str)>` layout.
+- The prefix/suffix char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle starts/ends/strip prefix/suffix subsets. Invalid scalar values return false for predicates or `ok=0` plus an empty slice for strip helpers, and misses preserve the same local empty-slice shape. This is a concrete char-pattern prefix/suffix subset, not Rust's full `Pattern` machinery, searcher internals, or `Option<&str>` layout.
+- The trim-matches char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle trim-match subsets. Valid scalars repeatedly strip exact UTF-8 scalar occurrences at the requested edge, and invalid scalar values return the original borrowed `Slice` view as a no-op. This is a concrete char-pattern trim subset, not Rust's full `Pattern` machinery, closure or slice-of-char patterns, searcher internals, or lazy iterator object model.
+- The splitn char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle splitn/rsplitn subsets. They preserve the current local splitn count/indexed behavior: `split_count == 0` returns zero entries or `ok=0`, positive counts cap the returned field count, current `rsplitn` aliases reverse-enumerate the local splitn field set, and invalid scalar values return zero entries or `ok=0` plus an empty slice. This is a concrete char-pattern count/caller-indexed view subset, not Rust's full `Pattern` machinery, lazy iterator object model, or full right-to-left `rsplitn` semantics.
+- The split-terminator char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle split_terminator/rsplit_terminator subsets. They reuse the existing terminator semantics that drop trailing terminator-produced empty fields, and invalid scalar values return zero entries or `ok=0` plus an empty slice. This is a concrete char-pattern count/caller-indexed view subset, not Rust's full `Pattern` machinery or lazy iterator object model.
+- The split/matches char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle split/matches subsets. Invalid scalar values return zero entries or `ok=0` plus an empty slice. This is a concrete char-pattern count/caller-indexed view subset, not Rust's full `Pattern` machinery or lazy iterator object model.
+- The split-inclusive char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the split-inclusive needle subset. Invalid scalar values return zero entries or `ok=0` plus an empty slice. This is a concrete char-pattern count/caller-indexed view subset, not Rust's full `Pattern` machinery or lazy iterator object model.
+- The split-inclusive aliases enumerate non-overlapping slice-needle split fields while retaining the matched delimiter at the end of delimiter-terminated fields. Empty haystacks and empty needles return zero entries, trailing delimiters do not produce a final empty entry, and missing indexes return `ok=0` plus an empty slice. This is a concrete count/caller-indexed view subset, not Rust's lazy `SplitInclusive` iterator object, generic `Pattern` machinery, `Option<&str>` layout, or borrow-checker lifetime model.
+- The match-indices aliases enumerate non-overlapping slice-needle matches, preserve forward byte offsets for reverse enumeration, and return explicit `(ok, byte_index, Slice)` values. Empty needles and out-of-range caller indexes return `ok=0`, index `0`, and an empty slice. This is a concrete count/caller-indexed view subset, not Rust's lazy `MatchIndices` / `RMatchIndices` iterator object, generic `Pattern` machinery, `Option<(usize, &str)>` layout, or borrow-checker lifetime model.
+- The split-ascii-whitespace aliases skip leading/trailing ASCII whitespace, collapse consecutive ASCII whitespace, return borrowed token `Slice` views, and return `ok=0` plus an empty slice for missing indexes. They use the existing `ASCII_IS_WHITESPACE` predicate and do not claim Rust's lazy `SplitAsciiWhitespace` iterator object or borrow-checker lifetime model.
+- The split-terminator aliases reuse the existing terminator count semantics, dropping trailing terminator-produced empty fields, returning borrowed `Slice` views for present indexes, and returning `ok=0` plus an empty slice for out-of-range or empty-needle cases.
+- The splitn aliases remain a concrete slice-needle subset. Empty needles intentionally follow the existing SA subset rather than Rust's full empty-pattern behavior: index `0` returns the whole haystack for positive split counts and later indexes miss.
+- The trim-match aliases repeatedly strip non-empty `&str` needles at the requested edge and return borrowed `Slice` views; empty needles are explicit no-ops. This is a concrete slice-needle subset, not Rust's full `Pattern` trait, char/closure/slice-of-char variants, or lazy iterator/object model.
+- The String/Vec audit still does not claim complete Rust API coverage; remaining unsupported areas include allocator-parametric APIs, Box/Cow conversions, lazy iterator object models, const-generic array ownership/extraction shapes, `Vec::into_chunks` / `into_flattened` / `recycle`, Vec whole-object mutable borrow beyond local metadata pointer facades / generic `T: PartialEq/Ord/Hash`, unsafe `String::as_mut_vec` metadata-level aliasing, `u128`/`i128`, float default formatting, Unicode whitespace/full-Pattern trim variants, and full generic trait-object coverage.
 
 ## Next Priority
 
-- Commit the str/String reverse slice-needle split/matches batch, then continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch; the `rsplit_terminator` view subset and the `splitn`/`rsplitn` limited-count slice-needle variants are the natural next sub-batch.
+- Continue the highest-priority String/Vec Rust API parity audit with only newly added focused tests per batch. Natural next candidates are additional byte/slice search aliases, remaining concrete view subsets, or Vec-only gaps that can be represented as eager slice/Vec macros without claiming generic Rust trait-object semantics.
 
 ## Notes
 
