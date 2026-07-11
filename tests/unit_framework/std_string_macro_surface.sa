@@ -12442,6 +12442,109 @@ L_STR_PBCNWC_OK:
     !ok
     return
 
+@test "sa_std string extend_from_within_n within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS abc, &REPEATED, 3
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 7
+    EXPAND STRING_BUF_PUSH_STR buf, abc
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY ok1, buf, 1, 2, 2
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b3_ok, b3, buf, 3
+    EXPAND STRING_BUF_TRY_BYTE_AT b4_ok, b4, buf, 4
+    EXPAND STRING_BUF_TRY_BYTE_AT b5_ok, b5, buf, 5
+    EXPAND STRING_BUF_TRY_BYTE_AT b6_ok, b6, buf, 6
+    EXPAND STRING_BUF_CAPACITY cap1, buf
+
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY ok_full, buf, 0, 1, 1
+    EXPAND STRING_BUF_LEN len2, buf
+
+    EXPAND STRING_BUF_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY ok_zero, buf, 0, 1, 0
+    EXPAND STRING_BUF_LEN len3, buf
+
+    EXPAND STRING_BUF_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY ok_miss, buf, 9, 1, 1
+    EXPAND STRING_BUF_LEN len4, buf
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 7
+    b3_flag = eq b3_ok, 1
+    b3_val = eq b3, 110
+    b4_flag = eq b4_ok, 1
+    b4_val = eq b4, 97
+    b5_flag = eq b5_ok, 1
+    b5_val = eq b5, 110
+    b6_flag = eq b6_ok, 1
+    b6_val = eq b6, 97
+    cap1_ok = eq cap1, 7
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 7
+    ok_zero_flag = eq ok_zero, 1
+    len3_ok = eq len3, 7
+    ok_miss_flag = eq ok_miss, 0
+    len4_ok = eq len4, 7
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, b3_flag
+    ok = and ok, b3_val
+    ok = and ok, b4_flag
+    ok = and ok, b4_val
+    ok = and ok, b5_flag
+    ok = and ok, b5_val
+    ok = and ok, b6_flag
+    ok = and ok, b6_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_zero_flag
+    ok = and ok, len3_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, len4_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !abc
+    !ok1
+    !len1
+    !b3_ok
+    !b3
+    !b4_ok
+    !b4
+    !b5_ok
+    !b5
+    !b6_ok
+    !b6
+    !cap1
+    !ok_full
+    !len2
+    !ok_zero
+    !len3
+    !ok_miss
+    !len4
+    !ok1_flag
+    !len1_ok
+    !b3_flag
+    !b3_val
+    !b4_flag
+    !b4_val
+    !b5_flag
+    !b5_val
+    !b6_flag
+    !b6_val
+    !cap1_ok
+    !ok_full_flag
+    !len2_ok
+    !ok_zero_flag
+    !len3_ok
+    !ok_miss_flag
+    !len4_ok
+    br ok -> L_STR_EFWNWC_OK, L_STR_EFWNWC_FAIL
+
+L_STR_EFWNWC_FAIL:
+    !ok
+    panic(1085)
+
+L_STR_EFWNWC_OK:
+    !ok
+    return
+
 @test "sa_std string pop_if aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

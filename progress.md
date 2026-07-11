@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf extend_from_within_n within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helper:
+  - `STRING_BUF_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY` / `STRING_BUF_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY`
+- Semantics: validate the source range once, compute total byte length as `length * count`, and only then append the range `count` times via within-capacity `extend_from_within`. Zero counts succeed as no-ops; invalid ranges or insufficient room return `ok=0` with no mutation. Does not claim Rust `repeat` allocator growth or partial append.
+- Validation status:
+  - Source focused minimal harness `/tmp/sefwnwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "extend_from_within_n within capacity aliases"`: pass (`1 passed; 103 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 Vec extend_from_within_n within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
