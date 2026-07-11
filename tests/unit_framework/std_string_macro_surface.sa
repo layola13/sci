@@ -12233,6 +12233,92 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string replace_range within capacity aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STR_FROM_PARTS mid, &PREFIX, 2
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY ok_same, buf, 1, 2, mid
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, buf, 1
+    EXPAND STRING_BUF_TRY_BYTE_AT b2_ok, b2, buf, 2
+    EXPAND STR_FROM_PARTS tail, &SUFFIX, 2
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY ok_grow, buf, 2, 1, tail
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY ok_full, buf, 0, 1, hi
+    EXPAND STRING_BUF_LEN len3, buf
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY ok_miss, buf, 9, 1, mid
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY ok_shrink, buf, 1, 3, mid
+    EXPAND STRING_BUF_LEN len4, buf
+
+    ok_same_flag = eq ok_same, 1
+    len1_ok = eq len1, 4
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 114
+    b2_flag = eq b2_ok, 1
+    b2_val = eq b2, 117
+    ok_grow_flag = eq ok_grow, 1
+    len2_ok = eq len2, 5
+    ok_full_flag = eq ok_full, 0
+    len3_ok = eq len3, 5
+    ok_miss_flag = eq ok_miss, 0
+    ok_shrink_flag = eq ok_shrink, 1
+    len4_ok = eq len4, 4
+
+    ok = and ok_same_flag, len1_ok
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, b2_flag
+    ok = and ok, b2_val
+    ok = and ok, ok_grow_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len3_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, ok_shrink_flag
+    ok = and ok, len4_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !mid
+    !tail
+    !ok_same
+    !len1
+    !b1_ok
+    !b1
+    !b2_ok
+    !b2
+    !ok_grow
+    !len2
+    !ok_full
+    !len3
+    !ok_miss
+    !ok_shrink
+    !len4
+    !ok_same_flag
+    !len1_ok
+    !b1_flag
+    !b1_val
+    !b2_flag
+    !b2_val
+    !ok_grow_flag
+    !len2_ok
+    !ok_full_flag
+    !len3_ok
+    !ok_miss_flag
+    !ok_shrink_flag
+    !len4_ok
+    br ok -> L_STR_RRWC_OK, L_STR_RRWC_FAIL
+
+L_STR_RRWC_FAIL:
+    !ok
+    panic(1065)
+
+L_STR_RRWC_OK:
+    !ok
+    return
+
 @test "sa_std string extend char byte within capacity aliases"():
 L_ENTRY:
     EXPAND STRING_BUF_WITH_CAPACITY buf, 4

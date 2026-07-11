@@ -3597,6 +3597,216 @@ L_STRING_BUF_ICWC_DONE_%out_ok:
     EXPAND STRING_BUF_TRY_INSERT_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %index, %char_value
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %replace_slice
+    __string_buf_rrwc_view_%out_ok = & %string_reg
+    __string_buf_rrwc_old_len_%out_ok = load __string_buf_rrwc_view_%out_ok+Vec_len as u64
+    __string_buf_rrwc_cap_%out_ok = load __string_buf_rrwc_view_%out_ok+Vec_cap as u64
+    __string_buf_rrwc_start_ok_%out_ok = ule %start, __string_buf_rrwc_old_len_%out_ok
+    br __string_buf_rrwc_start_ok_%out_ok -> L_STRING_BUF_RRWC_LEN_CHECK_%out_ok, L_STRING_BUF_RRWC_MISS_START_%out_ok
+
+L_STRING_BUF_RRWC_LEN_CHECK_%out_ok:
+    __string_buf_rrwc_tail_%out_ok = sub __string_buf_rrwc_old_len_%out_ok, %start
+    __string_buf_rrwc_len_ok_%out_ok = ule %length, __string_buf_rrwc_tail_%out_ok
+    br __string_buf_rrwc_len_ok_%out_ok -> L_STRING_BUF_RRWC_BOUNDARY_START_%out_ok, L_STRING_BUF_RRWC_MISS_LEN_%out_ok
+
+L_STRING_BUF_RRWC_BOUNDARY_START_%out_ok:
+    EXPAND STRING_BUF_AS_STR __string_buf_rrwc_bview_%out_ok, %string_reg
+    EXPAND STR_IS_CHAR_BOUNDARY __string_buf_rrwc_bstart_%out_ok, __string_buf_rrwc_bview_%out_ok, %start
+    br __string_buf_rrwc_bstart_%out_ok -> L_STRING_BUF_RRWC_BOUNDARY_END_%out_ok, L_STRING_BUF_RRWC_MISS_BOUNDARY_%out_ok
+
+L_STRING_BUF_RRWC_BOUNDARY_END_%out_ok:
+    __string_buf_rrwc_end_%out_ok = add %start, %length
+    EXPAND STR_IS_CHAR_BOUNDARY __string_buf_rrwc_bend_%out_ok, __string_buf_rrwc_bview_%out_ok, __string_buf_rrwc_end_%out_ok
+    !__string_buf_rrwc_bview_%out_ok
+    br __string_buf_rrwc_bend_%out_ok -> L_STRING_BUF_RRWC_ROOM_%out_ok, L_STRING_BUF_RRWC_MISS_BOUNDARY_END_%out_ok
+
+L_STRING_BUF_RRWC_ROOM_%out_ok:
+    __string_buf_rrwc_rep_len_%out_ok = load %replace_slice+Slice_len as u64
+    __string_buf_rrwc_prefix_plus_%out_ok = add %start, __string_buf_rrwc_rep_len_%out_ok
+    __string_buf_rrwc_suffix_len_%out_ok = sub __string_buf_rrwc_old_len_%out_ok, __string_buf_rrwc_end_%out_ok
+    __string_buf_rrwc_new_len_%out_ok = add __string_buf_rrwc_prefix_plus_%out_ok, __string_buf_rrwc_suffix_len_%out_ok
+    __string_buf_rrwc_room_ok_%out_ok = ule __string_buf_rrwc_new_len_%out_ok, __string_buf_rrwc_cap_%out_ok
+    br __string_buf_rrwc_room_ok_%out_ok -> L_STRING_BUF_RRWC_TEMP_%out_ok, L_STRING_BUF_RRWC_NO_ROOM_%out_ok
+
+L_STRING_BUF_RRWC_TEMP_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_rrwc_tmp_%out_ok, __string_buf_rrwc_rep_len_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_rrwc_tmp_%out_ok, %replace_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_rrwc_tmp_view_%out_ok, __string_buf_rrwc_tmp_%out_ok
+    __string_buf_rrwc_tmp_ptr_%out_ok = load __string_buf_rrwc_tmp_view_%out_ok+Slice_ptr as ptr
+    __string_buf_rrwc_ptr_%out_ok = load __string_buf_rrwc_view_%out_ok+Vec_ptr as ptr
+    __string_buf_rrwc_same_%out_ok = eq __string_buf_rrwc_rep_len_%out_ok, %length
+    br __string_buf_rrwc_same_%out_ok -> L_STRING_BUF_RRWC_SAME_PATH_%out_ok, L_STRING_BUF_RRWC_COMPARE_%out_ok
+
+L_STRING_BUF_RRWC_SAME_PATH_%out_ok:
+    !__string_buf_rrwc_same_%out_ok
+    jmp L_STRING_BUF_RRWC_COPY_%out_ok
+
+L_STRING_BUF_RRWC_COMPARE_%out_ok:
+    !__string_buf_rrwc_same_%out_ok
+    __string_buf_rrwc_grow_%out_ok = ugt __string_buf_rrwc_rep_len_%out_ok, %length
+    br __string_buf_rrwc_grow_%out_ok -> L_STRING_BUF_RRWC_SHIFT_RIGHT_SETUP_%out_ok, L_STRING_BUF_RRWC_SHIFT_LEFT_SETUP_%out_ok
+
+L_STRING_BUF_RRWC_SHIFT_RIGHT_SETUP_%out_ok:
+    !__string_buf_rrwc_grow_%out_ok
+    __string_buf_rrwc_delta_%out_ok = sub __string_buf_rrwc_rep_len_%out_ok, %length
+    __string_buf_rrwc_pos_slot_%out_ok = stack_alloc 8
+    store __string_buf_rrwc_pos_slot_%out_ok+0, __string_buf_rrwc_old_len_%out_ok as u64
+    jmp L_STRING_BUF_RRWC_SHIFT_RIGHT_HEAD_%out_ok
+
+L_STRING_BUF_RRWC_SHIFT_RIGHT_HEAD_%out_ok:
+    __string_buf_rrwc_pos_%out_ok = load __string_buf_rrwc_pos_slot_%out_ok+0 as u64
+    __string_buf_rrwc_more_%out_ok = ugt __string_buf_rrwc_pos_%out_ok, __string_buf_rrwc_end_%out_ok
+    br __string_buf_rrwc_more_%out_ok -> L_STRING_BUF_RRWC_SHIFT_RIGHT_BODY_%out_ok, L_STRING_BUF_RRWC_COPY_AFTER_RIGHT_%out_ok
+
+L_STRING_BUF_RRWC_SHIFT_RIGHT_BODY_%out_ok:
+    __string_buf_rrwc_prev_%out_ok = sub __string_buf_rrwc_pos_%out_ok, 1
+    __string_buf_rrwc_src_i_%out_ok = ptr_add __string_buf_rrwc_ptr_%out_ok, __string_buf_rrwc_prev_%out_ok
+    __string_buf_rrwc_dst_i_%out_ok = ptr_add __string_buf_rrwc_src_i_%out_ok, __string_buf_rrwc_delta_%out_ok
+    __string_buf_rrwc_byte_%out_ok = load __string_buf_rrwc_src_i_%out_ok+0 as u8
+    store __string_buf_rrwc_dst_i_%out_ok+0, __string_buf_rrwc_byte_%out_ok as u8
+    store __string_buf_rrwc_pos_slot_%out_ok+0, __string_buf_rrwc_prev_%out_ok as u64
+    !__string_buf_rrwc_byte_%out_ok
+    !__string_buf_rrwc_dst_i_%out_ok
+    !__string_buf_rrwc_src_i_%out_ok
+    !__string_buf_rrwc_prev_%out_ok
+    !__string_buf_rrwc_more_%out_ok
+    !__string_buf_rrwc_pos_%out_ok
+    jmp L_STRING_BUF_RRWC_SHIFT_RIGHT_HEAD_%out_ok
+
+L_STRING_BUF_RRWC_COPY_AFTER_RIGHT_%out_ok:
+    !__string_buf_rrwc_more_%out_ok
+    !__string_buf_rrwc_pos_%out_ok
+    !__string_buf_rrwc_delta_%out_ok
+    jmp L_STRING_BUF_RRWC_COPY_%out_ok
+
+L_STRING_BUF_RRWC_SHIFT_LEFT_SETUP_%out_ok:
+    !__string_buf_rrwc_grow_%out_ok
+    __string_buf_rrwc_delta_%out_ok = sub %length, __string_buf_rrwc_rep_len_%out_ok
+    __string_buf_rrwc_pos_slot_%out_ok = stack_alloc 8
+    store __string_buf_rrwc_pos_slot_%out_ok+0, __string_buf_rrwc_end_%out_ok as u64
+    jmp L_STRING_BUF_RRWC_SHIFT_LEFT_HEAD_%out_ok
+
+L_STRING_BUF_RRWC_SHIFT_LEFT_HEAD_%out_ok:
+    __string_buf_rrwc_pos_%out_ok = load __string_buf_rrwc_pos_slot_%out_ok+0 as u64
+    __string_buf_rrwc_more_%out_ok = ult __string_buf_rrwc_pos_%out_ok, __string_buf_rrwc_old_len_%out_ok
+    br __string_buf_rrwc_more_%out_ok -> L_STRING_BUF_RRWC_SHIFT_LEFT_BODY_%out_ok, L_STRING_BUF_RRWC_COPY_AFTER_LEFT_%out_ok
+
+L_STRING_BUF_RRWC_SHIFT_LEFT_BODY_%out_ok:
+    __string_buf_rrwc_src_i_%out_ok = ptr_add __string_buf_rrwc_ptr_%out_ok, __string_buf_rrwc_pos_%out_ok
+    __string_buf_rrwc_neg_delta_%out_ok = sub 0, __string_buf_rrwc_delta_%out_ok
+    __string_buf_rrwc_dst_i_%out_ok = ptr_add __string_buf_rrwc_src_i_%out_ok, __string_buf_rrwc_neg_delta_%out_ok
+    __string_buf_rrwc_byte_%out_ok = load __string_buf_rrwc_src_i_%out_ok+0 as u8
+    store __string_buf_rrwc_dst_i_%out_ok+0, __string_buf_rrwc_byte_%out_ok as u8
+    __string_buf_rrwc_next_%out_ok = add __string_buf_rrwc_pos_%out_ok, 1
+    store __string_buf_rrwc_pos_slot_%out_ok+0, __string_buf_rrwc_next_%out_ok as u64
+    !__string_buf_rrwc_next_%out_ok
+    !__string_buf_rrwc_byte_%out_ok
+    !__string_buf_rrwc_dst_i_%out_ok
+    !__string_buf_rrwc_neg_delta_%out_ok
+    !__string_buf_rrwc_src_i_%out_ok
+    !__string_buf_rrwc_more_%out_ok
+    !__string_buf_rrwc_pos_%out_ok
+    jmp L_STRING_BUF_RRWC_SHIFT_LEFT_HEAD_%out_ok
+
+L_STRING_BUF_RRWC_COPY_AFTER_LEFT_%out_ok:
+    !__string_buf_rrwc_more_%out_ok
+    !__string_buf_rrwc_pos_%out_ok
+    !__string_buf_rrwc_delta_%out_ok
+    jmp L_STRING_BUF_RRWC_COPY_%out_ok
+
+L_STRING_BUF_RRWC_COPY_%out_ok:
+    __string_buf_rrwc_dst_%out_ok = ptr_add __string_buf_rrwc_ptr_%out_ok, %start
+    call @sa_mem_copy(&__string_buf_rrwc_dst_%out_ok, &__string_buf_rrwc_tmp_ptr_%out_ok, __string_buf_rrwc_rep_len_%out_ok)
+    store __string_buf_rrwc_view_%out_ok+Vec_len, __string_buf_rrwc_new_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_rrwc_dst_%out_ok
+    !__string_buf_rrwc_ptr_%out_ok
+    !__string_buf_rrwc_tmp_ptr_%out_ok
+    !__string_buf_rrwc_tmp_view_%out_ok
+    EXPAND STRING_BUF_FREE __string_buf_rrwc_tmp_%out_ok
+    !__string_buf_rrwc_room_ok_%out_ok
+    !__string_buf_rrwc_new_len_%out_ok
+    !__string_buf_rrwc_suffix_len_%out_ok
+    !__string_buf_rrwc_prefix_plus_%out_ok
+    !__string_buf_rrwc_rep_len_%out_ok
+    !__string_buf_rrwc_bend_%out_ok
+    !__string_buf_rrwc_end_%out_ok
+    !__string_buf_rrwc_bstart_%out_ok
+    !__string_buf_rrwc_len_ok_%out_ok
+    !__string_buf_rrwc_tail_%out_ok
+    !__string_buf_rrwc_start_ok_%out_ok
+    !__string_buf_rrwc_cap_%out_ok
+    !__string_buf_rrwc_old_len_%out_ok
+    !__string_buf_rrwc_view_%out_ok
+    jmp L_STRING_BUF_RRWC_END_%out_ok
+
+L_STRING_BUF_RRWC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrwc_room_ok_%out_ok
+    !__string_buf_rrwc_new_len_%out_ok
+    !__string_buf_rrwc_suffix_len_%out_ok
+    !__string_buf_rrwc_prefix_plus_%out_ok
+    !__string_buf_rrwc_rep_len_%out_ok
+    !__string_buf_rrwc_bend_%out_ok
+    !__string_buf_rrwc_end_%out_ok
+    !__string_buf_rrwc_bstart_%out_ok
+    !__string_buf_rrwc_len_ok_%out_ok
+    !__string_buf_rrwc_tail_%out_ok
+    !__string_buf_rrwc_start_ok_%out_ok
+    !__string_buf_rrwc_cap_%out_ok
+    !__string_buf_rrwc_old_len_%out_ok
+    !__string_buf_rrwc_view_%out_ok
+    jmp L_STRING_BUF_RRWC_END_%out_ok
+
+L_STRING_BUF_RRWC_MISS_BOUNDARY_END_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrwc_bend_%out_ok
+    !__string_buf_rrwc_end_%out_ok
+    !__string_buf_rrwc_bstart_%out_ok
+    !__string_buf_rrwc_len_ok_%out_ok
+    !__string_buf_rrwc_tail_%out_ok
+    !__string_buf_rrwc_start_ok_%out_ok
+    !__string_buf_rrwc_cap_%out_ok
+    !__string_buf_rrwc_old_len_%out_ok
+    !__string_buf_rrwc_view_%out_ok
+    jmp L_STRING_BUF_RRWC_END_%out_ok
+
+L_STRING_BUF_RRWC_MISS_BOUNDARY_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrwc_bview_%out_ok
+    !__string_buf_rrwc_bstart_%out_ok
+    !__string_buf_rrwc_len_ok_%out_ok
+    !__string_buf_rrwc_tail_%out_ok
+    !__string_buf_rrwc_start_ok_%out_ok
+    !__string_buf_rrwc_cap_%out_ok
+    !__string_buf_rrwc_old_len_%out_ok
+    !__string_buf_rrwc_view_%out_ok
+    jmp L_STRING_BUF_RRWC_END_%out_ok
+
+L_STRING_BUF_RRWC_MISS_LEN_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrwc_len_ok_%out_ok
+    !__string_buf_rrwc_tail_%out_ok
+    !__string_buf_rrwc_start_ok_%out_ok
+    !__string_buf_rrwc_cap_%out_ok
+    !__string_buf_rrwc_old_len_%out_ok
+    !__string_buf_rrwc_view_%out_ok
+    jmp L_STRING_BUF_RRWC_END_%out_ok
+
+L_STRING_BUF_RRWC_MISS_START_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrwc_start_ok_%out_ok
+    !__string_buf_rrwc_cap_%out_ok
+    !__string_buf_rrwc_old_len_%out_ok
+    !__string_buf_rrwc_view_%out_ok
+
+L_STRING_BUF_RRWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_RANGE_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, %replace_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
     __string_buf_replace_view_%out_ok = & %string_reg
     __string_buf_replace_old_len_%out_ok = load __string_buf_replace_view_%out_ok+Vec_len as u64
