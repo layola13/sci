@@ -12233,6 +12233,134 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string splice within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS repl, &PREFIX, 2
+    EXPAND STR_FROM_PARTS long, &WORD, 4
+
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_SPLICE_WITHIN_CAPACITY ok1, drained, buf, 1, 2, repl
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_LEN dlen1, drained
+    EXPAND STRING_BUF_TRY_BYTE_AT b0_ok, b0, buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, buf, 1
+    EXPAND STRING_BUF_TRY_BYTE_AT b2_ok, b2, buf, 2
+    EXPAND STRING_BUF_TRY_BYTE_AT b3_ok, b3, buf, 3
+    EXPAND STRING_BUF_TRY_BYTE_AT d0_ok, d0, drained, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT d1_ok, d1, drained, 1
+    EXPAND STRING_BUF_CAPACITY cap1, buf
+
+    EXPAND STRING_BUF_TRY_SPLICE_WITHIN_CAPACITY ok_full, drained2, buf, 0, 1, long
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_LEN dlen2, drained2
+
+    EXPAND STRING_BUF_TRY_SPLICE_WITHIN_CAPACITY ok_miss, drained3, buf, 9, 1, repl
+    EXPAND STRING_BUF_LEN len3, buf
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 4
+    dlen1_ok = eq dlen1, 2
+    b0_flag = eq b0_ok, 1
+    b0_val = eq b0, 114
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 114
+    b2_flag = eq b2_ok, 1
+    b2_val = eq b2, 117
+    b3_flag = eq b3_ok, 1
+    b3_val = eq b3, 116
+    d0_flag = eq d0_ok, 1
+    d0_val = eq d0, 117
+    d1_flag = eq d1_ok, 1
+    d1_val = eq d1, 115
+    cap1_ok = eq cap1, 6
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 4
+    dlen2_ok = eq dlen2, 0
+    ok_miss_flag = eq ok_miss, 0
+    len3_ok = eq len3, 4
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, dlen1_ok
+    ok = and ok, b0_flag
+    ok = and ok, b0_val
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, b2_flag
+    ok = and ok, b2_val
+    ok = and ok, b3_flag
+    ok = and ok, b3_val
+    ok = and ok, d0_flag
+    ok = and ok, d0_val
+    ok = and ok, d1_flag
+    ok = and ok, d1_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, dlen2_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, len3_ok
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE drained
+    EXPAND STRING_BUF_FREE drained2
+    EXPAND STRING_BUF_FREE drained3
+    !hi
+    !repl
+    !long
+    !ok1
+    !len1
+    !dlen1
+    !b0_ok
+    !b0
+    !b1_ok
+    !b1
+    !b2_ok
+    !b2
+    !b3_ok
+    !b3
+    !d0_ok
+    !d0
+    !d1_ok
+    !d1
+    !cap1
+    !ok_full
+    !len2
+    !dlen2
+    !ok_miss
+    !len3
+    !ok1_flag
+    !len1_ok
+    !dlen1_ok
+    !b0_flag
+    !b0_val
+    !b1_flag
+    !b1_val
+    !b2_flag
+    !b2_val
+    !b3_flag
+    !b3_val
+    !d0_flag
+    !d0_val
+    !d1_flag
+    !d1_val
+    !cap1_ok
+    !ok_full_flag
+    !len2_ok
+    !dlen2_ok
+    !ok_miss_flag
+    !len3_ok
+    br ok -> L_STR_SPWC_OK, L_STR_SPWC_FAIL
+
+L_STR_SPWC_FAIL:
+    !ok
+    panic(1078)
+
+L_STR_SPWC_OK:
+    !ok
+    return
+
 @test "sa_std string drain within capacity aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

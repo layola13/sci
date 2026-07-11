@@ -2402,6 +2402,7 @@ sa/
 - [x] Vec splice + StringBuf retain within capacity 批次已补齐 `VEC_TRY_SPLICE_WITHIN_CAPACITY_U64` / `VEC_SPLICE_WITHIN_CAPACITY_U64`、`STRING_BUF_TRY_RETAIN_WITHIN_CAPACITY` / `STRING_BUF_RETAIN_WITHIN_CAPACITY`；Vec splice 在 cap 足够时原地 drain+右移+写入 replacement，容量不足/越界返回 `ok=0` 且不 mutation；String retain 原地压缩 retained UTF-8 scalars，解码失败返回 `ok=0`；不声明 lazy iterator 或 generic T 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] Vec resize_with within capacity 批次已补齐 `VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64` / `VEC_RESIZE_WITH_WITHIN_CAPACITY_U64`；缩小时直接截断，增长仅在 `new_len <= cap` 时通过 generator 填充；容量不足返回 `ok=0` 且 len 不变；不声明 generic T/allocator 全覆盖；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] StringBuf drain within capacity 批次已补齐 `STRING_BUF_TRY_DRAIN_WITHIN_CAPACITY` / `STRING_BUF_DRAIN_WITHIN_CAPACITY`；将合法 range 拷到新 StringBuf 后用 empty replace_range within capacity 从 owner 删除；非法 range 返回 `ok=0` 且不 mutation；仅收缩不 realloc；不声明 lazy drain iterator；已完成新增源码 focused 测试、安装态 focused 回归。
+- [x] StringBuf splice within capacity 批次已补齐 `STRING_BUF_TRY_SPLICE_WITHIN_CAPACITY` / `STRING_BUF_SPLICE_WITHIN_CAPACITY`；先校验 char boundary 与新长度 cap，再拷出 drained range 并 within-capacity replace；容量不足/非法 range 返回 `ok=0` 且不 mutation；不声明 lazy splice iterator；已完成新增源码 focused 测试、安装态 focused 回归。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---

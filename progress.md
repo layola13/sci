@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf splice within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helper:
+  - `STRING_BUF_TRY_SPLICE_WITHIN_CAPACITY` / `STRING_BUF_SPLICE_WITHIN_CAPACITY`
+- Semantics: validate char boundaries and remaining capacity first, copy the drained range into a new owned StringBuf, drop owner-borrowed views, then replace the range in place with the provided slice via within-capacity replace. Invalid ranges or insufficient capacity return `ok=0`, an empty drained buffer, and no owner mutation. Does not claim Rust lazy splice iterators.
+- Validation status:
+  - Source focused minimal harness `/tmp/spwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "splice within capacity aliases"`: pass (`1 passed; 99 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf drain within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
