@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 Vec extend_from_slice_within_capacity alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving extend helpers:
+  - `VEC_TRY_EXTEND_FROM_SLICE_WITHIN_CAPACITY` / `VEC_EXTEND_FROM_SLICE_WITHIN_CAPACITY`
+  - `VEC_TRY_EXTEND_FROM_SLICE_WITHIN_CAPACITY_U64` / `VEC_EXTEND_FROM_SLICE_WITHIN_CAPACITY_U64`
+- Semantics: append a source slice only when remaining capacity is large enough for the full source length. On success, bytes/elements are copied in place without reallocation and length advances by the source length. Empty sources succeed as no-ops. Insufficient room returns `ok=0` with no mutation. These helpers do not claim Rust panic-on-capacity models, partial-append behavior, or allocator-parametric APIs.
+- Validation status:
+  - Source focused minimal harness: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "extend_from_slice within capacity aliases"`: pass (`1 passed; 32 skipped`).
+  - Install sync via installed-std copy of `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 Vec insert_within_capacity alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
