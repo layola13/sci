@@ -12233,6 +12233,148 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string remove matches within capacity aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS needle, &INFIX, 2
+    EXPAND STR_FROM_PARTS miss, &MISS, 2
+    EXPAND STR_FROM_PARTS multi, &BUF_REPLACE_MULTI_SOURCE, 10
+    EXPAND STR_FROM_PARTS multi_needle, &BUF_REPLACE_MULTI_NEEDLE, 3
+    EXPAND STR_FROM_PARTS multi_expected, &BUF_REMOVE_MULTI_EXPECTED, 4
+
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY ok1, buf, needle
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b0_ok, b0, buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, buf, 1
+    EXPAND STRING_BUF_CAPACITY cap1, buf
+
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY ok_miss, buf, miss
+    EXPAND STRING_BUF_LEN len2, buf
+
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY ok_char, buf, 114
+    EXPAND STRING_BUF_LEN len3, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b2_ok, b2, buf, 0
+
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY ok_bad, buf, 55296
+    EXPAND STRING_BUF_LEN len4, buf
+
+    EXPAND STRING_BUF_WITH_CAPACITY multi_buf, 16
+    EXPAND STRING_BUF_PUSH_STR multi_buf, multi
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY ok_multi, multi_buf, multi_needle
+    EXPAND STRING_BUF_LEN mlen, multi_buf
+    EXPAND STRING_BUF_AS_STR multi_view, multi_buf
+    EXPAND STR_EQ multi_eq, multi_view, multi_expected
+
+    EXPAND STRING_BUF_WITH_CAPACITY empty_buf, 4
+    EXPAND STRING_BUF_PUSH_STR empty_buf, hi
+    EXPAND STR_EMPTY empty_needle
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY ok_empty, empty_buf, empty_needle
+    EXPAND STRING_BUF_LEN elen, empty_buf
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 2
+    b0_flag = eq b0_ok, 1
+    b0_val = eq b0, 114
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 116
+    cap1_ok = eq cap1, 4
+    ok_miss_flag = eq ok_miss, 1
+    len2_ok = eq len2, 2
+    ok_char_flag = eq ok_char, 1
+    len3_ok = eq len3, 1
+    b2_flag = eq b2_ok, 1
+    b2_val = eq b2, 116
+    ok_bad_flag = eq ok_bad, 0
+    len4_ok = eq len4, 1
+    ok_multi_flag = eq ok_multi, 1
+    mlen_ok = eq mlen, 4
+    multi_eq_flag = eq multi_eq, 1
+    ok_empty_flag = eq ok_empty, 1
+    elen_ok = eq elen, 4
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, b0_flag
+    ok = and ok, b0_val
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_miss_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_char_flag
+    ok = and ok, len3_ok
+    ok = and ok, b2_flag
+    ok = and ok, b2_val
+    ok = and ok, ok_bad_flag
+    ok = and ok, len4_ok
+    ok = and ok, ok_multi_flag
+    ok = and ok, mlen_ok
+    ok = and ok, multi_eq_flag
+    ok = and ok, ok_empty_flag
+    ok = and ok, elen_ok
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE multi_buf
+    EXPAND STRING_BUF_FREE empty_buf
+    !hi
+    !needle
+    !miss
+    !multi
+    !multi_needle
+    !multi_expected
+    !empty_needle
+    !ok1
+    !len1
+    !b0_ok
+    !b0
+    !b1_ok
+    !b1
+    !cap1
+    !ok_miss
+    !len2
+    !ok_char
+    !len3
+    !b2_ok
+    !b2
+    !ok_bad
+    !len4
+    !ok_multi
+    !mlen
+    !multi_view
+    !multi_eq
+    !ok_empty
+    !elen
+    !ok1_flag
+    !len1_ok
+    !b0_flag
+    !b0_val
+    !b1_flag
+    !b1_val
+    !cap1_ok
+    !ok_miss_flag
+    !len2_ok
+    !ok_char_flag
+    !len3_ok
+    !b2_flag
+    !b2_val
+    !ok_bad_flag
+    !len4_ok
+    !ok_multi_flag
+    !mlen_ok
+    !multi_eq_flag
+    !ok_empty_flag
+    !elen_ok
+    br ok -> L_STR_RMWC_OK, L_STR_RMWC_FAIL
+
+L_STR_RMWC_FAIL:
+    !ok
+    panic(1073)
+
+L_STR_RMWC_OK:
+    !ok
+    return
+
 @test "sa_std string replace char first last range aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

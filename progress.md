@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf remove_matches within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving remove helpers:
+  - `STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY` / `STRING_BUF_REMOVE_MATCHES_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY` / `STRING_BUF_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY`
+- Semantics: copy the needle into a temporary buffer for self-overlap safety, then compact non-matching bytes in place. Empty needles are successful no-ops. Char variants encode a Unicode scalar first; invalid scalars return `ok=0` with no mutation. Because removals only shrink, these helpers never reallocate the owner buffer.
+- Validation status:
+  - Source focused minimal harness `/tmp/rmwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "remove matches within capacity aliases"`: pass (`1 passed; 96 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf replace char first/last/range aliases batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

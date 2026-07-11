@@ -2824,6 +2824,170 @@ L_STRING_BUF_REPLACE_ALL_END_%out_string:
     !__string_buf_remove_matches_view_%string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY %out_ok, %string_reg, %needle_slice
+    __string_buf_rmwc_view_%out_ok = & %string_reg
+    __string_buf_rmwc_ptr_%out_ok = load __string_buf_rmwc_view_%out_ok+Vec_ptr as ptr
+    __string_buf_rmwc_len_%out_ok = load __string_buf_rmwc_view_%out_ok+Vec_len as u64
+    __string_buf_rmwc_needle_len_%out_ok = load %needle_slice+Slice_len as u64
+    __string_buf_rmwc_empty_%out_ok = eq __string_buf_rmwc_needle_len_%out_ok, 0
+    br __string_buf_rmwc_empty_%out_ok -> L_STRING_BUF_RMWC_EMPTY_%out_ok, L_STRING_BUF_RMWC_TEMP_%out_ok
+
+L_STRING_BUF_RMWC_EMPTY_%out_ok:
+    %out_ok = add 0, 1
+    !__string_buf_rmwc_empty_%out_ok
+    !__string_buf_rmwc_needle_len_%out_ok
+    !__string_buf_rmwc_len_%out_ok
+    !__string_buf_rmwc_ptr_%out_ok
+    !__string_buf_rmwc_view_%out_ok
+    jmp L_STRING_BUF_RMWC_END_%out_ok
+
+L_STRING_BUF_RMWC_TEMP_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY __string_buf_rmwc_tmp_%out_ok, __string_buf_rmwc_needle_len_%out_ok
+    EXPAND STRING_BUF_PUSH_STR __string_buf_rmwc_tmp_%out_ok, %needle_slice
+    EXPAND STRING_BUF_AS_STR __string_buf_rmwc_tmp_view_%out_ok, __string_buf_rmwc_tmp_%out_ok
+    __string_buf_rmwc_needle_ptr_%out_ok = load __string_buf_rmwc_tmp_view_%out_ok+Slice_ptr as ptr
+    __string_buf_rmwc_read_slot_%out_ok = stack_alloc 8
+    __string_buf_rmwc_write_slot_%out_ok = stack_alloc 8
+    __string_buf_rmwc_inner_slot_%out_ok = stack_alloc 8
+    store __string_buf_rmwc_read_slot_%out_ok+0, 0 as u64
+    store __string_buf_rmwc_write_slot_%out_ok+0, 0 as u64
+    jmp L_STRING_BUF_RMWC_HEAD_%out_ok
+
+L_STRING_BUF_RMWC_HEAD_%out_ok:
+    __string_buf_rmwc_read_%out_ok = load __string_buf_rmwc_read_slot_%out_ok+0 as u64
+    __string_buf_rmwc_done_%out_ok = eq __string_buf_rmwc_read_%out_ok, __string_buf_rmwc_len_%out_ok
+    br __string_buf_rmwc_done_%out_ok -> L_STRING_BUF_RMWC_DONE_%out_ok, L_STRING_BUF_RMWC_RANGE_%out_ok
+
+L_STRING_BUF_RMWC_RANGE_%out_ok:
+    __string_buf_rmwc_remaining_%out_ok = sub __string_buf_rmwc_len_%out_ok, __string_buf_rmwc_read_%out_ok
+    __string_buf_rmwc_can_match_%out_ok = uge __string_buf_rmwc_remaining_%out_ok, __string_buf_rmwc_needle_len_%out_ok
+    br __string_buf_rmwc_can_match_%out_ok -> L_STRING_BUF_RMWC_MATCH_INIT_%out_ok, L_STRING_BUF_RMWC_NO_MATCH_ROOM_%out_ok
+
+L_STRING_BUF_RMWC_NO_MATCH_ROOM_%out_ok:
+    !__string_buf_rmwc_can_match_%out_ok
+    !__string_buf_rmwc_remaining_%out_ok
+    jmp L_STRING_BUF_RMWC_KEEP_%out_ok
+
+L_STRING_BUF_RMWC_MATCH_INIT_%out_ok:
+    store __string_buf_rmwc_inner_slot_%out_ok+0, 0 as u64
+    !__string_buf_rmwc_can_match_%out_ok
+    !__string_buf_rmwc_remaining_%out_ok
+    jmp L_STRING_BUF_RMWC_MATCH_HEAD_%out_ok
+
+L_STRING_BUF_RMWC_MATCH_HEAD_%out_ok:
+    __string_buf_rmwc_inner_%out_ok = load __string_buf_rmwc_inner_slot_%out_ok+0 as u64
+    __string_buf_rmwc_inner_done_%out_ok = eq __string_buf_rmwc_inner_%out_ok, __string_buf_rmwc_needle_len_%out_ok
+    br __string_buf_rmwc_inner_done_%out_ok -> L_STRING_BUF_RMWC_HIT_%out_ok, L_STRING_BUF_RMWC_MATCH_BODY_%out_ok
+
+L_STRING_BUF_RMWC_MATCH_BODY_%out_ok:
+    __string_buf_rmwc_hay_off_%out_ok = add __string_buf_rmwc_read_%out_ok, __string_buf_rmwc_inner_%out_ok
+    __string_buf_rmwc_hay_ip_%out_ok = ptr_add __string_buf_rmwc_ptr_%out_ok, __string_buf_rmwc_hay_off_%out_ok
+    __string_buf_rmwc_needle_ip_%out_ok = ptr_add __string_buf_rmwc_needle_ptr_%out_ok, __string_buf_rmwc_inner_%out_ok
+    __string_buf_rmwc_hay_byte_%out_ok = load __string_buf_rmwc_hay_ip_%out_ok+0 as u8
+    __string_buf_rmwc_needle_byte_%out_ok = load __string_buf_rmwc_needle_ip_%out_ok+0 as u8
+    __string_buf_rmwc_match_%out_ok = eq __string_buf_rmwc_hay_byte_%out_ok, __string_buf_rmwc_needle_byte_%out_ok
+    br __string_buf_rmwc_match_%out_ok -> L_STRING_BUF_RMWC_MATCH_NEXT_%out_ok, L_STRING_BUF_RMWC_MATCH_MISS_%out_ok
+
+L_STRING_BUF_RMWC_MATCH_NEXT_%out_ok:
+    __string_buf_rmwc_inner_next_%out_ok = add __string_buf_rmwc_inner_%out_ok, 1
+    store __string_buf_rmwc_inner_slot_%out_ok+0, __string_buf_rmwc_inner_next_%out_ok as u64
+    !__string_buf_rmwc_inner_next_%out_ok
+    !__string_buf_rmwc_match_%out_ok
+    !__string_buf_rmwc_needle_byte_%out_ok
+    !__string_buf_rmwc_hay_byte_%out_ok
+    !__string_buf_rmwc_needle_ip_%out_ok
+    !__string_buf_rmwc_hay_ip_%out_ok
+    !__string_buf_rmwc_hay_off_%out_ok
+    !__string_buf_rmwc_inner_done_%out_ok
+    !__string_buf_rmwc_inner_%out_ok
+    jmp L_STRING_BUF_RMWC_MATCH_HEAD_%out_ok
+
+L_STRING_BUF_RMWC_MATCH_MISS_%out_ok:
+    !__string_buf_rmwc_match_%out_ok
+    !__string_buf_rmwc_needle_byte_%out_ok
+    !__string_buf_rmwc_hay_byte_%out_ok
+    !__string_buf_rmwc_needle_ip_%out_ok
+    !__string_buf_rmwc_hay_ip_%out_ok
+    !__string_buf_rmwc_hay_off_%out_ok
+    !__string_buf_rmwc_inner_done_%out_ok
+    !__string_buf_rmwc_inner_%out_ok
+    jmp L_STRING_BUF_RMWC_KEEP_%out_ok
+
+L_STRING_BUF_RMWC_HIT_%out_ok:
+    __string_buf_rmwc_next_read_%out_ok = add __string_buf_rmwc_read_%out_ok, __string_buf_rmwc_needle_len_%out_ok
+    store __string_buf_rmwc_read_slot_%out_ok+0, __string_buf_rmwc_next_read_%out_ok as u64
+    !__string_buf_rmwc_next_read_%out_ok
+    !__string_buf_rmwc_inner_done_%out_ok
+    !__string_buf_rmwc_inner_%out_ok
+    !__string_buf_rmwc_done_%out_ok
+    !__string_buf_rmwc_read_%out_ok
+    jmp L_STRING_BUF_RMWC_HEAD_%out_ok
+
+L_STRING_BUF_RMWC_KEEP_%out_ok:
+    __string_buf_rmwc_write_%out_ok = load __string_buf_rmwc_write_slot_%out_ok+0 as u64
+    __string_buf_rmwc_src_ip_%out_ok = ptr_add __string_buf_rmwc_ptr_%out_ok, __string_buf_rmwc_read_%out_ok
+    __string_buf_rmwc_dst_ip_%out_ok = ptr_add __string_buf_rmwc_ptr_%out_ok, __string_buf_rmwc_write_%out_ok
+    __string_buf_rmwc_byte_%out_ok = load __string_buf_rmwc_src_ip_%out_ok+0 as u8
+    store __string_buf_rmwc_dst_ip_%out_ok+0, __string_buf_rmwc_byte_%out_ok as u8
+    __string_buf_rmwc_next_read2_%out_ok = add __string_buf_rmwc_read_%out_ok, 1
+    __string_buf_rmwc_next_write_%out_ok = add __string_buf_rmwc_write_%out_ok, 1
+    store __string_buf_rmwc_read_slot_%out_ok+0, __string_buf_rmwc_next_read2_%out_ok as u64
+    store __string_buf_rmwc_write_slot_%out_ok+0, __string_buf_rmwc_next_write_%out_ok as u64
+    !__string_buf_rmwc_next_write_%out_ok
+    !__string_buf_rmwc_next_read2_%out_ok
+    !__string_buf_rmwc_byte_%out_ok
+    !__string_buf_rmwc_dst_ip_%out_ok
+    !__string_buf_rmwc_src_ip_%out_ok
+    !__string_buf_rmwc_write_%out_ok
+    !__string_buf_rmwc_done_%out_ok
+    !__string_buf_rmwc_read_%out_ok
+    jmp L_STRING_BUF_RMWC_HEAD_%out_ok
+
+L_STRING_BUF_RMWC_DONE_%out_ok:
+    __string_buf_rmwc_new_len_%out_ok = load __string_buf_rmwc_write_slot_%out_ok+0 as u64
+    store __string_buf_rmwc_view_%out_ok+Vec_len, __string_buf_rmwc_new_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__string_buf_rmwc_new_len_%out_ok
+    !__string_buf_rmwc_done_%out_ok
+    !__string_buf_rmwc_read_%out_ok
+    !__string_buf_rmwc_needle_ptr_%out_ok
+    !__string_buf_rmwc_tmp_view_%out_ok
+    EXPAND STRING_BUF_FREE __string_buf_rmwc_tmp_%out_ok
+    !__string_buf_rmwc_empty_%out_ok
+    !__string_buf_rmwc_needle_len_%out_ok
+    !__string_buf_rmwc_len_%out_ok
+    !__string_buf_rmwc_ptr_%out_ok
+    !__string_buf_rmwc_view_%out_ok
+
+L_STRING_BUF_RMWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REMOVE_MATCHES_WITHIN_CAPACITY %out_ok, %string_reg, %needle_slice
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY %out_ok, %string_reg, %needle_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rmcwc_needle_%out_ok, __string_buf_rmcwc_valid_%out_ok, %code
+    br __string_buf_rmcwc_valid_%out_ok -> L_STRING_BUF_RMCWC_HIT_%out_ok, L_STRING_BUF_RMCWC_MISS_%out_ok
+
+L_STRING_BUF_RMCWC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_WITHIN_CAPACITY %out_ok, %string_reg, __string_buf_rmcwc_needle_%out_ok
+    !__string_buf_rmcwc_valid_%out_ok
+    !__string_buf_rmcwc_needle_%out_ok
+    jmp L_STRING_BUF_RMCWC_END_%out_ok
+
+L_STRING_BUF_RMCWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rmcwc_valid_%out_ok
+    !__string_buf_rmcwc_needle_%out_ok
+
+L_STRING_BUF_RMCWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code
+    EXPAND STRING_BUF_TRY_REMOVE_MATCHES_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code
+[END_MACRO]
+
 [MACRO] STRING_BUF_REPLACE_N %out_string, %source_slice, %needle_slice, %replacement_slice, %limit
     EXPAND STRING_BUF_WITH_CAPACITY %out_string, 0
     __string_buf_replace_n_ptr_%out_string = load %source_slice+Slice_ptr as ptr
