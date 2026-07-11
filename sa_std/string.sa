@@ -3804,6 +3804,36 @@ L_STRING_BUF_DRAIN_END_%out_ok:
     EXPAND STRING_BUF_TRY_DRAIN %out_ok, %out_string, %string_reg, %start, %length
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_DRAIN_WITHIN_CAPACITY %out_ok, %out_string, %string_reg, %start, %length
+    EXPAND STRING_BUF_AS_STR __string_buf_drwc_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_RANGE __string_buf_drwc_range_ok_%out_ok, __string_buf_drwc_range_%out_ok, __string_buf_drwc_view_%out_ok, %start, %length
+    br __string_buf_drwc_range_ok_%out_ok -> L_STRING_BUF_DRWC_HIT_%out_ok, L_STRING_BUF_DRWC_MISS_%out_ok
+
+L_STRING_BUF_DRWC_HIT_%out_ok:
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, %length
+    EXPAND STRING_BUF_PUSH_STR %out_string, __string_buf_drwc_range_%out_ok
+    EXPAND STR_EMPTY __string_buf_drwc_empty_%out_ok
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_WITHIN_CAPACITY %out_ok, %string_reg, %start, %length, __string_buf_drwc_empty_%out_ok
+    !__string_buf_drwc_empty_%out_ok
+    !__string_buf_drwc_range_%out_ok
+    !__string_buf_drwc_range_ok_%out_ok
+    !__string_buf_drwc_view_%out_ok
+    jmp L_STRING_BUF_DRWC_END_%out_ok
+
+L_STRING_BUF_DRWC_MISS_%out_ok:
+    EXPAND STRING_BUF_NEW %out_string
+    %out_ok = add 0, 0
+    !__string_buf_drwc_range_%out_ok
+    !__string_buf_drwc_range_ok_%out_ok
+    !__string_buf_drwc_view_%out_ok
+
+L_STRING_BUF_DRWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_DRAIN_WITHIN_CAPACITY %out_ok, %out_string, %string_reg, %start, %length
+    EXPAND STRING_BUF_TRY_DRAIN_WITHIN_CAPACITY %out_ok, %out_string, %string_reg, %start, %length
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_RETAIN %out_ok, %out_len, %string_reg, %pred_fn
     EXPAND STRING_BUF_AS_STR __string_buf_retain_view_%out_ok, %string_reg
     EXPAND STR_LEN __string_buf_retain_old_len_%out_ok, __string_buf_retain_view_%out_ok
