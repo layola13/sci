@@ -8645,6 +8645,134 @@ L_STR_ESCAPE_UNICODE_DONE_%out_string:
     !__string_buf_escape_unicode_view_%out_string
 [END_MACRO]
 
+[MACRO] STR_ENCODE_UTF16_LEN %out_count, %slice_reg
+    __str_encode_utf16_len_ptr_%out_count = load %slice_reg+Slice_ptr as ptr
+    __str_encode_utf16_len_bytes_%out_count = load %slice_reg+Slice_len as u64
+    __str_encode_utf16_len_idx_slot_%out_count = stack_alloc 8
+    __str_encode_utf16_len_count_slot_%out_count = stack_alloc 8
+    store __str_encode_utf16_len_idx_slot_%out_count+0, 0 as u64
+    store __str_encode_utf16_len_count_slot_%out_count+0, 0 as u64
+    jmp L_STR_ENCODE_UTF16_LEN_HEAD_%out_count
+
+L_STR_ENCODE_UTF16_LEN_HEAD_%out_count:
+    __str_encode_utf16_len_idx_%out_count = load __str_encode_utf16_len_idx_slot_%out_count+0 as u64
+    __str_encode_utf16_len_done_%out_count = uge __str_encode_utf16_len_idx_%out_count, __str_encode_utf16_len_bytes_%out_count
+    br __str_encode_utf16_len_done_%out_count -> L_STR_ENCODE_UTF16_LEN_DONE_%out_count, L_STR_ENCODE_UTF16_LEN_BODY_%out_count
+
+L_STR_ENCODE_UTF16_LEN_BODY_%out_count:
+    EXPAND STR_TRY_CHAR_AT_BYTE __str_encode_utf16_len_ok_%out_count, __str_encode_utf16_len_code_%out_count, __str_encode_utf16_len_width_%out_count, %slice_reg, __str_encode_utf16_len_idx_%out_count
+    br __str_encode_utf16_len_ok_%out_count -> L_STR_ENCODE_UTF16_LEN_ADD_%out_count, L_STR_ENCODE_UTF16_LEN_FAIL_%out_count
+
+L_STR_ENCODE_UTF16_LEN_ADD_%out_count:
+    EXPAND CHAR_LEN_UTF16 __str_encode_utf16_len_units_%out_count, __str_encode_utf16_len_code_%out_count
+    __str_encode_utf16_len_count_%out_count = load __str_encode_utf16_len_count_slot_%out_count+0 as u64
+    __str_encode_utf16_len_count_next_%out_count = add __str_encode_utf16_len_count_%out_count, __str_encode_utf16_len_units_%out_count
+    store __str_encode_utf16_len_count_slot_%out_count+0, __str_encode_utf16_len_count_next_%out_count as u64
+    __str_encode_utf16_len_idx_next_%out_count = add __str_encode_utf16_len_idx_%out_count, __str_encode_utf16_len_width_%out_count
+    store __str_encode_utf16_len_idx_slot_%out_count+0, __str_encode_utf16_len_idx_next_%out_count as u64
+    !__str_encode_utf16_len_idx_next_%out_count
+    !__str_encode_utf16_len_count_next_%out_count
+    !__str_encode_utf16_len_count_%out_count
+    !__str_encode_utf16_len_units_%out_count
+    !__str_encode_utf16_len_width_%out_count
+    !__str_encode_utf16_len_code_%out_count
+    !__str_encode_utf16_len_ok_%out_count
+    !__str_encode_utf16_len_done_%out_count
+    !__str_encode_utf16_len_idx_%out_count
+    jmp L_STR_ENCODE_UTF16_LEN_HEAD_%out_count
+
+L_STR_ENCODE_UTF16_LEN_FAIL_%out_count:
+    panic(1222)
+
+L_STR_ENCODE_UTF16_LEN_DONE_%out_count:
+    %out_count = load __str_encode_utf16_len_count_slot_%out_count+0 as u64
+    !__str_encode_utf16_len_done_%out_count
+    !__str_encode_utf16_len_idx_%out_count
+    !__str_encode_utf16_len_bytes_%out_count
+    !__str_encode_utf16_len_ptr_%out_count
+[END_MACRO]
+
+[MACRO] STRING_ENCODE_UTF16_LEN %out_count, %slice_reg
+    EXPAND STR_ENCODE_UTF16_LEN %out_count, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_ENCODE_UTF16_LEN %out_count, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_encode_utf16_len_view_%out_count, %string_reg
+    EXPAND STR_ENCODE_UTF16_LEN %out_count, __string_buf_encode_utf16_len_view_%out_count
+    !__string_buf_encode_utf16_len_view_%out_count
+[END_MACRO]
+
+[MACRO] STR_ENCODE_UTF16 %out_vec, %slice_reg
+    __str_encode_utf16_ptr_%out_vec = load %slice_reg+Slice_ptr as ptr
+    __str_encode_utf16_len_%out_vec = load %slice_reg+Slice_len as u64
+    EXPAND VEC_WITH_CAPACITY %out_vec, __str_encode_utf16_len_%out_vec, 2
+    __str_encode_utf16_idx_slot_%out_vec = stack_alloc 8
+    __str_encode_utf16_tmp_%out_vec = stack_alloc 4
+    store __str_encode_utf16_idx_slot_%out_vec+0, 0 as u64
+    jmp L_STR_ENCODE_UTF16_HEAD_%out_vec
+
+L_STR_ENCODE_UTF16_HEAD_%out_vec:
+    __str_encode_utf16_idx_%out_vec = load __str_encode_utf16_idx_slot_%out_vec+0 as u64
+    __str_encode_utf16_done_%out_vec = uge __str_encode_utf16_idx_%out_vec, __str_encode_utf16_len_%out_vec
+    br __str_encode_utf16_done_%out_vec -> L_STR_ENCODE_UTF16_DONE_%out_vec, L_STR_ENCODE_UTF16_BODY_%out_vec
+
+L_STR_ENCODE_UTF16_BODY_%out_vec:
+    EXPAND STR_TRY_CHAR_AT_BYTE __str_encode_utf16_ok_%out_vec, __str_encode_utf16_code_%out_vec, __str_encode_utf16_width_%out_vec, %slice_reg, __str_encode_utf16_idx_%out_vec
+    br __str_encode_utf16_ok_%out_vec -> L_STR_ENCODE_UTF16_WRITE_%out_vec, L_STR_ENCODE_UTF16_FAIL_%out_vec
+
+L_STR_ENCODE_UTF16_WRITE_%out_vec:
+    EXPAND CHAR_TRY_ENCODE_UTF16 __str_encode_utf16_write_ok_%out_vec, __str_encode_utf16_units_%out_vec, __str_encode_utf16_tmp_%out_vec, 2, __str_encode_utf16_code_%out_vec
+    br __str_encode_utf16_write_ok_%out_vec -> L_STR_ENCODE_UTF16_PUSH0_%out_vec, L_STR_ENCODE_UTF16_FAIL_%out_vec
+
+L_STR_ENCODE_UTF16_PUSH0_%out_vec:
+    __str_encode_utf16_unit0_%out_vec = load __str_encode_utf16_tmp_%out_vec+0 as u16
+    EXPAND VEC_PUSH %out_vec, __str_encode_utf16_unit0_%out_vec, 2
+    __str_encode_utf16_is_pair_%out_vec = eq __str_encode_utf16_units_%out_vec, 2
+    br __str_encode_utf16_is_pair_%out_vec -> L_STR_ENCODE_UTF16_PUSH1_%out_vec, L_STR_ENCODE_UTF16_ADVANCE_%out_vec
+
+L_STR_ENCODE_UTF16_PUSH1_%out_vec:
+    __str_encode_utf16_tmp1_%out_vec = ptr_add __str_encode_utf16_tmp_%out_vec, 2
+    __str_encode_utf16_unit1_%out_vec = load __str_encode_utf16_tmp1_%out_vec+0 as u16
+    EXPAND VEC_PUSH %out_vec, __str_encode_utf16_unit1_%out_vec, 2
+    !__str_encode_utf16_unit1_%out_vec
+    !__str_encode_utf16_tmp1_%out_vec
+    jmp L_STR_ENCODE_UTF16_ADVANCE_%out_vec
+
+L_STR_ENCODE_UTF16_ADVANCE_%out_vec:
+    __str_encode_utf16_next_%out_vec = add __str_encode_utf16_idx_%out_vec, __str_encode_utf16_width_%out_vec
+    store __str_encode_utf16_idx_slot_%out_vec+0, __str_encode_utf16_next_%out_vec as u64
+    !__str_encode_utf16_next_%out_vec
+    !__str_encode_utf16_is_pair_%out_vec
+    !__str_encode_utf16_unit0_%out_vec
+    !__str_encode_utf16_units_%out_vec
+    !__str_encode_utf16_write_ok_%out_vec
+    !__str_encode_utf16_width_%out_vec
+    !__str_encode_utf16_code_%out_vec
+    !__str_encode_utf16_ok_%out_vec
+    !__str_encode_utf16_done_%out_vec
+    !__str_encode_utf16_idx_%out_vec
+    jmp L_STR_ENCODE_UTF16_HEAD_%out_vec
+
+L_STR_ENCODE_UTF16_FAIL_%out_vec:
+    panic(1223)
+
+L_STR_ENCODE_UTF16_DONE_%out_vec:
+    !__str_encode_utf16_done_%out_vec
+    !__str_encode_utf16_idx_%out_vec
+    !__str_encode_utf16_len_%out_vec
+    !__str_encode_utf16_ptr_%out_vec
+[END_MACRO]
+
+[MACRO] STRING_ENCODE_UTF16 %out_vec, %slice_reg
+    EXPAND STR_ENCODE_UTF16 %out_vec, %slice_reg
+[END_MACRO]
+
+[MACRO] STRING_BUF_ENCODE_UTF16 %out_vec, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_encode_utf16_view_%out_vec, %string_reg
+    EXPAND STR_ENCODE_UTF16 %out_vec, __string_buf_encode_utf16_view_%out_vec
+    !__string_buf_encode_utf16_view_%out_vec
+[END_MACRO]
+
 [MACRO] STR_TO_ASCII_UPPERCASE %out_string, %slice_reg
     EXPAND STRING_BUF_FROM_STR %out_string, %slice_reg
     EXPAND STRING_BUF_MAKE_ASCII_UPPERCASE __str_to_ascii_upper_ok_%out_string, %out_string

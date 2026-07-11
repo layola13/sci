@@ -10914,3 +10914,138 @@ L_STR_ESCAPE_OK:
     !ok
     return
 
+@test "sa_std string encode utf16 aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS plain_u16, &ESCAPE_PLAIN, 1
+    EXPAND STR_FROM_PARTS multi_u16, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STRING_BUF_FROM_STR multi_buf_u16, multi_u16
+
+    EXPAND STR_ENCODE_UTF16_LEN plain_len, plain_u16
+    EXPAND STR_ENCODE_UTF16_LEN multi_len, multi_u16
+    EXPAND STRING_ENCODE_UTF16_LEN multi_len_s, multi_u16
+    EXPAND STRING_BUF_ENCODE_UTF16_LEN multi_len_b, multi_buf_u16
+
+    EXPAND STR_ENCODE_UTF16 plain_vec, plain_u16
+    EXPAND STR_ENCODE_UTF16 multi_vec, multi_u16
+    EXPAND STRING_ENCODE_UTF16 multi_vec_s, multi_u16
+    EXPAND STRING_BUF_ENCODE_UTF16 multi_vec_b, multi_buf_u16
+
+    EXPAND VEC_LEN plain_vec_len, plain_vec
+    EXPAND VEC_LEN multi_vec_len, multi_vec
+    EXPAND VEC_LEN multi_vec_s_len, multi_vec_s
+    EXPAND VEC_LEN multi_vec_b_len, multi_vec_b
+    EXPAND VEC_AS_PTR plain_ptr, plain_vec
+    EXPAND VEC_AS_PTR multi_ptr, multi_vec
+    EXPAND VEC_AS_PTR multi_ptr_s, multi_vec_s
+    EXPAND VEC_AS_PTR multi_ptr_b, multi_vec_b
+
+    plain0 = load plain_ptr+0 as u16
+    multi0 = load multi_ptr+0 as u16
+    multi1 = load multi_ptr+2 as u16
+    multi2 = load multi_ptr+4 as u16
+    multi3 = load multi_ptr+6 as u16
+    multi4 = load multi_ptr+8 as u16
+    multi_s0 = load multi_ptr_s+0 as u16
+    multi_s4 = load multi_ptr_s+8 as u16
+    multi_b0 = load multi_ptr_b+0 as u16
+    multi_b2 = load multi_ptr_b+4 as u16
+    multi_b4 = load multi_ptr_b+8 as u16
+
+    plain_len_ok = eq plain_len, 1
+    multi_len_ok = eq multi_len, 5
+    multi_len_s_ok = eq multi_len_s, 5
+    multi_len_b_ok = eq multi_len_b, 5
+    plain_vec_len_ok = eq plain_vec_len, 1
+    multi_vec_len_ok = eq multi_vec_len, 5
+    multi_vec_s_len_ok = eq multi_vec_s_len, 5
+    multi_vec_b_len_ok = eq multi_vec_b_len, 5
+    plain0_ok = eq plain0, 65
+    multi0_ok = eq multi0, 97
+    multi1_ok = eq multi1, 233
+    multi2_ok = eq multi2, 55357
+    multi3_ok = eq multi3, 56898
+    multi4_ok = eq multi4, 122
+    multi_s0_ok = eq multi_s0, 97
+    multi_s4_ok = eq multi_s4, 122
+    multi_b0_ok = eq multi_b0, 97
+    multi_b2_ok = eq multi_b2, 55357
+    multi_b4_ok = eq multi_b4, 122
+
+    ok = and plain_len_ok, multi_len_ok
+    ok = and ok, multi_len_s_ok
+    ok = and ok, multi_len_b_ok
+    ok = and ok, plain_vec_len_ok
+    ok = and ok, multi_vec_len_ok
+    ok = and ok, multi_vec_s_len_ok
+    ok = and ok, multi_vec_b_len_ok
+    ok = and ok, plain0_ok
+    ok = and ok, multi0_ok
+    ok = and ok, multi1_ok
+    ok = and ok, multi2_ok
+    ok = and ok, multi3_ok
+    ok = and ok, multi4_ok
+    ok = and ok, multi_s0_ok
+    ok = and ok, multi_s4_ok
+    ok = and ok, multi_b0_ok
+    ok = and ok, multi_b2_ok
+    ok = and ok, multi_b4_ok
+
+    EXPAND VEC_FREE plain_vec
+    EXPAND VEC_FREE multi_vec
+    EXPAND VEC_FREE multi_vec_s
+    EXPAND VEC_FREE multi_vec_b
+    EXPAND STRING_BUF_FREE multi_buf_u16
+    !plain_u16
+    !multi_u16
+    !plain_len
+    !multi_len
+    !multi_len_s
+    !multi_len_b
+    !plain_vec_len
+    !multi_vec_len
+    !multi_vec_s_len
+    !multi_vec_b_len
+    !plain_ptr
+    !multi_ptr
+    !multi_ptr_s
+    !multi_ptr_b
+    !plain0
+    !multi0
+    !multi1
+    !multi2
+    !multi3
+    !multi4
+    !multi_s0
+    !multi_s4
+    !multi_b0
+    !multi_b2
+    !multi_b4
+    !plain_len_ok
+    !multi_len_ok
+    !multi_len_s_ok
+    !multi_len_b_ok
+    !plain_vec_len_ok
+    !multi_vec_len_ok
+    !multi_vec_s_len_ok
+    !multi_vec_b_len_ok
+    !plain0_ok
+    !multi0_ok
+    !multi1_ok
+    !multi2_ok
+    !multi3_ok
+    !multi4_ok
+    !multi_s0_ok
+    !multi_s4_ok
+    !multi_b0_ok
+    !multi_b2_ok
+    !multi_b4_ok
+    br ok -> L_STR_ENCODE_UTF16_OK, L_STR_ENCODE_UTF16_FAIL
+
+L_STR_ENCODE_UTF16_FAIL:
+    !ok
+    panic(1041)
+
+L_STR_ENCODE_UTF16_OK:
+    !ok
+    return
+

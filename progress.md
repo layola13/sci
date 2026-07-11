@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String encode_utf16 alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` encode-utf16 aliases:
+  - `STR_ENCODE_UTF16_LEN` / `STRING_ENCODE_UTF16_LEN` / `STRING_BUF_ENCODE_UTF16_LEN`
+  - `STR_ENCODE_UTF16` / `STRING_ENCODE_UTF16` / `STRING_BUF_ENCODE_UTF16`
+- Semantics: count aliases walk UTF-8 scalars and sum `CHAR_LEN_UTF16` units. Encode aliases build an owned `Vec` of `u16` units (`elem_size=2`) by encoding each scalar through `CHAR_TRY_ENCODE_UTF16`, including surrogate pairs for non-BMP characters such as `🙂`. Invalid UTF-8 paths panic in this concrete subset rather than modeling Rust lossy/Result objects. This remains an eager owned-buffer subset rather than Rust's lazy `EncodeUtf16` iterator, generic `Vec<u16>` trait object model, or borrow-checker lifetime model.
+- Validation status:
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "encode utf16 aliases" --jobs 1 --trace-panic`: pass (`1 passed; 73 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused `/home/vscode/.sa/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "encode utf16 aliases" --jobs 1 --trace-panic`: pass (`1 passed; 73 skipped`).
+
 ## Completed: 2026-07-11 str/String escape_default/escape_unicode alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
