@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf try_truncate alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable checked truncate helper:
+  - `STRING_BUF_TRY_TRUNCATE`
+- Semantics: if `new_len > current len`, returns `ok=1` and leaves the buffer unchanged (Rust-like no-op truncate-up). If `new_len <= current len`, requires `STR_IS_CHAR_BOUNDARY` on the current string view and only then truncates; mid-scalar indices return `ok=0` with no mutation. This does not claim Rust panic-on-mid-scalar `truncate`, allocator traits, or generic Pattern machinery.
+- Validation status:
+  - Source focused minimal harness: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "try_truncate aliases"`: pass (`1 passed; 83 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf push_byte/char_within_capacity + Vec try_set_len batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

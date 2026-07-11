@@ -2609,6 +2609,41 @@ L_STRING_BUF_REPLACE_N_END_%out_string:
     EXPAND VEC_TRUNCATE %string_reg, %new_len
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_TRUNCATE %out_ok, %string_reg, %new_len
+    __string_buf_try_trunc_len_%out_ok = load %string_reg+Vec_len as u64
+    __string_buf_try_trunc_noop_%out_ok = ugt %new_len, __string_buf_try_trunc_len_%out_ok
+    br __string_buf_try_trunc_noop_%out_ok -> L_STRING_BUF_TRY_TRUNC_NOOP_%out_ok, L_STRING_BUF_TRY_TRUNC_CHECK_%out_ok
+
+L_STRING_BUF_TRY_TRUNC_NOOP_%out_ok:
+    %out_ok = add 0, 1
+    !__string_buf_try_trunc_noop_%out_ok
+    !__string_buf_try_trunc_len_%out_ok
+    jmp L_STRING_BUF_TRY_TRUNC_DONE_%out_ok
+
+L_STRING_BUF_TRY_TRUNC_CHECK_%out_ok:
+    EXPAND STRING_BUF_AS_STR __string_buf_try_trunc_view_%out_ok, %string_reg
+    EXPAND STR_IS_CHAR_BOUNDARY __string_buf_try_trunc_boundary_%out_ok, __string_buf_try_trunc_view_%out_ok, %new_len
+    br __string_buf_try_trunc_boundary_%out_ok -> L_STRING_BUF_TRY_TRUNC_HIT_%out_ok, L_STRING_BUF_TRY_TRUNC_MISS_%out_ok
+
+L_STRING_BUF_TRY_TRUNC_HIT_%out_ok:
+    EXPAND VEC_TRUNCATE %string_reg, %new_len
+    %out_ok = add 0, 1
+    !__string_buf_try_trunc_boundary_%out_ok
+    !__string_buf_try_trunc_view_%out_ok
+    !__string_buf_try_trunc_noop_%out_ok
+    !__string_buf_try_trunc_len_%out_ok
+    jmp L_STRING_BUF_TRY_TRUNC_DONE_%out_ok
+
+L_STRING_BUF_TRY_TRUNC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_try_trunc_boundary_%out_ok
+    !__string_buf_try_trunc_view_%out_ok
+    !__string_buf_try_trunc_noop_%out_ok
+    !__string_buf_try_trunc_len_%out_ok
+
+L_STRING_BUF_TRY_TRUNC_DONE_%out_ok:
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_SET_LEN %out_ok, %string_reg, %new_len
     __string_buf_set_len_cap_%out_ok = load %string_reg+Vec_cap as u64
     __string_buf_set_len_len_%out_ok = load %string_reg+Vec_len as u64

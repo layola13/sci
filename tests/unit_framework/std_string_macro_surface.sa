@@ -11926,3 +11926,68 @@ L_STR_PBC_FAIL:
 L_STR_PBC_OK:
     !ok
     return
+
+@test "sa_std string try_truncate aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 16
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_TRY_TRUNCATE ok_shrink, buf, 2
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_TRUNCATE ok_noop, buf, 8
+    EXPAND STRING_BUF_LEN len2, buf
+
+    EXPAND STR_FROM_PARTS multi, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STRING_BUF_WITH_CAPACITY mbuf, 16
+    EXPAND STRING_BUF_PUSH_STR mbuf, multi
+    EXPAND STRING_BUF_TRY_TRUNCATE ok_mid, mbuf, 2
+    EXPAND STRING_BUF_LEN mlen1, mbuf
+    EXPAND STRING_BUF_TRY_TRUNCATE ok_boundary, mbuf, 1
+    EXPAND STRING_BUF_LEN mlen2, mbuf
+
+    ok_shrink_flag = eq ok_shrink, 1
+    len1_ok = eq len1, 2
+    ok_noop_flag = eq ok_noop, 1
+    len2_ok = eq len2, 2
+    ok_mid_flag = eq ok_mid, 0
+    mlen1_ok = eq mlen1, 8
+    ok_boundary_flag = eq ok_boundary, 1
+    mlen2_ok = eq mlen2, 1
+
+    ok = and ok_shrink_flag, len1_ok
+    ok = and ok, ok_noop_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_mid_flag
+    ok = and ok, mlen1_ok
+    ok = and ok, ok_boundary_flag
+    ok = and ok, mlen2_ok
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE mbuf
+    !hi
+    !multi
+    !ok_shrink
+    !len1
+    !ok_noop
+    !len2
+    !ok_mid
+    !mlen1
+    !ok_boundary
+    !mlen2
+    !ok_shrink_flag
+    !len1_ok
+    !ok_noop_flag
+    !len2_ok
+    !ok_mid_flag
+    !mlen1_ok
+    !ok_boundary_flag
+    !mlen2_ok
+    br ok -> L_STR_TRY_TRUNC_OK, L_STR_TRY_TRUNC_FAIL
+
+L_STR_TRY_TRUNC_FAIL:
+    !ok
+    panic(1054)
+
+L_STR_TRY_TRUNC_OK:
+    !ok
+    return
