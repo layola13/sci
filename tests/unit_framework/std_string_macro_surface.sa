@@ -12332,6 +12332,116 @@ L_STR_PSNWC_OK:
     !ok
     return
 
+@test "sa_std string push_byte_n and push_char_n within capacity aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 6
+    EXPAND STRING_BUF_TRY_PUSH_BYTE_N_WITHIN_CAPACITY ok_b, buf, 65, 2
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY ok_c, buf, 66, 2
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b0_ok, b0, buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, buf, 1
+    EXPAND STRING_BUF_TRY_BYTE_AT b2_ok, b2, buf, 2
+    EXPAND STRING_BUF_TRY_BYTE_AT b3_ok, b3, buf, 3
+    EXPAND STRING_BUF_CAPACITY cap1, buf
+
+    EXPAND STRING_BUF_PUSH_CHAR_N_WITHIN_CAPACITY ok_full, buf, 67, 3
+    EXPAND STRING_BUF_LEN len2, buf
+
+    EXPAND STRING_BUF_PUSH_BYTE_N_WITHIN_CAPACITY ok_zero_b, buf, 68, 0
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY ok_zero_c, buf, 68, 0
+    EXPAND STRING_BUF_LEN len3, buf
+
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY ok_bad, buf, 1114112, 1
+    EXPAND STRING_BUF_LEN len4, buf
+
+    ok_b_flag = eq ok_b, 1
+    ok_c_flag = eq ok_c, 1
+    len1_ok = eq len1, 4
+    b0_flag = eq b0_ok, 1
+    b0_val = eq b0, 65
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 65
+    b2_flag = eq b2_ok, 1
+    b2_val = eq b2, 66
+    b3_flag = eq b3_ok, 1
+    b3_val = eq b3, 66
+    cap1_ok = eq cap1, 6
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 4
+    ok_zero_b_flag = eq ok_zero_b, 1
+    ok_zero_c_flag = eq ok_zero_c, 1
+    len3_ok = eq len3, 4
+    ok_bad_flag = eq ok_bad, 0
+    len4_ok = eq len4, 4
+
+    ok = and ok_b_flag, ok_c_flag
+    ok = and ok, len1_ok
+    ok = and ok, b0_flag
+    ok = and ok, b0_val
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, b2_flag
+    ok = and ok, b2_val
+    ok = and ok, b3_flag
+    ok = and ok, b3_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_zero_b_flag
+    ok = and ok, ok_zero_c_flag
+    ok = and ok, len3_ok
+    ok = and ok, ok_bad_flag
+    ok = and ok, len4_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !ok_b
+    !ok_c
+    !len1
+    !b0_ok
+    !b0
+    !b1_ok
+    !b1
+    !b2_ok
+    !b2
+    !b3_ok
+    !b3
+    !cap1
+    !ok_full
+    !len2
+    !ok_zero_b
+    !ok_zero_c
+    !len3
+    !ok_bad
+    !len4
+    !ok_b_flag
+    !ok_c_flag
+    !len1_ok
+    !b0_flag
+    !b0_val
+    !b1_flag
+    !b1_val
+    !b2_flag
+    !b2_val
+    !b3_flag
+    !b3_val
+    !cap1_ok
+    !ok_full_flag
+    !len2_ok
+    !ok_zero_b_flag
+    !ok_zero_c_flag
+    !len3_ok
+    !ok_bad_flag
+    !len4_ok
+    br ok -> L_STR_PBCNWC_OK, L_STR_PBCNWC_FAIL
+
+L_STR_PBCNWC_FAIL:
+    !ok
+    panic(1083)
+
+L_STR_PBCNWC_OK:
+    !ok
+    return
+
 @test "sa_std string pop_if aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

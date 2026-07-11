@@ -3645,6 +3645,91 @@ L_STRING_BUF_PSNWC_END_%out_ok:
     EXPAND STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY %out_ok, %string_reg, %suffix_slice, %count
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_PUSH_BYTE_N_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value, %count
+    EXPAND VEC_TRY_PUSH_N_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value, %count, 1
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_BYTE_N_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value, %count
+    EXPAND STRING_BUF_TRY_PUSH_BYTE_N_WITHIN_CAPACITY %out_ok, %string_reg, %byte_value, %count
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY %out_ok, %string_reg, %char_value, %count
+    __string_buf_pcnwc_tmp_%out_ok = stack_alloc 4
+    EXPAND CHAR_TRY_ENCODE_UTF8 __string_buf_pcnwc_enc_ok_%out_ok, __string_buf_pcnwc_width_%out_ok, __string_buf_pcnwc_tmp_%out_ok, 4, %char_value
+    br __string_buf_pcnwc_enc_ok_%out_ok -> L_STRING_BUF_PCNWC_CHECK_%out_ok, L_STRING_BUF_PCNWC_BAD_CHAR_%out_ok
+
+L_STRING_BUF_PCNWC_CHECK_%out_ok:
+    __string_buf_pcnwc_total_%out_ok = mul __string_buf_pcnwc_width_%out_ok, %count
+    EXPAND STRING_BUF_CAPACITY_REMAINING __string_buf_pcnwc_remaining_%out_ok, %string_reg
+    __string_buf_pcnwc_has_room_%out_ok = uge __string_buf_pcnwc_remaining_%out_ok, __string_buf_pcnwc_total_%out_ok
+    br __string_buf_pcnwc_has_room_%out_ok -> L_STRING_BUF_PCNWC_SETUP_%out_ok, L_STRING_BUF_PCNWC_MISS_%out_ok
+
+L_STRING_BUF_PCNWC_SETUP_%out_ok:
+    __string_buf_pcnwc_slice_%out_ok = alloc Slice_SIZE
+    EXPAND SLICE_NEW __string_buf_pcnwc_slice_%out_ok, __string_buf_pcnwc_tmp_%out_ok, __string_buf_pcnwc_width_%out_ok
+    __string_buf_pcnwc_idx_slot_%out_ok = stack_alloc 8
+    store __string_buf_pcnwc_idx_slot_%out_ok+0, 0 as u64
+    !__string_buf_pcnwc_has_room_%out_ok
+    !__string_buf_pcnwc_remaining_%out_ok
+    !__string_buf_pcnwc_total_%out_ok
+    !__string_buf_pcnwc_width_%out_ok
+    !__string_buf_pcnwc_enc_ok_%out_ok
+    jmp L_STRING_BUF_PCNWC_HEAD_%out_ok
+
+L_STRING_BUF_PCNWC_HEAD_%out_ok:
+    __string_buf_pcnwc_idx_%out_ok = load __string_buf_pcnwc_idx_slot_%out_ok+0 as u64
+    __string_buf_pcnwc_done_%out_ok = eq __string_buf_pcnwc_idx_%out_ok, %count
+    br __string_buf_pcnwc_done_%out_ok -> L_STRING_BUF_PCNWC_DONE_%out_ok, L_STRING_BUF_PCNWC_BODY_%out_ok
+
+L_STRING_BUF_PCNWC_BODY_%out_ok:
+    EXPAND STRING_BUF_TRY_PUSH_STR_WITHIN_CAPACITY __string_buf_pcnwc_push_ok_%out_ok, %string_reg, __string_buf_pcnwc_slice_%out_ok
+    br __string_buf_pcnwc_push_ok_%out_ok -> L_STRING_BUF_PCNWC_NEXT_%out_ok, L_STRING_BUF_PCNWC_FAIL_%out_ok
+
+L_STRING_BUF_PCNWC_NEXT_%out_ok:
+    __string_buf_pcnwc_next_%out_ok = add __string_buf_pcnwc_idx_%out_ok, 1
+    store __string_buf_pcnwc_idx_slot_%out_ok+0, __string_buf_pcnwc_next_%out_ok as u64
+    !__string_buf_pcnwc_next_%out_ok
+    !__string_buf_pcnwc_push_ok_%out_ok
+    !__string_buf_pcnwc_done_%out_ok
+    !__string_buf_pcnwc_idx_%out_ok
+    jmp L_STRING_BUF_PCNWC_HEAD_%out_ok
+
+L_STRING_BUF_PCNWC_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_pcnwc_push_ok_%out_ok
+    !__string_buf_pcnwc_done_%out_ok
+    !__string_buf_pcnwc_idx_%out_ok
+    !__string_buf_pcnwc_slice_%out_ok
+    jmp L_STRING_BUF_PCNWC_END_%out_ok
+
+L_STRING_BUF_PCNWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__string_buf_pcnwc_done_%out_ok
+    !__string_buf_pcnwc_idx_%out_ok
+    !__string_buf_pcnwc_slice_%out_ok
+    jmp L_STRING_BUF_PCNWC_END_%out_ok
+
+L_STRING_BUF_PCNWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_pcnwc_has_room_%out_ok
+    !__string_buf_pcnwc_remaining_%out_ok
+    !__string_buf_pcnwc_total_%out_ok
+    !__string_buf_pcnwc_width_%out_ok
+    !__string_buf_pcnwc_enc_ok_%out_ok
+    jmp L_STRING_BUF_PCNWC_END_%out_ok
+
+L_STRING_BUF_PCNWC_BAD_CHAR_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_pcnwc_width_%out_ok
+    !__string_buf_pcnwc_enc_ok_%out_ok
+
+L_STRING_BUF_PCNWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_PUSH_CHAR_N_WITHIN_CAPACITY %out_ok, %string_reg, %char_value, %count
+    EXPAND STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY %out_ok, %string_reg, %char_value, %count
+[END_MACRO]
+
 
 [MACRO] STRING_BUF_TRY_EXTEND_FROM_WITHIN %out_ok, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_STR __string_buf_efw_view_%out_ok, %string_reg
