@@ -3929,6 +3929,50 @@ L_STRING_BUF_RLWC_END_%out_ok:
     EXPAND STRING_BUF_TRY_REPLACE_LAST_WITHIN_CAPACITY %out_ok, %string_reg, %needle_slice, %replace_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_REPLACE_FIRST_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rfcwc_needle_%out_ok, __string_buf_rfcwc_valid_%out_ok, %code
+    br __string_buf_rfcwc_valid_%out_ok -> L_STRING_BUF_RFCWC_HIT_%out_ok, L_STRING_BUF_RFCWC_MISS_%out_ok
+
+L_STRING_BUF_RFCWC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_WITHIN_CAPACITY %out_ok, %string_reg, __string_buf_rfcwc_needle_%out_ok, %replace_slice
+    !__string_buf_rfcwc_valid_%out_ok
+    !__string_buf_rfcwc_needle_%out_ok
+    jmp L_STRING_BUF_RFCWC_END_%out_ok
+
+L_STRING_BUF_RFCWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rfcwc_valid_%out_ok
+    !__string_buf_rfcwc_needle_%out_ok
+
+L_STRING_BUF_RFCWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_FIRST_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code, %replace_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_REPLACE_LAST_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rlcwc_needle_%out_ok, __string_buf_rlcwc_valid_%out_ok, %code
+    br __string_buf_rlcwc_valid_%out_ok -> L_STRING_BUF_RLCWC_HIT_%out_ok, L_STRING_BUF_RLCWC_MISS_%out_ok
+
+L_STRING_BUF_RLCWC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_LAST_WITHIN_CAPACITY %out_ok, %string_reg, __string_buf_rlcwc_needle_%out_ok, %replace_slice
+    !__string_buf_rlcwc_valid_%out_ok
+    !__string_buf_rlcwc_needle_%out_ok
+    jmp L_STRING_BUF_RLCWC_END_%out_ok
+
+L_STRING_BUF_RLCWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rlcwc_valid_%out_ok
+    !__string_buf_rlcwc_needle_%out_ok
+
+L_STRING_BUF_RLCWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_LAST_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_LAST_CHAR_WITHIN_CAPACITY %out_ok, %string_reg, %code, %replace_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REPLACE_FIRST %out_ok, %string_reg, %needle_slice, %replace_slice
     EXPAND STRING_BUF_AS_STR __string_buf_replace_first_view_%out_ok, %string_reg
     EXPAND STR_TRY_FIND __string_buf_replace_first_found_%out_ok, __string_buf_replace_first_index_%out_ok, __string_buf_replace_first_view_%out_ok, %needle_slice
