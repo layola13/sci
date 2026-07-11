@@ -12233,6 +12233,136 @@ L_STR_INSERT_WC_OK:
     !ok
     return
 
+@test "sa_std string replace char first last range aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STR_FROM_PARTS with, &SUFFIX, 2
+
+    EXPAND STRING_BUF_WITH_CAPACITY first_buf, 4
+    EXPAND STRING_BUF_PUSH_STR first_buf, hi
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_CHAR ok_first, first_buf, 114, with
+    EXPAND STRING_BUF_LEN len1, first_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b0_ok, b0, first_buf, 0
+    EXPAND STRING_BUF_TRY_BYTE_AT b1_ok, b1, first_buf, 1
+
+    EXPAND STRING_BUF_WITH_CAPACITY last_buf, 4
+    EXPAND STRING_BUF_PUSH_STR last_buf, hi
+    EXPAND STRING_BUF_TRY_REPLACE_LAST_CHAR ok_last, last_buf, 116, with
+    EXPAND STRING_BUF_LEN len2, last_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b2_ok, b2, last_buf, 2
+    EXPAND STRING_BUF_TRY_BYTE_AT b3_ok, b3, last_buf, 3
+
+    EXPAND STRING_BUF_WITH_CAPACITY range_buf, 4
+    EXPAND STRING_BUF_PUSH_STR range_buf, hi
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR ok_range, range_buf, 1, 1, 120
+    EXPAND STRING_BUF_LEN len3, range_buf
+    EXPAND STRING_BUF_TRY_BYTE_AT b4_ok, b4, range_buf, 1
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR ok_grow, range_buf, 2, 1, 128512
+    EXPAND STRING_BUF_LEN len4, range_buf
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR ok_bad, range_buf, 1, 1, 55296
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_CHAR ok_miss, range_buf, 122, with
+    EXPAND STRING_BUF_LEN len5, range_buf
+
+    ok_first_flag = eq ok_first, 1
+    len1_ok = eq len1, 5
+    b0_flag = eq b0_ok, 1
+    b0_val = eq b0, 115
+    b1_flag = eq b1_ok, 1
+    b1_val = eq b1, 116
+    ok_last_flag = eq ok_last, 1
+    len2_ok = eq len2, 5
+    b2_flag = eq b2_ok, 1
+    b2_val = eq b2, 115
+    b3_flag = eq b3_ok, 1
+    b3_val = eq b3, 115
+    ok_range_flag = eq ok_range, 1
+    len3_ok = eq len3, 4
+    b4_flag = eq b4_ok, 1
+    b4_val = eq b4, 120
+    ok_grow_flag = eq ok_grow, 1
+    len4_ok = eq len4, 7
+    ok_bad_flag = eq ok_bad, 0
+    ok_miss_flag = eq ok_miss, 0
+    len5_ok = eq len5, 7
+
+    ok = and ok_first_flag, len1_ok
+    ok = and ok, b0_flag
+    ok = and ok, b0_val
+    ok = and ok, b1_flag
+    ok = and ok, b1_val
+    ok = and ok, ok_last_flag
+    ok = and ok, len2_ok
+    ok = and ok, b2_flag
+    ok = and ok, b2_val
+    ok = and ok, b3_flag
+    ok = and ok, b3_val
+    ok = and ok, ok_range_flag
+    ok = and ok, len3_ok
+    ok = and ok, b4_flag
+    ok = and ok, b4_val
+    ok = and ok, ok_grow_flag
+    ok = and ok, len4_ok
+    ok = and ok, ok_bad_flag
+    ok = and ok, ok_miss_flag
+    ok = and ok, len5_ok
+
+    EXPAND STRING_BUF_FREE first_buf
+    EXPAND STRING_BUF_FREE last_buf
+    EXPAND STRING_BUF_FREE range_buf
+    !hi
+    !with
+    !ok_first
+    !len1
+    !b0_ok
+    !b0
+    !b1_ok
+    !b1
+    !ok_last
+    !len2
+    !b2_ok
+    !b2
+    !b3_ok
+    !b3
+    !ok_range
+    !len3
+    !b4_ok
+    !b4
+    !ok_grow
+    !len4
+    !ok_bad
+    !ok_miss
+    !len5
+    !ok_first_flag
+    !len1_ok
+    !b0_flag
+    !b0_val
+    !b1_flag
+    !b1_val
+    !ok_last_flag
+    !len2_ok
+    !b2_flag
+    !b2_val
+    !b3_flag
+    !b3_val
+    !ok_range_flag
+    !len3_ok
+    !b4_flag
+    !b4_val
+    !ok_grow_flag
+    !len4_ok
+    !ok_bad_flag
+    !ok_miss_flag
+    !len5_ok
+    br ok -> L_STR_RCC_OK, L_STR_RCC_FAIL
+
+L_STR_RCC_FAIL:
+    !ok
+    panic(1072)
+
+L_STR_RCC_OK:
+    !ok
+    return
+
 @test "sa_std string replace_range char within capacity aliases"():
 L_ENTRY:
     EXPAND STR_FROM_PARTS hi, &WORD, 4

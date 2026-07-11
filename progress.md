@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf replace char first/last/range aliases batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable reallocating char-pattern replace helpers:
+  - `STRING_BUF_TRY_REPLACE_FIRST_CHAR` / `STRING_BUF_REPLACE_FIRST_CHAR`
+  - `STRING_BUF_TRY_REPLACE_LAST_CHAR` / `STRING_BUF_REPLACE_LAST_CHAR`
+  - `STRING_BUF_TRY_REPLACE_RANGE_CHAR` / `STRING_BUF_REPLACE_RANGE_CHAR`
+- Semantics: encode a Unicode scalar to UTF-8 via `STR_ENCODE_CHAR_SLICE`, then reuse the existing first/last/range replace helpers. Invalid scalars and missing needles/ranges return `ok=0` with no mutation. These helpers may reallocate through the non-within-capacity replace path and do not claim Rust `Pattern` trait coverage.
+- Validation status:
+  - Source focused minimal harness `/tmp/rcc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "replace char first last range aliases"`: pass (`1 passed; 95 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf replace_range char within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

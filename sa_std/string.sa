@@ -4327,6 +4327,28 @@ L_STRING_BUF_REPLACE_END_%out_ok:
     EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_REPLACE_RANGE_CHAR %out_ok, %string_reg, %start, %length, %code
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rrc_slice_%out_ok, __string_buf_rrc_valid_%out_ok, %code
+    br __string_buf_rrc_valid_%out_ok -> L_STRING_BUF_RRC_HIT_%out_ok, L_STRING_BUF_RRC_MISS_%out_ok
+
+L_STRING_BUF_RRC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, __string_buf_rrc_slice_%out_ok
+    !__string_buf_rrc_valid_%out_ok
+    !__string_buf_rrc_slice_%out_ok
+    jmp L_STRING_BUF_RRC_END_%out_ok
+
+L_STRING_BUF_RRC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rrc_valid_%out_ok
+    !__string_buf_rrc_slice_%out_ok
+
+L_STRING_BUF_RRC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_RANGE_CHAR %out_ok, %string_reg, %start, %length, %code
+    EXPAND STRING_BUF_TRY_REPLACE_RANGE_CHAR %out_ok, %string_reg, %start, %length, %code
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REPLACE_FIRST_WITHIN_CAPACITY %out_ok, %string_reg, %needle_slice, %replace_slice
     EXPAND STRING_BUF_AS_STR __string_buf_rfwc_view_%out_ok, %string_reg
     EXPAND STR_TRY_FIND __string_buf_rfwc_found_%out_ok, __string_buf_rfwc_index_%out_ok, __string_buf_rfwc_view_%out_ok, %needle_slice
@@ -4478,6 +4500,51 @@ L_STRING_BUF_REPLACE_LAST_END_%out_ok:
 [MACRO] STRING_BUF_REPLACE_LAST %out_ok, %string_reg, %needle_slice, %replace_slice
     EXPAND STRING_BUF_TRY_REPLACE_LAST %out_ok, %string_reg, %needle_slice, %replace_slice
 [END_MACRO]
+
+[MACRO] STRING_BUF_TRY_REPLACE_FIRST_CHAR %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rfc_needle_%out_ok, __string_buf_rfc_valid_%out_ok, %code
+    br __string_buf_rfc_valid_%out_ok -> L_STRING_BUF_RFC_HIT_%out_ok, L_STRING_BUF_RFC_MISS_%out_ok
+
+L_STRING_BUF_RFC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST %out_ok, %string_reg, __string_buf_rfc_needle_%out_ok, %replace_slice
+    !__string_buf_rfc_valid_%out_ok
+    !__string_buf_rfc_needle_%out_ok
+    jmp L_STRING_BUF_RFC_END_%out_ok
+
+L_STRING_BUF_RFC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rfc_valid_%out_ok
+    !__string_buf_rfc_needle_%out_ok
+
+L_STRING_BUF_RFC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_FIRST_CHAR %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_FIRST_CHAR %out_ok, %string_reg, %code, %replace_slice
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_REPLACE_LAST_CHAR %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STR_ENCODE_CHAR_SLICE __string_buf_rlc_needle_%out_ok, __string_buf_rlc_valid_%out_ok, %code
+    br __string_buf_rlc_valid_%out_ok -> L_STRING_BUF_RLC_HIT_%out_ok, L_STRING_BUF_RLC_MISS_%out_ok
+
+L_STRING_BUF_RLC_HIT_%out_ok:
+    EXPAND STRING_BUF_TRY_REPLACE_LAST %out_ok, %string_reg, __string_buf_rlc_needle_%out_ok, %replace_slice
+    !__string_buf_rlc_valid_%out_ok
+    !__string_buf_rlc_needle_%out_ok
+    jmp L_STRING_BUF_RLC_END_%out_ok
+
+L_STRING_BUF_RLC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_rlc_valid_%out_ok
+    !__string_buf_rlc_needle_%out_ok
+
+L_STRING_BUF_RLC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_REPLACE_LAST_CHAR %out_ok, %string_reg, %code, %replace_slice
+    EXPAND STRING_BUF_TRY_REPLACE_LAST_CHAR %out_ok, %string_reg, %code, %replace_slice
+[END_MACRO]
+
 
 [MACRO] STR_EMPTY %out_slice
     __str_empty_ptr_%out_slice = 0 as ptr
