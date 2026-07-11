@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 StringBuf pop_if aliases batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable conditional pop helpers:
+  - `STRING_BUF_TRY_POP_BYTE_IF` / `STRING_BUF_POP_BYTE_IF`
+  - `STRING_BUF_TRY_POP_CHAR_IF` / `STRING_BUF_POP_CHAR_IF`
+- Semantics: inspect the trailing byte or Unicode scalar with a caller predicate and pop only when the predicate is nonzero. Empty buffers, decode failure, and non-matching predicates return `ok=0` with no mutation. These helpers only shrink and do not claim Rust `pop_if` generic iterator adapters.
+- Validation status:
+  - Source focused minimal harness `/tmp/popif_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "pop_if aliases"`: pass (`1 passed; 100 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf splice within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

@@ -3747,6 +3747,139 @@ L_STRING_BUF_POP_CHAR_END_%out_ok:
     EXPAND STRING_BUF_TRY_POP_CHAR %out_ok, %out_codepoint, %string_reg
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_POP_BYTE_IF %out_ok, %out_byte, %string_reg, %pred_fn
+    __string_buf_pbi_view_%out_ok = & %string_reg
+    __string_buf_pbi_len_%out_ok = load __string_buf_pbi_view_%out_ok+Vec_len as u64
+    __string_buf_pbi_empty_%out_ok = eq __string_buf_pbi_len_%out_ok, 0
+    br __string_buf_pbi_empty_%out_ok -> L_STRING_BUF_PBI_EMPTY_%out_ok, L_STRING_BUF_PBI_CHECK_%out_ok
+
+L_STRING_BUF_PBI_CHECK_%out_ok:
+    __string_buf_pbi_ptr_%out_ok = load __string_buf_pbi_view_%out_ok+Vec_ptr as ptr
+    __string_buf_pbi_last_%out_ok = sub __string_buf_pbi_len_%out_ok, 1
+    __string_buf_pbi_byte_ptr_%out_ok = ptr_add __string_buf_pbi_ptr_%out_ok, __string_buf_pbi_last_%out_ok
+    __string_buf_pbi_byte_%out_ok = load __string_buf_pbi_byte_ptr_%out_ok+0 as u8
+    __string_buf_pbi_pred_%out_ok = call %pred_fn(__string_buf_pbi_byte_%out_ok)
+    __string_buf_pbi_take_%out_ok = ne __string_buf_pbi_pred_%out_ok, 0
+    br __string_buf_pbi_take_%out_ok -> L_STRING_BUF_PBI_TAKE_%out_ok, L_STRING_BUF_PBI_KEEP_%out_ok
+
+L_STRING_BUF_PBI_TAKE_%out_ok:
+    store __string_buf_pbi_view_%out_ok+Vec_len, __string_buf_pbi_last_%out_ok as u64
+    %out_byte = add __string_buf_pbi_byte_%out_ok, 0
+    %out_ok = add 0, 1
+    !__string_buf_pbi_take_%out_ok
+    !__string_buf_pbi_pred_%out_ok
+    !__string_buf_pbi_byte_%out_ok
+    !__string_buf_pbi_byte_ptr_%out_ok
+    !__string_buf_pbi_last_%out_ok
+    !__string_buf_pbi_ptr_%out_ok
+    !__string_buf_pbi_empty_%out_ok
+    !__string_buf_pbi_len_%out_ok
+    !__string_buf_pbi_view_%out_ok
+    jmp L_STRING_BUF_PBI_END_%out_ok
+
+L_STRING_BUF_PBI_KEEP_%out_ok:
+    %out_byte = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pbi_take_%out_ok
+    !__string_buf_pbi_pred_%out_ok
+    !__string_buf_pbi_byte_%out_ok
+    !__string_buf_pbi_byte_ptr_%out_ok
+    !__string_buf_pbi_last_%out_ok
+    !__string_buf_pbi_ptr_%out_ok
+    !__string_buf_pbi_empty_%out_ok
+    !__string_buf_pbi_len_%out_ok
+    !__string_buf_pbi_view_%out_ok
+    jmp L_STRING_BUF_PBI_END_%out_ok
+
+L_STRING_BUF_PBI_EMPTY_%out_ok:
+    %out_byte = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pbi_empty_%out_ok
+    !__string_buf_pbi_len_%out_ok
+    !__string_buf_pbi_view_%out_ok
+
+L_STRING_BUF_PBI_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_POP_BYTE_IF %out_ok, %out_byte, %string_reg, %pred_fn
+    EXPAND STRING_BUF_TRY_POP_BYTE_IF %out_ok, %out_byte, %string_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_POP_CHAR_IF %out_ok, %out_codepoint, %string_reg, %pred_fn
+    EXPAND STRING_BUF_AS_STR __string_buf_pci_view_%out_ok, %string_reg
+    EXPAND STR_LEN __string_buf_pci_len_%out_ok, __string_buf_pci_view_%out_ok
+    __string_buf_pci_empty_%out_ok = eq __string_buf_pci_len_%out_ok, 0
+    br __string_buf_pci_empty_%out_ok -> L_STRING_BUF_PCI_EMPTY_%out_ok, L_STRING_BUF_PCI_FIND_%out_ok
+
+L_STRING_BUF_PCI_FIND_%out_ok:
+    __string_buf_pci_probe_%out_ok = sub __string_buf_pci_len_%out_ok, 1
+    EXPAND STR_FLOOR_CHAR_BOUNDARY __string_buf_pci_start_%out_ok, __string_buf_pci_view_%out_ok, __string_buf_pci_probe_%out_ok
+    EXPAND STR_TRY_CHAR_AT_BYTE __string_buf_pci_decode_ok_%out_ok, __string_buf_pci_code_%out_ok, __string_buf_pci_width_%out_ok, __string_buf_pci_view_%out_ok, __string_buf_pci_start_%out_ok
+    br __string_buf_pci_decode_ok_%out_ok -> L_STRING_BUF_PCI_PRED_%out_ok, L_STRING_BUF_PCI_DECODE_MISS_%out_ok
+
+L_STRING_BUF_PCI_PRED_%out_ok:
+    __string_buf_pci_pred_%out_ok = call %pred_fn(__string_buf_pci_code_%out_ok)
+    __string_buf_pci_take_%out_ok = ne __string_buf_pci_pred_%out_ok, 0
+    br __string_buf_pci_take_%out_ok -> L_STRING_BUF_PCI_TAKE_%out_ok, L_STRING_BUF_PCI_KEEP_%out_ok
+
+L_STRING_BUF_PCI_TAKE_%out_ok:
+    !__string_buf_pci_view_%out_ok
+    EXPAND STRING_BUF_TRUNCATE %string_reg, __string_buf_pci_start_%out_ok
+    %out_codepoint = add __string_buf_pci_code_%out_ok, 0
+    %out_ok = add 0, 1
+    !__string_buf_pci_take_%out_ok
+    !__string_buf_pci_pred_%out_ok
+    !__string_buf_pci_width_%out_ok
+    !__string_buf_pci_code_%out_ok
+    !__string_buf_pci_decode_ok_%out_ok
+    !__string_buf_pci_start_%out_ok
+    !__string_buf_pci_probe_%out_ok
+    !__string_buf_pci_empty_%out_ok
+    !__string_buf_pci_len_%out_ok
+    jmp L_STRING_BUF_PCI_END_%out_ok
+
+L_STRING_BUF_PCI_KEEP_%out_ok:
+    %out_codepoint = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pci_take_%out_ok
+    !__string_buf_pci_pred_%out_ok
+    !__string_buf_pci_width_%out_ok
+    !__string_buf_pci_code_%out_ok
+    !__string_buf_pci_decode_ok_%out_ok
+    !__string_buf_pci_start_%out_ok
+    !__string_buf_pci_probe_%out_ok
+    !__string_buf_pci_empty_%out_ok
+    !__string_buf_pci_len_%out_ok
+    !__string_buf_pci_view_%out_ok
+    jmp L_STRING_BUF_PCI_END_%out_ok
+
+L_STRING_BUF_PCI_DECODE_MISS_%out_ok:
+    %out_codepoint = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pci_width_%out_ok
+    !__string_buf_pci_code_%out_ok
+    !__string_buf_pci_decode_ok_%out_ok
+    !__string_buf_pci_start_%out_ok
+    !__string_buf_pci_probe_%out_ok
+    !__string_buf_pci_empty_%out_ok
+    !__string_buf_pci_len_%out_ok
+    !__string_buf_pci_view_%out_ok
+    jmp L_STRING_BUF_PCI_END_%out_ok
+
+L_STRING_BUF_PCI_EMPTY_%out_ok:
+    %out_codepoint = add 0, 0
+    %out_ok = add 0, 0
+    !__string_buf_pci_empty_%out_ok
+    !__string_buf_pci_len_%out_ok
+    !__string_buf_pci_view_%out_ok
+
+L_STRING_BUF_PCI_END_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_POP_CHAR_IF %out_ok, %out_codepoint, %string_reg, %pred_fn
+    EXPAND STRING_BUF_TRY_POP_CHAR_IF %out_ok, %out_codepoint, %string_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_REMOVE_CHAR_AT %out_ok, %out_codepoint, %string_reg, %index
     EXPAND STRING_BUF_AS_STR __string_buf_remove_char_view_%out_ok, %string_reg
     EXPAND STR_TRY_CHAR_AT_BYTE __string_buf_remove_char_decode_ok_%out_ok, %out_codepoint, __string_buf_remove_char_width_%out_ok, __string_buf_remove_char_view_%out_ok, %index

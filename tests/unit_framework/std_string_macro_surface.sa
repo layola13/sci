@@ -224,6 +224,31 @@ L_ENTRY:
     !codepoint
     return 0
 
+@string_pop_if_is_t(codepoint: u64) -> u64:
+L_ENTRY:
+    ok = eq codepoint, 116
+    !codepoint
+    return ok
+
+@string_pop_if_is_s(codepoint: u64) -> u64:
+L_ENTRY:
+    ok = eq codepoint, 115
+    !codepoint
+    return ok
+
+@string_pop_if_byte_t(byte_value: u64) -> u64:
+L_ENTRY:
+    ok = eq byte_value, 116
+    !byte_value
+    return ok
+
+@string_pop_if_byte_s(byte_value: u64) -> u64:
+L_ENTRY:
+    ok = eq byte_value, 115
+    !byte_value
+    return ok
+
+
 @slice_partition_lt_30(value: u64) -> u64:
 L_ENTRY:
     keep = ult value, 30
@@ -12230,6 +12255,82 @@ L_STR_INSERT_WC_FAIL:
     panic(1057)
 
 L_STR_INSERT_WC_OK:
+    !ok
+    return
+
+@test "sa_std string pop_if aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+
+    EXPAND STRING_BUF_TRY_POP_CHAR_IF ok_keep, c0, buf, @string_pop_if_is_s
+    EXPAND STRING_BUF_LEN len0, buf
+    EXPAND STRING_BUF_TRY_POP_CHAR_IF ok_take, c1, buf, @string_pop_if_is_t
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_TRY_POP_BYTE_IF ok_bkeep, b0, buf, @string_pop_if_byte_t
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_POP_BYTE_IF ok_btake, b1, buf, @string_pop_if_byte_s
+    EXPAND STRING_BUF_LEN len3, buf
+
+    ok_keep_flag = eq ok_keep, 0
+    c0_ok = eq c0, 0
+    len0_ok = eq len0, 4
+    ok_take_flag = eq ok_take, 1
+    c1_ok = eq c1, 116
+    len1_ok = eq len1, 3
+    ok_bkeep_flag = eq ok_bkeep, 0
+    b0_ok = eq b0, 0
+    len2_ok = eq len2, 3
+    ok_btake_flag = eq ok_btake, 1
+    b1_ok = eq b1, 115
+    len3_ok = eq len3, 2
+
+    ok = and ok_keep_flag, c0_ok
+    ok = and ok, len0_ok
+    ok = and ok, ok_take_flag
+    ok = and ok, c1_ok
+    ok = and ok, len1_ok
+    ok = and ok, ok_bkeep_flag
+    ok = and ok, b0_ok
+    ok = and ok, len2_ok
+    ok = and ok, ok_btake_flag
+    ok = and ok, b1_ok
+    ok = and ok, len3_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hi
+    !ok_keep
+    !c0
+    !len0
+    !ok_take
+    !c1
+    !len1
+    !ok_bkeep
+    !b0
+    !len2
+    !ok_btake
+    !b1
+    !len3
+    !ok_keep_flag
+    !c0_ok
+    !len0_ok
+    !ok_take_flag
+    !c1_ok
+    !len1_ok
+    !ok_bkeep_flag
+    !b0_ok
+    !len2_ok
+    !ok_btake_flag
+    !b1_ok
+    !len3_ok
+    br ok -> L_STR_POPIF_OK, L_STR_POPIF_FAIL
+
+L_STR_POPIF_FAIL:
+    !ok
+    panic(1079)
+
+L_STR_POPIF_OK:
     !ok
     return
 
