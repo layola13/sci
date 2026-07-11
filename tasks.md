@@ -2408,6 +2408,7 @@ sa/
 - [x] Vec extend_from_slice_n within capacity 批次已补齐 `VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64` / `VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64`；先计算重复总长度并仅在剩余 cap 足够时整段追加 count 次；count=0 为成功 no-op，容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] Vec push_n within capacity 批次已补齐 `VEC_TRY_PUSH_N_WITHIN_CAPACITY` / `VEC_PUSH_N_WITHIN_CAPACITY`、`VEC_TRY_PUSH_N_WITHIN_CAPACITY_U64` / `VEC_PUSH_N_WITHIN_CAPACITY_U64`；先计算 `len+count` 并仅在 cap 足够时重复 push 同一值 count 次；count=0 为成功 no-op，容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] StringBuf push_byte_n / push_char_n within capacity 批次已补齐 `STRING_BUF_TRY_PUSH_BYTE_N_WITHIN_CAPACITY` / `STRING_BUF_PUSH_BYTE_N_WITHIN_CAPACITY`、`STRING_BUF_TRY_PUSH_CHAR_N_WITHIN_CAPACITY` / `STRING_BUF_PUSH_CHAR_N_WITHIN_CAPACITY`；byte 复用 Vec push_n WC，char 先编码并校验 total width*count；count=0 为成功 no-op，非法 scalar/容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
+- [x] Vec extend_from_within_n within capacity 批次已补齐 `VEC_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64` / `VEC_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64`；先校验 range 并计算 length*count，仅在 cap 足够时重复 extend_from_within count 次；count=0 为成功 no-op，非法 range/容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---
