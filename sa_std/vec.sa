@@ -1791,6 +1791,90 @@ L_VEC_PWC_MUT_END_%out_ok:
     EXPAND VEC_PUSH_WITHIN_CAPACITY_MUT %out_ok, %out_ptr, %vec_reg, %value, 8
 [END_MACRO]
 
+[MACRO] VEC_TRY_INSERT_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %value, %elem_size
+    __vec_iwc_view_%out_ok = & %vec_reg
+    __vec_iwc_len_%out_ok = load __vec_iwc_view_%out_ok+Vec_len as u64
+    __vec_iwc_cap_%out_ok = load __vec_iwc_view_%out_ok+Vec_cap as u64
+    __vec_iwc_in_bounds_%out_ok = ule %index, __vec_iwc_len_%out_ok
+    __vec_iwc_has_room_%out_ok = ult __vec_iwc_len_%out_ok, __vec_iwc_cap_%out_ok
+    __vec_iwc_ok_all_%out_ok = and __vec_iwc_in_bounds_%out_ok, __vec_iwc_has_room_%out_ok
+    br __vec_iwc_ok_all_%out_ok -> L_VEC_IWC_SHIFT_SETUP_%out_ok, L_VEC_IWC_MISS_%out_ok
+
+L_VEC_IWC_SHIFT_SETUP_%out_ok:
+    __vec_iwc_ptr_%out_ok = load __vec_iwc_view_%out_ok+Vec_ptr as ptr
+    __vec_iwc_pos_slot_%out_ok = stack_alloc 8
+    store __vec_iwc_pos_slot_%out_ok+0, __vec_iwc_len_%out_ok as u64
+    jmp L_VEC_IWC_SHIFT_HEAD_%out_ok
+
+L_VEC_IWC_SHIFT_HEAD_%out_ok:
+    __vec_iwc_pos_%out_ok = load __vec_iwc_pos_slot_%out_ok+0 as u64
+    __vec_iwc_more_%out_ok = ugt __vec_iwc_pos_%out_ok, %index
+    br __vec_iwc_more_%out_ok -> L_VEC_IWC_SHIFT_BODY_%out_ok, L_VEC_IWC_STORE_%out_ok
+
+L_VEC_IWC_SHIFT_BODY_%out_ok:
+    __vec_iwc_prev_%out_ok = sub __vec_iwc_pos_%out_ok, 1
+    __vec_iwc_prev_off_%out_ok = mul __vec_iwc_prev_%out_ok, %elem_size
+    __vec_iwc_pos_off_%out_ok = mul __vec_iwc_pos_%out_ok, %elem_size
+    __vec_iwc_prev_ptr_%out_ok = ptr_add __vec_iwc_ptr_%out_ok, __vec_iwc_prev_off_%out_ok
+    __vec_iwc_pos_ptr_%out_ok = ptr_add __vec_iwc_ptr_%out_ok, __vec_iwc_pos_off_%out_ok
+    __vec_iwc_move_value_%out_ok = load __vec_iwc_prev_ptr_%out_ok+0 as u64
+    store __vec_iwc_pos_ptr_%out_ok+0, __vec_iwc_move_value_%out_ok as u64
+    store __vec_iwc_pos_slot_%out_ok+0, __vec_iwc_prev_%out_ok as u64
+    !__vec_iwc_move_value_%out_ok
+    !__vec_iwc_pos_ptr_%out_ok
+    !__vec_iwc_prev_ptr_%out_ok
+    !__vec_iwc_pos_off_%out_ok
+    !__vec_iwc_prev_off_%out_ok
+    !__vec_iwc_prev_%out_ok
+    !__vec_iwc_more_%out_ok
+    !__vec_iwc_pos_%out_ok
+    jmp L_VEC_IWC_SHIFT_HEAD_%out_ok
+
+L_VEC_IWC_STORE_%out_ok:
+    __vec_iwc_index_off_%out_ok = mul %index, %elem_size
+    __vec_iwc_index_ptr_%out_ok = ptr_add __vec_iwc_ptr_%out_ok, __vec_iwc_index_off_%out_ok
+    store __vec_iwc_index_ptr_%out_ok+0, %value as u64
+    __vec_iwc_next_len_%out_ok = add __vec_iwc_len_%out_ok, 1
+    store __vec_iwc_view_%out_ok+Vec_len, __vec_iwc_next_len_%out_ok as u64
+    %out_ok = add 0, 1
+    !__vec_iwc_next_len_%out_ok
+    !__vec_iwc_index_ptr_%out_ok
+    !__vec_iwc_index_off_%out_ok
+    !__vec_iwc_more_%out_ok
+    !__vec_iwc_pos_%out_ok
+    !__vec_iwc_ptr_%out_ok
+    !__vec_iwc_ok_all_%out_ok
+    !__vec_iwc_has_room_%out_ok
+    !__vec_iwc_in_bounds_%out_ok
+    !__vec_iwc_cap_%out_ok
+    !__vec_iwc_len_%out_ok
+    !__vec_iwc_view_%out_ok
+    jmp L_VEC_IWC_DONE_%out_ok
+
+L_VEC_IWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_iwc_ok_all_%out_ok
+    !__vec_iwc_has_room_%out_ok
+    !__vec_iwc_in_bounds_%out_ok
+    !__vec_iwc_cap_%out_ok
+    !__vec_iwc_len_%out_ok
+    !__vec_iwc_view_%out_ok
+
+L_VEC_IWC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_TRY_INSERT_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %index, %value
+    EXPAND VEC_TRY_INSERT_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %value, 8
+[END_MACRO]
+
+[MACRO] VEC_INSERT_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %value, %elem_size
+    EXPAND VEC_TRY_INSERT_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %value, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_INSERT_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %index, %value
+    EXPAND VEC_INSERT_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %value, 8
+[END_MACRO]
+
 [MACRO] VEC_TRY_INSERT %out_ok, %vec_reg, %index, %value, %elem_size
     __vec_insert_view_%out_ok = & %vec_reg
     __vec_insert_len_%out_ok = load __vec_insert_view_%out_ok+Vec_len as u64

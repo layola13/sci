@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 Vec insert_within_capacity alias batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving Vec insert helpers:
+  - `VEC_TRY_INSERT_WITHIN_CAPACITY` / `VEC_INSERT_WITHIN_CAPACITY`
+  - `VEC_TRY_INSERT_WITHIN_CAPACITY_U64` / `VEC_INSERT_WITHIN_CAPACITY_U64`
+- Semantics: insert only when `index <= len` and `len < cap`. On success, later elements shift right in place and the new value is stored without reallocation. Out-of-bounds indexes and full capacity return `ok=0` with no mutation. These helpers do not claim Rust panic-on-capacity models, generic `T` beyond the existing U64/element-size facade, or allocator-parametric behavior.
+- Validation status:
+  - Source focused minimal harness: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "insert within capacity aliases"`: pass (`1 passed; 31 skipped`).
+  - Install sync via installed-std copy of `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 StringBuf insert_within_capacity alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
