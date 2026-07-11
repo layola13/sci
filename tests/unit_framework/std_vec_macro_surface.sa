@@ -4149,6 +4149,106 @@ L_VEC_EFWWC_OK:
     !ok
     return
 
+@test "sa_std vec resize_with within capacity aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 4
+    EXPAND VEC_PUSH_U64 vec, 1
+    EXPAND VEC_PUSH_U64 vec, 2
+    EXPAND VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64 ok_grow, len1, vec, 4, @vec_resize_with_42
+    EXPAND VEC_LEN vlen1, vec
+    EXPAND VEC_TRY_GET_U64 g2_ok, g2, vec, 2
+    EXPAND VEC_TRY_GET_U64 g3_ok, g3, vec, 3
+    EXPAND VEC_CAPACITY cap1, vec
+
+    EXPAND VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64 ok_full, len2, vec, 5, @vec_resize_with_42
+    EXPAND VEC_LEN vlen2, vec
+
+    EXPAND VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64 ok_shrink, len3, vec, 1, @vec_resize_with_42
+    EXPAND VEC_LEN vlen3, vec
+    EXPAND VEC_TRY_GET_U64 g0_ok, g0, vec, 0
+    EXPAND VEC_TRY_GET_U64 g1_ok, g1, vec, 1
+
+    ok_grow_flag = eq ok_grow, 1
+    len1_ok = eq len1, 4
+    vlen1_ok = eq vlen1, 4
+    g2_flag = eq g2_ok, 1
+    g2_val = eq g2, 42
+    g3_flag = eq g3_ok, 1
+    g3_val = eq g3, 42
+    cap1_ok = eq cap1, 4
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 4
+    vlen2_ok = eq vlen2, 4
+    ok_shrink_flag = eq ok_shrink, 1
+    len3_ok = eq len3, 1
+    vlen3_ok = eq vlen3, 1
+    g0_flag = eq g0_ok, 1
+    g0_val = eq g0, 1
+    g1_flag = eq g1_ok, 0
+
+    ok = and ok_grow_flag, len1_ok
+    ok = and ok, vlen1_ok
+    ok = and ok, g2_flag
+    ok = and ok, g2_val
+    ok = and ok, g3_flag
+    ok = and ok, g3_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, vlen2_ok
+    ok = and ok, ok_shrink_flag
+    ok = and ok, len3_ok
+    ok = and ok, vlen3_ok
+    ok = and ok, g0_flag
+    ok = and ok, g0_val
+    ok = and ok, g1_flag
+
+    EXPAND VEC_FREE vec
+    !ok_grow
+    !len1
+    !vlen1
+    !g2_ok
+    !g2
+    !g3_ok
+    !g3
+    !cap1
+    !ok_full
+    !len2
+    !vlen2
+    !ok_shrink
+    !len3
+    !vlen3
+    !g0_ok
+    !g0
+    !g1_ok
+    !g1
+    !ok_grow_flag
+    !len1_ok
+    !vlen1_ok
+    !g2_flag
+    !g2_val
+    !g3_flag
+    !g3_val
+    !cap1_ok
+    !ok_full_flag
+    !len2_ok
+    !vlen2_ok
+    !ok_shrink_flag
+    !len3_ok
+    !vlen3_ok
+    !g0_flag
+    !g0_val
+    !g1_flag
+    br ok -> L_VEC_RSWWC_OK, L_VEC_RSWWC_FAIL
+
+L_VEC_RSWWC_FAIL:
+    !ok
+    panic(1076)
+
+L_VEC_RSWWC_OK:
+    !ok
+    return
+
 @test "sa_std vec splice within capacity aliases"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 6

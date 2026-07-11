@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 Vec resize_with within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helper:
+  - `VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64` / `VEC_RESIZE_WITH_WITHIN_CAPACITY_U64`
+- Semantics: shrink truncates length in place. Growth calls a generator for each newly exposed slot and pushes only while `new_len <= cap`; over-capacity growth returns `ok=0` and leaves length unchanged. This is a concrete `u64` subset and does not claim Rust allocator-parametric or generic `T` semantics.
+- Validation status:
+  - Source focused minimal harness `/tmp/rswwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "resize_with within capacity aliases"`: pass (`1 passed; 37 skipped`).
+  - Install sync via installed-std copy of `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 Vec splice + StringBuf retain within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
