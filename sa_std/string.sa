@@ -2609,6 +2609,64 @@ L_STRING_BUF_REPLACE_N_END_%out_string:
     EXPAND VEC_TRUNCATE %string_reg, %new_len
 [END_MACRO]
 
+[MACRO] STRING_BUF_TRY_SET_LEN %out_ok, %string_reg, %new_len
+    __string_buf_set_len_cap_%out_ok = load %string_reg+Vec_cap as u64
+    __string_buf_set_len_len_%out_ok = load %string_reg+Vec_len as u64
+    __string_buf_set_len_cap_ok_%out_ok = ule %new_len, __string_buf_set_len_cap_%out_ok
+    br __string_buf_set_len_cap_ok_%out_ok -> L_STRING_BUF_SET_LEN_CHECK_%out_ok, L_STRING_BUF_SET_LEN_MISS_%out_ok
+
+L_STRING_BUF_SET_LEN_CHECK_%out_ok:
+    __string_buf_set_len_shrink_%out_ok = ule %new_len, __string_buf_set_len_len_%out_ok
+    br __string_buf_set_len_shrink_%out_ok -> L_STRING_BUF_SET_LEN_BOUNDARY_%out_ok, L_STRING_BUF_SET_LEN_EXTEND_%out_ok
+
+L_STRING_BUF_SET_LEN_BOUNDARY_%out_ok:
+    EXPAND STRING_BUF_AS_STR __string_buf_set_len_view_%out_ok, %string_reg
+    EXPAND STR_IS_CHAR_BOUNDARY __string_buf_set_len_boundary_%out_ok, __string_buf_set_len_view_%out_ok, %new_len
+    br __string_buf_set_len_boundary_%out_ok -> L_STRING_BUF_SET_LEN_HIT_%out_ok, L_STRING_BUF_SET_LEN_MISS_BOUNDARY_%out_ok
+
+L_STRING_BUF_SET_LEN_HIT_%out_ok:
+    store %string_reg+Vec_len, %new_len as u64
+    %out_ok = add 0, 1
+    !__string_buf_set_len_boundary_%out_ok
+    !__string_buf_set_len_view_%out_ok
+    !__string_buf_set_len_shrink_%out_ok
+    !__string_buf_set_len_cap_ok_%out_ok
+    !__string_buf_set_len_len_%out_ok
+    !__string_buf_set_len_cap_%out_ok
+    jmp L_STRING_BUF_SET_LEN_DONE_%out_ok
+
+L_STRING_BUF_SET_LEN_MISS_BOUNDARY_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_set_len_boundary_%out_ok
+    !__string_buf_set_len_view_%out_ok
+    !__string_buf_set_len_shrink_%out_ok
+    !__string_buf_set_len_cap_ok_%out_ok
+    !__string_buf_set_len_len_%out_ok
+    !__string_buf_set_len_cap_%out_ok
+    jmp L_STRING_BUF_SET_LEN_DONE_%out_ok
+
+L_STRING_BUF_SET_LEN_EXTEND_%out_ok:
+    store %string_reg+Vec_len, %new_len as u64
+    %out_ok = add 0, 1
+    !__string_buf_set_len_shrink_%out_ok
+    !__string_buf_set_len_cap_ok_%out_ok
+    !__string_buf_set_len_len_%out_ok
+    !__string_buf_set_len_cap_%out_ok
+    jmp L_STRING_BUF_SET_LEN_DONE_%out_ok
+
+L_STRING_BUF_SET_LEN_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__string_buf_set_len_cap_ok_%out_ok
+    !__string_buf_set_len_len_%out_ok
+    !__string_buf_set_len_cap_%out_ok
+
+L_STRING_BUF_SET_LEN_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_BUF_SET_LEN %out_ok, %string_reg, %new_len
+    EXPAND STRING_BUF_TRY_SET_LEN %out_ok, %string_reg, %new_len
+[END_MACRO]
+
 [MACRO] STRING_BUF_PUSH_BYTE %string_reg, %byte_value
     EXPAND VEC_PUSH %string_reg, %byte_value, 1
 [END_MACRO]
@@ -8448,6 +8506,100 @@ L_STR_GET_BETWEEN_DONE_%out_ok:
 
 [MACRO] STRING_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
     EXPAND STR_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_RANGE_BETWEEN %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_GET %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_AS_STR __string_buf_try_get_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET %out_ok, %out_slice, __string_buf_try_get_view_%out_ok, %start, %end
+    !__string_buf_try_get_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_GET %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_GET %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_GET %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_TRY_GET %out_ok, %out_slice, %string_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STR_TRY_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+    __str_get_uc_order_ok_%out_ok = uge %end, %start
+    br __str_get_uc_order_ok_%out_ok -> L_STR_GET_UC_BOUNDS_%out_ok, L_STR_GET_UC_MISS_%out_ok
+
+L_STR_GET_UC_BOUNDS_%out_ok:
+    __str_get_uc_len_%out_ok = load %slice_reg+Slice_len as u64
+    __str_get_uc_end_ok_%out_ok = ule %end, __str_get_uc_len_%out_ok
+    br __str_get_uc_end_ok_%out_ok -> L_STR_GET_UC_HIT_%out_ok, L_STR_GET_UC_MISS_BOUNDS_%out_ok
+
+L_STR_GET_UC_HIT_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_get_uc_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
+    __str_get_uc_off_%out_ok = ptr_add __str_get_uc_ptr_%out_ok, %start
+    __str_get_uc_part_len_%out_ok = sub %end, %start
+    EXPAND SLICE_NEW %out_slice, __str_get_uc_off_%out_ok, __str_get_uc_part_len_%out_ok
+    %out_ok = add 0, 1
+    !__str_get_uc_part_len_%out_ok
+    !__str_get_uc_off_%out_ok
+    !__str_get_uc_ptr_%out_ok
+    !__str_get_uc_end_ok_%out_ok
+    !__str_get_uc_len_%out_ok
+    !__str_get_uc_order_ok_%out_ok
+    jmp L_STR_GET_UC_DONE_%out_ok
+
+L_STR_GET_UC_MISS_BOUNDS_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_get_uc_empty_b_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_get_uc_empty_b_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_get_uc_empty_b_%out_ok
+    !__str_get_uc_end_ok_%out_ok
+    !__str_get_uc_len_%out_ok
+    !__str_get_uc_order_ok_%out_ok
+    jmp L_STR_GET_UC_DONE_%out_ok
+
+L_STR_GET_UC_MISS_%out_ok:
+    %out_slice = alloc Slice_SIZE
+    __str_get_uc_empty_%out_ok = 0 as ptr
+    EXPAND SLICE_NEW %out_slice, __str_get_uc_empty_%out_ok, 0
+    %out_ok = add 0, 0
+    !__str_get_uc_empty_%out_ok
+    !__str_get_uc_order_ok_%out_ok
+
+L_STR_GET_UC_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] STRING_TRY_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_TRY_GET_UNCHECKED %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_AS_STR __string_buf_try_get_uc_view_%out_ok, %string_reg
+    EXPAND STR_TRY_GET_UNCHECKED %out_ok, %out_slice, __string_buf_try_get_uc_view_%out_ok, %start, %end
+    !__string_buf_try_get_uc_view_%out_ok
+[END_MACRO]
+
+[MACRO] STR_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_TRY_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+    EXPAND STR_GET_UNCHECKED %out_ok, %out_slice, %slice_reg, %start, %end
+[END_MACRO]
+
+[MACRO] STRING_BUF_GET_UNCHECKED %out_ok, %out_slice, %string_reg, %start, %end
+    EXPAND STRING_BUF_TRY_GET_UNCHECKED %out_ok, %out_slice, %string_reg, %start, %end
 [END_MACRO]
 
 [MACRO] STR_TRY_SUBSTR_RANGE %out_ok, %out_start, %out_end, %hay_slice, %sub_slice

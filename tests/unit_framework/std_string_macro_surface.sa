@@ -11546,3 +11546,203 @@ L_STR_CAP_REM_FAIL:
 L_STR_CAP_REM_OK:
     !ok
     return
+
+@test "sa_std string get range naming aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS hay, &WORD, 4
+    EXPAND STRING_BUF_FROM_STR buf, hay
+
+    EXPAND STR_TRY_GET ok_mid, mid, hay, 1, 3
+    EXPAND STRING_TRY_GET ok_mid_s, mid_s, hay, 1, 3
+    EXPAND STRING_BUF_TRY_GET ok_mid_b, mid_b, buf, 1, 3
+    EXPAND STR_GET ok_full, full, hay, 0, 4
+    EXPAND STR_TRY_GET ok_bad_order, bad_order, hay, 3, 1
+    EXPAND STR_TRY_GET ok_oob, oob, hay, 0, 5
+    EXPAND STR_TRY_GET_UNCHECKED ok_uc, uc, hay, 1, 3
+    EXPAND STRING_BUF_GET_UNCHECKED ok_uc_b, uc_b, buf, 1, 3
+
+    EXPAND STR_LEN mid_len, mid
+    EXPAND STR_LEN full_len, full
+    EXPAND STR_LEN uc_len, uc
+    EXPAND STR_AS_PTR mid_ptr, mid
+    mid0 = load mid_ptr+0 as u8
+    mid1 = load mid_ptr+1 as u8
+
+    ok_mid_flag = eq ok_mid, 1
+    ok_mid_s_flag = eq ok_mid_s, 1
+    ok_mid_b_flag = eq ok_mid_b, 1
+    ok_full_flag = eq ok_full, 1
+    ok_bad_flag = eq ok_bad_order, 0
+    ok_oob_flag = eq ok_oob, 0
+    ok_uc_flag = eq ok_uc, 1
+    ok_uc_b_flag = eq ok_uc_b, 1
+    mid_len_ok = eq mid_len, 2
+    full_len_ok = eq full_len, 4
+    uc_len_ok = eq uc_len, 2
+    mid0_ok = eq mid0, 117
+    mid1_ok = eq mid1, 115
+
+    ok = and ok_mid_flag, ok_mid_s_flag
+    ok = and ok, ok_mid_b_flag
+    ok = and ok, ok_full_flag
+    ok = and ok, ok_bad_flag
+    ok = and ok, ok_oob_flag
+    ok = and ok, ok_uc_flag
+    ok = and ok, ok_uc_b_flag
+    ok = and ok, mid_len_ok
+    ok = and ok, full_len_ok
+    ok = and ok, uc_len_ok
+    ok = and ok, mid0_ok
+    ok = and ok, mid1_ok
+
+    EXPAND STRING_BUF_FREE buf
+    !hay
+    !mid
+    !mid_s
+    !mid_b
+    !full
+    !bad_order
+    !oob
+    !uc
+    !uc_b
+    !ok_mid
+    !ok_mid_s
+    !ok_mid_b
+    !ok_full
+    !ok_bad_order
+    !ok_oob
+    !ok_uc
+    !ok_uc_b
+    !mid_len
+    !full_len
+    !uc_len
+    !mid_ptr
+    !mid0
+    !mid1
+    !ok_mid_flag
+    !ok_mid_s_flag
+    !ok_mid_b_flag
+    !ok_full_flag
+    !ok_bad_flag
+    !ok_oob_flag
+    !ok_uc_flag
+    !ok_uc_b_flag
+    !mid_len_ok
+    !full_len_ok
+    !uc_len_ok
+    !mid0_ok
+    !mid1_ok
+    br ok -> L_STR_GET_OK, L_STR_GET_FAIL
+
+L_STR_GET_FAIL:
+    !ok
+    panic(1046)
+
+L_STR_GET_OK:
+    !ok
+    return
+
+@test "sa_std string set_len aliases"():
+L_ENTRY:
+    EXPAND STRING_BUF_WITH_CAPACITY buf, 8
+    EXPAND STR_FROM_PARTS hi, &WORD, 4
+    EXPAND STRING_BUF_PUSH_STR buf, hi
+    EXPAND STRING_BUF_LEN len0, buf
+    EXPAND STRING_BUF_TRY_SET_LEN ok_shrink, buf, 2
+    EXPAND STRING_BUF_LEN len1, buf
+    EXPAND STRING_BUF_AS_STR view1, buf
+    EXPAND STR_AS_PTR p1, view1
+    b0 = load p1+0 as u8
+    b1 = load p1+1 as u8
+    EXPAND STRING_BUF_TRY_SET_LEN ok_ascii1, buf, 1
+    EXPAND STRING_BUF_LEN len_ascii1, buf
+    EXPAND STRING_BUF_TRY_SET_LEN ok_extend, buf, 4
+    EXPAND STRING_BUF_LEN len2, buf
+    EXPAND STRING_BUF_TRY_SET_LEN ok_over, buf, 16
+
+    EXPAND STR_FROM_PARTS multi, &UTF8_BOUNDARY_TEXT, 8
+    EXPAND STRING_BUF_WITH_CAPACITY mbuf, 16
+    EXPAND STRING_BUF_PUSH_STR mbuf, multi
+    EXPAND STRING_BUF_LEN mlen0, mbuf
+    EXPAND STRING_BUF_TRY_SET_LEN ok_mid, mbuf, 2
+    EXPAND STRING_BUF_LEN mlen_mid, mbuf
+    EXPAND STRING_BUF_TRY_SET_LEN ok_boundary, mbuf, 1
+    EXPAND STRING_BUF_LEN mlen1, mbuf
+
+    len0_ok = eq len0, 4
+    ok_shrink_flag = eq ok_shrink, 1
+    len1_ok = eq len1, 2
+    b0_ok = eq b0, 114
+    b1_ok = eq b1, 117
+    ok_ascii1_flag = eq ok_ascii1, 1
+    len_ascii1_ok = eq len_ascii1, 1
+    ok_extend_flag = eq ok_extend, 1
+    len2_ok = eq len2, 4
+    ok_over_flag = eq ok_over, 0
+    mlen0_ok = eq mlen0, 8
+    ok_mid_flag = eq ok_mid, 0
+    mlen_mid_ok = eq mlen_mid, 8
+    ok_boundary_flag = eq ok_boundary, 1
+    mlen1_ok = eq mlen1, 1
+
+    ok = and len0_ok, ok_shrink_flag
+    ok = and ok, len1_ok
+    ok = and ok, b0_ok
+    ok = and ok, b1_ok
+    ok = and ok, ok_ascii1_flag
+    ok = and ok, len_ascii1_ok
+    ok = and ok, ok_extend_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_over_flag
+    ok = and ok, mlen0_ok
+    ok = and ok, ok_mid_flag
+    ok = and ok, mlen_mid_ok
+    ok = and ok, ok_boundary_flag
+    ok = and ok, mlen1_ok
+
+    EXPAND STRING_BUF_FREE buf
+    EXPAND STRING_BUF_FREE mbuf
+    !hi
+    !multi
+    !len0
+    !ok_shrink
+    !len1
+    !view1
+    !p1
+    !b0
+    !b1
+    !ok_ascii1
+    !len_ascii1
+    !ok_extend
+    !len2
+    !ok_over
+    !mlen0
+    !ok_mid
+    !mlen_mid
+    !ok_boundary
+    !mlen1
+    !len0_ok
+    !ok_shrink_flag
+    !len1_ok
+    !b0_ok
+    !b1_ok
+    !ok_ascii1_flag
+    !len_ascii1_ok
+    !ok_extend_flag
+    !len2_ok
+    !ok_over_flag
+    !mlen0_ok
+    !ok_mid_flag
+    !mlen_mid_ok
+    !ok_boundary_flag
+    !mlen1_ok
+    br ok -> L_STR_SET_LEN_OK, L_STR_SET_LEN_FAIL
+
+L_STR_SET_LEN_FAIL:
+    !ok
+    panic(1047)
+
+L_STR_SET_LEN_OK:
+    !ok
+    return
+

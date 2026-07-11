@@ -4,6 +4,24 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-11 str/String get naming + StringBuf set_len batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable Rust `str`/`String`/`StringBuf` get naming aliases and StringBuf `set_len` helpers:
+  - `STR_TRY_GET` / `STRING_TRY_GET` / `STRING_BUF_TRY_GET`
+  - `STR_GET` / `STRING_GET` / `STRING_BUF_GET`
+  - `STR_TRY_GET_UNCHECKED` / `STRING_TRY_GET_UNCHECKED` / `STRING_BUF_TRY_GET_UNCHECKED`
+  - `STR_GET_UNCHECKED` / `STRING_GET_UNCHECKED` / `STRING_BUF_GET_UNCHECKED`
+  - `STRING_BUF_TRY_SET_LEN` / `STRING_BUF_SET_LEN`
+- Semantics: checked get aliases are naming wrappers over existing `STR_TRY_GET_RANGE_BETWEEN` (bounds + UTF-8 char-boundary). Unchecked get aliases require only order/bounds (`end >= start` and `end <= len`) and intentionally skip char-boundary validation, returning an empty slice with `ok=0` on miss rather than claiming Rust panic/unsafe semantics. `STRING_BUF_TRY_SET_LEN` accepts `new_len <= cap`; shrink paths require `STR_IS_CHAR_BOUNDARY` on the current string view, while in-capacity extend paths are allowed under the caller-initialized spare contract. Over-capacity and mid-scalar shrink paths return `ok=0` without mutation. These helpers do not claim Rust `Option<&str>` layout, full unsafe panic models, or generic allocator/MaybeUninit object models.
+- Validation status:
+  - Source focused minimal harness covering get + set_len: pass (`1 passed`).
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "get range naming aliases" --jobs 1 --trace-panic`: pass (`1 passed; 79 skipped`).
+  - Source focused `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_macro_surface.sa --filter "set_len aliases" --jobs 1 --trace-panic`: pass (`1 passed; 79 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harnesses for get and set_len: pass (`1 passed` each).
+
 ## Completed: 2026-07-11 Vec/StringBuf capacity remaining alias batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
