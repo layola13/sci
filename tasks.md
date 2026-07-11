@@ -2405,6 +2405,7 @@ sa/
 - [x] StringBuf splice within capacity 批次已补齐 `STRING_BUF_TRY_SPLICE_WITHIN_CAPACITY` / `STRING_BUF_SPLICE_WITHIN_CAPACITY`；先校验 char boundary 与新长度 cap，再拷出 drained range 并 within-capacity replace；容量不足/非法 range 返回 `ok=0` 且不 mutation；不声明 lazy splice iterator；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] StringBuf pop_if 批次已补齐 `STRING_BUF_TRY_POP_BYTE_IF` / `STRING_BUF_POP_BYTE_IF`、`STRING_BUF_TRY_POP_CHAR_IF` / `STRING_BUF_POP_CHAR_IF`；对尾 byte/scalar 调用 predicate，仅命中时 pop；空串/解码失败/未命中返回 `ok=0` 且不 mutation；仅收缩；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] StringBuf push_str_n within capacity 批次已补齐 `STRING_BUF_TRY_PUSH_STR_N_WITHIN_CAPACITY` / `STRING_BUF_PUSH_STR_N_WITHIN_CAPACITY`；先计算重复总字节并仅在剩余 cap 足够时整段追加 count 次；count=0 为成功 no-op，容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
+- [x] Vec extend_from_slice_n within capacity 批次已补齐 `VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64` / `VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64`；先计算重复总长度并仅在剩余 cap 足够时整段追加 count 次；count=0 为成功 no-op，容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---

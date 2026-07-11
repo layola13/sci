@@ -1723,6 +1723,76 @@ L_VEC_EFSWC_DONE_%out_ok:
     EXPAND VEC_EXTEND_FROM_SLICE_WITHIN_CAPACITY %out_ok, %vec_reg, %slice_reg, 8
 [END_MACRO]
 
+[MACRO] VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
+    __vec_efsnwc_src_len_%out_ok = load %slice_reg+Slice_len as u64
+    __vec_efsnwc_total_%out_ok = mul __vec_efsnwc_src_len_%out_ok, %count
+    __vec_efsnwc_view_%out_ok = & %vec_reg
+    __vec_efsnwc_len_%out_ok = load __vec_efsnwc_view_%out_ok+Vec_len as u64
+    __vec_efsnwc_cap_%out_ok = load __vec_efsnwc_view_%out_ok+Vec_cap as u64
+    __vec_efsnwc_new_len_%out_ok = add __vec_efsnwc_len_%out_ok, __vec_efsnwc_total_%out_ok
+    __vec_efsnwc_room_ok_%out_ok = ule __vec_efsnwc_new_len_%out_ok, __vec_efsnwc_cap_%out_ok
+    br __vec_efsnwc_room_ok_%out_ok -> L_VEC_EFSNWC_SETUP_%out_ok, L_VEC_EFSNWC_MISS_%out_ok
+
+L_VEC_EFSNWC_SETUP_%out_ok:
+    __vec_efsnwc_idx_slot_%out_ok = stack_alloc 8
+    store __vec_efsnwc_idx_slot_%out_ok+0, 0 as u64
+    !__vec_efsnwc_room_ok_%out_ok
+    !__vec_efsnwc_new_len_%out_ok
+    !__vec_efsnwc_cap_%out_ok
+    !__vec_efsnwc_len_%out_ok
+    !__vec_efsnwc_view_%out_ok
+    !__vec_efsnwc_total_%out_ok
+    !__vec_efsnwc_src_len_%out_ok
+    jmp L_VEC_EFSNWC_HEAD_%out_ok
+
+L_VEC_EFSNWC_HEAD_%out_ok:
+    __vec_efsnwc_idx_%out_ok = load __vec_efsnwc_idx_slot_%out_ok+0 as u64
+    __vec_efsnwc_done_%out_ok = eq __vec_efsnwc_idx_%out_ok, %count
+    br __vec_efsnwc_done_%out_ok -> L_VEC_EFSNWC_DONE_%out_ok, L_VEC_EFSNWC_BODY_%out_ok
+
+L_VEC_EFSNWC_BODY_%out_ok:
+    EXPAND VEC_TRY_EXTEND_FROM_SLICE_WITHIN_CAPACITY_U64 __vec_efsnwc_push_ok_%out_ok, %vec_reg, %slice_reg
+    br __vec_efsnwc_push_ok_%out_ok -> L_VEC_EFSNWC_NEXT_%out_ok, L_VEC_EFSNWC_FAIL_%out_ok
+
+L_VEC_EFSNWC_NEXT_%out_ok:
+    __vec_efsnwc_next_%out_ok = add __vec_efsnwc_idx_%out_ok, 1
+    store __vec_efsnwc_idx_slot_%out_ok+0, __vec_efsnwc_next_%out_ok as u64
+    !__vec_efsnwc_next_%out_ok
+    !__vec_efsnwc_push_ok_%out_ok
+    !__vec_efsnwc_done_%out_ok
+    !__vec_efsnwc_idx_%out_ok
+    jmp L_VEC_EFSNWC_HEAD_%out_ok
+
+L_VEC_EFSNWC_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_efsnwc_push_ok_%out_ok
+    !__vec_efsnwc_done_%out_ok
+    !__vec_efsnwc_idx_%out_ok
+    jmp L_VEC_EFSNWC_END_%out_ok
+
+L_VEC_EFSNWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__vec_efsnwc_done_%out_ok
+    !__vec_efsnwc_idx_%out_ok
+    jmp L_VEC_EFSNWC_END_%out_ok
+
+L_VEC_EFSNWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_efsnwc_room_ok_%out_ok
+    !__vec_efsnwc_new_len_%out_ok
+    !__vec_efsnwc_cap_%out_ok
+    !__vec_efsnwc_len_%out_ok
+    !__vec_efsnwc_view_%out_ok
+    !__vec_efsnwc_total_%out_ok
+    !__vec_efsnwc_src_len_%out_ok
+
+L_VEC_EFSNWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
+    EXPAND VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
+[END_MACRO]
+
 [MACRO] VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length
     __vec_efwwc_view_%out_ok = & %vec_reg
     __vec_efwwc_len_%out_ok = load __vec_efwwc_view_%out_ok+Vec_len as u64
