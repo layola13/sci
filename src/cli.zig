@@ -27,6 +27,7 @@ const test_formatter = @import("test_formatter.zig");
 const test_meta = @import("test_meta.zig");
 const test_runner = @import("test_runner.zig");
 const trap = @import("common/trap.zig");
+const affected_tests = @import("affected_tests.zig");
 const daemon_cancel = @import("daemon_cancel.zig");
 const daemon_client = @import("daemon_client.zig");
 const common_signature = @import("common/signature.zig");
@@ -589,6 +590,7 @@ const TestCommandOptions = struct {
     list: bool = false,
     compile_only: bool = false,
     trace_panic: bool = false,
+    affected: bool = false,
 };
 
 pub const DiagnosticsMode = enum {
@@ -7167,6 +7169,34 @@ fn executeTest(
     stderr: anytype,
     diagnostics_mode: DiagnosticsMode,
 ) !u8 {
+    if (!test_options.affected) return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
+    const src = std.fs.cwd().readFileAlloc(allocator, source_path, 1 << 24) catch {
+        return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
+    };
+    defer allocator.free(src);
+    const filt: ?[]const u8 = if (test_options.selection.include_filters.len > 0)
+        test_options.selection.include_filters[0]
+    else
+        null;
+    const digest = affected_tests.hashInput(src, filt);
+    if (affected_tests.isCachedPass(digest)) {
+        try stdout.writeAll("affected: unchanged since last pass; skipped\n");
+        return 0;
+    }
+    const code = try executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
+    if (code == 0) affected_tests.recordPass(digest);
+    return code;
+}
+
+fn executeTestInner(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    compile_options: CompileOptions,
+    test_options: TestCommandOptions,
+    stdout: anytype,
+    stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
+) !u8 {
     if (test_options.list and std.mem.endsWith(u8, source_path, ".sab")) {
         var test_list = try collectSabTestListFast(allocator, source_path);
         defer test_list.deinit(allocator);
@@ -7745,6 +7775,7 @@ pub fn executeWithWritersAndOptions(
             var list_tests = false;
             var compile_only = false;
             var trace_panic = false;
+            var affected_flag = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -7762,6 +7793,10 @@ pub fn executeWithWritersAndOptions(
                 }
                 if (std.mem.eql(u8, args[i], "--trace-panic") or std.mem.eql(u8, args[i], "--test-debug")) {
                     trace_panic = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--affected")) {
+                    affected_flag = true;
                     continue;
                 }
                 if (std.mem.eql(u8, args[i], "--filter")) {
@@ -7807,6 +7842,7 @@ pub fn executeWithWritersAndOptions(
                 .list = list_tests,
                 .compile_only = compile_only,
                 .trace_panic = trace_panic,
+                .affected = affected_flag,
             }, stdout, stderr, if (json_mode) .json else .human);
         },
     }
