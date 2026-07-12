@@ -84,6 +84,8 @@
 @const FS_DB_DIR = utf8:"_tmp_fs_macro_dir_builder/sub"
 @const FS_DB_BASE = utf8:"_tmp_fs_macro_dir_builder"
 @const FS_DB_SINGLE = utf8:"_tmp_fs_macro_dir_builder_single"
+@const FS_OOB_TEST_PATH = utf8:"_tmp_fs_macro_oob_test.txt"
+@const FS_OOB_TEST_DATA = utf8:"world"
 
 #def FS_TEST_PATH_LEN = 25
 #def FS_TEST_COPY_PATH_LEN = 30
@@ -167,6 +169,8 @@
 #def FS_DB_DIR_LEN = 29
 #def FS_DB_BASE_LEN = 25
 #def FS_DB_SINGLE_LEN = 32
+#def FS_OOB_TEST_PATH_LEN = 26
+#def FS_OOB_TEST_DATA_LEN = 5
 
 @test "sa_std fs file io macro surface"():
 L_ENTRY:
@@ -1346,6 +1350,213 @@ L_ENTRY:
 L_FAIL:
     !ok
     panic(946)
+L_OK:
+    !ok
+    return
+
+@test "sa_std fs OpenOptions builder macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_status, FS_OOB_TEST_PATH, FS_OOB_TEST_PATH_LEN
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_NEW s_flags, s_mode, s_custom
+    new_flags_ok = eq s_flags, 0
+    new_mode_ok = eq s_mode, SA_FS_OPEN_MODE_DEFAULT
+    new_custom_ok = eq s_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_READ r_flags, r_mode, r_custom, s_flags, s_mode, s_custom, 1
+    read_flags_ok = eq r_flags, SA_FS_OPEN_READ
+    read_mode_ok = eq r_mode, SA_FS_OPEN_MODE_DEFAULT
+    read_custom_ok = eq r_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_WRITE w_flags, w_mode, w_custom, r_flags, r_mode, r_custom, 1
+    write_flags_ok = eq w_flags, 3
+    write_mode_ok = eq w_mode, SA_FS_OPEN_MODE_DEFAULT
+    write_custom_ok = eq w_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_TRUNCATE t_flags, t_mode, t_custom, w_flags, w_mode, w_custom, 1
+    truncate_flags_ok = eq t_flags, 11
+    truncate_mode_ok = eq t_mode, SA_FS_OPEN_MODE_DEFAULT
+    truncate_custom_ok = eq t_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_CREATE c_flags, c_mode, c_custom, t_flags, t_mode, t_custom, 1
+    create_flags_ok = eq c_flags, 15
+    create_mode_ok = eq c_mode, SA_FS_OPEN_MODE_DEFAULT
+    create_custom_ok = eq c_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_MODE m_flags, m_mode, m_custom, c_flags, c_mode, c_custom, 420
+    mode_flags_ok = eq m_flags, 15
+    mode_val_ok = eq m_mode, 420
+    mode_custom_ok = eq m_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_CUSTOM_FLAGS x_flags, x_mode, x_custom, m_flags, m_mode, m_custom, SA_FS_CUSTOM_CLOEXEC
+    custom_flags_ok = eq x_flags, 15
+    custom_mode_ok = eq x_mode, 420
+    custom_val_ok = eq x_custom, SA_FS_CUSTOM_CLOEXEC
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_READ x2_flags, x2_mode, x2_custom, x_flags, x_mode, x_custom, 0
+    keepread_flags_ok = eq x2_flags, 15
+    keepread_mode_ok = eq x2_mode, 420
+    keepread_custom_ok = eq x2_custom, SA_FS_CUSTOM_CLOEXEC
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_APPEND a_flags, a_mode, a_custom, c_flags, c_mode, c_custom, 1
+    append_flags_ok = eq a_flags, 31
+    append_mode_ok = eq a_mode, SA_FS_OPEN_MODE_DEFAULT
+    append_custom_ok = eq a_custom, 0
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_NEW ow_flags, ow_mode, ow_custom
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_WRITE ow_flags, ow_mode, ow_custom, ow_flags, ow_mode, ow_custom, 1
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_CREATE ow_flags, ow_mode, ow_custom, ow_flags, ow_mode, ow_custom, 1
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_TRUNCATE ow_flags, ow_mode, ow_custom, ow_flags, ow_mode, ow_custom, 0
+    EXPAND FS_OPEN_OPTIONS_BUILDER_OPEN open_status, wf, ow_flags, ow_mode, ow_custom, FS_OOB_TEST_PATH, FS_OOB_TEST_PATH_LEN
+    open_ok = eq open_status, SA_FS_OK
+    EXPAND FS_WRITE w_status, wlen, wf, &FS_OOB_TEST_DATA, FS_OOB_TEST_DATA_LEN
+    write_ok = eq w_status, SA_FS_OK
+    write_len_ok = eq wlen, FS_OOB_TEST_DATA_LEN
+    EXPAND FS_CLOSE close_status, wf
+    close_ok = eq close_status, SA_FS_OK
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_NEW or_flags, or_mode, or_custom
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_READ or_flags, or_mode, or_custom, or_flags, or_mode, or_custom, 1
+    EXPAND FS_OPEN_OPTIONS_BUILDER_OPEN open_read_status, rf, or_flags, or_mode, or_custom, FS_OOB_TEST_PATH, FS_OOB_TEST_PATH_LEN
+    open_read_ok = eq open_read_status, SA_FS_OK
+    read_buf = alloc 8
+    EXPAND FS_READ read_status, read_len, rf, read_buf, 8
+    read_ok = eq read_status, SA_FS_OK
+    read_len_val_ok = eq read_len, FS_OOB_TEST_DATA_LEN
+    EXPAND STR_FROM_PARTS read_view, read_buf, read_len
+    EXPAND STR_FROM_PARTS data_view, &FS_OOB_TEST_DATA, FS_OOB_TEST_DATA_LEN
+    EXPAND STR_EQ read_eq, read_view, data_view
+    read_eq_ok = eq read_eq, 1
+    EXPAND FS_CLOSE close_read_status, rf
+    close_read_ok = eq close_read_status, SA_FS_OK
+
+    ok = and new_flags_ok, new_mode_ok
+    ok = and ok, new_custom_ok
+    ok = and ok, read_flags_ok
+    ok = and ok, read_mode_ok
+    ok = and ok, read_custom_ok
+    ok = and ok, write_flags_ok
+    ok = and ok, write_mode_ok
+    ok = and ok, write_custom_ok
+    ok = and ok, truncate_flags_ok
+    ok = and ok, truncate_mode_ok
+    ok = and ok, truncate_custom_ok
+    ok = and ok, create_flags_ok
+    ok = and ok, create_mode_ok
+    ok = and ok, create_custom_ok
+    ok = and ok, mode_flags_ok
+    ok = and ok, mode_val_ok
+    ok = and ok, mode_custom_ok
+    ok = and ok, custom_flags_ok
+    ok = and ok, custom_mode_ok
+    ok = and ok, custom_val_ok
+    ok = and ok, keepread_flags_ok
+    ok = and ok, keepread_mode_ok
+    ok = and ok, keepread_custom_ok
+    ok = and ok, append_flags_ok
+    ok = and ok, append_mode_ok
+    ok = and ok, append_custom_ok
+    ok = and ok, open_ok
+    ok = and ok, write_ok
+    ok = and ok, write_len_ok
+    ok = and ok, close_ok
+    ok = and ok, open_read_ok
+    ok = and ok, read_ok
+    ok = and ok, read_len_val_ok
+    ok = and ok, read_eq_ok
+    ok = and ok, close_read_ok
+
+    EXPAND FS_REMOVE_PATH cleanup_final_status, FS_OOB_TEST_PATH, FS_OOB_TEST_PATH_LEN
+
+    !s_flags
+    !s_mode
+    !s_custom
+    !r_flags
+    !r_mode
+    !r_custom
+    !w_flags
+    !w_mode
+    !w_custom
+    !t_flags
+    !t_mode
+    !t_custom
+    !c_flags
+    !c_mode
+    !c_custom
+    !m_flags
+    !m_mode
+    !m_custom
+    !x_flags
+    !x_mode
+    !x_custom
+    !x2_flags
+    !x2_mode
+    !x2_custom
+    !a_flags
+    !a_mode
+    !a_custom
+    !ow_flags
+    !ow_mode
+    !ow_custom
+    !or_flags
+    !or_mode
+    !or_custom
+    !cleanup_status
+    !open_status
+    !w_status
+    !wlen
+    !wf
+    !close_status
+    !open_read_status
+    !rf
+    !read_status
+    !read_len
+    !read_view
+    !data_view
+    !read_eq
+    !close_read_status
+    !cleanup_final_status
+    !read_buf
+    !new_flags_ok
+    !new_mode_ok
+    !new_custom_ok
+    !read_flags_ok
+    !read_mode_ok
+    !read_custom_ok
+    !write_flags_ok
+    !write_mode_ok
+    !write_custom_ok
+    !truncate_flags_ok
+    !truncate_mode_ok
+    !truncate_custom_ok
+    !create_flags_ok
+    !create_mode_ok
+    !create_custom_ok
+    !mode_flags_ok
+    !mode_val_ok
+    !mode_custom_ok
+    !custom_flags_ok
+    !custom_mode_ok
+    !custom_val_ok
+    !keepread_flags_ok
+    !keepread_mode_ok
+    !keepread_custom_ok
+    !append_flags_ok
+    !append_mode_ok
+    !append_custom_ok
+    !open_ok
+    !write_ok
+    !write_len_ok
+    !close_ok
+    !open_read_ok
+    !read_ok
+    !read_len_val_ok
+    !read_eq_ok
+    !close_read_ok
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(947)
 L_OK:
     !ok
     return

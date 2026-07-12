@@ -619,3 +619,116 @@ L_FS_DIR_BUILDER_RECURSIVE_%out_status:
     jmp L_FS_DIR_BUILDER_END_%out_status
 L_FS_DIR_BUILDER_END_%out_status:
 [END_MACRO]
+
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_NEW %out_flags, %out_mode, %out_custom
+    %out_flags = add 0, 0
+    %out_mode = add 0, SA_FS_OPEN_MODE_DEFAULT
+    %out_custom = add 0, 0
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_READ %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_read_zero_%out_flags = eq %flag, 0
+    br __fs_oob_read_zero_%out_flags -> L_FS_OOB_READ_KEEP_%out_flags, L_FS_OOB_READ_OR_%out_flags
+L_FS_OOB_READ_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_read_zero_%out_flags
+    jmp L_FS_OOB_READ_END_%out_flags
+L_FS_OOB_READ_OR_%out_flags:
+    %out_flags = or %in_flags, SA_FS_OPEN_READ
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_read_zero_%out_flags
+    jmp L_FS_OOB_READ_END_%out_flags
+L_FS_OOB_READ_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_WRITE %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_write_zero_%out_flags = eq %flag, 0
+    br __fs_oob_write_zero_%out_flags -> L_FS_OOB_WRITE_KEEP_%out_flags, L_FS_OOB_WRITE_OR_%out_flags
+L_FS_OOB_WRITE_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_write_zero_%out_flags
+    jmp L_FS_OOB_WRITE_END_%out_flags
+L_FS_OOB_WRITE_OR_%out_flags:
+    %out_flags = or %in_flags, SA_FS_OPEN_WRITE
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_write_zero_%out_flags
+    jmp L_FS_OOB_WRITE_END_%out_flags
+L_FS_OOB_WRITE_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_APPEND %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_append_zero_%out_flags = eq %flag, 0
+    br __fs_oob_append_zero_%out_flags -> L_FS_OOB_APPEND_KEEP_%out_flags, L_FS_OOB_APPEND_OR_%out_flags
+L_FS_OOB_APPEND_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_append_zero_%out_flags
+    jmp L_FS_OOB_APPEND_END_%out_flags
+L_FS_OOB_APPEND_OR_%out_flags:
+    %out_flags = or %in_flags, SA_FS_OPEN_APPEND
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_append_zero_%out_flags
+    jmp L_FS_OOB_APPEND_END_%out_flags
+L_FS_OOB_APPEND_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_CREATE %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_create_zero_%out_flags = eq %flag, 0
+    br __fs_oob_create_zero_%out_flags -> L_FS_OOB_CREATE_KEEP_%out_flags, L_FS_OOB_CREATE_OR_%out_flags
+L_FS_OOB_CREATE_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_create_zero_%out_flags
+    jmp L_FS_OOB_CREATE_END_%out_flags
+L_FS_OOB_CREATE_OR_%out_flags:
+    %out_flags = or %in_flags, SA_FS_OPEN_CREATE
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_create_zero_%out_flags
+    jmp L_FS_OOB_CREATE_END_%out_flags
+L_FS_OOB_CREATE_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_TRUNCATE %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_truncate_zero_%out_flags = eq %flag, 0
+    br __fs_oob_truncate_zero_%out_flags -> L_FS_OOB_TRUNCATE_KEEP_%out_flags, L_FS_OOB_TRUNCATE_OR_%out_flags
+L_FS_OOB_TRUNCATE_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_truncate_zero_%out_flags
+    jmp L_FS_OOB_TRUNCATE_END_%out_flags
+L_FS_OOB_TRUNCATE_OR_%out_flags:
+    %out_flags = or %in_flags, SA_FS_OPEN_TRUNCATE
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_truncate_zero_%out_flags
+    jmp L_FS_OOB_TRUNCATE_END_%out_flags
+L_FS_OOB_TRUNCATE_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_MODE %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %new_mode
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %new_mode
+    %out_custom = add 0, %in_custom
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_CUSTOM_FLAGS %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %new_custom
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %new_custom
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_OPEN %out_status, %out_file, %flags, %mode, %custom, %path, %path_len
+    EXPAND FS_OPEN_OPTIONS %out_status, %out_file, %path, %path_len, %flags, %mode, %custom
+[END_MACRO]

@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 fs OpenOptions builder macro surface batch
+
+- Continued the parallel `fs` Rust API parity audit by lowering Rust's `std::fs::OpenOptions` builder pattern onto the existing `FS_OPEN_OPTIONS` FFI lowering, requiring no new syscall/FFI surface.
+- Added supportable `sa_std/fs.sa` macros:
+  - `FS_OPEN_OPTIONS_BUILDER_NEW` (initialize builder state as three propagating SSA `u64`s: `flags=0`, `create_mode=SA_FS_OPEN_MODE_DEFAULT`, `custom_flags=0`, matching Rust's `OpenOptions::new()` defaults where all `bool` fields are `false`)
+  - `FS_OPEN_OPTIONS_BUILDER_WITH_READ` / `_WRITE` / `_APPEND` / `_CREATE` / `_TRUNCATE` (each takes the current `(flags, mode, custom)` triple and a flag, normalizes any nonzero flag to set-bit OR, leaving the corresponding `SA_FS_OPEN_*` bit untouched when the supplied flag is zero — matching Rust's `.x(true)` set-the-bit idiom; `.x(false)` clear-the-bit is intentionally not lowered)
+  - `FS_OPEN_OPTIONS_BUILDER_WITH_MODE` / `_WITH_CUSTOM_FLAGS` (set the full POSIX `create_mode` / `custom_flags` field while preserving the other two state values)
+  - `FS_OPEN_OPTIONS_BUILDER_OPEN` (delegates to the existing `FS_OPEN_OPTIONS` FFI, producing `(status, file)`)
+- Semantics: builder state is three propagating SSA `u64` register values rather than a heap-allocated builder object, each `WITH_*` produces an immutable updated triple (functional style). `FS_OPEN_OPTIONS_BUILDER_OPEN` adds no new syscall/FFI surface. It does not model Rust's `create_new` (`O_CREAT|O_EXCL`) — the `O_EXCL` bit is not exposed by the `SA_FS_CUSTOM_*` table — cross-platform `truncate`/`append` edges on read-only opens, the `set_permissions`-equivalent builder method, Windows ACL fields, or owned builder move/build value semantics.
+- Validation status:
+  - Source focused `std_fs_macro_surface.sa --filter 'OpenOptions'`: pass (`1 passed; 9 skipped`).
+  - Full-file source focused `std_fs_macro_surface.sa`: pass (`10 passed; 0 failed; 0 skipped`), confirming the new `@test` block (panic 947) does not disturb the nine pre-existing sibling `@test` blocks.
+  - Install sync via installed-std copy of `fs.sa`: pass.
+  - Installed-state focused `std_fs_macro_surface.sa --filter 'OpenOptions'`: pass (`1 passed; 9 skipped`).
+
 ## Completed: 2026-07-12 fs DirBuilder macro surface batch
 
 - Continued the parallel `fs` Rust API parity audit by lowering Rust's `std::fs::DirBuilder` builder pattern onto the existing non-recursive `FS_CREATE_DIR_MODE` and recursive `FS_CREATE_DIR_ALL_MODE` FFI helpers, requiring no new syscall/FFI surface.
