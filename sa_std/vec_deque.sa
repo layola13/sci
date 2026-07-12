@@ -2603,6 +2603,94 @@ L_VEC_DEQUE_IFSWC_END_%out_ok:
     EXPAND VEC_DEQUE_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %src_slice
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %src_slice, %count
+    __vec_deque_ifsnwc_src_len_%out_ok = load %src_slice+Slice_len as u64
+    __vec_deque_ifsnwc_total_%out_ok = mul __vec_deque_ifsnwc_src_len_%out_ok, %count
+    __vec_deque_ifsnwc_len_%out_ok = load %deque_reg+VecDeque_len as u64
+    __vec_deque_ifsnwc_in_bounds_%out_ok = ule %index, __vec_deque_ifsnwc_len_%out_ok
+    br __vec_deque_ifsnwc_in_bounds_%out_ok -> L_VEC_DEQUE_IFSNWC_ROOM_%out_ok, L_VEC_DEQUE_IFSNWC_MISS_%out_ok
+L_VEC_DEQUE_IFSNWC_ROOM_%out_ok:
+    __vec_deque_ifsnwc_new_len_%out_ok = add __vec_deque_ifsnwc_len_%out_ok, __vec_deque_ifsnwc_total_%out_ok
+    __vec_deque_ifsnwc_cap_%out_ok = load %deque_reg+VecDeque_cap as u64
+    __vec_deque_ifsnwc_room_ok_%out_ok = ule __vec_deque_ifsnwc_new_len_%out_ok, __vec_deque_ifsnwc_cap_%out_ok
+    br __vec_deque_ifsnwc_room_ok_%out_ok -> L_VEC_DEQUE_IFSNWC_SETUP_%out_ok, L_VEC_DEQUE_IFSNWC_NO_ROOM_%out_ok
+L_VEC_DEQUE_IFSNWC_SETUP_%out_ok:
+    __vec_deque_ifsnwc_idx_slot_%out_ok = stack_alloc 8
+    store __vec_deque_ifsnwc_idx_slot_%out_ok+0, 0 as u64
+    !__vec_deque_ifsnwc_in_bounds_%out_ok
+    !__vec_deque_ifsnwc_room_ok_%out_ok
+    !__vec_deque_ifsnwc_new_len_%out_ok
+    !__vec_deque_ifsnwc_cap_%out_ok
+    !__vec_deque_ifsnwc_len_%out_ok
+    !__vec_deque_ifsnwc_total_%out_ok
+    !__vec_deque_ifsnwc_src_len_%out_ok
+    jmp L_VEC_DEQUE_IFSNWC_HEAD_%out_ok
+L_VEC_DEQUE_IFSNWC_HEAD_%out_ok:
+    __vec_deque_ifsnwc_idx_%out_ok = load __vec_deque_ifsnwc_idx_slot_%out_ok+0 as u64
+    __vec_deque_ifsnwc_done_%out_ok = eq __vec_deque_ifsnwc_idx_%out_ok, %count
+    br __vec_deque_ifsnwc_done_%out_ok -> L_VEC_DEQUE_IFSNWC_DONE_%out_ok, L_VEC_DEQUE_IFSNWC_BODY_%out_ok
+L_VEC_DEQUE_IFSNWC_BODY_%out_ok:
+    __vec_deque_ifsnwc_src_len2_%out_ok = load %src_slice+Slice_len as u64
+    __vec_deque_ifsnwc_block_off_%out_ok = mul __vec_deque_ifsnwc_idx_%out_ok, __vec_deque_ifsnwc_src_len2_%out_ok
+    __vec_deque_ifsnwc_pos_%out_ok = add %index, __vec_deque_ifsnwc_block_off_%out_ok
+    EXPAND VEC_DEQUE_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY __vec_deque_ifsnwc_block_ok_%out_ok, %deque_reg, __vec_deque_ifsnwc_pos_%out_ok, %src_slice
+    br __vec_deque_ifsnwc_block_ok_%out_ok -> L_VEC_DEQUE_IFSNWC_NEXT_%out_ok, L_VEC_DEQUE_IFSNWC_FAIL_%out_ok
+L_VEC_DEQUE_IFSNWC_NEXT_%out_ok:
+    __vec_deque_ifsnwc_next_%out_ok = add __vec_deque_ifsnwc_idx_%out_ok, 1
+    store __vec_deque_ifsnwc_idx_slot_%out_ok+0, __vec_deque_ifsnwc_next_%out_ok as u64
+    !__vec_deque_ifsnwc_next_%out_ok
+    !__vec_deque_ifsnwc_block_ok_%out_ok
+    !__vec_deque_ifsnwc_pos_%out_ok
+    !__vec_deque_ifsnwc_block_off_%out_ok
+    !__vec_deque_ifsnwc_src_len2_%out_ok
+    !__vec_deque_ifsnwc_done_%out_ok
+    !__vec_deque_ifsnwc_idx_%out_ok
+    jmp L_VEC_DEQUE_IFSNWC_HEAD_%out_ok
+L_VEC_DEQUE_IFSNWC_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_deque_ifsnwc_block_ok_%out_ok
+    !__vec_deque_ifsnwc_pos_%out_ok
+    !__vec_deque_ifsnwc_block_off_%out_ok
+    !__vec_deque_ifsnwc_src_len2_%out_ok
+    !__vec_deque_ifsnwc_done_%out_ok
+    !__vec_deque_ifsnwc_idx_%out_ok
+    jmp L_VEC_DEQUE_IFSNWC_END_%out_ok
+L_VEC_DEQUE_IFSNWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__vec_deque_ifsnwc_done_%out_ok
+    !__vec_deque_ifsnwc_idx_%out_ok
+    jmp L_VEC_DEQUE_IFSNWC_END_%out_ok
+L_VEC_DEQUE_IFSNWC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_deque_ifsnwc_room_ok_%out_ok
+    !__vec_deque_ifsnwc_new_len_%out_ok
+    !__vec_deque_ifsnwc_in_bounds_%out_ok
+    !__vec_deque_ifsnwc_cap_%out_ok
+    !__vec_deque_ifsnwc_len_%out_ok
+    !__vec_deque_ifsnwc_total_%out_ok
+    !__vec_deque_ifsnwc_src_len_%out_ok
+    jmp L_VEC_DEQUE_IFSNWC_END_%out_ok
+L_VEC_DEQUE_IFSNWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_deque_ifsnwc_in_bounds_%out_ok
+    !__vec_deque_ifsnwc_len_%out_ok
+    !__vec_deque_ifsnwc_total_%out_ok
+    !__vec_deque_ifsnwc_src_len_%out_ok
+L_VEC_DEQUE_IFSNWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %deque_reg, %index, %src_slice, %count
+    EXPAND VEC_DEQUE_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %src_slice, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %src_slice, %count
+    EXPAND VEC_DEQUE_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %src_slice, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %deque_reg, %index, %src_slice, %count
+    EXPAND VEC_DEQUE_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %src_slice, %count
+[END_MACRO]
+
 
 [MACRO] VEC_DEQUE_APPEND %deque_reg, %other_deque_reg
     call @sa_vec_deque_append(&%deque_reg, &%other_deque_reg)
