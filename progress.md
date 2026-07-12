@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 fs DirBuilder macro surface batch
+
+- Continued the parallel `fs` Rust API parity audit by lowering Rust's `std::fs::DirBuilder` builder pattern onto the existing non-recursive `FS_CREATE_DIR_MODE` and recursive `FS_CREATE_DIR_ALL_MODE` FFI helpers, requiring no new syscall/FFI surface.
+- Added supportable `sa_std/fs.sa` macros:
+  - `FS_DIR_BUILDER_NEW` (initialize builder state as two propagating SSA `u64`s: `recursive=false (0)` and `mode=0o755=493`, Rust's default)
+  - `FS_DIR_BUILDER_WITH_RECURSIVE` (takes the current `(recursive, mode)` pair and a flag, normalizes any nonzero flag to `1`, preserves the `mode`; returns an updated pair)
+  - `FS_DIR_BUILDER_WITH_MODE` (takes the current pair and a new `mode`, preserves the `recursive` flag; returns an updated pair)
+  - `FS_DIR_BUILDER_CREATE` (takes the final `(recursive, mode)` pair and a path; branches on the `recursive` flag to dispatch the existing `FS_CREATE_DIR_MODE` (non-recursive) or `FS_CREATE_DIR_ALL_MODE` (recursive) lowering)
+- Semantics: the builder state is two propagating SSA `u64` register values rather than a heap-allocated builder object, and each `WITH_*` produces an immutable updated pair (functional style). `FS_DIR_BUILDER_CREATE` adds no new FFI/syscall surface. It does not model Rust's owned `DirBuilder` value/move semantics, the `Permissions`/`metadata`-style builder methods on the returned handle, Windows ACL permission layers, or `create`-variants that return the directory handle.
+- Validation status:
+  - Source focused `std_fs_macro_surface.sa --filter 'DirBuilder'`: pass (`1 passed; 8 skipped`).
+  - Full-file source focused `std_fs_macro_surface.sa`: pass (`9 passed; 0 failed; 0 skipped`), confirming the new `@test` block (panic 946) does not disturb the eight pre-existing sibling `@test` blocks.
+  - Install sync via installed-std copy of `fs.sa`: pass.
+  - Installed-state focused `std_fs_macro_surface.sa --filter 'DirBuilder'`: pass (`1 passed; 8 skipped`).
+
 ## Completed: 2026-07-12 VecDeque extend_chars u64 aliases batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding non-allocating `extend_chars` aliases that treat a `Slice<u64>`'s elements as UTF-32 / Unicode scalar-value codepoints, mirroring the existing Vec `_extend_chars` naming. The VecDeque is u64-typed, so a char codepoint is just the slice element as a `u64`.

@@ -81,6 +81,9 @@
 @const FS_DBG_DIR_STATUS = utf8:"dir_status"
 @const FS_DBG_DIR_LEN = utf8:"dir_len"
 @const FS_DBG_REMOVE_STATUS = utf8:"remove_status"
+@const FS_DB_DIR = utf8:"_tmp_fs_macro_dir_builder/sub"
+@const FS_DB_BASE = utf8:"_tmp_fs_macro_dir_builder"
+@const FS_DB_SINGLE = utf8:"_tmp_fs_macro_dir_builder_single"
 
 #def FS_TEST_PATH_LEN = 25
 #def FS_TEST_COPY_PATH_LEN = 30
@@ -161,6 +164,9 @@
 #def FS_DBG_DIR_STATUS_LEN = 10
 #def FS_DBG_DIR_LEN_LEN = 7
 #def FS_DBG_REMOVE_STATUS_LEN = 13
+#def FS_DB_DIR_LEN = 29
+#def FS_DB_BASE_LEN = 25
+#def FS_DB_SINGLE_LEN = 32
 
 @test "sa_std fs file io macro surface"():
 L_ENTRY:
@@ -1261,4 +1267,85 @@ L_OK:
     !missing_exists
     !missing_status
     !cleanup_path_status
+    return
+
+@test "sa_std fs DirBuilder macro surface"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_recursive_status, FS_DB_BASE, FS_DB_BASE_LEN
+    EXPAND FS_REMOVE_PATH cleanup_single_status, FS_DB_SINGLE, FS_DB_SINGLE_LEN
+
+    EXPAND FS_DIR_BUILDER_NEW b_recursive, b_mode
+    new_recursive_ok = eq b_recursive, 0
+    new_mode_ok = eq b_mode, 493
+
+    EXPAND FS_DIR_BUILDER_WITH_RECURSIVE b_rec2, b_mode2, b_recursive, b_mode, 1
+    rec_flag_ok = eq b_rec2, 1
+    rec_mode_ok = eq b_mode2, 493
+
+    EXPAND FS_DIR_BUILDER_WITH_MODE b_rec3, b_mode3, b_rec2, b_mode2, 448
+    mode_flag_ok = eq b_rec3, 1
+    mode_val_ok = eq b_mode3, 448
+
+    EXPAND FS_DIR_BUILDER_CREATE create_recursive_status, b_rec3, b_mode3, FS_DB_DIR, FS_DB_DIR_LEN
+    create_recursive_ok = eq create_recursive_status, SA_FS_OK
+    EXPAND FS_EXISTS exists_recursive, FS_DB_DIR, FS_DB_DIR_LEN
+    exists_recursive_ok = eq exists_recursive, 1
+
+    EXPAND FS_DIR_BUILDER_NEW s_recursive, s_mode
+    EXPAND FS_DIR_BUILDER_WITH_RECURSIVE s_rec2, s_mode2, s_recursive, s_mode, 3
+    s_rec_flag_ok = eq s_rec2, 1
+    EXPAND FS_DIR_BUILDER_CREATE create_single_status, s_rec2, s_mode2, FS_DB_SINGLE, FS_DB_SINGLE_LEN
+    create_single_ok = eq create_single_status, SA_FS_OK
+    EXPAND FS_EXISTS exists_single, FS_DB_SINGLE, FS_DB_SINGLE_LEN
+    exists_single_ok = eq exists_single, 1
+
+    EXPAND FS_REMOVE_PATH cleanup_final_recursive_status, FS_DB_BASE, FS_DB_BASE_LEN
+    EXPAND FS_REMOVE_PATH cleanup_final_single_status, FS_DB_SINGLE, FS_DB_SINGLE_LEN
+
+    ok = and new_recursive_ok, new_mode_ok
+    ok = and ok, rec_flag_ok
+    ok = and ok, rec_mode_ok
+    ok = and ok, mode_flag_ok
+    ok = and ok, mode_val_ok
+    ok = and ok, create_recursive_ok
+    ok = and ok, exists_recursive_ok
+    ok = and ok, s_rec_flag_ok
+    ok = and ok, create_single_ok
+    ok = and ok, exists_single_ok
+
+    !b_recursive
+    !b_mode
+    !b_rec2
+    !b_mode2
+    !b_rec3
+    !b_mode3
+    !s_recursive
+    !s_mode
+    !s_rec2
+    !s_mode2
+    !cleanup_recursive_status
+    !cleanup_single_status
+    !create_recursive_status
+    !exists_recursive
+    !create_single_status
+    !exists_single
+    !cleanup_final_recursive_status
+    !cleanup_final_single_status
+    !new_recursive_ok
+    !new_mode_ok
+    !rec_flag_ok
+    !rec_mode_ok
+    !mode_flag_ok
+    !mode_val_ok
+    !create_recursive_ok
+    !exists_recursive_ok
+    !s_rec_flag_ok
+    !create_single_ok
+    !exists_single_ok
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(946)
+L_OK:
+    !ok
     return
