@@ -2563,6 +2563,128 @@ L_VEC_IFSWC_END_%out_ok:
     EXPAND VEC_INSERT_FROM_SLICE_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %slice_reg, 8
 [END_MACRO]
 
+[MACRO] VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %slice_reg, %count, %elem_size
+    __vec_ifsnwc_src_len_%out_ok = load %slice_reg+Slice_len as u64
+    __vec_ifsnwc_view_%out_ok = & %vec_reg
+    __vec_ifsnwc_len_%out_ok = load __vec_ifsnwc_view_%out_ok+Vec_len as u64
+    __vec_ifsnwc_cap_%out_ok = load __vec_ifsnwc_view_%out_ok+Vec_cap as u64
+    __vec_ifsnwc_in_bounds_%out_ok = ule %index, __vec_ifsnwc_len_%out_ok
+    br __vec_ifsnwc_in_bounds_%out_ok -> L_VEC_IFSNWC_ROOM_%out_ok, L_VEC_IFSNWC_MISS_%out_ok
+
+L_VEC_IFSNWC_ROOM_%out_ok:
+    __vec_ifsnwc_total_%out_ok = mul __vec_ifsnwc_src_len_%out_ok, %count
+    __vec_ifsnwc_new_len_%out_ok = add __vec_ifsnwc_len_%out_ok, __vec_ifsnwc_total_%out_ok
+    __vec_ifsnwc_room_ok_%out_ok = ule __vec_ifsnwc_new_len_%out_ok, __vec_ifsnwc_cap_%out_ok
+    br __vec_ifsnwc_room_ok_%out_ok -> L_VEC_IFSNWC_EMPTY_CHECK_%out_ok, L_VEC_IFSNWC_NO_ROOM_%out_ok
+
+L_VEC_IFSNWC_EMPTY_CHECK_%out_ok:
+    __vec_ifsnwc_empty_%out_ok = eq __vec_ifsnwc_total_%out_ok, 0
+    br __vec_ifsnwc_empty_%out_ok -> L_VEC_IFSNWC_EMPTY_HIT_%out_ok, L_VEC_IFSNWC_SETUP_%out_ok
+
+L_VEC_IFSNWC_EMPTY_HIT_%out_ok:
+    %out_ok = add 0, 1
+    !__vec_ifsnwc_empty_%out_ok
+    !__vec_ifsnwc_room_ok_%out_ok
+    !__vec_ifsnwc_new_len_%out_ok
+    !__vec_ifsnwc_total_%out_ok
+    !__vec_ifsnwc_in_bounds_%out_ok
+    !__vec_ifsnwc_cap_%out_ok
+    !__vec_ifsnwc_len_%out_ok
+    !__vec_ifsnwc_view_%out_ok
+    !__vec_ifsnwc_src_len_%out_ok
+    jmp L_VEC_IFSNWC_END_%out_ok
+
+L_VEC_IFSNWC_SETUP_%out_ok:
+    __vec_ifsnwc_src_len_slot_%out_ok = stack_alloc 8
+    store __vec_ifsnwc_src_len_slot_%out_ok+0, __vec_ifsnwc_src_len_%out_ok as u64
+    __vec_ifsnwc_idx_slot_%out_ok = stack_alloc 8
+    store __vec_ifsnwc_idx_slot_%out_ok+0, 0 as u64
+    !__vec_ifsnwc_empty_%out_ok
+    !__vec_ifsnwc_room_ok_%out_ok
+    !__vec_ifsnwc_new_len_%out_ok
+    !__vec_ifsnwc_total_%out_ok
+    !__vec_ifsnwc_in_bounds_%out_ok
+    !__vec_ifsnwc_cap_%out_ok
+    !__vec_ifsnwc_len_%out_ok
+    !__vec_ifsnwc_view_%out_ok
+    !__vec_ifsnwc_src_len_%out_ok
+    jmp L_VEC_IFSNWC_HEAD_%out_ok
+
+L_VEC_IFSNWC_HEAD_%out_ok:
+    __vec_ifsnwc_idx_%out_ok = load __vec_ifsnwc_idx_slot_%out_ok+0 as u64
+    __vec_ifsnwc_done_%out_ok = eq __vec_ifsnwc_idx_%out_ok, %count
+    br __vec_ifsnwc_done_%out_ok -> L_VEC_IFSNWC_DONE_%out_ok, L_VEC_IFSNWC_BODY_%out_ok
+
+L_VEC_IFSNWC_BODY_%out_ok:
+    __vec_ifsnwc_step_%out_ok = load __vec_ifsnwc_src_len_slot_%out_ok+0 as u64
+    __vec_ifsnwc_pos_%out_ok = mul __vec_ifsnwc_idx_%out_ok, __vec_ifsnwc_step_%out_ok
+    __vec_ifsnwc_at_%out_ok = add %index, __vec_ifsnwc_pos_%out_ok
+    EXPAND VEC_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY __vec_ifsnwc_push_ok_%out_ok, %vec_reg, __vec_ifsnwc_at_%out_ok, %slice_reg, %elem_size
+    br __vec_ifsnwc_push_ok_%out_ok -> L_VEC_IFSNWC_NEXT_%out_ok, L_VEC_IFSNWC_FAIL_%out_ok
+
+L_VEC_IFSNWC_NEXT_%out_ok:
+    __vec_ifsnwc_next_%out_ok = add __vec_ifsnwc_idx_%out_ok, 1
+    store __vec_ifsnwc_idx_slot_%out_ok+0, __vec_ifsnwc_next_%out_ok as u64
+    !__vec_ifsnwc_next_%out_ok
+    !__vec_ifsnwc_push_ok_%out_ok
+    !__vec_ifsnwc_at_%out_ok
+    !__vec_ifsnwc_pos_%out_ok
+    !__vec_ifsnwc_step_%out_ok
+    !__vec_ifsnwc_done_%out_ok
+    !__vec_ifsnwc_idx_%out_ok
+    jmp L_VEC_IFSNWC_HEAD_%out_ok
+
+L_VEC_IFSNWC_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_ifsnwc_push_ok_%out_ok
+    !__vec_ifsnwc_at_%out_ok
+    !__vec_ifsnwc_pos_%out_ok
+    !__vec_ifsnwc_step_%out_ok
+    !__vec_ifsnwc_done_%out_ok
+    !__vec_ifsnwc_idx_%out_ok
+    jmp L_VEC_IFSNWC_END_%out_ok
+
+L_VEC_IFSNWC_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__vec_ifsnwc_done_%out_ok
+    !__vec_ifsnwc_idx_%out_ok
+    jmp L_VEC_IFSNWC_END_%out_ok
+
+L_VEC_IFSNWC_NO_ROOM_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_ifsnwc_room_ok_%out_ok
+    !__vec_ifsnwc_new_len_%out_ok
+    !__vec_ifsnwc_total_%out_ok
+    !__vec_ifsnwc_in_bounds_%out_ok
+    !__vec_ifsnwc_cap_%out_ok
+    !__vec_ifsnwc_len_%out_ok
+    !__vec_ifsnwc_view_%out_ok
+    !__vec_ifsnwc_src_len_%out_ok
+    jmp L_VEC_IFSNWC_END_%out_ok
+
+L_VEC_IFSNWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_ifsnwc_in_bounds_%out_ok
+    !__vec_ifsnwc_cap_%out_ok
+    !__vec_ifsnwc_len_%out_ok
+    !__vec_ifsnwc_view_%out_ok
+    !__vec_ifsnwc_src_len_%out_ok
+
+L_VEC_IFSNWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %index, %slice_reg, %count
+    EXPAND VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %slice_reg, %count, 8
+[END_MACRO]
+
+[MACRO] VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %slice_reg, %count, %elem_size
+    EXPAND VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %slice_reg, %count, %elem_size
+[END_MACRO]
+
+[MACRO] VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %index, %slice_reg, %count
+    EXPAND VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %index, %slice_reg, %count, 8
+[END_MACRO]
+
 [MACRO] VEC_TRY_INSERT %out_ok, %vec_reg, %index, %value, %elem_size
     __vec_insert_view_%out_ok = & %vec_reg
     __vec_insert_len_%out_ok = load __vec_insert_view_%out_ok+Vec_len as u64

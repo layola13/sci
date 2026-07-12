@@ -4158,6 +4158,146 @@ L_VEC_IFSWC_OK:
     !ok
     return
 
+@test "sa_std vec insert_from_slice_n within capacity aliases"():
+L_ENTRY:
+    EXPAND VEC_WITH_CAPACITY_U64 src, 2
+    EXPAND VEC_PUSH_U64 src, 20
+    EXPAND VEC_PUSH_U64 src, 30
+    EXPAND VEC_AS_SLICE src_slice, src
+    EXPAND VEC_WITH_CAPACITY_U64 vec, 7
+    EXPAND VEC_PUSH_U64 vec, 10
+    EXPAND VEC_PUSH_U64 vec, 40
+    EXPAND VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 ok1, vec, 1, src_slice, 2
+    EXPAND VEC_LEN len1, vec
+    EXPAND VEC_TRY_GET_U64 g0_ok, g0, vec, 0
+    EXPAND VEC_TRY_GET_U64 g1_ok, g1, vec, 1
+    EXPAND VEC_TRY_GET_U64 g2_ok, g2, vec, 2
+    EXPAND VEC_TRY_GET_U64 g3_ok, g3, vec, 3
+    EXPAND VEC_TRY_GET_U64 g4_ok, g4, vec, 4
+    EXPAND VEC_TRY_GET_U64 g5_ok, g5, vec, 5
+    EXPAND VEC_CAPACITY cap1, vec
+
+    EXPAND VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 ok_full, vec, 1, src_slice, 1
+    EXPAND VEC_LEN len2, vec
+
+    EXPAND VEC_WITH_CAPACITY_U64 emptysrc, 0
+    EXPAND VEC_AS_SLICE empty_slice, emptysrc
+    EXPAND VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 ok_zero, vec, 1, empty_slice, 3
+    EXPAND VEC_LEN len3, vec
+    EXPAND VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 ok_count_zero, vec, 1, src_slice, 0
+    EXPAND VEC_LEN len4, vec
+
+    EXPAND VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64 ok_oob, vec, 9, src_slice, 1
+    EXPAND VEC_LEN len5, vec
+
+    ok1_flag = eq ok1, 1
+    len1_ok = eq len1, 6
+    g0_flag = eq g0_ok, 1
+    g0_val = eq g0, 10
+    g1_flag = eq g1_ok, 1
+    g1_val = eq g1, 20
+    g2_flag = eq g2_ok, 1
+    g2_val = eq g2, 30
+    g3_flag = eq g3_ok, 1
+    g3_val = eq g3, 20
+    g4_flag = eq g4_ok, 1
+    g4_val = eq g4, 30
+    g5_flag = eq g5_ok, 1
+    g5_val = eq g5, 40
+    cap1_ok = eq cap1, 7
+    ok_full_flag = eq ok_full, 0
+    len2_ok = eq len2, 6
+    ok_zero_flag = eq ok_zero, 1
+    len3_ok = eq len3, 6
+    ok_count_zero_flag = eq ok_count_zero, 1
+    len4_ok = eq len4, 6
+    ok_oob_flag = eq ok_oob, 0
+    len5_ok = eq len5, 6
+
+    ok = and ok1_flag, len1_ok
+    ok = and ok, g0_flag
+    ok = and ok, g0_val
+    ok = and ok, g1_flag
+    ok = and ok, g1_val
+    ok = and ok, g2_flag
+    ok = and ok, g2_val
+    ok = and ok, g3_flag
+    ok = and ok, g3_val
+    ok = and ok, g4_flag
+    ok = and ok, g4_val
+    ok = and ok, g5_flag
+    ok = and ok, g5_val
+    ok = and ok, cap1_ok
+    ok = and ok, ok_full_flag
+    ok = and ok, len2_ok
+    ok = and ok, ok_zero_flag
+    ok = and ok, len3_ok
+    ok = and ok, ok_count_zero_flag
+    ok = and ok, len4_ok
+    ok = and ok, ok_oob_flag
+    ok = and ok, len5_ok
+
+    EXPAND VEC_FREE vec
+    EXPAND VEC_FREE src
+    EXPAND VEC_FREE emptysrc
+    !src_slice
+    !empty_slice
+    !ok1
+    !len1
+    !g0_ok
+    !g0
+    !g1_ok
+    !g1
+    !g2_ok
+    !g2
+    !g3_ok
+    !g3
+    !g4_ok
+    !g4
+    !g5_ok
+    !g5
+    !cap1
+    !ok_full
+    !len2
+    !ok_zero
+    !len3
+    !ok_count_zero
+    !len4
+    !ok_oob
+    !len5
+    !ok1_flag
+    !len1_ok
+    !g0_flag
+    !g0_val
+    !g1_flag
+    !g1_val
+    !g2_flag
+    !g2_val
+    !g3_flag
+    !g3_val
+    !g4_flag
+    !g4_val
+    !g5_flag
+    !g5_val
+    !cap1_ok
+    !ok_full_flag
+    !len2_ok
+    !ok_zero_flag
+    !len3_ok
+    !ok_count_zero_flag
+    !len4_ok
+    !ok_oob_flag
+    !len5_ok
+    br ok -> L_VEC_IFSNWC_OK, L_VEC_IFSNWC_FAIL
+
+L_VEC_IFSNWC_FAIL:
+    !ok
+    panic(1089)
+
+L_VEC_IFSNWC_OK:
+    !ok
+    return
+
 @test "sa_std vec extend_from_slice within capacity aliases"():
 L_ENTRY:
     EXPAND VEC_WITH_CAPACITY_U64 vec, 4
