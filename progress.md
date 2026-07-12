@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque try_extend_from_slice within capacity batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding a concrete `VecDeque::extend_append_slice`-shaped, capacity-preserving extend from a `Slice<u64>`.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64` (Rust `VecDeque::extend` concrete within-capacity form: pre-checks `len + src_len <= cap`; on success appends each element via `sa_vec_deque_push_back`; on insufficient room returns `ok=0` with no mutation)
+  - `VEC_DEQUE_EXTEND_FROM_SLICE_U64` / `VEC_DEQUE_EXTEND_FROM_SLICE` (ok-ignoring aliases)
+- Semantics: total length is computed via plain `add` (consistent with the existing Vec capacity-check pattern), capacity checked via `ule total <= cap`, grow path appends via `sa_vec_deque_push_back` (which can never hit the runtime auto-grow branch because capacity was already validated). Zero source length succeeds as a no-op (`len <= cap`). They do not claim Rust allocator growth, generic element support, scoped Rust references, lazy `extend` iterator semantics, allocator-aware `try_extend*` failures, or the lazy `splice` / drain-range iterator semantics that remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdeefswc_min.sa`: pass (`1 passed`), including an out-of-capacity failure assertion.
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'try_extend_from_slice within capacity helpers'`: pass (`1 passed; 8 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque try_resize within capacity batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding non-reallocating `VecDeque::resize` / `resize_with` within-capacity lowerings to `sa_std/vec_deque.sa`.

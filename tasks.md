@@ -2420,6 +2420,8 @@ sa/
 - [x] VecDeque resize / resize_with 批次已完成新增源码 focused 测试、安装态 focused 回归，四份文档（progress/tasks/current_plan/std_missing）同步更新；不主张 generic element support / scoped Rust references / lazy splice-ranged iterator 语义 / allocator-aware `try_resize*` 变体。
 - [x] `VecDeque` Rust API parity 审计继续补齐：补 `VecDeque` 非重分配 resize-within-capacity 降阶 `VEC_DEQUE_TRY_RESIZE_WITHIN_CAPACITY` / `VEC_DEQUE_TRY_RESIZE_WITHIN_CAPACITY_U64` / `VEC_DEQUE_RESIZE_WITHIN_CAPACITY` / `VEC_DEQUE_RESIZE_WITHIN_CAPACITY_U64`，以及 generator 版 `VEC_DEQUE_TRY_RESIZE_WITH_WITHIN_CAPACITY` / `_U64` / `VEC_DEQUE_RESIZE_WITH_WITHIN_CAPACITY` / `_U64`；shrink 走 truncate，grow 先校验 `new_len <= cap`，不足则 `ok=0` 无 mutation。
 - [x] VecDeque try_resize within capacity 批次已完成新增源码 focused 测试、安装态 focused 回归，四份文档（progress/tasks/current_plan/std_missing）同步更新；不主张 Rust allocator 自动扩展、generic element support / scoped Rust references / lazy splice-ranged iterator 语义。
+- [x] `VecDeque` Rust API parity 审计继续补齐：补 `VecDeque::extend` 可支撑 within-capacity 降阶 `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64` / `VEC_DEQUE_EXTEND_FROM_SLICE_U64` / `VEC_DEQUE_EXTEND_FROM_SLICE`；先校验 `len + src_len <= cap`，不足则 `ok=0` 无 mutation，足则通过既有 `sa_vec_deque_push_back` 循环 append（grow 路径不会触碰 runtime auto-grow 分支）。
+- [x] VecDeque try_extend_from_slice within capacity 批次已完成新增源码 focused 测试（含 out-of-capacity 失败路径）、安装态 focused 回归，四份文档（progress/tasks/current_plan/std_missing）同步更新；不主张 Rust allocator 自动扩展 / lazy `extend` iterator / generic element support / scoped Rust references 语义。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---

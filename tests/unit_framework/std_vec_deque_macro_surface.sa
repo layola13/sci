@@ -1401,3 +1401,64 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@test "sa_std vec_deque try_extend_from_slice within capacity helpers"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 5
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 11
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 22
+
+    src_data = alloc 24
+    store src_data+0, 33 as u64
+    store src_data+8, 44 as u64
+    store src_data+16, 55 as u64
+    src_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW src_slice, src_data, 3
+
+    EXPAND VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64 ok1, deque, src_slice
+    EXPAND VEC_DEQUE_LEN len1, deque
+    EXPAND VEC_DEQUE_GET g0, deque, 0
+    EXPAND VEC_DEQUE_GET g2, deque, 2
+    EXPAND VEC_DEQUE_GET g4, deque, 4
+    EXPAND VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64 ok2, deque, src_slice
+    EXPAND VEC_DEQUE_LEN len_after_fail, deque
+
+    ok_flag1 = eq ok1, 1
+    ok_len1 = eq len1, 5
+    ok_g0 = eq g0, 11
+    ok_g2 = eq g2, 33
+    ok_g4 = eq g4, 55
+    ok_flag2 = eq ok2, 0
+    ok_len_after_fail = eq len_after_fail, 5
+
+    ok = and ok_flag1, ok_len1
+    ok = and ok, ok_g0
+    ok = and ok, ok_g2
+    ok = and ok, ok_g4
+    ok = and ok, ok_flag2
+    ok = and ok, ok_len_after_fail
+
+    EXPAND VEC_DEQUE_FREE deque
+    !src_data
+    !src_slice
+    !len1
+    !len_after_fail
+    !g0
+    !g2
+    !g4
+    !ok1
+    !ok2
+    !ok_flag1
+    !ok_len1
+    !ok_g0
+    !ok_g2
+    !ok_g4
+    !ok_flag2
+    !ok_len_after_fail
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(915)
+L_OK:
+    !ok
+    return
