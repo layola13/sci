@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque try_extend_from_slice_n within capacity batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding a concrete repeated `VecDeque::extend`-shaped, capacity-preserving helper that appends a `Slice<u64>` `count` times without Rust-style allocator growth.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64` (pre-check `src_len * count + len <= cap`, then loop `count` times calling `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64`); on insufficient room or zero `count`, returns `ok=1` only when pre-check holds and acts as a no-op success for `count=0` (zero src_len or zero count succeeds without mutation)
+  - `VEC_DEQUE_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64` (ok-ignoring alias)
+- Semantics: total = `mul src_len count`; capacity-checked with plain `add`/`ule` consistent with the existing Vec `extend_from_slice_n` within-capacity lowerings; the grow path reuses `sa_vec_deque_push_back` per element, which can never trigger the runtime auto-grow branch because capacity was validated up front. Failures return `ok=0` with no mutation. Does not claim Rust allocator growth, generic element support, scoped Rust references, lazy `extend` iterator semantics, allocator-aware `try_extend*` failures, or the lazy `splice` / drain-range iterator semantics that remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdeefsnwc_min.sa`: pass (`1 passed`), including a `count=0` no-op success path and an out-of-capacity failure path.
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'try_extend_from_slice_n within capacity helpers'`: pass (`1 passed; 9 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque try_extend_from_slice within capacity batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding a concrete `VecDeque::extend_append_slice`-shaped, capacity-preserving extend from a `Slice<u64>`.
