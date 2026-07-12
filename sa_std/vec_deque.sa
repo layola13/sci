@@ -2382,6 +2382,48 @@ L_VEC_DEQUE_PFNWC_END_%out_ok:
     EXPAND VEC_DEQUE_TRY_PUSH_FRONT_N_WITHIN_CAPACITY_U64 %out_ok, %deque_reg, %value, %count
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %value
+    __vec_deque_iwc_len_%out_ok = load %deque_reg+VecDeque_len as u64
+    __vec_deque_iwc_cap_%out_ok = load %deque_reg+VecDeque_cap as u64
+    __vec_deque_iwc_in_bounds_%out_ok = ule %index, __vec_deque_iwc_len_%out_ok
+    __vec_deque_iwc_new_len_%out_ok = add __vec_deque_iwc_len_%out_ok, 1
+    __vec_deque_iwc_has_room_%out_ok = ule __vec_deque_iwc_new_len_%out_ok, __vec_deque_iwc_cap_%out_ok
+    __vec_deque_iwc_ok_all_%out_ok = and __vec_deque_iwc_in_bounds_%out_ok, __vec_deque_iwc_has_room_%out_ok
+    br __vec_deque_iwc_ok_all_%out_ok -> L_VEC_DEQUE_IWC_OK_%out_ok, L_VEC_DEQUE_IWC_MISS_%out_ok
+L_VEC_DEQUE_IWC_OK_%out_ok:
+    __vec_deque_iwc_abi_ok_%out_ok = call @sa_vec_deque_try_insert(&%deque_reg, %index, %value)
+    %out_ok = __vec_deque_iwc_abi_ok_%out_ok
+    !__vec_deque_iwc_ok_all_%out_ok
+    !__vec_deque_iwc_in_bounds_%out_ok
+    !__vec_deque_iwc_new_len_%out_ok
+    !__vec_deque_iwc_has_room_%out_ok
+    !__vec_deque_iwc_cap_%out_ok
+    !__vec_deque_iwc_len_%out_ok
+    jmp L_VEC_DEQUE_IWC_END_%out_ok
+L_VEC_DEQUE_IWC_MISS_%out_ok:
+    %out_ok = add 0, 0
+    !__vec_deque_iwc_ok_all_%out_ok
+    !__vec_deque_iwc_in_bounds_%out_ok
+    !__vec_deque_iwc_new_len_%out_ok
+    !__vec_deque_iwc_has_room_%out_ok
+    !__vec_deque_iwc_cap_%out_ok
+    !__vec_deque_iwc_len_%out_ok
+    jmp L_VEC_DEQUE_IWC_END_%out_ok
+L_VEC_DEQUE_IWC_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY_U64 %out_ok, %deque_reg, %index, %value
+    EXPAND VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %value
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INSERT_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %value
+    EXPAND VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %value
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INSERT_WITHIN_CAPACITY_U64 %out_ok, %deque_reg, %index, %value
+    EXPAND VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY %out_ok, %deque_reg, %index, %value
+[END_MACRO]
+
 
 [MACRO] VEC_DEQUE_APPEND %deque_reg, %other_deque_reg
     call @sa_vec_deque_append(&%deque_reg, &%other_deque_reg)

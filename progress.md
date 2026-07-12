@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque insert within capacity batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding a non-allocating single-element `VecDeque::insert` within-capacity lowering.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY` / `VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY_U64` (non-allocating single-element insert at a byte/logical index: pre-checks `index <= len` and `len + 1 <= cap`, returning `ok=0` with no mutation on out-of-bounds index or no room; on success delegates to `sa_vec_deque_try_insert` whose internal `reserve(1)` becomes an integer no-op because capacity was already validated)
+  - `VEC_DEQUE_INSERT_WITHIN_CAPACITY` / `VEC_DEQUE_INSERT_WITHIN_CAPACITY_U64` (ok-ignoring aliases)
+- Semantics: bounds and capacity are validated up front with `ule index <= len` and `ule new_len <= cap`; on insufficient room or out-of-bounds index, returns `ok=0` with no mutation. The grow path delegates to `sa_vec_deque_try_insert` which performs a ring-buffer force-contiguous shift and slot store after its `reserve(1)` call (the reserve is an integer no-op because the deque already had a room slot). It does not claim Rust allocator growth, generic element support, slice-insert variants, scoped Rust references, or allocator-aware `try_insert*` strict-failure variants that remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdeiwc_min.sa`: pass (`1 passed`), exercising a mid-deque insert, an end-of-deque insert that fills to capacity, an out-of-capacity failure, and an out-of-bounds index failure.
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'insert within capacity helpers'`: pass (`1 passed; 11 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque push_n within capacity batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding concrete repeated push-within-capacity lowerings, mirroring the existing Vec `push_n within capacity` lowerings.
