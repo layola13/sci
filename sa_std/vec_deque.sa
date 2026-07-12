@@ -1508,6 +1508,14 @@ L_APPEND_DONE:
 [MACRO] VEC_DEQUE_IS_EMPTY %out_flag, %deque_reg
     %out_flag = call @sa_vec_deque_is_empty(&%deque_reg)
 [END_MACRO]
+[MACRO] VEC_DEQUE_EXTRA_CAPACITY %out_extra, %deque_reg
+    __vec_deque_ec_cap_%out_extra = call @sa_vec_deque_capacity(&%deque_reg)
+    __vec_deque_ec_len_%out_extra = call @sa_vec_deque_len(&%deque_reg)
+    %out_extra = sub __vec_deque_ec_cap_%out_extra, __vec_deque_ec_len_%out_extra
+    !__vec_deque_ec_len_%out_extra
+    !__vec_deque_ec_cap_%out_extra
+[END_MACRO]
+
 
 [MACRO] VEC_DEQUE_GET %out_value, %deque_reg, %index
     %out_value = call @sa_vec_deque_get(&%deque_reg, %index)
@@ -1522,6 +1530,10 @@ L_APPEND_DONE:
 
 [MACRO] VEC_DEQUE_TRY_GET_U64 %out_ok, %out_value, %deque_reg, %index
     EXPAND VEC_DEQUE_TRY_GET %out_ok, %out_value, %deque_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_GET_U64 %out_value, %deque_reg, %index
+    EXPAND VEC_DEQUE_GET %out_value, %deque_reg, %index
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_TRY_GET_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index
@@ -1705,6 +1717,22 @@ L_VEC_DEQUE_POP_BACK_IF_END_%out_ok:
     __vec_deque_back_ok_%out_ok = call @sa_vec_deque_try_back(&%deque_reg, &__vec_deque_back_slot_%out_ok)
     %out_value = load __vec_deque_back_slot_%out_ok+0 as u64
     %out_ok = __vec_deque_back_ok_%out_ok
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_FRONT_U64 %out_value, %deque_reg
+    EXPAND VEC_DEQUE_FRONT %out_value, %deque_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_FRONT_U64 %out_ok, %out_value, %deque_reg
+    EXPAND VEC_DEQUE_TRY_FRONT %out_ok, %out_value, %deque_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_BACK_U64 %out_value, %deque_reg
+    EXPAND VEC_DEQUE_BACK %out_value, %deque_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_TRY_BACK_U64 %out_ok, %out_value, %deque_reg
+    EXPAND VEC_DEQUE_TRY_BACK %out_ok, %out_value, %deque_reg
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_CLEAR %deque_reg

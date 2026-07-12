@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque u64 view aliases + extra_capacity batch
+
+- Continued the broader `sa_std` Rust API parity audit by adding explicit `u64`-named view aliases and the Rust 1.87 `VecDeque::extra_capacity` helper to `sa_std/vec_deque.sa`.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_GET_U64`, `VEC_DEQUE_FRONT_U64`, `VEC_DEQUE_TRY_FRONT_U64`, `VEC_DEQUE_BACK_U64`, `VEC_DEQUE_TRY_BACK_U64` (Rust-named `u64` view aliases over the existing fallible/value front/back/get ABI)
+  - `VEC_DEQUE_EXTRA_CAPACITY` (returns `capacity - len`, mirroring Rust's `VecDeque::extra_capacity`)
+- Semantics: the `_U64` aliases preserve the existing `(ok, value)` and value-only contract of their non-`_U64` counterparts and only expose explicit `u64`-typed naming parity; `EXTRA_CAPACITY` is a pure `sub` of capacity minus length, never allocates, and reports zero for a full or empty deque. None of these claim generic element support, scoped Rust references, or iterator/`splice`/`drain`-range semantics that remain genuinely missing.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdeu64_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'u64 view aliases and extra capacity'`: pass (`1 passed; 5 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 Vec insert_from_slice_n within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.

@@ -1174,3 +1174,68 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@test "sa_std vec_deque u64 view aliases and extra capacity"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 4
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 11
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 22
+    EXPAND VEC_DEQUE_PUSH_FRONT deque, 99
+
+    EXPAND VEC_DEQUE_EXTRA_CAPACITY ec, deque
+    EXPAND VEC_DEQUE_LEN dlen, deque
+    ec_expected = sub 4, dlen
+    EXPAND VEC_DEQUE_GET_U64 g0, deque, 0
+    EXPAND VEC_DEQUE_GET_U64 g2, deque, 2
+    EXPAND VEC_DEQUE_FRONT_U64 f, deque
+    EXPAND VEC_DEQUE_TRY_FRONT_U64 tf_ok, tf_v, deque
+    EXPAND VEC_DEQUE_BACK_U64 b, deque
+    EXPAND VEC_DEQUE_TRY_BACK_U64 tb_ok, tb_v, deque
+
+    ok_ec = eq ec, ec_expected
+    ok_g0 = eq g0, 99
+    ok_g2 = eq g2, 22
+    ok_f = eq f, 99
+    ok_tf_flag = eq tf_ok, 1
+    ok_tf_v = eq tf_v, 99
+    ok_b = eq b, 22
+    ok_tb_flag = eq tb_ok, 1
+    ok_tb_v = eq tb_v, 22
+
+    ok = and ok_ec, ok_g0
+    ok = and ok, ok_g2
+    ok = and ok, ok_f
+    ok = and ok, ok_tf_flag
+    ok = and ok, ok_tf_v
+    ok = and ok, ok_b
+    ok = and ok, ok_tb_flag
+    ok = and ok, ok_tb_v
+
+    EXPAND VEC_DEQUE_FREE deque
+    !ec
+    !ec_expected
+    !dlen
+    !g0
+    !g2
+    !f
+    !tf_ok
+    !tf_v
+    !b
+    !tb_ok
+    !tb_v
+    !ok_ec
+    !ok_g0
+    !ok_g2
+    !ok_f
+    !ok_tf_flag
+    !ok_tf_v
+    !ok_b
+    !ok_tb_flag
+    !ok_tb_v
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(912)
+L_OK:
+    !ok
+    return
