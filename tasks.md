@@ -2416,6 +2416,8 @@ sa/
 - [x] Vec insert_from_slice_n within capacity 批次已补齐 `VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY` / `VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY`、`VEC_TRY_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64` / `VEC_INSERT_FROM_SLICE_N_WITHIN_CAPACITY_U64`；先校验 index 与 src_len*count 容量，再在 index 起重复 insert 整段 slice count 次；空 slice/count=0 为成功 no-op，越界/容量不足返回 `ok=0` 且不 mutation；已完成新增源码 focused 测试、安装态 focused 回归。
 - [x] `VecDeque` Rust API parity 审计继续补齐：补 `VecDeque::{get,front,back,try_front,try_back}` 显式 `u64`-named 视图别名 `VEC_DEQUE_GET_U64` / `VEC_DEQUE_FRONT_U64` / `VEC_DEQUE_TRY_FRONT_U64` / `VEC_DEQUE_BACK_U64` / `VEC_DEQUE_TRY_BACK_U64`，以及 Rust 1.87 `VecDeque::extra_capacity` 形态 `VEC_DEQUE_EXTRA_CAPACITY`（`capacity - len`，纯减法不申请内存）。
 - [x] VecDeque u64 view aliases + extra_capacity 批次已完成新增源码 focused 测试、安装态 focused 回归，四份文档（progress/tasks/current_plan/std_missing）同步更新；不主张 generic element support / scoped Rust references / splice-ranged iterator 语义。
+- [x] `VecDeque` Rust API parity 审计继续补齐：补 `VecDeque::resize` / `resize_with` 可支撑 eager 降阶 `VEC_DEQUE_RESIZE` / `VEC_DEQUE_RESIZE_U64` / `VEC_DEQUE_RESIZE_WITH` / `VEC_DEQUE_RESIZE_WITH_U64`；`new_len <= len` 走既有 `truncate` ABI，`new_len > len` 走既有 `push_back` 循环（后者接受 value 或 `() -> u64` generator）。
+- [x] VecDeque resize / resize_with 批次已完成新增源码 focused 测试、安装态 focused 回归，四份文档（progress/tasks/current_plan/std_missing）同步更新；不主张 generic element support / scoped Rust references / lazy splice-ranged iterator 语义 / allocator-aware `try_resize*` 变体。
 - [ ] Continue String/Vec audit for supportable gaps that map to explicit SA macro/runtime surfaces and focused macro-surface tests.
 
 ---

@@ -1969,6 +1969,88 @@ L_VEC_DEQUE_INSERT_MUT_PTR_END_%out_ok:
 [MACRO] VEC_DEQUE_TRUNCATE %deque_reg, %new_len
     call @sa_vec_deque_truncate(&%deque_reg, %new_len)
 [END_MACRO]
+[MACRO] VEC_DEQUE_RESIZE %out_ok, %deque_reg, %new_len, %value
+    __vec_deque_rs_lang_%out_ok = load %deque_reg+VecDeque_len as u64
+    __vec_deque_rs_shrink_%out_ok = ule %new_len, __vec_deque_rs_lang_%out_ok
+    br __vec_deque_rs_shrink_%out_ok -> L_VEC_DEQUE_RS_SHRINK_%out_ok, L_VEC_DEQUE_RS_GROW_%out_ok
+L_VEC_DEQUE_RS_SHRINK_%out_ok:
+    call @sa_vec_deque_truncate(&%deque_reg, %new_len)
+    !__vec_deque_rs_shrink_%out_ok
+    !__vec_deque_rs_lang_%out_ok
+    %out_ok = 1
+    jmp L_VEC_DEQUE_RS_END_%out_ok
+L_VEC_DEQUE_RS_GROW_%out_ok:
+    __vec_deque_rs_target_slot_%out_ok = stack_alloc 8
+    store __vec_deque_rs_target_slot_%out_ok+0, %new_len as u64
+    %out_ok = 1
+    jmp L_VEC_DEQUE_RS_GROW_HEAD_%out_ok
+L_VEC_DEQUE_RS_GROW_HEAD_%out_ok:
+    __vec_deque_rs_cur_%out_ok = load %deque_reg+VecDeque_len as u64
+    __vec_deque_rs_tgt_%out_ok = load __vec_deque_rs_target_slot_%out_ok+0 as u64
+    __vec_deque_rs_done_%out_ok = eq __vec_deque_rs_cur_%out_ok, __vec_deque_rs_tgt_%out_ok
+    br __vec_deque_rs_done_%out_ok -> L_VEC_DEQUE_RS_GROW_DONE_%out_ok, L_VEC_DEQUE_RS_GROW_BODY_%out_ok
+L_VEC_DEQUE_RS_GROW_BODY_%out_ok:
+    call @sa_vec_deque_push_back(&%deque_reg, %value)
+    !__vec_deque_rs_cur_%out_ok
+    !__vec_deque_rs_tgt_%out_ok
+    !__vec_deque_rs_done_%out_ok
+    jmp L_VEC_DEQUE_RS_GROW_HEAD_%out_ok
+L_VEC_DEQUE_RS_GROW_DONE_%out_ok:
+    !__vec_deque_rs_cur_%out_ok
+    !__vec_deque_rs_tgt_%out_ok
+    !__vec_deque_rs_done_%out_ok
+    !__vec_deque_rs_shrink_%out_ok
+    !__vec_deque_rs_lang_%out_ok
+    jmp L_VEC_DEQUE_RS_END_%out_ok
+L_VEC_DEQUE_RS_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_RESIZE_U64 %out_ok, %deque_reg, %new_len, %value
+    EXPAND VEC_DEQUE_RESIZE %out_ok, %deque_reg, %new_len, %value
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_RESIZE_WITH %out_ok, %deque_reg, %new_len, %gen_fn
+    __vec_deque_rsw_lang_%out_ok = load %deque_reg+VecDeque_len as u64
+    __vec_deque_rsw_shrink_%out_ok = ule %new_len, __vec_deque_rsw_lang_%out_ok
+    br __vec_deque_rsw_shrink_%out_ok -> L_VEC_DEQUE_RSW_SHRINK_%out_ok, L_VEC_DEQUE_RSW_GROW_%out_ok
+L_VEC_DEQUE_RSW_SHRINK_%out_ok:
+    call @sa_vec_deque_truncate(&%deque_reg, %new_len)
+    !__vec_deque_rsw_shrink_%out_ok
+    !__vec_deque_rsw_lang_%out_ok
+    %out_ok = 1
+    jmp L_VEC_DEQUE_RSW_END_%out_ok
+L_VEC_DEQUE_RSW_GROW_%out_ok:
+    __vec_deque_rsw_target_slot_%out_ok = stack_alloc 8
+    store __vec_deque_rsw_target_slot_%out_ok+0, %new_len as u64
+    %out_ok = 1
+    jmp L_VEC_DEQUE_RSW_GROW_HEAD_%out_ok
+L_VEC_DEQUE_RSW_GROW_HEAD_%out_ok:
+    __vec_deque_rsw_cur_%out_ok = load %deque_reg+VecDeque_len as u64
+    __vec_deque_rsw_tgt_%out_ok = load __vec_deque_rsw_target_slot_%out_ok+0 as u64
+    __vec_deque_rsw_done_%out_ok = eq __vec_deque_rsw_cur_%out_ok, __vec_deque_rsw_tgt_%out_ok
+    br __vec_deque_rsw_done_%out_ok -> L_VEC_DEQUE_RSW_GROW_DONE_%out_ok, L_VEC_DEQUE_RSW_GROW_BODY_%out_ok
+L_VEC_DEQUE_RSW_GROW_BODY_%out_ok:
+    __vec_deque_rsw_value_%out_ok = call %gen_fn()
+    call @sa_vec_deque_push_back(&%deque_reg, __vec_deque_rsw_value_%out_ok)
+    !__vec_deque_rsw_value_%out_ok
+    !__vec_deque_rsw_cur_%out_ok
+    !__vec_deque_rsw_tgt_%out_ok
+    !__vec_deque_rsw_done_%out_ok
+    jmp L_VEC_DEQUE_RSW_GROW_HEAD_%out_ok
+L_VEC_DEQUE_RSW_GROW_DONE_%out_ok:
+    !__vec_deque_rsw_cur_%out_ok
+    !__vec_deque_rsw_tgt_%out_ok
+    !__vec_deque_rsw_done_%out_ok
+    !__vec_deque_rsw_shrink_%out_ok
+    !__vec_deque_rsw_lang_%out_ok
+    jmp L_VEC_DEQUE_RSW_END_%out_ok
+L_VEC_DEQUE_RSW_END_%out_ok:
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_RESIZE_WITH_U64 %out_ok, %deque_reg, %new_len, %gen_fn
+    EXPAND VEC_DEQUE_RESIZE_WITH %out_ok, %deque_reg, %new_len, %gen_fn
+[END_MACRO]
+
 
 [MACRO] VEC_DEQUE_APPEND %deque_reg, %other_deque_reg
     call @sa_vec_deque_append(&%deque_reg, &%other_deque_reg)

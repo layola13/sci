@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque resize / resize_with batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding concrete `VecDeque::resize` / `resize_with` eager lowerings to `sa_std/vec_deque.sa`.
+- Added supportable helpers:
+  - `VEC_DEQUE_RESIZE` / `VEC_DEQUE_RESIZE_U64` (Rust `VecDeque::resize(new_len, value)` lowering using existing `push_back` for growth and `truncate` for shrink)
+  - `VEC_DEQUE_RESIZE_WITH` / `VEC_DEQUE_RESIZE_WITH_U64` (Rust `VecDeque::resize_with(new_len, generator)` lowering; the `() -> u64` generator callback is invoked per added slot)
+- Semantics: `new_len <= len` shrinks via the existing truncate ABI; `new_len > len` grows by repeatedly calling `push_back` (with the value or a freshly generated value) until `len` reaches `new_len`, relying on the existing runtime auto-grow path for ring-buffer growth. The macros return an explicit `ok=1` status (no allocation failure path is modelled here; runtime `push_back` traps on OOM). They do not claim generic element support, scoped Rust references, the lazy `splice` / drain-range iterator semantics, or allocator-aware `try_resize*` variants that remain genuinely missing.
+- Validation status:
+  - Source focused minimal harness `/tmp/vderesize_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'resize and resize_with helpers'`: pass (`1 passed; 6 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque u64 view aliases + extra_capacity batch
 
 - Continued the broader `sa_std` Rust API parity audit by adding explicit `u64`-named view aliases and the Rust 1.87 `VecDeque::extra_capacity` helper to `sa_std/vec_deque.sa`.

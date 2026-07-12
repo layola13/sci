@@ -1239,3 +1239,85 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@deque_gen_seven_for_resize() -> u64:
+L_ENTRY:
+    return 7
+
+@test "sa_std vec_deque resize and resize_with helpers"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_NEW deque
+
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 11
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 22
+
+    EXPAND VEC_DEQUE_LEN len0, deque
+    EXPAND VEC_DEQUE_RESIZE rs_ok, deque, 4, 99
+    EXPAND VEC_DEQUE_LEN len1, deque
+    EXPAND VEC_DEQUE_GET g0, deque, 0
+    EXPAND VEC_DEQUE_GET g3, deque, 3
+    EXPAND VEC_DEQUE_RESIZE_WITH rsw_ok, deque, 6, @deque_gen_seven_for_resize
+    EXPAND VEC_DEQUE_LEN len2, deque
+    EXPAND VEC_DEQUE_GET g4, deque, 4
+    EXPAND VEC_DEQUE_GET g5, deque, 5
+    EXPAND VEC_DEQUE_RESIZE rs_shrink_ok, deque, 1, 0
+    EXPAND VEC_DEQUE_LEN len3, deque
+    EXPAND VEC_DEQUE_GET g0b, deque, 0
+
+    ok_len0 = eq len0, 2
+    ok_len1 = eq len1, 4
+    ok_g0 = eq g0, 11
+    ok_g3 = eq g3, 99
+    ok_len2 = eq len2, 6
+    ok_g4 = eq g4, 7
+    ok_g5 = eq g5, 7
+    ok_len3 = eq len3, 1
+    ok_g0b = eq g0b, 11
+    ok_rs_flag = eq rs_ok, 1
+    ok_rsw_flag = eq rsw_ok, 1
+    ok_rs_shrink_flag = eq rs_shrink_ok, 1
+
+    ok = and ok_len0, ok_len1
+    ok = and ok, ok_g0
+    ok = and ok, ok_g3
+    ok = and ok, ok_len2
+    ok = and ok, ok_g4
+    ok = and ok, ok_g5
+    ok = and ok, ok_len3
+    ok = and ok, ok_g0b
+    ok = and ok, ok_rs_flag
+    ok = and ok, ok_rsw_flag
+    ok = and ok, ok_rs_shrink_flag
+
+    EXPAND VEC_DEQUE_FREE deque
+    !len0
+    !len1
+    !len2
+    !len3
+    !g0
+    !g3
+    !g4
+    !g5
+    !g0b
+    !rs_ok
+    !rsw_ok
+    !rs_shrink_ok
+    !ok_len0
+    !ok_len1
+    !ok_g0
+    !ok_g3
+    !ok_len2
+    !ok_g4
+    !ok_g5
+    !ok_len3
+    !ok_g0b
+    !ok_rs_flag
+    !ok_rsw_flag
+    !ok_rs_shrink_flag
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(913)
+L_OK:
+    !ok
+    return
