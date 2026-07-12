@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque extend_chars u64 aliases batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding non-allocating `extend_chars` aliases that treat a `Slice<u64>`'s elements as UTF-32 / Unicode scalar-value codepoints, mirroring the existing Vec `_extend_chars` naming. The VecDeque is u64-typed, so a char codepoint is just the slice element as a `u64`.
+- Added supportable, non-allocating helpers (thin aliases reusing the existing `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64` capacity-checked, no-auto-grow family):
+  - `VEC_DEQUE_TRY_EXTEND_CHARS_U64` (extend the back of the deque with the codepoint slice; behaves like `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64`: pre-checks `len + src_len <= cap`, returns `ok=0` with no mutation on insufficient room, otherwise loops `src_len` times calling `sa_vec_deque_push_back` with each codepoint)
+  - `VEC_DEQUE_EXTEND_CHARS_U64` (ok-ignoring alias)
+- Semantics: same as `VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64` but named for the char-codepoint intent. It does not perform Rust `char`-validation (codepoints beyond U+10FFFF or surrogate codepoints are passed through as `u64`), does not claim Rust allocator growth, the lazy `extend` iterator, generic element support, scoped Rust references, or allocator-aware `try_extend*` strict-failure variants that remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdeec_min.sa`: pass (`1 passed`), exercising a 6-cap deque extended by chars `[65,66,67]` then `[68,69]` to len 5, and a third extend attempt that returns `ok=0` (out of room) with no mutation.
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'extend_chars u64 helpers'`: pass (`1 passed; 15 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque insert_from_slice_n within capacity batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding a non-allocating repeated-slice-insert within-capacity lowering, mirroring the existing Vec `insert_from_slice_n within capacity` lowerings.

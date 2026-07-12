@@ -2235,6 +2235,14 @@ L_VEC_DEQUE_EFSWC_END_%out_ok:
     EXPAND VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64 %out_ok, %deque_reg, %src_slice
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_TRY_EXTEND_CHARS_U64 %out_ok, %deque_reg, %src_slice
+    EXPAND VEC_DEQUE_TRY_EXTEND_FROM_SLICE_U64 %out_ok, %deque_reg, %src_slice
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_EXTEND_CHARS_U64 %out_ok, %deque_reg, %src_slice
+    EXPAND VEC_DEQUE_TRY_EXTEND_CHARS_U64 %out_ok, %deque_reg, %src_slice
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %deque_reg, %src_slice, %count
     __vec_deque_efsnwc_src_len_%out_ok = load %src_slice+Slice_len as u64
     __vec_deque_efsnwc_total_%out_ok = mul __vec_deque_efsnwc_src_len_%out_ok, %count
