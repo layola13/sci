@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 StringBuf insert_n within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helpers:
+  - `STRING_BUF_TRY_INSERT_STR_N_WITHIN_CAPACITY` / `STRING_BUF_INSERT_STR_N_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_INSERT_BYTE_N_WITHIN_CAPACITY` / `STRING_BUF_INSERT_BYTE_N_WITHIN_CAPACITY`
+  - `STRING_BUF_TRY_INSERT_CHAR_N_WITHIN_CAPACITY` / `STRING_BUF_INSERT_CHAR_N_WITHIN_CAPACITY`
+- Semantics: validate char boundary and remaining capacity for `insert_len * count` first, then insert the same payload `count` times at successive positions starting at `index`. Byte/char variants lower to the str-n path after encoding. Zero counts succeed as no-ops; mid-scalar indexes, invalid scalars, or insufficient room return `ok=0` with no mutation. Does not claim Rust `repeat` allocator growth or partial insert.
+- Validation status:
+  - Source focused minimal harness `/tmp/isinwc_min.sa`: pass (`1 passed`).
+  - Source focused `std_string_macro_surface.sa --filter "insert_n within capacity aliases"`: pass (`1 passed; 104 skipped`).
+  - Install sync via installed-std copy of `string.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-11 Vec insert_n within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
