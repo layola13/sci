@@ -1697,3 +1697,91 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@test "sa_std vec_deque insert_n within capacity helpers"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 6
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 1
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 2
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 3
+
+    EXPAND VEC_DEQUE_TRY_INSERT_N_WITHIN_CAPACITY_U64 ok1, deque, 1, 9, 3
+    EXPAND VEC_DEQUE_LEN len1, deque
+    EXPAND VEC_DEQUE_GET g0, deque, 0
+    EXPAND VEC_DEQUE_GET g1, deque, 1
+    EXPAND VEC_DEQUE_GET g2, deque, 2
+    EXPAND VEC_DEQUE_GET g3, deque, 3
+    EXPAND VEC_DEQUE_GET g4, deque, 4
+    EXPAND VEC_DEQUE_GET g5, deque, 5
+    EXPAND VEC_DEQUE_TRY_INSERT_N_WITHIN_CAPACITY_U64 ok2, deque, 0, 7, 0
+    EXPAND VEC_DEQUE_LEN len_zero, deque
+    EXPAND VEC_DEQUE_TRY_INSERT_N_WITHIN_CAPACITY_U64 ok3, deque, 0, 7, 1
+    EXPAND VEC_DEQUE_LEN len_after_fail, deque
+    EXPAND VEC_DEQUE_TRY_INSERT_N_WITHIN_CAPACITY_U64 ok4, deque, 9, 7, 1
+    EXPAND VEC_DEQUE_LEN len_after_oob, deque
+
+    ok_flag1 = eq ok1, 1
+    ok_len1 = eq len1, 6
+    ok_g0 = eq g0, 1
+    ok_g1 = eq g1, 9
+    ok_g2 = eq g2, 9
+    ok_g3 = eq g3, 9
+    ok_g4 = eq g4, 2
+    ok_g5 = eq g5, 3
+    ok_flag2 = eq ok2, 1
+    ok_len_zero = eq len_zero, 6
+    ok_flag3 = eq ok3, 0
+    ok_len_after_fail = eq len_after_fail, 6
+    ok_flag4 = eq ok4, 0
+    ok_len_after_oob = eq len_after_oob, 6
+
+    ok = and ok_flag1, ok_len1
+    ok = and ok, ok_g0
+    ok = and ok, ok_g1
+    ok = and ok, ok_g2
+    ok = and ok, ok_g3
+    ok = and ok, ok_g4
+    ok = and ok, ok_g5
+    ok = and ok, ok_flag2
+    ok = and ok, ok_len_zero
+    ok = and ok, ok_flag3
+    ok = and ok, ok_len_after_fail
+    ok = and ok, ok_flag4
+    ok = and ok, ok_len_after_oob
+
+    EXPAND VEC_DEQUE_FREE deque
+    !len1
+    !len_zero
+    !len_after_fail
+    !len_after_oob
+    !g0
+    !g1
+    !g2
+    !g3
+    !g4
+    !g5
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok_flag1
+    !ok_len1
+    !ok_g0
+    !ok_g1
+    !ok_g2
+    !ok_g3
+    !ok_g4
+    !ok_g5
+    !ok_flag2
+    !ok_len_zero
+    !ok_flag3
+    !ok_len_after_fail
+    !ok_flag4
+    !ok_len_after_oob
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(919)
+L_OK:
+    !ok
+    return
