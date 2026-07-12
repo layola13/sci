@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque insert_from_slice within capacity batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding a non-allocating slice-insert within-capacity lowering, mirroring the existing Vec `insert_from_slice within capacity` lowerings.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY` / `VEC_DEQUE_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY_U64` (insert a `Slice<u64>` of `src_len` elements at a logical index: pre-checks `index <= len` and `len + src_len <= cap`, then loops `src_len` times reading element `i` from the src slice and calling `VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY` at the advancing index `index + i`)
+  - `VEC_DEQUE_INSERT_FROM_SLICE_WITHIN_CAPACITY` / `VEC_DEQUE_INSERT_FROM_SLICE_WITHIN_CAPACITY_U64` (ok-ignoring aliases)
+- Semantics: bounds and capacity are validated up front with `ule index <= len` and `ule new_len <= cap`; on out-of-bounds index or insufficient room, returns `ok=0` with no mutation, otherwise loops `src_len` times inserting each slice element at the advancing index. An empty slice succeeds as a no-op. Each iteration's inner `VEC_DEQUE_TRY_INSERT_WITHIN_CAPACITY` can never run out of room because capacity was validated up front. It does not claim Rust allocator growth, generic element support, repeated-slice-insert variants, scoped Rust references, or allocator-aware `try_insert*` strict-failure variants that remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdeifswc_min.sa`: pass (`1 passed`), exercising a 3-element slice mid-insert that fills to capacity, an empty-slice no-op, an out-of-capacity failure, and an out-of-bounds index failure.
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'insert_from_slice within capacity helpers'`: pass (`1 passed; 13 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque insert_n within capacity batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding a non-allocating repeated-value `VecDeque::insert` within-capacity lowering, mirroring the existing Vec `insert_n within capacity` lowerings.
