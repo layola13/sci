@@ -4,6 +4,19 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque push_n within capacity batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding concrete repeated push-within-capacity lowerings, mirroring the existing Vec `push_n within capacity` lowerings.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_TRY_PUSH_BACK_N_WITHIN_CAPACITY_U64` / `VEC_DEQUE_PUSH_BACK_N_WITHIN_CAPACITY_U64` (repeatedly push a single `u64` value to the back up to `count` times when `len + count <= cap`)
+  - `VEC_DEQUE_TRY_PUSH_FRONT_N_WITHIN_CAPACITY_U64` / `VEC_DEQUE_PUSH_FRONT_N_WITHIN_CAPACITY_U64` (same for the front; after N front pushes the head wraps correctly around the ring buffer)
+- Semantics: capacity-checked via `ule new_len <= cap`; on insufficient room return `ok=0` with no mutation, otherwise loop `count` times calling `sa_vec_deque_push_back` / `sa_vec_deque_push_front` (which can never hit the runtime auto-grow branch because capacity was validated up front). `count=0` succeeds as a no-op. Failures return `ok=0` with no mutation. Does not claim Rust allocator growth, generic element support, scoped Rust references, or the lazy iterator allocator-aware variants that remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdepbnwc_min.sa`: pass (`1 passed`), exercising back-grow, front-grow with ring-wrap ordering, out-of-capacity failure, and `count=0` no-op success.
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'push_back_n and push_front_n within capacity helpers'`: pass (`1 passed; 10 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque try_extend_from_slice_n within capacity batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding a concrete repeated `VecDeque::extend`-shaped, capacity-preserving helper that appends a `Slice<u64>` `count` times without Rust-style allocator growth.
