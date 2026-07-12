@@ -4,6 +4,21 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 VecDeque try_resize within capacity batch
+
+- Continued the parallel `VecDeque` Rust API parity audit by adding non-reallocating `VecDeque::resize` / `resize_with` within-capacity lowerings to `sa_std/vec_deque.sa`.
+- Added supportable, non-allocating helpers:
+  - `VEC_DEQUE_TRY_RESIZE_WITHIN_CAPACITY` / `VEC_DEQUE_TRY_RESIZE_WITHIN_CAPACITY_U64` (Rust `VecDeque::resize` non-reallocating form: shrink via `truncate`, grow only when `new_len <= cap`, else `ok=0` no mutation)
+  - `VEC_DEQUE_RESIZE_WITHIN_CAPACITY` / `VEC_DEQUE_RESIZE_WITHIN_CAPACITY_U64` (ok-ignoring aliases)
+  - `VEC_DEQUE_TRY_RESIZE_WITH_WITHIN_CAPACITY` / `VEC_DEQUE_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64` (Rust `VecDeque::resize_with` non-reallocating form; `() -> u64` generator invoked per added slot, `ok=0` on insufficient capacity)
+  - `VEC_DEQUE_RESIZE_WITH_WITHIN_CAPACITY` / `VEC_DEQUE_RESIZE_WITH_WITHIN_CAPACITY_U64` (ok-ignoring aliases)
+- Semantics: when `new_len <= len` shrink via the existing `sa_vec_deque_truncate` ABI (always `ok=1`); when `new_len > len` pre-check `new_len <= cap` and, on failure, return `ok=0` without mutation, otherwise grow by `push_back` (fixed value or freshly generated value). Grow path reuses `sa_vec_deque_push_back`, which can never hit the runtime auto-grow branch since capacity was already validated. No Rust allocator growth is claimed; allocator-aware `try_resize*` strict-failure variants, generic element support, scoped Rust references, and lazy `splice` / drain-range iterator semantics remain genuinely missing for `VecDeque`.
+- Validation status:
+  - Source focused minimal harness `/tmp/vdewc_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_deque_macro_surface.sa --filter 'try_resize within capacity helpers'`: pass (`1 passed; 7 skipped`).
+  - Install sync via installed-std copy of `vec_deque.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 VecDeque resize / resize_with batch
 
 - Continued the parallel `VecDeque` Rust API parity audit by adding concrete `VecDeque::resize` / `resize_with` eager lowerings to `sa_std/vec_deque.sa`.

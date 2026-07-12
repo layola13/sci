@@ -1321,3 +1321,83 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@deque_gen_three_for_resize_wc() -> u64:
+L_ENTRY:
+    return 3
+
+@test "sa_std vec_deque try_resize within capacity helpers"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_WITH_CAPACITY deque, 5
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 11
+    EXPAND VEC_DEQUE_PUSH_BACK deque, 22
+
+    EXPAND VEC_DEQUE_RESIZE_WITHIN_CAPACITY rs_ok, deque, 4, 99
+    EXPAND VEC_DEQUE_LEN len1, deque
+    EXPAND VEC_DEQUE_GET g3, deque, 3
+    EXPAND VEC_DEQUE_RESIZE_WITH_WITHIN_CAPACITY rsw_ok, deque, 5, @deque_gen_three_for_resize_wc
+    EXPAND VEC_DEQUE_LEN len2, deque
+    EXPAND VEC_DEQUE_GET g4, deque, 4
+    EXPAND VEC_DEQUE_RESIZE_WITHIN_CAPACITY rs_shrink_ok, deque, 1, 0
+    EXPAND VEC_DEQUE_LEN len3, deque
+    EXPAND VEC_DEQUE_GET g0, deque, 0
+    EXPAND VEC_DEQUE_CAPACITY cap, deque
+    cap_plus_one = add cap, 1
+    !cap
+    EXPAND VEC_DEQUE_RESIZE_WITHIN_CAPACITY rs_fail_ok, deque, cap_plus_one, 0
+    EXPAND VEC_DEQUE_LEN len_after_fail, deque
+
+    ok_len1 = eq len1, 4
+    ok_rs_flag = eq rs_ok, 1
+    ok_g3 = eq g3, 99
+    ok_len2 = eq len2, 5
+    ok_rsw_flag = eq rsw_ok, 1
+    ok_g4 = eq g4, 3
+    ok_len3 = eq len3, 1
+    ok_rs_shrink_flag = eq rs_shrink_ok, 1
+    ok_g0 = eq g0, 11
+    ok_len_after_fail = eq len_after_fail, 1
+    ok_rs_fail_flag = eq rs_fail_ok, 0
+
+    ok = and ok_len1, ok_rs_flag
+    ok = and ok, ok_g3
+    ok = and ok, ok_len2
+    ok = and ok, ok_rsw_flag
+    ok = and ok, ok_g4
+    ok = and ok, ok_len3
+    ok = and ok, ok_rs_shrink_flag
+    ok = and ok, ok_g0
+    ok = and ok, ok_len_after_fail
+    ok = and ok, ok_rs_fail_flag
+
+    EXPAND VEC_DEQUE_FREE deque
+    !len1
+    !len2
+    !len3
+    !len_after_fail
+    !g3
+    !g4
+    !g0
+    !rs_ok
+    !rsw_ok
+    !rs_shrink_ok
+    !rs_fail_ok
+    !cap_plus_one
+    !ok_len1
+    !ok_rs_flag
+    !ok_g3
+    !ok_len2
+    !ok_rsw_flag
+    !ok_g4
+    !ok_len3
+    !ok_rs_shrink_flag
+    !ok_g0
+    !ok_len_after_fail
+    !ok_rs_fail_flag
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(914)
+L_OK:
+    !ok
+    return
