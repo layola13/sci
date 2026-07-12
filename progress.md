@@ -4,6 +4,20 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
 
+## Completed: 2026-07-12 Vec insert_from_slice within capacity batch
+
+- Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
+- Finding remains: current SA facades are broad but still not complete Rust API coverage.
+- Added supportable capacity-preserving helper:
+  - `VEC_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY` / `VEC_INSERT_FROM_SLICE_WITHIN_CAPACITY`
+  - `VEC_TRY_INSERT_FROM_SLICE_WITHIN_CAPACITY_U64` / `VEC_INSERT_FROM_SLICE_WITHIN_CAPACITY_U64`
+- Semantics: validate `index <= len` and remaining capacity for the whole source slice first, then right-shift the tail and copy the slice in place. Empty slices succeed as no-ops; out-of-bounds indexes or insufficient room return `ok=0` with no mutation. Does not claim Rust allocator growth or partial insert.
+- Validation status:
+  - Source focused minimal harness `/tmp/ifswc_min.sa`: pass (`1 passed`).
+  - Source focused `std_vec_macro_surface.sa --filter "insert_from_slice within capacity aliases"`: pass (`1 passed; 42 skipped`).
+  - Install sync via installed-std copy of `vec.sa`: pass.
+  - Installed-state focused min harness: pass (`1 passed`).
+
 ## Completed: 2026-07-12 StringBuf insert_n within capacity batch
 
 - Continued the `StringBuf` / `Vec` Rust API parity audit with String/Vec still treated as the active priority.
