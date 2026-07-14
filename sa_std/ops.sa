@@ -683,6 +683,127 @@ L_BOUND_END_END_%out_bool:
     EXPAND BOUND_U64_UNBOUNDED_NEW %bound_ptr
 [END_MACRO]
 
+[MACRO] BOUND_USIZE_UNBOUNDED_NEW %bound_ptr
+    store %bound_ptr+BoundUsize_tag, BOUND_USIZE_UNBOUNDED as u64
+    store %bound_ptr+BoundUsize_value, 0 as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_INCLUDED_NEW %bound_ptr, %value
+    store %bound_ptr+BoundUsize_tag, BOUND_USIZE_INCLUDED as u64
+    store %bound_ptr+BoundUsize_value, %value as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_EXCLUDED_NEW %bound_ptr, %value
+    store %bound_ptr+BoundUsize_tag, BOUND_USIZE_EXCLUDED as u64
+    store %bound_ptr+BoundUsize_value, %value as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_TAG %out_tag, %bound_ptr
+    %out_tag = load %bound_ptr+BoundUsize_tag as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_VALUE %out_value, %bound_ptr
+    %out_value = load %bound_ptr+BoundUsize_value as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_IS_UNBOUNDED %out_bool, %bound_ptr
+    __bound_usize_tag_%out_bool = load %bound_ptr+BoundUsize_tag as u64
+    %out_bool = eq __bound_usize_tag_%out_bool, BOUND_USIZE_UNBOUNDED
+    !__bound_usize_tag_%out_bool
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_IS_INCLUDED %out_bool, %bound_ptr
+    __bound_usize_tag_%out_bool = load %bound_ptr+BoundUsize_tag as u64
+    %out_bool = eq __bound_usize_tag_%out_bool, BOUND_USIZE_INCLUDED
+    !__bound_usize_tag_%out_bool
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_IS_EXCLUDED %out_bool, %bound_ptr
+    __bound_usize_tag_%out_bool = load %bound_ptr+BoundUsize_tag as u64
+    %out_bool = eq __bound_usize_tag_%out_bool, BOUND_USIZE_EXCLUDED
+    !__bound_usize_tag_%out_bool
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_CONTAINS_START %out_bool, %bound_ptr, %item
+    __bound_usize_start_tag_%out_bool = load %bound_ptr+BoundUsize_tag as u64
+    __bound_usize_start_unbounded_%out_bool = eq __bound_usize_start_tag_%out_bool, BOUND_USIZE_UNBOUNDED
+    br __bound_usize_start_unbounded_%out_bool -> L_BOUND_USIZE_START_TRUE_%out_bool, L_BOUND_USIZE_START_CHECK_%out_bool
+
+L_BOUND_USIZE_START_CHECK_%out_bool:
+    __bound_usize_start_value_%out_bool = load %bound_ptr+BoundUsize_value as u64
+    __bound_usize_start_included_%out_bool = eq __bound_usize_start_tag_%out_bool, BOUND_USIZE_INCLUDED
+    br __bound_usize_start_included_%out_bool -> L_BOUND_USIZE_START_INCLUDED_%out_bool, L_BOUND_USIZE_START_EXCLUDED_%out_bool
+
+L_BOUND_USIZE_START_INCLUDED_%out_bool:
+    %out_bool = ule __bound_usize_start_value_%out_bool, %item
+    !__bound_usize_start_included_%out_bool
+    !__bound_usize_start_value_%out_bool
+    !__bound_usize_start_unbounded_%out_bool
+    !__bound_usize_start_tag_%out_bool
+    jmp L_BOUND_USIZE_START_END_%out_bool
+
+L_BOUND_USIZE_START_EXCLUDED_%out_bool:
+    %out_bool = ult __bound_usize_start_value_%out_bool, %item
+    !__bound_usize_start_included_%out_bool
+    !__bound_usize_start_value_%out_bool
+    !__bound_usize_start_unbounded_%out_bool
+    !__bound_usize_start_tag_%out_bool
+    jmp L_BOUND_USIZE_START_END_%out_bool
+
+L_BOUND_USIZE_START_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__bound_usize_start_unbounded_%out_bool
+    !__bound_usize_start_tag_%out_bool
+
+L_BOUND_USIZE_START_END_%out_bool:
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_CONTAINS_END %out_bool, %bound_ptr, %item
+    __bound_usize_end_tag_%out_bool = load %bound_ptr+BoundUsize_tag as u64
+    __bound_usize_end_unbounded_%out_bool = eq __bound_usize_end_tag_%out_bool, BOUND_USIZE_UNBOUNDED
+    br __bound_usize_end_unbounded_%out_bool -> L_BOUND_USIZE_END_TRUE_%out_bool, L_BOUND_USIZE_END_CHECK_%out_bool
+
+L_BOUND_USIZE_END_CHECK_%out_bool:
+    __bound_usize_end_value_%out_bool = load %bound_ptr+BoundUsize_value as u64
+    __bound_usize_end_included_%out_bool = eq __bound_usize_end_tag_%out_bool, BOUND_USIZE_INCLUDED
+    br __bound_usize_end_included_%out_bool -> L_BOUND_USIZE_END_INCLUDED_%out_bool, L_BOUND_USIZE_END_EXCLUDED_%out_bool
+
+L_BOUND_USIZE_END_INCLUDED_%out_bool:
+    %out_bool = ule %item, __bound_usize_end_value_%out_bool
+    !__bound_usize_end_included_%out_bool
+    !__bound_usize_end_value_%out_bool
+    !__bound_usize_end_unbounded_%out_bool
+    !__bound_usize_end_tag_%out_bool
+    jmp L_BOUND_USIZE_END_END_%out_bool
+
+L_BOUND_USIZE_END_EXCLUDED_%out_bool:
+    %out_bool = ult %item, __bound_usize_end_value_%out_bool
+    !__bound_usize_end_included_%out_bool
+    !__bound_usize_end_value_%out_bool
+    !__bound_usize_end_unbounded_%out_bool
+    !__bound_usize_end_tag_%out_bool
+    jmp L_BOUND_USIZE_END_END_%out_bool
+
+L_BOUND_USIZE_END_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__bound_usize_end_unbounded_%out_bool
+    !__bound_usize_end_tag_%out_bool
+
+L_BOUND_USIZE_END_END_%out_bool:
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_RANGE_CONTAINS %out_bool, %start_bound_ptr, %end_bound_ptr, %item
+    EXPAND BOUND_USIZE_CONTAINS_START __bound_usize_range_start_%out_bool, %start_bound_ptr, %item
+    EXPAND BOUND_USIZE_CONTAINS_END __bound_usize_range_end_%out_bool, %end_bound_ptr, %item
+    %out_bool = and __bound_usize_range_start_%out_bool, __bound_usize_range_end_%out_bool
+    !__bound_usize_range_end_%out_bool
+    !__bound_usize_range_start_%out_bool
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_DEFAULT %bound_ptr
+    EXPAND BOUND_USIZE_UNBOUNDED_NEW %bound_ptr
+[END_MACRO]
+
 [MACRO] RANGE_FROM_U64_DEFAULT %range_ptr
     store %range_ptr+RangeFromU64_start, 0 as u64
 [END_MACRO]

@@ -6496,3 +6496,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_atomic_ordering_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10508+.
+
+## Completed: 2026-07-14 Bound usize layout and macros (Batch au)
+
+- `sa_std/ops.sal`: Added `BOUND_USIZE_UNBOUNDED` / `INCLUDED` / `EXCLUDED` aliases for Rust `core::ops::Bound` variant order over the existing `BoundUsize` layout constants.
+- `sa_std/ops.sa`: Added `BOUND_USIZE_UNBOUNDED_NEW`, `BOUND_USIZE_INCLUDED_NEW`, `BOUND_USIZE_EXCLUDED_NEW`, tag/value accessors, variant predicates, start/end/range contains helpers, and `BOUND_USIZE_DEFAULT`.
+- Test: `tests/unit_framework/std_ops_bound_usize_macro_surface.sa` — 1 test (panic ID 10508) verifying the new Bound<usize> layout and macro surface.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_usize_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10509+.

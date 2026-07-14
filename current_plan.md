@@ -1156,3 +1156,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10508+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 au)
+
+Completed supportable defaults/aliases/macros:
+- Bound<usize> discriminant aliases and constructor/access/default/contains macros in ops.sal and ops.sa, mirroring Rust core::ops::Bound's Included/Excluded/Unbounded variant order over the current 64-bit SA usize layout.
+- Test file std_ops_bound_usize_macro_surface.sa (panic ID 10508).
+
+Panic IDs next free: 10509+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

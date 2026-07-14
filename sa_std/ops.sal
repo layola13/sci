@@ -48,6 +48,10 @@
 #def BoundUsize_tag = +0
 #def BoundUsize_value = +8
 
+#def BOUND_USIZE_UNBOUNDED = BOUND_U64_UNBOUNDED
+#def BOUND_USIZE_INCLUDED = BOUND_U64_INCLUDED
+#def BOUND_USIZE_EXCLUDED = BOUND_U64_EXCLUDED
+
 #def ControlFlowU64_SIZE = 16
 #def ControlFlowU64_ALIGN = 8
 #def ControlFlowU64_tag = +0
