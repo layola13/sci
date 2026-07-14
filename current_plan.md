@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter collect_into)
+
+Completed supportable iterator collect-into macro:
+- `ITER_COLLECT_INTO_U64`: concrete unstable Rust `Iterator::collect_into` shape over the slice-backed `u64` cursor and existing `Vec<u64>` facade.
+- The macro follows Rust's `collection.extend(self); collection` behavior by appending remaining cursor items into an existing Vec and consuming the cursor; it does not claim generic `Extend` or returned Rust `&mut E` semantics.
+- Test file `std_iter_collect_into_macro_surface.sa` (panic ID 10536).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_collect_into_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10537+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy adapter objects, generic item/reference semantics, generic `Extend`/`collect`, `IntoIterator`, Rust `Try` residual/error object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter is_partitioned)
 
 Completed supportable iterator partition-check macro:

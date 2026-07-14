@@ -925,6 +925,21 @@ L_ITER_COLLECT_DONE_%out_vec:
     !__iter_collect_has_%out_vec
 [END_MACRO]
 
+[MACRO] ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+    jmp L_ITER_COLLECT_INTO_HEAD_%iter_reg
+L_ITER_COLLECT_INTO_HEAD_%iter_reg:
+    EXPAND ITER_NEXT_U64 __iter_collect_into_has_%iter_reg, __iter_collect_into_value_%iter_reg, %iter_reg
+    br __iter_collect_into_has_%iter_reg -> L_ITER_COLLECT_INTO_PUSH_%iter_reg, L_ITER_COLLECT_INTO_DONE_%iter_reg
+L_ITER_COLLECT_INTO_PUSH_%iter_reg:
+    EXPAND ITER_VEC_PUSH_U64 %vec_reg, __iter_collect_into_value_%iter_reg
+    !__iter_collect_into_value_%iter_reg
+    !__iter_collect_into_has_%iter_reg
+    jmp L_ITER_COLLECT_INTO_HEAD_%iter_reg
+L_ITER_COLLECT_INTO_DONE_%iter_reg:
+    !__iter_collect_into_value_%iter_reg
+    !__iter_collect_into_has_%iter_reg
+[END_MACRO]
+
 [MACRO] ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_VEC_NEW %out_vec
     __iter_take_collect_taken_%out_vec = add 0, 0

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator collect_into macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor and `Vec<u64>` facade.
+- `sa_std/core/iter.sa`: added `ITER_COLLECT_INTO_U64`.
+- The helper follows Rust's unstable `Iterator::collect_into` default shape (`collection.extend(self); collection`) for the concrete supported subset by appending remaining cursor items into an existing `Vec<u64>` and consuming the cursor.
+- Test: `tests/unit_framework/std_iter_collect_into_macro_surface.sa` — 1 test (panic ID 10536) covering append-after-existing-elements, cursor consumption, and empty cursor no-op behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_collect_into_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only ran the newly added focused test.
+- Panic IDs next free: 10537+.
+
 ## Completed: 2026-07-14 Iterator is_partitioned macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
