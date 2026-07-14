@@ -192,6 +192,24 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
 [END_MACRO]
 
+[MACRO] ARRAY_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
+    __array_eq_left_%out_bool = stack_alloc Slice_SIZE
+    __array_eq_right_%out_bool = stack_alloc Slice_SIZE
+    EXPAND ARRAY_AS_SLICE_U64 __array_eq_left_%out_bool, %left_ptr, %length
+    EXPAND ARRAY_AS_SLICE_U64 __array_eq_right_%out_bool, %right_ptr, %length
+    EXPAND SLICE_EQ_U64 %out_bool, __array_eq_left_%out_bool, __array_eq_right_%out_bool
+[END_MACRO]
+
+[MACRO] ARRAY_NE_U64 %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_EQ_U64 __array_ne_eq_%out_bool, %left_ptr, %right_ptr, %length
+    %out_bool = eq __array_ne_eq_%out_bool, 0
+    !__array_ne_eq_%out_bool
+[END_MACRO]
+
+[MACRO] ARRAY_PARTIAL_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
     __array_copy_src_len_%out_ok = load %src_slice+Slice_len as u64
     __array_copy_same_len_%out_ok = eq %length, __array_copy_src_len_%out_ok

@@ -1302,3 +1302,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10524+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bk)
+
+Completed supportable defaults/aliases/macros:
+- Concrete u64 array equality aliases in array.sa: ARRAY_EQ_U64, ARRAY_NE_U64, and ARRAY_PARTIAL_EQ_U64.
+- Test file std_array_eq_macro_surface.sa (panic ID 10524).
+
+Panic IDs next free: 10525+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
