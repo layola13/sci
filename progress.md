@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator try_reduce macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_TRY_REDUCE_U64`.
+- The helper models a concrete unstable `Iterator::try_reduce` lowering for the supported `u64` cursor subset: it uses the first remaining item as the accumulator, calls a `(acc, value, out_next_ptr) -> ok` callback for later items, returns `(ok, has, value)` so empty-input success is distinguishable, consumes the first failing item, and leaves later suffix items available.
+- Test: `tests/unit_framework/std_iter_try_reduce_macro_surface.sa` — 1 test (panic ID 10544) covering short-circuit failure with suffix preservation, all-success reduction, partially consumed source windows, and empty-input success.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_try_reduce_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10545+.
+
 ## Completed: 2026-07-14 Iterator intersperse collect macros
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor and `Vec<u64>` facade.

@@ -729,6 +729,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_iter_copied_cloned_macro_surface.sa",
         "tests/unit_framework/std_iter_cycle_take_macro_surface.sa",
         "tests/unit_framework/std_iter_intersperse_macro_surface.sa",
+        "tests/unit_framework/std_iter_try_reduce_macro_surface.sa",
         "tests/unit_framework/std_fs_macro_surface.sa",
         "tests/unit_framework/std_fs_metadata_ext_macro_surface.sa",
         "tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa",

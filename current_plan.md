@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter try_reduce)
+
+Completed supportable iterator try-reduce macro:
+- `ITER_TRY_REDUCE_U64`: concrete unstable Rust `Iterator::try_reduce` shape over the slice-backed `u64` cursor.
+- The macro takes a concrete `(acc, value, out_next_ptr) -> ok` callback, uses the first remaining item as the accumulator, returns `(ok, has, value)`, reports empty input as success with `has=0`, and preserves suffix elements after the first failing item.
+- Test file `std_iter_try_reduce_macro_surface.sa` (panic ID 10544).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_try_reduce_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10545+.
+Still blocked without redesign: real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result`, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter intersperse collect)
 
 Completed supportable iterator intersperse collect macros:
