@@ -1023,6 +1023,59 @@ L_ITER_STEP_BY_END_%out_ok:
     !__iter_step_by_ok_%out_vec
 [END_MACRO]
 
+[MACRO] ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_VEC_NEW %out_vec
+    __iter_cycle_count_zero_%out_vec = eq %count, 0
+    br __iter_cycle_count_zero_%out_vec -> L_ITER_CYCLE_TAKE_DONE_ZERO_%out_vec, L_ITER_CYCLE_TAKE_INIT_%out_vec
+L_ITER_CYCLE_TAKE_INIT_%out_vec:
+    __iter_cycle_ptr_%out_vec = load %iter_reg+Iter_ptr as ptr
+    __iter_cycle_len_%out_vec = load %iter_reg+Iter_len as u64
+    __iter_cycle_start_%out_vec = load %iter_reg+Iter_index as u64
+    __iter_cycle_rem_%out_vec = sub __iter_cycle_len_%out_vec, __iter_cycle_start_%out_vec
+    __iter_cycle_empty_%out_vec = eq __iter_cycle_rem_%out_vec, 0
+    __iter_cycle_taken_%out_vec = add 0, 0
+    br __iter_cycle_empty_%out_vec -> L_ITER_CYCLE_TAKE_DONE_EMPTY_%out_vec, L_ITER_CYCLE_TAKE_HEAD_%out_vec
+L_ITER_CYCLE_TAKE_HEAD_%out_vec:
+    __iter_cycle_more_%out_vec = ult __iter_cycle_taken_%out_vec, %count
+    br __iter_cycle_more_%out_vec -> L_ITER_CYCLE_TAKE_PUSH_%out_vec, L_ITER_CYCLE_TAKE_DONE_COUNT_%out_vec
+L_ITER_CYCLE_TAKE_PUSH_%out_vec:
+    __iter_cycle_mod_%out_vec = urem __iter_cycle_taken_%out_vec, __iter_cycle_rem_%out_vec
+    __iter_cycle_index_%out_vec = add __iter_cycle_start_%out_vec, __iter_cycle_mod_%out_vec
+    __iter_cycle_off_%out_vec = mul __iter_cycle_index_%out_vec, 8
+    __iter_cycle_item_%out_vec = ptr_add __iter_cycle_ptr_%out_vec, __iter_cycle_off_%out_vec
+    __iter_cycle_value_%out_vec = load __iter_cycle_item_%out_vec+0 as u64
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_cycle_value_%out_vec
+    __iter_cycle_next_taken_%out_vec = add __iter_cycle_taken_%out_vec, 1
+    !__iter_cycle_taken_%out_vec
+    __iter_cycle_taken_%out_vec = add __iter_cycle_next_taken_%out_vec, 0
+    !__iter_cycle_next_taken_%out_vec
+    !__iter_cycle_value_%out_vec
+    !__iter_cycle_item_%out_vec
+    !__iter_cycle_off_%out_vec
+    !__iter_cycle_index_%out_vec
+    !__iter_cycle_mod_%out_vec
+    !__iter_cycle_more_%out_vec
+    jmp L_ITER_CYCLE_TAKE_HEAD_%out_vec
+L_ITER_CYCLE_TAKE_DONE_COUNT_%out_vec:
+    store %iter_reg+Iter_index, __iter_cycle_len_%out_vec as u64
+    !__iter_cycle_more_%out_vec
+    jmp L_ITER_CYCLE_TAKE_DONE_%out_vec
+L_ITER_CYCLE_TAKE_DONE_EMPTY_%out_vec:
+    jmp L_ITER_CYCLE_TAKE_DONE_%out_vec
+L_ITER_CYCLE_TAKE_DONE_ZERO_%out_vec:
+    !__iter_cycle_count_zero_%out_vec
+    jmp L_ITER_CYCLE_TAKE_END_%out_vec
+L_ITER_CYCLE_TAKE_DONE_%out_vec:
+    !__iter_cycle_taken_%out_vec
+    !__iter_cycle_empty_%out_vec
+    !__iter_cycle_rem_%out_vec
+    !__iter_cycle_start_%out_vec
+    !__iter_cycle_len_%out_vec
+    !__iter_cycle_ptr_%out_vec
+    !__iter_cycle_count_zero_%out_vec
+L_ITER_CYCLE_TAKE_END_%out_vec:
+[END_MACRO]
+
 [MACRO] ITER_REV_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_REV_COLLECT_HEAD_%out_vec

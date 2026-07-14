@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter cycle take collect)
+
+Completed supportable bounded iterator cycle/take collect macro:
+- `ITER_CYCLE_TAKE_COLLECT_U64`: concrete Rust `Iterator::cycle().take(n).collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor.
+- The macro uses the cursor's current remaining window as the cycle seed, materializes exactly `%count` values for nonempty input, returns an empty Vec for empty input or zero count, and marks the source cursor consumed only when a nonzero bounded cycle is materialized.
+- Test file `std_iter_cycle_take_macro_surface.sa` (panic ID 10542).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_cycle_take_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10543+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Cycle` adapter identity, infinite iterator semantics beyond explicit bounded `take`, generic cloneable iterator state, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter copied/cloned collect)
 
 Completed supportable iterator copied/cloned collect aliases:
