@@ -209,6 +209,13 @@
 #def ParseIntError_code = +0
 #def ParseIntError_msg = +8
 
+#def NUM_FLOAT_ERROR_EMPTY = 0
+#def NUM_FLOAT_ERROR_INVALID = 1
+
+#def ParseFloatError_SIZE = 8
+#def ParseFloatError_ALIGN = 8
+#def ParseFloatError_kind = +0
+
 #def TryFromIntError_SIZE = 8
 #def TryFromIntError_code = +0
 #def TRY_FROM_INT_ERROR_POS_OVERFLOW = 0

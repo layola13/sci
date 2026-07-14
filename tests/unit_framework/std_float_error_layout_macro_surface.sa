@@ -1,0 +1,23 @@
+@import "sa_std/num.sal"
+
+@test "sa_std ParseFloatError layout constants"():
+L_ENTRY:
+    ok_empty = eq NUM_FLOAT_ERROR_EMPTY, 0
+    ok_invalid = eq NUM_FLOAT_ERROR_INVALID, 1
+
+    ok_size = eq ParseFloatError_SIZE, 8
+    ok_align = eq ParseFloatError_ALIGN, 8
+    ok_kind = eq ParseFloatError_kind, +0
+
+    c01 = and ok_empty, ok_invalid
+    c02 = and c01, ok_size
+    c03 = and c02, ok_align
+    ok = and c03, ok_kind
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10499)
+
+L_PASS:
+    return 0

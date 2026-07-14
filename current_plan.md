@@ -1067,3 +1067,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10499+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 al)
+
+Completed supportable defaults/aliases/macros:
+- Float parsing error layout constants in num.sal for Rust `ParseFloatError`.
+- Float error kind constants cover Empty and Invalid parser failure categories from Rust's `FloatErrorKind`.
+- Test file std_float_error_layout_macro_surface.sa (panic ID 10499).
+
+Panic IDs next free: 10500+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
