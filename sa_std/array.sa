@@ -170,6 +170,14 @@ L_ARRAY_COPY_SLICE_MISS_%out_ok:
 L_ARRAY_COPY_SLICE_END_%out_ok:
 [END_MACRO]
 
+[MACRO] ARRAY_TRY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+    EXPAND ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_FROM_MUT_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+    EXPAND ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
     __array_split_ref_ok_%out_ok = ule %prefix_len, %length
     br __array_split_ref_ok_%out_ok -> L_ARRAY_SPLIT_REF_OK_%out_ok, L_ARRAY_SPLIT_REF_MISS_%out_ok

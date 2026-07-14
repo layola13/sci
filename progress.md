@@ -6603,3 +6603,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_ref_borrow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10520+.
+
+## Completed: 2026-07-14 Array try_from slice aliases (Batch bg)
+
+- `sa_std/array.sa`: Added concrete u64 array `TryFrom<&[T]>` / `TryFrom<&mut [T]>` copy aliases, `ARRAY_TRY_FROM_SLICE_U64` and `ARRAY_TRY_FROM_MUT_SLICE_U64`, over the existing same-length copy helper.
+- Semantics: aliases copy the input slice into caller-owned array storage only when the slice length equals the requested array length; mismatches return `ok=0` instead of materializing Rust's `Result<_, TryFromSliceError>`.
+- Test: `tests/unit_framework/std_array_try_from_slice_macro_surface.sa` — 1 test (panic ID 10520) covering immutable and mutable slice success plus short/long length mismatch failures.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_try_from_slice_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10521+.
