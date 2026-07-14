@@ -63,6 +63,27 @@
     !__iter_ptr_%out_value
 [END_MACRO]
 
+[MACRO] ITER_TRY_PEEK_U64 %out_has, %out_value, %iter_reg
+    __iter_try_peek_len_%out_has = load %iter_reg+Iter_len as u64
+    __iter_try_peek_index_%out_has = load %iter_reg+Iter_index as u64
+    __iter_try_peek_done_%out_has = eq __iter_try_peek_index_%out_has, __iter_try_peek_len_%out_has
+    br __iter_try_peek_done_%out_has -> L_ITER_TRY_PEEK_NONE_%out_has, L_ITER_TRY_PEEK_SOME_%out_has
+L_ITER_TRY_PEEK_SOME_%out_has:
+    EXPAND ITER_PEEK_U64 %out_value, %iter_reg
+    %out_has = add 0, 1
+    !__iter_try_peek_done_%out_has
+    !__iter_try_peek_index_%out_has
+    !__iter_try_peek_len_%out_has
+    jmp L_ITER_TRY_PEEK_END_%out_has
+L_ITER_TRY_PEEK_NONE_%out_has:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    !__iter_try_peek_done_%out_has
+    !__iter_try_peek_index_%out_has
+    !__iter_try_peek_len_%out_has
+L_ITER_TRY_PEEK_END_%out_has:
+[END_MACRO]
+
 [MACRO] ITER_NEXT %out_has, %out_value, %iter_reg, %elem_size
     __iter_ptr_%out_has = load %iter_reg+Iter_ptr as ptr
     __iter_len_%out_has = load %iter_reg+Iter_len as u64
@@ -1046,6 +1067,10 @@ L_ITER_COLLECT_DONE_%out_vec:
 [END_MACRO]
 
 [MACRO] ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 

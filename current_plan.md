@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter peekable)
+
+Completed supportable iterator peekable macros:
+- `ITER_TRY_PEEK_U64`: concrete `Peekable::peek`-style non-consuming peek over the slice-backed `u64` cursor, returning `(has, value)` instead of Rust `Option<&Item>`.
+- `ITER_PEEKABLE_COLLECT_U64`: concrete Rust `Iterator::peekable().collect::<Vec<_>>()` shape over the same finite cursor.
+- These macros expose the supportable behavior without introducing a lazy `Peekable` adapter object or reference lifetimes.
+- Test file `std_iter_peekable_macro_surface.sa` (panic ID 10549).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_peekable_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10550+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Peekable` adapter identity, reference-returning `peek()` lifetime semantics, `peek_mut`, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter fuse collect)
 
 Completed supportable iterator fuse collect macro:

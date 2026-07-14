@@ -734,6 +734,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_iter_try_find_macro_surface.sa",
         "tests/unit_framework/std_iter_by_ref_collect_macro_surface.sa",
         "tests/unit_framework/std_iter_fuse_collect_macro_surface.sa",
+        "tests/unit_framework/std_iter_peekable_macro_surface.sa",
         "tests/unit_framework/std_fs_macro_surface.sa",
         "tests/unit_framework/std_fs_metadata_ext_macro_surface.sa",
         "tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa",

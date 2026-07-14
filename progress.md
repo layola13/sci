@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator peekable macros
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_TRY_PEEK_U64` and `ITER_PEEKABLE_COLLECT_U64`.
+- `ITER_TRY_PEEK_U64` models a concrete `Peekable::peek`-style surface by returning `(has, value)` without consuming the cursor, including a none-style result for empty/exhausted cursors. `ITER_PEEKABLE_COLLECT_U64` models a concrete `peekable().collect::<Vec<_>>()` lowering by collecting the current finite cursor remainder.
+- Test: `tests/unit_framework/std_iter_peekable_macro_surface.sa` - 1 test (panic ID 10549) covering non-consuming peek, peek after advancing, peekable collect, post-collect empty peek, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_peekable_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10550+.
+
 ## Completed: 2026-07-14 Iterator fuse collect macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
