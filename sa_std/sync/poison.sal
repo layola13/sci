@@ -1,0 +1,11 @@
+#def PoisonErrorU64_SIZE = 8
+#def PoisonErrorU64_ALIGN = 8
+#def PoisonErrorU64_data = +0
+
+#def TryLockErrorU64_SIZE = 16
+#def TryLockErrorU64_ALIGN = 8
+#def TryLockErrorU64_kind = +0
+#def TryLockErrorU64_data = +8
+#def TryLockErrorU64_poison = +8
+#def TRY_LOCK_ERROR_POISONED = 0
+#def TRY_LOCK_ERROR_WOULD_BLOCK = 1

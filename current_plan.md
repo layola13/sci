@@ -1106,3 +1106,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10503+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ap)
+
+Completed supportable defaults/aliases/macros:
+- Sync poison error layout constants in sync/poison.sal for PoisonError<u64> and TryLockError<u64>.
+- TryLockError kind constants cover Poisoned and WouldBlock categories from Rust `std::sync`.
+- Test file std_sync_poison_error_layout_macro_surface.sa (panic ID 10503).
+
+Panic IDs next free: 10504+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

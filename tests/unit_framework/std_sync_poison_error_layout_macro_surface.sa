@@ -1,0 +1,33 @@
+@import "sa_std/sync/poison.sal"
+
+@test "sa_std sync poison error layout constants"():
+L_ENTRY:
+    ok_poison_size = eq PoisonErrorU64_SIZE, 8
+    ok_poison_align = eq PoisonErrorU64_ALIGN, 8
+    ok_poison_data = eq PoisonErrorU64_data, +0
+
+    ok_try_size = eq TryLockErrorU64_SIZE, 16
+    ok_try_align = eq TryLockErrorU64_ALIGN, 8
+    ok_try_kind = eq TryLockErrorU64_kind, +0
+    ok_try_data = eq TryLockErrorU64_data, +8
+    ok_try_poison = eq TryLockErrorU64_poison, TryLockErrorU64_data
+    ok_poisoned = eq TRY_LOCK_ERROR_POISONED, 0
+    ok_would_block = eq TRY_LOCK_ERROR_WOULD_BLOCK, 1
+
+    c01 = and ok_poison_size, ok_poison_align
+    c02 = and c01, ok_poison_data
+    c03 = and c02, ok_try_size
+    c04 = and c03, ok_try_align
+    c05 = and c04, ok_try_kind
+    c06 = and c05, ok_try_data
+    c07 = and c06, ok_try_poison
+    c08 = and c07, ok_poisoned
+    ok = and c08, ok_would_block
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10503)
+
+L_PASS:
+    return 0

@@ -6453,3 +6453,11 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_time_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10503+.
+
+## Completed: 2026-07-14 Sync poison error layout constants (Batch ap)
+
+- `sa_std/sync/poison.sal`: Added layout constants for `PoisonError<u64>` and `TryLockError<u64>`, plus Rust sync try-lock error kind constants for Poisoned and WouldBlock categories.
+- Test: `tests/unit_framework/std_sync_poison_error_layout_macro_surface.sa` — 1 test (panic ID 10503) verifying the new sync poison error layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_sync_poison_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10504+.
