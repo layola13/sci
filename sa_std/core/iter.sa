@@ -925,6 +925,14 @@ L_ITER_COLLECT_DONE_%out_vec:
     !__iter_collect_has_%out_vec
 [END_MACRO]
 
+[MACRO] ITER_COPIED_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] ITER_CLONED_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     jmp L_ITER_COLLECT_INTO_HEAD_%iter_reg
 L_ITER_COLLECT_INTO_HEAD_%iter_reg:

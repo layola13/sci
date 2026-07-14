@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter copied/cloned collect)
+
+Completed supportable iterator copied/cloned collect aliases:
+- `ITER_COPIED_COLLECT_U64`: concrete Rust `Iterator::copied().collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor.
+- `ITER_CLONED_COLLECT_U64`: concrete Rust `Iterator::cloned().collect::<Vec<_>>()` lowering over the same value-copy subset.
+- These are thin aliases over `ITER_COLLECT_U64` because the current cursor yields concrete `u64` values, not borrowed `&T` items; they do not claim Rust's lazy `Copied` / `Cloned` adapter identity, generic `Copy` / `Clone`, or lifetime semantics.
+- Test file `std_iter_copied_cloned_macro_surface.sa` (panic ID 10541).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_copied_cloned_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10542+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Copied` / `Cloned` adapter identity, borrowed item and lifetime semantics, generic `Copy` / `Clone`, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter scan collect)
 
 Completed supportable iterator scan collect macro:
