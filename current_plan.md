@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter aliases)
+
+Completed supportable iterator aliases/macros:
+- `ITER_BY_REF`: borrowed cursor alias for Rust `Iterator::by_ref` lowering shape; consumes the same underlying SA cursor storage without claiming Rust reference/lifetime semantics.
+- `ITER_EXACT_SIZE_LEN` / `ITER_EXACT_SIZE_IS_EMPTY`: Rust `ExactSizeIterator` naming aliases over the concrete slice-backed cursor's exact remaining length.
+- `ITER_PARTIAL_EQ_U64` / `ITER_PARTIAL_CMP_U64`: concrete total-order `u64` iterator aliases over existing lexicographic equality/comparison helpers.
+- Test file `std_iter_alias_macro_surface.sa` (panic ID 10532).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10533+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI, and real Rust iterator trait/lazy-adapter/generic-item parity.
+
+
 ## Active std parity batch (2026-07-13 n)
 
 Completed supportable defaults/aliases/macros:

@@ -110,6 +110,10 @@ L_ITER_NEXT_END_%out_has:
     !__iter_clone_ptr_%out_iter
 [END_MACRO]
 
+[MACRO] ITER_BY_REF %out_iter, %iter_reg
+    %out_iter = ptr_add %iter_reg, 0
+[END_MACRO]
+
 [MACRO] ITER_AS_SLICE_U64 %out_slice, %iter_reg
     __iter_slice_ptr_%out_slice = load %iter_reg+Iter_ptr as ptr
     __iter_slice_len_%out_slice = load %iter_reg+Iter_len as u64
@@ -1448,4 +1452,20 @@ L_ITER_CMP_END_%out_ordering:
     EXPAND ITER_CMP_U64 __iter_ge_order_%out_bool, %left_iter, %right_iter
     %out_bool = sge __iter_ge_order_%out_bool, 0
     !__iter_ge_order_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND ITER_LEN %out_len, %iter_reg
+[END_MACRO]
+
+[MACRO] ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND ITER_IS_EMPTY %out_bool, %iter_reg
+[END_MACRO]
+
+[MACRO] ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]

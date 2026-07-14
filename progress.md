@@ -2,6 +2,16 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator Rust naming aliases
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_BY_REF`, `ITER_EXACT_SIZE_LEN`, `ITER_EXACT_SIZE_IS_EMPTY`, `ITER_PARTIAL_EQ_U64`, and `ITER_PARTIAL_CMP_U64`.
+- Test: `tests/unit_framework/std_iter_alias_macro_surface.sa` — 1 test (panic ID 10532) covering borrowed cursor alias consumption, exact-size aliases, and total-order partial equality/comparison aliases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only ran the newly added focused test.
+- Panic IDs next free: 10533+.
+
 ## Completed: 2026-07-13 IO_ERROR_KIND + ERROR_CODE + ERROR_REF_IS_* expanded
 
 - `sa_std/io.sal`: 33 new `IO_ERROR_KIND_*` constants covering the full Rust `io::ErrorKind` enum (NotFound, PermissionDenied, ConnectionRefused, ConnectionReset, ConnectionAborted, NotConnected, AddrInUse, AddrNotAvailable, BrokenPipe, AlreadyExists, TimedOut, Unsupported, OutOfMemory, IsADirectory, DirectoryNotEmpty, RecursiveEntry, QuotaExceeded, FileTooLarge, FilesystemLoop, ExecutableFileBusy, CrossedDevices, NotSeekable, ReadOnlyFilesystem, ArgumentListTooLong, ResourceBusy, NameTooLong, TooManyLinks, HostUnreachable, NetworkUnreachable, NetworkDown, StaleNetworkFileHandle, FilesystemQuota, StorageFull, plus existing kinds).
