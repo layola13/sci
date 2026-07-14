@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 hash Hasher write)
+
+Completed supportable Hasher write macro:
+- `DEFAULT_HASHER_WRITE`: Rust-named `Hasher::write(&[u8])` lowering over SA's concrete `Slice<u8>` view.
+- The macro delegates to the existing byte-slice state update path, intentionally without length-prefixing; callers that need prefix-free sequence hashing continue to use `DEFAULT_HASHER_WRITE_LENGTH_PREFIX` or the slice helpers.
+- This is a concrete lowering surface only; it does not expose trait dispatch, Rust generic `Hash`, endian-exact primitive byte serialization, or SipHash output compatibility.
+- Test file `std_hash_default_hasher_write_macro_surface.sa` (panic ID 10556).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_default_hasher_write_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10557+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 hash DefaultHasher clone)
 
 Completed supportable DefaultHasher clone macro:

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Hash Hasher write macro
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hasher::write(&[u8])` definition under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `DEFAULT_HASHER_WRITE` as the Rust-named concrete byte-slice write entry for SA's `DefaultHasher`.
+- The helper delegates to the existing `DEFAULT_HASHER_WRITE_BYTES` state update path and intentionally does not add a length prefix, matching Rust's `Hasher::write` contract where sequence prefixing is the caller's responsibility.
+- Test: `tests/unit_framework/std_hash_default_hasher_write_macro_surface.sa` - 1 test (panic ID 10556) covering alias equivalence with `WRITE_BYTES`, distinction from `WRITE_STR` domain separation, empty write no-op behavior, and nonempty state change.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_default_hasher_write_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10557+.
+
 ## Completed: 2026-07-14 Hash DefaultHasher clone macro
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `DefaultHasher` definition under `/home/vscode/projects/rust`, where it derives `Clone`.

@@ -121,6 +121,10 @@ L_HASHER_WRITE_BYTES_DONE_%hasher:
     !__hasher_bytes_ptr_%hasher
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE %hasher, %slice_reg
+    EXPAND DEFAULT_HASHER_WRITE_BYTES %hasher, %slice_reg
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_STR %hasher, %slice_reg
     EXPAND DEFAULT_HASHER_WRITE_BYTES %hasher, %slice_reg
     EXPAND DEFAULT_HASHER_WRITE_U8 %hasher, 255
