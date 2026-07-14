@@ -6612,3 +6612,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_try_from_slice_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10521+.
+
+## Completed: 2026-07-14 Array ref try_from slice aliases (Batch bh)
+
+- `sa_std/array.sa`: Added concrete u64 array-reference `TryFrom<&[T]>` / `TryFrom<&mut [T]>` aliases, `ARRAY_REF_TRY_FROM_SLICE_U64` and `ARRAY_MUT_REF_TRY_FROM_MUT_SLICE_U64`, over the existing exact-length `Slice` view helpers.
+- Semantics: aliases return `(ok, Slice)` views when the source slice length equals the requested array length; mismatches return `ok=0` and an empty view instead of Rust's `Result<_, TryFromSliceError>`.
+- Test: `tests/unit_framework/std_array_ref_try_from_slice_macro_surface.sa` — 1 test (panic ID 10521) covering immutable and mutable exact-length views, mutable write-through, and length mismatch failures.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_ref_try_from_slice_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10522+.

@@ -1275,3 +1275,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10521+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bh)
+
+Completed supportable defaults/aliases/macros:
+- Concrete array-ref TryFrom slice aliases in array.sa: ARRAY_REF_TRY_FROM_SLICE_U64 and ARRAY_MUT_REF_TRY_FROM_MUT_SLICE_U64, reusing exact-length Slice view checks.
+- Test file std_array_ref_try_from_slice_macro_surface.sa (panic ID 10521).
+
+Panic IDs next free: 10522+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

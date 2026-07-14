@@ -267,6 +267,14 @@ L_ARRAY_AS_REF_END_%out_ok:
     EXPAND ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
 [END_MACRO]
 
+[MACRO] ARRAY_REF_TRY_FROM_SLICE_U64 %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
+[MACRO] ARRAY_MUT_REF_TRY_FROM_MUT_SLICE_U64 %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_TRY_AS_ARRAY_MUT_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
 [MACRO] ARRAY_SWAP_U64 %array_ptr, %left_index, %right_index
     __array_swap_left_off_%array_ptr = mul %left_index, 8
     __array_swap_right_off_%array_ptr = mul %right_index, 8
