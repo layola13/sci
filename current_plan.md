@@ -1356,3 +1356,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10530+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bq)
+
+Completed supportable defaults/aliases/macros:
+- Concrete signed Hasher write aliases in hash.sa: DEFAULT_HASHER_WRITE_I8, DEFAULT_HASHER_WRITE_I16, DEFAULT_HASHER_WRITE_I32, and DEFAULT_HASHER_WRITE_ISIZE.
+- Test file std_hash_signed_write_macro_surface.sa (panic ID 10530).
+
+Panic IDs next free: 10531+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

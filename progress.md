@@ -6693,3 +6693,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_build_hasher_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10530+.
+
+## Completed: 2026-07-14 Hasher signed write aliases (Batch bq)
+
+- `sa_std/hash.sa`: Added concrete signed `Hasher` write aliases: `DEFAULT_HASHER_WRITE_I8`, `DEFAULT_HASHER_WRITE_I16`, `DEFAULT_HASHER_WRITE_I32`, and `DEFAULT_HASHER_WRITE_ISIZE`.
+- Semantics: aliases mirror Rust's default `Hasher::write_i8` / `write_i16` / `write_i32` / `write_isize` forwarding shape by delegating to the corresponding unsigned SA write helper, within the current deterministic register-sized hasher model.
+- Test: `tests/unit_framework/std_hash_signed_write_macro_surface.sa` — 1 test (panic ID 10530) covering signed write aliases against matching unsigned write paths.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_signed_write_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10531+.
