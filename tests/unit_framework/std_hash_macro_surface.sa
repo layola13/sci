@@ -55,10 +55,18 @@ L_ENTRY:
     EXPAND DEFAULT_HASHER_FINISH nums_hash_manual, nums_hasher
 
     EXPAND BUILD_HASHER_DEFAULT_NEW builder
+    EXPAND BUILD_HASHER_DEFAULT_DEFAULT builder_default
     built_hasher = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD built_hasher, builder
     EXPAND DEFAULT_HASHER_WRITE_USIZE built_hasher, 7
     EXPAND DEFAULT_HASHER_FINISH built_hash, built_hasher
+
+    default_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_DEFAULT default_hasher
+    EXPAND DEFAULT_HASHER_FINISH default_hash, default_hasher
+    built_default_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD built_default_hasher, builder_default
+    EXPAND DEFAULT_HASHER_FINISH built_default_hash, built_default_hasher
 
     same_hash = eq hash_a, hash_b
     diff_hash = ne hash_a, hash_c
@@ -66,6 +74,9 @@ L_ENTRY:
     ptr_hash_changed = ne ptr_hash, HASHER_DEFAULT_SEED
     direct_hash_changed = ne direct_hash, HASHER_DEFAULT_SEED
     built_hash_eq = eq built_hash, direct_hash
+    builder_default_ok = eq builder_default, 0
+    default_hash_ok = eq default_hash, HASHER_DEFAULT_SEED
+    built_default_hash_ok = eq built_default_hash, HASHER_DEFAULT_SEED
     str_hash_stable = eq str_hash, str_hash_again
     str_hash_domain_sep = ne str_hash, byte_slice_hash
     nums_hash_eq = eq nums_hash, nums_hash_manual
@@ -74,9 +85,12 @@ L_ENTRY:
     ok03 = and ok02, ptr_hash_changed
     ok04 = and ok03, direct_hash_changed
     ok05 = and ok04, built_hash_eq
-    ok06 = and ok05, str_hash_stable
-    ok07 = and ok06, str_hash_domain_sep
-    ok = and ok07, nums_hash_eq
+    ok06 = and ok05, builder_default_ok
+    ok07 = and ok06, default_hash_ok
+    ok08 = and ok07, built_default_hash_ok
+    ok09 = and ok08, str_hash_stable
+    ok10 = and ok09, str_hash_domain_sep
+    ok = and ok10, nums_hash_eq
 
     !hash_a
     !hash_b
@@ -90,13 +104,19 @@ L_ENTRY:
     !nums_hash
     !nums_hash_manual
     !builder
+    !builder_default
     !built_hash
+    !default_hash
+    !built_default_hash
     !same_hash
     !diff_hash
     !reset_ok
     !ptr_hash_changed
     !direct_hash_changed
     !built_hash_eq
+    !builder_default_ok
+    !default_hash_ok
+    !built_default_hash_ok
     !str_hash_stable
     !str_hash_domain_sep
     !nums_hash_eq
@@ -107,6 +127,9 @@ L_ENTRY:
     !ok05
     !ok06
     !ok07
+    !ok08
+    !ok09
+    !ok10
     !bytes_slice
     !bytes_data
     !nums_slice
@@ -115,7 +138,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(996)
+    panic(10041)
 
 L_PASS:
     return 0

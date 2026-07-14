@@ -6628,3 +6628,111 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 [MACRO] NONZERO_ISIZE_FROM_LE %out_ok, %out_nz, %nz
     EXPAND NONZERO_I64_FROM_LE %out_ok, %out_nz, %nz
 [END_MACRO]
+
+[MACRO] WRAPPING_U64_NEW %out_ptr, %value
+    store %out_ptr+WrappingU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_GET %out_value, %src_ptr
+    %out_value = load %src_ptr+WrappingU64_value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_SET %dst_ptr, %value
+    store %dst_ptr+WrappingU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_NEW %out_ptr, %value
+    store %out_ptr+WrappingU32_value, %value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_GET %out_value, %src_ptr
+    %out_value = load %src_ptr+WrappingU32_value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_NEW %out_ptr, %value
+    store %out_ptr+WrappingI64_value, %value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_GET %out_value, %src_ptr
+    %out_value = load %src_ptr+WrappingI64_value as u64
+[END_MACRO]
+
+[MACRO] SATURATING_U64_NEW %out_ptr, %value
+    store %out_ptr+SaturatingU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] SATURATING_U64_GET %out_value, %src_ptr
+    %out_value = load %src_ptr+SaturatingU64_value as u64
+[END_MACRO]
+
+[MACRO] SATURATING_U64_SET %dst_ptr, %value
+    store %dst_ptr+SaturatingU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] SATURATING_I64_NEW %out_ptr, %value
+    store %out_ptr+SaturatingI64_value, %value as u64
+[END_MACRO]
+
+[MACRO] SATURATING_I64_GET %out_value, %src_ptr
+    %out_value = load %src_ptr+SaturatingI64_value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_ADD %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND WRAPPING_U64_GET __wr_add_lhs_%out_ptr, %lhs_ptr
+    EXPAND WRAPPING_U64_GET __wr_add_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U64_WRAPPING_ADD __wr_add_result_%out_ptr, __wr_add_lhs_%out_ptr, __wr_add_rhs_%out_ptr
+    EXPAND WRAPPING_U64_SET %out_ptr, __wr_add_result_%out_ptr
+    !__wr_add_lhs_%out_ptr
+    !__wr_add_rhs_%out_ptr
+    !__wr_add_result_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_SUB %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND WRAPPING_U64_GET __wr_sub_lhs_%out_ptr, %lhs_ptr
+    EXPAND WRAPPING_U64_GET __wr_sub_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U64_WRAPPING_SUB __wr_sub_result_%out_ptr, __wr_sub_lhs_%out_ptr, __wr_sub_rhs_%out_ptr
+    EXPAND WRAPPING_U64_SET %out_ptr, __wr_sub_result_%out_ptr
+    !__wr_sub_lhs_%out_ptr
+    !__wr_sub_rhs_%out_ptr
+    !__wr_sub_result_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_MUL %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND WRAPPING_U64_GET __wr_mul_lhs_%out_ptr, %lhs_ptr
+    EXPAND WRAPPING_U64_GET __wr_mul_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U64_WRAPPING_MUL __wr_mul_result_%out_ptr, __wr_mul_lhs_%out_ptr, __wr_mul_rhs_%out_ptr
+    EXPAND WRAPPING_U64_SET %out_ptr, __wr_mul_result_%out_ptr
+    !__wr_mul_lhs_%out_ptr
+    !__wr_mul_rhs_%out_ptr
+    !__wr_mul_result_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_ADD %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_add_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_add_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U64_SATURATING_ADD __sat_add_result_%out_ptr, __sat_add_lhs_%out_ptr, __sat_add_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_add_result_%out_ptr
+    !__sat_add_lhs_%out_ptr
+    !__sat_add_rhs_%out_ptr
+    !__sat_add_result_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_SUB %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_sub_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_sub_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U64_SATURATING_SUB __sat_sub_result_%out_ptr, __sat_sub_lhs_%out_ptr, __sat_sub_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_sub_result_%out_ptr
+    !__sat_sub_lhs_%out_ptr
+    !__sat_sub_rhs_%out_ptr
+    !__sat_sub_result_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_MUL %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_mul_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_mul_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U64_SATURATING_MUL __sat_mul_result_%out_ptr, __sat_mul_lhs_%out_ptr, __sat_mul_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_mul_result_%out_ptr
+    !__sat_mul_lhs_%out_ptr
+    !__sat_mul_rhs_%out_ptr
+    !__sat_mul_result_%out_ptr
+[END_MACRO]

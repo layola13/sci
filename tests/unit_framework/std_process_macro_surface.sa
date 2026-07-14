@@ -133,11 +133,11 @@ L_FAIL:
     !run_status
     !process
     !run_ok
-    panic(1001)
+    panic(10195)
 
 L_FAIL_AFTER_WAIT:
     !ok
-    panic(1002)
+    panic(10196)
 
 L_PASS:
     !ok
@@ -257,11 +257,11 @@ L_CAPTURE_OK:
 L_FAIL:
     !capture_status
     !capture_ok
-    panic(1003)
+    panic(10197)
 
 L_FAIL2:
     !ok
-    panic(1004)
+    panic(10198)
 
 L_PASS2:
     !ok
@@ -286,7 +286,7 @@ L_FAIL_ARG0_SPAWN:
     !arg0_status_ok
     !arg0_process
     !arg0_status
-    panic(1012)
+    panic(10199)
 
 L_ARG0_WAIT:
     EXPAND PROCESS_WAIT arg0_wait_status, arg0_code, arg0_process
@@ -308,7 +308,7 @@ L_FAIL_ARG0_WAIT:
     !arg0_status_ok
     !arg0_process
     !arg0_status
-    panic(1013)
+    panic(10200)
 
 L_ARG0_READ:
     arg0_buf = stack_alloc 32
@@ -352,7 +352,7 @@ L_FAIL_ARG0_READ:
     !arg0_status_ok
     !arg0_process
     !arg0_status
-    panic(1014)
+    panic(10201)
 
 L_PGROUP_START:
     EXPAND PROCESS_ARGV_SET_CONST argv, 2, PGID_CMD, PGID_CMD_LEN
@@ -368,7 +368,7 @@ L_FAIL_PGROUP_SPAWN:
     !pg_status_ok
     !pg_process
     !pg_status
-    panic(1015)
+    panic(10202)
 
 L_PGROUP_WAIT:
     EXPAND PROCESS_WAIT pg_wait_status, pg_code, pg_process
@@ -534,7 +534,7 @@ L_FAIL_WAIT_SPAWN:
     !spawn_status_ok
     !process
     !spawn_status
-    panic(1020)
+    panic(10203)
 
 L_STREAM_START:
     EXPAND PROCESS_SPAWN_STREAM_COMMAND_EXT stream_status, stream_process, stream_stdout, stream_stderr, argv, 2, dummy, 0, 0, dummy, 0, 0, 0, 0, 0
@@ -559,7 +559,7 @@ L_FAIL_STREAM_EXT:
     !stream_stdout
     !stream_process
     !stream_status
-    panic(1021)
+    panic(10204)
 
 L_STREAM_STDOUT_RAW:
     EXPAND PROCESS_CHILD_STDOUT_AS_RAW_FD stream_stdout_raw_status, stream_stdout_raw_fd, stream_stdout
@@ -814,7 +814,7 @@ L_FAIL_WAIT_STREAM:
     !stream_stdout
     !stream_process
     !stream_status
-    panic(1022)
+    panic(10205)
 
 L_PASS_SPAWN_EXT:
     !stream_all
@@ -1344,7 +1344,7 @@ L_FAIL_GROUP_SPAWN:
     !spawn_status_ok
     !process
     !spawn_status
-    panic(1023)
+    panic(10206)
 
 L_GROUP_KILL:
     EXPAND PROCESS_SEND_PROCESS_GROUP_SIGNAL group_kill_status, process, SIG_KILL_PROCESS
@@ -1441,7 +1441,7 @@ L_KPG_FAIL_SPAWN:
     !spawn_status_ok
     !process
     !spawn_status
-    panic(1060)
+    panic(1063)
 
 L_KPG_KILL:
     EXPAND PROCESS_KILL_PROCESS_GROUP kill_group_status, process
@@ -1460,7 +1460,7 @@ L_KPG_FAIL_KILL:
     !spawn_status_ok
     !process
     !spawn_status
-    panic(1061)
+    panic(1064)
 
 L_KPG_WAIT:
     EXPAND PROCESS_WAIT_EXIT_STATUS wait_status, exit_status, process
@@ -1495,7 +1495,7 @@ L_KPG_FAIL_WAIT:
     !spawn_status_ok
     !process
     !spawn_status
-    panic(1062)
+    panic(1065)
 
 L_KPG_PASS:
     !all_ok
@@ -1557,7 +1557,7 @@ L_FAIL_PIDFD_RAW:
     !pidfd_as_raw_ok
     !pidfd_raw_fd
     !pidfd_as_raw_status
-    panic(1040)
+    panic(1066)
 
 L_PIDFD_TRY:
     EXPAND PIDFD_TRY_WAIT pidfd_try_status, pidfd_ready, pidfd_code, pidfd
@@ -1670,7 +1670,7 @@ L_FAIL_PIDFD_INTO_RAW:
     !pidfd2_as_raw_ok
     !pidfd2_raw_fd
     !pidfd2_as_raw_status
-    panic(1041)
+    panic(1067)
 
 L_PIDFD_INTO_OWNED:
     EXPAND PIDFD_INTO_OWNED_FD pidfd2_into_owned_status, pidfd2_owned_fd, pidfd2
@@ -1690,7 +1690,7 @@ L_FAIL_PIDFD_INTO_OWNED:
     !pidfd2_as_raw_ok
     !pidfd2_raw_fd
     !pidfd2_as_raw_status
-    panic(1044)
+    panic(1068)
 
 L_PIDFD_FROM_OWNED:
     EXPAND PIDFD_FROM_OWNED_FD pidfd2_from_owned_status, pidfd2_owned_rebound, pidfd2_owned_fd
@@ -1711,7 +1711,7 @@ L_FAIL_PIDFD_FROM_OWNED:
     !pidfd2_as_raw_ok
     !pidfd2_raw_fd
     !pidfd2_as_raw_status
-    panic(1045)
+    panic(1069)
 
 L_PIDFD_INTO_RAW_TAKE:
     EXPAND PIDFD_INTO_RAW_FD pidfd2_into_raw_status, pidfd2_raw_taken, pidfd2_owned_rebound
@@ -1736,7 +1736,7 @@ L_FAIL_PIDFD_INTO_RAW_TAKE:
     !pidfd2_from_owned_status_ok
     !pidfd2_from_owned_status
     !pidfd2_into_owned_all
-    panic(1042)
+    panic(1070)
 
 L_PIDFD_INTO_RAW_REBIND:
     EXPAND PIDFD_FROM_RAW_FD pidfd2_from_raw_status, pidfd2, pidfd2_raw_taken
@@ -1766,7 +1766,7 @@ L_FAIL_PIDFD_INTO_RAW_REBIND:
     !pidfd2_from_owned_status_ok
     !pidfd2_from_owned_status
     !pidfd2_into_owned_all
-    panic(1043)
+    panic(1071)
 
 L_PIDFD_INTO_KILL:
     EXPAND PIDFD_KILL pidfd2_kill_status, pidfd2
@@ -1873,7 +1873,7 @@ L_FAIL_PIDFD_FALLBACK:
     !fallback_wait_status
     !fallback_kill_ok
     !fallback_kill_status
-    panic(1039)
+    panic(1072)
 
 L_PASS_PIDFD:
     return 0
@@ -1898,7 +1898,7 @@ L_FAIL_SPAWN:
     !spawn_ok
     !process
     !spawn_status
-    panic(1005)
+    panic(10207)
 
 L_CHILD_ID:
     EXPAND PROCESS_CHILD_ID child_id_status, child_pid, process
@@ -1922,7 +1922,7 @@ L_FAIL_CHILD_ID:
     !spawn_ok
     !process
     !spawn_status
-    panic(1010)
+    panic(10208)
 
 L_TRY_WAIT_PENDING:
     EXPAND PROCESS_TRY_WAIT try_status0, ready0, code0, process
@@ -1956,7 +1956,7 @@ L_FAIL_PENDING:
     !spawn_ok
     !process
     !spawn_status
-    panic(1006)
+    panic(10209)
 
 L_SIGNAL_CHECK:
     EXPAND PROCESS_SEND_SIGNAL signal_check_status, process, SIG_CHECK_PROCESS
@@ -1988,7 +1988,7 @@ L_FAIL_SIGNAL_CHECK:
     !spawn_ok
     !process
     !spawn_status
-    panic(1011)
+    panic(10210)
 
 L_KILL:
     EXPAND PROCESS_KILL kill_status, process
@@ -2020,7 +2020,7 @@ L_FAIL_KILL:
     !spawn_ok
     !process
     !spawn_status
-    panic(1007)
+    panic(10211)
 
 L_TRY_WAIT_READY:
     EXPAND PROCESS_TRY_WAIT_EXIT_STATUS try_status1, ready1, exit_status, process
@@ -2115,7 +2115,7 @@ L_TRY_WAIT_READY:
 
 L_FAIL_DONE:
     !ok
-    panic(1008)
+    panic(10212)
 
 L_PASS3:
     !ok
@@ -2130,8 +2130,536 @@ L_ENTRY:
 
 L_FAIL4:
     !abort_macro_available
-    panic(1009)
+    panic(10213)
 
 L_PASS4:
     !abort_macro_available
     return 0
+
+@test "sa_std process command builder macros"():
+L_ENTRY:
+    argv = stack_alloc TRUE_ARGV2_SIZE
+    EXPAND PROCESS_ARGV_SET_CONST argv, 0, TRUE_BIN, TRUE_BIN_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv, 1, TRUE_ARG, TRUE_ARG_LEN
+    dummy_cwd = stack_alloc 1
+    dummy_arg0 = stack_alloc 1
+
+    EXPAND PROCESS_COMMAND_BUILDER_NEW cwd_len0, has_cwd0, arg0_len0, has_arg00, pgroup0, has_pgroup0, setsid0
+    zero_has_cwd = eq has_cwd0, 0
+    zero_has_arg0 = eq has_arg00, 0
+    zero_has_pgroup = eq has_pgroup0, 0
+    zero_setsid = eq setsid0, 0
+    zero_cfg = and zero_has_cwd, zero_has_arg0
+    zero_cfg = and zero_cfg, zero_has_pgroup
+    zero_cfg = and zero_cfg, zero_setsid
+    br zero_cfg -> L_STATUS, L_FAIL_ZERO
+
+L_FAIL_ZERO:
+    !zero_cfg
+    !zero_setsid
+    !zero_has_pgroup
+    !zero_has_arg0
+    !zero_has_cwd
+    !setsid0
+    !has_pgroup0
+    !pgroup0
+    !has_arg00
+    !arg0_len0
+    !has_cwd0
+    !cwd_len0
+    panic(1073)
+
+L_STATUS:
+    EXPAND PROCESS_COMMAND_BUILDER_STATUS status, process, argv, 2, dummy_cwd, cwd_len0, has_cwd0, dummy_arg0, arg0_len0, has_arg00, pgroup0, has_pgroup0, setsid0
+    status_ok = eq status, SA_PROCESS_OK
+    process_ok = ne process, 0
+    spawn_ok = and status_ok, process_ok
+    br spawn_ok -> L_WAIT, L_FAIL_STATUS
+
+L_FAIL_STATUS:
+    !spawn_ok
+    !process_ok
+    !status_ok
+    !process
+    !status
+    !zero_cfg
+    !zero_setsid
+    !zero_has_pgroup
+    !zero_has_arg0
+    !zero_has_cwd
+    !setsid0
+    !has_pgroup0
+    !pgroup0
+    !has_arg00
+    !arg0_len0
+    !has_cwd0
+    !cwd_len0
+    panic(1074)
+
+L_WAIT:
+    EXPAND PROCESS_WAIT wait_status, code, process
+    wait_ok = eq wait_status, SA_PROCESS_OK
+    code_ok = eq code, 0
+    wait_all = and wait_ok, code_ok
+    EXPAND PROCESS_CLOSE close_status, process
+    close_ok = eq close_status, SA_PROCESS_OK
+    wait_close = and wait_all, close_ok
+    br wait_close -> L_ARG0_BUILD, L_FAIL_WAIT
+
+L_FAIL_WAIT:
+    !wait_close
+    !close_ok
+    !close_status
+    !wait_all
+    !code_ok
+    !wait_ok
+    !code
+    !wait_status
+    !spawn_ok
+    !process_ok
+    !status_ok
+    !process
+    !status
+    !zero_cfg
+    !zero_setsid
+    !zero_has_pgroup
+    !zero_has_arg0
+    !zero_has_cwd
+    !setsid0
+    !has_pgroup0
+    !pgroup0
+    !has_arg00
+    !arg0_len0
+    !has_cwd0
+    !cwd_len0
+    panic(1075)
+
+L_ARG0_BUILD:
+    !wait_close
+    !close_ok
+    !close_status
+    !wait_all
+    !code_ok
+    !wait_ok
+    !code
+    !wait_status
+    !spawn_ok
+    !process_ok
+    !status_ok
+    !process
+    !status
+    !zero_cfg
+    !zero_setsid
+    !zero_has_pgroup
+    !zero_has_arg0
+    !zero_has_cwd
+    !setsid0
+    !has_pgroup0
+    !pgroup0
+    !has_arg00
+    !arg0_len0
+    !has_cwd0
+    !cwd_len0
+
+    argv3 = stack_alloc SH_ARGV3_SIZE
+    EXPAND PROCESS_ARGV_SET_CONST argv3, 0, SH_BIN, SH_BIN_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv3, 1, SH_FLAG, SH_FLAG_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv3, 2, ARG0_CMD, ARG0_CMD_LEN
+    EXPAND PROCESS_COMMAND_BUILDER_NEW cwd_len1, has_cwd1, arg0_len1, has_arg01, pgroup1, has_pgroup1, setsid1
+    EXPAND PROCESS_COMMAND_BUILDER_WITH_ARG0 cwd_len2, has_cwd2, arg0_len2, has_arg02, pgroup2, has_pgroup2, setsid2, cwd_len1, has_cwd1, arg0_len1, has_arg01, pgroup1, has_pgroup1, setsid1, CUSTOM_ARG0_LEN
+    has_arg0_ok = eq has_arg02, 1
+    arg0_len_ok = eq arg0_len2, CUSTOM_ARG0_LEN
+    arg0_cfg = and has_arg0_ok, arg0_len_ok
+    br arg0_cfg -> L_ARG0_STATUS, L_FAIL_ARG0_CFG
+
+L_FAIL_ARG0_CFG:
+    !arg0_cfg
+    !arg0_len_ok
+    !has_arg0_ok
+    !setsid2
+    !has_pgroup2
+    !pgroup2
+    !has_arg02
+    !arg0_len2
+    !has_cwd2
+    !cwd_len2
+    panic(1076)
+
+L_ARG0_STATUS:
+    EXPAND PROCESS_COMMAND_BUILDER_STATUS arg0_status, arg0_process, argv3, 3, dummy_cwd, cwd_len2, has_cwd2, CUSTOM_ARG0, arg0_len2, has_arg02, pgroup2, has_pgroup2, setsid2
+    arg0_status_ok = eq arg0_status, SA_PROCESS_OK
+    arg0_process_ok = ne arg0_process, 0
+    arg0_spawn_ok = and arg0_status_ok, arg0_process_ok
+    br arg0_spawn_ok -> L_ARG0_WAIT, L_FAIL_ARG0_STATUS
+
+L_FAIL_ARG0_STATUS:
+    !arg0_spawn_ok
+    !arg0_process_ok
+    !arg0_status_ok
+    !arg0_process
+    !arg0_status
+    !arg0_cfg
+    !arg0_len_ok
+    !has_arg0_ok
+    !setsid2
+    !has_pgroup2
+    !pgroup2
+    !has_arg02
+    !arg0_len2
+    !has_cwd2
+    !cwd_len2
+    panic(1077)
+
+L_ARG0_WAIT:
+    EXPAND PROCESS_WAIT arg0_wait_status, arg0_code, arg0_process
+    arg0_wait_ok = eq arg0_wait_status, SA_PROCESS_OK
+    arg0_code_ok = eq arg0_code, 0
+    arg0_wait_all = and arg0_wait_ok, arg0_code_ok
+    EXPAND PROCESS_CLOSE arg0_close_status, arg0_process
+    arg0_close_ok = eq arg0_close_status, SA_PROCESS_OK
+    arg0_done = and arg0_wait_all, arg0_close_ok
+    br arg0_done -> L_PASS, L_FAIL_ARG0_WAIT
+
+L_FAIL_ARG0_WAIT:
+    !arg0_done
+    !arg0_close_ok
+    !arg0_close_status
+    !arg0_wait_all
+    !arg0_code_ok
+    !arg0_wait_ok
+    !arg0_code
+    !arg0_wait_status
+    !arg0_spawn_ok
+    !arg0_process_ok
+    !arg0_status_ok
+    !arg0_process
+    !arg0_status
+    !arg0_cfg
+    !arg0_len_ok
+    !has_arg0_ok
+    !setsid2
+    !has_pgroup2
+    !pgroup2
+    !has_arg02
+    !arg0_len2
+    !has_cwd2
+    !cwd_len2
+    panic(1078)
+
+L_PASS:
+    !arg0_done
+    !arg0_close_ok
+    !arg0_close_status
+    !arg0_wait_all
+    !arg0_code_ok
+    !arg0_wait_ok
+    !arg0_code
+    !arg0_wait_status
+    !arg0_spawn_ok
+    !arg0_process_ok
+    !arg0_status_ok
+    !arg0_process
+    !arg0_status
+    !arg0_cfg
+    !arg0_len_ok
+    !has_arg0_ok
+    !setsid2
+    !has_pgroup2
+    !pgroup2
+    !has_arg02
+    !arg0_len2
+    !has_cwd2
+    !cwd_len2
+    return
+
+@test "sa_std process command builder output macros"():
+L_ENTRY:
+    argv = stack_alloc TRUE_ARGV2_SIZE
+    EXPAND PROCESS_ARGV_SET_CONST argv, 0, TRUE_BIN, TRUE_BIN_LEN
+    EXPAND PROCESS_ARGV_SET_CONST argv, 1, TRUE_ARG, TRUE_ARG_LEN
+    dummy_cwd = stack_alloc 1
+    dummy_arg0 = stack_alloc 1
+    output = stack_alloc ProcessOutput_SIZE
+
+    EXPAND PROCESS_COMMAND_BUILDER_NEW cwd_len0, has_cwd0, arg0_len0, has_arg00, pgroup0, has_pgroup0, setsid0
+    EXPAND PROCESS_COMMAND_BUILDER_OUTPUT capture_status, output, argv, 2, dummy_cwd, cwd_len0, has_cwd0, dummy_arg0, arg0_len0, has_arg00, pgroup0, has_pgroup0, setsid0
+    EXPAND PROCESS_STATUS_IS_OK capture_ok, capture_status
+    br capture_ok -> L_CAPTURE_OK, L_FAIL_CAPTURE
+
+L_FAIL_CAPTURE:
+    !capture_ok
+    !capture_status
+    !setsid0
+    !has_pgroup0
+    !pgroup0
+    !has_arg00
+    !arg0_len0
+    !has_cwd0
+    !cwd_len0
+    panic(1079)
+
+L_CAPTURE_OK:
+    EXPAND PROCESS_OUTPUT_STATUS_PTR output_status_ptr, output
+    EXPAND PROCESS_EXIT_STATUS_CODE output_code, output_status_ptr
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS output_exit_ok, output_status_ptr
+    EXPAND PROCESS_OUTPUT_STDOUT_LEN stdout_len, output
+    EXPAND PROCESS_OUTPUT_STDERR_LEN stderr_len, output
+    EXPAND PROCESS_OUTPUT_FREE free_status, output
+    EXPAND PROCESS_STATUS_IS_OK free_ok, free_status
+
+    code_ok = eq output_code, 0
+    stdout_ok = eq stdout_len, 0
+    stderr_ok = eq stderr_len, 0
+    ok = and capture_ok, output_exit_ok
+    ok = and ok, code_ok
+    ok = and ok, stdout_ok
+    ok = and ok, stderr_ok
+    ok = and ok, free_ok
+
+    !capture_status
+    !capture_ok
+    !output_status_ptr
+    !output_code
+    !output_exit_ok
+    !stdout_len
+    !stderr_len
+    !free_status
+    !free_ok
+    !code_ok
+    !stdout_ok
+    !stderr_ok
+    !setsid0
+    !has_pgroup0
+    !pgroup0
+    !has_arg00
+    !arg0_len0
+    !has_cwd0
+    !cwd_len0
+    br ok -> L_PASS, L_FAIL_CHECK
+
+L_FAIL_CHECK:
+    !ok
+    panic(1080)
+
+L_PASS:
+    !ok
+    return
+
+
+
+@test "sa_std process pid/ppid aliases"():
+L_ENTRY:
+    EXPAND PROCESS_ID id0
+    EXPAND PROCESS_PID id1
+    EXPAND PROCESS_PARENT_ID parent0
+    EXPAND PROCESS_PPID parent1
+
+    ok_id = ne id0, 0
+    ok_id_eq = eq id0, id1
+    ok_parent = ne parent0, 0
+    ok_parent_eq = eq parent0, parent1
+    ok01 = and ok_id, ok_id_eq
+    ok02 = and ok01, ok_parent
+    ok = and ok02, ok_parent_eq
+
+    !id0
+    !id1
+    !parent0
+    !parent1
+    !ok_id
+    !ok_id_eq
+    !ok_parent
+    !ok_parent_eq
+    !ok01
+    !ok02
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10419)
+
+L_PASS:
+    !ok
+    return
+
+
+@test "sa_std process uid/gid aliases"():
+L_ENTRY:
+    EXPAND PROCESS_USER_ID uid0
+    EXPAND PROCESS_UID uid1
+    EXPAND PROCESS_GROUP_ID gid0
+    EXPAND PROCESS_GID gid1
+
+    ok_uid_eq = eq uid0, uid1
+    ok_gid_eq = eq gid0, gid1
+    ok = and ok_uid_eq, ok_gid_eq
+
+    !uid0
+    !uid1
+    !gid0
+    !gid1
+    !ok_uid_eq
+    !ok_gid_eq
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10422)
+
+L_PASS:
+    !ok
+    return
+
+
+@test "sa_std process exit_code alias"():
+L_ENTRY:
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 0
+    EXPAND PROCESS_EXIT_STATUS_CODE code0, exit_status
+    EXPAND PROCESS_EXIT_CODE code1, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS ok0, exit_status
+    ok_code = eq code0, code1
+    ok_zero = eq code1, 0
+    ok01 = and ok_code, ok_zero
+    ok = and ok01, ok0
+    !code0
+    !code1
+    !ok0
+    !ok_code
+    !ok_zero
+    !ok01
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10443)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std process success alias"():
+L_ENTRY:
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 0
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS ok0, exit_status
+    EXPAND PROCESS_SUCCESS ok1, exit_status
+    ok_eq = eq ok0, ok1
+    ok_true = eq ok1, 1
+    ok = and ok_eq, ok_true
+    !ok0
+    !ok1
+    !ok_eq
+    !ok_true
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10445)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std process is_success/code/output_status aliases"():
+L_ENTRY:
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    output = stack_alloc ProcessOutput_SIZE
+    EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 0
+    EXPAND PROCESS_IS_SUCCESS ok0, exit_status
+    EXPAND PROCESS_CODE code0, exit_status
+    EXPAND PROCESS_OUTPUT_NEW output, exit_status, 1, 2
+    EXPAND PROCESS_OUTPUT_STATUS st_ptr, output
+    EXPAND PROCESS_OUTPUT_STATUS_PTR st_ptr2, output
+    EXPAND PROCESS_CODE code1, st_ptr
+    EXPAND PROCESS_IS_SUCCESS ok1, st_ptr
+    ok_eq_ptr = eq st_ptr, st_ptr2
+    ok_ok0 = eq ok0, 1
+    ok_code0 = eq code0, 0
+    ok_code1 = eq code1, 0
+    ok_ok1 = eq ok1, 1
+    ok01 = and ok_eq_ptr, ok_ok0
+    ok02 = and ok01, ok_code0
+    ok03 = and ok02, ok_code1
+    ok = and ok03, ok_ok1
+    !ok0
+    !code0
+    !st_ptr
+    !st_ptr2
+    !code1
+    !ok1
+    !ok_eq_ptr
+    !ok_ok0
+    !ok_code0
+    !ok_code1
+    !ok_ok1
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10448)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std process output success/code aliases"():
+L_ENTRY:
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    output = stack_alloc ProcessOutput_SIZE
+    EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 0
+    EXPAND PROCESS_OUTPUT_NEW output, exit_status, 1, 2
+    EXPAND PROCESS_OUTPUT_SUCCESS ok0, output
+    EXPAND PROCESS_OUTPUT_CODE code0, output
+    EXPAND PROCESS_EXIT_STATUS_NEW exit_status, 7
+    EXPAND PROCESS_OUTPUT_NEW output, exit_status, 1, 2
+    EXPAND PROCESS_OUTPUT_SUCCESS ok1, output
+    EXPAND PROCESS_OUTPUT_CODE code1, output
+
+    ok_ok0 = eq ok0, 1
+    ok_code0 = eq code0, 0
+    ok_ok1 = eq ok1, 0
+    ok_code1 = eq code1, 7
+    ok01 = and ok_ok0, ok_code0
+    ok02 = and ok01, ok_ok1
+    ok = and ok02, ok_code1
+
+    !ok0
+    !code0
+    !ok1
+    !code1
+    !ok_ok0
+    !ok_code0
+    !ok_ok1
+    !ok_code1
+    !ok01
+    !ok02
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10451)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std process exit_status default helper"():
+L_ENTRY:
+    exit_status = stack_alloc ProcessExitStatus_SIZE
+    EXPAND PROCESS_EXIT_STATUS_DEFAULT exit_status
+    EXPAND PROCESS_EXIT_STATUS_CODE code, exit_status
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS ok_success, exit_status
+    ok_code = eq code, 0
+    ok_true = eq ok_success, 1
+    ok = and ok_code, ok_true
+    !code
+    !ok_success
+    !ok_code
+    !ok_true
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10456)
+L_OK:
+    !ok
+    return

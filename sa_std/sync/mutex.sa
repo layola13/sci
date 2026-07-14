@@ -74,3 +74,7 @@ L_MUTEX_LOCK_DONE:
 [MACRO] MUTEX_FORCE_UNLOCKED %lock_ptr
     atomic_store %lock_ptr+Mutex_lock, 0 as u64 release
 [END_MACRO]
+
+[MACRO] MUTEX_DEFAULT %out_mutex
+    EXPAND MUTEX_NEW %out_mutex
+[END_MACRO]

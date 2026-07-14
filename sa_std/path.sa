@@ -4,6 +4,7 @@
 @import "core/slice.sa"
 @import "fs.sa"
 @import "string.sa"
+@import "os/unix_ffi.sa"
 
 @const PATH_SEPARATOR = utf8:"/"
 
@@ -1989,4 +1990,917 @@ L_PATH_ANCESTOR_MISS_%out_ok:
     !__path_ancestor_components_%out_ok
 
 L_PATH_ANCESTOR_END_%out_ok:
+[END_MACRO]
+
+
+// Concrete owned PathBuf facade over StringBuf / Vec-u8 storage.
+// Path queries reuse the existing PATH_* Slice helpers via PATH_BUF_AS_PATH.
+
+[MACRO] PATH_BUF_NEW %out_path_buf
+    EXPAND STRING_BUF_NEW %out_path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_DEFAULT %out_path_buf
+    EXPAND PATH_BUF_NEW %out_path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_WITH_CAPACITY %out_path_buf, %capacity
+    EXPAND STRING_BUF_WITH_CAPACITY %out_path_buf, %capacity
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_WITH_CAPACITY %out_ok, %out_path_buf, %capacity
+    EXPAND STRING_BUF_TRY_WITH_CAPACITY %out_ok, %out_path_buf, %capacity
+[END_MACRO]
+
+[MACRO] PATH_BUF_FROM_PATH %out_path_buf, %path_slice
+    EXPAND STRING_BUF_FROM_STR %out_path_buf, %path_slice
+[END_MACRO]
+
+[MACRO] PATH_BUF_FROM_STR %out_path_buf, %path_slice
+    EXPAND PATH_BUF_FROM_PATH %out_path_buf, %path_slice
+[END_MACRO]
+
+[MACRO] PATH_BUF_FREE %path_buf
+    EXPAND STRING_BUF_FREE %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_CLEAR %path_buf
+    EXPAND STRING_BUF_CLEAR %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_LEN %out_len, %path_buf
+    EXPAND STRING_BUF_LEN %out_len, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_CAPACITY %out_cap, %path_buf
+    EXPAND STRING_BUF_CAPACITY %out_cap, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_IS_EMPTY %out_bool, %path_buf
+    EXPAND STRING_BUF_IS_EMPTY %out_bool, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_RESERVE %path_buf, %additional
+    EXPAND STRING_BUF_RESERVE %path_buf, %additional
+[END_MACRO]
+
+[MACRO] PATH_BUF_CLONE %out_path_buf, %path_buf
+    EXPAND STRING_BUF_CLONE %out_path_buf, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_AS_PATH %out_slice, %path_buf
+    EXPAND STRING_BUF_AS_STR %out_slice, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_AS_STR %out_slice, %path_buf
+    EXPAND PATH_BUF_AS_PATH %out_slice, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_PUSH %path_buf, %child_slice
+    EXPAND PATH_BUF_AS_PATH __pb_push_view_%path_buf, %path_buf
+    EXPAND PATH_JOIN __pb_push_joined_%path_buf, __pb_push_view_%path_buf, %child_slice
+    EXPAND STRING_BUF_FROM_STR __pb_push_tmp_%path_buf, __pb_push_joined_%path_buf
+    EXPAND STRING_BUF_CLONE_FROM %path_buf, __pb_push_tmp_%path_buf
+    EXPAND STRING_BUF_FREE __pb_push_tmp_%path_buf
+    !__pb_push_joined_%path_buf
+    !__pb_push_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_POP %out_ok, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_pop_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_PARENT __pb_pop_has_%out_ok, __pb_pop_parent_%out_ok, __pb_pop_view_%out_ok
+    br __pb_pop_has_%out_ok -> L_PB_POP_APPLY_%out_ok, L_PB_POP_FAIL_%out_ok
+
+L_PB_POP_APPLY_%out_ok:
+    EXPAND STRING_BUF_CLEAR %path_buf
+    EXPAND STRING_BUF_PUSH_STR %path_buf, __pb_pop_parent_%out_ok
+    %out_ok = add 0, 1
+    !__pb_pop_parent_%out_ok
+    !__pb_pop_has_%out_ok
+    !__pb_pop_view_%out_ok
+    jmp L_PB_POP_END_%out_ok
+
+L_PB_POP_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__pb_pop_parent_%out_ok
+    !__pb_pop_has_%out_ok
+    !__pb_pop_view_%out_ok
+    jmp L_PB_POP_END_%out_ok
+
+L_PB_POP_END_%out_ok:
+[END_MACRO]
+
+[MACRO] PATH_BUF_SET_FILE_NAME %path_buf, %file_name_slice
+    EXPAND STRING_BUF_AS_STR __pb_set_name_view_%path_buf, %path_buf
+    EXPAND PATH_WITH_FILE_NAME __pb_set_name_new_%path_buf, __pb_set_name_view_%path_buf, %file_name_slice
+    EXPAND STRING_BUF_CLEAR %path_buf
+    EXPAND STRING_BUF_PUSH_STR %path_buf, __pb_set_name_new_%path_buf
+    !__pb_set_name_new_%path_buf
+    !__pb_set_name_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_SET_EXTENSION %path_buf, %extension_slice
+    EXPAND STRING_BUF_AS_STR __pb_set_ext_view_%path_buf, %path_buf
+    EXPAND PATH_WITH_EXTENSION __pb_set_ext_new_%path_buf, __pb_set_ext_view_%path_buf, %extension_slice
+    EXPAND STRING_BUF_CLEAR %path_buf
+    EXPAND STRING_BUF_PUSH_STR %path_buf, __pb_set_ext_new_%path_buf
+    !__pb_set_ext_new_%path_buf
+    !__pb_set_ext_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_PUSH_TRAILING_SEPARATOR %path_buf
+    EXPAND STRING_BUF_AS_STR __pb_trail_view_%path_buf, %path_buf
+    EXPAND PATH_WITH_TRAILING_SEPARATOR __pb_trail_new_%path_buf, __pb_trail_view_%path_buf
+    EXPAND STRING_BUF_CLEAR %path_buf
+    EXPAND STRING_BUF_PUSH_STR %path_buf, __pb_trail_new_%path_buf
+    !__pb_trail_new_%path_buf
+    !__pb_trail_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_EXISTS %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_exists_view_%path_buf, %path_buf
+    EXPAND PATH_EXISTS %out_flag, __pb_exists_view_%path_buf
+    !__pb_exists_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_IS_FILE %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_is_file_view_%path_buf, %path_buf
+    EXPAND PATH_IS_FILE %out_flag, __pb_is_file_view_%path_buf
+    !__pb_is_file_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_IS_DIR %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_is_dir_view_%path_buf, %path_buf
+    EXPAND PATH_IS_DIR %out_flag, __pb_is_dir_view_%path_buf
+    !__pb_is_dir_view_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_CAPACITY_REMAINING %out_remaining, %path_buf
+    EXPAND STRING_BUF_CAPACITY_REMAINING %out_remaining, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_REMAINING_CAPACITY %out_remaining, %path_buf
+    EXPAND PATH_BUF_CAPACITY_REMAINING %out_remaining, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_EXTRA_CAPACITY %out_remaining, %path_buf
+    EXPAND PATH_BUF_CAPACITY_REMAINING %out_remaining, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_LIT1 %out_path_buf, %s0
+    EXPAND PATH_BUF_FROM_PATH %out_path_buf, %s0
+[END_MACRO]
+
+[MACRO] PATH_BUF_LIT2 %out_path_buf, %s0, %s1
+    EXPAND PATH_BUF_FROM_PATH %out_path_buf, %s0
+    EXPAND PATH_BUF_PUSH %out_path_buf, %s1
+[END_MACRO]
+
+[MACRO] PATH_BUF_LIT3 %out_path_buf, %s0, %s1, %s2
+    EXPAND PATH_BUF_FROM_PATH %out_path_buf, %s0
+    EXPAND PATH_BUF_PUSH %out_path_buf, %s1
+    EXPAND PATH_BUF_PUSH %out_path_buf, %s2
+[END_MACRO]
+
+// PathBuf <-> OsString/OsStr concrete Unix byte-buffer conversions.
+
+[MACRO] PATH_BUF_AS_OS_STR %out_os_str, %path_buf
+    EXPAND PATH_BUF_AS_PATH %out_os_str, %path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_FROM_OS_STR %out_path_buf, %os_str
+    EXPAND OS_STR_AS_BYTES __pb_from_os_str_bytes_%out_path_buf, %os_str
+    EXPAND PATH_BUF_FROM_PATH %out_path_buf, __pb_from_os_str_bytes_%out_path_buf
+    !__pb_from_os_str_bytes_%out_path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_FROM_OS_STRING %out_path_buf, %os_string
+    EXPAND OS_STRING_AS_SLICE __pb_from_os_string_bytes_%out_path_buf, %os_string
+    EXPAND PATH_BUF_FROM_PATH %out_path_buf, __pb_from_os_string_bytes_%out_path_buf
+    !__pb_from_os_string_bytes_%out_path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_INTO_OS_STRING %out_os_string, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_into_os_string_view_%out_os_string, %path_buf
+    EXPAND OS_STRING_FROM_STR %out_os_string, __pb_into_os_string_view_%out_os_string
+    !__pb_into_os_string_view_%out_os_string
+[END_MACRO]
+
+[MACRO] PATH_BUF_INTO_OS_STRING_MOVE %out_os_string, %path_buf
+    EXPAND PATH_BUF_INTO_OS_STRING %out_os_string, %path_buf
+    EXPAND PATH_BUF_FREE %path_buf
+[END_MACRO]
+
+// PathBuf query/component aliases over PATH_BUF_AS_PATH + existing PATH_* helpers.
+
+[MACRO] PATH_BUF_IS_ABSOLUTE %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_is_abs_view_%out_flag, %path_buf
+    EXPAND PATH_IS_ABSOLUTE %out_flag, __pb_is_abs_view_%out_flag
+    !__pb_is_abs_view_%out_flag
+[END_MACRO]
+
+[MACRO] PATH_BUF_IS_RELATIVE %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_is_rel_view_%out_flag, %path_buf
+    EXPAND PATH_IS_RELATIVE %out_flag, __pb_is_rel_view_%out_flag
+    !__pb_is_rel_view_%out_flag
+[END_MACRO]
+
+[MACRO] PATH_BUF_HAS_ROOT %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_has_root_view_%out_flag, %path_buf
+    EXPAND PATH_HAS_ROOT %out_flag, __pb_has_root_view_%out_flag
+    !__pb_has_root_view_%out_flag
+[END_MACRO]
+
+[MACRO] PATH_BUF_COMPONENT_COUNT %out_count, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_comp_count_view_%out_count, %path_buf
+    EXPAND PATH_COMPONENT_COUNT %out_count, __pb_comp_count_view_%out_count
+    !__pb_comp_count_view_%out_count
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_COMPONENT_AT %out_ok, %out_slice, %path_buf, %component_index
+    EXPAND PATH_BUF_AS_PATH __pb_comp_at_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_COMPONENT_AT %out_ok, %out_slice, __pb_comp_at_view_%out_ok, %component_index
+    !__pb_comp_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] PATH_BUF_ANCESTOR_COUNT %out_count, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_anc_count_view_%out_count, %path_buf
+    EXPAND PATH_ANCESTOR_COUNT %out_count, __pb_anc_count_view_%out_count
+    !__pb_anc_count_view_%out_count
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_ANCESTOR_AT %out_ok, %out_slice, %path_buf, %ancestor_index
+    EXPAND PATH_BUF_AS_PATH __pb_anc_at_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_ANCESTOR_AT %out_ok, %out_slice, __pb_anc_at_view_%out_ok, %ancestor_index
+    !__pb_anc_at_view_%out_ok
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_PARENT %out_ok, %out_slice, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_try_parent_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_PARENT %out_ok, %out_slice, __pb_try_parent_view_%out_ok
+    !__pb_try_parent_view_%out_ok
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_FILE_NAME %out_ok, %out_slice, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_try_file_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_FILE_NAME %out_ok, %out_slice, __pb_try_file_view_%out_ok
+    !__pb_try_file_view_%out_ok
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_FILE_STEM %out_ok, %out_slice, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_try_stem_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_FILE_STEM %out_ok, %out_slice, __pb_try_stem_view_%out_ok
+    !__pb_try_stem_view_%out_ok
+[END_MACRO]
+
+[MACRO] PATH_BUF_TRY_EXTENSION %out_ok, %out_slice, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_try_ext_view_%out_ok, %path_buf
+    EXPAND PATH_TRY_EXTENSION %out_ok, %out_slice, __pb_try_ext_view_%out_ok
+    !__pb_try_ext_view_%out_ok
+[END_MACRO]
+
+// PathBuf-to-PathBuf push/join convenience over AS_PATH + PUSH.
+
+[MACRO] PATH_BUF_PUSH_PATH_BUF %path_buf, %child_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_push_pb_child_%path_buf, %child_path_buf
+    EXPAND PATH_BUF_PUSH %path_buf, __pb_push_pb_child_%path_buf
+    !__pb_push_pb_child_%path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_JOIN %path_buf, %child_slice
+    EXPAND PATH_BUF_PUSH %path_buf, %child_slice
+[END_MACRO]
+
+[MACRO] PATH_BUF_JOIN_PATH_BUF %path_buf, %child_path_buf
+    EXPAND PATH_BUF_PUSH_PATH_BUF %path_buf, %child_path_buf
+[END_MACRO]
+
+[MACRO] PATH_BUF_CLONE_FROM %dst_path_buf, %src_path_buf
+    EXPAND STRING_BUF_CLONE_FROM %dst_path_buf, %src_path_buf
+[END_MACRO]
+
+
+// PathBuf filesystem query/mutation aliases over AS_PATH + PATH_* helpers.
+
+[MACRO] PATH_BUF_TRY_EXISTS %out_status, %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_try_exists_view_%out_status, %path_buf
+    EXPAND PATH_TRY_EXISTS %out_status, %out_flag, __pb_try_exists_view_%out_status
+    !__pb_try_exists_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_METADATA %out_status, %out_metadata, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_metadata_view_%out_status, %path_buf
+    EXPAND PATH_METADATA %out_status, %out_metadata, __pb_metadata_view_%out_status
+    !__pb_metadata_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CANONICALIZE %out_status, %out_buffer, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_canon_view_%out_status, %path_buf
+    EXPAND PATH_CANONICALIZE %out_status, %out_buffer, __pb_canon_view_%out_status
+    !__pb_canon_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_READ_LINK %out_status, %out_buffer, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_read_link_view_%out_status, %path_buf
+    EXPAND PATH_READ_LINK %out_status, %out_buffer, __pb_read_link_view_%out_status
+    !__pb_read_link_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_IS_SYMLINK %out_flag, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_is_symlink_view_%out_flag, %path_buf
+    EXPAND PATH_IS_SYMLINK %out_flag, __pb_is_symlink_view_%out_flag
+    !__pb_is_symlink_view_%out_flag
+[END_MACRO]
+
+// Slice-path filesystem operation aliases over FS_* ptr/len helpers.
+
+[MACRO] PATH_OPEN_READ %out_status, %out_file, %path_slice
+    __path_open_read_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_open_read_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_OPEN_READ %out_status, %out_file, __path_open_read_ptr_%out_status, __path_open_read_len_%out_status
+    !__path_open_read_len_%out_status
+    !__path_open_read_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_OPEN_WRITE %out_status, %out_file, %path_slice, %truncate
+    __path_open_write_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_open_write_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_OPEN_WRITE %out_status, %out_file, __path_open_write_ptr_%out_status, __path_open_write_len_%out_status, %truncate
+    !__path_open_write_len_%out_status
+    !__path_open_write_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CREATE %out_status, %out_file, %path_slice
+    __path_create_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_create_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_CREATE %out_status, %out_file, __path_create_ptr_%out_status, __path_create_len_%out_status
+    !__path_create_len_%out_status
+    !__path_create_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_READ_FILE %out_status, %out_buffer, %path_slice, %max_bytes
+    __path_read_file_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_read_file_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_READ_FILE %out_status, %out_buffer, __path_read_file_ptr_%out_status, __path_read_file_len_%out_status, %max_bytes
+    !__path_read_file_len_%out_status
+    !__path_read_file_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_WRITE_FILE %out_status, %path_slice, %buf, %len
+    __path_write_file_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_write_file_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_WRITE_FILE %out_status, __path_write_file_ptr_%out_status, __path_write_file_len_%out_status, %buf, %len
+    !__path_write_file_len_%out_status
+    !__path_write_file_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_REMOVE_FILE %out_status, %path_slice
+    __path_remove_file_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_remove_file_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_REMOVE_FILE %out_status, __path_remove_file_ptr_%out_status, __path_remove_file_len_%out_status
+    !__path_remove_file_len_%out_status
+    !__path_remove_file_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_REMOVE_DIR %out_status, %path_slice
+    __path_remove_dir_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_remove_dir_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_REMOVE_DIR %out_status, __path_remove_dir_ptr_%out_status, __path_remove_dir_len_%out_status
+    !__path_remove_dir_len_%out_status
+    !__path_remove_dir_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CREATE_DIR %out_status, %path_slice
+    __path_create_dir_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_create_dir_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_CREATE_DIR %out_status, __path_create_dir_ptr_%out_status, __path_create_dir_len_%out_status
+    !__path_create_dir_len_%out_status
+    !__path_create_dir_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_COPY %out_status, %from_slice, %to_slice
+    __path_copy_from_ptr_%out_status = load %from_slice+Slice_ptr as ptr
+    __path_copy_from_len_%out_status = load %from_slice+Slice_len as u64
+    __path_copy_to_ptr_%out_status = load %to_slice+Slice_ptr as ptr
+    __path_copy_to_len_%out_status = load %to_slice+Slice_len as u64
+    EXPAND FS_COPY %out_status, __path_copy_from_ptr_%out_status, __path_copy_from_len_%out_status, __path_copy_to_ptr_%out_status, __path_copy_to_len_%out_status
+    !__path_copy_to_len_%out_status
+    !__path_copy_to_ptr_%out_status
+    !__path_copy_from_len_%out_status
+    !__path_copy_from_ptr_%out_status
+[END_MACRO]
+
+// PathBuf filesystem operation aliases over AS_PATH + PATH_* helpers.
+
+[MACRO] PATH_BUF_OPEN_READ %out_status, %out_file, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_open_read_view_%out_status, %path_buf
+    EXPAND PATH_OPEN_READ %out_status, %out_file, __pb_open_read_view_%out_status
+    !__pb_open_read_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_OPEN_WRITE %out_status, %out_file, %path_buf, %truncate
+    EXPAND PATH_BUF_AS_PATH __pb_open_write_view_%out_status, %path_buf
+    EXPAND PATH_OPEN_WRITE %out_status, %out_file, __pb_open_write_view_%out_status, %truncate
+    !__pb_open_write_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CREATE %out_status, %out_file, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_create_view_%out_status, %path_buf
+    EXPAND PATH_CREATE %out_status, %out_file, __pb_create_view_%out_status
+    !__pb_create_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_READ_FILE %out_status, %out_buffer, %path_buf, %max_bytes
+    EXPAND PATH_BUF_AS_PATH __pb_read_file_view_%out_status, %path_buf
+    EXPAND PATH_READ_FILE %out_status, %out_buffer, __pb_read_file_view_%out_status, %max_bytes
+    !__pb_read_file_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_WRITE_FILE %out_status, %path_buf, %buf, %len
+    EXPAND PATH_BUF_AS_PATH __pb_write_file_view_%out_status, %path_buf
+    EXPAND PATH_WRITE_FILE %out_status, __pb_write_file_view_%out_status, %buf, %len
+    !__pb_write_file_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_REMOVE_FILE %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_remove_file_view_%out_status, %path_buf
+    EXPAND PATH_REMOVE_FILE %out_status, __pb_remove_file_view_%out_status
+    !__pb_remove_file_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CREATE_DIR %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_create_dir_view_%out_status, %path_buf
+    EXPAND PATH_CREATE_DIR %out_status, __pb_create_dir_view_%out_status
+    !__pb_create_dir_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_REMOVE_DIR %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_remove_dir_view_%out_status, %path_buf
+    EXPAND PATH_REMOVE_DIR %out_status, __pb_remove_dir_view_%out_status
+    !__pb_remove_dir_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_COPY %out_status, %from_path_buf, %to_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_copy_from_view_%out_status, %from_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_copy_to_view_%out_status, %to_path_buf
+    EXPAND PATH_COPY %out_status, __pb_copy_from_view_%out_status, __pb_copy_to_view_%out_status
+    !__pb_copy_to_view_%out_status
+    !__pb_copy_from_view_%out_status
+[END_MACRO]
+
+// Additional Path filesystem operation aliases over FS_* helpers.
+
+[MACRO] PATH_READ_TO_STRING %out_status, %out_buffer, %path_slice, %max_bytes
+    __path_read_to_string_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_read_to_string_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_READ_TO_STRING %out_status, %out_buffer, __path_read_to_string_ptr_%out_status, __path_read_to_string_len_%out_status, %max_bytes
+    !__path_read_to_string_len_%out_status
+    !__path_read_to_string_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CREATE_DIR_ALL %out_status, %path_slice
+    __path_create_dir_all_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_create_dir_all_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_CREATE_DIR_ALL %out_status, __path_create_dir_all_ptr_%out_status, __path_create_dir_all_len_%out_status
+    !__path_create_dir_all_len_%out_status
+    !__path_create_dir_all_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_REMOVE_DIR_ALL %out_status, %path_slice
+    __path_remove_dir_all_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_remove_dir_all_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_REMOVE_DIR_ALL %out_status, __path_remove_dir_all_ptr_%out_status, __path_remove_dir_all_len_%out_status
+    !__path_remove_dir_all_len_%out_status
+    !__path_remove_dir_all_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_RENAME %out_status, %from_slice, %to_slice
+    __path_rename_from_ptr_%out_status = load %from_slice+Slice_ptr as ptr
+    __path_rename_from_len_%out_status = load %from_slice+Slice_len as u64
+    __path_rename_to_ptr_%out_status = load %to_slice+Slice_ptr as ptr
+    __path_rename_to_len_%out_status = load %to_slice+Slice_len as u64
+    EXPAND FS_RENAME %out_status, __path_rename_from_ptr_%out_status, __path_rename_from_len_%out_status, __path_rename_to_ptr_%out_status, __path_rename_to_len_%out_status
+    !__path_rename_to_len_%out_status
+    !__path_rename_to_ptr_%out_status
+    !__path_rename_from_len_%out_status
+    !__path_rename_from_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_HARD_LINK %out_status, %from_slice, %to_slice
+    __path_hard_link_from_ptr_%out_status = load %from_slice+Slice_ptr as ptr
+    __path_hard_link_from_len_%out_status = load %from_slice+Slice_len as u64
+    __path_hard_link_to_ptr_%out_status = load %to_slice+Slice_ptr as ptr
+    __path_hard_link_to_len_%out_status = load %to_slice+Slice_len as u64
+    EXPAND FS_HARD_LINK %out_status, __path_hard_link_from_ptr_%out_status, __path_hard_link_from_len_%out_status, __path_hard_link_to_ptr_%out_status, __path_hard_link_to_len_%out_status
+    !__path_hard_link_to_len_%out_status
+    !__path_hard_link_to_ptr_%out_status
+    !__path_hard_link_from_len_%out_status
+    !__path_hard_link_from_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_SYMLINK %out_status, %target_slice, %link_slice
+    __path_symlink_target_ptr_%out_status = load %target_slice+Slice_ptr as ptr
+    __path_symlink_target_len_%out_status = load %target_slice+Slice_len as u64
+    __path_symlink_link_ptr_%out_status = load %link_slice+Slice_ptr as ptr
+    __path_symlink_link_len_%out_status = load %link_slice+Slice_len as u64
+    EXPAND FS_SYMLINK %out_status, __path_symlink_target_ptr_%out_status, __path_symlink_target_len_%out_status, __path_symlink_link_ptr_%out_status, __path_symlink_link_len_%out_status
+    !__path_symlink_link_len_%out_status
+    !__path_symlink_link_ptr_%out_status
+    !__path_symlink_target_len_%out_status
+    !__path_symlink_target_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_SET_PERMISSIONS %out_status, %path_slice, %mode
+    __path_set_perm_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_set_perm_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_SET_PERMISSIONS %out_status, __path_set_perm_ptr_%out_status, __path_set_perm_len_%out_status, %mode
+    !__path_set_perm_len_%out_status
+    !__path_set_perm_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_SET_TIMES_MS %out_status, %path_slice, %accessed_ms, %modified_ms
+    __path_set_times_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_set_times_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_SET_TIMES_MS %out_status, __path_set_times_ptr_%out_status, __path_set_times_len_%out_status, %accessed_ms, %modified_ms
+    !__path_set_times_len_%out_status
+    !__path_set_times_ptr_%out_status
+[END_MACRO]
+
+// PathBuf wrappers for the additional Path filesystem operations.
+
+[MACRO] PATH_BUF_READ_TO_STRING %out_status, %out_buffer, %path_buf, %max_bytes
+    EXPAND PATH_BUF_AS_PATH __pb_read_to_string_view_%out_status, %path_buf
+    EXPAND PATH_READ_TO_STRING %out_status, %out_buffer, __pb_read_to_string_view_%out_status, %max_bytes
+    !__pb_read_to_string_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CREATE_DIR_ALL %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_create_dir_all_view_%out_status, %path_buf
+    EXPAND PATH_CREATE_DIR_ALL %out_status, __pb_create_dir_all_view_%out_status
+    !__pb_create_dir_all_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_REMOVE_DIR_ALL %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_remove_dir_all_view_%out_status, %path_buf
+    EXPAND PATH_REMOVE_DIR_ALL %out_status, __pb_remove_dir_all_view_%out_status
+    !__pb_remove_dir_all_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_RENAME %out_status, %from_path_buf, %to_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_rename_from_view_%out_status, %from_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_rename_to_view_%out_status, %to_path_buf
+    EXPAND PATH_RENAME %out_status, __pb_rename_from_view_%out_status, __pb_rename_to_view_%out_status
+    !__pb_rename_to_view_%out_status
+    !__pb_rename_from_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_HARD_LINK %out_status, %from_path_buf, %to_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_hard_link_from_view_%out_status, %from_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_hard_link_to_view_%out_status, %to_path_buf
+    EXPAND PATH_HARD_LINK %out_status, __pb_hard_link_from_view_%out_status, __pb_hard_link_to_view_%out_status
+    !__pb_hard_link_to_view_%out_status
+    !__pb_hard_link_from_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_SYMLINK %out_status, %target_path_buf, %link_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_symlink_target_view_%out_status, %target_path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_symlink_link_view_%out_status, %link_path_buf
+    EXPAND PATH_SYMLINK %out_status, __pb_symlink_target_view_%out_status, __pb_symlink_link_view_%out_status
+    !__pb_symlink_link_view_%out_status
+    !__pb_symlink_target_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_SET_PERMISSIONS %out_status, %path_buf, %mode
+    EXPAND PATH_BUF_AS_PATH __pb_set_perm_view_%out_status, %path_buf
+    EXPAND PATH_SET_PERMISSIONS %out_status, __pb_set_perm_view_%out_status, %mode
+    !__pb_set_perm_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_SET_TIMES_MS %out_status, %path_buf, %accessed_ms, %modified_ms
+    EXPAND PATH_BUF_AS_PATH __pb_set_times_view_%out_status, %path_buf
+    EXPAND PATH_SET_TIMES_MS %out_status, __pb_set_times_view_%out_status, %accessed_ms, %modified_ms
+    !__pb_set_times_view_%out_status
+[END_MACRO]
+
+// Path directory listing aliases over FS_READ_DIR_* helpers.
+
+[MACRO] PATH_READ_DIR_JSON %out_status, %out_buffer, %path_slice, %max_entries
+    __path_read_dir_json_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_read_dir_json_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_READ_DIR_JSON %out_status, %out_buffer, __path_read_dir_json_ptr_%out_status, __path_read_dir_json_len_%out_status, %max_entries
+    !__path_read_dir_json_len_%out_status
+    !__path_read_dir_json_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_READ_DIR_ENTRIES %out_status, %out_entries, %path_slice, %max_entries
+    __path_read_dir_entries_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_read_dir_entries_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_READ_DIR_ENTRIES %out_status, %out_entries, __path_read_dir_entries_ptr_%out_status, __path_read_dir_entries_len_%out_status, %max_entries
+    !__path_read_dir_entries_len_%out_status
+    !__path_read_dir_entries_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_READ_DIR_JSON %out_status, %out_buffer, %path_buf, %max_entries
+    EXPAND PATH_BUF_AS_PATH __pb_read_dir_json_view_%out_status, %path_buf
+    EXPAND PATH_READ_DIR_JSON %out_status, %out_buffer, __pb_read_dir_json_view_%out_status, %max_entries
+    !__pb_read_dir_json_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_READ_DIR_ENTRIES %out_status, %out_entries, %path_buf, %max_entries
+    EXPAND PATH_BUF_AS_PATH __pb_read_dir_entries_view_%out_status, %path_buf
+    EXPAND PATH_READ_DIR_ENTRIES %out_status, %out_entries, __pb_read_dir_entries_view_%out_status, %max_entries
+    !__pb_read_dir_entries_view_%out_status
+[END_MACRO]
+
+// Path slice facades over FS DirBuilder / OpenOptions SSA builders.
+
+[MACRO] PATH_DIR_BUILDER_CREATE %out_status, %recursive, %mode, %path_slice
+    __path_dir_builder_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_dir_builder_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_DIR_BUILDER_CREATE %out_status, %recursive, %mode, __path_dir_builder_ptr_%out_status, __path_dir_builder_len_%out_status
+    !__path_dir_builder_len_%out_status
+    !__path_dir_builder_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_OPEN_OPTIONS_BUILDER_OPEN %out_status, %out_file, %flags, %mode, %custom, %path_slice
+    __path_oob_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_oob_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_OPEN_OPTIONS_BUILDER_OPEN %out_status, %out_file, %flags, %mode, %custom, __path_oob_ptr_%out_status, __path_oob_len_%out_status
+    !__path_oob_len_%out_status
+    !__path_oob_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_DIR_BUILDER_CREATE %out_status, %recursive, %mode, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_dir_builder_view_%out_status, %path_buf
+    EXPAND PATH_DIR_BUILDER_CREATE %out_status, %recursive, %mode, __pb_dir_builder_view_%out_status
+    !__pb_dir_builder_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_OPEN_OPTIONS_BUILDER_OPEN %out_status, %out_file, %flags, %mode, %custom, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_oob_view_%out_status, %path_buf
+    EXPAND PATH_OPEN_OPTIONS_BUILDER_OPEN %out_status, %out_file, %flags, %mode, %custom, __pb_oob_view_%out_status
+    !__pb_oob_view_%out_status
+[END_MACRO]
+
+// Path slice facades over FS permissions-object and FileTimes helpers.
+
+[MACRO] PATH_SET_PERMISSIONS_OBJ %out_status, %path_slice, %permissions
+    __path_set_perm_obj_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_set_perm_obj_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_SET_PERMISSIONS_OBJ %out_status, __path_set_perm_obj_ptr_%out_status, __path_set_perm_obj_len_%out_status, %permissions
+    !__path_set_perm_obj_len_%out_status
+    !__path_set_perm_obj_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_FILE_TIMES_SET %out_status, %path_slice, %accessed_ms, %modified_ms
+    __path_file_times_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_file_times_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_FILE_TIMES_SET %out_status, __path_file_times_ptr_%out_status, __path_file_times_len_%out_status, %accessed_ms, %modified_ms
+    !__path_file_times_len_%out_status
+    !__path_file_times_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_SET_PERMISSIONS_OBJ %out_status, %path_buf, %permissions
+    EXPAND PATH_BUF_AS_PATH __pb_set_perm_obj_view_%out_status, %path_buf
+    EXPAND PATH_SET_PERMISSIONS_OBJ %out_status, __pb_set_perm_obj_view_%out_status, %permissions
+    !__pb_set_perm_obj_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_FILE_TIMES_SET %out_status, %path_buf, %accessed_ms, %modified_ms
+    EXPAND PATH_BUF_AS_PATH __pb_file_times_view_%out_status, %path_buf
+    EXPAND PATH_FILE_TIMES_SET %out_status, __pb_file_times_view_%out_status, %accessed_ms, %modified_ms
+    !__pb_file_times_view_%out_status
+[END_MACRO]
+
+// batch path wrappers g1
+[MACRO] PATH_METADATA_JSON %out_status, %out_buffer, %path_slice
+    __path_metadata_json_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_metadata_json_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_METADATA_JSON %out_status, %out_buffer, __path_metadata_json_ptr_%out_status, __path_metadata_json_len_%out_status
+    !__path_metadata_json_len_%out_status
+    !__path_metadata_json_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_METADATA_JSON %out_status, %out_buffer, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_metadata_json_view_%out_status, %path_buf
+    EXPAND PATH_METADATA_JSON %out_status, %out_buffer, __pb_metadata_json_view_%out_status
+    !__pb_metadata_json_view_%out_status
+[END_MACRO]
+
+// Path slice facades over FS file-len / remove / create-dir-mode helpers.
+
+[MACRO] PATH_FS_SIZE %out_status, %out_len, %path_slice
+    __path_file_len_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_file_len_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_LEN %out_status, %out_len, __path_file_len_ptr_%out_status, __path_file_len_len_%out_status
+    !__path_file_len_len_%out_status
+    !__path_file_len_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_REMOVE_ENTRY %out_status, %path_slice
+    __path_remove_entry_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_remove_entry_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_REMOVE %out_status, __path_remove_entry_ptr_%out_status, __path_remove_entry_len_%out_status
+    !__path_remove_entry_len_%out_status
+    !__path_remove_entry_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_REMOVE_ANY %out_status, %path_slice
+    __path_remove_any_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_remove_any_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_REMOVE_PATH %out_status, __path_remove_any_ptr_%out_status, __path_remove_any_len_%out_status
+    !__path_remove_any_len_%out_status
+    !__path_remove_any_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CREATE_DIR_WITH_MODE %out_status, %path_slice, %mode
+    __path_create_dir_mode_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_create_dir_mode_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_CREATE_DIR_MODE %out_status, __path_create_dir_mode_ptr_%out_status, __path_create_dir_mode_len_%out_status, %mode
+    !__path_create_dir_mode_len_%out_status
+    !__path_create_dir_mode_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CREATE_DIR_ALL_WITH_MODE %out_status, %path_slice, %mode
+    __path_create_dir_all_mode_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_create_dir_all_mode_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_CREATE_DIR_ALL_MODE %out_status, __path_create_dir_all_mode_ptr_%out_status, __path_create_dir_all_mode_len_%out_status, %mode
+    !__path_create_dir_all_mode_len_%out_status
+    !__path_create_dir_all_mode_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_FS_SIZE %out_status, %out_len, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_file_len_view_%out_status, %path_buf
+    EXPAND PATH_FS_SIZE %out_status, %out_len, __pb_file_len_view_%out_status
+    !__pb_file_len_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_REMOVE_ENTRY %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_remove_entry_view_%out_status, %path_buf
+    EXPAND PATH_REMOVE_ENTRY %out_status, __pb_remove_entry_view_%out_status
+    !__pb_remove_entry_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_REMOVE_ANY %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_remove_any_view_%out_status, %path_buf
+    EXPAND PATH_REMOVE_ANY %out_status, __pb_remove_any_view_%out_status
+    !__pb_remove_any_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CREATE_DIR_WITH_MODE %out_status, %path_buf, %mode
+    EXPAND PATH_BUF_AS_PATH __pb_create_dir_mode_view_%out_status, %path_buf
+    EXPAND PATH_CREATE_DIR_WITH_MODE %out_status, __pb_create_dir_mode_view_%out_status, %mode
+    !__pb_create_dir_mode_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CREATE_DIR_ALL_WITH_MODE %out_status, %path_buf, %mode
+    EXPAND PATH_BUF_AS_PATH __pb_create_dir_all_mode_view_%out_status, %path_buf
+    EXPAND PATH_CREATE_DIR_ALL_WITH_MODE %out_status, __pb_create_dir_all_mode_view_%out_status, %mode
+    !__pb_create_dir_all_mode_view_%out_status
+[END_MACRO]
+
+
+// Path slice facades over FS open-flags/options and base64 file helpers.
+
+[MACRO] PATH_OPEN_FLAGS %out_status, %out_file, %path_slice, %flags
+    __path_open_flags_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_open_flags_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_OPEN_FLAGS %out_status, %out_file, __path_open_flags_ptr_%out_status, __path_open_flags_len_%out_status, %flags
+    !__path_open_flags_len_%out_status
+    !__path_open_flags_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_OPEN_WITH_OPTIONS %out_status, %out_file, %path_slice, %flags, %create_mode, %custom_flags
+    __path_open_with_opts_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_open_with_opts_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_OPEN_OPTIONS %out_status, %out_file, __path_open_with_opts_ptr_%out_status, __path_open_with_opts_len_%out_status, %flags, %create_mode, %custom_flags
+    !__path_open_with_opts_len_%out_status
+    !__path_open_with_opts_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_READ_FILE_BASE64 %out_status, %out_buffer, %path_slice, %max_bytes
+    __path_read_b64_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_read_b64_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_READ_FILE_BASE64 %out_status, %out_buffer, __path_read_b64_ptr_%out_status, __path_read_b64_len_%out_status, %max_bytes
+    !__path_read_b64_len_%out_status
+    !__path_read_b64_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_WRITE_FILE_BASE64 %out_status, %path_slice, %buf, %len
+    __path_write_b64_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_write_b64_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_WRITE_FILE_BASE64 %out_status, __path_write_b64_ptr_%out_status, __path_write_b64_len_%out_status, %buf, %len
+    !__path_write_b64_len_%out_status
+    !__path_write_b64_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_OPEN_FLAGS %out_status, %out_file, %path_buf, %flags
+    EXPAND PATH_BUF_AS_PATH __pb_open_flags_view_%out_status, %path_buf
+    EXPAND PATH_OPEN_FLAGS %out_status, %out_file, __pb_open_flags_view_%out_status, %flags
+    !__pb_open_flags_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_OPEN_WITH_OPTIONS %out_status, %out_file, %path_buf, %flags, %create_mode, %custom_flags
+    EXPAND PATH_BUF_AS_PATH __pb_open_with_opts_view_%out_status, %path_buf
+    EXPAND PATH_OPEN_WITH_OPTIONS %out_status, %out_file, __pb_open_with_opts_view_%out_status, %flags, %create_mode, %custom_flags
+    !__pb_open_with_opts_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_READ_FILE_BASE64 %out_status, %out_buffer, %path_buf, %max_bytes
+    EXPAND PATH_BUF_AS_PATH __pb_read_b64_view_%out_status, %path_buf
+    EXPAND PATH_READ_FILE_BASE64 %out_status, %out_buffer, __pb_read_b64_view_%out_status, %max_bytes
+    !__pb_read_b64_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_WRITE_FILE_BASE64 %out_status, %path_buf, %buf, %len
+    EXPAND PATH_BUF_AS_PATH __pb_write_b64_view_%out_status, %path_buf
+    EXPAND PATH_WRITE_FILE_BASE64 %out_status, __pb_write_b64_view_%out_status, %buf, %len
+    !__pb_write_b64_view_%out_status
+[END_MACRO]
+
+
+// Path slice facades over FS unix ownership / chroot / mkfifo helpers.
+
+[MACRO] PATH_CHOWN %out_status, %path_slice, %uid, %gid, %has_uid, %has_gid
+    __path_chown_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_chown_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_UNIX_CHOWN %out_status, __path_chown_ptr_%out_status, __path_chown_len_%out_status, %uid, %gid, %has_uid, %has_gid
+    !__path_chown_len_%out_status
+    !__path_chown_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_LCHOWN %out_status, %path_slice, %uid, %gid, %has_uid, %has_gid
+    __path_lchown_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_lchown_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_UNIX_LCHOWN %out_status, __path_lchown_ptr_%out_status, __path_lchown_len_%out_status, %uid, %gid, %has_uid, %has_gid
+    !__path_lchown_len_%out_status
+    !__path_lchown_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_CHROOT %out_status, %path_slice
+    __path_chroot_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_chroot_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_UNIX_CHROOT %out_status, __path_chroot_ptr_%out_status, __path_chroot_len_%out_status
+    !__path_chroot_len_%out_status
+    !__path_chroot_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_MKFIFO %out_status, %path_slice, %mode
+    __path_mkfifo_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_mkfifo_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_UNIX_MKFIFO %out_status, __path_mkfifo_ptr_%out_status, __path_mkfifo_len_%out_status, %mode
+    !__path_mkfifo_len_%out_status
+    !__path_mkfifo_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_MAKE_DIR %out_status, %path_slice
+    __path_make_dir_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_make_dir_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_MAKE_DIR %out_status, __path_make_dir_ptr_%out_status, __path_make_dir_len_%out_status
+    !__path_make_dir_len_%out_status
+    !__path_make_dir_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_MAKE_DIR_WITH_MODE %out_status, %path_slice, %mode
+    __path_make_dir_mode_ptr_%out_status = load %path_slice+Slice_ptr as ptr
+    __path_make_dir_mode_len_%out_status = load %path_slice+Slice_len as u64
+    EXPAND FS_MAKE_DIR_MODE %out_status, __path_make_dir_mode_ptr_%out_status, __path_make_dir_mode_len_%out_status, %mode
+    !__path_make_dir_mode_len_%out_status
+    !__path_make_dir_mode_ptr_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CHOWN %out_status, %path_buf, %uid, %gid, %has_uid, %has_gid
+    EXPAND PATH_BUF_AS_PATH __pb_chown_view_%out_status, %path_buf
+    EXPAND PATH_CHOWN %out_status, __pb_chown_view_%out_status, %uid, %gid, %has_uid, %has_gid
+    !__pb_chown_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_LCHOWN %out_status, %path_buf, %uid, %gid, %has_uid, %has_gid
+    EXPAND PATH_BUF_AS_PATH __pb_lchown_view_%out_status, %path_buf
+    EXPAND PATH_LCHOWN %out_status, __pb_lchown_view_%out_status, %uid, %gid, %has_uid, %has_gid
+    !__pb_lchown_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_CHROOT %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_chroot_view_%out_status, %path_buf
+    EXPAND PATH_CHROOT %out_status, __pb_chroot_view_%out_status
+    !__pb_chroot_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_MKFIFO %out_status, %path_buf, %mode
+    EXPAND PATH_BUF_AS_PATH __pb_mkfifo_view_%out_status, %path_buf
+    EXPAND PATH_MKFIFO %out_status, __pb_mkfifo_view_%out_status, %mode
+    !__pb_mkfifo_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_MAKE_DIR %out_status, %path_buf
+    EXPAND PATH_BUF_AS_PATH __pb_make_dir_view_%out_status, %path_buf
+    EXPAND PATH_MAKE_DIR %out_status, __pb_make_dir_view_%out_status
+    !__pb_make_dir_view_%out_status
+[END_MACRO]
+
+[MACRO] PATH_BUF_MAKE_DIR_WITH_MODE %out_status, %path_buf, %mode
+    EXPAND PATH_BUF_AS_PATH __pb_make_dir_mode_view_%out_status, %path_buf
+    EXPAND PATH_MAKE_DIR_WITH_MODE %out_status, __pb_make_dir_mode_view_%out_status, %mode
+    !__pb_make_dir_mode_view_%out_status
 [END_MACRO]

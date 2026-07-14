@@ -1,5 +1,11 @@
 #def CHAR_MAX = 1114111
+#def CHAR_SIZE = 4
+#def CHAR_ALIGN = 4
+#def CHAR_DEFAULT = 0
 #def CHAR_REPLACEMENT = 65533
+#def CHAR_REPLACEMENT_CHARACTER = CHAR_REPLACEMENT
+#def CHAR_MAX_LEN_UTF8 = 4
+#def CHAR_MAX_LEN_UTF16 = 2
 #def CHAR_SURROGATE_MIN = 55296
 #def CHAR_SURROGATE_MAX = 57343
 
@@ -26,3 +32,19 @@
 #def CHAR_ESCAPE_U = 117
 #def CHAR_ESCAPE_LBRACE = 123
 #def CHAR_ESCAPE_RBRACE = 125
+
+#def ParseCharError_SIZE = 8
+#def ParseCharError_kind = +0
+#def PARSE_CHAR_ERROR_EMPTY_STRING = 0
+#def PARSE_CHAR_ERROR_TOO_MANY_CHARS = 1
+
+#def DecodeUtf16Error_SIZE = 8
+#def DecodeUtf16Error_unpaired_surrogate = +0
+
+#def CharTryFromError_SIZE = 0
+#def CharTryFromError_ALIGN = 1
+
+#def TryFromCharError_SIZE = 0
+#def TryFromCharError_ALIGN = 1
+
+#def CHAR_MIN = 0

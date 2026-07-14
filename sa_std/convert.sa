@@ -533,3 +533,451 @@ L_CONVERT_SAT_I64_TO_I32_VALUE_%out_value:
 L_CONVERT_SAT_I64_TO_I32_END_%out_value:
     !__convert_low_%out_value
 [END_MACRO]
+
+[MACRO] FROM_BOOL_TO_U64 %out_value, %value
+    EXPAND CONVERT_BOOL_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_BOOL_TO_I32 %out_value, %value
+    EXPAND CONVERT_BOOL_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U64_TO_BOOL %out_value, %value
+    EXPAND CONVERT_U64_TO_BOOL %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I64_TO_BOOL %out_value, %value
+    EXPAND CONVERT_I64_TO_BOOL %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U8_TO_U64 %out_value, %value
+    EXPAND CONVERT_U8_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U8_TO_U16 %out_value, %value
+    EXPAND CONVERT_U8_TO_U16 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U8_TO_U32 %out_value, %value
+    EXPAND CONVERT_U8_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U8_TO_USIZE %out_value, %value
+    EXPAND CONVERT_U8_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U16_TO_U64 %out_value, %value
+    EXPAND CONVERT_U16_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U16_TO_U32 %out_value, %value
+    EXPAND CONVERT_U16_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U16_TO_USIZE %out_value, %value
+    EXPAND CONVERT_U16_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U32_TO_U64 %out_value, %value
+    EXPAND CONVERT_U32_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U32_TO_USIZE %out_value, %value
+    EXPAND CONVERT_U32_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_U64_TO_USIZE %out_value, %value
+    EXPAND CONVERT_U64_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_USIZE_TO_U64 %out_value, %value
+    EXPAND CONVERT_USIZE_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I8_TO_I16 %out_value, %value
+    EXPAND CONVERT_I8_TO_I16 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I8_TO_I32 %out_value, %value
+    EXPAND CONVERT_I8_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I8_TO_I64 %out_value, %value
+    EXPAND CONVERT_I8_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I8_TO_ISIZE %out_value, %value
+    EXPAND CONVERT_I8_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I16_TO_I32 %out_value, %value
+    EXPAND CONVERT_I16_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I16_TO_I64 %out_value, %value
+    EXPAND CONVERT_I16_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I16_TO_ISIZE %out_value, %value
+    EXPAND CONVERT_I16_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I32_TO_I64 %out_value, %value
+    EXPAND CONVERT_I32_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I32_TO_ISIZE %out_value, %value
+    EXPAND CONVERT_I32_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_I64_TO_ISIZE %out_value, %value
+    EXPAND CONVERT_I64_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] FROM_ISIZE_TO_I64 %out_value, %value
+    EXPAND CONVERT_ISIZE_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_U8 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_U8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_I8 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_I8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_U16 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_U16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_I16 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_I16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_U32 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_U32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_I32 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_I32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_USIZE %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_USIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_I64 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_I64 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_U64_TO_ISIZE %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_U64_TO_ISIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_U64 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_U64 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_USIZE %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_USIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_U8 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_U8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_U16 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_U16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_U32 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_U32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_I8 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_I8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_I16 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_I16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_I32 %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_I32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_FROM_I64_TO_ISIZE %out_ok, %out_value, %value
+    EXPAND CONVERT_TRY_I64_TO_ISIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_U64_TO_U8 %out_value, %value
+    EXPAND CONVERT_SAT_U64_TO_U8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_U64_TO_I8 %out_value, %value
+    EXPAND CONVERT_SAT_U64_TO_I8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_U64_TO_U16 %out_value, %value
+    EXPAND CONVERT_SAT_U64_TO_U16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_U64_TO_I16 %out_value, %value
+    EXPAND CONVERT_SAT_U64_TO_I16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_U64_TO_U32 %out_value, %value
+    EXPAND CONVERT_SAT_U64_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_U64_TO_I32 %out_value, %value
+    EXPAND CONVERT_SAT_U64_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_I64_TO_U8 %out_value, %value
+    EXPAND CONVERT_SAT_I64_TO_U8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_I64_TO_U16 %out_value, %value
+    EXPAND CONVERT_SAT_I64_TO_U16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_I64_TO_U32 %out_value, %value
+    EXPAND CONVERT_SAT_I64_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_I64_TO_I8 %out_value, %value
+    EXPAND CONVERT_SAT_I64_TO_I8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_I64_TO_I16 %out_value, %value
+    EXPAND CONVERT_SAT_I64_TO_I16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_FROM_I64_TO_I32 %out_value, %value
+    EXPAND CONVERT_SAT_I64_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_BOOL_TO_U64 %out_value, %value
+    EXPAND FROM_BOOL_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_BOOL_TO_I32 %out_value, %value
+    EXPAND FROM_BOOL_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U64_TO_BOOL %out_value, %value
+    EXPAND FROM_U64_TO_BOOL %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I64_TO_BOOL %out_value, %value
+    EXPAND FROM_I64_TO_BOOL %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U8_TO_U64 %out_value, %value
+    EXPAND FROM_U8_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U8_TO_U16 %out_value, %value
+    EXPAND FROM_U8_TO_U16 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U8_TO_U32 %out_value, %value
+    EXPAND FROM_U8_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U8_TO_USIZE %out_value, %value
+    EXPAND FROM_U8_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U16_TO_U64 %out_value, %value
+    EXPAND FROM_U16_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U16_TO_U32 %out_value, %value
+    EXPAND FROM_U16_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U16_TO_USIZE %out_value, %value
+    EXPAND FROM_U16_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U32_TO_U64 %out_value, %value
+    EXPAND FROM_U32_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U32_TO_USIZE %out_value, %value
+    EXPAND FROM_U32_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_U64_TO_USIZE %out_value, %value
+    EXPAND FROM_U64_TO_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_USIZE_TO_U64 %out_value, %value
+    EXPAND FROM_USIZE_TO_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I8_TO_I16 %out_value, %value
+    EXPAND FROM_I8_TO_I16 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I8_TO_I32 %out_value, %value
+    EXPAND FROM_I8_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I8_TO_I64 %out_value, %value
+    EXPAND FROM_I8_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I8_TO_ISIZE %out_value, %value
+    EXPAND FROM_I8_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I16_TO_I32 %out_value, %value
+    EXPAND FROM_I16_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I16_TO_I64 %out_value, %value
+    EXPAND FROM_I16_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I16_TO_ISIZE %out_value, %value
+    EXPAND FROM_I16_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I32_TO_I64 %out_value, %value
+    EXPAND FROM_I32_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I32_TO_ISIZE %out_value, %value
+    EXPAND FROM_I32_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_I64_TO_ISIZE %out_value, %value
+    EXPAND FROM_I64_TO_ISIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] INTO_ISIZE_TO_I64 %out_value, %value
+    EXPAND FROM_ISIZE_TO_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_U8 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_U8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_I8 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_I8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_U16 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_U16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_I16 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_I16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_U32 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_U32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_I32 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_I32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_USIZE %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_USIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_I64 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_I64 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_U64_TO_ISIZE %out_ok, %out_value, %value
+    EXPAND TRY_FROM_U64_TO_ISIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_U64 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_U64 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_USIZE %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_USIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_U8 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_U8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_U16 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_U16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_U32 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_U32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_I8 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_I8 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_I16 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_I16 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_I32 %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_I32 %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] TRY_INTO_I64_TO_ISIZE %out_ok, %out_value, %value
+    EXPAND TRY_FROM_I64_TO_ISIZE %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_U64_TO_U8 %out_value, %value
+    EXPAND SAT_FROM_U64_TO_U8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_U64_TO_I8 %out_value, %value
+    EXPAND SAT_FROM_U64_TO_I8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_U64_TO_U16 %out_value, %value
+    EXPAND SAT_FROM_U64_TO_U16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_U64_TO_I16 %out_value, %value
+    EXPAND SAT_FROM_U64_TO_I16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_U64_TO_U32 %out_value, %value
+    EXPAND SAT_FROM_U64_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_U64_TO_I32 %out_value, %value
+    EXPAND SAT_FROM_U64_TO_I32 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_I64_TO_U8 %out_value, %value
+    EXPAND SAT_FROM_I64_TO_U8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_I64_TO_U16 %out_value, %value
+    EXPAND SAT_FROM_I64_TO_U16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_I64_TO_U32 %out_value, %value
+    EXPAND SAT_FROM_I64_TO_U32 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_I64_TO_I8 %out_value, %value
+    EXPAND SAT_FROM_I64_TO_I8 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_I64_TO_I16 %out_value, %value
+    EXPAND SAT_FROM_I64_TO_I16 %out_value, %value
+[END_MACRO]
+
+[MACRO] SAT_INTO_I64_TO_I32 %out_value, %value
+    EXPAND SAT_FROM_I64_TO_I32 %out_value, %value
+[END_MACRO]

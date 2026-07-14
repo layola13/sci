@@ -1,5 +1,77 @@
 @import "sa_std/sync/atomic.sa"
 
+@atomic_u64_inc(value: u64) -> u64:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_u32_inc(value: u32) -> u32:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_u8_inc(value: u8) -> u8:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_i8_inc(value: i8) -> i8:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_u16_inc(value: u16) -> u16:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_i16_inc(value: i16) -> i16:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_bool_toggle(value: u8) -> u8:
+L_ENTRY:
+    flipped = eq value, 0
+    !value
+    return flipped
+
+@atomic_i32_inc(value: i32) -> i32:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_i64_inc(value: i64) -> i64:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_usize_inc(value: u64) -> u64:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_isize_inc(value: i64) -> i64:
+L_ENTRY:
+    next = add value, 1
+    !value
+    return next
+
+@atomic_ptr_inc(value: ptr) -> ptr:
+L_ENTRY:
+    next = ptr_add value, 1
+    !value
+    return next
+
 @test "sa_std sync atomic primitive macros"():
 L_ENTRY:
     bool_slot = stack_alloc AtomicBool_SIZE
@@ -1083,3 +1155,543 @@ L_FAIL:
 
 L_PASS:
     return 0
+
+@test "sa_std sync atomic fetch_update macro"():
+L_ENTRY:
+    slot = stack_alloc AtomicU64_SIZE
+    EXPAND ATOMIC_U64_INIT slot, 10
+    EXPAND ATOMIC_U64_FETCH_UPDATE ok, old, slot, @atomic_u64_inc, seq_cst, acquire
+    ok_ok = eq ok, 1
+    old_ok = eq old, 10
+    EXPAND ATOMIC_U64_LOAD final, slot, seq_cst
+    final_ok = eq final, 11
+    EXPAND ATOMIC_U64_FETCH_UPDATE ok2, old2, slot, @atomic_u64_inc, seq_cst, acquire
+    ok2_ok = eq ok2, 1
+    old2_ok = eq old2, 11
+    EXPAND ATOMIC_U64_LOAD final2, slot, seq_cst
+    final2_ok = eq final2, 12
+
+    ok = and ok_ok, old_ok
+    ok = and ok, final_ok
+    ok = and ok, ok2_ok
+    ok = and ok, old2_ok
+    ok = and ok, final2_ok
+
+    !ok_ok
+    !old
+    !old_ok
+    !final
+    !final_ok
+    !ok2
+    !ok2_ok
+    !old2
+    !old2_ok
+    !final2
+    !final2_ok
+    br ok -> L_FETCH_UPDATE_OK, L_FETCH_UPDATE_FAIL
+L_FETCH_UPDATE_FAIL:
+    !ok
+    panic(993)
+L_FETCH_UPDATE_OK:
+    !ok
+    return
+
+@test "sa_std sync atomic multi-width fetch_update macro"():
+L_ENTRY:
+    u32_slot = stack_alloc AtomicU32_SIZE
+    EXPAND ATOMIC_U32_INIT u32_slot, 10
+    EXPAND ATOMIC_U32_FETCH_UPDATE u32_ok, u32_old, u32_slot, @atomic_u32_inc, seq_cst, acquire
+    u32_ok_flag = eq u32_ok, 1
+    u32_old_flag = eq u32_old, 10
+    EXPAND ATOMIC_U32_LOAD u32_final, u32_slot, seq_cst
+    u32_final_flag = eq u32_final, 11
+
+    i32_slot = stack_alloc AtomicI32_SIZE
+    EXPAND ATOMIC_I32_INIT i32_slot, 20
+    EXPAND ATOMIC_I32_FETCH_UPDATE i32_ok, i32_old, i32_slot, @atomic_i32_inc, seq_cst, acquire
+    i32_ok_flag = eq i32_ok, 1
+    i32_old_flag = eq i32_old, 20
+    EXPAND ATOMIC_I32_LOAD i32_final, i32_slot, seq_cst
+    i32_final_flag = eq i32_final, 21
+
+    i64_slot = stack_alloc AtomicI64_SIZE
+    EXPAND ATOMIC_I64_INIT i64_slot, 30
+    EXPAND ATOMIC_I64_FETCH_UPDATE i64_ok, i64_old, i64_slot, @atomic_i64_inc, seq_cst, acquire
+    i64_ok_flag = eq i64_ok, 1
+    i64_old_flag = eq i64_old, 30
+    EXPAND ATOMIC_I64_LOAD i64_final, i64_slot, seq_cst
+    i64_final_flag = eq i64_final, 31
+
+    usize_slot = stack_alloc AtomicUsize_SIZE
+    EXPAND ATOMIC_USIZE_INIT usize_slot, 40
+    EXPAND ATOMIC_USIZE_FETCH_UPDATE usize_ok, usize_old, usize_slot, @atomic_usize_inc, seq_cst, acquire
+    usize_ok_flag = eq usize_ok, 1
+    usize_old_flag = eq usize_old, 40
+    EXPAND ATOMIC_USIZE_LOAD usize_final, usize_slot, seq_cst
+    usize_final_flag = eq usize_final, 41
+
+    isize_slot = stack_alloc AtomicIsize_SIZE
+    EXPAND ATOMIC_ISIZE_INIT isize_slot, 50
+    EXPAND ATOMIC_ISIZE_FETCH_UPDATE isize_ok, isize_old, isize_slot, @atomic_isize_inc, seq_cst, acquire
+    isize_ok_flag = eq isize_ok, 1
+    isize_old_flag = eq isize_old, 50
+    EXPAND ATOMIC_ISIZE_LOAD isize_final, isize_slot, seq_cst
+    isize_final_flag = eq isize_final, 51
+
+    base = stack_alloc 16
+    ptr_slot = stack_alloc AtomicPtr_SIZE
+    EXPAND ATOMIC_PTR_INIT ptr_slot, base
+    EXPAND ATOMIC_PTR_FETCH_UPDATE ptr_ok, ptr_old, ptr_slot, @atomic_ptr_inc, seq_cst, acquire
+    ptr_ok_flag = eq ptr_ok, 1
+    ptr_old_flag = eq ptr_old, base
+    EXPAND ATOMIC_PTR_LOAD ptr_final, ptr_slot, seq_cst
+    expected_ptr = ptr_add base, 1
+    ptr_final_flag = eq ptr_final, expected_ptr
+
+    ok = and u32_ok_flag, u32_old_flag
+    ok = and ok, u32_final_flag
+    ok = and ok, i32_ok_flag
+    ok = and ok, i32_old_flag
+    ok = and ok, i32_final_flag
+    ok = and ok, i64_ok_flag
+    ok = and ok, i64_old_flag
+    ok = and ok, i64_final_flag
+    ok = and ok, usize_ok_flag
+    ok = and ok, usize_old_flag
+    ok = and ok, usize_final_flag
+    ok = and ok, isize_ok_flag
+    ok = and ok, isize_old_flag
+    ok = and ok, isize_final_flag
+    ok = and ok, ptr_ok_flag
+    ok = and ok, ptr_old_flag
+    ok = and ok, ptr_final_flag
+
+    !u32_ok
+    !u32_ok_flag
+    !u32_old
+    !u32_old_flag
+    !u32_final
+    !u32_final_flag
+    !i32_ok
+    !i32_ok_flag
+    !i32_old
+    !i32_old_flag
+    !i32_final
+    !i32_final_flag
+    !i64_ok
+    !i64_ok_flag
+    !i64_old
+    !i64_old_flag
+    !i64_final
+    !i64_final_flag
+    !usize_ok
+    !usize_ok_flag
+    !usize_old
+    !usize_old_flag
+    !usize_final
+    !usize_final_flag
+    !isize_ok
+    !isize_ok_flag
+    !isize_old
+    !isize_old_flag
+    !isize_final
+    !isize_final_flag
+    !ptr_ok
+    !ptr_ok_flag
+    !ptr_old
+    !ptr_old_flag
+    !ptr_final
+    !ptr_final_flag
+    !expected_ptr
+    br ok -> L_MULTI_FETCH_UPDATE_OK, L_MULTI_FETCH_UPDATE_FAIL
+L_MULTI_FETCH_UPDATE_FAIL:
+    !ok
+    panic(10026)
+L_MULTI_FETCH_UPDATE_OK:
+    !ok
+    return
+
+@test "sa_std sync atomic narrow-width fetch_update and from_ptr macros"():
+L_ENTRY:
+    u8_slot = stack_alloc AtomicU8_SIZE
+    EXPAND ATOMIC_U8_INIT u8_slot, 7
+    EXPAND ATOMIC_U8_FETCH_UPDATE u8_ok, u8_old, u8_slot, @atomic_u8_inc, seq_cst, acquire
+    u8_ok_flag = eq u8_ok, 1
+    u8_old_flag = eq u8_old, 7
+    EXPAND ATOMIC_U8_LOAD u8_final, u8_slot, seq_cst
+    u8_final_flag = eq u8_final, 8
+    EXPAND ATOMIC_U8_GET_MUT_PTR u8_mut, u8_slot
+    EXPAND ATOMIC_U8_FROM_PTR u8_from, u8_mut
+    EXPAND ATOMIC_U8_INTO_INNER u8_inner, u8_from
+    u8_from_flag = eq u8_inner, 8
+
+    i8_slot = stack_alloc AtomicI8_SIZE
+    EXPAND ATOMIC_I8_INIT i8_slot, 3
+    EXPAND ATOMIC_I8_FETCH_UPDATE i8_ok, i8_old, i8_slot, @atomic_i8_inc, seq_cst, acquire
+    i8_ok_flag = eq i8_ok, 1
+    i8_old_flag = eq i8_old, 3
+    EXPAND ATOMIC_I8_LOAD i8_final, i8_slot, seq_cst
+    i8_final_flag = eq i8_final, 4
+
+    u16_slot = stack_alloc AtomicU16_SIZE
+    EXPAND ATOMIC_U16_INIT u16_slot, 100
+    EXPAND ATOMIC_U16_FETCH_UPDATE u16_ok, u16_old, u16_slot, @atomic_u16_inc, seq_cst, acquire
+    u16_ok_flag = eq u16_ok, 1
+    u16_old_flag = eq u16_old, 100
+    EXPAND ATOMIC_U16_LOAD u16_final, u16_slot, seq_cst
+    u16_final_flag = eq u16_final, 101
+
+    i16_slot = stack_alloc AtomicI16_SIZE
+    EXPAND ATOMIC_I16_INIT i16_slot, 200
+    EXPAND ATOMIC_I16_FETCH_UPDATE i16_ok, i16_old, i16_slot, @atomic_i16_inc, seq_cst, acquire
+    i16_ok_flag = eq i16_ok, 1
+    i16_old_flag = eq i16_old, 200
+    EXPAND ATOMIC_I16_LOAD i16_final, i16_slot, seq_cst
+    i16_final_flag = eq i16_final, 201
+
+    bool_slot = stack_alloc AtomicBool_SIZE
+    EXPAND ATOMIC_BOOL_INIT bool_slot, 0
+    EXPAND ATOMIC_BOOL_FETCH_UPDATE bool_ok, bool_old, bool_slot, @atomic_bool_toggle, seq_cst, acquire
+    bool_ok_flag = eq bool_ok, 1
+    bool_old_flag = eq bool_old, 0
+    EXPAND ATOMIC_BOOL_LOAD bool_final, bool_slot, seq_cst
+    bool_final_flag = eq bool_final, 1
+    EXPAND ATOMIC_BOOL_GET_MUT_PTR bool_mut, bool_slot
+    EXPAND ATOMIC_BOOL_FROM_PTR bool_from, bool_mut
+    EXPAND ATOMIC_BOOL_INTO_INNER bool_inner, bool_from
+    bool_from_flag = eq bool_inner, 1
+
+    ok = and u8_ok_flag, u8_old_flag
+    ok = and ok, u8_final_flag
+    ok = and ok, u8_from_flag
+    ok = and ok, i8_ok_flag
+    ok = and ok, i8_old_flag
+    ok = and ok, i8_final_flag
+    ok = and ok, u16_ok_flag
+    ok = and ok, u16_old_flag
+    ok = and ok, u16_final_flag
+    ok = and ok, i16_ok_flag
+    ok = and ok, i16_old_flag
+    ok = and ok, i16_final_flag
+    ok = and ok, bool_ok_flag
+    ok = and ok, bool_old_flag
+    ok = and ok, bool_final_flag
+    ok = and ok, bool_from_flag
+
+    !u8_ok
+    !u8_ok_flag
+    !u8_old
+    !u8_old_flag
+    !u8_final
+    !u8_final_flag
+    !u8_mut
+    !u8_from
+    !u8_inner
+    !u8_from_flag
+    !i8_ok
+    !i8_ok_flag
+    !i8_old
+    !i8_old_flag
+    !i8_final
+    !i8_final_flag
+    !u16_ok
+    !u16_ok_flag
+    !u16_old
+    !u16_old_flag
+    !u16_final
+    !u16_final_flag
+    !i16_ok
+    !i16_ok_flag
+    !i16_old
+    !i16_old_flag
+    !i16_final
+    !i16_final_flag
+    !bool_ok
+    !bool_ok_flag
+    !bool_old
+    !bool_old_flag
+    !bool_final
+    !bool_final_flag
+    !bool_mut
+    !bool_from
+    !bool_inner
+    !bool_from_flag
+    br ok -> L_NARROW_FETCH_UPDATE_OK, L_NARROW_FETCH_UPDATE_FAIL
+L_NARROW_FETCH_UPDATE_FAIL:
+    !ok
+    panic(10027)
+L_NARROW_FETCH_UPDATE_OK:
+    !ok
+    return
+
+@test "sa_std sync atomic fetch_min/max multi-width macros"():
+L_ENTRY:
+    u8a = stack_alloc AtomicU8_SIZE
+    EXPAND ATOMIC_U8_INIT u8a, 10
+    EXPAND ATOMIC_U8_FETCH_MIN old_u8_min, u8a, 3, seq_cst
+    EXPAND ATOMIC_U8_LOAD cur_u8, u8a, seq_cst
+    EXPAND ATOMIC_U8_FETCH_MAX old_u8_max, u8a, 20, seq_cst
+    EXPAND ATOMIC_U8_LOAD cur_u8b, u8a, seq_cst
+
+    u32a = stack_alloc AtomicU32_SIZE
+    EXPAND ATOMIC_U32_INIT u32a, 100
+    EXPAND ATOMIC_U32_FETCH_UMIN old_u32_min, u32a, 40, seq_cst
+    EXPAND ATOMIC_U32_LOAD cur_u32, u32a, seq_cst
+    EXPAND ATOMIC_U32_FETCH_UMAX old_u32_max, u32a, 200, seq_cst
+    EXPAND ATOMIC_U32_LOAD cur_u32b, u32a, seq_cst
+
+    i32a = stack_alloc AtomicI32_SIZE
+    EXPAND ATOMIC_I32_INIT i32a, -5
+    EXPAND ATOMIC_I32_FETCH_MIN old_i32_min, i32a, -20, seq_cst
+    EXPAND ATOMIC_I32_LOAD cur_i32, i32a, seq_cst
+    EXPAND ATOMIC_I32_FETCH_MAX old_i32_max, i32a, 7, seq_cst
+    EXPAND ATOMIC_I32_LOAD cur_i32b, i32a, seq_cst
+
+    ok01 = eq old_u8_min, 10
+    ok02 = eq cur_u8, 3
+    ok03 = eq old_u8_max, 3
+    ok04 = eq cur_u8b, 20
+    ok05 = eq old_u32_min, 100
+    ok06 = eq cur_u32, 40
+    ok07 = eq old_u32_max, 40
+    ok08 = eq cur_u32b, 200
+    ok09 = eq old_i32_min, -5
+    ok10 = eq cur_i32, -20
+    ok11 = eq old_i32_max, -20
+    ok12 = eq cur_i32b, 7
+
+    ok = and ok01, ok02
+    ok = and ok, ok03
+    ok = and ok, ok04
+    ok = and ok, ok05
+    ok = and ok, ok06
+    ok = and ok, ok07
+    ok = and ok, ok08
+    ok = and ok, ok09
+    ok = and ok, ok10
+    ok = and ok, ok11
+    ok = and ok, ok12
+
+    !old_u8_min
+    !cur_u8
+    !old_u8_max
+    !cur_u8b
+    !old_u32_min
+    !cur_u32
+    !old_u32_max
+    !cur_u32b
+    !old_i32_min
+    !cur_i32
+    !old_i32_max
+    !cur_i32b
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(996)
+L_PASS:
+    !ok
+    return
+
+
+@test "sa_std sync atomic fetch_and/or/xor/nand multi-width macros"():
+L_ENTRY:
+    u8a = stack_alloc AtomicU8_SIZE
+    EXPAND ATOMIC_U8_INIT u8a, 15
+    EXPAND ATOMIC_U8_FETCH_AND old_u8_and, u8a, 10, seq_cst
+    EXPAND ATOMIC_U8_LOAD cur_u8_and, u8a, seq_cst
+    EXPAND ATOMIC_U8_STORE u8a, 15, seq_cst
+    EXPAND ATOMIC_U8_FETCH_OR old_u8_or, u8a, 1, seq_cst
+    EXPAND ATOMIC_U8_LOAD cur_u8_or, u8a, seq_cst
+    EXPAND ATOMIC_U8_STORE u8a, 15, seq_cst
+    EXPAND ATOMIC_U8_FETCH_XOR old_u8_xor, u8a, 1, seq_cst
+    EXPAND ATOMIC_U8_LOAD cur_u8_xor, u8a, seq_cst
+    EXPAND ATOMIC_U8_STORE u8a, 15, seq_cst
+    EXPAND ATOMIC_U8_FETCH_NAND old_u8_nand, u8a, 10, seq_cst
+    EXPAND ATOMIC_U8_LOAD cur_u8_nand, u8a, seq_cst
+
+    i32a = stack_alloc AtomicI32_SIZE
+    EXPAND ATOMIC_I32_INIT i32a, 15
+    EXPAND ATOMIC_I32_FETCH_AND old_i32_and, i32a, 10, seq_cst
+    EXPAND ATOMIC_I32_LOAD cur_i32_and, i32a, seq_cst
+    EXPAND ATOMIC_I32_STORE i32a, 15, seq_cst
+    EXPAND ATOMIC_I32_FETCH_OR old_i32_or, i32a, 1, seq_cst
+    EXPAND ATOMIC_I32_LOAD cur_i32_or, i32a, seq_cst
+    EXPAND ATOMIC_I32_STORE i32a, 15, seq_cst
+    EXPAND ATOMIC_I32_FETCH_XOR old_i32_xor, i32a, 1, seq_cst
+    EXPAND ATOMIC_I32_LOAD cur_i32_xor, i32a, seq_cst
+    EXPAND ATOMIC_I32_STORE i32a, 15, seq_cst
+    EXPAND ATOMIC_I32_FETCH_NAND old_i32_nand, i32a, 10, seq_cst
+    EXPAND ATOMIC_I32_LOAD cur_i32_nand, i32a, seq_cst
+
+    ok01 = eq old_u8_and, 15
+    ok02 = eq cur_u8_and, 10
+    ok03 = eq old_u8_or, 15
+    ok04 = eq cur_u8_or, 15
+    ok05 = eq old_u8_xor, 15
+    ok06 = eq cur_u8_xor, 14
+    ok07 = eq old_u8_nand, 15
+    ok08 = eq cur_u8_nand, 245
+    ok09 = eq old_i32_and, 15
+    ok10 = eq cur_i32_and, 10
+    ok11 = eq old_i32_or, 15
+    ok12 = eq cur_i32_or, 15
+    ok13 = eq old_i32_xor, 15
+    ok14 = eq cur_i32_xor, 14
+    ok15 = eq old_i32_nand, 15
+    ok16 = eq cur_i32_nand, -11
+
+    ok = and ok01, ok02
+    ok = and ok, ok03
+    ok = and ok, ok04
+    ok = and ok, ok05
+    ok = and ok, ok06
+    ok = and ok, ok07
+    ok = and ok, ok08
+    ok = and ok, ok09
+    ok = and ok, ok10
+    ok = and ok, ok11
+    ok = and ok, ok12
+    ok = and ok, ok13
+    ok = and ok, ok14
+    ok = and ok, ok15
+    ok = and ok, ok16
+
+    !old_u8_and
+    !cur_u8_and
+    !old_u8_or
+    !cur_u8_or
+    !old_u8_xor
+    !cur_u8_xor
+    !old_u8_nand
+    !cur_u8_nand
+    !old_i32_and
+    !cur_i32_and
+    !old_i32_or
+    !cur_i32_or
+    !old_i32_xor
+    !cur_i32_xor
+    !old_i32_nand
+    !cur_i32_nand
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(10409)
+L_PASS:
+    !ok
+    return
+
+
+@test "sa_std atomic default init aliases"():
+L_ENTRY:
+    bool_slot = stack_alloc AtomicBool_SIZE
+    u64_slot = stack_alloc AtomicU64_SIZE
+    EXPAND ATOMIC_BOOL_DEFAULT bool_slot
+    EXPAND ATOMIC_U64_DEFAULT u64_slot
+    EXPAND ATOMIC_BOOL_LOAD b0, bool_slot, relaxed
+    EXPAND ATOMIC_U64_LOAD u0, u64_slot, relaxed
+
+    ok_b = eq b0, 0
+    ok_u = eq u0, 0
+    ok = and ok_b, ok_u
+
+    !b0
+    !u0
+    !ok_b
+    !ok_u
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10436)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std atomic signed/ptr default init aliases"():
+L_ENTRY:
+    i8_slot = stack_alloc AtomicI8_SIZE
+    i16_slot = stack_alloc AtomicI16_SIZE
+    i32_slot = stack_alloc AtomicI32_SIZE
+    i64_slot = stack_alloc AtomicI64_SIZE
+    isize_slot = stack_alloc AtomicIsize_SIZE
+    ptr_slot = stack_alloc AtomicPtr_SIZE
+
+    EXPAND ATOMIC_I8_DEFAULT i8_slot
+    EXPAND ATOMIC_I16_DEFAULT i16_slot
+    EXPAND ATOMIC_I32_DEFAULT i32_slot
+    EXPAND ATOMIC_I64_DEFAULT i64_slot
+    EXPAND ATOMIC_ISIZE_DEFAULT isize_slot
+    EXPAND ATOMIC_PTR_DEFAULT ptr_slot
+
+    EXPAND ATOMIC_I8_LOAD i8v, i8_slot, relaxed
+    EXPAND ATOMIC_I16_LOAD i16v, i16_slot, relaxed
+    EXPAND ATOMIC_I32_LOAD i32v, i32_slot, relaxed
+    EXPAND ATOMIC_I64_LOAD i64v, i64_slot, relaxed
+    EXPAND ATOMIC_ISIZE_LOAD isizev, isize_slot, relaxed
+    EXPAND ATOMIC_PTR_LOAD ptrv, ptr_slot, relaxed
+
+    null_ptr = 0 as ptr
+    ok01 = eq i8v, 0
+    ok02 = eq i16v, 0
+    ok03 = eq i32v, 0
+    ok04 = eq i64v, 0
+    ok05 = eq isizev, 0
+    ok06 = eq ptrv, null_ptr
+    ok07 = and ok01, ok02
+    ok08 = and ok07, ok03
+    ok09 = and ok08, ok04
+    ok10 = and ok09, ok05
+    ok = and ok10, ok06
+
+    !i8v
+    !i16v
+    !i32v
+    !i64v
+    !isizev
+    !ptrv
+    !null_ptr
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10438)
+L_OK:
+    !ok
+    return

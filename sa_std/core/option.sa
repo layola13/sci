@@ -716,3 +716,75 @@ L_MATCH_OPTION_NONE_%out_value:
     %out_bool = eq __matches_option_tag_%out_bool, %expected_tag
     !__matches_option_tag_%out_bool
 [END_MACRO]
+
+[MACRO] OPTION_DEFAULT %out_opt
+    EXPAND OPTION_NEW_NONE %out_opt
+[END_MACRO]
+
+[MACRO] OPTION_ZIP_U64 %out_opt, %opt_a, %opt_b
+    %out_opt = alloc OptionPairU64_SIZE
+    __zip_tag_a_%out_opt = load %opt_a+Option_tag as u64
+    __zip_some_a_%out_opt = eq __zip_tag_a_%out_opt, Option_SOME
+    br __zip_some_a_%out_opt -> L_ZIP_CHECK_B_%out_opt, L_ZIP_NONE_A_%out_opt
+L_ZIP_CHECK_B_%out_opt:
+    __zip_tag_b_%out_opt = load %opt_b+Option_tag as u64
+    __zip_some_b_%out_opt = eq __zip_tag_b_%out_opt, Option_SOME
+    br __zip_some_b_%out_opt -> L_ZIP_SOME_%out_opt, L_ZIP_NONE_B_%out_opt
+L_ZIP_SOME_%out_opt:
+    __zip_val_a_%out_opt = load %opt_a+Option_value as u64
+    __zip_val_b_%out_opt = load %opt_b+Option_value as u64
+    store %out_opt+OptionPairU64_tag, Option_SOME as u64
+    store %out_opt+OptionPairU64_value1, __zip_val_a_%out_opt as u64
+    store %out_opt+OptionPairU64_value2, __zip_val_b_%out_opt as u64
+    !__zip_val_b_%out_opt
+    !__zip_val_a_%out_opt
+    !__zip_some_b_%out_opt
+    !__zip_tag_b_%out_opt
+    !__zip_some_a_%out_opt
+    !__zip_tag_a_%out_opt
+    jmp L_ZIP_END_%out_opt
+L_ZIP_NONE_A_%out_opt:
+    store %out_opt+OptionPairU64_tag, Option_NONE as u64
+    store %out_opt+OptionPairU64_value1, 0 as u64
+    store %out_opt+OptionPairU64_value2, 0 as u64
+    !__zip_some_a_%out_opt
+    !__zip_tag_a_%out_opt
+    jmp L_ZIP_END_%out_opt
+L_ZIP_NONE_B_%out_opt:
+    store %out_opt+OptionPairU64_tag, Option_NONE as u64
+    store %out_opt+OptionPairU64_value1, 0 as u64
+    store %out_opt+OptionPairU64_value2, 0 as u64
+    !__zip_some_b_%out_opt
+    !__zip_tag_b_%out_opt
+    !__zip_some_a_%out_opt
+    !__zip_tag_a_%out_opt
+L_ZIP_END_%out_opt:
+[END_MACRO]
+
+[MACRO] OPTION_UNZIP_TO_U64 %out_opt_a, %out_opt_b, %pair_opt
+    %out_opt_a = alloc Option_SIZE
+    %out_opt_b = alloc Option_SIZE
+    __unzip_tag_%out_opt_a = load %pair_opt+OptionPairU64_tag as u64
+    __unzip_some_%out_opt_a = eq __unzip_tag_%out_opt_a, Option_SOME
+    br __unzip_some_%out_opt_a -> L_UNZIP_SOME_%out_opt_a, L_UNZIP_NONE_%out_opt_a
+L_UNZIP_SOME_%out_opt_a:
+    __unzip_v1_%out_opt_a = load %pair_opt+OptionPairU64_value1 as u64
+    __unzip_v2_%out_opt_a = load %pair_opt+OptionPairU64_value2 as u64
+    store %out_opt_a+Option_tag, Option_SOME as u64
+    store %out_opt_a+Option_value, __unzip_v1_%out_opt_a as u64
+    store %out_opt_b+Option_tag, Option_SOME as u64
+    store %out_opt_b+Option_value, __unzip_v2_%out_opt_a as u64
+    !__unzip_v2_%out_opt_a
+    !__unzip_v1_%out_opt_a
+    !__unzip_some_%out_opt_a
+    !__unzip_tag_%out_opt_a
+    jmp L_UNZIP_END_%out_opt_a
+L_UNZIP_NONE_%out_opt_a:
+    store %out_opt_a+Option_tag, Option_NONE as u64
+    store %out_opt_a+Option_value, 0 as u64
+    store %out_opt_b+Option_tag, Option_NONE as u64
+    store %out_opt_b+Option_value, 0 as u64
+    !__unzip_some_%out_opt_a
+    !__unzip_tag_%out_opt_a
+L_UNZIP_END_%out_opt_a:
+[END_MACRO]

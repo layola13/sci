@@ -814,7 +814,7 @@ L_ENTRY:
 
 L_MAP_RETAIN_FAIL:
     !ok
-    panic(923)
+    panic(925)
 
 L_MAP_RETAIN_OK:
     !ok
@@ -1409,8 +1409,298 @@ L_ENTRY:
 
 L_SET_ALGEBRA_FAIL:
     !ok
-    panic(923)
+    panic(926)
 
 L_SET_ALGEBRA_OK:
+    !ok
+    return
+
+@test "sa_std btree_map entry and_modify/or_default aliases"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+
+    EXPAND BTREE_MAP_NEW map
+    EXPAND BTREE_MAP_ENTRY_AND_MODIFY miss_ok, map, alpha, 11
+    miss_ok_ok = eq miss_ok, 0
+    EXPAND BTREE_MAP_CONTAINS_KEY has_after_miss, map, alpha
+    has_after_miss_ok = eq has_after_miss, 0
+
+    EXPAND BTREE_MAP_ENTRY_OR_DEFAULT def_ins, def_ptr, map, alpha
+    def_ins_ok = eq def_ins, 1
+    def_val = load def_ptr+0 as u64
+    def_val_ok = eq def_val, 0
+
+    EXPAND BTREE_MAP_OR_INSERT or_ins, or_ptr, map, bravo, 7
+    or_ins_ok = eq or_ins, 1
+    or_val = load or_ptr+0 as u64
+    or_val_ok = eq or_val, 7
+
+    EXPAND BTREE_MAP_ENTRY_AND_MODIFY mod_ok, map, bravo, 42
+    mod_ok_ok = eq mod_ok, 1
+    EXPAND BTREE_MAP_GET after_mod, map, bravo
+    after_mod_ok = eq after_mod, 42
+
+    EXPAND BTREE_MAP_FREE map
+    !alpha
+    !bravo
+
+    ok = and miss_ok_ok, has_after_miss_ok
+    ok = and ok, def_ins_ok
+    ok = and ok, def_val_ok
+    ok = and ok, or_ins_ok
+    ok = and ok, or_val_ok
+    ok = and ok, mod_ok_ok
+    ok = and ok, after_mod_ok
+
+    !miss_ok
+    !has_after_miss
+    !def_ins
+    !def_ptr
+    !def_val
+    !or_ins
+    !or_ptr
+    !or_val
+    !mod_ok
+    !after_mod
+    !miss_ok_ok
+    !has_after_miss_ok
+    !def_ins_ok
+    !def_val_ok
+    !or_ins_ok
+    !or_val_ok
+    !mod_ok_ok
+    !after_mod_ok
+    br ok -> L_BTREE_ENTRY_ALIAS_OK, L_BTREE_ENTRY_ALIAS_FAIL
+
+L_BTREE_ENTRY_ALIAS_FAIL:
+    !ok
+    panic(927)
+
+L_BTREE_ENTRY_ALIAS_OK:
+    !ok
+    return
+
+@test "sa_std btree_set entry get_or_insert aliases"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+
+    EXPAND BTREE_SET_NEW set
+    EXPAND BTREE_SET_ENTRY_GET_OR_INSERT ins_a, stored_a, set, alpha
+    ins_a_ok = eq ins_a, 1
+    stored_a_ptr = load stored_a+Slice_ptr as ptr
+    alpha_ptr = load alpha+Slice_ptr as ptr
+    stored_a_ok = eq stored_a_ptr, alpha_ptr
+    EXPAND BTREE_SET_OR_INSERT ins_a2, stored_a2, set, alpha
+    ins_a2_ok = eq ins_a2, 0
+    EXPAND BTREE_SET_OR_INSERT ins_b, stored_b, set, bravo
+    ins_b_ok = eq ins_b, 1
+    EXPAND BTREE_SET_LEN len1, set
+    len1_ok = eq len1, 2
+
+    EXPAND BTREE_SET_FREE set
+    !alpha
+    !bravo
+
+    ok = and ins_a_ok, stored_a_ok
+    ok = and ok, ins_a2_ok
+    ok = and ok, ins_b_ok
+    ok = and ok, len1_ok
+
+    !ins_a
+    !stored_a
+    !stored_a_ptr
+    !alpha_ptr
+    !ins_a2
+    !stored_a2
+    !ins_b
+    !stored_b
+    !len1
+    !ins_a_ok
+    !stored_a_ok
+    !ins_a2_ok
+    !ins_b_ok
+    !len1_ok
+    br ok -> L_BTREE_SET_ENTRY_OK, L_BTREE_SET_ENTRY_FAIL
+
+L_BTREE_SET_ENTRY_FAIL:
+    !ok
+    panic(928)
+
+L_BTREE_SET_ENTRY_OK:
+    !ok
+    return
+
+@test "sa_std btree literal arity macros"():
+L_ENTRY:
+    alpha = alloc Slice_SIZE
+    bravo = alloc Slice_SIZE
+    charlie = alloc Slice_SIZE
+    EXPAND SLICE_NEW alpha, &KEY_ALPHA, 5
+    EXPAND SLICE_NEW bravo, &KEY_BRAVO, 5
+    EXPAND SLICE_NEW charlie, &KEY_CHARLIE, 7
+
+    EXPAND BTREE_MAP_LIT1 map1, alpha, 1
+    EXPAND BTREE_MAP_LEN mlen1, map1
+    EXPAND BTREE_MAP_GET mg1, map1, alpha
+    mlen1_ok = eq mlen1, 1
+    mg1_ok = eq mg1, 1
+
+    EXPAND BTREE_MAP_LIT2 map2, alpha, 1, bravo, 2
+    EXPAND BTREE_MAP_LEN mlen2, map2
+    EXPAND BTREE_MAP_GET mg2a, map2, alpha
+    EXPAND BTREE_MAP_GET mg2b, map2, bravo
+    mlen2_ok = eq mlen2, 2
+    mg2a_ok = eq mg2a, 1
+    mg2b_ok = eq mg2b, 2
+
+    EXPAND BTREE_MAP_LIT3 map3, alpha, 1, bravo, 2, charlie, 3
+    EXPAND BTREE_MAP_LEN mlen3, map3
+    EXPAND BTREE_MAP_GET mg3a, map3, alpha
+    EXPAND BTREE_MAP_GET mg3b, map3, bravo
+    EXPAND BTREE_MAP_GET mg3c, map3, charlie
+    mlen3_ok = eq mlen3, 3
+    mg3a_ok = eq mg3a, 1
+    mg3b_ok = eq mg3b, 2
+    mg3c_ok = eq mg3c, 3
+
+    EXPAND BTREE_SET_LIT1 set1, alpha
+    EXPAND BTREE_SET_LEN slen1, set1
+    EXPAND BTREE_SET_CONTAINS shas1, set1, alpha
+    slen1_ok = eq slen1, 1
+    shas1_ok = eq shas1, 1
+
+    EXPAND BTREE_SET_LIT2 set2, alpha, bravo
+    EXPAND BTREE_SET_LEN slen2, set2
+    EXPAND BTREE_SET_CONTAINS shas2a, set2, alpha
+    EXPAND BTREE_SET_CONTAINS shas2b, set2, bravo
+    slen2_ok = eq slen2, 2
+    shas2a_ok = eq shas2a, 1
+    shas2b_ok = eq shas2b, 1
+
+    EXPAND BTREE_SET_LIT3 set3, alpha, bravo, charlie
+    EXPAND BTREE_SET_LEN slen3, set3
+    EXPAND BTREE_SET_CONTAINS shas3a, set3, alpha
+    EXPAND BTREE_SET_CONTAINS shas3b, set3, bravo
+    EXPAND BTREE_SET_CONTAINS shas3c, set3, charlie
+    slen3_ok = eq slen3, 3
+    shas3a_ok = eq shas3a, 1
+    shas3b_ok = eq shas3b, 1
+    shas3c_ok = eq shas3c, 1
+
+    EXPAND BTREE_MAP_FREE map1
+    EXPAND BTREE_MAP_FREE map2
+    EXPAND BTREE_MAP_FREE map3
+    EXPAND BTREE_SET_FREE set1
+    EXPAND BTREE_SET_FREE set2
+    EXPAND BTREE_SET_FREE set3
+    !alpha
+    !bravo
+    !charlie
+
+    ok = and mlen1_ok, mg1_ok
+    ok = and ok, mlen2_ok
+    ok = and ok, mg2a_ok
+    ok = and ok, mg2b_ok
+    ok = and ok, mlen3_ok
+    ok = and ok, mg3a_ok
+    ok = and ok, mg3b_ok
+    ok = and ok, mg3c_ok
+    ok = and ok, slen1_ok
+    ok = and ok, shas1_ok
+    ok = and ok, slen2_ok
+    ok = and ok, shas2a_ok
+    ok = and ok, shas2b_ok
+    ok = and ok, slen3_ok
+    ok = and ok, shas3a_ok
+    ok = and ok, shas3b_ok
+    ok = and ok, shas3c_ok
+
+    !mlen1
+    !mg1
+    !mlen2
+    !mg2a
+    !mg2b
+    !mlen3
+    !mg3a
+    !mg3b
+    !mg3c
+    !slen1
+    !shas1
+    !slen2
+    !shas2a
+    !shas2b
+    !slen3
+    !shas3a
+    !shas3b
+    !shas3c
+    !mlen1_ok
+    !mg1_ok
+    !mlen2_ok
+    !mg2a_ok
+    !mg2b_ok
+    !mlen3_ok
+    !mg3a_ok
+    !mg3b_ok
+    !mg3c_ok
+    !slen1_ok
+    !shas1_ok
+    !slen2_ok
+    !shas2a_ok
+    !shas2b_ok
+    !slen3_ok
+    !shas3a_ok
+    !shas3b_ok
+    !shas3c_ok
+    br ok -> L_BTREE_LIT_OK, L_BTREE_LIT_FAIL
+
+L_BTREE_LIT_FAIL:
+    !ok
+    panic(929)
+
+L_BTREE_LIT_OK:
+    !ok
+    return
+
+
+@test "sa_std btree default aliases"():
+L_ENTRY:
+    EXPAND BTREE_MAP_DEFAULT map
+    EXPAND BTREE_SET_DEFAULT set
+    EXPAND BTREE_MAP_LEN map_len, map
+    EXPAND BTREE_MAP_IS_EMPTY map_empty, map
+    EXPAND BTREE_SET_LEN set_len, set
+    EXPAND BTREE_SET_IS_EMPTY set_empty, set
+    EXPAND BTREE_MAP_FREE map
+    EXPAND BTREE_SET_FREE set
+
+    ok_ml = eq map_len, 0
+    ok_me = eq map_empty, 1
+    ok_sl = eq set_len, 0
+    ok_se = eq set_empty, 1
+    ok01 = and ok_ml, ok_me
+    ok02 = and ok01, ok_sl
+    ok = and ok02, ok_se
+
+    !map_len
+    !map_empty
+    !set_len
+    !set_empty
+    !ok_ml
+    !ok_me
+    !ok_sl
+    !ok_se
+    !ok01
+    !ok02
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10433)
+L_OK:
     !ok
     return

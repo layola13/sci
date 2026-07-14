@@ -1,4 +1,5 @@
 @import "thread.sai"
+@import "time.sa"
 
 [MACRO] THREAD_SPAWN %out_handle, %entry_ptr, %arg_ptr
     %out_handle = call @pthread_spawn(%entry_ptr, %arg_ptr)
@@ -20,6 +21,16 @@
     %out_id = call @sa_thread_current_id()
 [END_MACRO]
 
+// Rust-named aliases for current-thread identity and cooperative yield.
+
+[MACRO] THREAD_CURRENT %out_id
+    EXPAND THREAD_CURRENT_ID %out_id
+[END_MACRO]
+
+[MACRO] THREAD_YIELD %out_status
+    EXPAND THREAD_YIELD_NOW %out_status
+[END_MACRO]
+
 [MACRO] THREAD_YIELD_NOW %out_status
     %out_status = call @sa_thread_yield_now()
 [END_MACRO]
@@ -38,4 +49,56 @@
 
 [MACRO] THREAD_RAW_PTHREAD_JOIN_STATUS %out_status, %raw, %out_ptr
     %out_status = call @sa_thread_raw_pthread_join(%raw, *%out_ptr)
+[END_MACRO]
+
+// Builder-style SSA facade over existing spawn helpers.
+// State is a single detached flag (0/1); no stack-size/name runtime ABI yet.
+
+[MACRO] THREAD_BUILDER_NEW %out_detached
+    %out_detached = add 0, 0
+[END_MACRO]
+
+[MACRO] THREAD_BUILDER_WITH_DETACHED %out_detached, %in_detached, %flag
+    __thread_builder_zero_%out_detached = eq %flag, 0
+    br __thread_builder_zero_%out_detached -> L_THREAD_BUILDER_DETACHED_OFF_%out_detached, L_THREAD_BUILDER_DETACHED_ON_%out_detached
+L_THREAD_BUILDER_DETACHED_OFF_%out_detached:
+    %out_detached = add 0, 0
+    !__thread_builder_zero_%out_detached
+    !%in_detached
+    jmp L_THREAD_BUILDER_DETACHED_END_%out_detached
+L_THREAD_BUILDER_DETACHED_ON_%out_detached:
+    %out_detached = add 0, 1
+    !__thread_builder_zero_%out_detached
+    !%in_detached
+    jmp L_THREAD_BUILDER_DETACHED_END_%out_detached
+L_THREAD_BUILDER_DETACHED_END_%out_detached:
+[END_MACRO]
+
+[MACRO] THREAD_BUILDER_SPAWN %out_handle, %detached, %entry_ptr, %arg_ptr
+    __thread_builder_spawn_detached_%out_handle = ne %detached, 0
+    br __thread_builder_spawn_detached_%out_handle -> L_THREAD_BUILDER_SPAWN_DETACHED_%out_handle, L_THREAD_BUILDER_SPAWN_JOINABLE_%out_handle
+L_THREAD_BUILDER_SPAWN_DETACHED_%out_handle:
+    EXPAND THREAD_SPAWN_DETACHED %out_handle, %entry_ptr, %arg_ptr
+    !__thread_builder_spawn_detached_%out_handle
+    jmp L_THREAD_BUILDER_SPAWN_END_%out_handle
+L_THREAD_BUILDER_SPAWN_JOINABLE_%out_handle:
+    EXPAND THREAD_SPAWN %out_handle, %entry_ptr, %arg_ptr
+    !__thread_builder_spawn_detached_%out_handle
+    jmp L_THREAD_BUILDER_SPAWN_END_%out_handle
+L_THREAD_BUILDER_SPAWN_END_%out_handle:
+[END_MACRO]
+
+// Sleep helpers aliased over the existing time facade.
+
+[MACRO] THREAD_SLEEP_NS %ns
+    EXPAND TIME_SLEEP_NS %ns
+[END_MACRO]
+
+[MACRO] THREAD_SLEEP_MS %ms
+    EXPAND TIME_SLEEP_MS %ms
+[END_MACRO]
+
+// Sleep for a concrete Duration-like nanosecond scalar.
+[MACRO] THREAD_SLEEP_DURATION_NS %duration_ns
+    EXPAND THREAD_SLEEP_NS %duration_ns
 [END_MACRO]

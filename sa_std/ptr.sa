@@ -198,6 +198,10 @@
     !__ptr_swap_lhs_%lhs_ptr
 [END_MACRO]
 
+[MACRO] PTR_SWAP_NONOVERLAPPING_U64 %lhs_ptr, %rhs_ptr
+    EXPAND PTR_SWAP_U64 %lhs_ptr, %rhs_ptr
+[END_MACRO]
+
 [MACRO] PTR_REPLACE_U64 %out_old, %ptr_reg, %new_value
     %out_old = load %ptr_reg+0 as u64
     store %ptr_reg+0, %new_value as u64

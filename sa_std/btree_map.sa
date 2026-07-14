@@ -1534,6 +1534,34 @@ L_BTREE_MAP_RETAIN_DONE_%out_len:
     EXPAND BTREE_MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
 [END_MACRO]
 
+[MACRO] BTREE_MAP_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+    EXPAND BTREE_MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+[END_MACRO]
+
+// Concrete entry-style helpers. Default inserted value is 0 for the u64 map.
+
+[MACRO] BTREE_MAP_ENTRY_OR_DEFAULT %out_inserted, %out_value_ptr, %map_reg, %key_reg
+    EXPAND BTREE_MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, 0
+[END_MACRO]
+
+[MACRO] BTREE_MAP_ENTRY_AND_MODIFY %out_ok, %map_reg, %key_reg, %value
+    __btree_and_mod_ptr_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_btree_map_get_mut_ptr(&%map_reg, &%key_reg, &__btree_and_mod_ptr_slot_%out_ok)
+    __btree_and_mod_ptr_%out_ok = load __btree_and_mod_ptr_slot_%out_ok+0 as ptr
+    __btree_and_mod_has_%out_ok = eq %out_ok, 1
+    br __btree_and_mod_has_%out_ok -> L_BTREE_MAP_ENTRY_AND_MODIFY_SET_%out_ok, L_BTREE_MAP_ENTRY_AND_MODIFY_SKIP_%out_ok
+L_BTREE_MAP_ENTRY_AND_MODIFY_SET_%out_ok:
+    store __btree_and_mod_ptr_%out_ok+0, %value as u64
+    !__btree_and_mod_has_%out_ok
+    !__btree_and_mod_ptr_%out_ok
+    jmp L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok
+L_BTREE_MAP_ENTRY_AND_MODIFY_SKIP_%out_ok:
+    !__btree_and_mod_has_%out_ok
+    !__btree_and_mod_ptr_%out_ok
+    jmp L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok
+L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok:
+[END_MACRO]
+
 [MACRO] BTREE_MAP_KEYS %out_set, %map_reg
     %out_set = call @sa_btree_map_keys_set(&%map_reg)
 [END_MACRO]
@@ -1580,4 +1608,28 @@ L_BTREE_MAP_RETAIN_DONE_%out_len:
 
 [MACRO] BTREE_MAP_RANGE %out_map, %map_reg, %start_key, %end_key
     %out_map = call @sa_btree_map_range(&%map_reg, &%start_key, &%end_key)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_LIT1 %out_map, %key1, %value1
+    EXPAND BTREE_MAP_NEW %out_map
+    EXPAND BTREE_MAP_INSERT %out_map, %key1, %value1
+[END_MACRO]
+
+[MACRO] BTREE_MAP_LIT2 %out_map, %key1, %value1, %key2, %value2
+    EXPAND BTREE_MAP_NEW %out_map
+    EXPAND BTREE_MAP_INSERT %out_map, %key1, %value1
+    EXPAND BTREE_MAP_INSERT %out_map, %key2, %value2
+[END_MACRO]
+
+[MACRO] BTREE_MAP_LIT3 %out_map, %key1, %value1, %key2, %value2, %key3, %value3
+    EXPAND BTREE_MAP_NEW %out_map
+    EXPAND BTREE_MAP_INSERT %out_map, %key1, %value1
+    EXPAND BTREE_MAP_INSERT %out_map, %key2, %value2
+    EXPAND BTREE_MAP_INSERT %out_map, %key3, %value3
+[END_MACRO]
+
+// Rust Default-style empty BTreeMap constructor alias.
+
+[MACRO] BTREE_MAP_DEFAULT %out_map
+    EXPAND BTREE_MAP_NEW %out_map
 [END_MACRO]

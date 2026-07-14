@@ -1,3 +1,7 @@
 #def Slice_SIZE = 16
 #def Slice_ptr  = +0
 #def Slice_len  = +8
+
+#def TryFromSliceError_SIZE = 8
+#def TryFromSliceError_code = +0
+#def TRY_FROM_SLICE_ERROR_LENGTH_MISMATCH = 0

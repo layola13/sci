@@ -3513,3 +3513,11 @@ L_SLICE_UB_DONE_%out_index:
     EXPAND SLICE_LOWER_BOUND_U64 %out_start, %slice_reg, %needle
     EXPAND SLICE_UPPER_BOUND_U64 %out_end, %slice_reg, %needle
 [END_MACRO]
+
+
+[MACRO] SLICE_DEFAULT %slice_reg
+    __slice_default_zero_%slice_reg = add 0, 0
+    store %slice_reg+Slice_ptr, __slice_default_zero_%slice_reg as ptr
+    store %slice_reg+Slice_len, __slice_default_zero_%slice_reg as u64
+    !__slice_default_zero_%slice_reg
+[END_MACRO]

@@ -7,6 +7,11 @@
     store %out_rc+RcBox_data, %value as u64
 [END_MACRO]
 
+// Rust-style Default for concrete Rc<u64>: Rc::new(0).
+[MACRO] RC_DEFAULT_U64 %out_rc
+    EXPAND RC_NEW %out_rc, 0
+[END_MACRO]
+
 [MACRO] RC_CLONE %rc_reg
     __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
     __rc_next_strong_%rc_reg = add __rc_strong_%rc_reg, 1
@@ -150,6 +155,11 @@ L_RC_DROP_DONE_%rc_reg:
     store %out_weak+RcBox_strong, 0 as u64
     store %out_weak+RcBox_weak, 1 as u64
     store %out_weak+RcBox_data, 0 as u64
+[END_MACRO]
+
+// Rust-style Default alias for Weak::new().
+[MACRO] WEAK_DEFAULT %out_weak
+    EXPAND WEAK_NEW %out_weak
 [END_MACRO]
 
 [MACRO] WEAK_STRONG_COUNT %out_count, %weak_reg

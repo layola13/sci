@@ -1,4 +1,5 @@
 @import "sa_std/collections/vec_deque.sa"
+@import "sa_std/vec.sa"
 
 @deque_is_20(value: u64) -> u64:
 L_ENTRY:
@@ -236,7 +237,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(910)
+    panic(10341)
 
 L_OK:
     !ok
@@ -901,7 +902,7 @@ L_ENTRY:
 
 L_RETAIN_FAIL:
     !ok
-    panic(913)
+    panic(10342)
 
 L_RETAIN_OK:
     !ok
@@ -1010,7 +1011,7 @@ L_ENTRY:
 
 L_DRAIN_FAIL:
     !ok
-    panic(915)
+    panic(10343)
 
 L_DRAIN_OK:
     !ok
@@ -1169,7 +1170,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(911)
+    panic(10344)
 
 L_OK:
     !ok
@@ -1235,7 +1236,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(912)
+    panic(10345)
 L_OK:
     !ok
     return
@@ -1317,7 +1318,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(913)
+    panic(10346)
 L_OK:
     !ok
     return
@@ -1397,7 +1398,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(914)
+    panic(10347)
 L_OK:
     !ok
     return
@@ -1458,7 +1459,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(915)
+    panic(10348)
 L_OK:
     !ok
     return
@@ -1523,7 +1524,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(916)
+    panic(10349)
 L_OK:
     !ok
     return
@@ -1610,7 +1611,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(917)
+    panic(10350)
 L_OK:
     !ok
     return
@@ -1693,7 +1694,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(918)
+    panic(10351)
 L_OK:
     !ok
     return
@@ -1781,7 +1782,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(919)
+    panic(10352)
 L_OK:
     !ok
     return
@@ -1884,7 +1885,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(920)
+    panic(10353)
 L_OK:
     !ok
     return
@@ -2008,7 +2009,7 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(921)
+    panic(10354)
 L_OK:
     !ok
     return
@@ -2094,7 +2095,84 @@ L_ENTRY:
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
-    panic(922)
+    panic(10355)
+L_OK:
+    !ok
+    return
+
+@test "sa_std vec_deque from/lit constructors"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_LIT3 dq, 1, 2, 3
+    EXPAND VEC_DEQUE_LEN len0, dq
+    len0_ok = eq len0, 3
+    EXPAND VEC_DEQUE_FRONT front0, dq
+    front0_ok = eq front0, 1
+    EXPAND VEC_DEQUE_BACK back0, dq
+    back0_ok = eq back0, 3
+
+    EXPAND VEC_NEW src
+    EXPAND VEC_PUSH_U64 src, 7
+    EXPAND VEC_PUSH_U64 src, 8
+    EXPAND VEC_DEQUE_FROM_VEC_U64 dq2, src
+    EXPAND VEC_DEQUE_LEN len1, dq2
+    len1_ok = eq len1, 2
+    EXPAND VEC_DEQUE_FRONT front1, dq2
+    front1_ok = eq front1, 7
+    EXPAND VEC_DEQUE_BACK back1, dq2
+    back1_ok = eq back1, 8
+
+    EXPAND VEC_DEQUE_FREE dq
+    EXPAND VEC_DEQUE_FREE dq2
+    EXPAND VEC_FREE src
+
+    ok = and len0_ok, front0_ok
+    ok = and ok, back0_ok
+    ok = and ok, len1_ok
+    ok = and ok, front1_ok
+    ok = and ok, back1_ok
+
+    !len0
+    !front0
+    !back0
+    !len1
+    !front1
+    !back1
+    !len0_ok
+    !front0_ok
+    !back0_ok
+    !len1_ok
+    !front1_ok
+    !back1_ok
+    br ok -> L_VEC_DEQUE_FROM_OK, L_VEC_DEQUE_FROM_FAIL
+
+L_VEC_DEQUE_FROM_FAIL:
+    !ok
+    panic(10356)
+
+L_VEC_DEQUE_FROM_OK:
+    !ok
+    return
+
+
+@test "sa_std vec_deque default alias"():
+L_ENTRY:
+    EXPAND VEC_DEQUE_DEFAULT deque
+    EXPAND VEC_DEQUE_LEN len0, deque
+    EXPAND VEC_DEQUE_IS_EMPTY empty0, deque
+    EXPAND VEC_DEQUE_FREE deque
+
+    ok_len = eq len0, 0
+    ok_empty = eq empty0, 1
+    ok = and ok_len, ok_empty
+
+    !len0
+    !empty0
+    !ok_len
+    !ok_empty
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10434)
 L_OK:
     !ok
     return

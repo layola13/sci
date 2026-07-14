@@ -1,0 +1,3 @@
+@main() -> i32:
+L_ENTRY:
+    return 0

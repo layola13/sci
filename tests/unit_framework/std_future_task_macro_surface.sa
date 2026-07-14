@@ -393,7 +393,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(929)
+    panic(10037)
 
 L_OK:
     !ok
@@ -494,7 +494,7 @@ L_FUTURE_POLL_BRANCH_DONE:
 
 L_FAIL:
     !ok
-    panic(930)
+    panic(10038)
 
 L_OK:
     !ok
@@ -676,7 +676,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(931)
+    panic(10039)
 
 L_OK:
     !ok
@@ -773,7 +773,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(932)
+    panic(10040)
 
 L_OK:
     !ok

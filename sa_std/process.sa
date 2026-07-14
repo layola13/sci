@@ -17,6 +17,11 @@
     store %exit_status+ProcessExitStatus_raw, 0 as i32
 [END_MACRO]
 
+// Rust-style Default-like exit status: success code 0.
+[MACRO] PROCESS_EXIT_STATUS_DEFAULT %exit_status
+    EXPAND PROCESS_EXIT_STATUS_NEW %exit_status, 0
+[END_MACRO]
+
 [MACRO] PROCESS_EXIT_STATUS_FROM_RAW %exit_status, %raw
     __process_exit_status_code_%exit_status = call @sa_std_process_exit_status_code(%raw)
     store %exit_status+ProcessExitStatus_code, __process_exit_status_code_%exit_status as u32
@@ -28,6 +33,12 @@
     %out_code = load %exit_status+ProcessExitStatus_code as u32
 [END_MACRO]
 
+// Rust-named alias for ExitStatus::code-style access.
+[MACRO] PROCESS_EXIT_CODE %out_code, %exit_status
+    EXPAND PROCESS_EXIT_STATUS_CODE %out_code, %exit_status
+[END_MACRO]
+
+
 [MACRO] PROCESS_EXIT_STATUS_RAW %out_raw, %exit_status
     %out_raw = load %exit_status+ProcessExitStatus_raw as i32
 [END_MACRO]
@@ -37,6 +48,37 @@
     EXPAND PROCESS_EXIT_SUCCESS %out_bool, __process_exit_status_code_%out_bool
     !__process_exit_status_code_%out_bool
 [END_MACRO]
+
+// Rust-named alias for ExitStatus::success().
+[MACRO] PROCESS_SUCCESS %out_bool, %exit_status
+    EXPAND PROCESS_EXIT_STATUS_SUCCESS %out_bool, %exit_status
+[END_MACRO]
+
+[MACRO] PROCESS_IS_SUCCESS %out_bool, %exit_status
+    EXPAND PROCESS_SUCCESS %out_bool, %exit_status
+[END_MACRO]
+
+[MACRO] PROCESS_CODE %out_code, %exit_status
+    EXPAND PROCESS_EXIT_CODE %out_code, %exit_status
+[END_MACRO]
+
+[MACRO] PROCESS_OUTPUT_STATUS %out_ptr, %output
+    EXPAND PROCESS_OUTPUT_STATUS_PTR %out_ptr, %output
+[END_MACRO]
+
+[MACRO] PROCESS_OUTPUT_SUCCESS %out_bool, %output
+    EXPAND PROCESS_OUTPUT_STATUS __process_output_success_status_%out_bool, %output
+    EXPAND PROCESS_IS_SUCCESS %out_bool, __process_output_success_status_%out_bool
+    !__process_output_success_status_%out_bool
+[END_MACRO]
+
+[MACRO] PROCESS_OUTPUT_CODE %out_code, %output
+    EXPAND PROCESS_OUTPUT_STATUS __process_output_code_status_%out_code, %output
+    EXPAND PROCESS_CODE %out_code, __process_output_code_status_%out_code
+    !__process_output_code_status_%out_code
+[END_MACRO]
+
+
 
 [MACRO] PROCESS_EXIT_STATUS_SIGNAL %out_signal, %exit_status
     EXPAND PROCESS_EXIT_STATUS_RAW __process_exit_status_raw_%out_signal, %exit_status
@@ -355,12 +397,32 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_pid = call @sa_std_process_parent_id()
 [END_MACRO]
 
+// Rust-named aliases for current process identity helpers.
+
+[MACRO] PROCESS_PID %out_pid
+    EXPAND PROCESS_ID %out_pid
+[END_MACRO]
+
+[MACRO] PROCESS_PPID %out_pid
+    EXPAND PROCESS_PARENT_ID %out_pid
+[END_MACRO]
+
 [MACRO] PROCESS_USER_ID %out_uid
     %out_uid = call @sa_std_process_user_id()
 [END_MACRO]
 
 [MACRO] PROCESS_GROUP_ID %out_gid
     %out_gid = call @sa_std_process_group_id()
+[END_MACRO]
+
+// Rust-named aliases for current credentials helpers.
+
+[MACRO] PROCESS_UID %out_uid
+    EXPAND PROCESS_USER_ID %out_uid
+[END_MACRO]
+
+[MACRO] PROCESS_GID %out_gid
+    EXPAND PROCESS_GROUP_ID %out_gid
 [END_MACRO]
 
 [MACRO] PROCESS_ABORT
@@ -620,3 +682,130 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
 [MACRO] PROCESS_CLOSE %out_status, %process
     %out_status = call @sa_std_process_close(%process)
 [END_MACRO]
+
+// Concrete Command-style SSA config builder over PROCESS_*_COMMAND_EXT.
+// Builder state is propagating scalar flags only. Callers still pass addressable
+// cwd/arg0 buffers into STATUS/SPAWN (use stack_alloc dummies when unused).
+// This does not model env maps, pipe Stdio objects, or a heap Command value.
+
+[MACRO] PROCESS_COMMAND_BUILDER_NEW %out_cwd_len, %out_has_cwd, %out_arg0_len, %out_has_arg0, %out_process_group, %out_has_process_group, %out_setsid
+    %out_cwd_len = add 0, 0
+    %out_has_cwd = add 0, 0
+    %out_arg0_len = add 0, 0
+    %out_has_arg0 = add 0, 0
+    %out_process_group = add 0, 0
+    %out_has_process_group = add 0, 0
+    %out_setsid = add 0, 0
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_WITH_CURRENT_DIR %out_cwd_len, %out_has_cwd, %out_arg0_len, %out_has_arg0, %out_process_group, %out_has_process_group, %out_setsid, %in_cwd_len, %in_has_cwd, %in_arg0_len, %in_has_arg0, %in_process_group, %in_has_process_group, %in_setsid, %cwd_len
+    %out_cwd_len = add 0, %cwd_len
+    %out_has_cwd = add 0, 1
+    %out_arg0_len = add 0, %in_arg0_len
+    %out_has_arg0 = add 0, %in_has_arg0
+    %out_process_group = add 0, %in_process_group
+    %out_has_process_group = add 0, %in_has_process_group
+    %out_setsid = add 0, %in_setsid
+    !%in_cwd_len
+    !%in_has_cwd
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_WITH_ARG0 %out_cwd_len, %out_has_cwd, %out_arg0_len, %out_has_arg0, %out_process_group, %out_has_process_group, %out_setsid, %in_cwd_len, %in_has_cwd, %in_arg0_len, %in_has_arg0, %in_process_group, %in_has_process_group, %in_setsid, %arg0_len
+    %out_cwd_len = add 0, %in_cwd_len
+    %out_has_cwd = add 0, %in_has_cwd
+    %out_arg0_len = add 0, %arg0_len
+    %out_has_arg0 = add 0, 1
+    %out_process_group = add 0, %in_process_group
+    %out_has_process_group = add 0, %in_has_process_group
+    %out_setsid = add 0, %in_setsid
+    !%in_arg0_len
+    !%in_has_arg0
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_WITH_PROCESS_GROUP %out_cwd_len, %out_has_cwd, %out_arg0_len, %out_has_arg0, %out_process_group, %out_has_process_group, %out_setsid, %in_cwd_len, %in_has_cwd, %in_arg0_len, %in_has_arg0, %in_process_group, %in_has_process_group, %in_setsid, %process_group
+    %out_cwd_len = add 0, %in_cwd_len
+    %out_has_cwd = add 0, %in_has_cwd
+    %out_arg0_len = add 0, %in_arg0_len
+    %out_has_arg0 = add 0, %in_has_arg0
+    %out_process_group = add 0, %process_group
+    %out_has_process_group = add 0, 1
+    %out_setsid = add 0, %in_setsid
+    !%in_process_group
+    !%in_has_process_group
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_WITH_SETSID %out_cwd_len, %out_has_cwd, %out_arg0_len, %out_has_arg0, %out_process_group, %out_has_process_group, %out_setsid, %in_cwd_len, %in_has_cwd, %in_arg0_len, %in_has_arg0, %in_process_group, %in_has_process_group, %in_setsid, %flag
+    __process_cmd_setsid_zero_%out_setsid = eq %flag, 0
+    br __process_cmd_setsid_zero_%out_setsid -> L_PROCESS_CMD_SETSID_OFF_%out_setsid, L_PROCESS_CMD_SETSID_ON_%out_setsid
+L_PROCESS_CMD_SETSID_OFF_%out_setsid:
+    %out_cwd_len = add 0, %in_cwd_len
+    %out_has_cwd = add 0, %in_has_cwd
+    %out_arg0_len = add 0, %in_arg0_len
+    %out_has_arg0 = add 0, %in_has_arg0
+    %out_process_group = add 0, %in_process_group
+    %out_has_process_group = add 0, %in_has_process_group
+    %out_setsid = add 0, 0
+    !__process_cmd_setsid_zero_%out_setsid
+    jmp L_PROCESS_CMD_SETSID_END_%out_setsid
+L_PROCESS_CMD_SETSID_ON_%out_setsid:
+    %out_cwd_len = add 0, %in_cwd_len
+    %out_has_cwd = add 0, %in_has_cwd
+    %out_arg0_len = add 0, %in_arg0_len
+    %out_has_arg0 = add 0, %in_has_arg0
+    %out_process_group = add 0, %in_process_group
+    %out_has_process_group = add 0, %in_has_process_group
+    %out_setsid = add 0, 1
+    !__process_cmd_setsid_zero_%out_setsid
+    jmp L_PROCESS_CMD_SETSID_END_%out_setsid
+L_PROCESS_CMD_SETSID_END_%out_setsid:
+    !%in_setsid
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_STATUS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+    EXPAND PROCESS_RUN_COMMAND_EXT %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_SPAWN %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+    EXPAND PROCESS_SPAWN_COMMAND_EXT %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_SPAWN_STREAM %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+    EXPAND PROCESS_SPAWN_STREAM_COMMAND_EXT %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+[END_MACRO]
+
+// Command.output()-style capture over the existing exec_capture ABI.
+// Honors has_cwd/cwd only; arg0/process_group/setsid are not applied because
+// capture runtime paths do not currently expose those CommandExt fields.
+
+[MACRO] PROCESS_COMMAND_BUILDER_EXEC_CAPTURE %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+    __process_cmd_cap_has_cwd_%out_status = ne %has_cwd, 0
+    br __process_cmd_cap_has_cwd_%out_status -> L_PROCESS_CMD_CAP_CWD_%out_status, L_PROCESS_CMD_CAP_PLAIN_%out_status
+
+L_PROCESS_CMD_CAP_CWD_%out_status:
+    EXPAND PROCESS_EXEC_CAPTURE_CWD %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len
+    !__process_cmd_cap_has_cwd_%out_status
+    jmp L_PROCESS_CMD_CAP_END_%out_status
+
+L_PROCESS_CMD_CAP_PLAIN_%out_status:
+    EXPAND PROCESS_EXEC_CAPTURE %out_status, %out_code, %out_stdout, %out_stderr, %argv, %argv_len
+    !__process_cmd_cap_has_cwd_%out_status
+
+L_PROCESS_CMD_CAP_END_%out_status:
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_OUTPUT %out_status, %output, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
+    __process_cmd_out_has_cwd_%output = ne %has_cwd, 0
+    br __process_cmd_out_has_cwd_%output -> L_PROCESS_CMD_OUT_CWD_%output, L_PROCESS_CMD_OUT_PLAIN_%output
+
+L_PROCESS_CMD_OUT_CWD_%output:
+    EXPAND PROCESS_EXEC_CAPTURE_OUTPUT_CWD %out_status, %output, %argv, %argv_len, %cwd, %cwd_len
+    !__process_cmd_out_has_cwd_%output
+    jmp L_PROCESS_CMD_OUT_END_%output
+
+L_PROCESS_CMD_OUT_PLAIN_%output:
+    EXPAND PROCESS_EXEC_CAPTURE_OUTPUT %out_status, %output, %argv, %argv_len
+    !__process_cmd_out_has_cwd_%output
+
+L_PROCESS_CMD_OUT_END_%output:
+[END_MACRO]
+

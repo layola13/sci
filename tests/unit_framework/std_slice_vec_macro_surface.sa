@@ -482,7 +482,7 @@ L_ENTRY:
 
 L_PARITY_FAIL:
     !ok
-    panic(905)
+    panic(10220)
 
 L_PARITY_OK:
     !ok
@@ -872,7 +872,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SPLIT_FIRST_LAST_FAIL:
     !ok
-    panic(918)
+    panic(10221)
 
 L_SLICE_VEC_SPLIT_FIRST_LAST_OK:
     !ok
@@ -1517,7 +1517,7 @@ L_ENTRY:
 
 L_SLICE_MUT_FAIL:
     !ok
-    panic(909)
+    panic(10222)
 
 L_SLICE_MUT_OK:
     !ok
@@ -1762,7 +1762,7 @@ L_ENTRY:
 
 L_SLICE_VEC_CHUNK_WINDOW_FAIL:
     !ok
-    panic(915)
+    panic(10223)
 
 L_SLICE_VEC_CHUNK_WINDOW_OK:
     !ok
@@ -2007,7 +2007,7 @@ L_ENTRY:
 
 L_SLICE_VEC_RCHUNK_FAIL:
     !ok
-    panic(926)
+    panic(10224)
 
 L_SLICE_VEC_RCHUNK_OK:
     !ok
@@ -2425,7 +2425,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SPLIT_CHUNK_FAIL:
     !ok
-    panic(919)
+    panic(10225)
 
 L_SLICE_VEC_SPLIT_CHUNK_OK:
     !ok
@@ -2667,7 +2667,7 @@ L_ENTRY:
 
 L_SLICE_VEC_FIRST_LAST_CHUNK_FAIL:
     !ok
-    panic(920)
+    panic(10226)
 
 L_SLICE_VEC_FIRST_LAST_CHUNK_OK:
     !ok
@@ -3021,7 +3021,7 @@ L_ENTRY:
 
 L_SLICE_VEC_CHECKED_RANGE_FAIL:
     !ok
-    panic(921)
+    panic(10227)
 
 L_SLICE_VEC_CHECKED_RANGE_OK:
     !ok
@@ -3168,7 +3168,7 @@ L_ENTRY:
 
 L_VEC_UNCHECKED_SPLIT_RANGE_FAIL:
     !ok
-    panic(948)
+    panic(10228)
 
 L_VEC_UNCHECKED_SPLIT_RANGE_OK:
     !ok
@@ -3425,7 +3425,7 @@ L_ENTRY:
 
 L_VEC_SLICE_MUTATION_ALIASES_FAIL:
     !ok
-    panic(949)
+    panic(10229)
 
 L_VEC_SLICE_MUTATION_ALIASES_OK:
     !ok
@@ -3614,7 +3614,7 @@ L_ENTRY:
 
 L_VEC_COPY_ALIASES_FAIL:
     !ok
-    panic(950)
+    panic(10230)
 
 L_VEC_COPY_ALIASES_OK:
     !ok
@@ -3899,7 +3899,7 @@ L_ENTRY:
 
 L_SLICE_VEC_ROTATE_SWAP_SORTED_FAIL:
     !ok
-    panic(922)
+    panic(10231)
 
 L_SLICE_VEC_ROTATE_SWAP_SORTED_OK:
     !ok
@@ -4050,7 +4050,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SORTED_CALLBACK_FAIL:
     !ok
-    panic(923)
+    panic(10232)
 
 L_SLICE_VEC_SORTED_CALLBACK_OK:
     !ok
@@ -4313,7 +4313,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SORT_FAIL:
     !ok
-    panic(924)
+    panic(10233)
 
 L_SLICE_VEC_SORT_OK:
     !ok
@@ -4399,7 +4399,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SORT_CACHED_KEY_FAIL:
     !ok
-    panic(947)
+    panic(10234)
 
 L_SLICE_VEC_SORT_CACHED_KEY_OK:
     !ok
@@ -4548,7 +4548,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SORT_UNSTABLE_FAIL:
     !ok
-    panic(945)
+    panic(10235)
 
 L_SLICE_VEC_SORT_UNSTABLE_OK:
     !ok
@@ -4830,7 +4830,7 @@ L_ENTRY:
 
 L_SLICE_VEC_SELECT_NTH_FAIL:
     !ok
-    panic(946)
+    panic(10236)
 
 L_SLICE_VEC_SELECT_NTH_OK:
     !ok
@@ -4913,7 +4913,7 @@ L_ENTRY:
 
 L_SLICE_VEC_FILL_WITH_FAIL:
     !ok
-    panic(924)
+    panic(10237)
 
 L_SLICE_VEC_FILL_WITH_OK:
     !ok
@@ -5291,7 +5291,7 @@ L_ENTRY:
 
 L_SLICE_VEC_EXACT_CHUNK_FAIL:
     !ok
-    panic(925)
+    panic(10238)
 
 L_SLICE_VEC_EXACT_CHUNK_OK:
     !ok

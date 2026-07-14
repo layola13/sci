@@ -1,0 +1,17 @@
+@helper_a() -> i32:
+L_ENTRY:
+    return 1
+
+@helper_b() -> i32:
+L_ENTRY:
+    return 2
+
+@test "covers helper a"():
+L_ENTRY:
+    call @helper_a()
+    return
+
+@test "covers helper b"():
+L_ENTRY:
+    call @helper_b()
+    return

@@ -2,6 +2,7 @@
 @import "core/mem.sa"
 @import "core/slice.sa"
 @import "string.sai"
+@import "string.sa"
 
 [MACRO] CSTR_FROM_PARTS_UNCHECKED %cstr_reg, %ptr_reg, %len_with_nul
     EXPAND SLICE_NEW %cstr_reg, %ptr_reg, %len_with_nul
@@ -494,3 +495,38 @@ L_CSTRING_FREE_AFTER_%cstring_reg:
     !__cstring_free_has_%cstring_reg
     !__cstring_free_null_%cstring_reg
 [END_MACRO]
+
+// Owned CString convenience constructors/clones over the existing byte-buffer facade.
+
+[MACRO] CSTRING_DEFAULT %out_status, %cstring_reg
+    __cstring_default_null_%out_status = 0 as ptr
+    __cstring_default_slice_%out_status = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __cstring_default_slice_%out_status, __cstring_default_null_%out_status, 0
+    EXPAND CSTRING_NEW %out_status, %cstring_reg, __cstring_default_slice_%out_status
+    !__cstring_default_null_%out_status
+[END_MACRO]
+
+[MACRO] CSTRING_CLONE %out_status, %out_cstring, %src_cstring
+    __cstring_clone_bytes_%out_status = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES_WITH_NUL __cstring_clone_bytes_%out_status, %src_cstring
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL %out_status, %out_cstring, __cstring_clone_bytes_%out_status
+[END_MACRO]
+
+[MACRO] CSTRING_LIT1 %out_status, %out_cstring, %s0
+    EXPAND CSTRING_NEW %out_status, %out_cstring, %s0
+[END_MACRO]
+
+// Lossy owned-string materialization from CString bytes (excluding trailing NUL).
+
+[MACRO] CSTRING_TO_STRING_LOSSY %out_string, %cstring_reg
+    __cstring_lossy_bytes_%out_string = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES __cstring_lossy_bytes_%out_string, %cstring_reg
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY %out_string, __cstring_lossy_bytes_%out_string
+[END_MACRO]
+
+[MACRO] CSTR_TO_STRING_LOSSY %out_string, %cstr_reg
+    __cstr_lossy_bytes_%out_string = stack_alloc Slice_SIZE
+    EXPAND CSTR_TO_BYTES __cstr_lossy_bytes_%out_string, %cstr_reg
+    EXPAND STRING_BUF_FROM_UTF8_LOSSY %out_string, __cstr_lossy_bytes_%out_string
+[END_MACRO]
+

@@ -1,0 +1,44 @@
+@import "sa_std/sync/once.sal"
+
+@test "sa_std OnceLock and LazyLock layout constants"():
+L_ENTRY:
+    ok_ol_size = eq OnceLock_SIZE, 16
+    ok_ol_state = eq OnceLock_state, +0
+    ok_ol_value = eq OnceLock_value, +8
+    ok_ol_uninit = eq ONCE_LOCK_STATE_UNINIT, 0
+    ok_ol_running = eq ONCE_LOCK_STATE_RUNNING, 1
+    ok_ol_ready = eq ONCE_LOCK_STATE_READY, 2
+
+    ok_ll_size = eq LazyLock_SIZE, 16
+    ok_ll_state = eq LazyLock_state, +0
+    ok_ll_value = eq LazyLock_value, +8
+    ok_ll_uninit = eq LAZY_LOCK_STATE_UNINIT, 0
+    ok_ll_running = eq LAZY_LOCK_STATE_RUNNING, 1
+    ok_ll_ready = eq LAZY_LOCK_STATE_READY, 2
+
+    ok_once_size = eq Once_SIZE, 16
+    cross_ol_once = eq OnceLock_SIZE, Once_SIZE
+    cross_ll_once = eq LazyLock_SIZE, Once_SIZE
+
+    c01 = and ok_ol_size, ok_ol_state
+    c02 = and c01, ok_ol_value
+    c03 = and c02, ok_ol_uninit
+    c04 = and c03, ok_ol_running
+    c05 = and c04, ok_ol_ready
+    c06 = and c05, ok_ll_size
+    c07 = and c06, ok_ll_state
+    c08 = and c07, ok_ll_value
+    c09 = and c08, ok_ll_uninit
+    c10 = and c09, ok_ll_running
+    c11 = and c10, ok_ll_ready
+    c12 = and c11, ok_once_size
+    c13 = and c12, cross_ol_once
+    c14 = and c13, cross_ll_once
+
+    br c14 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10489)
+
+L_PASS:
+    return 0

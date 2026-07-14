@@ -228,8 +228,65 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(948)
+    panic(10216)
 
 L_PASS:
     !all
     return 0
+
+
+@test "sa_std rc/weak default helpers"():
+L_ENTRY:
+    EXPAND RC_DEFAULT_U64 rc
+    EXPAND RC_GET value, rc
+    EXPAND RC_STRONG_COUNT strong, rc
+    EXPAND RC_WEAK_COUNT weak_count, rc
+
+    EXPAND WEAK_DEFAULT weak
+    EXPAND WEAK_STRONG_COUNT weak_strong, weak
+    EXPAND WEAK_WEAK_COUNT weak_weak, weak
+    EXPAND WEAK_UPGRADE upgraded, upgraded_ok, weak
+    upgraded_null = eq upgraded, 0
+
+    ok_value = eq value, 0
+    ok_strong = eq strong, 1
+    ok_weak_count = eq weak_count, 0
+    ok_weak_strong = eq weak_strong, 0
+    ok_weak_weak = eq weak_weak, 0
+    ok_upgraded = eq upgraded_ok, 0
+
+    ok01 = and ok_value, ok_strong
+    ok02 = and ok01, ok_weak_count
+    ok03 = and ok02, ok_weak_strong
+    ok04 = and ok03, ok_weak_weak
+    ok05 = and ok04, ok_upgraded
+    ok = and ok05, upgraded_null
+
+    !rc
+    !weak
+    !upgraded
+    !value
+    !strong
+    !weak_count
+    !weak_strong
+    !weak_weak
+    !upgraded_ok
+    !upgraded_null
+    !ok_value
+    !ok_strong
+    !ok_weak_count
+    !ok_weak_strong
+    !ok_weak_weak
+    !ok_upgraded
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10459)
+L_OK:
+    !ok
+    return

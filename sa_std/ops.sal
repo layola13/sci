@@ -25,3 +25,25 @@
 #def BOUND_U64_UNBOUNDED = 0
 #def BOUND_U64_INCLUDED = 1
 #def BOUND_U64_EXCLUDED = 2
+
+#def RangeUsize_SIZE = 16
+#def RangeUsize_start = +0
+#def RangeUsize_end = +8
+
+#def RangeInclusiveUsize_SIZE = 24
+#def RangeInclusiveUsize_start = +0
+#def RangeInclusiveUsize_end = +8
+#def RangeInclusiveUsize_exhausted = +16
+
+#def RangeFromUsize_SIZE = 8
+#def RangeFromUsize_start = +0
+
+#def RangeToUsize_SIZE = 8
+#def RangeToUsize_end = +0
+
+#def RangeToInclusiveUsize_SIZE = 8
+#def RangeToInclusiveUsize_end = +0
+
+#def BoundUsize_SIZE = 16
+#def BoundUsize_tag = +0
+#def BoundUsize_value = +8

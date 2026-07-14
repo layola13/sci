@@ -1,0 +1,34 @@
+@import "sa_std/char.sal"
+
+@test "sa_std char error layout constants"():
+L_ENTRY:
+    ok_parse_size = eq ParseCharError_SIZE, 8
+    ok_parse_kind = eq ParseCharError_kind, +0
+    ok_parse_empty = eq PARSE_CHAR_ERROR_EMPTY_STRING, 0
+    ok_parse_too_many = eq PARSE_CHAR_ERROR_TOO_MANY_CHARS, 1
+
+    ok_decode_size = eq DecodeUtf16Error_SIZE, 8
+    ok_decode_surrogate = eq DecodeUtf16Error_unpaired_surrogate, +0
+
+    ok_char_try_size = eq CharTryFromError_SIZE, 0
+    ok_char_try_align = eq CharTryFromError_ALIGN, 1
+    ok_try_from_char_size = eq TryFromCharError_SIZE, 0
+    ok_try_from_char_align = eq TryFromCharError_ALIGN, 1
+
+    c01 = and ok_parse_size, ok_parse_kind
+    c02 = and c01, ok_parse_empty
+    c03 = and c02, ok_parse_too_many
+    c04 = and c03, ok_decode_size
+    c05 = and c04, ok_decode_surrogate
+    c06 = and c05, ok_char_try_size
+    c07 = and c06, ok_char_try_align
+    c08 = and c07, ok_try_from_char_size
+    ok = and c08, ok_try_from_char_align
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10492)
+
+L_PASS:
+    return 0

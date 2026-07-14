@@ -1,0 +1,50 @@
+@import "sa_std/num.sal"
+
+@test "sa_std f32/f64 Digits Radix Exp Mantissa constants"():
+L_ENTRY:
+    ok_f32_digits = eq NUM_F32_DIGITS, 6
+    ok_f32_radix = eq NUM_F32_RADIX, 2
+    ok_f32_min_exp = eq NUM_F32_MIN_EXP, -125
+    ok_f32_max_exp = eq NUM_F32_MAX_EXP, 128
+    ok_f32_min_10_exp = eq NUM_F32_MIN_10_EXP, -37
+    ok_f32_max_10_exp = eq NUM_F32_MAX_10_EXP, 38
+    ok_f32_mant_dig = eq NUM_F32_MANTISSA_DIGITS, 24
+
+    ok_f64_digits = eq NUM_F64_DIGITS, 15
+    ok_f64_radix = eq NUM_F64_RADIX, 2
+    ok_f64_min_exp = eq NUM_F64_MIN_EXP, -1021
+    ok_f64_max_exp = eq NUM_F64_MAX_EXP, 1024
+    ok_f64_min_10_exp = eq NUM_F64_MIN_10_EXP, -307
+    ok_f64_max_10_exp = eq NUM_F64_MAX_10_EXP, 308
+    ok_f64_mant_dig = eq NUM_F64_MANTISSA_DIGITS, 53
+
+    ok_f32_bits = eq NUM_F32_BITS, 32
+    ok_f64_bits = eq NUM_F64_BITS, 64
+    ok_f32_bytes = eq NUM_F32_BYTES, 4
+    ok_f64_bytes = eq NUM_F64_BYTES, 8
+
+    c01 = and ok_f32_digits, ok_f32_radix
+    c02 = and c01, ok_f32_min_exp
+    c03 = and c02, ok_f32_max_exp
+    c04 = and c03, ok_f32_min_10_exp
+    c05 = and c04, ok_f32_max_10_exp
+    c06 = and c05, ok_f32_mant_dig
+    c07 = and c06, ok_f64_digits
+    c08 = and c07, ok_f64_radix
+    c09 = and c08, ok_f64_min_exp
+    c10 = and c09, ok_f64_max_exp
+    c11 = and c10, ok_f64_min_10_exp
+    c12 = and c11, ok_f64_max_10_exp
+    c13 = and c12, ok_f64_mant_dig
+    c14 = and c13, ok_f32_bits
+    c15 = and c14, ok_f64_bits
+    c16 = and c15, ok_f32_bytes
+    c17 = and c16, ok_f64_bytes
+
+    br c17 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10478)
+
+L_PASS:
+    return 0

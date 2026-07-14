@@ -46,7 +46,7 @@ L_ENTRY:
 L_FAIL_LISTEN:
     !listener
     !listen_status
-    panic(960)
+    panic(10123)
 
 L_ADDR:
     EXPAND NET_UNIX_LISTENER_LOCAL_ADDR addr_status, listener_addr, listener
@@ -97,7 +97,7 @@ L_ADDR:
 L_FAIL_ADDR:
     !addr_all2
     !listener
-    panic(965)
+    panic(10124)
 
 L_LISTENER_OPTIONS:
     EXPAND NET_UNIX_LISTENER_SET_NONBLOCKING listener_nonblock_status, listener, SA_NET_SOCKET_OPTION_DISABLE
@@ -120,7 +120,7 @@ L_FAIL_LISTENER_OPTIONS:
     !listener_options_ok
     !addr_all2
     !listener
-    panic(982)
+    panic(10125)
 
 L_LISTENER_CLONE:
     !listener_options_ok
@@ -138,7 +138,7 @@ L_FAIL_LISTENER_CLONE:
     !listener_clone_status
     !addr_all2
     !listener
-    panic(984)
+    panic(10126)
 
 L_LISTENER_CLONE_OWNED:
     EXPAND NET_UNIX_LISTENER_INTO_OWNED_FD listener_into_owned_status, listener_owned_fd, listener_clone
@@ -156,7 +156,7 @@ L_FAIL_LISTENER_INTO_OWNED:
     !listener_clone_ready
     !addr_all2
     !listener
-    panic(992)
+    panic(10127)
 
 L_LISTENER_CLONE_FROM_OWNED:
     EXPAND NET_UNIX_LISTENER_FROM_OWNED_FD listener_from_owned_status, listener_clone, listener_owned_fd
@@ -175,7 +175,7 @@ L_FAIL_LISTENER_FROM_OWNED:
     !listener_clone_ready
     !addr_all2
     !listener
-    panic(993)
+    panic(10128)
 
 L_LISTENER_CLONE_CLOSE:
     EXPAND NET_UNIX_LISTENER_AS_RAW_FD listener_raw_status, listener_raw_fd, listener_clone
@@ -193,7 +193,7 @@ L_FAIL_LISTENER_RAW:
     !listener_from_owned_ok
     !addr_all2
     !listener
-    panic(989)
+    panic(10129)
 
 L_LISTENER_CLONE_INTO_RAW:
     EXPAND NET_UNIX_LISTENER_INTO_RAW_FD listener_into_raw_status, listener_raw_taken, listener_clone
@@ -211,7 +211,7 @@ L_FAIL_LISTENER_INTO_RAW:
     !listener_raw_ok
     !addr_all2
     !listener
-    panic(990)
+    panic(10130)
 
 L_LISTENER_CLONE_FROM_RAW:
     EXPAND NET_UNIX_LISTENER_FROM_RAW_FD listener_from_raw_status, listener_clone, listener_raw_taken
@@ -231,7 +231,7 @@ L_FAIL_LISTENER_FROM_RAW:
     !listener_from_owned_ok
     !addr_all2
     !listener
-    panic(991)
+    panic(10131)
 
 L_LISTENER_CLONE_CLOSE_DONE:
     EXPAND NET_TCP_LISTENER_CLOSE listener_clone_close_status, listener_clone
@@ -271,7 +271,7 @@ L_REUSE:
 L_FAIL_REUSE:
     !addr_all2
     !listener
-    panic(964)
+    panic(10132)
 
 L_CONNECT:
     EXPAND NET_UNIX_CONNECT connect_status, client, UDS_TEST_PATH, path_len
@@ -287,7 +287,7 @@ L_FAIL_CONNECT:
     !client
     !connect_all
     !listener
-    panic(961)
+    panic(10133)
 
 L_ACCEPT:
     EXPAND NET_UNIX_ACCEPT_ADDR accept_status, server, accept_addr, listener
@@ -319,7 +319,7 @@ L_FAIL_ACCEPT:
     !server
     !client
     !listener
-    panic(962)
+    panic(10134)
 
 L_KEEPALIVE:
     !accept_done
@@ -371,7 +371,7 @@ L_FAIL_IO:
     !server
     !client
     !listener
-    panic(963)
+    panic(10135)
 
 L_CLOSE:
     EXPAND NET_TCP_STREAM_CLOSE close_client, client
@@ -401,7 +401,7 @@ L_PAIR_FAIL_PAIR:
     !pair_all
     !right
     !left
-    panic(966)
+    panic(10136)
 
 L_PAIR_STREAM_OPTIONS:
     EXPAND NET_UNIX_STREAM_SET_READ_TIMEOUT pair_set_read_timeout_status, left, UDS_TEST_TIMEOUT_NS
@@ -459,7 +459,7 @@ L_PAIR_FAIL_STREAM_OPTIONS:
     !pair_all
     !right
     !left
-    panic(983)
+    panic(10137)
 
 L_PAIR_STREAM_CLONE:
     !pair_options_ok
@@ -522,7 +522,7 @@ L_PAIR_FAIL_CLONE_INTO_OWNED:
     !pair_all
     !right
     !left
-    panic(992)
+    panic(10138)
 
 L_PAIR_CLONE_FROM_OWNED:
     EXPAND NET_UNIX_STREAM_FROM_OWNED_FD pair_clone_from_owned_status, pair_left_clone, pair_clone_owned_fd
@@ -542,7 +542,7 @@ L_PAIR_FAIL_CLONE_FROM_OWNED:
     !pair_all
     !right
     !left
-    panic(993)
+    panic(10139)
 
 L_PAIR_CLONE_WRITE:
     EXPAND NET_UNIX_STREAM_AS_RAW_FD pair_clone_raw_status, pair_clone_raw_fd, pair_left_clone
@@ -563,7 +563,7 @@ L_PAIR_FAIL_CLONE_RAW:
     !pair_all
     !right
     !left
-    panic(989)
+    panic(10140)
 
 L_PAIR_CLONE_INTO_RAW:
     EXPAND NET_UNIX_STREAM_INTO_RAW_FD pair_clone_into_raw_status, pair_clone_raw_taken, pair_left_clone
@@ -584,7 +584,7 @@ L_PAIR_FAIL_CLONE_INTO_RAW:
     !pair_all
     !right
     !left
-    panic(990)
+    panic(999)
 
 L_PAIR_CLONE_FROM_RAW:
     EXPAND NET_UNIX_STREAM_FROM_RAW_FD pair_clone_from_raw_status, pair_left_clone, pair_clone_raw_taken
@@ -606,7 +606,7 @@ L_PAIR_FAIL_CLONE_FROM_RAW:
     !pair_all
     !right
     !left
-    panic(991)
+    panic(10141)
 
 L_PAIR_CLONE_WRITE_DONE:
     clone_send = stack_alloc 4
@@ -665,7 +665,7 @@ L_PAIR_FAIL_CLONE_READ:
     !pair_all
     !right
     !left
-    panic(988)
+    panic(10142)
 
 L_PAIR_CLONE_CLOSE:
     EXPAND NET_TCP_STREAM_CLOSE clone_close_status, pair_left_clone
@@ -689,7 +689,7 @@ L_PAIR_FAIL_CLONE_CLOSE:
     !pair_all
     !right
     !left
-    panic(989)
+    panic(1001)
 
 L_PAIR_PASSCRED:
     !clone_close_ok
@@ -745,7 +745,7 @@ L_PAIR_FAIL_PASSCRED:
     !pair_all
     !right
     !left
-    panic(966)
+    panic(1002)
 
 L_PAIR_PEER_CRED:
     EXPAND PROCESS_ID current_pid
@@ -803,7 +803,7 @@ L_PAIR_FAIL_PEER_CRED:
     !pair_all
     !right
     !left
-    panic(970)
+    panic(10143)
 
 L_PAIR_ADDRS:
     !peer_cred_ok
@@ -891,7 +891,7 @@ L_PAIR_FAIL_ADDRS:
     !addr_pair_done
     !right
     !left
-    panic(967)
+    panic(10144)
 
 L_PAIR_WRITE:
     pair_send = stack_alloc 4
@@ -914,7 +914,7 @@ L_PAIR_FAIL_WRITE:
     !addr_pair_done
     !right
     !left
-    panic(968)
+    panic(10145)
 
 L_PAIR_PEEK:
     pair_peek = stack_alloc 8
@@ -946,7 +946,7 @@ L_PAIR_FAIL_PEEK:
     !addr_pair_done
     !right
     !left
-    panic(980)
+    panic(10146)
 
 L_PAIR_READ:
     pair_recv = stack_alloc 8
@@ -979,7 +979,7 @@ L_PAIR_FAIL_READ:
     !addr_pair_done
     !right
     !left
-    panic(969)
+    panic(10147)
 
 L_PAIR_SHUTDOWN:
     EXPAND NET_UNIX_STREAM_SHUTDOWN pair_shutdown_status, left, SA_NET_SHUTDOWN_WRITE
@@ -1007,7 +1007,7 @@ L_PAIR_FAIL_SHUTDOWN:
     !addr_pair_done
     !right
     !left
-    panic(981)
+    panic(10148)
 
 L_PAIR_CLOSE:
     EXPAND NET_TCP_STREAM_CLOSE pair_close_left, left
@@ -1043,7 +1043,7 @@ L_PATHNAME_ADDR_FAIL_MAKE:
     !path_addr_status_ok
     !path_addr
     !path_addr_status
-    panic(990)
+    panic(10149)
 
 L_PATHNAME_ADDR_CHECK:
     EXPAND NET_UNIX_ADDR_KIND path_addr_kind, path_addr
@@ -1084,7 +1084,7 @@ L_PATHNAME_ADDR_FAIL_CHECK:
     !path_addr_kind_ok
     !path_addr_kind
     !path_addr_make_ok
-    panic(991)
+    panic(10150)
 
 L_PATHNAME_ADDR_PASS:
     !path_addr_done
@@ -1104,7 +1104,7 @@ L_ABSTRACT_FAIL_MAKE:
     !make_status_ok
     !abstract_addr
     !make_status
-    panic(970)
+    panic(10151)
 
 L_ABSTRACT_KIND:
     EXPAND NET_UNIX_ADDR_KIND abstract_kind, abstract_addr
@@ -1139,7 +1139,7 @@ L_ABSTRACT_FAIL_KIND:
     !abstract_kind_ok
     !abstract_kind
     !abstract_addr
-    panic(971)
+    panic(10152)
 
 L_ABSTRACT_LISTEN:
     EXPAND NET_UNIX_LISTEN_ADDR listen_status, listener, abstract_addr
@@ -1155,7 +1155,7 @@ L_ABSTRACT_FAIL_LISTEN:
     !listener
     !listen_status
     !abstract_addr
-    panic(972)
+    panic(10153)
 
 L_ABSTRACT_LOCAL:
     EXPAND NET_UNIX_LISTENER_LOCAL_ADDR local_status, local_addr, listener
@@ -1208,7 +1208,7 @@ L_ABSTRACT_FAIL_LOCAL:
     !local_status
     !listener
     !abstract_addr
-    panic(973)
+    panic(10154)
 
 L_ABSTRACT_INCOMING:
     incoming = stack_alloc NetTcpIncoming_SIZE
@@ -1240,7 +1240,7 @@ L_ABSTRACT_FAIL_CONNECT:
     !incoming_listener_ok
     !listener
     !abstract_addr
-    panic(974)
+    panic(10155)
 
 L_ABSTRACT_ACCEPT:
     EXPAND NET_UNIX_INCOMING_NEXT accept_status, accept_flag, server, incoming
@@ -1705,7 +1705,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(995)
+    panic(10156)
 
 L_PASS:
     !ok
@@ -1714,93 +1714,93 @@ L_PASS:
 @test "sa_std net unix datagram pathname address macros"():
 L_ENTRY:
     EXPAND NET_UNIX_DATAGRAM_BIND bind_server_status, server, UDS_DGRAM_PATH_A, UDS_DGRAM_PATH_LEN
-    call @sa_assert_eq_i64(bind_server_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(bind_server_status, SA_NET_OK, 10417)
     server_nonzero = ne server, 0
-    call @sa_assert_eq_i64(server_nonzero, 1, 996)
+    call @sa_assert_eq_i64(server_nonzero, 1, 10417)
     EXPAND NET_UNIX_DATAGRAM_BIND bind_client_status, client, UDS_DGRAM_PATH_B, UDS_DGRAM_PATH_LEN
-    call @sa_assert_eq_i64(bind_client_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(bind_client_status, SA_NET_OK, 10417)
     client_nonzero = ne client, 0
-    call @sa_assert_eq_i64(client_nonzero, 1, 996)
+    call @sa_assert_eq_i64(client_nonzero, 1, 10417)
     EXPAND NET_UNIX_DATAGRAM_SET_READ_TIMEOUT timeout_status, server, UDS_TEST_TIMEOUT_NS
-    call @sa_assert_eq_i64(timeout_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(timeout_status, SA_NET_OK, 10417)
 
     EXPAND NET_UNIX_DATAGRAM_CONNECT connect_status, client, UDS_DGRAM_PATH_A, UDS_DGRAM_PATH_LEN
-    call @sa_assert_eq_i64(connect_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(connect_status, SA_NET_OK, 10417)
     EXPAND NET_UNIX_DATAGRAM_SEND send_status, send_len, client, UDS_DGRAM_PATH_MSG, UDS_DGRAM_PATH_MSG_LEN
-    call @sa_assert_eq_i64(send_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(send_len, UDS_DGRAM_PATH_MSG_LEN, 996)
+    call @sa_assert_eq_i64(send_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(send_len, UDS_DGRAM_PATH_MSG_LEN, 10417)
 
     peek_buf = stack_alloc 8
     recv_buf = stack_alloc 8
     recv2_buf = stack_alloc 8
     recv3_buf = stack_alloc 8
     EXPAND NET_UNIX_DATAGRAM_PEEK_FROM peek_status, peek_len, peek_addr, server, peek_buf, 8
-    call @sa_assert_eq_i64(peek_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(peek_len, UDS_DGRAM_PATH_MSG_LEN, 996)
+    call @sa_assert_eq_i64(peek_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(peek_len, UDS_DGRAM_PATH_MSG_LEN, 10417)
     peek_b0 = load peek_buf+0 as u8
     peek_b1 = load peek_buf+1 as u8
-    call @sa_assert_eq_i64(peek_b0, 114, 996)
-    call @sa_assert_eq_i64(peek_b1, 120, 996)
+    call @sa_assert_eq_i64(peek_b0, 114, 10417)
+    call @sa_assert_eq_i64(peek_b1, 120, 10417)
     EXPAND NET_UNIX_ADDR_KIND peek_addr_kind, peek_addr
-    call @sa_assert_eq_i64(peek_addr_kind, SA_NET_UNIX_ADDR_PATHNAME, 996)
+    call @sa_assert_eq_i64(peek_addr_kind, SA_NET_UNIX_ADDR_PATHNAME, 10417)
     EXPAND NET_UNIX_ADDR_AS_PATHNAME_LEN peek_addr_len, peek_addr
-    call @sa_assert_eq_i64(peek_addr_len, UDS_DGRAM_PATH_LEN, 996)
+    call @sa_assert_eq_i64(peek_addr_len, UDS_DGRAM_PATH_LEN, 10417)
     EXPAND NET_UNIX_ADDR_AS_PATHNAME_PTR peek_addr_ptr, peek_addr
     peek_addr_b0 = load peek_addr_ptr+0 as u8
     peek_addr_b23 = load peek_addr_ptr+23 as u8
-    call @sa_assert_eq_i64(peek_addr_b0, 47, 996)
-    call @sa_assert_eq_i64(peek_addr_b23, 107, 996)
+    call @sa_assert_eq_i64(peek_addr_b0, 47, 10417)
+    call @sa_assert_eq_i64(peek_addr_b23, 107, 10417)
     EXPAND NET_UNIX_ADDR_FREE peek_addr_free_status, peek_addr
-    call @sa_assert_eq_i64(peek_addr_free_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(peek_addr_free_status, SA_NET_OK, 10417)
 
     EXPAND NET_UNIX_DATAGRAM_RECV_FROM recv_status, recv_len, recv_addr, server, recv_buf, 8
-    call @sa_assert_eq_i64(recv_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(recv_len, UDS_DGRAM_PATH_MSG_LEN, 996)
+    call @sa_assert_eq_i64(recv_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(recv_len, UDS_DGRAM_PATH_MSG_LEN, 10417)
     recv_b0 = load recv_buf+0 as u8
     recv_b1 = load recv_buf+1 as u8
-    call @sa_assert_eq_i64(recv_b0, 114, 996)
-    call @sa_assert_eq_i64(recv_b1, 120, 996)
+    call @sa_assert_eq_i64(recv_b0, 114, 10417)
+    call @sa_assert_eq_i64(recv_b1, 120, 10417)
     EXPAND NET_UNIX_ADDR_KIND recv_addr_kind, recv_addr
-    call @sa_assert_eq_i64(recv_addr_kind, SA_NET_UNIX_ADDR_PATHNAME, 996)
+    call @sa_assert_eq_i64(recv_addr_kind, SA_NET_UNIX_ADDR_PATHNAME, 10417)
     EXPAND NET_UNIX_ADDR_FREE recv_addr_free_status, recv_addr
-    call @sa_assert_eq_i64(recv_addr_free_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(recv_addr_free_status, SA_NET_OK, 10417)
 
     EXPAND NET_UNIX_DATAGRAM_SEND_TO send_to_status, send_to_len, client, UDS_DGRAM_ADDR_MSG, UDS_DGRAM_ADDR_MSG_LEN, UDS_DGRAM_PATH_A, UDS_DGRAM_PATH_LEN
-    call @sa_assert_eq_i64(send_to_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(send_to_len, UDS_DGRAM_ADDR_MSG_LEN, 996)
+    call @sa_assert_eq_i64(send_to_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(send_to_len, UDS_DGRAM_ADDR_MSG_LEN, 10417)
     EXPAND NET_UNIX_DATAGRAM_RECV_FROM recv2_status, recv2_len, recv2_addr, server, recv2_buf, 8
-    call @sa_assert_eq_i64(recv2_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(recv2_len, UDS_DGRAM_ADDR_MSG_LEN, 996)
+    call @sa_assert_eq_i64(recv2_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(recv2_len, UDS_DGRAM_ADDR_MSG_LEN, 10417)
     recv2_b0 = load recv2_buf+0 as u8
     recv2_b1 = load recv2_buf+1 as u8
-    call @sa_assert_eq_i64(recv2_b0, 116, 996)
-    call @sa_assert_eq_i64(recv2_b1, 111, 996)
+    call @sa_assert_eq_i64(recv2_b0, 116, 10417)
+    call @sa_assert_eq_i64(recv2_b1, 111, 10417)
     EXPAND NET_UNIX_ADDR_FREE recv2_addr_free_status, recv2_addr
-    call @sa_assert_eq_i64(recv2_addr_free_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(recv2_addr_free_status, SA_NET_OK, 10417)
 
     EXPAND NET_UNIX_ADDR_FROM_PATHNAME path_addr_status, path_addr, UDS_DGRAM_PATH_A, UDS_DGRAM_PATH_LEN
-    call @sa_assert_eq_i64(path_addr_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(path_addr_status, SA_NET_OK, 10417)
     EXPAND NET_UNIX_DATAGRAM_CONNECT_ADDR connect_addr_status, client, path_addr
-    call @sa_assert_eq_i64(connect_addr_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(connect_addr_status, SA_NET_OK, 10417)
     EXPAND NET_UNIX_DATAGRAM_SEND send3_status, send3_len, client, UDS_DGRAM_NEXT, UDS_DGRAM_NEXT_LEN
-    call @sa_assert_eq_i64(send3_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(send3_len, UDS_DGRAM_NEXT_LEN, 996)
+    call @sa_assert_eq_i64(send3_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(send3_len, UDS_DGRAM_NEXT_LEN, 10417)
     EXPAND NET_UNIX_DATAGRAM_RECV_FROM recv3_status, recv3_len, recv3_addr, server, recv3_buf, 8
-    call @sa_assert_eq_i64(recv3_status, SA_NET_OK, 996)
-    call @sa_assert_eq_i64(recv3_len, UDS_DGRAM_NEXT_LEN, 996)
+    call @sa_assert_eq_i64(recv3_status, SA_NET_OK, 10417)
+    call @sa_assert_eq_i64(recv3_len, UDS_DGRAM_NEXT_LEN, 10417)
     recv3_b0 = load recv3_buf+0 as u8
     recv3_b1 = load recv3_buf+1 as u8
-    call @sa_assert_eq_i64(recv3_b0, 111, 996)
-    call @sa_assert_eq_i64(recv3_b1, 107, 996)
+    call @sa_assert_eq_i64(recv3_b0, 111, 10417)
+    call @sa_assert_eq_i64(recv3_b1, 107, 10417)
     EXPAND NET_UNIX_ADDR_FREE recv3_addr_free_status, recv3_addr
-    call @sa_assert_eq_i64(recv3_addr_free_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(recv3_addr_free_status, SA_NET_OK, 10417)
     EXPAND NET_UNIX_ADDR_FREE path_addr_free_status, path_addr
-    call @sa_assert_eq_i64(path_addr_free_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(path_addr_free_status, SA_NET_OK, 10417)
 
     EXPAND NET_UNIX_DATAGRAM_CLOSE close_client_status, client
-    call @sa_assert_eq_i64(close_client_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(close_client_status, SA_NET_OK, 10417)
     EXPAND NET_UNIX_DATAGRAM_CLOSE close_server_status, server
-    call @sa_assert_eq_i64(close_server_status, SA_NET_OK, 996)
+    call @sa_assert_eq_i64(close_server_status, SA_NET_OK, 10417)
 
     !bind_server_status
     !server_nonzero
@@ -1857,56 +1857,56 @@ L_ENTRY:
 @test "sa_std net unix datagram abstract address macros"():
 L_ENTRY:
     EXPAND NET_UNIX_ADDR_FROM_ABSTRACT_NAME abstract_status, abstract_addr, UDS_DGRAM_ABSTRACT, UDS_DGRAM_ABSTRACT_LEN
-    call @sa_assert_eq_i64(abstract_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(abstract_status, SA_NET_OK, 10418)
     EXPAND NET_UNIX_DATAGRAM_BIND_ADDR bind_status, server, abstract_addr
-    call @sa_assert_eq_i64(bind_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(bind_status, SA_NET_OK, 10418)
     server_nonzero = ne server, 0
-    call @sa_assert_eq_i64(server_nonzero, 1, 997)
+    call @sa_assert_eq_i64(server_nonzero, 1, 10418)
     EXPAND NET_UNIX_DATAGRAM_UNBOUND client_status, client
-    call @sa_assert_eq_i64(client_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(client_status, SA_NET_OK, 10418)
     client_nonzero = ne client, 0
-    call @sa_assert_eq_i64(client_nonzero, 1, 997)
+    call @sa_assert_eq_i64(client_nonzero, 1, 10418)
     EXPAND NET_UNIX_DATAGRAM_SET_READ_TIMEOUT timeout_status, server, UDS_TEST_TIMEOUT_NS
-    call @sa_assert_eq_i64(timeout_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(timeout_status, SA_NET_OK, 10418)
 
     recv_buf = stack_alloc 8
     recv2_buf = stack_alloc 8
     EXPAND NET_UNIX_DATAGRAM_SEND_TO_ADDR send_to_status, send_to_len, client, UDS_DGRAM_ADDR_MSG, UDS_DGRAM_ADDR_MSG_LEN, abstract_addr
-    call @sa_assert_eq_i64(send_to_status, SA_NET_OK, 997)
-    call @sa_assert_eq_i64(send_to_len, UDS_DGRAM_ADDR_MSG_LEN, 997)
+    call @sa_assert_eq_i64(send_to_status, SA_NET_OK, 10418)
+    call @sa_assert_eq_i64(send_to_len, UDS_DGRAM_ADDR_MSG_LEN, 10418)
     EXPAND NET_UNIX_DATAGRAM_RECV_FROM recv_status, recv_len, recv_addr, server, recv_buf, 8
-    call @sa_assert_eq_i64(recv_status, SA_NET_OK, 997)
-    call @sa_assert_eq_i64(recv_len, UDS_DGRAM_ADDR_MSG_LEN, 997)
+    call @sa_assert_eq_i64(recv_status, SA_NET_OK, 10418)
+    call @sa_assert_eq_i64(recv_len, UDS_DGRAM_ADDR_MSG_LEN, 10418)
     recv_b0 = load recv_buf+0 as u8
     recv_b1 = load recv_buf+1 as u8
-    call @sa_assert_eq_i64(recv_b0, 116, 997)
-    call @sa_assert_eq_i64(recv_b1, 111, 997)
+    call @sa_assert_eq_i64(recv_b0, 116, 10418)
+    call @sa_assert_eq_i64(recv_b1, 111, 10418)
     EXPAND NET_UNIX_ADDR_KIND recv_addr_kind, recv_addr
-    call @sa_assert_eq_i64(recv_addr_kind, SA_NET_UNIX_ADDR_UNNAMED, 997)
+    call @sa_assert_eq_i64(recv_addr_kind, SA_NET_UNIX_ADDR_UNNAMED, 10418)
     EXPAND NET_UNIX_ADDR_FREE recv_addr_free_status, recv_addr
-    call @sa_assert_eq_i64(recv_addr_free_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(recv_addr_free_status, SA_NET_OK, 10418)
 
     EXPAND NET_UNIX_DATAGRAM_CONNECT_ADDR connect_status, client, abstract_addr
-    call @sa_assert_eq_i64(connect_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(connect_status, SA_NET_OK, 10418)
     EXPAND NET_UNIX_DATAGRAM_SEND send_status, send_len, client, UDS_DGRAM_NEXT, UDS_DGRAM_NEXT_LEN
-    call @sa_assert_eq_i64(send_status, SA_NET_OK, 997)
-    call @sa_assert_eq_i64(send_len, UDS_DGRAM_NEXT_LEN, 997)
+    call @sa_assert_eq_i64(send_status, SA_NET_OK, 10418)
+    call @sa_assert_eq_i64(send_len, UDS_DGRAM_NEXT_LEN, 10418)
     EXPAND NET_UNIX_DATAGRAM_RECV_FROM recv2_status, recv2_len, recv2_addr, server, recv2_buf, 8
-    call @sa_assert_eq_i64(recv2_status, SA_NET_OK, 997)
-    call @sa_assert_eq_i64(recv2_len, UDS_DGRAM_NEXT_LEN, 997)
+    call @sa_assert_eq_i64(recv2_status, SA_NET_OK, 10418)
+    call @sa_assert_eq_i64(recv2_len, UDS_DGRAM_NEXT_LEN, 10418)
     recv2_b0 = load recv2_buf+0 as u8
     recv2_b1 = load recv2_buf+1 as u8
-    call @sa_assert_eq_i64(recv2_b0, 111, 997)
-    call @sa_assert_eq_i64(recv2_b1, 107, 997)
+    call @sa_assert_eq_i64(recv2_b0, 111, 10418)
+    call @sa_assert_eq_i64(recv2_b1, 107, 10418)
     EXPAND NET_UNIX_ADDR_FREE recv2_addr_free_status, recv2_addr
-    call @sa_assert_eq_i64(recv2_addr_free_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(recv2_addr_free_status, SA_NET_OK, 10418)
 
     EXPAND NET_UNIX_DATAGRAM_CLOSE close_client_status, client
-    call @sa_assert_eq_i64(close_client_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(close_client_status, SA_NET_OK, 10418)
     EXPAND NET_UNIX_DATAGRAM_CLOSE close_server_status, server
-    call @sa_assert_eq_i64(close_server_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(close_server_status, SA_NET_OK, 10418)
     EXPAND NET_UNIX_ADDR_FREE abstract_free_status, abstract_addr
-    call @sa_assert_eq_i64(abstract_free_status, SA_NET_OK, 997)
+    call @sa_assert_eq_i64(abstract_free_status, SA_NET_OK, 10418)
 
     !abstract_status
     !abstract_addr

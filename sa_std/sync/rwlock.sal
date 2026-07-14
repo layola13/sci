@@ -3,3 +3,11 @@
 #def RwLock_writing = +4
 #def RwLock_data = +8
 #def RwLockI32_SIZE = 16
+
+#def RwLockReadGuard_SIZE = 8
+#def RwLockReadGuard_rwlock = +0
+#def RwLockReadGuard_data = +8
+
+#def RwLockWriteGuard_SIZE = 8
+#def RwLockWriteGuard_rwlock = +0
+#def RwLockWriteGuard_data = +8

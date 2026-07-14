@@ -24,7 +24,7 @@ L_ENTRY:
 L_WS_PASS:
     return 0
 L_WS_FAIL:
-    panic(980)
+    panic(10157)
 
 @test "sa_std net url parse macro surface"():
 L_ENTRY:
@@ -50,7 +50,7 @@ L_ENTRY:
 L_URL_PASS:
     return 0
 L_URL_FAIL:
-    panic(981)
+    panic(10158)
 
 @test "sa_std net ws frame build macro surface"():
 L_ENTRY:
@@ -80,4 +80,4 @@ L_ENTRY:
 L_BLD_PASS:
     return 0
 L_BLD_FAIL:
-    panic(982)
+    panic(10159)

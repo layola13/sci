@@ -1336,6 +1336,14 @@ L_DEL_MISS_ZERO:
     %out_cap = call @sa_map_capacity(&%map_reg)
 [END_MACRO]
 
+[MACRO] MAP_EXTRA_CAPACITY %out_extra, %map_reg
+    __map_ec_cap_%out_extra = call @sa_map_capacity(&%map_reg)
+    __map_ec_len_%out_extra = call @sa_map_len(&%map_reg)
+    %out_extra = sub __map_ec_cap_%out_extra, __map_ec_len_%out_extra
+    !__map_ec_len_%out_extra
+    !__map_ec_cap_%out_extra
+[END_MACRO]
+
 [MACRO] MAP_RESERVE %map_reg, %additional
     call @sa_map_reserve(&%map_reg, %additional)
 [END_MACRO]
@@ -1685,6 +1693,37 @@ L_MAP_EXTRACT_DONE_%out_len:
     EXPAND MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
 [END_MACRO]
 
+[MACRO] MAP_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
+    EXPAND MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
+[END_MACRO]
+
+// Concrete entry-style helpers over try-insert / get-mut-ptr.
+// Default inserted value is a null pointer (0). and_modify stores only when present.
+
+[MACRO] MAP_ENTRY_OR_DEFAULT %out_inserted, %out_value_ptr, %map_reg, %key
+    __map_entry_default_%out_inserted = add 0, 0
+    EXPAND MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, __map_entry_default_%out_inserted
+    !__map_entry_default_%out_inserted
+[END_MACRO]
+
+[MACRO] MAP_ENTRY_AND_MODIFY %out_ok, %map_reg, %key, %value
+    __map_and_mod_ptr_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_get_mut_ptr(&%map_reg, &%key, &__map_and_mod_ptr_slot_%out_ok)
+    __map_and_mod_ptr_%out_ok = load __map_and_mod_ptr_slot_%out_ok+0 as ptr
+    __map_and_mod_has_%out_ok = eq %out_ok, 1
+    br __map_and_mod_has_%out_ok -> L_MAP_ENTRY_AND_MODIFY_SET_%out_ok, L_MAP_ENTRY_AND_MODIFY_SKIP_%out_ok
+L_MAP_ENTRY_AND_MODIFY_SET_%out_ok:
+    store __map_and_mod_ptr_%out_ok+0, %value as ptr
+    !__map_and_mod_has_%out_ok
+    !__map_and_mod_ptr_%out_ok
+    jmp L_MAP_ENTRY_AND_MODIFY_END_%out_ok
+L_MAP_ENTRY_AND_MODIFY_SKIP_%out_ok:
+    !__map_and_mod_has_%out_ok
+    !__map_and_mod_ptr_%out_ok
+    jmp L_MAP_ENTRY_AND_MODIFY_END_%out_ok
+L_MAP_ENTRY_AND_MODIFY_END_%out_ok:
+[END_MACRO]
+
 [MACRO] MAP_KEYS %out_vec, %map_reg
     %out_vec = call @sa_map_keys_vec(&%map_reg)
 [END_MACRO]
@@ -1723,8 +1762,26 @@ L_MAP_EXTRACT_DONE_%out_len:
     call @sa_map_free(^%map_reg)
 [END_MACRO]
 
+[MACRO] MAP_LIT1 %out_map, %key1, %value1
+    EXPAND MAP_NEW %out_map
+    EXPAND MAP_PUT %out_map, %key1, %value1
+[END_MACRO]
+
 [MACRO] MAP_LIT2 %out_map, %key1, %value1, %key2, %value2
     EXPAND MAP_NEW %out_map
     EXPAND MAP_PUT %out_map, %key1, %value1
     EXPAND MAP_PUT %out_map, %key2, %value2
+[END_MACRO]
+
+[MACRO] MAP_LIT3 %out_map, %key1, %value1, %key2, %value2, %key3, %value3
+    EXPAND MAP_NEW %out_map
+    EXPAND MAP_PUT %out_map, %key1, %value1
+    EXPAND MAP_PUT %out_map, %key2, %value2
+    EXPAND MAP_PUT %out_map, %key3, %value3
+[END_MACRO]
+
+// Rust Default-style empty map constructor alias.
+
+[MACRO] MAP_DEFAULT %out_map
+    EXPAND MAP_NEW %out_map
 [END_MACRO]

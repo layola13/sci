@@ -1,6 +1,7 @@
 @import "sa_std/os/unix_ffi.sa"
 @import "sa_std/core/slice.sa"
 @import "sa_std/vec.sa"
+@import "sa_std/string.sa"
 
 @test "sa_std os unix ffi OsStr byte view macros"():
 L_ENTRY:
@@ -97,7 +98,7 @@ L_ENTRY:
 
 L_OS_STR_FAIL:
     !ok
-    panic(941)
+    panic(10179)
 
 L_OS_STR_OK:
     !ok
@@ -168,8 +169,223 @@ L_ENTRY:
 
 L_OS_STRING_FAIL:
     !ok
-    panic(942)
+    panic(10180)
 
 L_OS_STRING_OK:
     !ok
     return
+
+@test "sa_std os unix ffi OsString owned macros"():
+L_ENTRY:
+    hello = stack_alloc 5
+    store hello+0, 104 as u8
+    store hello+1, 101 as u8
+    store hello+2, 108 as u8
+    store hello+3, 108 as u8
+    store hello+4, 111 as u8
+    hello_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW hello_slice, hello, 5
+
+    EXPAND OS_STRING_NEW empty
+    EXPAND OS_STRING_IS_EMPTY empty0, empty
+    empty0_ok = eq empty0, 1
+    EXPAND OS_STRING_LEN len0, empty
+    len0_ok = eq len0, 0
+
+    EXPAND OS_STRING_FROM_STR owned, hello_slice
+    EXPAND OS_STRING_LEN len1, owned
+    len1_ok = eq len1, 5
+    EXPAND OS_STRING_AS_OS_STR view1, owned
+    EXPAND OS_STR_LEN vlen1, view1
+    vlen1_ok = eq vlen1, 5
+    EXPAND OS_STR_IS_EMPTY vis1, view1
+    vis1_ok = eq vis1, 0
+
+    bang = stack_alloc 1
+    store bang+0, 33 as u8
+    bang_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW bang_slice, bang, 1
+    EXPAND OS_STRING_PUSH_STR owned, bang_slice
+    EXPAND OS_STRING_LEN len2, owned
+    len2_ok = eq len2, 6
+
+    EXPAND OS_STRING_CLONE clone, owned
+    EXPAND OS_STRING_LEN clen, clone
+    clen_ok = eq clen, 6
+
+    EXPAND OS_STRING_TO_STRING_CHECKED ok_utf8, sbuf, owned
+    ok_utf8_ok = eq ok_utf8, 1
+    EXPAND STRING_BUF_LEN sblen, sbuf
+    sblen_ok = eq sblen, 6
+
+    bad = stack_alloc 1
+    store bad+0, 255 as u8
+    bad_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW bad_slice, bad, 1
+    EXPAND OS_STRING_FROM_STR bad_owned, bad_slice
+    EXPAND OS_STR_FROM_BYTES bad_os_str, bad_slice
+    EXPAND OS_STR_TO_STR_CHECKED bad_ok, bad_str, bad_os_str
+    bad_ok_ok = eq bad_ok, 0
+    EXPAND OS_STRING_TO_STRING_CHECKED bad_s_ok, bad_sbuf, bad_owned
+    bad_s_ok_ok = eq bad_s_ok, 0
+
+    EXPAND OS_STRING_FREE empty
+    EXPAND OS_STRING_FREE owned
+    EXPAND OS_STRING_FREE clone
+    EXPAND OS_STRING_FREE bad_owned
+    EXPAND STRING_BUF_FREE sbuf
+    EXPAND STRING_BUF_FREE bad_sbuf
+    !view1
+    !bad_os_str
+    !bad_str
+
+    ok = and empty0_ok, len0_ok
+    ok = and ok, len1_ok
+    ok = and ok, vlen1_ok
+    ok = and ok, vis1_ok
+    ok = and ok, len2_ok
+    ok = and ok, clen_ok
+    ok = and ok, ok_utf8_ok
+    ok = and ok, sblen_ok
+    ok = and ok, bad_ok_ok
+    ok = and ok, bad_s_ok_ok
+
+    !empty0
+    !len0
+    !len1
+    !vlen1
+    !vis1
+    !len2
+    !clen
+    !ok_utf8
+    !sblen
+    !bad_ok
+    !bad_s_ok
+    !empty0_ok
+    !len0_ok
+    !len1_ok
+    !vlen1_ok
+    !vis1_ok
+    !len2_ok
+    !clen_ok
+    !ok_utf8_ok
+    !sblen_ok
+    !bad_ok_ok
+    !bad_s_ok_ok
+    br ok -> L_OS_STRING_OWNED_OK, L_OS_STRING_OWNED_FAIL
+
+L_OS_STRING_OWNED_FAIL:
+    !ok
+    panic(10181)
+
+L_OS_STRING_OWNED_OK:
+    !ok
+    return
+
+@test "sa_std os OsString lit/capacity macros"():
+L_ENTRY:
+    a_bytes = stack_alloc 2
+    store a_bytes+0, 97 as u8
+    store a_bytes+1, 98 as u8
+    a = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW a, a_bytes, 2
+
+    b_bytes = stack_alloc 2
+    store b_bytes+0, 99 as u8
+    store b_bytes+1, 100 as u8
+    b = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW b, b_bytes, 2
+
+    c_bytes = stack_alloc 1
+    store c_bytes+0, 101 as u8
+    c = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW c, c_bytes, 1
+
+    EXPAND OS_STRING_LIT1 lit1, a
+    EXPAND OS_STRING_LEN lit1_len, lit1
+    EXPAND OS_STRING_LIT2 lit2, a, b
+    EXPAND OS_STRING_LEN lit2_len, lit2
+    EXPAND OS_STRING_LIT3 lit3, a, b, c
+    EXPAND OS_STRING_LEN lit3_len, lit3
+    EXPAND OS_STRING_WITH_CAPACITY cap_os, 24
+    EXPAND OS_STRING_CAPACITY cap0, cap_os
+    EXPAND OS_STRING_CAPACITY_REMAINING rem0, cap_os
+    EXPAND OS_STRING_EXTRA_CAPACITY extra0, cap_os
+    EXPAND OS_STRING_REMAINING_CAPACITY rem1, cap_os
+
+    ok_lit1 = eq lit1_len, 2
+    ok_lit2 = eq lit2_len, 4
+    ok_lit3 = eq lit3_len, 5
+    ok_cap = uge cap0, 24
+    ok_rem = eq rem0, cap0
+    ok_extra = eq extra0, rem0
+    ok_rem1 = eq rem1, rem0
+
+    ok = and ok_lit1, ok_lit2
+    ok = and ok, ok_lit3
+    ok = and ok, ok_cap
+    ok = and ok, ok_rem
+    ok = and ok, ok_extra
+    ok = and ok, ok_rem1
+
+    !ok_lit1
+    !ok_lit2
+    !ok_lit3
+    !ok_cap
+    !ok_rem
+    !ok_extra
+    !ok_rem1
+    !lit1_len
+    !lit2_len
+    !lit3_len
+    !cap0
+    !rem0
+    !extra0
+    !rem1
+    EXPAND OS_STRING_FREE lit1
+    EXPAND OS_STRING_FREE lit2
+    EXPAND OS_STRING_FREE lit3
+    EXPAND OS_STRING_FREE cap_os
+    br ok -> L_OS_STRING_LIT_OK, L_OS_STRING_LIT_FAIL
+L_OS_STRING_LIT_FAIL:
+    !ok
+    panic(10182)
+L_OS_STRING_LIT_OK:
+    !ok
+    return
+
+@test "sa_std os OsString to_string_lossy macros"():
+L_ENTRY:
+    a_bytes = stack_alloc 3
+    store a_bytes+0, 97 as u8
+    store a_bytes+1, 98 as u8
+    store a_bytes+2, 99 as u8
+    a = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW a, a_bytes, 3
+    EXPAND OS_STRING_FROM_STR os, a
+    EXPAND OS_STRING_TO_STRING_LOSSY lossy, os
+    EXPAND STRING_BUF_LEN lossy_len, lossy
+    EXPAND OS_STRING_AS_OS_STR os_str, os
+    EXPAND OS_STR_TO_STRING_LOSSY lossy2, os_str
+    EXPAND STRING_BUF_LEN lossy2_len, lossy2
+
+    ok_len = eq lossy_len, 3
+    ok_len2 = eq lossy2_len, 3
+    ok = and ok_len, ok_len2
+
+    !ok_len
+    !ok_len2
+    !lossy_len
+    !lossy2_len
+    EXPAND STRING_BUF_FREE lossy
+    EXPAND STRING_BUF_FREE lossy2
+    EXPAND OS_STRING_FREE os
+    !os_str
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10183)
+L_OK:
+    !ok
+    return
+

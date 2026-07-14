@@ -1,3 +1,5 @@
+@import "core/result.sal"
+
 #def SA_FMT_OK = 0
 #def SA_FMT_ERR_UNKNOWN = 1
 #def SA_FMT_ERR_INVALID_BASE = 2
@@ -21,3 +23,13 @@
 #def SaFmtOptions_precision = +8
 #def SaFmtOptions_flags = +12
 #def SaFmtOptions_fill_byte = +16
+
+#def FmtError_SIZE = 0
+#def FmtError_ALIGN = 1
+
+#def FmtResult_SIZE = Result_SIZE
+#def FmtResult_tag = Result_tag
+#def FmtResult_ok = Result_ok
+#def FmtResult_err = Result_err
+#def FMT_RESULT_OK = Result_OK
+#def FMT_RESULT_ERR = Result_ERR

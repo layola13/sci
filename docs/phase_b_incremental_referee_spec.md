@@ -1,3 +1,9 @@
+## 落地状态（2026-07-11）
+
+- **Option A（verdict-only + `sa check`）已落地**：`src/incr_verify.zig` + `sa check`，daemon 内跨请求 hit。
+- **Option B（hybrid）部分落地**：compile 路径在 verdict hit 时用 trusted annotated shell 跳过 referee（非完整 VerifyOk deep-copy）。
+- 完整 deep-copy `SymbolTable`/`FunctionSig` 结果缓存仍可后续强化。
+
 # Phase B — Incremental Referee: Implementation Specification
 
 Status: **design only, not implemented**. This document is the sound design to

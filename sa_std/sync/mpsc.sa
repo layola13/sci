@@ -171,6 +171,12 @@ L_MPSC_NEW_ALLOC_%out_chan:
     !__mpsc_cap_is_zero_%out_chan
 [END_MACRO]
 
+// Concrete default capacity for Default-style construction.
+// Not Rust's unbounded channel; keeps the existing bounded MPSC facade.
+[MACRO] MPSC_DEFAULT %out_chan
+    EXPAND MPSC_NEW %out_chan, 16
+[END_MACRO]
+
 [MACRO] MPSC_FREE %chan
     !%chan
 [END_MACRO]

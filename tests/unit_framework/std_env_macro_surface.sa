@@ -1,6 +1,8 @@
 @import "sa_std/env.sa"
 @import "sa_std/core/slice.sa"
 @import "sa_std/string.sa"
+@const ENV_OS_ALIAS_KEY = utf8:"SA_ENV_OS_ALIAS_TEST_KEY"
+@const ENV_OS_ALIAS_VAL = utf8:"xyz"
 
 @const PATH_KEY = utf8:"PATH"
 @const MISSING_KEY = utf8:"__SA_STD_ENV_SHOULD_NOT_EXIST__"
@@ -968,3 +970,465 @@ L_JOIN_FAIL:
 L_JOIN_PASS:
     !join_ok
     return 0
+
+@test "sa_std env rust-named aliases macro surface"():
+L_ENTRY:
+    path_key = stack_alloc Slice_SIZE
+    missing_key = stack_alloc Slice_SIZE
+    path_list = stack_alloc Slice_SIZE
+    path_list_json = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW path_key, &PATH_KEY, PATH_KEY_LEN
+    EXPAND ENV_VAR path_buf, path_key
+    path_nonzero = ne path_buf, 0
+    EXPAND ENV_BUFFER_LEN path_len, path_buf
+    path_len_ok = ugt path_len, 0
+    EXPAND ENV_BUFFER_FREE free_path, path_buf
+
+    EXPAND SLICE_NEW missing_key, &MISSING_KEY, MISSING_KEY_LEN
+    EXPAND ENV_VAR_OS missing_ok, missing_buf, missing_key
+    missing_is_zero = eq missing_ok, 0
+    missing_buf_zero = eq missing_buf, 0
+
+    EXPAND ENV_ARGS args_buf
+    args_nonzero = ne args_buf, 0
+    EXPAND ENV_BUFFER_FREE free_args, args_buf
+    EXPAND ENV_VARS vars_buf
+    vars_nonzero = ne vars_buf, 0
+    EXPAND ENV_BUFFER_FREE free_vars, vars_buf
+
+    EXPAND SLICE_NEW path_list, &PATH_LIST, PATH_LIST_LEN
+    EXPAND ENV_SPLIT_PATHS split_buf, path_list
+    split_nonzero = ne split_buf, 0
+    EXPAND ENV_BUFFER_FREE free_split, split_buf
+    EXPAND SLICE_NEW path_list_json, &PATH_LIST_JSON, PATH_LIST_JSON_LEN
+    EXPAND ENV_JOIN_PATHS join_buf, path_list_json
+    join_nonzero = ne join_buf, 0
+    EXPAND ENV_BUFFER_FREE free_join, join_buf
+    EXPAND ENV_HOME_DIR home_ok, home_buf
+    home_ok_flag = eq home_ok, 1
+    home_nonzero = ne home_buf, 0
+    EXPAND ENV_BUFFER_FREE free_home, home_buf
+
+    ok = and path_nonzero, path_len_ok
+    ok = and ok, missing_is_zero
+    ok = and ok, missing_buf_zero
+    ok = and ok, args_nonzero
+    ok = and ok, vars_nonzero
+    ok = and ok, split_nonzero
+    ok = and ok, join_nonzero
+    ok = and ok, home_ok_flag
+    ok = and ok, home_nonzero
+
+    !path_nonzero
+    !path_len_ok
+    !path_len
+    !free_path
+    !missing_is_zero
+    !missing_buf_zero
+    !missing_ok
+    !missing_buf
+    !args_nonzero
+    !free_args
+    !vars_nonzero
+    !free_vars
+    !split_nonzero
+    !free_split
+    !join_nonzero
+    !free_join
+    !home_ok_flag
+    !home_nonzero
+    !home_ok
+    !free_home
+    br ok -> L_ENV_ALIAS_OK, L_ENV_ALIAS_FAIL
+L_ENV_ALIAS_FAIL:
+    !ok
+    panic(1021)
+L_ENV_ALIAS_OK:
+    !ok
+    return
+
+@test "sa_std env args_os/vars_os aliases macro surface"():
+L_ENTRY:
+    EXPAND ENV_ARGS_OS args_buf
+    args_nonzero = ne args_buf, 0
+    EXPAND ENV_BUFFER_FREE free_args, args_buf
+    EXPAND ENV_VARS_OS vars_buf
+    vars_nonzero = ne vars_buf, 0
+    EXPAND ENV_BUFFER_FREE free_vars, vars_buf
+    ok = and args_nonzero, vars_nonzero
+    !args_nonzero
+    !free_args
+    !vars_nonzero
+    !free_vars
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(1022)
+L_OK:
+    !ok
+    return
+
+@test "sa_std env split_paths_os/join_paths_os aliases macro surface"():
+L_ENTRY:
+    path_list = stack_alloc Slice_SIZE
+    path_list_json = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW path_list, &PATH_LIST, PATH_LIST_LEN
+    EXPAND SLICE_NEW path_list_json, &PATH_LIST_JSON, PATH_LIST_JSON_LEN
+    EXPAND ENV_SPLIT_PATHS_OS split_buf, path_list
+    split_nonzero = ne split_buf, 0
+    EXPAND ENV_BUFFER_FREE free_split, split_buf
+    EXPAND ENV_JOIN_PATHS_OS join_buf, path_list_json
+    join_nonzero = ne join_buf, 0
+    EXPAND ENV_BUFFER_FREE free_join, join_buf
+    ok = and split_nonzero, join_nonzero
+    !split_nonzero
+    !free_split
+    !join_nonzero
+    !free_join
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(1023)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std env temp/current path os aliases"():
+L_ENTRY:
+    EXPAND ENV_TEMP_DIR temp0
+    EXPAND ENV_TEMP_DIR_OS temp1
+    EXPAND ENV_CURRENT_DIR cwd0
+    EXPAND ENV_CURRENT_DIR_OS cwd1
+    EXPAND ENV_BUFFER_LEN temp0_len, temp0
+    EXPAND ENV_BUFFER_LEN temp1_len, temp1
+    EXPAND ENV_BUFFER_LEN cwd0_len, cwd0
+    EXPAND ENV_BUFFER_LEN cwd1_len, cwd1
+    EXPAND ENV_BUFFER_FREE free_temp0, temp0
+    EXPAND ENV_BUFFER_FREE free_temp1, temp1
+    EXPAND ENV_BUFFER_FREE free_cwd0, cwd0
+    EXPAND ENV_BUFFER_FREE free_cwd1, cwd1
+
+    ok_temp_len = ugt temp0_len, 0
+    ok_temp_eq = eq temp0_len, temp1_len
+    ok_cwd_len = ugt cwd0_len, 0
+    ok_cwd_eq = eq cwd0_len, cwd1_len
+    EXPAND ENV_STATUS_IS_OK ok_free0, free_temp0
+    EXPAND ENV_STATUS_IS_OK ok_free1, free_temp1
+    EXPAND ENV_STATUS_IS_OK ok_free2, free_cwd0
+    EXPAND ENV_STATUS_IS_OK ok_free3, free_cwd1
+
+    ok01 = and ok_temp_len, ok_temp_eq
+    ok02 = and ok01, ok_cwd_len
+    ok03 = and ok02, ok_cwd_eq
+    ok04 = and ok03, ok_free0
+    ok05 = and ok04, ok_free1
+    ok06 = and ok05, ok_free2
+    ok = and ok06, ok_free3
+
+    !temp0_len
+    !temp1_len
+    !cwd0_len
+    !cwd1_len
+    !free_temp0
+    !free_temp1
+    !free_cwd0
+    !free_cwd1
+    !ok_temp_len
+    !ok_temp_eq
+    !ok_cwd_len
+    !ok_cwd_eq
+    !ok_free0
+    !ok_free1
+    !ok_free2
+    !ok_free3
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10416)
+L_OK:
+    !ok
+    return
+
+
+
+@test "sa_std env set_var_os/remove_var_os aliases"():
+L_ENTRY:
+    key = stack_alloc Slice_SIZE
+    val = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW key, &ENV_OS_ALIAS_KEY, 24
+    EXPAND SLICE_NEW val, &ENV_OS_ALIAS_VAL, 3
+
+    EXPAND ENV_REMOVE_VAR_OS cleanup0, key
+    EXPAND ENV_SET_VAR_OS set_status, key, val
+    EXPAND ENV_STATUS_IS_OK set_ok, set_status
+    EXPAND ENV_EXISTS exists_after_set, key
+    EXPAND ENV_VAR_OS get_ok, get_buf, key
+    EXPAND ENV_BUFFER_LEN get_len, get_buf
+    EXPAND ENV_BUFFER_FREE free_status, get_buf
+    EXPAND ENV_STATUS_IS_OK free_ok, free_status
+    EXPAND ENV_REMOVE_VAR_OS remove_status, key
+    EXPAND ENV_STATUS_IS_OK remove_ok, remove_status
+    EXPAND ENV_EXISTS exists_after_remove, key
+
+    ok_get = eq get_ok, 1
+    ok_len = eq get_len, 3
+    removed_ok = eq exists_after_remove, 0
+    ok01 = and set_ok, exists_after_set
+    ok02 = and ok01, ok_get
+    ok03 = and ok02, ok_len
+    ok04 = and ok03, free_ok
+    ok05 = and ok04, remove_ok
+    ok = and ok05, removed_ok
+
+    !cleanup0
+    !set_status
+    !set_ok
+    !exists_after_set
+    !get_ok
+    !get_len
+    !free_status
+    !free_ok
+    !remove_status
+    !remove_ok
+    !exists_after_remove
+    !removed_ok
+    !ok_get
+    !ok_len
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10427)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std env home_dir_os alias"():
+L_ENTRY:
+    EXPAND ENV_HOME_DIR home_ok, home_buf
+    EXPAND ENV_HOME_DIR_OS home_os_ok, home_os_buf
+    ok_match = eq home_ok, home_os_ok
+    br home_ok -> L_HAVE_HOME, L_NO_HOME
+
+L_HAVE_HOME:
+    EXPAND ENV_BUFFER_LEN home_len, home_buf
+    EXPAND ENV_BUFFER_LEN home_os_len, home_os_buf
+    ok_len = eq home_len, home_os_len
+    EXPAND ENV_BUFFER_FREE free0, home_buf
+    EXPAND ENV_STATUS_IS_OK free0_ok, free0
+    EXPAND ENV_BUFFER_FREE free1, home_os_buf
+    EXPAND ENV_STATUS_IS_OK free1_ok, free1
+    ok01 = and ok_match, ok_len
+    ok02 = and ok01, free0_ok
+    ok = and ok02, free1_ok
+    !home_len
+    !home_os_len
+    !free0
+    !free1
+    !free0_ok
+    !free1_ok
+    !ok01
+    !ok02
+    jmp L_CHECK
+
+L_NO_HOME:
+    ok = and ok_match, 1
+    !home_buf
+    !home_os_buf
+
+L_CHECK:
+    !home_ok
+    !home_os_ok
+    !ok_match
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10442)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std env xdg *_os aliases"():
+L_ENTRY:
+    EXPAND ENV_XDG_DATA_HOME_DIR data0
+    EXPAND ENV_XDG_DATA_HOME_DIR_OS data1
+    EXPAND ENV_BUFFER_LEN data0_len, data0
+    EXPAND ENV_BUFFER_LEN data1_len, data1
+    EXPAND ENV_BUFFER_FREE free_data0, data0
+    EXPAND ENV_BUFFER_FREE free_data1, data1
+
+    EXPAND ENV_XDG_CONFIG_HOME_DIR config0
+    EXPAND ENV_XDG_CONFIG_HOME_DIR_OS config1
+    EXPAND ENV_BUFFER_LEN config0_len, config0
+    EXPAND ENV_BUFFER_LEN config1_len, config1
+    EXPAND ENV_BUFFER_FREE free_config0, config0
+    EXPAND ENV_BUFFER_FREE free_config1, config1
+
+    EXPAND ENV_XDG_STATE_HOME_DIR state0
+    EXPAND ENV_XDG_STATE_HOME_DIR_OS state1
+    EXPAND ENV_BUFFER_LEN state0_len, state0
+    EXPAND ENV_BUFFER_LEN state1_len, state1
+    EXPAND ENV_BUFFER_FREE free_state0, state0
+    EXPAND ENV_BUFFER_FREE free_state1, state1
+
+    EXPAND ENV_XDG_CACHE_HOME_DIR cache0
+    EXPAND ENV_XDG_CACHE_HOME_DIR_OS cache1
+    EXPAND ENV_BUFFER_LEN cache0_len, cache0
+    EXPAND ENV_BUFFER_LEN cache1_len, cache1
+    EXPAND ENV_BUFFER_FREE free_cache0, cache0
+    EXPAND ENV_BUFFER_FREE free_cache1, cache1
+
+    EXPAND ENV_XDG_DATA_DIRS dirs0
+    EXPAND ENV_XDG_DATA_DIRS_OS dirs1
+    EXPAND ENV_BUFFER_LEN dirs0_len, dirs0
+    EXPAND ENV_BUFFER_LEN dirs1_len, dirs1
+    EXPAND ENV_BUFFER_FREE free_dirs0, dirs0
+    EXPAND ENV_BUFFER_FREE free_dirs1, dirs1
+
+    EXPAND ENV_XDG_CONFIG_DIRS confdirs0
+    EXPAND ENV_XDG_CONFIG_DIRS_OS confdirs1
+    EXPAND ENV_BUFFER_LEN confdirs0_len, confdirs0
+    EXPAND ENV_BUFFER_LEN confdirs1_len, confdirs1
+    EXPAND ENV_BUFFER_FREE free_confdirs0, confdirs0
+    EXPAND ENV_BUFFER_FREE free_confdirs1, confdirs1
+
+    ok_data = eq data0_len, data1_len
+    ok_config = eq config0_len, config1_len
+    ok_state = eq state0_len, state1_len
+    ok_cache = eq cache0_len, cache1_len
+    ok_dirs = eq dirs0_len, dirs1_len
+    ok_confdirs = eq confdirs0_len, confdirs1_len
+    ok_len_data = ugt data0_len, 0
+    ok_len_config = ugt config0_len, 0
+    ok_len_state = ugt state0_len, 0
+    ok_len_cache = ugt cache0_len, 0
+    ok_len_dirs = ugt dirs0_len, 0
+    ok_len_confdirs = ugt confdirs0_len, 0
+
+    EXPAND ENV_STATUS_IS_OK free_data0_ok, free_data0
+    EXPAND ENV_STATUS_IS_OK free_data1_ok, free_data1
+    EXPAND ENV_STATUS_IS_OK free_config0_ok, free_config0
+    EXPAND ENV_STATUS_IS_OK free_config1_ok, free_config1
+    EXPAND ENV_STATUS_IS_OK free_state0_ok, free_state0
+    EXPAND ENV_STATUS_IS_OK free_state1_ok, free_state1
+    EXPAND ENV_STATUS_IS_OK free_cache0_ok, free_cache0
+    EXPAND ENV_STATUS_IS_OK free_cache1_ok, free_cache1
+    EXPAND ENV_STATUS_IS_OK free_dirs0_ok, free_dirs0
+    EXPAND ENV_STATUS_IS_OK free_dirs1_ok, free_dirs1
+    EXPAND ENV_STATUS_IS_OK free_confdirs0_ok, free_confdirs0
+    EXPAND ENV_STATUS_IS_OK free_confdirs1_ok, free_confdirs1
+
+    ok01 = and ok_data, ok_config
+    ok02 = and ok01, ok_state
+    ok03 = and ok02, ok_cache
+    ok04 = and ok03, ok_dirs
+    ok05 = and ok04, ok_confdirs
+    ok06 = and ok05, ok_len_data
+    ok07 = and ok06, ok_len_config
+    ok08 = and ok07, ok_len_state
+    ok09 = and ok08, ok_len_cache
+    ok10 = and ok09, ok_len_dirs
+    ok11 = and ok10, ok_len_confdirs
+    ok12 = and ok11, free_data0_ok
+    ok13 = and ok12, free_data1_ok
+    ok14 = and ok13, free_config0_ok
+    ok15 = and ok14, free_config1_ok
+    ok16 = and ok15, free_state0_ok
+    ok17 = and ok16, free_state1_ok
+    ok18 = and ok17, free_cache0_ok
+    ok19 = and ok18, free_cache1_ok
+    ok20 = and ok19, free_dirs0_ok
+    ok21 = and ok20, free_dirs1_ok
+    ok22 = and ok21, free_confdirs0_ok
+    ok = and ok22, free_confdirs1_ok
+
+    !data0_len
+    !data1_len
+    !config0_len
+    !config1_len
+    !state0_len
+    !state1_len
+    !cache0_len
+    !cache1_len
+    !dirs0_len
+    !dirs1_len
+    !confdirs0_len
+    !confdirs1_len
+    !free_data0
+    !free_data1
+    !free_config0
+    !free_config1
+    !free_state0
+    !free_state1
+    !free_cache0
+    !free_cache1
+    !free_dirs0
+    !free_dirs1
+    !free_confdirs0
+    !free_confdirs1
+    !ok_data
+    !ok_config
+    !ok_state
+    !ok_cache
+    !ok_dirs
+    !ok_confdirs
+    !ok_len_data
+    !ok_len_config
+    !ok_len_state
+    !ok_len_cache
+    !ok_len_dirs
+    !ok_len_confdirs
+    !free_data0_ok
+    !free_data1_ok
+    !free_config0_ok
+    !free_config1_ok
+    !free_state0_ok
+    !free_state1_ok
+    !free_cache0_ok
+    !free_cache1_ok
+    !free_dirs0_ok
+    !free_dirs1_ok
+    !free_confdirs0_ok
+    !free_confdirs1_ok
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !ok18
+    !ok19
+    !ok20
+    !ok21
+    !ok22
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10453)
+L_OK:
+    !ok
+    return

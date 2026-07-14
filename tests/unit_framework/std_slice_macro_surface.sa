@@ -158,7 +158,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(944)
+    panic(10219)
 
 L_PASS:
     !all

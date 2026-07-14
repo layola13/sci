@@ -1,0 +1,75 @@
+@import "sa_std/num.sal"
+
+@test "sa_std NonZero BITS and BYTES constants"():
+L_ENTRY:
+    ok_u8_bits = eq NONZERO_U8_BITS, 8
+    ok_u8_bytes = eq NONZERO_U8_BYTES, 1
+    ok_u16_bits = eq NONZERO_U16_BITS, 16
+    ok_u16_bytes = eq NONZERO_U16_BYTES, 2
+    ok_u32_bits = eq NONZERO_U32_BITS, 32
+    ok_u32_bytes = eq NONZERO_U32_BYTES, 4
+    ok_u64_bits = eq NONZERO_U64_BITS, 64
+    ok_u64_bytes = eq NONZERO_U64_BYTES, 8
+
+    ok_usize_bits = eq NONZERO_USIZE_BITS, 64
+    ok_usize_bytes = eq NONZERO_USIZE_BYTES, 8
+    ok_isize_bits = eq NONZERO_ISIZE_BITS, 64
+    ok_isize_bytes = eq NONZERO_ISIZE_BYTES, 8
+
+    ok_i8_bits = eq NONZERO_I8_BITS, 8
+    ok_i8_bytes = eq NONZERO_I8_BYTES, 1
+    ok_i16_bits = eq NONZERO_I16_BITS, 16
+    ok_i16_bytes = eq NONZERO_I16_BYTES, 2
+    ok_i32_bits = eq NONZERO_I32_BITS, 32
+    ok_i32_bytes = eq NONZERO_I32_BYTES, 4
+    ok_i64_bits = eq NONZERO_I64_BITS, 64
+    ok_i64_bytes = eq NONZERO_I64_BYTES, 8
+
+    cross_u8 = eq NONZERO_U8_BITS, NUM_U8_BITS
+    cross_u16 = eq NONZERO_U16_BITS, NUM_U16_BITS
+    cross_u32 = eq NONZERO_U32_BITS, NUM_U32_BITS
+    cross_u64 = eq NONZERO_U64_BITS, NUM_U64_BITS
+    cross_usize = eq NONZERO_USIZE_BITS, NUM_USIZE_BITS
+    cross_isize = eq NONZERO_ISIZE_BITS, NUM_ISIZE_BITS
+    cross_i8 = eq NONZERO_I8_BITS, NUM_I8_BITS
+    cross_i16 = eq NONZERO_I16_BITS, NUM_I16_BITS
+    cross_i32 = eq NONZERO_I32_BITS, NUM_I32_BITS
+    cross_i64 = eq NONZERO_I64_BITS, NUM_I64_BITS
+
+    c01 = and ok_u8_bits, ok_u8_bytes
+    c02 = and c01, ok_u16_bits
+    c03 = and c02, ok_u16_bytes
+    c04 = and c03, ok_u32_bits
+    c05 = and c04, ok_u32_bytes
+    c06 = and c05, ok_u64_bits
+    c07 = and c06, ok_u64_bytes
+    c08 = and c07, ok_usize_bits
+    c09 = and c08, ok_usize_bytes
+    c10 = and c09, ok_isize_bits
+    c11 = and c10, ok_isize_bytes
+    c12 = and c11, ok_i8_bits
+    c13 = and c12, ok_i8_bytes
+    c14 = and c13, ok_i16_bits
+    c15 = and c14, ok_i16_bytes
+    c16 = and c15, ok_i32_bits
+    c17 = and c16, ok_i32_bytes
+    c18 = and c17, ok_i64_bits
+    c19 = and c18, ok_i64_bytes
+    c20 = and c19, cross_u8
+    c21 = and c20, cross_u16
+    c22 = and c21, cross_u32
+    c23 = and c22, cross_u64
+    c24 = and c23, cross_usize
+    c25 = and c24, cross_isize
+    c26 = and c25, cross_i8
+    c27 = and c26, cross_i16
+    c28 = and c27, cross_i32
+    c29 = and c28, cross_i64
+
+    br c29 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10488)
+
+L_PASS:
+    return 0

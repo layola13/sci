@@ -1,4 +1,5 @@
 @import "core/slice.sal"
+@import "alloc/vec.sal"
 
 #def CStr_SIZE = Slice_SIZE
 #def CStr_ptr = Slice_ptr
@@ -17,3 +18,34 @@
 #def CSTRING_NEW_INTERIOR_NUL = CSTR_FROM_BYTES_INTERIOR_NUL
 
 #def CSTR_ERROR_POS_NONE = -1
+
+#def NulError_SIZE = 32
+#def NulError_bytes = +0
+#def NulError_position = +24
+
+#def FromBytesWithNulError_SIZE = 16
+#def FromBytesWithNulError_kind = +0
+#def FromBytesWithNulError_position = +8
+#def FROM_BYTES_WITH_NUL_ERROR_NOT_NUL_TERMINATED = CSTR_FROM_BYTES_NOT_NUL_TERMINATED
+#def FROM_BYTES_WITH_NUL_ERROR_INTERIOR_NUL = CSTR_FROM_BYTES_INTERIOR_NUL
+
+#def Utf8Error_SIZE = 16
+#def Utf8Error_valid_up_to = +0
+#def Utf8Error_error_len = +8
+#def UTF8_ERROR_LEN_NONE = -1
+
+#def IntoStringError_SIZE = 32
+#def IntoStringError_cstring = +0
+#def IntoStringError_utf8_error = +16
+
+#def OsStr_SIZE = Slice_SIZE
+#def OsStr_ptr = Slice_ptr
+#def OsStr_len = Slice_len
+
+#def OsString_SIZE = Slice_SIZE
+#def OsString_ptr = Slice_ptr
+#def OsString_cap = Slice_len
+
+#def OS_STR_FROM_BYTES_OK = 0
+#def OS_STR_FROM_BYTES_INTERIOR_NUL = 1
+#def OS_STR_TO_STR_INVALID_UTF8 = 2

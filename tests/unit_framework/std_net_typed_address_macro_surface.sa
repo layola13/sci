@@ -103,7 +103,214 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(980)
+    panic(10121)
 
 L_PASS:
     return 0
+
+@test "sa_std net typed address format_ascii helpers"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    sock4 = stack_alloc NetSocketAddrV4_SIZE
+    sock6 = stack_alloc NetSocketAddrV6_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    out = stack_alloc 64
+
+    EXPAND NET_IPV4_NEW ipv4, 127, 0, 0, 1
+    EXPAND NET_IPV4_FORMAT_ASCII v4_ok, v4_len, ipv4, out, 64
+    v4_b0 = load out+0 as u8
+    v4_b1 = load out+1 as u8
+    v4_b2 = load out+2 as u8
+    v4_b3 = load out+3 as u8
+    v4_dot = load out+3 as u8
+
+    EXPAND NET_SOCKET_ADDR_V4_NEW sock4, ipv4, 8080
+    EXPAND NET_SOCKET_ADDR_V4_FORMAT_ASCII s4_ok, s4_len, sock4, out, 64
+    s4_colon = load out+9 as u8
+
+    EXPAND NET_IPV6_LOCALHOST ipv6
+    EXPAND NET_IPV6_FORMAT_ASCII v6_ok, v6_len, ipv6, out, 64
+    v6_b0 = load out+0 as u8
+
+    EXPAND NET_SOCKET_ADDR_V6_NEW sock6, ipv6, 443, 0, 0
+    EXPAND NET_SOCKET_ADDR_V6_FORMAT_ASCII s6_ok, s6_len, sock6, out, 64
+    s6_lb = load out+0 as u8
+
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_IP_ADDR_FORMAT_ASCII ip_ok, ip_len, ip4, out, 64
+
+    ok_v4 = eq v4_ok, 1
+    ok_v4_len = eq v4_len, 9
+    ok_v4_b0 = eq v4_b0, 49
+    ok_v4_b1 = eq v4_b1, 50
+    ok_v4_b2 = eq v4_b2, 55
+    ok_s4 = eq s4_ok, 1
+    ok_s4_len = eq s4_len, 14
+    ok_s4_colon = eq s4_colon, 58
+    ok_v6 = eq v6_ok, 1
+    ok_v6_len = ugt v6_len, 0
+    ok_v6_b0 = eq v6_b0, 48
+    ok_s6 = eq s6_ok, 1
+    ok_s6_len = ugt s6_len, 0
+    ok_s6_lb = eq s6_lb, 91
+    ok_ip = eq ip_ok, 1
+    ok_ip_len = eq ip_len, 9
+
+    ok = and ok_v4, ok_v4_len
+    ok = and ok, ok_v4_b0
+    ok = and ok, ok_v4_b1
+    ok = and ok, ok_v4_b2
+    ok = and ok, ok_s4
+    ok = and ok, ok_s4_len
+    ok = and ok, ok_s4_colon
+    ok = and ok, ok_v6
+    ok = and ok, ok_v6_len
+    ok = and ok, ok_v6_b0
+    ok = and ok, ok_s6
+    ok = and ok, ok_s6_len
+    ok = and ok, ok_s6_lb
+    ok = and ok, ok_ip
+    ok = and ok, ok_ip_len
+
+    !v4_ok
+    !v4_len
+    !v4_b0
+    !v4_b1
+    !v4_b2
+    !v4_b3
+    !v4_dot
+    !s4_ok
+    !s4_len
+    !s4_colon
+    !v6_ok
+    !v6_len
+    !v6_b0
+    !s6_ok
+    !s6_len
+    !s6_lb
+    !ip_ok
+    !ip_len
+    !ok_v4
+    !ok_v4_len
+    !ok_v4_b0
+    !ok_v4_b1
+    !ok_v4_b2
+    !ok_s4
+    !ok_s4_len
+    !ok_s4_colon
+    !ok_v6
+    !ok_v6_len
+    !ok_v6_b0
+    !ok_s6
+    !ok_s6_len
+    !ok_s6_lb
+    !ok_ip
+    !ok_ip_len
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(10122)
+L_PASS:
+    !ok
+    return 0
+
+
+@test "sa_std net ip/socket addr default helpers"():
+L_ENTRY:
+    ip = stack_alloc NetIpAddr_SIZE
+    sock = stack_alloc NetSocketAddr_SIZE
+    unspec = stack_alloc NetIpAddr_SIZE
+    sock_ip = stack_alloc NetIpAddr_SIZE
+
+    EXPAND NET_IP_ADDR_DEFAULT ip
+    EXPAND NET_IP_ADDR_V4_UNSPECIFIED unspec
+    EXPAND NET_IP_ADDR_EQ ok_ip, ip, unspec
+    EXPAND NET_IP_ADDR_IS_IPV4 is_v4, ip
+
+    EXPAND NET_SOCKET_ADDR_DEFAULT sock
+    EXPAND NET_SOCKET_ADDR_IS_IPV4 sock_v4, sock
+    EXPAND NET_SOCKET_ADDR_PORT port, sock
+    EXPAND NET_SOCKET_ADDR_IP sock_ip, sock
+    EXPAND NET_IP_ADDR_EQ ok_sock_ip, sock_ip, unspec
+
+    ok_port = eq port, 0
+    ok01 = and ok_ip, is_v4
+    ok02 = and ok01, sock_v4
+    ok03 = and ok02, ok_port
+    ok = and ok03, ok_sock_ip
+
+    !ok_ip
+    !is_v4
+    !sock_v4
+    !port
+    !ok_sock_ip
+    !ok_port
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10450)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std net ipv4/ipv6/socket_v4/v6 default helpers"():
+L_ENTRY:
+    v4 = stack_alloc NetIpv4Addr_SIZE
+    v4u = stack_alloc NetIpv4Addr_SIZE
+    v6 = stack_alloc NetIpv6Addr_SIZE
+    v6u = stack_alloc NetIpv6Addr_SIZE
+    s4 = stack_alloc NetSocketAddrV4_SIZE
+    s6 = stack_alloc NetSocketAddrV6_SIZE
+    s4_ip = stack_alloc NetIpv4Addr_SIZE
+    s6_ip = stack_alloc NetIpv6Addr_SIZE
+
+    EXPAND NET_IPV4_DEFAULT v4
+    EXPAND NET_IPV4_UNSPECIFIED v4u
+    EXPAND NET_IPV4_EQ ok_v4, v4, v4u
+
+    EXPAND NET_IPV6_DEFAULT v6
+    EXPAND NET_IPV6_UNSPECIFIED v6u
+    EXPAND NET_IPV6_EQ ok_v6, v6, v6u
+
+    EXPAND NET_SOCKET_ADDR_V4_DEFAULT s4
+    EXPAND NET_SOCKET_ADDR_V4_PORT s4_port, s4
+    EXPAND NET_SOCKET_ADDR_V4_IP s4_ip, s4
+    EXPAND NET_IPV4_EQ ok_s4_ip, s4_ip, v4u
+    ok_s4_port = eq s4_port, 0
+
+    EXPAND NET_SOCKET_ADDR_V6_DEFAULT s6
+    EXPAND NET_SOCKET_ADDR_V6_PORT s6_port, s6
+    EXPAND NET_SOCKET_ADDR_V6_IP s6_ip, s6
+    EXPAND NET_IPV6_EQ ok_s6_ip, s6_ip, v6u
+    ok_s6_port = eq s6_port, 0
+
+    ok01 = and ok_v4, ok_v6
+    ok02 = and ok01, ok_s4_ip
+    ok03 = and ok02, ok_s4_port
+    ok04 = and ok03, ok_s6_ip
+    ok = and ok04, ok_s6_port
+
+    !ok_v4
+    !ok_v6
+    !s4_port
+    !ok_s4_ip
+    !ok_s4_port
+    !s6_port
+    !ok_s6_ip
+    !ok_s6_port
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10455)
+L_OK:
+    !ok
+    return

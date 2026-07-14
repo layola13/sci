@@ -606,3 +606,73 @@ L_TIME_ABS_DIFF_END_%out_ns:
     EXPAND TIME_DURATION_SINCE %out_ns, __time_elapsed_now_%out_ns, %instant_ns
     !__time_elapsed_now_%out_ns
 [END_MACRO]
+
+// Instant / SystemTime naming aliases over existing ns clocks.
+// Instant uses monotonic TIME_NOW_NS; SystemTime uses unix epoch ns.
+
+[MACRO] TIME_INSTANT_NOW %out_instant_ns
+    EXPAND TIME_NOW_NS %out_instant_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_NOW %out_system_ns
+    EXPAND TIME_NOW_UNIX_NS %out_system_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_FROM_UNIX_NS %out_system_ns, %unix_ns
+    %out_system_ns = add %unix_ns, 0
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_AS_UNIX_NS %out_unix_ns, %system_ns
+    %out_unix_ns = add %system_ns, 0
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_ELAPSED %out_ns, %system_ns
+    EXPAND TIME_NOW_UNIX_NS __time_system_elapsed_now_%out_ns
+    EXPAND TIME_DURATION_SINCE %out_ns, __time_system_elapsed_now_%out_ns, %system_ns
+    !__time_system_elapsed_now_%out_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_CHECKED_ADD %out_ok, %out_system_ns, %system_ns, %duration_ns
+    EXPAND TIME_CHECKED_ADD_NS %out_ok, %out_system_ns, %system_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_CHECKED_SUB %out_ok, %out_system_ns, %system_ns, %duration_ns
+    EXPAND TIME_CHECKED_SUB_NS %out_ok, %out_system_ns, %system_ns, %duration_ns
+[END_MACRO]
+
+// Extra Instant/SystemTime/Duration naming aliases.
+
+[MACRO] TIME_DURATION_DEFAULT %out_ns
+    EXPAND TIME_DURATION_ZERO %out_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_UNIX_EPOCH %out_system_ns
+    %out_system_ns = add 0, 0
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_SATURATING_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_INSTANT_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+// Additional Duration/Instant/SystemTime naming aliases.
+
+[MACRO] TIME_SLEEP_DURATION_NS %duration_ns
+    EXPAND TIME_SLEEP_NS %duration_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_DEFAULT %out_instant_ns
+    %out_instant_ns = add 0, 0
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_DEFAULT %out_system_ns
+    EXPAND TIME_SYSTEM_TIME_UNIX_EPOCH %out_system_ns
+[END_MACRO]
+

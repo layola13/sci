@@ -700,3 +700,164 @@ L_VEC_FAIL:
 L_VEC_OK:
     !ok
     return
+
+@test "sa_std binary_heap u64/try_peek/pop/extra_capacity aliases"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_NEW empty_heap
+    EXPAND BINARY_HEAP_TRY_PEEK emp_tok, emp_tv, empty_heap
+    emp_tok_ok = eq emp_tok, 0
+    emp_tv_ok = eq emp_tv, 0
+    EXPAND BINARY_HEAP_EXTRA_CAPACITY emp_ec, empty_heap
+    ec_zero_ok = eq emp_ec, BinaryHeap_INITIAL_CAP
+    EXPAND BINARY_HEAP_FREE empty_heap
+
+    EXPAND BINARY_HEAP_WITH_CAPACITY heap, 3
+    EXPAND BINARY_HEAP_PUSH_U64 heap, 5
+    EXPAND BINARY_HEAP_PUSH_U64 heap, 42
+    EXPAND BINARY_HEAP_PUSH_U64 heap, 7
+    EXPAND BINARY_HEAP_PEEK_U64 peek0_v, heap
+    EXPAND BINARY_HEAP_TRY_PEEK_U64 peek_tok, peek0_v_again, heap
+    EXPAND BINARY_HEAP_TRY_PEEK peek0_ok, peek0_v_check, heap
+    peek0_v_ok = eq peek0_v, 42
+    peek0_v_again_ok = eq peek0_v_again, 42
+    peek0_ok_ok = eq peek0_ok, 1
+    peek0_v_check_ok = eq peek0_v_check, 42
+    EXPAND BINARY_HEAP_LEN len_before_pop, heap
+    EXPAND BINARY_HEAP_CAPACITY cap_before_pop, heap
+    EXPAND BINARY_HEAP_EXTRA_CAPACITY ec_before_pop, heap
+    expected_ec_before_pop = sub cap_before_pop, len_before_pop
+    ec_before_pop_ok = eq ec_before_pop, expected_ec_before_pop
+    EXPAND BINARY_HEAP_POP min_pop, heap
+    min_pop_ok = eq min_pop, 42
+    EXPAND BINARY_HEAP_POP_U64 next_pop, heap
+    next_pop_ok = eq next_pop, 7
+    EXPAND BINARY_HEAP_LEN len_after_pops, heap
+    len_after_pops_ok = eq len_after_pops, 1
+    EXPAND BINARY_HEAP_FREE heap
+
+    ok = and emp_tok_ok, emp_tv_ok
+    ok = and ok, ec_zero_ok
+    ok = and ok, peek0_v_ok
+    ok = and ok, peek0_v_again_ok
+    ok = and ok, peek0_ok_ok
+    ok = and ok, peek0_v_check_ok
+    ok = and ok, ec_before_pop_ok
+    ok = and ok, min_pop_ok
+    ok = and ok, next_pop_ok
+    ok = and ok, len_after_pops_ok
+
+    !emp_tok
+    !emp_tv
+    !emp_ec
+    !peek0_v
+    !peek0_v_again
+    !peek_tok
+    !peek0_ok
+    !peek0_v_check
+    !len_before_pop
+    !cap_before_pop
+    !ec_before_pop
+    !expected_ec_before_pop
+    !min_pop
+    !next_pop
+    !len_after_pops
+    !emp_tok_ok
+    !emp_tv_ok
+    !ec_zero_ok
+    !peek0_v_ok
+    !peek0_v_again_ok
+    !peek0_ok_ok
+    !peek0_v_check_ok
+    !ec_before_pop_ok
+    !min_pop_ok
+    !next_pop_ok
+    !len_after_pops_ok
+    br ok -> L_BINARY_HEAP_ALIAS_OK, L_BINARY_HEAP_ALIAS_FAIL
+
+L_BINARY_HEAP_ALIAS_FAIL:
+    !ok
+    panic(916)
+
+L_BINARY_HEAP_ALIAS_OK:
+    !ok
+    return
+
+@test "sa_std binary_heap from/lit constructors"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_LIT3 heap, 1, 7, 3
+    EXPAND BINARY_HEAP_LEN len0, heap
+    len0_ok = eq len0, 3
+    EXPAND BINARY_HEAP_PEEK_U64 peek0, heap
+    peek0_ok = eq peek0, 7
+
+    EXPAND VEC_NEW src
+    EXPAND VEC_PUSH_U64 src, 2
+    EXPAND VEC_PUSH_U64 src, 9
+    EXPAND VEC_PUSH_U64 src, 4
+    EXPAND BINARY_HEAP_FROM_VEC_U64 heap2, src
+    EXPAND BINARY_HEAP_LEN len1, heap2
+    len1_ok = eq len1, 3
+    EXPAND BINARY_HEAP_PEEK_U64 peek1, heap2
+    peek1_ok = eq peek1, 9
+
+    EXPAND BINARY_HEAP_EXTEND_FROM_VEC_U64 heap, src
+    EXPAND BINARY_HEAP_LEN len2, heap
+    len2_ok = eq len2, 6
+    EXPAND BINARY_HEAP_PEEK_U64 peek2, heap
+    peek2_ok = eq peek2, 9
+
+    EXPAND BINARY_HEAP_FREE heap
+    EXPAND BINARY_HEAP_FREE heap2
+    EXPAND VEC_FREE src
+
+    ok = and len0_ok, peek0_ok
+    ok = and ok, len1_ok
+    ok = and ok, peek1_ok
+    ok = and ok, len2_ok
+    ok = and ok, peek2_ok
+
+    !len0
+    !peek0
+    !len1
+    !peek1
+    !len2
+    !peek2
+    !len0_ok
+    !peek0_ok
+    !len1_ok
+    !peek1_ok
+    !len2_ok
+    !peek2_ok
+    br ok -> L_BINARY_HEAP_FROM_OK, L_BINARY_HEAP_FROM_FAIL
+
+L_BINARY_HEAP_FROM_FAIL:
+    !ok
+    panic(917)
+
+L_BINARY_HEAP_FROM_OK:
+    !ok
+    return
+
+
+@test "sa_std binary_heap default alias"():
+L_ENTRY:
+    EXPAND BINARY_HEAP_DEFAULT heap
+    EXPAND BINARY_HEAP_LEN len0, heap
+    EXPAND BINARY_HEAP_IS_EMPTY empty0, heap
+    EXPAND BINARY_HEAP_FREE heap
+
+    ok_len = eq len0, 0
+    ok_empty = eq empty0, 1
+    ok = and ok_len, ok_empty
+
+    !len0
+    !empty0
+    !ok_len
+    !ok_empty
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10435)
+L_OK:
+    !ok
+    return

@@ -1017,6 +1017,11 @@
     EXPAND NET_IPV4_NEW %addr, 0, 0, 0, 0
 [END_MACRO]
 
+// Rust-style Default for Ipv4Addr: UNSPECIFIED.
+[MACRO] NET_IPV4_DEFAULT %addr
+    EXPAND NET_IPV4_UNSPECIFIED %addr
+[END_MACRO]
+
 [MACRO] NET_IPV4_LOCALHOST %addr
     EXPAND NET_IPV4_NEW %addr, 127, 0, 0, 1
 [END_MACRO]
@@ -1135,6 +1140,78 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
 [MACRO] NET_IPV4_PARSE_ASCII %out_ok, %addr, %ptr, %len
     EXPAND NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
 [END_MACRO]
+
+[MACRO] NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+    %out_ok = call @sa_net_ipv6_parse_ascii(&%ptr, %len, &%addr)
+[END_MACRO]
+
+[MACRO] NET_IPV6_PARSE_ASCII %out_ok, %addr, %ptr, %len
+    EXPAND NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
+
+[MACRO] NET_IPV4_FORMAT_ASCII %out_ok, %out_len, %addr, %dst_ptr, %dst_cap
+    __net_ipv4_fmt_len_slot_%out_ok = stack_alloc 8
+    store __net_ipv4_fmt_len_slot_%out_ok+0, 0 as u64
+    %out_ok = call @sa_net_ipv4_format_ascii(&%addr, &%dst_ptr, %dst_cap, &__net_ipv4_fmt_len_slot_%out_ok)
+    %out_len = load __net_ipv4_fmt_len_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] NET_IPV6_FORMAT_ASCII %out_ok, %out_len, %addr, %dst_ptr, %dst_cap
+    __net_ipv6_fmt_len_slot_%out_ok = stack_alloc 8
+    store __net_ipv6_fmt_len_slot_%out_ok+0, 0 as u64
+    %out_ok = call @sa_net_ipv6_format_ascii(&%addr, &%dst_ptr, %dst_cap, &__net_ipv6_fmt_len_slot_%out_ok)
+    %out_len = load __net_ipv6_fmt_len_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_FORMAT_ASCII %out_ok, %out_len, %socket_addr, %dst_ptr, %dst_cap
+    __net_sock_v4_fmt_len_slot_%out_ok = stack_alloc 8
+    store __net_sock_v4_fmt_len_slot_%out_ok+0, 0 as u64
+    %out_ok = call @sa_net_socket_addr_v4_format_ascii(&%socket_addr, &%dst_ptr, %dst_cap, &__net_sock_v4_fmt_len_slot_%out_ok)
+    %out_len = load __net_sock_v4_fmt_len_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_FORMAT_ASCII %out_ok, %out_len, %socket_addr, %dst_ptr, %dst_cap
+    __net_sock_v6_fmt_len_slot_%out_ok = stack_alloc 8
+    store __net_sock_v6_fmt_len_slot_%out_ok+0, 0 as u64
+    %out_ok = call @sa_net_socket_addr_v6_format_ascii(&%socket_addr, &%dst_ptr, %dst_cap, &__net_sock_v6_fmt_len_slot_%out_ok)
+    %out_len = load __net_sock_v6_fmt_len_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_FORMAT_ASCII %out_ok, %out_len, %ipaddr, %dst_ptr, %dst_cap
+    __net_ip_fmt_tag_%out_ok = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_fmt_payload_%out_ok = ptr_add %ipaddr, 8
+    __net_ip_fmt_is_v4_%out_ok = eq __net_ip_fmt_tag_%out_ok, NET_IP_ADDR_V4
+    br __net_ip_fmt_is_v4_%out_ok -> L_NET_IP_FMT_V4_%out_ok, L_NET_IP_FMT_V6_%out_ok
+L_NET_IP_FMT_V4_%out_ok:
+    EXPAND NET_IPV4_FORMAT_ASCII %out_ok, %out_len, __net_ip_fmt_payload_%out_ok, %dst_ptr, %dst_cap
+    jmp L_NET_IP_FMT_DONE_%out_ok
+L_NET_IP_FMT_V6_%out_ok:
+    EXPAND NET_IPV6_FORMAT_ASCII %out_ok, %out_len, __net_ip_fmt_payload_%out_ok, %dst_ptr, %dst_cap
+    jmp L_NET_IP_FMT_DONE_%out_ok
+L_NET_IP_FMT_DONE_%out_ok:
+    !__net_ip_fmt_is_v4_%out_ok
+    !__net_ip_fmt_payload_%out_ok
+    !__net_ip_fmt_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_FORMAT_ASCII %out_ok, %out_len, %socket_addr, %dst_ptr, %dst_cap
+    __net_sock_fmt_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_fmt_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_fmt_is_v4_%out_ok = eq __net_sock_fmt_tag_%out_ok, NET_IP_ADDR_V4
+    br __net_sock_fmt_is_v4_%out_ok -> L_NET_SOCK_FMT_V4_%out_ok, L_NET_SOCK_FMT_V6_%out_ok
+L_NET_SOCK_FMT_V4_%out_ok:
+    EXPAND NET_SOCKET_ADDR_V4_FORMAT_ASCII %out_ok, %out_len, __net_sock_fmt_payload_%out_ok, %dst_ptr, %dst_cap
+    jmp L_NET_SOCK_FMT_DONE_%out_ok
+L_NET_SOCK_FMT_V6_%out_ok:
+    EXPAND NET_SOCKET_ADDR_V6_FORMAT_ASCII %out_ok, %out_len, __net_sock_fmt_payload_%out_ok, %dst_ptr, %dst_cap
+    jmp L_NET_SOCK_FMT_DONE_%out_ok
+L_NET_SOCK_FMT_DONE_%out_ok:
+    !__net_sock_fmt_is_v4_%out_ok
+    !__net_sock_fmt_payload_%out_ok
+    !__net_sock_fmt_tag_%out_ok
+[END_MACRO]
+
 
 [MACRO] NET_IPV4_EQ %out_bool, %left, %right
     __net_ipv4_la_%out_bool = load %left+NetIpv4Addr_a as u8
@@ -1482,6 +1559,11 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
 
 [MACRO] NET_IPV6_UNSPECIFIED %addr
     EXPAND NET_IPV6_NEW %addr, 0, 0, 0, 0, 0, 0, 0, 0
+[END_MACRO]
+
+// Rust-style Default for Ipv6Addr: UNSPECIFIED.
+[MACRO] NET_IPV6_DEFAULT %addr
+    EXPAND NET_IPV6_UNSPECIFIED %addr
 [END_MACRO]
 
 [MACRO] NET_IPV6_LOCALHOST %addr
@@ -2235,6 +2317,11 @@ L_NET_IPV6_CANON_DONE_%out_ipaddr:
     EXPAND NET_IP_ADDR_V4_NEW %ipaddr, __net_ip_v4_unspec_%ipaddr
 [END_MACRO]
 
+// Rust-style Default for IpAddr: Ipv4Addr::UNSPECIFIED.
+[MACRO] NET_IP_ADDR_DEFAULT %ipaddr
+    EXPAND NET_IP_ADDR_V4_UNSPECIFIED %ipaddr
+[END_MACRO]
+
 [MACRO] NET_IP_ADDR_V4_LOCALHOST %ipaddr
     __net_ip_v4_local_%ipaddr = stack_alloc NetIpv4Addr_SIZE
     EXPAND NET_IPV4_LOCALHOST __net_ip_v4_local_%ipaddr
@@ -2261,15 +2348,31 @@ L_NET_IPV6_CANON_DONE_%out_ipaddr:
 
 [MACRO] NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
     __net_ip_parse_v4_%out_ok = stack_alloc NetIpv4Addr_SIZE
-    %out_ok = call @sa_net_ipv4_parse_ascii(&%ptr, %len, &__net_ip_parse_v4_%out_ok)
-    br %out_ok -> L_NET_IP_PARSE_V4_OK_%out_ok, L_NET_IP_PARSE_FAIL_%out_ok
+    __net_ip_parse_v6_%out_ok = stack_alloc NetIpv6Addr_SIZE
+    __net_ip_parse_v4_ok_%out_ok = call @sa_net_ipv4_parse_ascii(&%ptr, %len, &__net_ip_parse_v4_%out_ok)
+    br __net_ip_parse_v4_ok_%out_ok -> L_NET_IP_PARSE_V4_OK_%out_ok, L_NET_IP_PARSE_TRY_V6_%out_ok
 
 L_NET_IP_PARSE_V4_OK_%out_ok:
+    %out_ok = add 0, 1
     EXPAND NET_IP_ADDR_V4_NEW %ipaddr, __net_ip_parse_v4_%out_ok
+    !__net_ip_parse_v4_ok_%out_ok
+    jmp L_NET_IP_PARSE_DONE_%out_ok
+
+L_NET_IP_PARSE_TRY_V6_%out_ok:
+    !__net_ip_parse_v4_ok_%out_ok
+    __net_ip_parse_v6_ok_%out_ok = call @sa_net_ipv6_parse_ascii(&%ptr, %len, &__net_ip_parse_v6_%out_ok)
+    br __net_ip_parse_v6_ok_%out_ok -> L_NET_IP_PARSE_V6_OK_%out_ok, L_NET_IP_PARSE_FAIL_%out_ok
+
+L_NET_IP_PARSE_V6_OK_%out_ok:
+    %out_ok = add 0, 1
+    EXPAND NET_IP_ADDR_V6_NEW %ipaddr, __net_ip_parse_v6_%out_ok
+    !__net_ip_parse_v6_ok_%out_ok
     jmp L_NET_IP_PARSE_DONE_%out_ok
 
 L_NET_IP_PARSE_FAIL_%out_ok:
+    %out_ok = add 0, 0
     EXPAND NET_IP_ADDR_V4_UNSPECIFIED %ipaddr
+    !__net_ip_parse_v6_ok_%out_ok
 
 L_NET_IP_PARSE_DONE_%out_ok:
 [END_MACRO]
@@ -2663,6 +2766,26 @@ L_NET_IP_TO4_DONE_%ipv4:
     !__net_ip_to4_tag_%ipv4
 [END_MACRO]
 
+[MACRO] NET_IP_ADDR_TO_IPV6 %out_ok, %ipv6, %ipaddr
+    __net_ip_to6_tag_%ipv6 = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_to6_payload_%ipv6 = ptr_add %ipaddr, 8
+    __net_ip_to6_is_v6_%ipv6 = eq __net_ip_to6_tag_%ipv6, NET_IP_ADDR_V6
+    br __net_ip_to6_is_v6_%ipv6 -> L_NET_IP_TO6_V6_%ipv6, L_NET_IP_TO6_V4_%ipv6
+L_NET_IP_TO6_V6_%ipv6:
+    %out_ok = add 0, 1
+    EXPAND NET_IPV6_COPY %ipv6, __net_ip_to6_payload_%ipv6
+    jmp L_NET_IP_TO6_DONE_%ipv6
+L_NET_IP_TO6_V4_%ipv6:
+    %out_ok = add 0, 0
+    EXPAND NET_IPV6_UNSPECIFIED %ipv6
+    jmp L_NET_IP_TO6_DONE_%ipv6
+L_NET_IP_TO6_DONE_%ipv6:
+    !__net_ip_to6_is_v6_%ipv6
+    !__net_ip_to6_payload_%ipv6
+    !__net_ip_to6_tag_%ipv6
+[END_MACRO]
+
+
 [MACRO] NET_IP_ADDR_TO_CANONICAL %out_ipaddr, %ipaddr
     __net_ip_canon_tag_%out_ipaddr = load %ipaddr+NetIpAddr_tag as u64
     __net_ip_canon_payload_%out_ipaddr = ptr_add %ipaddr, 8
@@ -2703,6 +2826,13 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     !__net_sock_v4_b_%socket_addr
     !__net_sock_v4_a_%socket_addr
     !__net_sock_v4_ip_%socket_addr
+[END_MACRO]
+
+// Rust-style Default for SocketAddrV4: 0.0.0.0:0.
+[MACRO] NET_SOCKET_ADDR_V4_DEFAULT %socket_addr
+    __net_sock_v4_default_ip_%socket_addr = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV4_DEFAULT __net_sock_v4_default_ip_%socket_addr
+    EXPAND NET_SOCKET_ADDR_V4_NEW %socket_addr, __net_sock_v4_default_ip_%socket_addr, 0
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V4_IP_PTR %out_ptr, %socket_addr
@@ -2753,20 +2883,45 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+    %out_ok = call @sa_net_socket_addr_v6_parse_ascii(&%ptr, %len, &%socket_addr)
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+
 [MACRO] NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     __net_sock_parse_v4_%out_ok = stack_alloc NetSocketAddrV4_SIZE
+    __net_sock_parse_v6_%out_ok = stack_alloc NetSocketAddrV6_SIZE
     __net_sock_parse_unspec_%out_ok = stack_alloc NetIpv4Addr_SIZE
-    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, __net_sock_parse_v4_%out_ok, %ptr, %len
-    br %out_ok -> L_NET_SOCKET_PARSE_V4_OK_%out_ok, L_NET_SOCKET_PARSE_FAIL_%out_ok
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII __net_sock_parse_v4_ok_%out_ok, __net_sock_parse_v4_%out_ok, %ptr, %len
+    br __net_sock_parse_v4_ok_%out_ok -> L_NET_SOCKET_PARSE_V4_OK_%out_ok, L_NET_SOCKET_PARSE_TRY_V6_%out_ok
 
 L_NET_SOCKET_PARSE_V4_OK_%out_ok:
+    %out_ok = add 0, 1
     EXPAND NET_SOCKET_ADDR_FROM_V4 %socket_addr, __net_sock_parse_v4_%out_ok
+    !__net_sock_parse_v4_ok_%out_ok
+    jmp L_NET_SOCKET_PARSE_DONE_%out_ok
+
+L_NET_SOCKET_PARSE_TRY_V6_%out_ok:
+    !__net_sock_parse_v4_ok_%out_ok
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII __net_sock_parse_v6_ok_%out_ok, __net_sock_parse_v6_%out_ok, %ptr, %len
+    br __net_sock_parse_v6_ok_%out_ok -> L_NET_SOCKET_PARSE_V6_OK_%out_ok, L_NET_SOCKET_PARSE_FAIL_%out_ok
+
+L_NET_SOCKET_PARSE_V6_OK_%out_ok:
+    %out_ok = add 0, 1
+    EXPAND NET_SOCKET_ADDR_FROM_V6 %socket_addr, __net_sock_parse_v6_%out_ok
+    !__net_sock_parse_v6_ok_%out_ok
     jmp L_NET_SOCKET_PARSE_DONE_%out_ok
 
 L_NET_SOCKET_PARSE_FAIL_%out_ok:
+    %out_ok = add 0, 0
     EXPAND NET_IPV4_UNSPECIFIED __net_sock_parse_unspec_%out_ok
     EXPAND NET_SOCKET_ADDR_V4_NEW __net_sock_parse_v4_%out_ok, __net_sock_parse_unspec_%out_ok, 0
     EXPAND NET_SOCKET_ADDR_FROM_V4 %socket_addr, __net_sock_parse_v4_%out_ok
+    !__net_sock_parse_v6_ok_%out_ok
 
 L_NET_SOCKET_PARSE_DONE_%out_ok:
 [END_MACRO]
@@ -2805,6 +2960,13 @@ L_NET_SOCKET_PARSE_DONE_%out_ok:
     !__net_sock_v6_s1_%socket_addr
     !__net_sock_v6_s0_%socket_addr
     !__net_sock_v6_ip_%socket_addr
+[END_MACRO]
+
+// Rust-style Default for SocketAddrV6: [::]:0 with flowinfo/scope_id 0.
+[MACRO] NET_SOCKET_ADDR_V6_DEFAULT %socket_addr
+    __net_sock_v6_default_ip_%socket_addr = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_DEFAULT __net_sock_v6_default_ip_%socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_NEW %socket_addr, __net_sock_v6_default_ip_%socket_addr, 0, 0, 0
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_IP_PTR %out_ptr, %socket_addr
@@ -2985,6 +3147,13 @@ L_NET_SOCKET_NEW_DONE_%socket_addr_%ipaddr:
     !__net_sock_new_ip_payload_%socket_addr
     !__net_sock_new_payload_%socket_addr
     !__net_sock_new_tag_%socket_addr
+[END_MACRO]
+
+// Rust-style Default for SocketAddr: unspecified IPv4 with port 0.
+[MACRO] NET_SOCKET_ADDR_DEFAULT %socket_addr
+    __net_sock_default_ip_%socket_addr = stack_alloc NetIpAddr_SIZE
+    EXPAND NET_IP_ADDR_DEFAULT __net_sock_default_ip_%socket_addr
+    EXPAND NET_SOCKET_ADDR_NEW %socket_addr, __net_sock_default_ip_%socket_addr, 0
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_IP %out_ipaddr, %socket_addr

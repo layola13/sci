@@ -1,0 +1,12 @@
+@import "core/slice.sal"
+
+#def Path_SIZE = Slice_SIZE
+#def Path_ptr = Slice_ptr
+#def Path_len = Slice_len
+
+#def PathBuf_SIZE = Slice_SIZE
+#def PathBuf_ptr = Slice_ptr
+#def PathBuf_cap = Slice_len
+
+#def PATH_MAIN_SEPARATOR_UNIX = 47
+#def PATH_MAIN_SEPARATOR = 47

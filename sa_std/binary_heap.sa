@@ -1197,3 +1197,127 @@ L_BINARY_HEAP_RETAIN_DONE_%out_len:
 [MACRO] BINARY_HEAP_APPEND %heap_reg, %other_heap_reg
     call @sa_binary_heap_append(&%heap_reg, &%other_heap_reg)
 [END_MACRO]
+
+// Concrete u64-named and try/non-try value-form aliases over the existing
+// BINARY_HEAP_PUSH / PEEK / TRY_POP / capacity+len primitives. These add no
+// new syscall/FFI surface; they only expose Rust-style naming parity and a
+// fallible value view (ok,value) for PEEK.
+
+[MACRO] BINARY_HEAP_PUSH_U64 %heap_reg, %value
+    EXPAND BINARY_HEAP_PUSH %heap_reg, %value
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_PEEK_U64 %out_value, %heap_reg
+    EXPAND BINARY_HEAP_PEEK %out_value, %heap_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_TRY_PEEK %out_ok, %out_value, %heap_reg
+    __binary_heap_try_peek_empty_%out_ok = call @sa_binary_heap_is_empty(&%heap_reg)
+    __binary_heap_try_peek_is_empty_%out_ok = eq __binary_heap_try_peek_empty_%out_ok, 1
+    br __binary_heap_try_peek_is_empty_%out_ok -> L_BINARY_HEAP_TRY_PEEK_EMPTY_%out_ok, L_BINARY_HEAP_TRY_PEEK_NONEMPTY_%out_ok
+L_BINARY_HEAP_TRY_PEEK_EMPTY_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__binary_heap_try_peek_empty_%out_ok
+    !__binary_heap_try_peek_is_empty_%out_ok
+    jmp L_BINARY_HEAP_TRY_PEEK_END_%out_ok
+L_BINARY_HEAP_TRY_PEEK_NONEMPTY_%out_ok:
+    %out_value = call @sa_binary_heap_peek(&%heap_reg)
+    %out_ok = add 0, 1
+    !__binary_heap_try_peek_empty_%out_ok
+    !__binary_heap_try_peek_is_empty_%out_ok
+    jmp L_BINARY_HEAP_TRY_PEEK_END_%out_ok
+L_BINARY_HEAP_TRY_PEEK_END_%out_ok:
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_TRY_PEEK_U64 %out_ok, %out_value, %heap_reg
+    EXPAND BINARY_HEAP_TRY_PEEK %out_ok, %out_value, %heap_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_POP %out_value, %heap_reg
+    __binary_heap_pop_slot_%out_value = stack_alloc 8
+    __binary_heap_pop_ok_%out_value = call @sa_binary_heap_try_pop(&%heap_reg, &__binary_heap_pop_slot_%out_value)
+    %out_value = load __binary_heap_pop_slot_%out_value+0 as u64
+    !__binary_heap_pop_ok_%out_value
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_POP_U64 %out_value, %heap_reg
+    EXPAND BINARY_HEAP_POP %out_value, %heap_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_EXTRA_CAPACITY %out_extra, %heap_reg
+    __binary_heap_ec_cap_%out_extra = call @sa_binary_heap_capacity(&%heap_reg)
+    __binary_heap_ec_len_%out_extra = call @sa_binary_heap_len(&%heap_reg)
+    %out_extra = sub __binary_heap_ec_cap_%out_extra, __binary_heap_ec_len_%out_extra
+    !__binary_heap_ec_len_%out_extra
+    !__binary_heap_ec_cap_%out_extra
+[END_MACRO]
+
+// Fixed-arity / from-collection constructors over the concrete u64 max-heap.
+// FROM_* helpers push each source element through the existing heapify path.
+
+[MACRO] BINARY_HEAP_LIT1 %out_heap, %value1
+    EXPAND BINARY_HEAP_NEW %out_heap
+    EXPAND BINARY_HEAP_PUSH_U64 %out_heap, %value1
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_LIT2 %out_heap, %value1, %value2
+    EXPAND BINARY_HEAP_NEW %out_heap
+    EXPAND BINARY_HEAP_PUSH_U64 %out_heap, %value1
+    EXPAND BINARY_HEAP_PUSH_U64 %out_heap, %value2
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_LIT3 %out_heap, %value1, %value2, %value3
+    EXPAND BINARY_HEAP_NEW %out_heap
+    EXPAND BINARY_HEAP_PUSH_U64 %out_heap, %value1
+    EXPAND BINARY_HEAP_PUSH_U64 %out_heap, %value2
+    EXPAND BINARY_HEAP_PUSH_U64 %out_heap, %value3
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_EXTEND_FROM_SLICE_U64 %heap_reg, %slice_reg
+    __bh_ext_len_%heap_reg = load %slice_reg+Slice_len as u64
+    __bh_ext_idx_slot_%heap_reg = stack_alloc 8
+    store __bh_ext_idx_slot_%heap_reg+0, 0 as u64
+    jmp L_BINARY_HEAP_EXTEND_HEAD_%heap_reg
+L_BINARY_HEAP_EXTEND_HEAD_%heap_reg:
+    __bh_ext_idx_%heap_reg = load __bh_ext_idx_slot_%heap_reg+0 as u64
+    __bh_ext_done_%heap_reg = eq __bh_ext_idx_%heap_reg, __bh_ext_len_%heap_reg
+    br __bh_ext_done_%heap_reg -> L_BINARY_HEAP_EXTEND_DONE_%heap_reg, L_BINARY_HEAP_EXTEND_BODY_%heap_reg
+L_BINARY_HEAP_EXTEND_BODY_%heap_reg:
+    EXPAND SLICE_GET_U64 __bh_ext_val_%heap_reg, %slice_reg, __bh_ext_idx_%heap_reg
+    EXPAND BINARY_HEAP_PUSH_U64 %heap_reg, __bh_ext_val_%heap_reg
+    __bh_ext_next_%heap_reg = add __bh_ext_idx_%heap_reg, 1
+    store __bh_ext_idx_slot_%heap_reg+0, __bh_ext_next_%heap_reg as u64
+    !__bh_ext_next_%heap_reg
+    !__bh_ext_val_%heap_reg
+    !__bh_ext_done_%heap_reg
+    !__bh_ext_idx_%heap_reg
+    jmp L_BINARY_HEAP_EXTEND_HEAD_%heap_reg
+L_BINARY_HEAP_EXTEND_DONE_%heap_reg:
+    !__bh_ext_done_%heap_reg
+    !__bh_ext_idx_%heap_reg
+    !__bh_ext_len_%heap_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_FROM_SLICE_U64 %out_heap, %slice_reg
+    EXPAND BINARY_HEAP_NEW %out_heap
+    EXPAND BINARY_HEAP_EXTEND_FROM_SLICE_U64 %out_heap, %slice_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_FROM_VEC_U64 %out_heap, %vec_reg
+    EXPAND VEC_AS_SLICE __bh_from_vec_slice_%out_heap, %vec_reg
+    EXPAND BINARY_HEAP_FROM_SLICE_U64 %out_heap, __bh_from_vec_slice_%out_heap
+    !__bh_from_vec_slice_%out_heap
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_EXTEND_FROM_VEC_U64 %heap_reg, %vec_reg
+    EXPAND VEC_AS_SLICE __bh_ext_vec_slice_%heap_reg, %vec_reg
+    EXPAND BINARY_HEAP_EXTEND_FROM_SLICE_U64 %heap_reg, __bh_ext_vec_slice_%heap_reg
+    !__bh_ext_vec_slice_%heap_reg
+[END_MACRO]
+
+// Rust Default-style empty BinaryHeap constructor alias.
+
+[MACRO] BINARY_HEAP_DEFAULT %out_heap
+    EXPAND BINARY_HEAP_NEW %out_heap
+[END_MACRO]

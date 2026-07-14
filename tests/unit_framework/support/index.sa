@@ -2211,7 +2211,7 @@ L_ENTRY:
 
 @support_never_type_fail() -> void:
 L_ENTRY:
-    panic(99)
+    panic(10397)
 
 @support_never_type_safe_value() -> i32:
 L_ENTRY:

@@ -1,0 +1,50 @@
+@import "sa_std/ffi.sal"
+@import "sa_std/alloc/vec.sal"
+
+@test "sa_std ffi and utf8 error layout constants"():
+L_ENTRY:
+    ok_nul_size = eq NulError_SIZE, 32
+    ok_nul_bytes = eq NulError_bytes, +0
+    ok_nul_position = eq NulError_position, +24
+    ok_nul_bytes_cross = eq NulError_position, Vec_SIZE
+
+    ok_fbn_size = eq FromBytesWithNulError_SIZE, 16
+    ok_fbn_kind = eq FromBytesWithNulError_kind, +0
+    ok_fbn_position = eq FromBytesWithNulError_position, +8
+    ok_fbn_not_term = eq FROM_BYTES_WITH_NUL_ERROR_NOT_NUL_TERMINATED, CSTR_FROM_BYTES_NOT_NUL_TERMINATED
+    ok_fbn_interior = eq FROM_BYTES_WITH_NUL_ERROR_INTERIOR_NUL, CSTR_FROM_BYTES_INTERIOR_NUL
+
+    ok_utf8_size = eq Utf8Error_SIZE, 16
+    ok_utf8_valid = eq Utf8Error_valid_up_to, +0
+    ok_utf8_error_len = eq Utf8Error_error_len, +8
+    ok_utf8_none = eq UTF8_ERROR_LEN_NONE, CSTR_ERROR_POS_NONE
+
+    ok_into_size = eq IntoStringError_SIZE, 32
+    ok_into_cstring = eq IntoStringError_cstring, +0
+    ok_into_utf8 = eq IntoStringError_utf8_error, +16
+    ok_into_cstring_cross = eq IntoStringError_utf8_error, CString_SIZE
+
+    c01 = and ok_nul_size, ok_nul_bytes
+    c02 = and c01, ok_nul_position
+    c03 = and c02, ok_nul_bytes_cross
+    c04 = and c03, ok_fbn_size
+    c05 = and c04, ok_fbn_kind
+    c06 = and c05, ok_fbn_position
+    c07 = and c06, ok_fbn_not_term
+    c08 = and c07, ok_fbn_interior
+    c09 = and c08, ok_utf8_size
+    c10 = and c09, ok_utf8_valid
+    c11 = and c10, ok_utf8_error_len
+    c12 = and c11, ok_utf8_none
+    c13 = and c12, ok_into_size
+    c14 = and c13, ok_into_cstring
+    c15 = and c14, ok_into_utf8
+    ok = and c15, ok_into_cstring_cross
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10494)
+
+L_PASS:
+    return 0

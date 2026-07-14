@@ -608,7 +608,7 @@ L_ENTRY:
 
 L_STRING_AS_MUT_PTR_ALIAS_FAIL:
     !ok
-    panic(930)
+    panic(10239)
 
 L_STRING_AS_MUT_PTR_ALIAS_OK:
     !ok
@@ -637,7 +637,7 @@ L_ENTRY:
 
 L_CONCAT_FAIL:
     !ok
-    panic(905)
+    panic(10240)
 
 L_CONCAT_OK:
     !ok
@@ -731,7 +731,7 @@ L_ENTRY:
 
 L_STRING_BUF_FAIL:
     !ok
-    panic(906)
+    panic(10241)
 
 L_STRING_BUF_OK:
     !ok
@@ -873,7 +873,7 @@ L_ENTRY:
 
 L_STRING_EXTEND_FAIL:
     !ok
-    panic(933)
+    panic(10242)
 
 L_STRING_EXTEND_OK:
     !ok
@@ -950,7 +950,7 @@ L_ENTRY:
 
 L_STRING_BUF_EFW_FAIL:
     !ok
-    panic(911)
+    panic(10243)
 
 L_STRING_BUF_EFW_OK:
     !ok
@@ -1103,7 +1103,7 @@ L_ENTRY:
 
 L_STRING_BUF_MUT_FAIL:
     !ok
-    panic(914)
+    panic(10244)
 
 L_STRING_BUF_MUT_OK:
     !ok
@@ -1403,7 +1403,7 @@ L_ENTRY:
 
 L_STRING_BUF_UTF8_FAIL:
     !ok
-    panic(915)
+    panic(10245)
 
 L_STRING_BUF_UTF8_OK:
     !ok
@@ -1570,7 +1570,7 @@ L_ENTRY:
 
 L_STRING_MUT_FAIL:
     !ok
-    panic(911)
+    panic(1088)
 
 L_STRING_MUT_OK:
     !ok
@@ -1695,7 +1695,7 @@ L_ENTRY:
 
 L_STRING_BUF_CHAR_FAIL:
     !ok
-    panic(917)
+    panic(10246)
 
 L_STRING_BUF_CHAR_OK:
     !ok
@@ -1847,7 +1847,7 @@ L_ENTRY:
 
 L_STRING_BUF_REMOVE_CHAR_FAIL:
     !ok
-    panic(918)
+    panic(10247)
 
 L_STRING_BUF_REMOVE_CHAR_OK:
     !ok
@@ -1947,7 +1947,7 @@ L_ENTRY:
 
 L_STRING_BUF_DRAIN_FAIL:
     !ok
-    panic(920)
+    panic(10248)
 
 L_STRING_BUF_DRAIN_OK:
     !ok
@@ -2002,7 +2002,7 @@ L_ENTRY:
 
 L_STRING_BUF_RETAIN_FAIL:
     !ok
-    panic(922)
+    panic(10249)
 
 L_STRING_BUF_RETAIN_OK:
     !ok
@@ -2070,7 +2070,7 @@ L_ENTRY:
 
 L_STRING_BUF_SPLIT_OFF_BOUNDARY_FAIL:
     !ok
-    panic(921)
+    panic(10250)
 
 L_STRING_BUF_SPLIT_OFF_BOUNDARY_OK:
     !ok
@@ -2188,7 +2188,7 @@ L_ENTRY:
 
 L_STRING_BUF_POP_CHAR_FAIL:
     !ok
-    panic(919)
+    panic(10251)
 
 L_STRING_BUF_POP_CHAR_OK:
     !ok
@@ -2247,7 +2247,7 @@ L_ENTRY:
 
 L_FIND_FAIL:
     !ok
-    panic(906)
+    panic(1089)
 
 L_FIND_OK:
     !ok
@@ -2484,7 +2484,7 @@ L_ENTRY:
 
 L_SPLIT_BYTE_FAIL:
     !ok
-    panic(914)
+    panic(1090)
 
 L_SPLIT_BYTE_OK:
     !ok
@@ -2652,7 +2652,7 @@ L_ENTRY:
 
 L_SPLIT_ASCII_WS_FAIL:
     !ok
-    panic(915)
+    panic(1091)
 
 L_SPLIT_ASCII_WS_OK:
     !ok
@@ -2789,7 +2789,7 @@ L_ENTRY:
 
 L_LINE_VIEW_FAIL:
     !ok
-    panic(916)
+    panic(10252)
 
 L_LINE_VIEW_OK:
     !ok
@@ -3240,7 +3240,7 @@ L_ENTRY:
 
 L_ASCII_FAIL:
     !ok
-    panic(908)
+    panic(10253)
 
 L_ASCII_OK:
     !ok
@@ -3390,7 +3390,7 @@ L_ENTRY:
 
 L_SPLIT_ONCE_CHAR_FAIL:
     !ok
-    panic(1039)
+    panic(10254)
 
 L_SPLIT_ONCE_CHAR_OK:
     !ok
@@ -3462,7 +3462,7 @@ L_ENTRY:
 
 L_STRING_ASCII_CASE_CONVERSION_FAIL:
     !ok
-    panic(927)
+    panic(10255)
 
 L_STRING_ASCII_CASE_CONVERSION_OK:
     !ok
@@ -3615,7 +3615,7 @@ L_ENTRY:
 
 L_STRING_AS_ASCII_ALIAS_FAIL:
     !ok
-    panic(929)
+    panic(10256)
 
 L_STRING_AS_ASCII_ALIAS_OK:
     !ok
@@ -3824,7 +3824,7 @@ L_ENTRY:
 
 L_STRING_FROM_UTF8_VIEW_ALIAS_FAIL:
     !ok
-    panic(930)
+    panic(1092)
 
 L_STRING_FROM_UTF8_VIEW_ALIAS_OK:
     !ok
@@ -3924,7 +3924,7 @@ L_ENTRY:
 
 L_STRING_SPLIT_AT_MUT_ALIAS_FAIL:
     !ok
-    panic(928)
+    panic(10257)
 
 L_STRING_SPLIT_AT_MUT_ALIAS_OK:
     !ok
@@ -3982,7 +3982,7 @@ L_ENTRY:
 
 L_STRING_BUF_SPLIT_AT_FAIL:
     !ok
-    panic(918)
+    panic(1093)
 
 L_STRING_BUF_SPLIT_AT_OK:
     !ok
@@ -4110,7 +4110,7 @@ L_ENTRY:
 
 L_STRING_BUF_RANGE_FAIL:
     !ok
-    panic(919)
+    panic(1094)
 
 L_STRING_BUF_RANGE_OK:
     !ok
@@ -4238,7 +4238,7 @@ L_ENTRY:
 
 L_STRING_BUF_TRY_RANGE_FAIL:
     !ok
-    panic(920)
+    panic(1095)
 
 L_STRING_BUF_TRY_RANGE_OK:
     !ok
@@ -4310,7 +4310,7 @@ L_ENTRY:
 
 L_STRING_BUF_CHAR_BOUNDARY_FAIL:
     !ok
-    panic(921)
+    panic(1096)
 
 L_STRING_BUF_CHAR_BOUNDARY_OK:
     !ok
@@ -4459,7 +4459,7 @@ L_ENTRY:
 
 L_STRING_BUF_UTF8_VIEW_ALIAS_FAIL:
     !ok
-    panic(922)
+    panic(1097)
 
 L_STRING_BUF_UTF8_VIEW_ALIAS_OK:
     !ok
@@ -4633,7 +4633,7 @@ L_ENTRY:
 
 L_STRING_BUF_SPLIT_LINE_ALIAS_FAIL:
     !ok
-    panic(923)
+    panic(10258)
 
 L_STRING_BUF_SPLIT_LINE_ALIAS_OK:
     !ok
@@ -4777,7 +4777,7 @@ L_ENTRY:
 
 L_STRING_BUF_TRIM_ALIAS_FAIL:
     !ok
-    panic(924)
+    panic(10259)
 
 L_STRING_BUF_TRIM_ALIAS_OK:
     !ok
@@ -4868,7 +4868,7 @@ L_ENTRY:
 
 L_STRING_TRIM_MATCHES_FAIL:
     !ok
-    panic(1030)
+    panic(10260)
 
 L_STRING_TRIM_MATCHES_OK:
     !ok
@@ -5003,7 +5003,7 @@ L_ENTRY:
 
 L_STRING_TRIM_MATCHES_CHAR_FAIL:
     !ok
-    panic(1041)
+    panic(10261)
 
 L_STRING_TRIM_MATCHES_CHAR_OK:
     !ok
@@ -5139,7 +5139,7 @@ L_ENTRY:
 
 L_STRING_BUF_FIND_ALIAS_FAIL:
     !ok
-    panic(925)
+    panic(10262)
 
 L_STRING_BUF_FIND_ALIAS_OK:
     !ok
@@ -5236,7 +5236,7 @@ L_ENTRY:
 
 L_STRING_BUF_ASCII_CASE_ALIAS_FAIL:
     !ok
-    panic(926)
+    panic(10263)
 
 L_STRING_BUF_ASCII_CASE_ALIAS_OK:
     !ok
@@ -5410,7 +5410,7 @@ L_ENTRY:
 
 L_STRING_BUF_TRY_SPLIT_ALIAS_FAIL:
     !ok
-    panic(927)
+    panic(1098)
 
 L_STRING_BUF_TRY_SPLIT_ALIAS_OK:
     !ok
@@ -5618,7 +5618,7 @@ L_ENTRY:
 
 L_UTF8_VIEW_FAIL:
     !ok
-    panic(909)
+    panic(10264)
 
 L_UTF8_VIEW_OK:
     !ok
@@ -5785,7 +5785,7 @@ L_ENTRY:
 
 L_STRING_CHAR_INDICES_FAIL:
     !ok
-    panic(1042)
+    panic(10265)
 
 L_STRING_CHAR_INDICES_OK:
     !ok
@@ -5828,7 +5828,7 @@ L_ENTRY:
 
 L_STRING_BUF_RAW_PARTS_FAIL:
     !ok
-    panic(910)
+    panic(10266)
 
 L_STRING_BUF_RAW_PARTS_OK:
     !ok
@@ -5875,7 +5875,7 @@ L_ENTRY:
 
 L_STRING_BUF_LEAK_FAIL:
     !ok
-    panic(923)
+    panic(1099)
 
 L_STRING_BUF_LEAK_OK:
     !ok
@@ -5959,7 +5959,7 @@ L_ENTRY:
 
 L_STRING_BUF_INTO_CHARS_FAIL:
     !ok
-    panic(924)
+    panic(1100)
 
 L_STRING_BUF_INTO_CHARS_OK:
     !ok
@@ -6118,7 +6118,7 @@ L_ENTRY:
 
 L_STRING_BUF_FROM_CHARS_FAIL:
     !ok
-    panic(934)
+    panic(10267)
 
 L_STRING_BUF_FROM_CHARS_OK:
     !ok
@@ -6280,7 +6280,7 @@ L_ENTRY:
 
 L_STRING_ASCII_ITER_FAIL:
     !ok
-    panic(935)
+    panic(10268)
 
 L_STRING_ASCII_ITER_OK:
     !ok
@@ -6349,7 +6349,7 @@ L_ENTRY:
 
 L_STRING_BUF_FROM_UTF16_FAIL:
     !ok
-    panic(925)
+    panic(1101)
 
 L_STRING_BUF_FROM_UTF16_OK:
     !ok
@@ -6398,7 +6398,7 @@ L_ENTRY:
 
 L_STRING_BUF_FROM_UTF16_LOSSY_FAIL:
     !ok
-    panic(926)
+    panic(1102)
 
 L_STRING_BUF_FROM_UTF16_LOSSY_OK:
     !ok
@@ -6484,7 +6484,7 @@ L_ENTRY:
 
 L_STRING_BUF_UTF16_ENDIAN_FAIL:
     !ok
-    panic(927)
+    panic(1103)
 
 L_STRING_BUF_UTF16_ENDIAN_OK:
     !ok
@@ -6539,7 +6539,7 @@ L_ENTRY:
 
 L_STRING_BUF_UTF16_ENDIAN_LOSSY_FAIL:
     !ok
-    panic(928)
+    panic(1104)
 
 L_STRING_BUF_UTF16_ENDIAN_LOSSY_OK:
     !ok
@@ -6651,7 +6651,7 @@ L_ENTRY:
 
 L_STRING_BUF_FROM_UTF8_LOSSY_FAIL:
     !ok
-    panic(930)
+    panic(1105)
 
 L_STRING_BUF_FROM_UTF8_LOSSY_OK:
     !ok
@@ -6752,7 +6752,7 @@ L_ENTRY:
 
 L_STRING_BUF_FROM_UTF8_VEC_FAIL:
     !ok
-    panic(929)
+    panic(1106)
 
 L_STRING_BUF_FROM_UTF8_VEC_OK:
     !ok
@@ -6826,7 +6826,7 @@ L_STRING_BUF_CLONE_ENTRY:
 
 L_STRING_BUF_CLONE_FAIL:
     !ok
-    panic(930)
+    panic(1107)
 
 L_STRING_BUF_CLONE_OK:
     !ok
@@ -7222,7 +7222,7 @@ L_STRING_BUF_ADD_ENTRY:
 
 L_STRING_BUF_ADD_FAIL:
     !ok
-    panic(931)
+    panic(10269)
 
 L_STRING_BUF_ADD_OK:
     !ok
@@ -7328,7 +7328,7 @@ L_STRING_BUF_REF_CONV_ENTRY:
 
 L_STRING_BUF_REF_CONV_FAIL:
     !ok
-    panic(932)
+    panic(10270)
 
 L_STRING_BUF_REF_CONV_OK:
     !ok
@@ -7381,7 +7381,7 @@ L_STRING_REPEAT_ENTRY:
 
 L_STRING_REPEAT_FAIL:
     !ok
-    panic(933)
+    panic(1108)
 
 L_STRING_REPEAT_OK:
     !ok
@@ -7470,7 +7470,7 @@ L_STRING_TO_OWNED_ENTRY:
 
 L_STRING_TO_OWNED_FAIL:
     !ok
-    panic(934)
+    panic(1109)
 
 L_STRING_TO_OWNED_OK:
     !ok
@@ -7662,7 +7662,7 @@ L_STRING_PRIMITIVE_TO_STRING_ENTRY:
 
 L_STRING_PRIMITIVE_TO_STRING_FAIL:
     !ok
-    panic(935)
+    panic(1110)
 
 L_STRING_PRIMITIVE_TO_STRING_OK:
     !ok
@@ -7729,7 +7729,7 @@ L_STRING_PARSE_FROM_STR_ENTRY:
 
 L_STRING_PARSE_FROM_STR_FAIL:
     !ok
-    panic(936)
+    panic(10271)
 
 L_STRING_PARSE_FROM_STR_OK:
     !ok
@@ -7933,7 +7933,7 @@ L_ENTRY:
 
 L_CHAR_PATTERN_FAIL:
     !ok
-    panic(921)
+    panic(1111)
 
 L_CHAR_PATTERN_OK:
     !ok
@@ -8173,7 +8173,7 @@ L_ENTRY:
 
 L_PREFIX_SUFFIX_CHAR_FAIL:
     !ok
-    panic(1040)
+    panic(10272)
 
 L_PREFIX_SUFFIX_CHAR_OK:
     !ok
@@ -8262,7 +8262,7 @@ L_ENTRY:
 
 L_STR_REPLACE_FAIL:
     !ok
-    panic(963)
+    panic(10273)
 
 L_STR_REPLACE_OK:
     !ok
@@ -8677,7 +8677,7 @@ L_ENTRY:
 
 L_STR_SPLIT_NEEDLE_FAIL:
     !ok
-    panic(964)
+    panic(10274)
 
 L_STR_SPLIT_NEEDLE_OK:
     !ok
@@ -8893,7 +8893,7 @@ L_ENTRY:
 
 L_STR_SPLIT_MATCHES_CHAR_FAIL:
     !ok
-    panic(965)
+    panic(10275)
 
 L_STR_SPLIT_MATCHES_CHAR_OK:
     !ok
@@ -9148,7 +9148,7 @@ L_ENTRY:
 
 L_STR_MATCH_INDICES_NEEDLE_FAIL:
     !ok
-    panic(1033)
+    panic(10276)
 
 L_STR_MATCH_INDICES_NEEDLE_OK:
     !ok
@@ -9350,7 +9350,7 @@ L_ENTRY:
 
 L_STR_MATCH_INDICES_CHAR_FAIL:
     !ok
-    panic(1036)
+    panic(10277)
 
 L_STR_MATCH_INDICES_CHAR_OK:
     !ok
@@ -9551,7 +9551,7 @@ L_ENTRY:
 
 L_STR_SPLIT_INCL_NEEDLE_FAIL:
     !ok
-    panic(1034)
+    panic(10278)
 
 L_STR_SPLIT_INCL_NEEDLE_OK:
     !ok
@@ -9679,7 +9679,7 @@ L_ENTRY:
 
 L_STR_SPLIT_INCL_CHAR_FAIL:
     !ok
-    panic(1035)
+    panic(10279)
 
 L_STR_SPLIT_INCL_CHAR_OK:
     !ok
@@ -9830,7 +9830,7 @@ L_ENTRY:
 
 L_SPLIT_TERM_NEEDLE_FAIL:
     !ok
-    panic(1031)
+    panic(10280)
 
 L_SPLIT_TERM_NEEDLE_OK:
     !ok
@@ -10100,7 +10100,7 @@ L_ENTRY:
 
 L_SPLIT_TERM_CHAR_FAIL:
     !ok
-    panic(1037)
+    panic(10281)
 
 L_SPLIT_TERM_CHAR_OK:
     !ok
@@ -10233,7 +10233,7 @@ L_ENTRY:
 
 L_SPLITN_COUNT_FAIL:
     !ok
-    panic(1032)
+    panic(10282)
 
 L_SPLITN_COUNT_OK:
     !ok
@@ -10457,7 +10457,7 @@ L_ENTRY:
 
 L_SPLITN_CHAR_FAIL:
     !ok
-    panic(1038)
+    panic(10283)
 
 L_SPLITN_CHAR_OK:
     !ok
@@ -10554,137 +10554,137 @@ L_ENTRY:
     br ok_term0_spn_ok -> L_C1, L_F1
 L_F1:
     !all_ok
-    panic(1001)
+    panic(10284)
 L_C1:
     br ok_term1_spn_ok -> L_C2, L_F2
 L_F2:
     !all_ok
-    panic(1002)
+    panic(10285)
 L_C2:
     br ok_term2_spn_ok -> L_C3, L_F3
 L_F3:
     !all_ok
-    panic(1003)
+    panic(10286)
 L_C3:
     br ok_term1s_spn_ok -> L_C4, L_F4
 L_F4:
     !all_ok
-    panic(1004)
+    panic(10287)
 L_C4:
     br ok_term0u_spn_ok -> L_C5, L_F5
 L_F5:
     !all_ok
-    panic(1005)
+    panic(10288)
 L_C5:
     br ok_splitn0_spn_ok -> L_C6, L_F6
 L_F6:
     !all_ok
-    panic(1006)
+    panic(10289)
 L_C6:
     br ok_splitn1_spn_ok -> L_C7, L_F7
 L_F7:
     !all_ok
-    panic(1007)
+    panic(10290)
 L_C7:
     br ok_splitn2_spn_ok -> L_C8, L_F8
 L_F8:
     !all_ok
-    panic(1008)
+    panic(10291)
 L_C8:
     br ok_splitn1s_spn_ok -> L_C9, L_F9
 L_F9:
     !all_ok
-    panic(1009)
+    panic(10292)
 L_C9:
     br ok_splitn0u_spn_ok -> L_C10, L_F10
 L_F10:
     !all_ok
-    panic(1010)
+    panic(10293)
 L_C10:
     br ok_rsplitn0_spn_ok -> L_C11, L_F11
 L_F11:
     !all_ok
-    panic(1011)
+    panic(10294)
 L_C11:
     br ok_rsplitn1_spn_ok -> L_C12, L_F12
 L_F12:
     !all_ok
-    panic(1012)
+    panic(10295)
 L_C12:
     br ok_rsplitn2_spn_ok -> L_C13, L_F13
 L_F13:
     !all_ok
-    panic(1013)
+    panic(10296)
 L_C13:
     br ok_rsplitn1s_spn_ok -> L_C14, L_F14
 L_F14:
     !all_ok
-    panic(1014)
+    panic(10297)
 L_C14:
     br ok_rsplitn0u_spn_ok -> L_C15, L_F15
 L_F15:
     !all_ok
-    panic(1015)
+    panic(10298)
 L_C15:
     br eq_term0_spn_ok -> L_C16, L_F16
 L_F16:
     !all_ok
-    panic(1016)
+    panic(10299)
 L_C16:
     br eq_term1_spn_ok -> L_C17, L_F17
 L_F17:
     !all_ok
-    panic(1017)
+    panic(10300)
 L_C17:
     br eq_term1s_spn_ok -> L_C18, L_F18
 L_F18:
     !all_ok
-    panic(1018)
+    panic(10301)
 L_C18:
     br eq_term0u_spn_ok -> L_C19, L_F19
 L_F19:
     !all_ok
-    panic(1019)
+    panic(10302)
 L_C19:
     br eq_splitn0_spn_ok -> L_C20, L_F20
 L_F20:
     !all_ok
-    panic(1020)
+    panic(10303)
 L_C20:
     br eq_splitn1_spn_ok -> L_C21, L_F21
 L_F21:
     !all_ok
-    panic(1021)
+    panic(10304)
 L_C21:
     br eq_splitn1s_spn_ok -> L_C22, L_F22
 L_F22:
     !all_ok
-    panic(1022)
+    panic(10305)
 L_C22:
     br eq_splitn0u_spn_ok -> L_C23, L_F23
 L_F23:
     !all_ok
-    panic(1023)
+    panic(10306)
 L_C23:
     br eq_rsplitn0_spn_ok -> L_C24, L_F24
 L_F24:
     !all_ok
-    panic(1024)
+    panic(10307)
 L_C24:
     br eq_rsplitn1_spn_ok -> L_C25, L_F25
 L_F25:
     !all_ok
-    panic(1025)
+    panic(10308)
 L_C25:
     br eq_rsplitn1s_spn_ok -> L_C26, L_F26
 L_F26:
     !all_ok
-    panic(1026)
+    panic(10309)
 L_C26:
     br eq_rsplitn0u_spn_ok -> L_STR_SPLITN_OK, L_STR_SPLITN_FAIL
 L_STR_SPLITN_FAIL:
     !all_ok
-    panic(1027)
+    panic(10310)
 L_STR_SPLITN_OK:
     !all_ok
     !split_hay_spn
@@ -10933,7 +10933,7 @@ L_ENTRY:
 
 L_STR_ESCAPE_FAIL:
     !ok
-    panic(1040)
+    panic(1112)
 
 L_STR_ESCAPE_OK:
     !ok
@@ -11068,7 +11068,7 @@ L_ENTRY:
 
 L_STR_ENCODE_UTF16_FAIL:
     !ok
-    panic(1041)
+    panic(1113)
 
 L_STR_ENCODE_UTF16_OK:
     !ok
@@ -11237,7 +11237,7 @@ L_ENTRY:
 
 L_STR_UTF8_CHUNKS_FAIL:
     !ok
-    panic(1042)
+    panic(1114)
 
 L_STR_UTF8_CHUNKS_OK:
     !ok
@@ -11355,7 +11355,7 @@ L_ENTRY:
 
 L_STR_ESCAPE_DEBUG_FAIL:
     !ok
-    panic(1043)
+    panic(10311)
 
 L_STR_ESCAPE_DEBUG_OK:
     !ok
@@ -11513,7 +11513,7 @@ L_ENTRY:
 
 L_STR_SUBSTR_RANGE_FAIL:
     !ok
-    panic(1044)
+    panic(10312)
 
 L_STR_SUBSTR_RANGE_OK:
     !ok
@@ -11566,7 +11566,7 @@ L_ENTRY:
 
 L_STR_CAP_REM_FAIL:
     !ok
-    panic(1045)
+    panic(10313)
 
 L_STR_CAP_REM_OK:
     !ok
@@ -11661,7 +11661,7 @@ L_ENTRY:
 
 L_STR_GET_FAIL:
     !ok
-    panic(1046)
+    panic(10314)
 
 L_STR_GET_OK:
     !ok
@@ -11765,7 +11765,7 @@ L_ENTRY:
 
 L_STR_SET_LEN_FAIL:
     !ok
-    panic(1047)
+    panic(10315)
 
 L_STR_SET_LEN_OK:
     !ok
@@ -11831,7 +11831,7 @@ L_ENTRY:
 
 L_STR_GET_MUT_FAIL:
     !ok
-    panic(1048)
+    panic(10316)
 
 L_STR_GET_MUT_OK:
     !ok
@@ -11890,7 +11890,7 @@ L_ENTRY:
 
 L_STR_PWC_FAIL:
     !ok
-    panic(1049)
+    panic(10317)
 
 L_STR_PWC_OK:
     !ok
@@ -11946,7 +11946,7 @@ L_ENTRY:
 
 L_STR_PBC_FAIL:
     !ok
-    panic(1051)
+    panic(10318)
 
 L_STR_PBC_OK:
     !ok
@@ -12011,7 +12011,7 @@ L_ENTRY:
 
 L_STR_TRY_TRUNC_FAIL:
     !ok
-    panic(1054)
+    panic(10319)
 
 L_STR_TRY_TRUNC_OK:
     !ok
@@ -12086,7 +12086,7 @@ L_ENTRY:
 
 L_STR_GET_MUT_RANGE_FAIL:
     !ok
-    panic(1055)
+    panic(10320)
 
 L_STR_GET_MUT_RANGE_OK:
     !ok
@@ -12151,7 +12151,7 @@ L_ENTRY:
 
 L_STR_GET_MUT_TOF_FAIL:
     !ok
-    panic(1056)
+    panic(10321)
 
 L_STR_GET_MUT_TOF_OK:
     !ok
@@ -12252,7 +12252,7 @@ L_ENTRY:
 
 L_STR_INSERT_WC_FAIL:
     !ok
-    panic(1057)
+    panic(10322)
 
 L_STR_INSERT_WC_OK:
     !ok
@@ -12476,7 +12476,7 @@ L_ENTRY:
 
 L_STR_PSNWC_FAIL:
     !ok
-    panic(1080)
+    panic(10323)
 
 L_STR_PSNWC_OK:
     !ok
@@ -12765,7 +12765,7 @@ L_ENTRY:
 
 L_STR_POPIF_FAIL:
     !ok
-    panic(1079)
+    panic(10324)
 
 L_STR_POPIF_OK:
     !ok
@@ -12893,7 +12893,7 @@ L_ENTRY:
 
 L_STR_SPWC_FAIL:
     !ok
-    panic(1078)
+    panic(10325)
 
 L_STR_SPWC_OK:
     !ok
@@ -13003,7 +13003,7 @@ L_ENTRY:
 
 L_STR_DRWC_FAIL:
     !ok
-    panic(1077)
+    panic(10326)
 
 L_STR_DRWC_OK:
     !ok
@@ -13068,7 +13068,7 @@ L_ENTRY:
 
 L_STR_RTWC_FAIL:
     !ok
-    panic(1075)
+    panic(10327)
 
 L_STR_RTWC_OK:
     !ok
@@ -13210,7 +13210,7 @@ L_ENTRY:
 
 L_STR_RMWC_FAIL:
     !ok
-    panic(1073)
+    panic(10328)
 
 L_STR_RMWC_OK:
     !ok
@@ -13340,7 +13340,7 @@ L_ENTRY:
 
 L_STR_RCC_FAIL:
     !ok
-    panic(1072)
+    panic(10329)
 
 L_STR_RCC_OK:
     !ok
@@ -13418,7 +13418,7 @@ L_ENTRY:
 
 L_STR_RRCWC_FAIL:
     !ok
-    panic(1071)
+    panic(10330)
 
 L_STR_RRCWC_OK:
     !ok
@@ -13580,7 +13580,7 @@ L_ENTRY:
 
 L_STR_ECRAWC_FAIL:
     !ok
-    panic(1070)
+    panic(10331)
 
 L_STR_ECRAWC_OK:
     !ok
@@ -13724,7 +13724,7 @@ L_ENTRY:
 
 L_STR_ECAWC_FAIL:
     !ok
-    panic(1069)
+    panic(10332)
 
 L_STR_ECAWC_OK:
     !ok
@@ -13860,7 +13860,7 @@ L_ENTRY:
 
 L_STR_RFLCWC_FAIL:
     !ok
-    panic(1068)
+    panic(10333)
 
 L_STR_RFLCWC_OK:
     !ok
@@ -13972,7 +13972,7 @@ L_ENTRY:
 
 L_STR_RFLWC_FAIL:
     !ok
-    panic(1066)
+    panic(10334)
 
 L_STR_RFLWC_OK:
     !ok
@@ -14058,7 +14058,7 @@ L_ENTRY:
 
 L_STR_RRWC_FAIL:
     !ok
-    panic(1065)
+    panic(10335)
 
 L_STR_RRWC_OK:
     !ok
@@ -14119,7 +14119,7 @@ L_ENTRY:
 
 L_STR_EXT_CB_WC_FAIL:
     !ok
-    panic(1064)
+    panic(10336)
 
 L_STR_EXT_CB_WC_OK:
     !ok
@@ -14234,7 +14234,7 @@ L_ENTRY:
 
 L_STR_EXT_WC_FAIL:
     !ok
-    panic(1060)
+    panic(10337)
 
 L_STR_EXT_WC_OK:
     !ok

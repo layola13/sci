@@ -1,0 +1,38 @@
+@import "sa_std/fmt.sal"
+
+@test "sa_std fmt error and result layout constants"():
+L_ENTRY:
+    ok_err_size = eq FmtError_SIZE, 0
+    ok_err_align = eq FmtError_ALIGN, 1
+
+    ok_result_size = eq FmtResult_SIZE, Result_SIZE
+    ok_result_tag = eq FmtResult_tag, Result_tag
+    ok_result_ok = eq FmtResult_ok, Result_ok
+    ok_result_err = eq FmtResult_err, Result_err
+    ok_result_ok_tag = eq FMT_RESULT_OK, Result_OK
+    ok_result_err_tag = eq FMT_RESULT_ERR, Result_ERR
+
+    ok_sa_buf_size = eq SaFmtBuffer_SIZE, 24
+    ok_sa_buf_ptr = eq SaFmtBuffer_ptr, +0
+    ok_sa_buf_len = eq SaFmtBuffer_len, +8
+    ok_sa_buf_cap = eq SaFmtBuffer_cap, +16
+
+    c01 = and ok_err_size, ok_err_align
+    c02 = and c01, ok_result_size
+    c03 = and c02, ok_result_tag
+    c04 = and c03, ok_result_ok
+    c05 = and c04, ok_result_err
+    c06 = and c05, ok_result_ok_tag
+    c07 = and c06, ok_result_err_tag
+    c08 = and c07, ok_sa_buf_size
+    c09 = and c08, ok_sa_buf_ptr
+    c10 = and c09, ok_sa_buf_len
+    ok = and c10, ok_sa_buf_cap
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10493)
+
+L_PASS:
+    return 0

@@ -1,0 +1,32 @@
+@import "sa_std/path.sal"
+@import "sa_std/core/slice.sal"
+
+@test "sa_std Path/PathBuf layout and separator constants"():
+L_ENTRY:
+    ok_path_size = eq Path_SIZE, 16
+    ok_path_ptr = eq Path_ptr, +0
+    ok_path_len = eq Path_len, +8
+
+    ok_pathbuf_size = eq PathBuf_SIZE, 16
+    ok_pathbuf_ptr = eq PathBuf_ptr, +0
+
+    ok_sep = eq PATH_MAIN_SEPARATOR, 47
+    ok_sep_unix = eq PATH_MAIN_SEPARATOR_UNIX, 47
+
+    ok_path_is_slice = eq Path_SIZE, Slice_SIZE
+
+    c01 = and ok_path_size, ok_path_ptr
+    c02 = and c01, ok_path_len
+    c03 = and c02, ok_pathbuf_size
+    c04 = and c03, ok_pathbuf_ptr
+    c05 = and c04, ok_sep
+    c06 = and c05, ok_sep_unix
+    c07 = and c06, ok_path_is_slice
+
+    br c07 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10482)
+
+L_PASS:
+    return 0

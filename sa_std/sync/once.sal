@@ -4,3 +4,17 @@
 #def Once_STATE_UNINIT = 0
 #def Once_STATE_RUNNING = 1
 #def Once_STATE_READY = 2
+
+#def OnceLock_SIZE = 16
+#def OnceLock_state = +0
+#def OnceLock_value = +8
+#def ONCE_LOCK_STATE_UNINIT = Once_STATE_UNINIT
+#def ONCE_LOCK_STATE_RUNNING = Once_STATE_RUNNING
+#def ONCE_LOCK_STATE_READY = Once_STATE_READY
+
+#def LazyLock_SIZE = 16
+#def LazyLock_state = +0
+#def LazyLock_value = +8
+#def LAZY_LOCK_STATE_UNINIT = Once_STATE_UNINIT
+#def LAZY_LOCK_STATE_RUNNING = Once_STATE_RUNNING
+#def LAZY_LOCK_STATE_READY = Once_STATE_READY

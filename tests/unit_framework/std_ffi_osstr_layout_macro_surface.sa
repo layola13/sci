@@ -1,0 +1,72 @@
+@import "sa_std/ffi.sal"
+@import "sa_std/sync/mutex.sal"
+@import "sa_std/sync/rwlock.sal"
+@import "sa_std/core/slice.sal"
+
+@test "sa_std OsStr/OsString layout constants"():
+L_ENTRY:
+    ok_osstr_size = eq OsStr_SIZE, 16
+    ok_osstr_ptr = eq OsStr_ptr, +0
+    ok_osstr_len = eq OsStr_len, +8
+
+    ok_osstring_size = eq OsString_SIZE, 16
+    ok_osstring_ptr = eq OsString_ptr, +0
+    ok_osstring_cap = eq OsString_cap, +8
+
+    ok_osstr_is_slice = eq OsStr_SIZE, Slice_SIZE
+    ok_osstring_is_slice = eq OsString_SIZE, Slice_SIZE
+
+    ok_from_ok = eq OS_STR_FROM_BYTES_OK, 0
+    ok_interior_nul = eq OS_STR_FROM_BYTES_INTERIOR_NUL, 1
+    ok_invalid_utf8 = eq OS_STR_TO_STR_INVALID_UTF8, 2
+
+    c01 = and ok_osstr_size, ok_osstr_ptr
+    c02 = and c01, ok_osstr_len
+    c03 = and c02, ok_osstring_size
+    c04 = and c03, ok_osstring_ptr
+    c05 = and c04, ok_osstring_cap
+    c06 = and c05, ok_osstr_is_slice
+    c07 = and c06, ok_osstring_is_slice
+    c08 = and c07, ok_from_ok
+    c09 = and c08, ok_interior_nul
+    c10 = and c09, ok_invalid_utf8
+
+    br c10 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10483)
+
+L_PASS:
+    return 0
+
+
+@test "sa_std sync guard layout constants"():
+L_ENTRY:
+    ok_mg_size = eq MutexGuard_SIZE, 8
+    ok_mg_mutex = eq MutexGuard_mutex, +0
+    ok_mg_data = eq MutexGuard_data, +8
+
+    ok_rg_size = eq RwLockReadGuard_SIZE, 8
+    ok_rg_rwlock = eq RwLockReadGuard_rwlock, +0
+    ok_rg_data = eq RwLockReadGuard_data, +8
+
+    ok_wg_size = eq RwLockWriteGuard_SIZE, 8
+    ok_wg_rwlock = eq RwLockWriteGuard_rwlock, +0
+    ok_wg_data = eq RwLockWriteGuard_data, +8
+
+    c01 = and ok_mg_size, ok_mg_mutex
+    c02 = and c01, ok_mg_data
+    c03 = and c02, ok_rg_size
+    c04 = and c03, ok_rg_rwlock
+    c05 = and c04, ok_rg_data
+    c06 = and c05, ok_wg_size
+    c07 = and c06, ok_wg_rwlock
+    c08 = and c07, ok_wg_data
+
+    br c08 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10484)
+
+L_PASS:
+    return 0

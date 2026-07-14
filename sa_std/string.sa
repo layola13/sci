@@ -933,6 +933,38 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     EXPAND STRING_BUF_PUSH_STR %out_string, %source_slice
     !__string_buf_from_str_len_%out_string
 [END_MACRO]
+[MACRO] STRING_BUF_LIT1 %out_string, %slice_a
+    EXPAND STRING_BUF_FROM_STR %out_string, %slice_a
+[END_MACRO]
+
+[MACRO] STRING_BUF_LIT2 %out_string, %slice_a, %slice_b
+    __string_buf_lit2_len_a_%out_string = load %slice_a+Slice_len as u64
+    __string_buf_lit2_len_b_%out_string = load %slice_b+Slice_len as u64
+    __string_buf_lit2_total_%out_string = add __string_buf_lit2_len_a_%out_string, __string_buf_lit2_len_b_%out_string
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __string_buf_lit2_total_%out_string
+    EXPAND STRING_BUF_PUSH_STR %out_string, %slice_a
+    EXPAND STRING_BUF_PUSH_STR %out_string, %slice_b
+    !__string_buf_lit2_total_%out_string
+    !__string_buf_lit2_len_b_%out_string
+    !__string_buf_lit2_len_a_%out_string
+[END_MACRO]
+
+[MACRO] STRING_BUF_LIT3 %out_string, %slice_a, %slice_b, %slice_c
+    __string_buf_lit3_len_a_%out_string = load %slice_a+Slice_len as u64
+    __string_buf_lit3_len_b_%out_string = load %slice_b+Slice_len as u64
+    __string_buf_lit3_len_c_%out_string = load %slice_c+Slice_len as u64
+    __string_buf_lit3_ab_%out_string = add __string_buf_lit3_len_a_%out_string, __string_buf_lit3_len_b_%out_string
+    __string_buf_lit3_total_%out_string = add __string_buf_lit3_ab_%out_string, __string_buf_lit3_len_c_%out_string
+    EXPAND STRING_BUF_WITH_CAPACITY %out_string, __string_buf_lit3_total_%out_string
+    EXPAND STRING_BUF_PUSH_STR %out_string, %slice_a
+    EXPAND STRING_BUF_PUSH_STR %out_string, %slice_b
+    EXPAND STRING_BUF_PUSH_STR %out_string, %slice_c
+    !__string_buf_lit3_total_%out_string
+    !__string_buf_lit3_ab_%out_string
+    !__string_buf_lit3_len_c_%out_string
+    !__string_buf_lit3_len_b_%out_string
+    !__string_buf_lit3_len_a_%out_string
+[END_MACRO]
 
 [MACRO] STRING_BUF_PARSE_FROM_STR %out_ok, %out_string, %source_slice
     EXPAND STRING_BUF_FROM_STR %out_string, %source_slice

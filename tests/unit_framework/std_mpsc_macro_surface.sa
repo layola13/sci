@@ -177,3 +177,48 @@ L_FAIL:
 L_PASS:
     !ok
     return 0
+
+
+@test "sa_std sync mpsc default constructor"():
+L_ENTRY:
+    EXPAND MPSC_DEFAULT chan
+    EXPAND MPSC_CAPACITY cap, chan
+    EXPAND MPSC_LEN len0, chan
+    EXPAND MPSC_IS_EMPTY empty0, chan
+    EXPAND MPSC_TRY_SEND send_ok, chan, 42
+    EXPAND MPSC_TRY_RECV recv_ok, recv_value, chan
+    EXPAND MPSC_FREE chan
+
+    ok_cap = eq cap, 16
+    ok_len0 = eq len0, 0
+    ok_send = eq send_ok, 1
+    ok_recv = eq recv_ok, 1
+    ok_value = eq recv_value, 42
+    ok01 = and ok_cap, ok_len0
+    ok02 = and ok01, empty0
+    ok03 = and ok02, ok_send
+    ok04 = and ok03, ok_recv
+    ok = and ok04, ok_value
+
+    !cap
+    !len0
+    !empty0
+    !send_ok
+    !recv_ok
+    !recv_value
+    !ok_cap
+    !ok_len0
+    !ok_send
+    !ok_recv
+    !ok_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10454)
+L_OK:
+    !ok
+    return

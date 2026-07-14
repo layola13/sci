@@ -4810,3 +4810,64 @@ test "llvmc backend compilation and verification on rosetta demos" {
     try assertBuildExeStdoutPureBc("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
     try assertBuildExeStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
 }
+
+
+test "agent capability: check verdict cache and affected help" {
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const help_argv = [_][]const u8{ "sa", "--help" };
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), help_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "check"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "daemon"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "--affected"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+
+    // In-process check hit: same process reuses verdict cache.
+    const check1 = [_][]const u8{ "sa", "check", "tests/agent_fixtures/check_ok.sa", "--json" };
+    const c1 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), c1);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"hit\":false") or std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const c2 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), c2);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"hit\":true"));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const test_help = [_][]const u8{ "sa", "test", "--help" };
+    const th = try saasm.cli.executeWithWriters(std.testing.allocator, test_help[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), th);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "--affected"));
+}
+
+test "agent capability: affected selects impacted tests" {
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    // First run establishes baseline (no prior function hashes in this process).
+    const first = [_][]const u8{ "sa", "test", "tests/agent_fixtures/affected_graph.sa", "--affected" };
+    const code1 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), code1);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "affected:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "baseline=no") or std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests"));
+
+    // Second identical run: source-pass-cache or no impacted tests.
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const code2 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), code2);
+    try std.testing.expect(
+        std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "skipped") or
+            std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests=0"),
+    );
+}

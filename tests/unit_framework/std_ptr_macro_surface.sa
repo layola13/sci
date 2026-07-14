@@ -199,7 +199,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(940)
+    panic(10214)
 
 L_PASS:
     return 0
@@ -352,7 +352,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(941)
+    panic(10215)
 
 L_PASS:
     return 0

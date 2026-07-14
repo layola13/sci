@@ -288,7 +288,7 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(940)
+    panic(10338)
 
 L_OK:
     !ok
@@ -726,7 +726,7 @@ L_ENTRY:
 
 L_TIME_ALIAS_FAIL:
     !ok
-    panic(941)
+    panic(10339)
 
 L_TIME_ALIAS_OK:
     !ok
@@ -819,8 +819,172 @@ L_ENTRY:
 
 L_TIME_METHOD_ALIAS_FAIL:
     !ok
-    panic(942)
+    panic(10340)
 
 L_TIME_METHOD_ALIAS_OK:
     !ok
     return
+
+@test "sa_std time instant/system_time aliases"():
+L_ENTRY:
+    EXPAND TIME_INSTANT_NOW instant0
+    EXPAND TIME_SYSTEM_TIME_NOW system0
+    EXPAND TIME_SYSTEM_TIME_FROM_UNIX_NS system1, 123456789
+    EXPAND TIME_SYSTEM_TIME_AS_UNIX_NS unix1, system1
+    EXPAND TIME_SYSTEM_TIME_CHECKED_DURATION_SINCE since_ok, since_value, 200, 50
+    EXPAND TIME_SYSTEM_TIME_DURATION_SINCE since_sat, 50, 200
+    EXPAND TIME_SYSTEM_TIME_CHECKED_ADD add_ok, add_value, 100, 25
+    EXPAND TIME_SYSTEM_TIME_CHECKED_SUB sub_ok, sub_value, 100, 25
+    EXPAND TIME_SYSTEM_TIME_CHECKED_DURATION_SINCE since_under_ok, since_under_value, 50, 200
+    EXPAND TIME_INSTANT_CHECKED_ADD iadd_ok, iadd_value, 10, 5
+    EXPAND TIME_INSTANT_CHECKED_SUB isub_ok, isub_value, 10, 5
+
+    ok_unix = eq unix1, 123456789
+    ok_since_flag = eq since_ok, 1
+    ok_since_value = eq since_value, 150
+    ok_since_sat = eq since_sat, 0
+    ok_add_flag = eq add_ok, 1
+    ok_add_value = eq add_value, 125
+    ok_sub_flag = eq sub_ok, 1
+    ok_sub_value = eq sub_value, 75
+    ok_under_flag = eq since_under_ok, 0
+    ok_under_value = eq since_under_value, 0
+    ok_iadd_flag = eq iadd_ok, 1
+    ok_iadd_value = eq iadd_value, 15
+    ok_isub_flag = eq isub_ok, 1
+    ok_isub_value = eq isub_value, 5
+
+    ok01 = and ok_unix, ok_since_flag
+    ok02 = and ok01, ok_since_value
+    ok03 = and ok02, ok_since_sat
+    ok04 = and ok03, ok_add_flag
+    ok05 = and ok04, ok_add_value
+    ok06 = and ok05, ok_sub_flag
+    ok07 = and ok06, ok_sub_value
+    ok08 = and ok07, ok_under_flag
+    ok09 = and ok08, ok_under_value
+    ok10 = and ok09, ok_iadd_flag
+    ok11 = and ok10, ok_iadd_value
+    ok12 = and ok11, ok_isub_flag
+    ok = and ok12, ok_isub_value
+
+    !instant0
+    !system0
+    !system1
+    !unix1
+    !since_ok
+    !since_value
+    !since_sat
+    !add_ok
+    !add_value
+    !sub_ok
+    !sub_value
+    !since_under_ok
+    !since_under_value
+    !iadd_ok
+    !iadd_value
+    !isub_ok
+    !isub_value
+    !ok_unix
+    !ok_since_flag
+    !ok_since_value
+    !ok_since_sat
+    !ok_add_flag
+    !ok_add_value
+    !ok_sub_flag
+    !ok_sub_value
+    !ok_under_flag
+    !ok_under_value
+    !ok_iadd_flag
+    !ok_iadd_value
+    !ok_isub_flag
+    !ok_isub_value
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10410)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std time duration default/unix epoch aliases"():
+L_ENTRY:
+    EXPAND TIME_DURATION_ZERO zero_ns
+    EXPAND TIME_DURATION_DEFAULT default_ns
+    EXPAND TIME_SYSTEM_TIME_UNIX_EPOCH epoch
+    EXPAND TIME_SYSTEM_TIME_FROM_UNIX_NS epoch2, 0
+    EXPAND TIME_INSTANT_DURATION_SINCE since0, 10, 3
+    EXPAND TIME_INSTANT_SATURATING_DURATION_SINCE since1, 10, 3
+
+    ok_zero = eq zero_ns, 0
+    ok_default = eq default_ns, 0
+    ok_epoch = eq epoch, 0
+    ok_epoch2 = eq epoch2, 0
+    ok_since = eq since0, 7
+    ok_sat = eq since1, 7
+    ok01 = and ok_zero, ok_default
+    ok02 = and ok01, ok_epoch
+    ok03 = and ok02, ok_epoch2
+    ok04 = and ok03, ok_since
+    ok = and ok04, ok_sat
+
+    !zero_ns
+    !default_ns
+    !epoch
+    !epoch2
+    !since0
+    !since1
+    !ok_zero
+    !ok_default
+    !ok_epoch
+    !ok_epoch2
+    !ok_since
+    !ok_sat
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10428)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std time instant/system defaults + sleep duration aliases"():
+L_ENTRY:
+    EXPAND TIME_INSTANT_DEFAULT inst0
+    EXPAND TIME_SYSTEM_TIME_DEFAULT sys0
+    EXPAND TIME_SYSTEM_TIME_UNIX_EPOCH epoch
+    EXPAND TIME_SLEEP_DURATION_NS 0
+    ok_inst = eq inst0, 0
+    ok_sys = eq sys0, epoch
+    ok = and ok_inst, ok_sys
+    !inst0
+    !sys0
+    !epoch
+    !ok_inst
+    !ok_sys
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10447)
+L_OK:
+    !ok
+    return
+

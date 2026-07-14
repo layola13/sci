@@ -16,3 +16,16 @@
 #def TimeDate_minute = +21
 #def TimeDate_second = +22
 #def TimeDate_millisecond = +24
+
+#def Duration_SIZE = 8
+#def Duration_nanos = +0
+#def DURATION_ZERO = 0
+#def DURATION_MIN = 0
+#def DURATION_MAX = 18446744073709551615
+
+#def Instant_SIZE = 8
+#def Instant_nanos = +0
+
+#def SystemTime_SIZE = 8
+#def SystemTime_nanos = +0
+#def SYSTEM_TIME_UNIX_EPOCH = 0

@@ -26,7 +26,7 @@ L_FAIL_BIND:
     !bind_status_ok
     !socket
     !bind_status
-    panic(950)
+    panic(10108)
 
 L_LOCAL_ADDR:
     EXPAND NET_UDP_LOCAL_ADDR addr_status, addr, socket
@@ -48,7 +48,7 @@ L_FAIL_LOCAL_ADDR:
     !bind_status_ok
     !socket
     !bind_status
-    panic(951)
+    panic(10109)
 
 L_ADDR_FIELDS:
     EXPAND NET_ADDR_IS_IPV4 addr_is_ipv4, addr
@@ -82,7 +82,7 @@ L_FAIL_ADDR_FIELDS:
     !bind_status_ok
     !socket
     !bind_status
-    panic(952)
+    panic(10110)
 
 L_LOOP_DISABLE:
     EXPAND NET_UDP_SET_MULTICAST_LOOP_V4 set_loop0_status, socket, SA_NET_SOCKET_OPTION_DISABLE
@@ -117,7 +117,7 @@ L_FAIL_LOOP0:
     !bind_status_ok
     !socket
     !bind_status
-    panic(953)
+    panic(10111)
 
 L_LOOP_ENABLE:
     EXPAND NET_UDP_SET_MULTICAST_LOOP_V4 set_loop1_status, socket, SA_NET_SOCKET_OPTION_ENABLE
@@ -160,7 +160,7 @@ L_FAIL_LOOP1:
     !bind_status_ok
     !socket
     !bind_status
-    panic(954)
+    panic(10112)
 
 L_TTL:
     EXPAND NET_UDP_SET_MULTICAST_TTL_V4 set_ttl_status, socket, 7
@@ -211,7 +211,7 @@ L_FAIL_TTL:
     !bind_status_ok
     !socket
     !bind_status
-    panic(955)
+    panic(10113)
 
 L_JOIN:
     EXPAND NET_UDP_JOIN_MULTICAST_V4 join_status, socket, NET_TEST_MULTICAST_V4, NET_TEST_MULTICAST_V4_LEN, NET_TEST_ANY_V4, NET_TEST_ANY_V4_LEN
@@ -259,7 +259,7 @@ L_FAIL_JOIN:
     !bind_status_ok
     !socket
     !bind_status
-    panic(956)
+    panic(10114)
 
 L_LEAVE:
     EXPAND NET_UDP_LEAVE_MULTICAST_V4 leave_status, socket, NET_TEST_MULTICAST_V4, NET_TEST_MULTICAST_V4_LEN, NET_TEST_ANY_V4, NET_TEST_ANY_V4_LEN
@@ -325,7 +325,7 @@ L_LEAVE:
 
 L_FAIL_DONE:
     !ok
-    panic(957)
+    panic(10115)
 
 L_OK:
     !ok
@@ -345,7 +345,7 @@ L_V6_FAIL_BIND:
     !bind_status_ok
     !socket
     !bind_status
-    panic(958)
+    panic(10116)
 
 L_V6_LOCAL_ADDR:
     EXPAND NET_UDP_LOCAL_ADDR addr_status, addr, socket
@@ -367,7 +367,7 @@ L_V6_FAIL_LOCAL_ADDR:
     !bind_status_ok
     !socket
     !bind_status
-    panic(959)
+    panic(10117)
 
 L_V6_ADDR_FIELDS:
     EXPAND NET_ADDR_IS_IPV6 addr_is_ipv6, addr
@@ -401,7 +401,7 @@ L_V6_FAIL_ADDR_FIELDS:
     !bind_status_ok
     !socket
     !bind_status
-    panic(960)
+    panic(10118)
 
 L_V6_JOIN:
     EXPAND NET_UDP_JOIN_MULTICAST_V6 join_status, socket, NET_TEST_MULTICAST_V6, NET_TEST_MULTICAST_V6_LEN, 0
@@ -425,7 +425,7 @@ L_V6_FAIL_JOIN:
     !bind_status_ok
     !socket
     !bind_status
-    panic(961)
+    panic(10119)
 
 L_V6_LEAVE:
     EXPAND NET_UDP_LEAVE_MULTICAST_V6 leave_status, socket, NET_TEST_MULTICAST_V6, NET_TEST_MULTICAST_V6_LEN, 0
@@ -461,7 +461,7 @@ L_V6_LEAVE:
 
 L_V6_FAIL_DONE:
     !ok
-    panic(962)
+    panic(10120)
 
 L_V6_OK:
     !ok

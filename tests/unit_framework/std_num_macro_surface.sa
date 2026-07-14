@@ -405,7 +405,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(960)
+    panic(10161)
 
 L_PASS:
     return 0
@@ -605,7 +605,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(967)
+    panic(10162)
 
 L_PASS:
     return 0
@@ -718,7 +718,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(962)
+    panic(10163)
 
 L_PASS:
     return 0
@@ -991,7 +991,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(967)
+    panic(9675)
 
 L_PASS:
     return 0
@@ -1060,7 +1060,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(969)
+    panic(10164)
 
 L_PASS:
     return 0
@@ -1152,7 +1152,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(968)
+    panic(10165)
 
 L_PASS:
     return 0
@@ -1326,7 +1326,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(963)
+    panic(10166)
 
 L_PASS:
     return 0
@@ -1516,7 +1516,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(964)
+    panic(10167)
 
 L_PASS:
     return 0
@@ -2253,7 +2253,7 @@ L_FAIL_PLATFORM:
     panic(9674)
 
 L_FAIL:
-    panic(967)
+    panic(9676)
 
 L_PASS:
     return 0
@@ -2541,7 +2541,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(963)
+    panic(9677)
 
 L_PASS:
     return 0
@@ -2756,7 +2756,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(962)
+    panic(9678)
 
 L_PASS:
     return 0
@@ -2930,7 +2930,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(961)
+    panic(10168)
 
 L_PASS:
     return 0
@@ -3297,7 +3297,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(965)
+    panic(10169)
 
 L_PASS:
     return 0
@@ -3486,7 +3486,7 @@ L_ENTRY:
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
-    panic(966)
+    panic(10170)
 
 L_PASS:
     return 0

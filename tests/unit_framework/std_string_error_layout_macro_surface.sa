@@ -1,0 +1,42 @@
+@import "sa_std/string.sal"
+
+@test "sa_std string and str error layout constants"():
+L_ENTRY:
+    ok_from_utf8_size = eq FromUtf8Error_SIZE, 40
+    ok_from_utf8_align = eq FromUtf8Error_ALIGN, 8
+    ok_from_utf8_bytes = eq FromUtf8Error_bytes, +0
+    ok_from_utf8_error = eq FromUtf8Error_error, +24
+    ok_from_utf8_alias = eq FromUtf8Error_utf8_error, FromUtf8Error_error
+
+    expected_from_utf8_size = add Vec_SIZE, Utf8Error_SIZE
+    ok_from_utf8_cross = eq FromUtf8Error_SIZE, expected_from_utf8_size
+
+    ok_from_utf16_size = eq FromUtf16Error_SIZE, 8
+    ok_from_utf16_align = eq FromUtf16Error_ALIGN, 8
+    ok_from_utf16_kind = eq FromUtf16Error_kind, +0
+    ok_from_utf16_lone = eq FROM_UTF16_ERROR_LONE_SURROGATE, 0
+    ok_from_utf16_odd = eq FROM_UTF16_ERROR_ODD_BYTES, 1
+
+    ok_parse_bool_size = eq ParseBoolError_SIZE, 0
+    ok_parse_bool_align = eq ParseBoolError_ALIGN, 1
+
+    c01 = and ok_from_utf8_size, ok_from_utf8_align
+    c02 = and c01, ok_from_utf8_bytes
+    c03 = and c02, ok_from_utf8_error
+    c04 = and c03, ok_from_utf8_alias
+    c05 = and c04, ok_from_utf8_cross
+    c06 = and c05, ok_from_utf16_size
+    c07 = and c06, ok_from_utf16_align
+    c08 = and c07, ok_from_utf16_kind
+    c09 = and c08, ok_from_utf16_lone
+    c10 = and c09, ok_from_utf16_odd
+    c11 = and c10, ok_parse_bool_size
+    ok = and c11, ok_parse_bool_align
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10497)
+
+L_PASS:
+    return 0

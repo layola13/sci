@@ -1,4 +1,5 @@
 @import "sa_std/ffi.sa"
+@import "sa_std/string.sa"
 
 @test "sa_std ffi cstr borrowed view macros"():
 L_ENTRY:
@@ -379,3 +380,133 @@ L_CSTRING_FAIL:
 
 L_CSTRING_PASS:
     return 0
+
+@test "sa_std ffi cstring default/clone macros"():
+L_ENTRY:
+    default_cs = stack_alloc CString_SIZE
+    EXPAND CSTRING_DEFAULT default_status, default_cs
+    EXPAND CSTRING_COUNT_BYTES default_count, default_cs
+    EXPAND CSTRING_IS_EMPTY default_empty, default_cs
+
+    bytes = stack_alloc 3
+    store bytes+0, 97 as u8
+    store bytes+1, 98 as u8
+    store bytes+2, 99 as u8
+    bytes_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW bytes_slice, bytes, 3
+    src = stack_alloc CString_SIZE
+    EXPAND CSTRING_LIT1 lit_status, src, bytes_slice
+    EXPAND CSTRING_COUNT_BYTES src_count, src
+
+    cloned = stack_alloc CString_SIZE
+    EXPAND CSTRING_CLONE clone_status, cloned, src
+    EXPAND CSTRING_COUNT_BYTES clone_count, cloned
+    clone_bytes = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES clone_bytes, cloned
+    clone_ptr = load clone_bytes+Slice_ptr as ptr
+    clone_b0 = load clone_ptr+0 as u8
+    clone_b2 = load clone_ptr+2 as u8
+
+    ok_default_status = eq default_status, CSTRING_NEW_OK
+    ok_default_count = eq default_count, 0
+    ok_default_empty = eq default_empty, 1
+    ok_lit_status = eq lit_status, CSTRING_NEW_OK
+    ok_src_count = eq src_count, 3
+    ok_clone_status = eq clone_status, CSTR_FROM_BYTES_OK
+    ok_clone_count = eq clone_count, 3
+    ok_clone_b0 = eq clone_b0, 97
+    ok_clone_b2 = eq clone_b2, 99
+
+    ok = and ok_default_status, ok_default_count
+    ok = and ok, ok_default_empty
+    ok = and ok, ok_lit_status
+    ok = and ok, ok_src_count
+    ok = and ok, ok_clone_status
+    ok = and ok, ok_clone_count
+    ok = and ok, ok_clone_b0
+    ok = and ok, ok_clone_b2
+
+    EXPAND CSTRING_FREE default_cs
+    EXPAND CSTRING_FREE src
+    EXPAND CSTRING_FREE cloned
+
+    !default_status
+    !default_count
+    !default_empty
+    !lit_status
+    !src_count
+    !clone_status
+    !clone_count
+    !clone_ptr
+    !clone_b0
+    !clone_b2
+    !ok_default_status
+    !ok_default_count
+    !ok_default_empty
+    !ok_lit_status
+    !ok_src_count
+    !ok_clone_status
+    !ok_clone_count
+    !ok_clone_b0
+    !ok_clone_b2
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(982)
+
+L_PASS:
+    !ok
+    return 0
+
+@test "sa_std ffi cstring to_string_lossy macros"():
+L_ENTRY:
+    bytes = stack_alloc 3
+    store bytes+0, 120 as u8
+    store bytes+1, 121 as u8
+    store bytes+2, 122 as u8
+    bytes_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW bytes_slice, bytes, 3
+    owned = stack_alloc CString_SIZE
+    EXPAND CSTRING_NEW status, owned, bytes_slice
+    EXPAND CSTRING_TO_STRING_LOSSY lossy, owned
+    EXPAND STRING_BUF_LEN lossy_len, lossy
+    ok_status = eq status, CSTRING_NEW_OK
+    ok_len = eq lossy_len, 3
+    ok = and ok_status, ok_len
+    EXPAND STRING_BUF_FREE lossy
+    EXPAND CSTRING_FREE owned
+    !status
+    !lossy_len
+    !ok_status
+    !ok_len
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(983)
+L_OK:
+    !ok
+    return 0
+
+@test "sa_std ffi cstr to_string_lossy macros"():
+L_ENTRY:
+    cbuf = stack_alloc 4
+    store cbuf+0, 102 as u8
+    store cbuf+1, 111 as u8
+    store cbuf+2, 111 as u8
+    store cbuf+3, 0 as u8
+    cstr = stack_alloc CStr_SIZE
+    EXPAND CSTR_FROM_PTR cstr, cbuf
+    EXPAND CSTR_TO_STRING_LOSSY lossy, cstr
+    EXPAND STRING_BUF_LEN lossy_len, lossy
+    ok_len = eq lossy_len, 3
+    EXPAND STRING_BUF_FREE lossy
+    !lossy_len
+    br ok_len -> L_OK, L_FAIL
+L_FAIL:
+    !ok_len
+    panic(984)
+L_OK:
+    !ok_len
+    return 0
+

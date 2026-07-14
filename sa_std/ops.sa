@@ -638,3 +638,84 @@ L_BOUND_END_END_%out_bool:
     !__bound_range_end_%out_bool
     !__bound_range_start_%out_bool
 [END_MACRO]
+
+[MACRO] RANGE_U64_DEFAULT %range_ptr
+    store %range_ptr+RangeU64_start, 0 as u64
+    store %range_ptr+RangeU64_end, 0 as u64
+[END_MACRO]
+
+[MACRO] RANGE_FULL_DEFAULT %range_ptr
+    __range_full_noop_%range_ptr = add 0, 0
+    !__range_full_noop_%range_ptr
+[END_MACRO]
+
+[MACRO] BOUND_U64_DEFAULT %bound_ptr
+    EXPAND BOUND_U64_UNBOUNDED_NEW %bound_ptr
+[END_MACRO]
+
+[MACRO] RANGE_FROM_U64_DEFAULT %range_ptr
+    store %range_ptr+RangeFromU64_start, 0 as u64
+[END_MACRO]
+
+[MACRO] RANGE_TO_U64_DEFAULT %range_ptr
+    store %range_ptr+RangeToU64_end, 0 as u64
+[END_MACRO]
+
+[MACRO] RANGE_TO_INCLUSIVE_U64_DEFAULT %range_ptr
+    store %range_ptr+RangeToInclusiveU64_end, 0 as u64
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_U64_DEFAULT %range_ptr
+    store %range_ptr+RangeInclusiveU64_start, 0 as u64
+    store %range_ptr+RangeInclusiveU64_end, 0 as u64
+    store %range_ptr+RangeInclusiveU64_exhausted, 0 as u64
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_NEW %range_ptr, %start, %end
+    EXPAND RANGE_U64_NEW %range_ptr, %start, %end
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_START %out_start, %range_ptr
+    EXPAND RANGE_U64_START %out_start, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_END %out_end, %range_ptr
+    EXPAND RANGE_U64_END %out_end, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_CONTAINS %out_bool, %range_ptr, %item
+    EXPAND RANGE_U64_CONTAINS %out_bool, %range_ptr, %item
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_IS_EMPTY %out_bool, %range_ptr
+    EXPAND RANGE_U64_IS_EMPTY %out_bool, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_LEN %out_len, %range_ptr
+    EXPAND RANGE_U64_LEN %out_len, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_DEFAULT %range_ptr
+    EXPAND RANGE_U64_DEFAULT %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_DEFAULT %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_DEFAULT %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_FROM_USIZE_DEFAULT %range_ptr
+    EXPAND RANGE_FROM_U64_DEFAULT %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_TO_USIZE_DEFAULT %range_ptr
+    EXPAND RANGE_TO_U64_DEFAULT %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_TO_INCLUSIVE_USIZE_DEFAULT %range_ptr
+    EXPAND RANGE_TO_INCLUSIVE_U64_DEFAULT %range_ptr
+[END_MACRO]
+
+
+[MACRO] RANGE_USIZE_FULL_DEFAULT %range_ptr
+    EXPAND RANGE_FULL_DEFAULT %range_ptr
+[END_MACRO]

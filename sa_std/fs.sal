@@ -40,6 +40,8 @@
 
 #def SaFsPermissions_SIZE = 4
 #def SaFsPermissions_mode = +0
+#def SA_FS_PERM_WRITE_BITS = 146
+#def SA_FS_PERM_OWNER_WRITE = 128
 
 #def SaFsMetadata_SIZE = 32
 #def SaFsMetadata_kind = +0

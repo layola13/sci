@@ -282,8 +282,37 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(947)
+    panic(10217)
 
 L_PASS:
     !all
     return 0
+
+
+@test "sa_std refcell u64 default helper"():
+L_ENTRY:
+    EXPAND REFCELL_U64_DEFAULT cell
+    EXPAND REFCELL_U64_GET value, cell
+    EXPAND REFCELL_U64_IS_BORROWED borrowed, cell
+    EXPAND REFCELL_U64_BORROW_COUNT count, cell
+    ok_value = eq value, 0
+    ok_borrowed = eq borrowed, 0
+    ok_count = eq count, 0
+    ok01 = and ok_value, ok_borrowed
+    ok = and ok01, ok_count
+    !value
+    !borrowed
+    !count
+    !ok_value
+    !ok_borrowed
+    !ok_count
+    !ok01
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !cell
+    !ok
+    panic(10457)
+L_OK:
+    !cell
+    !ok
+    return

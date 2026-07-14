@@ -578,7 +578,7 @@ L_OK:
 
 L_ERR:
     !ok
-    panic(207)
+    panic(461)
 
 @test "24_factorial recursion"():
 L_ENTRY:

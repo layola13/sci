@@ -1,3 +1,7 @@
 #def Mutex_SIZE = 8
 #def Mutex_lock = +0
 #def Mutex_data = +8
+
+#def MutexGuard_SIZE = 8
+#def MutexGuard_mutex = +0
+#def MutexGuard_data = +8

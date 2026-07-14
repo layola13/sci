@@ -3926,3 +3926,23 @@ L_VEC_RSWWC_END_%out_ok:
 [MACRO] VEC_TRY_SHRINK_TO_FIT_U64 %out_ok, %vec_reg
     EXPAND VEC_TRY_SHRINK_TO_FIT %out_ok, %vec_reg, 8
 [END_MACRO]
+
+// Fixed-arity u64 vector literals over VEC_NEW + PUSH_U64.
+
+[MACRO] VEC_LIT1_U64 %out_vec, %value1
+    EXPAND VEC_NEW %out_vec
+    EXPAND VEC_PUSH_U64 %out_vec, %value1
+[END_MACRO]
+
+[MACRO] VEC_LIT2_U64 %out_vec, %value1, %value2
+    EXPAND VEC_NEW %out_vec
+    EXPAND VEC_PUSH_U64 %out_vec, %value1
+    EXPAND VEC_PUSH_U64 %out_vec, %value2
+[END_MACRO]
+
+[MACRO] VEC_LIT3_U64 %out_vec, %value1, %value2, %value3
+    EXPAND VEC_NEW %out_vec
+    EXPAND VEC_PUSH_U64 %out_vec, %value1
+    EXPAND VEC_PUSH_U64 %out_vec, %value2
+    EXPAND VEC_PUSH_U64 %out_vec, %value3
+[END_MACRO]

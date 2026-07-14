@@ -1,0 +1,17 @@
+@import "alloc/vec.sal"
+@import "ffi.sal"
+
+#def FromUtf8Error_SIZE = 40
+#def FromUtf8Error_ALIGN = 8
+#def FromUtf8Error_bytes = +0
+#def FromUtf8Error_error = +24
+#def FromUtf8Error_utf8_error = FromUtf8Error_error
+
+#def FromUtf16Error_SIZE = 8
+#def FromUtf16Error_ALIGN = 8
+#def FromUtf16Error_kind = +0
+#def FROM_UTF16_ERROR_LONE_SURROGATE = 0
+#def FROM_UTF16_ERROR_ODD_BYTES = 1
+
+#def ParseBoolError_SIZE = 0
+#def ParseBoolError_ALIGN = 1

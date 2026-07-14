@@ -9578,6 +9578,135 @@ pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len
     return 1;
 }
 
+
+fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
+    var index: usize = 0;
+    while (index < 8) : (index += 1) {
+        const seg = std.mem.readInt(u16, octets[index * 2 ..][0..2], .big);
+        // Match SA `store ... as u16` host layout (x86_64 little-endian tests).
+        std.mem.writeInt(u16, out[index * 2 ..][0..2], seg, .little);
+    }
+}
+
+fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
+    const parsed = std.net.Ip6Address.parse(text, 0) catch return null;
+    return .{
+        .octets = parsed.sa.addr,
+        .scope_id = parsed.sa.scope_id,
+    };
+}
+
+fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: u16, scope_id: u32 } {
+    if (text.len < 4 or text[0] != '[') return null;
+    const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return null;
+    if (close == 0 or close + 1 >= text.len or text[close + 1] != ':') return null;
+    const ip_text = text[1..close];
+    if (ip_text.len == 0) return null;
+    const port = parsePortAscii(text[close + 2 ..]) orelse return null;
+    const parsed = parseIpv6Ascii(ip_text) orelse return null;
+    return .{
+        .octets = parsed.octets,
+        .port = port,
+        .scope_id = parsed.scope_id,
+    };
+}
+
+pub export fn sa_net_ipv6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
+    const out = out_addr orelse return 0;
+    @memset(out[0..16], 0);
+
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const parsed = parseIpv6Ascii(text) orelse return 0;
+    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
+    const out = out_socket_addr orelse return 0;
+    @memset(out[0..32], 0);
+
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const parsed = parseSocketAddrV6Ascii(text) orelse return 0;
+    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
+    std.mem.writeInt(u16, out[16..18], parsed.port, .little);
+    std.mem.writeInt(u32, out[20..24], 0, .little);
+    std.mem.writeInt(u32, out[24..28], parsed.scope_id, .little);
+    return 1;
+}
+
+fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
+    var segments: [8]u16 = undefined;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        segments[i] = std.mem.readInt(u16, raw[i * 2 ..][0..2], .little);
+    }
+    return segments;
+}
+
+fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
+    // Deterministic expanded lowercase hex form (no zero-compression) for SA tests.
+    return std.fmt.bufPrint(buffer, "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}", .{
+        segments[0], segments[1], segments[2], segments[3], segments[4], segments[5], segments[6], segments[7],
+    });
+}
+
+// sa_net_format_ascii_batch_v1
+pub export fn sa_net_ipv4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}", .{ addr[0], addr[1], addr[2], addr[3] }) catch return 0;
+    len_ptr.* = @as(u64, @intCast(text.len));
+    return 1;
+}
+
+pub export fn sa_net_ipv6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr_raw = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    var raw: [16]u8 = undefined;
+    @memcpy(raw[0..], addr_raw[0..16]);
+    const segments = readIpv6SegmentsNative(&raw);
+    const text = formatIpv6Segments(buffer, &segments) catch return 0;
+    len_ptr.* = @as(u64, @intCast(text.len));
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    const port = std.mem.readInt(u16, addr[4..6], .little);
+    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}:{d}", .{ addr[0], addr[1], addr[2], addr[3], port }) catch return 0;
+    len_ptr.* = @as(u64, @intCast(text.len));
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    var raw: [16]u8 = undefined;
+    @memcpy(raw[0..], addr[0..16]);
+    const segments = readIpv6SegmentsNative(&raw);
+    const port = std.mem.readInt(u16, addr[16..18], .little);
+    const scope_id = std.mem.readInt(u32, addr[24..28], .little);
+    var ip_buf: [64]u8 = undefined;
+    const ip_text = formatIpv6Segments(&ip_buf, &segments) catch return 0;
+    if (scope_id == 0) {
+        const text = std.fmt.bufPrint(buffer, "[{s}]:{d}", .{ ip_text, port }) catch return 0;
+        len_ptr.* = @as(u64, @intCast(text.len));
+        return 1;
+    }
+    const text = std.fmt.bufPrint(buffer, "[{s}%{d}]:{d}", .{ ip_text, scope_id, port }) catch return 0;
+    len_ptr.* = @as(u64, @intCast(text.len));
+    return 1;
+}
+
 pub export fn sa_fmt_i64(value: i64, base: u32) u64 {
     const bytes = formatInteger(value, base) catch return 0;
     return openOwnedBuffer(bytes) catch return 0;

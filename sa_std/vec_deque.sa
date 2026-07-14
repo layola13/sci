@@ -2710,3 +2710,61 @@ L_VEC_DEQUE_IFSNWC_END_%out_ok:
     %out_deque = load __vec_deque_split_slot_%out_ok+0 as ptr
     %out_ok = __vec_deque_split_ok_%out_ok
 [END_MACRO]
+
+// Fixed-arity / from-collection constructors over the concrete u64 VecDeque.
+
+[MACRO] VEC_DEQUE_LIT1 %out_deque, %value1
+    EXPAND VEC_DEQUE_NEW %out_deque
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, %value1
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_LIT2 %out_deque, %value1, %value2
+    EXPAND VEC_DEQUE_NEW %out_deque
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, %value1
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, %value2
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_LIT3 %out_deque, %value1, %value2, %value3
+    EXPAND VEC_DEQUE_NEW %out_deque
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, %value1
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, %value2
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, %value3
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_FROM_SLICE_U64 %out_deque, %slice_reg
+    EXPAND VEC_DEQUE_NEW %out_deque
+    __vd_from_len_%out_deque = load %slice_reg+Slice_len as u64
+    __vd_from_idx_slot_%out_deque = stack_alloc 8
+    store __vd_from_idx_slot_%out_deque+0, 0 as u64
+    jmp L_VEC_DEQUE_FROM_SLICE_HEAD_%out_deque
+L_VEC_DEQUE_FROM_SLICE_HEAD_%out_deque:
+    __vd_from_idx_%out_deque = load __vd_from_idx_slot_%out_deque+0 as u64
+    __vd_from_done_%out_deque = eq __vd_from_idx_%out_deque, __vd_from_len_%out_deque
+    br __vd_from_done_%out_deque -> L_VEC_DEQUE_FROM_SLICE_DONE_%out_deque, L_VEC_DEQUE_FROM_SLICE_BODY_%out_deque
+L_VEC_DEQUE_FROM_SLICE_BODY_%out_deque:
+    EXPAND SLICE_GET_U64 __vd_from_val_%out_deque, %slice_reg, __vd_from_idx_%out_deque
+    EXPAND VEC_DEQUE_PUSH_BACK %out_deque, __vd_from_val_%out_deque
+    __vd_from_next_%out_deque = add __vd_from_idx_%out_deque, 1
+    store __vd_from_idx_slot_%out_deque+0, __vd_from_next_%out_deque as u64
+    !__vd_from_next_%out_deque
+    !__vd_from_val_%out_deque
+    !__vd_from_done_%out_deque
+    !__vd_from_idx_%out_deque
+    jmp L_VEC_DEQUE_FROM_SLICE_HEAD_%out_deque
+L_VEC_DEQUE_FROM_SLICE_DONE_%out_deque:
+    !__vd_from_done_%out_deque
+    !__vd_from_idx_%out_deque
+    !__vd_from_len_%out_deque
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_FROM_VEC_U64 %out_deque, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_deque_from_vec_slice_%out_deque, %vec_reg
+    EXPAND VEC_DEQUE_FROM_SLICE_U64 %out_deque, __vec_deque_from_vec_slice_%out_deque
+    !__vec_deque_from_vec_slice_%out_deque
+[END_MACRO]
+
+// Rust Default-style empty VecDeque constructor alias.
+
+[MACRO] VEC_DEQUE_DEFAULT %out_deque
+    EXPAND VEC_DEQUE_NEW %out_deque
+[END_MACRO]

@@ -876,6 +876,22 @@ L_SET_EXTRACT_DONE_%out_len:
     !__set_get_or_insert_ok_%out_inserted
 [END_MACRO]
 
+[MACRO] SET_ENTRY_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
+    EXPAND SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
+[END_MACRO]
+
+[MACRO] SET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
+    EXPAND SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
+[END_MACRO]
+
+[MACRO] SET_EXTRA_CAPACITY %out_extra, %set_reg
+    __set_ec_cap_%out_extra = call @sa_set_capacity(&%set_reg)
+    __set_ec_len_%out_extra = call @sa_set_len(&%set_reg)
+    %out_extra = sub __set_ec_cap_%out_extra, __set_ec_len_%out_extra
+    !__set_ec_len_%out_extra
+    !__set_ec_cap_%out_extra
+[END_MACRO]
+
 [MACRO] SET_TAKE %out_ok, %out_key, %set_reg, %key
     __set_take_slot_%out_ok = stack_alloc 8
     %out_ok = call @sa_set_take(&%set_reg, &%key, &__set_take_slot_%out_ok)
@@ -924,10 +940,32 @@ L_SET_EXTRACT_DONE_%out_len:
     call @sa_set_free(^%set_reg)
 [END_MACRO]
 
+[MACRO] SET_LIT1 %out_set, %key1
+    EXPAND SET_NEW %out_set
+    EXPAND SET_INSERT __set_lit1_ok_1_%out_set, %out_set, %key1
+    !__set_lit1_ok_1_%out_set
+[END_MACRO]
+
 [MACRO] SET_LIT2 %out_set, %key1, %key2
     EXPAND SET_NEW %out_set
     EXPAND SET_INSERT __set_lit2_ok_1_%out_set, %out_set, %key1
     EXPAND SET_INSERT __set_lit2_ok_2_%out_set, %out_set, %key2
     !__set_lit2_ok_1_%out_set
     !__set_lit2_ok_2_%out_set
+[END_MACRO]
+
+[MACRO] SET_LIT3 %out_set, %key1, %key2, %key3
+    EXPAND SET_NEW %out_set
+    EXPAND SET_INSERT __set_lit3_ok_1_%out_set, %out_set, %key1
+    EXPAND SET_INSERT __set_lit3_ok_2_%out_set, %out_set, %key2
+    EXPAND SET_INSERT __set_lit3_ok_3_%out_set, %out_set, %key3
+    !__set_lit3_ok_1_%out_set
+    !__set_lit3_ok_2_%out_set
+    !__set_lit3_ok_3_%out_set
+[END_MACRO]
+
+// Rust Default-style empty set constructor alias.
+
+[MACRO] SET_DEFAULT %out_set
+    EXPAND SET_NEW %out_set
 [END_MACRO]

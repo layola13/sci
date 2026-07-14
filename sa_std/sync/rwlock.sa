@@ -208,3 +208,7 @@ L_RWLOCK_TRY_WRITE_END_%out_ok:
     atomic_store %lock_reg+RwLock_readers, 0 as i32 release
     atomic_store %lock_reg+RwLock_writing, 0 as i32 release
 [END_MACRO]
+
+[MACRO] RWLOCK_DEFAULT %out_lock
+    EXPAND RWLOCK_NEW %out_lock
+[END_MACRO]

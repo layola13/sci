@@ -1,0 +1,72 @@
+@import "sa_std/mem.sal"
+@import "sa_std/num.sal"
+
+@test "sa_std mem size_of and align_of for float/ptr/char types"():
+L_ENTRY:
+    ok_f32_size = eq MEM_SIZE_F32, 4
+    ok_f32_align = eq MEM_ALIGN_F32, 4
+    ok_f64_size = eq MEM_SIZE_F64, 8
+    ok_f64_align = eq MEM_ALIGN_F64, 8
+
+    ok_ptr_size = eq MEM_SIZE_PTR, 8
+    ok_ptr_align = eq MEM_ALIGN_PTR, 8
+
+    ok_char_size = eq MEM_SIZE_CHAR, 4
+    ok_char_align = eq MEM_ALIGN_CHAR, 4
+
+    ok_f32_bytes = eq MEM_SIZE_F32, NUM_F32_BYTES
+    ok_f64_bytes = eq MEM_SIZE_F64, NUM_F64_BYTES
+
+    ok_bool_size = eq MEM_SIZE_BOOL, 1
+    ok_u8_size = eq MEM_SIZE_U8, 1
+    ok_u16_size = eq MEM_SIZE_U16, 2
+    ok_u32_size = eq MEM_SIZE_U32, 4
+    ok_u64_size = eq MEM_SIZE_U64, 8
+    ok_usize_size = eq MEM_SIZE_USIZE, 8
+    ok_i8_size = eq MEM_SIZE_I8, 1
+    ok_i16_size = eq MEM_SIZE_I16, 2
+    ok_i32_size = eq MEM_SIZE_I32, 4
+    ok_i64_size = eq MEM_SIZE_I64, 8
+    ok_isize_size = eq MEM_SIZE_ISIZE, 8
+
+    ok_bool_align = eq MEM_ALIGN_BOOL, 1
+    ok_u8_align = eq MEM_ALIGN_U8, 1
+    ok_u16_align = eq MEM_ALIGN_U16, 2
+    ok_u32_align = eq MEM_ALIGN_U32, 4
+    ok_u64_align = eq MEM_ALIGN_U64, 8
+    ok_usize_align = eq MEM_ALIGN_USIZE, 8
+
+    c01 = and ok_f32_size, ok_f32_align
+    c02 = and c01, ok_f64_size
+    c03 = and c02, ok_f64_align
+    c04 = and c03, ok_ptr_size
+    c05 = and c04, ok_ptr_align
+    c06 = and c05, ok_char_size
+    c07 = and c06, ok_char_align
+    c08 = and c07, ok_f32_bytes
+    c09 = and c08, ok_f64_bytes
+    c10 = and c09, ok_bool_size
+    c11 = and c10, ok_u8_size
+    c12 = and c11, ok_u16_size
+    c13 = and c12, ok_u32_size
+    c14 = and c13, ok_u64_size
+    c15 = and c14, ok_usize_size
+    c16 = and c15, ok_i8_size
+    c17 = and c16, ok_i16_size
+    c18 = and c17, ok_i32_size
+    c19 = and c18, ok_i64_size
+    c20 = and c19, ok_isize_size
+    c21 = and c20, ok_bool_align
+    c22 = and c21, ok_u8_align
+    c23 = and c22, ok_u16_align
+    c24 = and c23, ok_u32_align
+    c25 = and c24, ok_u64_align
+    c26 = and c25, ok_usize_align
+
+    br c26 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10477)
+
+L_PASS:
+    return 0

@@ -360,7 +360,7 @@ L_ENTRY:
 
 L_PARITY_FAIL:
     !ok
-    panic(907)
+    panic(10050)
 
 L_PARITY_OK:
     !ok
@@ -468,7 +468,7 @@ L_ENTRY:
 
 L_SET_KEYS_FAIL:
     !ok
-    panic(908)
+    panic(10051)
 
 L_SET_KEYS_OK:
     !ok
@@ -692,7 +692,7 @@ L_ENTRY:
 
 L_DRAIN_EXTRACT_FAIL:
     !ok
-    panic(920)
+    panic(10052)
 
 L_DRAIN_EXTRACT_OK:
     !ok
@@ -847,8 +847,177 @@ L_ENTRY:
 
 L_ALGEBRA_FAIL:
     !ok
-    panic(917)
+    panic(10053)
 
 L_ALGEBRA_OK:
+    !ok
+    return
+
+@test "sa_std hashset extra_capacity/entry aliases"():
+L_ENTRY:
+    EXPAND SET_WITH_CAPACITY set, 4
+    EXPAND SET_LEN len0, set
+    EXPAND SET_CAPACITY cap0, set
+    EXPAND SET_EXTRA_CAPACITY ec0, set
+    expected0 = sub cap0, len0
+    ec0_ok = eq ec0, expected0
+
+    key_a = &KEY_A
+    key_b = &KEY_B
+    EXPAND SET_ENTRY_GET_OR_INSERT ins_a, stored_a, set, key_a
+    ins_a_ok = eq ins_a, 1
+    stored_a_ok = eq stored_a, key_a
+    EXPAND SET_OR_INSERT ins_a2, stored_a2, set, key_a
+    ins_a2_ok = eq ins_a2, 0
+    stored_a2_ok = eq stored_a2, key_a
+    EXPAND SET_OR_INSERT ins_b, stored_b, set, key_b
+    ins_b_ok = eq ins_b, 1
+
+    EXPAND SET_LEN len1, set
+    EXPAND SET_CAPACITY cap1, set
+    EXPAND SET_EXTRA_CAPACITY ec1, set
+    expected1 = sub cap1, len1
+    ec1_ok = eq ec1, expected1
+    len1_ok = eq len1, 2
+
+    EXPAND SET_FREE set
+
+    ok = and ec0_ok, ins_a_ok
+    ok = and ok, stored_a_ok
+    ok = and ok, ins_a2_ok
+    ok = and ok, stored_a2_ok
+    ok = and ok, ins_b_ok
+    ok = and ok, ec1_ok
+    ok = and ok, len1_ok
+
+    !len0
+    !cap0
+    !ec0
+    !expected0
+    !key_a
+    !key_b
+    !ins_a
+    !stored_a
+    !ins_a2
+    !stored_a2
+    !ins_b
+    !stored_b
+    !len1
+    !cap1
+    !ec1
+    !expected1
+    !ec0_ok
+    !ins_a_ok
+    !stored_a_ok
+    !ins_a2_ok
+    !stored_a2_ok
+    !ins_b_ok
+    !ec1_ok
+    !len1_ok
+    br ok -> L_SET_EC_OK, L_SET_EC_FAIL
+
+L_SET_EC_FAIL:
+    !ok
+    panic(10054)
+
+L_SET_EC_OK:
+    !ok
+    return
+
+@test "sa_std hashset literal arity macros"():
+L_ENTRY:
+    key_a = &KEY_A
+    key_b = &KEY_B
+    key_c = &KEY_C
+
+    EXPAND SET_LIT1 set1, key_a
+    EXPAND SET_LEN len1, set1
+    EXPAND SET_CONTAINS has1a, set1, key_a
+    len1_ok = eq len1, 1
+    has1a_ok = eq has1a, 1
+
+    EXPAND SET_LIT2 set2, key_a, key_b
+    EXPAND SET_LEN len2, set2
+    EXPAND SET_CONTAINS has2a, set2, key_a
+    EXPAND SET_CONTAINS has2b, set2, key_b
+    len2_ok = eq len2, 2
+    has2a_ok = eq has2a, 1
+    has2b_ok = eq has2b, 1
+
+    EXPAND SET_LIT3 set3, key_a, key_b, key_c
+    EXPAND SET_LEN len3, set3
+    EXPAND SET_CONTAINS has3a, set3, key_a
+    EXPAND SET_CONTAINS has3b, set3, key_b
+    EXPAND SET_CONTAINS has3c, set3, key_c
+    len3_ok = eq len3, 3
+    has3a_ok = eq has3a, 1
+    has3b_ok = eq has3b, 1
+    has3c_ok = eq has3c, 1
+
+    EXPAND SET_FREE set1
+    EXPAND SET_FREE set2
+    EXPAND SET_FREE set3
+
+    ok = and len1_ok, has1a_ok
+    ok = and ok, len2_ok
+    ok = and ok, has2a_ok
+    ok = and ok, has2b_ok
+    ok = and ok, len3_ok
+    ok = and ok, has3a_ok
+    ok = and ok, has3b_ok
+    ok = and ok, has3c_ok
+
+    !key_a
+    !key_b
+    !key_c
+    !len1
+    !has1a
+    !len2
+    !has2a
+    !has2b
+    !len3
+    !has3a
+    !has3b
+    !has3c
+    !len1_ok
+    !has1a_ok
+    !len2_ok
+    !has2a_ok
+    !has2b_ok
+    !len3_ok
+    !has3a_ok
+    !has3b_ok
+    !has3c_ok
+    br ok -> L_SET_LIT_OK, L_SET_LIT_FAIL
+
+L_SET_LIT_FAIL:
+    !ok
+    panic(10055)
+
+L_SET_LIT_OK:
+    !ok
+    return
+
+
+@test "sa_std hashset default alias"():
+L_ENTRY:
+    EXPAND SET_DEFAULT set
+    EXPAND SET_LEN len0, set
+    EXPAND SET_IS_EMPTY empty0, set
+    EXPAND SET_FREE set
+
+    ok_len = eq len0, 0
+    ok_empty = eq empty0, 1
+    ok = and ok_len, ok_empty
+
+    !len0
+    !empty0
+    !ok_len
+    !ok_empty
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10432)
+L_OK:
     !ok
     return

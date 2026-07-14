@@ -139,3 +139,123 @@ L_RAW_FAIL:
 L_RAW_PASS:
     !ok
     return 0
+
+@ffi_wrapper thread_builder_spawn_worker(*slot: ptr, detached: i32) -> i32:
+L_ENTRY:
+    worker_vt = &THREAD_EXT_WORKER_VT
+    worker_fn = load worker_vt+0 as ptr
+    worker_safe = assume_safe worker_fn
+    EXPAND THREAD_BUILDER_SPAWN handle, detached, *worker_safe, *slot
+    !worker_vt
+    !worker_fn
+    !worker_safe
+    !slot
+    !detached
+    return handle
+
+@test "sa_std thread builder macros"():
+L_ENTRY:
+    slot = alloc ThreadExtSlot_SIZE
+    store slot+ThreadExtSlot_value, 7 as i32
+    EXPAND THREAD_BUILDER_NEW detached0
+    zero_detached = eq detached0, 0
+    EXPAND THREAD_BUILDER_WITH_DETACHED detached1, detached0, 0
+    still_zero = eq detached1, 0
+    handle = call @thread_builder_spawn_worker(*slot, detached1)
+    handle_ok = ne handle, 0
+    join_out = stack_alloc 4
+    EXPAND THREAD_JOIN_STATUS join_status, handle, join_out
+    join_ok = eq join_status, 0
+    join_result = load join_out+0 as i32
+    result_ok = eq join_result, 18
+    slot_value = load slot+ThreadExtSlot_value as i32
+    slot_ok = eq slot_value, 18
+
+    ok = and zero_detached, still_zero
+    ok = and ok, handle_ok
+    ok = and ok, join_ok
+    ok = and ok, result_ok
+    ok = and ok, slot_ok
+
+    !detached1
+    !handle
+    !join_status
+    !join_result
+    !slot_value
+    !zero_detached
+    !still_zero
+    !handle_ok
+    !join_ok
+    !result_ok
+    !slot_ok
+    !slot
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(1512)
+L_PASS:
+    !ok
+    return 0
+
+@test "sa_std thread sleep macros"():
+L_ENTRY:
+    EXPAND THREAD_SLEEP_NS 0
+    EXPAND THREAD_SLEEP_MS 0
+    EXPAND THREAD_CURRENT_ID tid
+    ok = ne tid, 0
+    !tid
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(1513)
+L_PASS:
+    !ok
+    return 0
+
+
+
+@test "sa_std thread current/yield aliases"():
+L_ENTRY:
+    EXPAND THREAD_CURRENT_ID id0
+    EXPAND THREAD_CURRENT id1
+    EXPAND THREAD_YIELD_NOW yield0
+    EXPAND THREAD_YIELD yield1
+
+    ok_id = ne id0, 0
+    ok_eq = eq id0, id1
+    ok_y0 = eq yield0, 0
+    ok_y1 = eq yield1, 0
+    ok01 = and ok_id, ok_eq
+    ok02 = and ok01, ok_y0
+    ok = and ok02, ok_y1
+
+    !id0
+    !id1
+    !yield0
+    !yield1
+    !ok_id
+    !ok_eq
+    !ok_y0
+    !ok_y1
+    !ok01
+    !ok02
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(10426)
+L_PASS:
+    !ok
+    return 0
+
+
+@test "sa_std thread sleep duration_ns alias"():
+L_ENTRY:
+    EXPAND THREAD_SLEEP_DURATION_NS 0
+    ok = eq 1, 1
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10446)
+L_OK:
+    !ok
+    return

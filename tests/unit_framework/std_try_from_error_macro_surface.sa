@@ -1,0 +1,28 @@
+@import "sa_std/num.sal"
+@import "sa_std/core/slice.sal"
+
+@test "sa_std TryFromIntError and TryFromSliceError layout constants"():
+L_ENTRY:
+    ok_tfi_size = eq TryFromIntError_SIZE, 8
+    ok_tfi_code = eq TryFromIntError_code, +0
+    ok_tfi_pos = eq TRY_FROM_INT_ERROR_POS_OVERFLOW, 0
+    ok_tfi_neg = eq TRY_FROM_INT_ERROR_NEG_OVERFLOW, 1
+
+    ok_tfs_size = eq TryFromSliceError_SIZE, 8
+    ok_tfs_code = eq TryFromSliceError_code, +0
+    ok_tfs_mismatch = eq TRY_FROM_SLICE_ERROR_LENGTH_MISMATCH, 0
+
+    c01 = and ok_tfi_size, ok_tfi_code
+    c02 = and c01, ok_tfi_pos
+    c03 = and c02, ok_tfi_neg
+    c04 = and c03, ok_tfs_size
+    c05 = and c04, ok_tfs_code
+    c06 = and c05, ok_tfs_mismatch
+
+    br c06 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10487)
+
+L_PASS:
+    return 0

@@ -101,7 +101,7 @@ L_ENTRY:
     br parse_ok -> L_KIND, L_FAIL_PARSE
 
 L_FAIL_PARSE:
-    panic(401)
+    panic(10398)
 
 L_KIND:
     kind = call @sa_json_kind(root)
@@ -112,7 +112,7 @@ L_KIND:
 L_FAIL_KIND:
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(402)
+    panic(10399)
 
 L_COUNT:
     !kind_ok
@@ -132,7 +132,7 @@ L_COUNT:
 L_FAIL_COUNT_ROOT:
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(403)
+    panic(10400)
 
 L_NAME_GET:
     !count_ok
@@ -147,7 +147,7 @@ L_FAIL_NAME_GET:
     !name_status_ok
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(404)
+    panic(10401)
 
 L_NAME_HANDLE:
     name_handle = load name_slot+0 as ptr
@@ -181,7 +181,7 @@ L_FAIL_NAME:
     !name_ok
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(406)
+    panic(10402)
 
 L_COUNT_GET:
     count2_slot = stack_alloc 8
@@ -195,7 +195,7 @@ L_FAIL_COUNT_GET:
     !count_status_ok
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(407)
+    panic(10403)
 
 L_COUNT_HANDLE:
     !count_status_ok
@@ -219,7 +219,7 @@ L_FAIL_COUNT_HANDLE:
     !count_free_res
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(405)
+    panic(10404)
 
 L_OK_GET:
     !count_ok
@@ -236,7 +236,7 @@ L_FAIL_OK_GET:
     !count_free_res
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(408)
+    panic(10405)
 
 L_OK_HANDLE:
     !ok_status_ok
@@ -263,7 +263,7 @@ L_FAIL_OK:
     !count_free_res
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(409)
+    panic(10406)
 
 L_STRINGIFY:
     !ok_ok
@@ -282,7 +282,7 @@ L_STRINGIFY:
 L_FAIL_STRINGIFY:
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(410)
+    panic(10407)
 
 L_STRINGIFY_BUFFER:
     stringify_buffer_ptr = call @sa_json_buffer_data(&stringify_buffer)
@@ -304,7 +304,7 @@ L_FAIL_STRINGIFY_COMPARE:
     !stringify_buffer_free_res
     root_free_res = call @sa_json_free(^root)
     !root_free_res
-    panic(411)
+    panic(10408)
 
 L_DONE:
     stringify_buffer_free_res = call @sa_json_buffer_free(^stringify_buffer)

@@ -10,6 +10,13 @@
 @const NET_TEST_SOCKET_V4_BAD_PORT = utf8:"127.0.0.1:65536"
 @const NET_TEST_SOCKET_V4_BAD_EMPTY_PORT = utf8:"127.0.0.1:"
 @const NET_TEST_SOCKET_V4_BAD_IPV6 = utf8:"[::1]:8080"
+@const NET_TEST_IPV6_LOOPBACK = utf8:"::1"
+@const NET_TEST_IPV6_DOC = utf8:"2001:db8::1"
+@const NET_TEST_IPV6_BAD = utf8:"::gg"
+@const NET_TEST_SOCKET_V6 = utf8:"[::1]:8080"
+@const NET_TEST_SOCKET_V6_DOC = utf8:"[2001:db8::1]:443"
+@const NET_TEST_SOCKET_V6_BAD_PORT = utf8:"[::1]:65536"
+@const NET_TEST_SOCKET_V6_BAD_UNBRACKET = utf8:"::1:8080"
 @const NET_TEST_MESSAGE = utf8:"ping"
 @const NET_TEST_UDP_MESSAGE = utf8:"pong"
 
@@ -23,6 +30,13 @@
 #def NET_TEST_SOCKET_V4_BAD_PORT_LEN = 15
 #def NET_TEST_SOCKET_V4_BAD_EMPTY_PORT_LEN = 10
 #def NET_TEST_SOCKET_V4_BAD_IPV6_LEN = 10
+#def NET_TEST_IPV6_LOOPBACK_LEN = 3
+#def NET_TEST_IPV6_DOC_LEN = 11
+#def NET_TEST_IPV6_BAD_LEN = 4
+#def NET_TEST_SOCKET_V6_LEN = 10
+#def NET_TEST_SOCKET_V6_DOC_LEN = 17
+#def NET_TEST_SOCKET_V6_BAD_PORT_LEN = 11
+#def NET_TEST_SOCKET_V6_BAD_UNBRACKET_LEN = 8
 #def NET_TEST_MESSAGE_LEN = 4
 #def NET_TEST_TIMEOUT_NS = 100000000
 
@@ -40,7 +54,7 @@ L_FAIL_RESOLVE:
     !resolve_status_ok
     !resolved_addr
     !resolve_status
-    panic(929)
+    panic(10078)
 
 L_CHECK:
     fmt_buf = stack_alloc 32
@@ -115,7 +129,7 @@ L_CHECK:
 L_FAIL_FIELDS:
     !ok
     !free_ok
-    panic(928)
+    panic(10079)
 
 L_PASS:
     !ok
@@ -210,7 +224,7 @@ L_ENTRY:
 
 L_IPV4_PARSE_FAIL:
     !ok
-    panic(927)
+    panic(10080)
 
 L_IPV4_PARSE_PASS:
     !ok
@@ -299,7 +313,7 @@ L_ENTRY:
 
 L_SOCKET_V4_PARSE_FAIL:
     !ok
-    panic(926)
+    panic(10081)
 
 L_SOCKET_V4_PARSE_PASS:
     !ok
@@ -406,7 +420,7 @@ L_ENTRY:
 
 L_IPADDR_PARSE_FAIL:
     !ok
-    panic(925)
+    panic(10082)
 
 L_IPADDR_PARSE_PASS:
     !ok
@@ -429,7 +443,7 @@ L_ENTRY:
     EXPAND NET_IPV4_OCTETS ip_a, ip_b, ip_c, ip_d, ipv4
     EXPAND NET_SOCKET_ADDR_PARSE_ASCII alias_ok, alias_addr, NET_TEST_SOCKET_V4_MAX, NET_TEST_SOCKET_V4_MAX_LEN
     EXPAND NET_SOCKET_ADDR_PORT alias_port, alias_addr
-    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII bad_ok, bad_addr, NET_TEST_SOCKET_V4_BAD_IPV6, NET_TEST_SOCKET_V4_BAD_IPV6_LEN
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII bad_ok, bad_addr, NET_TEST_SOCKET_V6_BAD_PORT, NET_TEST_SOCKET_V6_BAD_PORT_LEN
 
     ok_parse = eq parse_ok, 1
     ok_is_v4 = eq is_v4, 1
@@ -499,7 +513,7 @@ L_ENTRY:
 
 L_SOCKET_ADDR_PARSE_FAIL:
     !ok
-    panic(924)
+    panic(10083)
 
 L_SOCKET_ADDR_PARSE_PASS:
     !ok
@@ -524,7 +538,7 @@ L_FAIL_BIND:
     !bound_port
     !listener
     !bind_status
-    panic(930)
+    panic(10084)
 
 L_ADDR:
     !bind_ok
@@ -549,7 +563,7 @@ L_FAIL_ADDR:
     !bound_port
     !listener
     !bind_status
-    panic(931)
+    panic(10085)
 
 L_ADDR_CHECK:
     !addr_ok
@@ -602,7 +616,7 @@ L_FAIL_ADDR_FIELDS:
     !bound_port
     !listener
     !bind_status
-    panic(932)
+    panic(10086)
 
 L_CONNECT:
     EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
@@ -631,7 +645,7 @@ L_FAIL_CONNECT:
     !bound_port
     !listener
     !bind_status
-    panic(933)
+    panic(10087)
 
 L_ACCEPT:
     EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
@@ -666,7 +680,7 @@ L_FAIL_ACCEPT:
     !bound_port
     !listener
     !bind_status
-    panic(934)
+    panic(10088)
 
 L_OPTIONS:
     EXPAND NET_TCP_STREAM_SET_NODELAY nodelay_status, client, SA_NET_SOCKET_OPTION_ENABLE
@@ -794,7 +808,7 @@ L_FAIL_WRITE:
     !bound_port
     !listener
     !bind_status
-    panic(936)
+    panic(10089)
 
 L_PEEK_READ:
     peek_buf = alloc NET_TEST_MESSAGE_LEN
@@ -1377,7 +1391,7 @@ L_INCOMING_FAIL_WRAP:
     !bound_port
     !listener
     !bind_status
-    panic(963)
+    panic(967)
 
 L_INCOMING_CONNECT:
     EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
@@ -1602,7 +1616,7 @@ L_UDP_FAIL_OPTIONS:
     !bind_status_ok
     !socket
     !bind_status
-    panic(940)
+    panic(10090)
 
 L_UDP_SEND:
     EXPAND NET_UDP_SEND_TO send_status, send_len, socket, NET_TEST_UDP_MESSAGE, NET_TEST_MESSAGE_LEN, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, local_port
@@ -1652,7 +1666,7 @@ L_UDP_FAIL_SEND:
     !bind_status_ok
     !socket
     !bind_status
-    panic(941)
+    panic(10091)
 
 L_UDP_RECV:
     recv_buf = alloc NET_TEST_MESSAGE_LEN
@@ -1758,7 +1772,7 @@ L_UDP_RECV:
 
 L_UDP_FAIL_DONE:
     !ok
-    panic(942)
+    panic(10092)
 
 L_UDP_OK:
     !ok
@@ -1919,7 +1933,7 @@ L_FAIL:
     !as_status
     !socket
     !bind_status
-    panic(964)
+    panic(968)
 
 L_OK:
     !ok
@@ -2021,7 +2035,7 @@ L_FAIL_TCP_BIND:
     !bound_port
     !listener
     !bind_status
-    panic(943)
+    panic(10093)
 
 L_TCP_CONNECT:
     !bind_ok
@@ -2046,7 +2060,7 @@ L_FAIL_TCP_CONNECT:
     !bound_port
     !listener
     !bind_status
-    panic(944)
+    panic(10094)
 
 L_TCP_ACCEPT:
     EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
@@ -2076,7 +2090,7 @@ L_FAIL_TCP_ACCEPT:
     !bound_port
     !listener
     !bind_status
-    panic(945)
+    panic(10095)
 
 L_TCP_ADDR:
     EXPAND NET_TCP_STREAM_LOCAL_ADDR local_status, local_addr, client
@@ -2113,7 +2127,7 @@ L_FAIL_TCP_ADDR:
     !bound_port
     !listener
     !bind_status
-    panic(946)
+    panic(10096)
 
 L_TCP_ADDR_CHECK:
     EXPAND NET_ADDR_PORT local_port, local_addr
@@ -2174,7 +2188,7 @@ L_FAIL_TCP_DONE:
     !bound_port
     !listener
     !bind_status
-    panic(947)
+    panic(10097)
 
 L_UDP_BIND:
     !close_ok
@@ -2227,7 +2241,7 @@ L_FAIL_UDP_BIND:
     !udp_socket
     !udp_bind_status
     !tcp_ok
-    panic(948)
+    panic(10098)
 
 L_UDP_LOCAL:
     EXPAND NET_UDP_LOCAL_ADDR udp_local_status, udp_local_addr, udp_socket
@@ -2250,7 +2264,7 @@ L_FAIL_UDP_LOCAL:
     !udp_socket
     !udp_bind_status
     !tcp_ok
-    panic(949)
+    panic(10099)
 
 L_UDP_CONNECT:
     EXPAND NET_ADDR_PORT udp_local_port, udp_local_addr
@@ -2285,7 +2299,7 @@ L_FAIL_UDP_CONNECT:
     !udp_socket
     !udp_bind_status
     !tcp_ok
-    panic(950)
+    panic(10100)
 
 L_UDP_PEER:
     EXPAND NET_UDP_PEER_ADDR udp_peer_status, udp_peer_addr, udp_socket
@@ -2345,7 +2359,7 @@ L_FAIL_DONE:
     !udp_socket
     !udp_bind_status
     !tcp_ok
-    panic(951)
+    panic(10101)
 
 L_OK:
     !ok
@@ -2406,7 +2420,7 @@ L_FAIL_BIND:
     !bound_port
     !listener
     !bind_status
-    panic(952)
+    panic(10102)
 
 L_LISTENER_OPTIONS:
     EXPAND NET_TCP_LISTENER_SET_NONBLOCKING listener_nonblock_status, listener, SA_NET_SOCKET_OPTION_DISABLE
@@ -2450,7 +2464,7 @@ L_FAIL_LISTENER_OPTIONS:
     !bound_port
     !listener
     !bind_status
-    panic(953)
+    panic(10103)
 
 L_CONNECT:
     EXPAND NET_TCP_CONNECT connect_status, client, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, bound_port
@@ -2472,7 +2486,7 @@ L_FAIL_CONNECT:
     !bound_port
     !listener
     !bind_status
-    panic(954)
+    panic(10104)
 
 L_ACCEPT:
     EXPAND NET_TCP_LISTENER_ACCEPT accept_status, server, listener
@@ -2975,3 +2989,358 @@ L_OK:
     !udp_ok
     !tcp_ok
     return
+
+@test "sa_std net ipv6 parse_ascii macro surface"():
+L_ENTRY:
+    parsed_addr = alloc NetIpv6Addr_SIZE
+    doc_addr = alloc NetIpv6Addr_SIZE
+    bad_addr = alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_TRY_PARSE_ASCII parse_ok, parsed_addr, NET_TEST_IPV6_LOOPBACK, NET_TEST_IPV6_LOOPBACK_LEN
+    EXPAND NET_IPV6_SEGMENTS s0, s1, s2, s3, s4, s5, s6, s7, parsed_addr
+    EXPAND NET_IPV6_PARSE_ASCII doc_ok, doc_addr, NET_TEST_IPV6_DOC, NET_TEST_IPV6_DOC_LEN
+    EXPAND NET_IPV6_SEGMENTS d0, d1, d2, d3, d4, d5, d6, d7, doc_addr
+    EXPAND NET_IPV6_TRY_PARSE_ASCII bad_ok, bad_addr, NET_TEST_IPV6_BAD, NET_TEST_IPV6_BAD_LEN
+
+    ok_parse = eq parse_ok, 1
+    ok_s0 = eq s0, 0
+    ok_s1 = eq s1, 0
+    ok_s2 = eq s2, 0
+    ok_s3 = eq s3, 0
+    ok_s4 = eq s4, 0
+    ok_s5 = eq s5, 0
+    ok_s6 = eq s6, 0
+    ok_s7 = eq s7, 1
+    ok_doc = eq doc_ok, 1
+    ok_d0 = eq d0, 8193
+    ok_d1 = eq d1, 3512
+    ok_d2 = eq d2, 0
+    ok_d3 = eq d3, 0
+    ok_d4 = eq d4, 0
+    ok_d5 = eq d5, 0
+    ok_d6 = eq d6, 0
+    ok_d7 = eq d7, 1
+    ok_bad = eq bad_ok, 0
+
+    ok01 = and ok_parse, ok_s0
+    ok02 = and ok01, ok_s1
+    ok03 = and ok02, ok_s2
+    ok04 = and ok03, ok_s3
+    ok05 = and ok04, ok_s4
+    ok06 = and ok05, ok_s5
+    ok07 = and ok06, ok_s6
+    ok08 = and ok07, ok_s7
+    ok09 = and ok08, ok_doc
+    ok10 = and ok09, ok_d0
+    ok11 = and ok10, ok_d1
+    ok12 = and ok11, ok_d2
+    ok13 = and ok12, ok_d3
+    ok14 = and ok13, ok_d4
+    ok15 = and ok14, ok_d5
+    ok16 = and ok15, ok_d6
+    ok17 = and ok16, ok_d7
+    ok = and ok17, ok_bad
+
+    !ok_parse
+    !ok_s0
+    !ok_s1
+    !ok_s2
+    !ok_s3
+    !ok_s4
+    !ok_s5
+    !ok_s6
+    !ok_s7
+    !ok_doc
+    !ok_d0
+    !ok_d1
+    !ok_d2
+    !ok_d3
+    !ok_d4
+    !ok_d5
+    !ok_d6
+    !ok_d7
+    !ok_bad
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    !ok17
+    !parse_ok
+    !s0
+    !s1
+    !s2
+    !s3
+    !s4
+    !s5
+    !s6
+    !s7
+    !doc_ok
+    !d0
+    !d1
+    !d2
+    !d3
+    !d4
+    !d5
+    !d6
+    !d7
+    !bad_ok
+    !bad_addr
+    !doc_addr
+    !parsed_addr
+    br ok -> L_IPV6_PARSE_PASS, L_IPV6_PARSE_FAIL
+
+L_IPV6_PARSE_FAIL:
+    !ok
+    panic(969)
+
+L_IPV6_PARSE_PASS:
+    !ok
+    return 0
+
+@test "sa_std net socketaddr v6 parse_ascii macro surface"():
+L_ENTRY:
+    socket_addr = alloc NetSocketAddrV6_SIZE
+    doc_addr = alloc NetSocketAddrV6_SIZE
+    bad_port_addr = alloc NetSocketAddrV6_SIZE
+    bad_unbracket_addr = alloc NetSocketAddrV6_SIZE
+    ip = alloc NetIpv6Addr_SIZE
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII socket_ok, socket_addr, NET_TEST_SOCKET_V6, NET_TEST_SOCKET_V6_LEN
+    EXPAND NET_SOCKET_ADDR_V6_PORT port, socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_SCOPE_ID scope_id, socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_IP ip, socket_addr
+    EXPAND NET_IPV6_SEGMENTS s0, s1, s2, s3, s4, s5, s6, s7, ip
+    EXPAND NET_SOCKET_ADDR_V6_PARSE_ASCII doc_ok, doc_addr, NET_TEST_SOCKET_V6_DOC, NET_TEST_SOCKET_V6_DOC_LEN
+    EXPAND NET_SOCKET_ADDR_V6_PORT doc_port, doc_addr
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII bad_port_ok, bad_port_addr, NET_TEST_SOCKET_V6_BAD_PORT, NET_TEST_SOCKET_V6_BAD_PORT_LEN
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII bad_unbracket_ok, bad_unbracket_addr, NET_TEST_SOCKET_V6_BAD_UNBRACKET, NET_TEST_SOCKET_V6_BAD_UNBRACKET_LEN
+
+    ok_socket = eq socket_ok, 1
+    ok_port = eq port, 8080
+    ok_scope = eq scope_id, 0
+    ok_s0 = eq s0, 0
+    ok_s1 = eq s1, 0
+    ok_s2 = eq s2, 0
+    ok_s3 = eq s3, 0
+    ok_s4 = eq s4, 0
+    ok_s5 = eq s5, 0
+    ok_s6 = eq s6, 0
+    ok_s7 = eq s7, 1
+    ok_doc = eq doc_ok, 1
+    ok_doc_port = eq doc_port, 443
+    ok_bad_port = eq bad_port_ok, 0
+    ok_bad_unbracket = eq bad_unbracket_ok, 0
+
+    ok01 = and ok_socket, ok_port
+    ok02 = and ok01, ok_scope
+    ok03 = and ok02, ok_s0
+    ok04 = and ok03, ok_s1
+    ok05 = and ok04, ok_s2
+    ok06 = and ok05, ok_s3
+    ok07 = and ok06, ok_s4
+    ok08 = and ok07, ok_s5
+    ok09 = and ok08, ok_s6
+    ok10 = and ok09, ok_s7
+    ok11 = and ok10, ok_doc
+    ok12 = and ok11, ok_doc_port
+    ok13 = and ok12, ok_bad_port
+    ok = and ok13, ok_bad_unbracket
+
+    !ok_socket
+    !ok_port
+    !ok_scope
+    !ok_s0
+    !ok_s1
+    !ok_s2
+    !ok_s3
+    !ok_s4
+    !ok_s5
+    !ok_s6
+    !ok_s7
+    !ok_doc
+    !ok_doc_port
+    !ok_bad_port
+    !ok_bad_unbracket
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !socket_ok
+    !port
+    !scope_id
+    !s0
+    !s1
+    !s2
+    !s3
+    !s4
+    !s5
+    !s6
+    !s7
+    !doc_ok
+    !doc_port
+    !bad_port_ok
+    !bad_unbracket_ok
+    !ip
+    !bad_unbracket_addr
+    !bad_port_addr
+    !doc_addr
+    !socket_addr
+    br ok -> L_SOCKET_V6_PARSE_PASS, L_SOCKET_V6_PARSE_FAIL
+
+L_SOCKET_V6_PARSE_FAIL:
+    !ok
+    panic(10105)
+
+L_SOCKET_V6_PARSE_PASS:
+    !ok
+    return 0
+
+@test "sa_std net ipaddr parse_ascii ipv6 subset"():
+L_ENTRY:
+    ipaddr = alloc NetIpAddr_SIZE
+    bad_ipaddr = alloc NetIpAddr_SIZE
+    payload = alloc NetIpv6Addr_SIZE
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII parse_ok, ipaddr, NET_TEST_IPV6_LOOPBACK, NET_TEST_IPV6_LOOPBACK_LEN
+    EXPAND NET_IP_ADDR_IS_IPV4 is_v4, ipaddr
+    EXPAND NET_IP_ADDR_IS_IPV6 is_v6, ipaddr
+    EXPAND NET_IP_ADDR_TO_IPV6 to_v6_ok, payload, ipaddr
+    EXPAND NET_IPV6_SEGMENTS s0, s1, s2, s3, s4, s5, s6, s7, payload
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII bad_ok, bad_ipaddr, NET_TEST_SOCKET_V6, NET_TEST_SOCKET_V6_LEN
+
+    ok_parse = eq parse_ok, 1
+    ok_is_v4 = eq is_v4, 0
+    ok_is_v6 = eq is_v6, 1
+    ok_to_v6 = eq to_v6_ok, 1
+    ok_s0 = eq s0, 0
+    ok_s7 = eq s7, 1
+    ok_bad = eq bad_ok, 0
+
+    ok01 = and ok_parse, ok_is_v4
+    ok02 = and ok01, ok_is_v6
+    ok03 = and ok02, ok_to_v6
+    ok04 = and ok03, ok_s0
+    ok05 = and ok04, ok_s7
+    ok = and ok05, ok_bad
+
+    !ok_parse
+    !ok_is_v4
+    !ok_is_v6
+    !ok_to_v6
+    !ok_s0
+    !ok_s7
+    !ok_bad
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !parse_ok
+    !is_v4
+    !is_v6
+    !to_v6_ok
+    !s0
+    !s1
+    !s2
+    !s3
+    !s4
+    !s5
+    !s6
+    !s7
+    !bad_ok
+    !payload
+    !bad_ipaddr
+    !ipaddr
+    br ok -> L_IPADDR_V6_PARSE_PASS, L_IPADDR_V6_PARSE_FAIL
+
+L_IPADDR_V6_PARSE_FAIL:
+    !ok
+    panic(10106)
+
+L_IPADDR_V6_PARSE_PASS:
+    !ok
+    return 0
+
+@test "sa_std net socketaddr parse_ascii ipv6 subset"():
+L_ENTRY:
+    socket_addr = alloc NetSocketAddr_SIZE
+    ipaddr = alloc NetIpAddr_SIZE
+    ipv6 = alloc NetIpv6Addr_SIZE
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII parse_ok, socket_addr, NET_TEST_SOCKET_V6, NET_TEST_SOCKET_V6_LEN
+    EXPAND NET_SOCKET_ADDR_IS_IPV4 is_v4, socket_addr
+    EXPAND NET_SOCKET_ADDR_IS_IPV6 is_v6, socket_addr
+    EXPAND NET_SOCKET_ADDR_PORT port, socket_addr
+    EXPAND NET_SOCKET_ADDR_IP ipaddr, socket_addr
+    EXPAND NET_IP_ADDR_TO_IPV6 to_v6_ok, ipv6, ipaddr
+    EXPAND NET_IPV6_SEGMENTS s0, s1, s2, s3, s4, s5, s6, s7, ipv6
+
+    ok_parse = eq parse_ok, 1
+    ok_is_v4 = eq is_v4, 0
+    ok_is_v6 = eq is_v6, 1
+    ok_port = eq port, 8080
+    ok_to_v6 = eq to_v6_ok, 1
+    ok_s0 = eq s0, 0
+    ok_s7 = eq s7, 1
+
+    ok01 = and ok_parse, ok_is_v4
+    ok02 = and ok01, ok_is_v6
+    ok03 = and ok02, ok_port
+    ok04 = and ok03, ok_to_v6
+    ok05 = and ok04, ok_s0
+    ok = and ok05, ok_s7
+
+    !ok_parse
+    !ok_is_v4
+    !ok_is_v6
+    !ok_port
+    !ok_to_v6
+    !ok_s0
+    !ok_s7
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !parse_ok
+    !is_v4
+    !is_v6
+    !port
+    !to_v6_ok
+    !s0
+    !s1
+    !s2
+    !s3
+    !s4
+    !s5
+    !s6
+    !s7
+    !ipv6
+    !ipaddr
+    !socket_addr
+    br ok -> L_SOCKET_ADDR_V6_ENUM_PARSE_PASS, L_SOCKET_ADDR_V6_ENUM_PARSE_FAIL
+
+L_SOCKET_ADDR_V6_ENUM_PARSE_FAIL:
+    !ok
+    panic(10107)
+
+L_SOCKET_ADDR_V6_ENUM_PARSE_PASS:
+    !ok
+    return 0

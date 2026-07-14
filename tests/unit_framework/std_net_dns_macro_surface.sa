@@ -25,7 +25,7 @@ L_FAIL:
     !listener_ok
     !bind_ok
     !listener
-    panic(940)
+    panic(10074)
 
 L_CLOSE:
     EXPAND NET_TCP_LISTENER_CLOSE close_status, listener
@@ -47,7 +47,7 @@ L_FAIL:
     !socket_ok
     !bind_ok
     !socket
-    panic(941)
+    panic(10075)
 
 L_CLOSE:
     EXPAND NET_UDP_CLOSE close_status, socket

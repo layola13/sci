@@ -86,6 +86,7 @@ L_ENTRY:
     ok_u64_less = eq u64_less, CMP_ORDERING_LESS
     ok_u64_equal = eq u64_equal, CMP_ORDERING_EQUAL
     ok_u64_greater = eq u64_greater, CMP_ORDERING_GREATER
+    ok_ordering_default = eq CMP_ORDERING_DEFAULT_VALUE, CMP_ORDERING_EQUAL
     ok_u64_less_is_lt = eq u64_less_is_lt, 1
     ok_u64_equal_is_eq = eq u64_equal_is_eq, 1
     ok_u64_greater_is_gt = eq u64_greater_is_gt, 1
@@ -127,7 +128,8 @@ L_ENTRY:
 
     ok01 = and ok_u64_less, ok_u64_equal
     ok02 = and ok01, ok_u64_greater
-    ok03 = and ok02, ok_u64_less_is_lt
+    ok02a = and ok02, ok_ordering_default
+    ok03 = and ok02a, ok_u64_less_is_lt
     ok04 = and ok03, ok_u64_equal_is_eq
     ok05 = and ok04, ok_u64_greater_is_gt
     ok05a = and ok05, ok_u64_less_is_ne
@@ -212,6 +214,7 @@ L_ENTRY:
     !ok_u64_less
     !ok_u64_equal
     !ok_u64_greater
+    !ok_ordering_default
     !ok_u64_less_is_lt
     !ok_u64_equal_is_eq
     !ok_u64_greater_is_gt
@@ -252,6 +255,7 @@ L_ENTRY:
     !ok_try_clamp_i64_bad_value
     !ok01
     !ok02
+    !ok02a
     !ok03
     !ok04
     !ok05

@@ -7,6 +7,11 @@
     store %out_arc+ArcBox_data, %value as u64
 [END_MACRO]
 
+// Rust-style Default for concrete Arc<u64>: Arc::new(0).
+[MACRO] ARC_DEFAULT_U64 %out_arc
+    EXPAND ARC_NEW %out_arc, 0
+[END_MACRO]
+
 [MACRO] ARC_CLONE %arc_reg
     __arc_old_strong_%arc_reg = atomic_rmw_add %arc_reg+ArcBox_strong, 1 as u64 acq_rel
     __arc_strong_overflow_%arc_reg = eq __arc_old_strong_%arc_reg, NUM_U64_MAX
@@ -156,6 +161,11 @@ L_ARC_WEAK_CLONE_OK_%weak_reg:
     store %out_weak+ArcBox_strong, 0 as u64
     store %out_weak+ArcBox_weak, 1 as u64
     store %out_weak+ArcBox_data, 0 as u64
+[END_MACRO]
+
+// Rust-style Default alias for Weak::new().
+[MACRO] ARC_WEAK_DEFAULT %out_weak
+    EXPAND ARC_WEAK_NEW %out_weak
 [END_MACRO]
 
 [MACRO] ARC_WEAK_STRONG_COUNT %out_count, %weak_reg

@@ -177,8 +177,237 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(997)
+    panic(10171)
 
 L_PASS:
     !ok
     return 0
+
+@test "sa_std once lazy lock aliases"():
+L_ENTRY:
+    EXPAND LAZY_LOCK_NEW lazy
+    EXPAND LAZY_LOCK_IS_READY ready0, lazy
+    ready0_ok = eq ready0, 0
+    EXPAND LAZY_LOCK_GET get0_ok, get0_val, lazy
+    get0_ok_ok = eq get0_ok, 0
+    EXPAND LAZY_LOCK_FORCE forced, lazy, @init_once_value
+    forced_ok = eq forced, 77
+    EXPAND LAZY_LOCK_IS_READY ready1, lazy
+    ready1_ok = eq ready1, 1
+    EXPAND LAZY_LOCK_GET get1_ok, get1_val, lazy
+    get1_ok_ok = eq get1_ok, 1
+    get1_val_ok = eq get1_val, 77
+    EXPAND LAZY_LOCK_FORCE forced2, lazy, @init_once_value_alt
+    forced2_ok = eq forced2, 77
+    EXPAND LAZY_LOCK_INTO_INNER inner_ok, inner_val, lazy
+    inner_ok_ok = eq inner_ok, 1
+    inner_val_ok = eq inner_val, 77
+
+    ok = and ready0_ok, get0_ok_ok
+    ok = and ok, forced_ok
+    ok = and ok, ready1_ok
+    ok = and ok, get1_ok_ok
+    ok = and ok, get1_val_ok
+    ok = and ok, forced2_ok
+    ok = and ok, inner_ok_ok
+    ok = and ok, inner_val_ok
+
+    !ready0
+    !get0_ok
+    !get0_val
+    !forced
+    !ready1
+    !get1_ok
+    !get1_val
+    !forced2
+    !inner_ok
+    !inner_val
+    !ready0_ok
+    !get0_ok_ok
+    !forced_ok
+    !ready1_ok
+    !get1_ok_ok
+    !get1_val_ok
+    !forced2_ok
+    !inner_ok_ok
+    !inner_val_ok
+    br ok -> L_LAZY_OK, L_LAZY_FAIL
+
+L_LAZY_FAIL:
+    !ok
+    panic(10172)
+
+L_LAZY_OK:
+    !ok
+    return
+
+@test "sa_std sync once_lock aliases"():
+L_ENTRY:
+    EXPAND ONCE_LOCK_NEW lock
+    EXPAND ONCE_LOCK_IS_READY ready0, lock
+    EXPAND ONCE_LOCK_TRY_GET try0_ok, try0_val, lock
+    EXPAND ONCE_LOCK_SET set_ok, lock, 55
+    EXPAND ONCE_LOCK_IS_READY ready1, lock
+    EXPAND ONCE_LOCK_GET got, lock
+    EXPAND ONCE_LOCK_GET_OR_INIT forced, lock, @init_once_value
+    EXPAND ONCE_LOCK_TAKE take_ok, take_val, lock
+    EXPAND ONCE_LOCK_TRY_GET try1_ok, try1_val, lock
+
+    ok_ready0 = eq ready0, 0
+    ok_try0 = eq try0_ok, 0
+    ok_set = eq set_ok, 1
+    ok_ready1 = eq ready1, 1
+    ok_got = eq got, 55
+    ok_forced = eq forced, 55
+    ok_take_flag = eq take_ok, 1
+    ok_take_val = eq take_val, 55
+    ok_try1 = eq try1_ok, 0
+
+    ok01 = and ok_ready0, ok_try0
+    ok02 = and ok01, ok_set
+    ok03 = and ok02, ok_ready1
+    ok04 = and ok03, ok_got
+    ok05 = and ok04, ok_forced
+    ok06 = and ok05, ok_take_flag
+    ok07 = and ok06, ok_take_val
+    ok = and ok07, ok_try1
+
+    !ready0
+    !try0_ok
+    !try0_val
+    !set_ok
+    !ready1
+    !got
+    !forced
+    !take_ok
+    !take_val
+    !try1_ok
+    !try1_val
+    !ok_ready0
+    !ok_try0
+    !ok_set
+    !ok_ready1
+    !ok_got
+    !ok_forced
+    !ok_take_flag
+    !ok_take_val
+    !ok_try1
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !lock
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10411)
+L_OK:
+    !ok
+    return
+
+@test "sa_std sync once default alias"():
+L_ENTRY:
+    EXPAND ONCE_DEFAULT once
+    EXPAND ONCE_IS_READY ready0, once
+    EXPAND ONCE_TRY_GET try0_ok, try0_val, once
+    EXPAND ONCE_SET set_ok, once, 11
+    EXPAND ONCE_IS_READY ready1, once
+    EXPAND ONCE_GET got, once
+    EXPAND ONCE_SET set_again, once, 22
+
+    ok0 = eq ready0, 0
+    ok1 = eq try0_ok, 0
+    ok2 = eq set_ok, 1
+    ok3 = eq ready1, 1
+    ok4 = eq got, 11
+    ok5 = eq set_again, 0
+    ok01 = and ok0, ok1
+    ok02 = and ok01, ok2
+    ok03 = and ok02, ok3
+    ok04 = and ok03, ok4
+    ok = and ok04, ok5
+
+    !ready0
+    !try0_ok
+    !try0_val
+    !set_ok
+    !ready1
+    !got
+    !set_again
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !once
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10421)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std sync once_lock/lazy_lock default aliases"():
+L_ENTRY:
+    EXPAND ONCE_LOCK_DEFAULT lock
+    EXPAND LAZY_LOCK_DEFAULT lazy
+    EXPAND ONCE_LOCK_IS_READY lock_ready0, lock
+    EXPAND LAZY_LOCK_IS_READY lazy_ready0, lazy
+    EXPAND ONCE_LOCK_SET lock_set, lock, 7
+    EXPAND LAZY_LOCK_FORCE lazy_val, lazy, @init_once_value
+    EXPAND ONCE_LOCK_IS_READY lock_ready1, lock
+    EXPAND LAZY_LOCK_IS_READY lazy_ready1, lazy
+    EXPAND ONCE_LOCK_GET lock_got, lock
+
+    ok0 = eq lock_ready0, 0
+    ok1 = eq lazy_ready0, 0
+    ok2 = eq lock_set, 1
+    ok3 = eq lazy_val, 77
+    ok4 = eq lock_ready1, 1
+    ok5 = eq lazy_ready1, 1
+    ok6 = eq lock_got, 7
+    ok01 = and ok0, ok1
+    ok02 = and ok01, ok2
+    ok03 = and ok02, ok3
+    ok04 = and ok03, ok4
+    ok05 = and ok04, ok5
+    ok = and ok05, ok6
+
+    !lock_ready0
+    !lazy_ready0
+    !lock_set
+    !lazy_val
+    !lock_ready1
+    !lazy_ready1
+    !lock_got
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !lock
+    !lazy
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10441)
+L_OK:
+    !ok
+    return

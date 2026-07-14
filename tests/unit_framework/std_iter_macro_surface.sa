@@ -294,7 +294,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(940)
+    panic(10056)
 
 L_PASS:
     !all
@@ -529,7 +529,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(943)
+    panic(10057)
 
 L_PASS:
     !all
@@ -801,7 +801,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(941)
+    panic(10058)
 
 L_PASS:
     !all
@@ -913,7 +913,7 @@ L_ENTRY:
 
 L_FIND_MAP_FAIL:
     !all
-    panic(946)
+    panic(10059)
 
 L_FIND_MAP_PASS:
     !all
@@ -1092,7 +1092,7 @@ L_ENTRY:
 
 L_EAGER_COLLECT_FAIL:
     !all
-    panic(947)
+    panic(10060)
 
 L_EAGER_COLLECT_PASS:
     !all
@@ -1276,7 +1276,7 @@ L_ENTRY:
 
 L_COLLECT_FAIL:
     !all
-    panic(948)
+    panic(10061)
 
 L_COLLECT_PASS:
     !all
@@ -1449,7 +1449,7 @@ L_ENTRY:
 
 L_REV_WHILE_FAIL:
     !all
-    panic(950)
+    panic(10062)
 
 L_REV_WHILE_PASS:
     !all
@@ -1692,7 +1692,7 @@ L_ENTRY:
 
 L_ENUM_ZIP_CHAIN_FAIL:
     !all
-    panic(949)
+    panic(10063)
 
 L_ENUM_ZIP_CHAIN_PASS:
     !all
@@ -1801,7 +1801,7 @@ L_ENTRY:
 
 L_TRY_ADAPTORS_FAIL:
     !all
-    panic(945)
+    panic(10064)
 
 L_TRY_ADAPTORS_PASS:
     !all
@@ -2161,7 +2161,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(942)
+    panic(10065)
 
 L_PASS:
     !all

@@ -124,8 +124,49 @@ L_ENTRY:
 
 L_FAIL:
     !ok
-    panic(999)
+    panic(10218)
 
 L_PASS:
     !ok
     return 0
+
+@test "sa_std sync rwlock default alias"():
+L_ENTRY:
+    EXPAND RWLOCK_DEFAULT lock
+    EXPAND RWLOCK_IS_UNLOCKED unlocked0, lock
+    EXPAND RWLOCK_TRY_WRITE_NOERR write_ok, write_guard, lock
+    EXPAND RWLOCK_IS_WRITING writing1, lock
+    EXPAND RWLOCK_RELEASE_WRITE lock
+    EXPAND RWLOCK_IS_UNLOCKED unlocked1, lock
+
+    ok0 = eq unlocked0, 1
+    ok1 = eq write_ok, 1
+    ok2 = eq writing1, 1
+    ok3 = eq unlocked1, 1
+    write_guard_eq = eq write_guard, lock
+    ok01 = and ok0, ok1
+    ok02 = and ok01, ok2
+    ok03 = and ok02, ok3
+    ok = and ok03, write_guard_eq
+
+    !unlocked0
+    !write_ok
+    !write_guard
+    !writing1
+    !unlocked1
+    !write_guard_eq
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok01
+    !ok02
+    !ok03
+    !lock
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10420)
+L_OK:
+    !ok
+    return

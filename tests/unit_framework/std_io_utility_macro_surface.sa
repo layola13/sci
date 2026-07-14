@@ -1,5 +1,16 @@
 @import "sa_std/io.sa"
+@import "sa_std/fs.sa"
+@import "sa_std/string.sa"
 @import "sa_std/testing/assert.sai"
+
+@const IO_COPY_SRC = utf8:"_tmp_io_copy_src.txt"
+@const IO_COPY_N_SRC = utf8:"_tmp_io_copy_n_src.txt"
+@const IO_COPY_N_DST = utf8:"_tmp_io_copy_n_dst.txt"
+@const IO_COPY_N_PAYLOAD = utf8:"abcdefg"
+@const IO_COPY_DST = utf8:"_tmp_io_copy_dst.txt"
+@const IO_COPY_PAYLOAD = utf8:"copy-me"
+@const IO_HANDLE_SRC = utf8:"_tmp_io_handle_src.txt"
+@const IO_HANDLE_PAYLOAD = utf8:"handle!"
 
 @test "sa_std io stdio raw fd macro surface"():
 L_ENTRY:
@@ -828,3 +839,277 @@ L_FAIL:
 
 L_PASS:
     return 0
+
+@test "sa_std io copy handle macros"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_src0, &IO_COPY_SRC, 20
+    EXPAND FS_REMOVE_PATH cleanup_dst0, &IO_COPY_DST, 20
+    EXPAND FS_WRITE_FILE write_status, &IO_COPY_SRC, 20, &IO_COPY_PAYLOAD, 7
+    EXPAND FS_OPEN_READ open_src_status, src_file, &IO_COPY_SRC, 20
+    EXPAND FS_OPEN_WRITE open_dst_status, dst_file, &IO_COPY_DST, 20, 1
+    EXPAND IO_COPY copy_status, copy_total, src_file, dst_file
+    EXPAND FS_CLOSE close_src_status, src_file
+    EXPAND FS_CLOSE close_dst_status, dst_file
+    EXPAND FS_READ_FILE read_status, read_buf, &IO_COPY_DST, 20, 64
+    EXPAND FS_READ_BUFFER_LEN read_len, read_buf
+    EXPAND FS_READ_BUFFER_DATA read_ptr, read_buf
+    EXPAND STR_FROM_PARTS read_view, read_ptr, read_len
+    EXPAND STR_FROM_PARTS expect_view, &IO_COPY_PAYLOAD, 7
+    EXPAND STR_EQ read_eq, read_view, expect_view
+    EXPAND FS_READ_BUFFER_FREE free_status, read_buf
+    EXPAND FS_REMOVE_PATH cleanup_src1, &IO_COPY_SRC, 20
+    EXPAND FS_REMOVE_PATH cleanup_dst1, &IO_COPY_DST, 20
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_open_src = eq open_src_status, SA_FS_OK
+    ok_open_dst = eq open_dst_status, SA_FS_OK
+    ok_copy_status = eq copy_status, SA_IO_OK
+    ok_copy_total = eq copy_total, 7
+    ok_close_src = eq close_src_status, SA_FS_OK
+    ok_close_dst = eq close_dst_status, SA_FS_OK
+    ok_read_status = eq read_status, SA_FS_OK
+    ok_read_len = eq read_len, 7
+    ok_read_eq = eq read_eq, 1
+    ok_free = eq free_status, SA_FS_OK
+
+    ok01 = and ok_write, ok_open_src
+    ok02 = and ok01, ok_open_dst
+    ok03 = and ok02, ok_copy_status
+    ok04 = and ok03, ok_copy_total
+    ok05 = and ok04, ok_close_src
+    ok06 = and ok05, ok_close_dst
+    ok07 = and ok06, ok_read_status
+    ok08 = and ok07, ok_read_len
+    ok09 = and ok08, ok_read_eq
+    ok = and ok09, ok_free
+
+    !cleanup_src0
+    !cleanup_dst0
+    !write_status
+    !open_src_status
+    !open_dst_status
+    !copy_status
+    !copy_total
+    !close_src_status
+    !close_dst_status
+    !read_status
+    !read_len
+    !read_ptr
+    !read_eq
+    !free_status
+    !cleanup_src1
+    !cleanup_dst1
+    !read_view
+    !expect_view
+    !ok_write
+    !ok_open_src
+    !ok_open_dst
+    !ok_copy_status
+    !ok_copy_total
+    !ok_close_src
+    !ok_close_dst
+    !ok_read_status
+    !ok_read_len
+    !ok_read_eq
+    !ok_free
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10413)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std io handle read/write/flush/close aliases"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup0, &IO_HANDLE_SRC, 22
+    EXPAND FS_OPEN_WRITE open_status, file, &IO_HANDLE_SRC, 22, 1
+    EXPAND IO_WRITE write_status, write_len, file, &IO_HANDLE_PAYLOAD, 7
+    EXPAND IO_FLUSH flush_status, file
+    EXPAND IO_CLOSE close_w_status, file
+    EXPAND FS_OPEN_READ open_r_status, file_r, &IO_HANDLE_SRC, 22
+    stack_buf = stack_alloc 16
+    EXPAND IO_READ_EXACT exact_status, file_r, stack_buf, 7
+    b0 = load stack_buf+0 as u8
+    b6 = load stack_buf+6 as u8
+    EXPAND IO_CLOSE close_r_status, file_r
+    EXPAND FS_REMOVE_PATH cleanup1, &IO_HANDLE_SRC, 22
+
+    ok_open = eq open_status, SA_FS_OK
+    ok_write = eq write_status, SA_IO_OK
+    ok_write_len = eq write_len, 7
+    ok_flush = eq flush_status, SA_IO_OK
+    ok_close_w = eq close_w_status, SA_IO_OK
+    ok_open_r = eq open_r_status, SA_FS_OK
+    ok_exact = eq exact_status, SA_IO_OK
+    ok_b0 = eq b0, 104
+    ok_b6 = eq b6, 33
+    ok_close_r = eq close_r_status, SA_IO_OK
+
+    ok01 = and ok_open, ok_write
+    ok02 = and ok01, ok_write_len
+    ok03 = and ok02, ok_flush
+    ok04 = and ok03, ok_close_w
+    ok05 = and ok04, ok_open_r
+    ok06 = and ok05, ok_exact
+    ok07 = and ok06, ok_b0
+    ok08 = and ok07, ok_b6
+    ok = and ok08, ok_close_r
+
+    !cleanup0
+    !open_status
+    !write_status
+    !write_len
+    !flush_status
+    !close_w_status
+    !open_r_status
+    !exact_status
+    !b0
+    !b6
+    !close_r_status
+    !cleanup1
+    !ok_open
+    !ok_write
+    !ok_write_len
+    !ok_flush
+    !ok_close_w
+    !ok_open_r
+    !ok_exact
+    !ok_b0
+    !ok_b6
+    !ok_close_r
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10424)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std io copy_n handle macros"():
+L_ENTRY:
+    EXPAND FS_REMOVE_PATH cleanup_src0, &IO_COPY_N_SRC, 22
+    EXPAND FS_REMOVE_PATH cleanup_dst0, &IO_COPY_N_DST, 22
+    EXPAND FS_WRITE_FILE write_status, &IO_COPY_N_SRC, 22, &IO_COPY_N_PAYLOAD, 7
+    EXPAND FS_OPEN_READ open_src_status, src_file, &IO_COPY_N_SRC, 22
+    EXPAND FS_OPEN_WRITE open_dst_status, dst_file, &IO_COPY_N_DST, 22, 1
+    EXPAND IO_COPY_N copy_status, copy_total, src_file, dst_file, 3
+    EXPAND FS_CLOSE close_src_status, src_file
+    EXPAND FS_CLOSE close_dst_status, dst_file
+    EXPAND FS_READ_FILE read_status, read_buf, &IO_COPY_N_DST, 22, 64
+    EXPAND FS_READ_BUFFER_LEN read_len, read_buf
+    EXPAND FS_READ_BUFFER_DATA read_ptr, read_buf
+    EXPAND STR_FROM_PARTS read_view, read_ptr, read_len
+    EXPAND STR_FROM_PARTS expect_view, &IO_COPY_N_PAYLOAD, 3
+    EXPAND STR_EQ read_eq, read_view, expect_view
+    EXPAND FS_READ_BUFFER_FREE free_status, read_buf
+    EXPAND FS_REMOVE_PATH cleanup_src1, &IO_COPY_N_SRC, 22
+    EXPAND FS_REMOVE_PATH cleanup_dst1, &IO_COPY_N_DST, 22
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_open_src = eq open_src_status, SA_FS_OK
+    ok_open_dst = eq open_dst_status, SA_FS_OK
+    ok_copy_status = eq copy_status, SA_IO_OK
+    ok_copy_total = eq copy_total, 3
+    ok_close_src = eq close_src_status, SA_FS_OK
+    ok_close_dst = eq close_dst_status, SA_FS_OK
+    ok_read_status = eq read_status, SA_FS_OK
+    ok_read_len = eq read_len, 3
+    ok_read_eq = eq read_eq, 1
+    ok_free = eq free_status, SA_FS_OK
+
+    ok01 = and ok_write, ok_open_src
+    ok02 = and ok01, ok_open_dst
+    ok03 = and ok02, ok_copy_status
+    ok04 = and ok03, ok_copy_total
+    ok05 = and ok04, ok_close_src
+    ok06 = and ok05, ok_close_dst
+    ok07 = and ok06, ok_read_status
+    ok08 = and ok07, ok_read_len
+    ok09 = and ok08, ok_read_eq
+    ok = and ok09, ok_free
+
+    !cleanup_src0
+    !cleanup_dst0
+    !write_status
+    !open_src_status
+    !open_dst_status
+    !copy_status
+    !copy_total
+    !close_src_status
+    !close_dst_status
+    !read_status
+    !read_len
+    !read_ptr
+    !read_eq
+    !free_status
+    !cleanup_src1
+    !cleanup_dst1
+    !read_view
+    !expect_view
+    !ok_write
+    !ok_open_src
+    !ok_open_dst
+    !ok_copy_status
+    !ok_copy_total
+    !ok_close_src
+    !ok_close_dst
+    !ok_read_status
+    !ok_read_len
+    !ok_read_eq
+    !ok_free
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10449)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std io flush stdout/stderr helpers"():
+L_ENTRY:
+    EXPAND IO_FLUSH_STDOUT status0
+    EXPAND IO_FLUSH_STDERR status1
+    ok0 = eq status0, SA_IO_OK
+    ok1 = eq status1, SA_IO_OK
+    ok = and ok0, ok1
+    !status0
+    !status1
+    !ok0
+    !ok1
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10452)
+L_OK:
+    !ok
+    return

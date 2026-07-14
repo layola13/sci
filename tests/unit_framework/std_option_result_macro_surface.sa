@@ -612,7 +612,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(943)
+    panic(10174)
 
 L_PASS:
     !all
@@ -915,7 +915,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(944)
+    panic(10175)
 
 L_PASS:
     !all
@@ -1181,7 +1181,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(945)
+    panic(10176)
 
 L_PASS:
     !all
@@ -1358,7 +1358,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(946)
+    panic(10177)
 
 L_PASS:
     !all
@@ -1455,7 +1455,7 @@ L_ENTRY:
 
 L_FAIL:
     !all
-    panic(947)
+    panic(10178)
 
 L_PASS:
     !all

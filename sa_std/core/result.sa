@@ -19,6 +19,13 @@
     store %out_res+Result_err, %err as u64
 [END_MACRO]
 
+[MACRO] RESULT_DEFAULT %out_res
+    %out_res = alloc Result_SIZE
+    store %out_res+Result_tag, Result_OK as u64
+    store %out_res+Result_ok, 0 as u64
+    store %out_res+Result_err, 0 as u64
+[END_MACRO]
+
 [MACRO] RESULT_IS_OK %out_bool, %res_reg
     __result_tag_%out_bool = load %res_reg+Result_tag as u64
     %out_bool = eq __result_tag_%out_bool, Result_OK

@@ -2,6 +2,98 @@
 
 Date: 2026-07-09
 
+
+## Active std parity batch (2026-07-13 n)
+
+Completed supportable defaults/aliases/macros:
+- OptionPairU64 layout constants in option.sal (24-byte pair struct: tag + value1 + value2).
+- OPTION_ZIP_U64 macro in option.sa: zips two Options into OptionPairU64; both-some -> Some(pair), otherwise None.
+- OPTION_UNZIP_TO_U64 macro: unzip OptionPairU64 back to separate Option layouts.
+- CHAR_MIN = 0 constant in char.sal (Rust char::MIN).
+- CMP_ORDERING_MIN = -1, CMP_ORDERING_MAX = 1 in cmp.sal (Rust 1.84+ stabilized Ordering::MIN/MAX).
+- Test file std_option_zip_macro_surface.sa (panic IDs 10471/10472).
+
+Panic IDs next free: 10473+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 m)
+
+Completed supportable defaults/aliases/macros:
+- Infallible_SIZE = 0 and Infallible_ALIGN = 1 in convert.sal (Rust convert::Infallible never-error type).
+- Complete CONVERT_* min/max coverage in convert.sal: CONVERT_U64_MIN/MAX, CONVERT_I64_MIN, CONVERT_USIZE_MIN/MAX, CONVERT_ISIZE_MIN/MAX, CONVERT_BOOL_MIN/MAX (9 new constants).
+- 35 NonZero* associated constants in num.sal mirroring Rust 1.70+ stabilized constants: NONZERO_U8/U16/U32/U64/usize_MIN/MAX/ONE (15 unsigned: MIN=1, MAX=wrapping_max, ONE=1) and NONZERO_I8/I16/I32/I64/isize_MIN/MAX (10 signed: MIN=wrapping_min, MAX=wrapping_max).
+- Test file std_convert_nonzero_macro_surface.sa (panic IDs 10469/10470) verifying all new constants against NUM_*_MAX/MIN constants.
+
+Panic IDs next free: 10471+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 e)
+
+Completed supportable defaults/aliases/macros:
+- CMP_ORDERING_DEFAULT_VALUE (.sal constant alias for Ordering::default = Equal)
+- STRING_BUF_LIT1 / STRING_BUF_LIT2 / STRING_BUF_LIT3 (multi-slice StringBuf constructors)
+
+Critical fix: discovered SA_STD_DIR=/home/vscode/.sa/std was pointing to a stale install (Jul 11 09:13). All previous-session edits to sa_std/ were invisible during testing because the test runner resolved imports from the stale system copy, not the project copy. Re-synced project sa_std/ to /home/vscode/.sa/std/ via rsync. This unblocks all [MACRO] and #def additions to existing std files.
+
+Panic IDs next free: 10461+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-13 f)
+
+## Active std parity batch (2026-07-13 g)
+
+Completed supportable defaults/aliases/macros:
+- SLICE_DEFAULT (empty slice: ptr=0, len=0) in slice.sa
+- OPTION_DEFAULT (alias for OPTION_NEW_NONE) in option.sa
+- RANGE_U64_DEFAULT / RANGE_FULL_DEFAULT / BOUND_U64_DEFAULT / RANGE_FROM_U64_DEFAULT / RANGE_TO_U64_DEFAULT / RANGE_TO_INCLUSIVE_U64_DEFAULT in ops.sa
+
+Panic IDs next free: 10464+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+Completed supportable defaults/aliases/macros:
+- FROM_* / TRY_FROM_* / SAT_FROM_* Rust naming aliases in convert.sa (56 macros wrapping existing CONVERT_*)
+- NUM_*_DEFAULT = 0 constants in num.sal (10 integer type defaults)
+
+Panic IDs next free: 10463+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+
+## Active std parity batch (2026-07-13)
+
+Completed supportable defaults/aliases/macros:
+- CMP_ORDERING_DEFAULT_VALUE (.sal constant alias for Ordering::default = Equal)
+- STRING_BUF_LIT1 / STRING_BUF_LIT2 / STRING_BUF_LIT3 (multi-slice StringBuf constructors)
+
+Next supportable scan targets remain thin aliases/wrappers only; blocked: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+Panic IDs next free: 10455+.
+
+## Active std parity batch (2026-07-13 b)
+
+Completed supportable defaults/aliases:
+- NET_IPV4_DEFAULT / NET_IPV6_DEFAULT
+- NET_SOCKET_ADDR_V4_DEFAULT / NET_SOCKET_ADDR_V6_DEFAULT
+- PROCESS_EXIT_STATUS_DEFAULT
+- REFCELL_U64_DEFAULT
+- FS_PERMISSIONS_DEFAULT / FS_FILE_TIMES_DEFAULT
+
+Panic IDs next free: 10459+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 c)
+
+Completed supportable defaults/aliases:
+- RC_DEFAULT_U64 / WEAK_DEFAULT
+- ARC_DEFAULT_U64 / ARC_WEAK_DEFAULT
+
+Panic IDs next free: 10461+.
+
+## Active std parity batch (2026-07-13 d)
+
+Completed supportable defaults/aliases:
+- DEFAULT_HASHER_DEFAULT
+- BUILD_HASHER_DEFAULT_DEFAULT
+
+Panic IDs next free: 10461+.
+
 ## Objective
 
 Active follow-up: reduce the slowest full-test runtime owners and improve full-test log quality using the logged step runner, without returning to blind aggregate test runs. The previous compiler-performance slice reduced SCI `sa test --filter` / `--list` latency for large SAB artifacts generated by downstream `sla_ecs` to the target range and is installed. Optimization now proceeds step-by-step from the measured slowest owners, with logging good enough to identify long-running or stuck objects.
@@ -590,6 +682,7 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 - The split-inclusive char-pattern batch adds `STR_SPLIT_INCLUSIVE_CHAR_COUNT`, `STR_TRY_SPLIT_INCLUSIVE_CHAR_AT`, and `STR_SPLIT_INCLUSIVE_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
 - The split/matches char-pattern batch adds `STR_SPLIT_CHAR_COUNT`, `STR_RSPLIT_CHAR_COUNT`, `STR_MATCHES_CHAR_COUNT`, `STR_RMATCHES_CHAR_COUNT`, `STR_TRY_SPLIT_CHAR_AT`, `STR_SPLIT_CHAR_AT`, `STR_TRY_RSPLIT_CHAR_AT`, `STR_RSPLIT_CHAR_AT`, `STR_TRY_MATCHES_CHAR_AT`, `STR_MATCHES_CHAR_AT`, `STR_TRY_RMATCHES_CHAR_AT`, and `STR_RMATCHES_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
 - The match-indices char-pattern batch adds `STR_MATCH_INDICES_CHAR_COUNT`, `STR_RMATCH_INDICES_CHAR_COUNT`, `STR_TRY_MATCH_INDICES_CHAR_AT`, `STR_MATCH_INDICES_CHAR_AT`, `STR_TRY_RMATCH_INDICES_CHAR_AT`, and `STR_RMATCH_INDICES_CHAR_AT`, plus matching `STRING_*` / `STRING_BUF_*` aliases.
+- Focused source `zig build unit-framework --summary all` passes after the fs OpenOptions builder custom-flags members batch (`6/6 steps succeeded; 5/5 tests passed`); full-file `unit-framework` validation confirmed the new `@test` block (panic 952) coexists with the twelve pre-existing sibling `@test` blocks and that the latent `panic`-ID duplication (943/944/945 reused across tests) and `#`-comment / additive-operand flattener regressions were corrected.
 - Focused source tests for `trim matches aliases`, `trim matches char aliases`, `char indices aliases`, `split ascii whitespace aliases`, `split once char aliases`, `prefix suffix char aliases`, `split terminator needle aliases`, `split terminator char aliases`, `splitn count aliases`, `splitn char aliases`, existing `splitn aliases`, `push within capacity aliases`, `match indices needle aliases`, `split inclusive needle aliases`, `split inclusive char aliases`, `split and matches char aliases`, and `match indices char aliases` pass; the full source `std_string_macro_surface.sa` passes (`72 passed`) and full source `std_vec_macro_surface.sa` passes (`29 passed`); install sync via `./tools/install.sh --no-shell` passes; installed focused splitn-count, splitn-char, split-once-char, prefix/suffix-char, trim-matches-char, char-indices, Vec push-within-capacity, String match-indices, String split-inclusive, String split-inclusive-char, String split/matches-char, String match-indices-char, and String split-terminator-char tests pass. The latest full `zig build unit-framework --summary all` attempt was interrupted after more than 6 minutes of silent/idle runtime, so it is not counted as a passing gate for the Vec batch.
 - The match-indices char-pattern aliases encode a valid `u64` Unicode scalar into its UTF-8 byte sequence and delegate to the existing slice-needle match-index subsets. They return local `(ok, byte_index, Slice)` values, preserve forward byte offsets for reverse enumeration, and return `ok=0`, index `0`, and an empty slice for invalid scalars or missing indexes. This is a concrete char-pattern count/caller-indexed view subset, not Rust's full `Pattern` machinery, lazy iterator object model, or `Option<(usize, &str)>` layout.
 - The char_indices aliases scan UTF-8 scalar positions and return local `(ok, byte_index, codepoint)` values for a caller-selected scalar ordinal. Missing ordinals or invalid decoding paths return `ok=0`, byte index `0`, and codepoint `0`. This is a concrete count/caller-indexed subset, not Rust's lazy `CharIndices` iterator object, tuple object layout, borrow-scoped lifetime model, or invalid-UTF-8 impossible-type invariant.
@@ -639,9 +732,328 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
  The first batch landed explicit `u64`-named utilities (`VEC_DEQUE_GET_U64`, `VEC_DEQUE_FRONT_U64`, `VEC_DEQUE_TRY_FRONT_U64`, `VEC_DEQUE_BACK_U64`, `VEC_DEQUE_TRY_BACK_U64`) plus `VEC_DEQUE_EXTRA_CAPACITY`. Remaining supportable VecDeque candidates include `VEC_DEQUE_RESIZE` / `RESIZE_WITH` concrete lowerings, a `VEC_DEQUE_SPLICE` / drain-range concrete subset, and front/back `WITHIN_CAPACITY` push aliases, all of which intentionally avoid Rust lazy iterator/generic/scoped-reference semantics.
  The str/String escape/encode_utf16/utf8_chunks/substr_range/get naming/get_mut/get_mut-range/get_mut-range-to-from batches, StringBuf set_len / try_truncate / push_str_within_capacity / push_byte_within_capacity / push_char_within_capacity / insert_within_capacity / extend_str_within_capacity / extend_string_within_capacity / extend_from_within_capacity / extend_char_within_capacity / extend_byte_within_capacity / extend_chars_within_capacity / extend_ascii_chars_within_capacity / extend_char_refs_within_capacity / extend_ascii_char_refs_within_capacity / replace_range_within_capacity / replace_first_within_capacity / replace_last_within_capacity / replace_first_char_within_capacity / replace_last_char_within_capacity / replace_range_char_within_capacity / replace_first_char / replace_last_char / replace_range_char / remove_matches_within_capacity / remove_matches_char_within_capacity / retain_within_capacity / drain_within_capacity / splice_within_capacity / pop_byte_if / pop_char_if / push_str_n_within_capacity / push_byte_n_within_capacity / push_char_n_within_capacity / extend_from_within_n_within_capacity / insert_str_n_within_capacity / insert_byte_n_within_capacity / insert_char_n_within_capacity helpers, Vec try_set_len / insert_within_capacity / extend_from_slice_within_capacity / append_within_capacity / extend_from_within_capacity / resize_within_capacity / splice_within_capacity / resize_with_within_capacity / extend_from_slice_n_within_capacity / push_n_within_capacity / extend_from_within_n_within_capacity / insert_n_within_capacity / insert_from_slice_within_capacity / insert_from_slice_n_within_capacity, and the Vec/StringBuf capacity-remaining/spare aliases are complete. Natural next candidates are remaining supportable capacity-preserving helpers or other concrete view subsets that can be represented as eager slice/Vec macros without claiming generic Rust trait-object semantics.
 - The fs Rust API parity audit has now landed its first DirBuilder batch, adding `FS_DIR_BUILDER_NEW`, `FS_DIR_BUILDER_WITH_RECURSIVE`, `FS_DIR_BUILDER_WITH_MODE`, and `FS_DIR_BUILDER_CREATE`. The builder state is two propagating SSA `u64` values (a `recursive` bool 0/1 and a POSIX `mode`) rather than a heap-allocated builder object; `FS_DIR_BUILDER_NEW` initializes to `recursive=false` and `mode=0o755` (Rust's default), `FS_DIR_BUILDER_WITH_RECURSIVE` normalizes any nonzero flag to `1` and otherwise preserves the `mode`, `FS_DIR_BUILDER_WITH_MODE` sets the POSIX `mode` while preserving the `recursive` flag, and `FS_DIR_BUILDER_CREATE` branches on the `recursive` flag to dispatch the existing `FS_CREATE_DIR_MODE` (non-recursive) or `FS_CREATE_DIR_ALL_MODE` (recursive) lowering, so it adds no new FFI/syscall surface. It does not model Rust's owned `DirBuilder` value/move semantics, the `Permissions`/`metadata`-style builder methods on the returned handle, Windows ACL permission layers, or `create`-variants that return the directory handle. Remaining supportable fs candidates within the supportable macro-lowering surface include the fine-grained `OpenOptions` builder-object lowerings and the rich `Permissions` / `FileType` object models; typed `ReadDir` iterator entries beyond the existing JSON/buffer listing remain gated on a streaming iterator ABI, and the `FileTimes` builder object is intentionally not modeled.
-- The fs Rust API parity audit has now landed its OpenOptions builder batch, adding `FS_OPEN_OPTIONS_BUILDER_NEW`, `FS_OPEN_OPTIONS_BUILDER_WITH_READ`, `FS_OPEN_OPTIONS_BUILDER_WITH_WRITE`, `FS_OPEN_OPTIONS_BUILDER_WITH_APPEND`, `FS_OPEN_OPTIONS_BUILDER_WITH_CREATE`, `FS_OPEN_OPTIONS_BUILDER_WITH_TRUNCATE`, `FS_OPEN_OPTIONS_BUILDER_WITH_MODE`, `FS_OPEN_OPTIONS_BUILDER_WITH_CUSTOM_FLAGS`, and `FS_OPEN_OPTIONS_BUILDER_OPEN`. Builder state is three propagating SSA `u64` values (`flags`, `create_mode`, `custom_flags`) rather than a heap-allocated builder object; each `WITH_READ` / `/WRITE` / `/APPEND` / `/CREATE` / `/TRUNCATE` macro normalizes any nonzero flag to set-bit OR (Rust `.x(true)` idiom; `.x(false)` clear-bit not lowered), `WITH_MODE` / `WITH_CUSTOM_FLAGS` set the full field, and `FS_OPEN_OPTIONS_BUILDER_OPEN` delegates to the existing `FS_OPEN_OPTIONS` FFI lowering (no new syscall/FFI surface). It does not model Rust's `create_new` (`O_CREAT|O_EXCL`) — the `O_EXCL` bit is not exposed by `SA_FS_CUSTOM_*` — cross-platform truncate/append on read-only opens, the `set_permissions`-equivalent builder method, Windows ACL fields, or owned builder move/build value semantics. Remaining supportable fs candidates within the macro-lowering surface are now the rich `Permissions` / `FileType` object models; typed `ReadDir` iterator entries beyond the existing JSON/buffer listing remain gated on a streaming iterator ABI, and the `FileTimes` builder object is intentionally not modeled.
+- The fs Rust API parity audit has now landed its OpenOptions builder batch, adding `FS_OPEN_OPTIONS_BUILDER_NEW`, `FS_OPEN_OPTIONS_BUILDER_WITH_READ`, `FS_OPEN_OPTIONS_BUILDER_WITH_WRITE`, `FS_OPEN_OPTIONS_BUILDER_WITH_APPEND`, `FS_OPEN_OPTIONS_BUILDER_WITH_CREATE`, `FS_OPEN_OPTIONS_BUILDER_WITH_TRUNCATE`, `FS_OPEN_OPTIONS_BUILDER_WITH_MODE`, `FS_OPEN_OPTIONS_BUILDER_WITH_CUSTOM_FLAGS`, and `FS_OPEN_OPTIONS_BUILDER_OPEN`. Builder state is three propagating SSA `u64` values (`flags`, `create_mode`, `custom_flags`) rather than a heap-allocated builder object; each `WITH_READ` / `/WRITE` / `/APPEND` / `/CREATE` / `/TRUNCATE` macro normalizes any nonzero flag to set-bit OR (Rust `.x(true)` idiom; `.x(false)` clear-bit not lowered), `WITH_MODE` / `WITH_CUSTOM_FLAGS` set the full field, and `FS_OPEN_OPTIONS_BUILDER_OPEN` delegates to the existing `FS_OPEN_OPTIONS` FFI lowering (no new syscall/FFI surface). It does not model Rust's `create_new` (`O_CREAT|O_EXCL`) — the `O_EXCL` bit is not exposed by `SA_FS_CUSTOM_*` — cross-platform truncate/append on read-only opens, the `set_permissions`-equivalent builder method, Windows ACL fields, or owned builder move/build value semantics. The fs Rust API parity audit has now landed its Open_Options builder custom-flags members batch, adding `FS_OPEN_OPTIONS_BUILDER_WITH_SYNC`, `WITH_DSYNC`, `WITH_NONBLOCK`, `WITH_NOFOLLOW`, `WITH_DIRECT`, `WITH_DIRECTORY`, and `WITH_CLOEXEC`. Each takes the current `(flags, mode, custom)` triple and a `%flag`; non-zero `%flag` ORs the matching `SA_FS_CUSTOM_*` bit into the `custom_flags` slot, zero carries the triple through unchanged — Rust's `.x(true)` idiom; `.x(false)` clear-the-bit is not lowered. Note `SA_FS_CUSTOM_SYNC = 1052672` is synthetic and overlaps `SA_FS_CUSTOM_DSYNC = 4096`, so the surface test asserts OR-accumulated values, not simple sums. No new syscall/FFI surface. Remaining supportable fs candidates within the macro-lowering surface are now the rich `Permissions` / `FileType` object models; typed `ReadDir` iterator entries beyond the existing JSON/buffer listing remain gated on a streaming iterator ABI, and the `FileTimes` builder object is intentionally not modeled.
 
+- The BinaryHeap u64/try_peek/pop/extra_capacity aliases batch adds `BINARY_HEAP_PUSH_U64`, `BINARY_HEAP_PEEK_U64`, `BINARY_HEAP_TRY_PEEK`, `BINARY_HEAP_TRY_PEEK_U64`, `BINARY_HEAP_POP`, `BINARY_HEAP_POP_U64`, and `BINARY_HEAP_EXTRA_CAPACITY`. The `_U64` aliases preserve the existing concrete `u64` max-heap ABI; `TRY_PEEK` returns a non-destructive `(ok,value)` view; `POP` is a value-only wrapper over try-pop; `EXTRA_CAPACITY` is a pure `capacity - len` subtraction. None of these claim generic ordering, iterator/drain adapters, scoped `PeekMut` guards, or true allocator-failure reporting that remain genuinely missing for `BinaryHeap`.
+- The BinaryHeap audit has now landed a concrete u64-named / try-peek / pop / extra_capacity alias batch over the existing push/peek/try-pop/capacity primitives. Remaining supportable BinaryHeap candidates within the macro-lowering surface are essentially exhausted: only Rust lazy iterator/drain adapters, generic ordering, scoped PeekMut guards, and true allocator-failure reporting remain, all intentionally outside the SA facade.
+- The fs Permissions object batch adds `FS_PERMISSIONS_NEW`, `FS_METADATA_PERMISSIONS`, `FS_PERMISSIONS_READONLY`, `FS_PERMISSIONS_SET_READONLY`, and `FS_SET_PERMISSIONS_OBJ` over the existing `SaFsPermissions` mode slot / `sa_fs_set_permissions` / metadata mode FFI. `readonly` treats absence of POSIX write bits (`0222`) as readonly; `set_readonly(false)` ORs owner-write (`0200`). Combined with the earlier `FS_FILE_TYPE_IS_*` aliases, the supportable Permissions/FileType object surface is now landed. Remaining fs gaps after Permissions/FileType/FileTimes are typed streaming `ReadDir` iterators and Windows ACL permissions, all intentionally outside the current Linux POSIX facade.
+- The fs FileTimes object batch adds `FS_FILE_TIMES_NEW`, `FS_FILE_TIMES_WITH_ACCESSED`, `FS_FILE_TIMES_WITH_MODIFIED`, `FS_FILE_TIMES_SET`, and `FS_METADATA_FILE_TIMES` as a two-SSA-value builder over the existing path-based `FS_SET_TIMES_MS` / metadata accessed+modified millisecond queries. It does not model Rust optional leave-unchanged sentinels, `SystemTime` objects, open-`File` times mutation beyond the path helper, or birth/creation time mutation. Remaining supportable fs gaps within the Linux POSIX facade are now mainly typed streaming `ReadDir` iterators and Windows ACL permissions.
+- The HashMap/BTreeMap entry helper batch adds `MAP_OR_INSERT`, `MAP_ENTRY_OR_DEFAULT`, `MAP_ENTRY_AND_MODIFY`, `BTREE_MAP_OR_INSERT`, `BTREE_MAP_ENTRY_OR_DEFAULT`, and `BTREE_MAP_ENTRY_AND_MODIFY` over the existing try-insert / get-mut-ptr contracts. These are concrete entry-style lowerings, not Rust entry objects; closure `or_insert_with`, generic defaults, and scoped entry borrows remain genuinely missing.
+- The set/map alias batch adds `SET_ENTRY_GET_OR_INSERT`, `SET_OR_INSERT`, `SET_EXTRA_CAPACITY`, `BTREE_SET_ENTRY_GET_OR_INSERT`, `BTREE_SET_OR_INSERT`, and `MAP_EXTRA_CAPACITY` over existing get-or-insert / capacity primitives. Remaining supportable collection gaps are largely iterator/entry-object/generic-Ord/allocator surfaces intentionally outside the SA facade.
+- The PathBuf owned-path batch adds `PATH_BUF_NEW` / `WITH_CAPACITY` / `FROM_PATH` / `PUSH` / `POP` / `SET_FILE_NAME` / `SET_EXTENSION` / `AS_PATH` and related capacity helpers as a concrete owned byte-buffer facade over `STRING_BUF` plus existing `PATH_*` Slice join/parent helpers. Remaining path gaps are true component iterators, Windows prefixes, and `OsStr`/`OsString` semantics.
+- The collection literal arity batch adds `MAP_LIT1`/`MAP_LIT3`, `SET_LIT1`/`SET_LIT3`, `BTREE_MAP_LIT1`/`LIT2`/`LIT3`, and `BTREE_SET_LIT1`/`LIT3` as fixed-arity constructors over existing put/insert helpers. Remaining collection gaps are still true iterators, generic Ord/entry objects, and allocator-aware constructors.
+- The OsString/OsStr owned byte-buffer batch expands `sa_std/os/unix_ffi.sa` with concrete `OS_STRING_NEW` / `FROM_STR` / `PUSH_*` / `AS_OS_STR` / `TO_STRING_CHECKED` and `OS_STR_LEN` / `TO_OS_STRING` / `TO_STR_CHECKED` helpers over `Vec<u8>`/`Slice`. Remaining platform-string gaps are Windows WTF-8, lossy display, and true OS-native encoding objects.
+- The BinaryHeap from/lit constructor batch adds `BINARY_HEAP_LIT1`/`LIT2`/`LIT3`, `BINARY_HEAP_FROM_SLICE_U64`/`FROM_VEC_U64`, and `BINARY_HEAP_EXTEND_FROM_SLICE_U64`/`EXTEND_FROM_VEC_U64` over the concrete u64 push/heapify path. Remaining BinaryHeap gaps are still lazy iterators, generic Ord, PeekMut drop guards, and allocator-aware APIs.
+- The VecDeque from/lit constructor batch adds `VEC_DEQUE_LIT1`/`LIT2`/`LIT3` and `VEC_DEQUE_FROM_SLICE_U64`/`FROM_VEC_U64` over the concrete u64 push_back path. Remaining VecDeque gaps are still lazy drain/splice iterators, generic elements, and scoped mut references.
+- The Vec u64 literal constructor batch adds `VEC_LIT1_U64`/`LIT2_U64`/`LIT3_U64` over `VEC_NEW` + `VEC_PUSH_U64`. Remaining Vec gaps remain generic element support and lazy iterator adapters.
+- The LazyLock alias batch adds `LAZY_LOCK_NEW` / `FORCE` / `GET` / `IS_READY` / `INTO_INNER` over the existing Once/OnceLock u64 cell. Remaining sync gaps are still Condvar/Barrier, unbounded mpsc, generic OnceLock/LazyLock type objects, and RAII lock guards.
+- The AtomicU64 fetch_update + StringBuf LIT batch adds `ATOMIC_U64_FETCH_UPDATE` and `STRING_BUF_LIT1`/`LIT2`/`LIT3`. Remaining sync gaps still include Condvar/Barrier and generic atomic fetch_update across all widths; remaining string gaps are Pattern trait/iterator objects.
 ## Notes
+- Thread builder SSA facade (`THREAD_BUILDER_*` detached-only), PathBuf `PUSH_PATH_BUF`/`JOIN*`, Env `SPLIT_PATHS_OS`/`JOIN_PATHS_OS`, and `CSTR_TO_STRING_LOSSY` landed. Remaining thread gaps: stack size/name builder fields and park/unpark. Remaining env/path gaps: true OsString iterators and component iterator objects.
+
+- Net typed-address `format_ascii` helpers, PathBuf query aliases (`IS_ABSOLUTE`/`COMPONENT_COUNT`/`TRY_*`), and `ENV_ARGS_OS`/`ENV_VARS_OS` JSON aliases landed. Remaining net gaps: zero-compressed Display, u128 bits, lazy ToSocketAddrs iterators. Remaining env gaps: true OsString iterators/objects. Remaining path gaps: true component iterator objects and Windows prefixes.
+
+- PathBuf/OsString conversion + lossy helpers landed: `PATH_BUF_AS_OS_STR` / `FROM_OS_STR` / `FROM_OS_STRING` / `INTO_OS_STRING` / `INTO_OS_STRING_MOVE`, `OS_STRING_TO_STRING_LOSSY` / `OS_STR_TO_STRING_LOSSY` / `OS_STRING_FROM_PATH`, and `CSTRING_TO_STRING_LOSSY`. These remain Unix byte-buffer facades over `STRING_BUF_FROM_UTF8_LOSSY` and do not claim Rust `Cow`/`Display`/`WTF-8`.
+
+- The PathBuf/OsString lit+capacity-remaining batch and Env rust-named alias batch finished validation: `PATH_BUF_LIT1/2/3` + remaining-capacity aliases, `OS_STRING_LIT1/2/3` + remaining-capacity aliases, and `ENV_VAR` / `ENV_VAR_OS` / `ENV_ARGS` / `ENV_VARS` / `ENV_SPLIT_PATHS` / `ENV_JOIN_PATHS` / `ENV_HOME_DIR` over existing helpers. Env alias surface tests require addressable `stack_alloc Slice_SIZE` keys. Remaining env gaps are true `args_os`/`vars_os` iterators and OsString-native path join/split objects.
+- The Process Command builder now also has `PROCESS_COMMAND_BUILDER_EXEC_CAPTURE` / `PROCESS_COMMAND_BUILDER_OUTPUT` over existing capture ABIs (cwd-only CommandExt subset on capture). Owned CString gained `CSTRING_DEFAULT` / `CSTRING_CLONE` / `CSTRING_LIT1`. Remaining process gaps are env maps, Stdio pipe objects, and full CommandExt on capture; remaining FFI gaps include lossy conversion and Windows/OsString parity.
+
+- Atomic narrow-width `FETCH_UPDATE` + `FROM_PTR` aliases: Bool/U8/I8/U16/I16 fetch_update and `ATOMIC_*_FROM_PTR` renames over existing from_mut helpers.
+- IPv6 parse_ascii batch: runtime `sa_net_ipv6_parse_ascii` / `sa_net_socket_addr_v6_parse_ascii`, macros `NET_IPV6_*_PARSE_ASCII` / `NET_SOCKET_ADDR_V6_*_PARSE_ASCII`, enum IpAddr/SocketAddr parse now V4-then-V6; added `NET_IP_ADDR_TO_IPV6`.
+- Process Command builder SSA facade batch: added `PROCESS_COMMAND_BUILDER_*` scalar-flag builder over existing CommandExt run/spawn helpers (cwd/arg0/process_group/setsid only; no env/pipe objects).
+- Multi-width atomic `FETCH_UPDATE` batch: added U32/I32/I64/USIZE/ISIZE/PTR helpers over existing cmpxchg loops; unit-framework diagnostic-code collisions in `std_fs_macro_surface.sa` and `std_net_unix_macro_surface.sa` fixed so assert codes no longer share sibling-test panic IDs.
 
 - Linux/Unix fd facade behavior is acceptable for this batch.
 - Keep edits scoped to source/runtime/std facade and test coverage; do not branch into wider trait/prelude work unless a Linux std gap directly requires it.
+## Notes (2026-07-12 atomic nand + panic uniqueness)
+- Landed signed atomic `FETCH_AND/OR/XOR` and multi-width `FETCH_NAND` (cmpxchg loop; no ISA nand RMW).
+- Verified prior batch: atomic fetch_min/max, `THREAD_SLEEP_*`, `PATH_BUF_CLONE_FROM`.
+- Renumbered cross-file duplicate unit-framework panic IDs to global uniqueness (kept first-seen; later IDs from 10026+; assert codes realigned in-block).
+- Do not mark full Rust-std parity complete; remaining blocked: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Notes (2026-07-12 time/io/path/once batch)
+- Landed Instant/SystemTime naming aliases, `IO_COPY` handle loop, PathBuf FS query wrappers, and `ONCE_LOCK_*` aliases.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Notes (2026-07-12 path fs-ops / defaults / env os / process pid)
+- Landed Path/PathBuf filesystem op wrappers, MUTEX/RWLOCK/ONCE defaults, ENV_*_OS path aliases, PROCESS_PID/PPID/UID/GID aliases.
+- Fixed env free-status assertion and cross-file diagnostic IDs 1006/1007 -> 10417/10418.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+
+## Notes (2026-07-12 path rename/link + io handle batch)
+- Landed Path/PathBuf rename/hard_link/symlink/read_to_string/create_dir_all/remove_dir_all/set_permissions/set_times_ms wrappers.
+- Landed handle-level `IO_READ`/`READ_EXACT`/`WRITE`/`WRITE_ALL`/`FLUSH`/`CLOSE` status aliases.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-12 path read_dir batch)
+- Landed Path/PathBuf `READ_DIR_JSON`/`READ_DIR_ENTRIES` wrappers over existing FS dir listing handles.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-12 thread/env naming + path read_dir)
+- Landed `THREAD_CURRENT`/`THREAD_YIELD`, `ENV_SET_VAR_OS`/`ENV_REMOVE_VAR_OS`, and Path/PathBuf read_dir wrappers.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+
+## Notes (2026-07-12 time defaults + OsString default)
+- Landed `TIME_DURATION_DEFAULT`/`TIME_SYSTEM_TIME_UNIX_EPOCH`/`TIME_INSTANT_SATURATING_DURATION_SINCE` and `OS_STRING_DEFAULT`.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+
+## Notes (2026-07-12 path DirBuilder/OpenOptions facades)
+- Landed Path/PathBuf wrappers for FS DirBuilder create and OpenOptions builder open.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+
+## Notes (2026-07-12 collections/atomic defaults + path perm/filetimes)
+- Landed Default constructors for Map/Set/BTree/VecDeque/BinaryHeap and zero-init Atomic defaults; Path/PathBuf permissions-object and FileTimes set wrappers.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-12 atomic signed/ptr defaults + path metadata/fs-size/remove/mode)
+- Landed signed/ptr Atomic Default constructors and Path/PathBuf metadata_json, FS file-size, remove-entry/remove-any, create-dir-with-mode wrappers.
+- Avoid macro names `PATH_LEN` and `PATH_CREATE_DIR_MODE` (compile hang / InvalidMacroInvocation prefix collisions); use `PATH_FS_SIZE` and `PATH_*_WITH_MODE`.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-12 path base64/open-flags + env home_os + once defaults + process exit_code)
+- Landed Path/PathBuf open-flags/options and base64 read/write wrappers; ENV_HOME_DIR_OS; ONCE_LOCK_DEFAULT/LAZY_LOCK_DEFAULT; PROCESS_EXIT_CODE alias.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-12 path unix chown/mkfifo/make_dir + process success + thread sleep duration)
+- Landed Path/PathBuf unix ownership/mkfifo/make_dir wrappers, PROCESS_SUCCESS, THREAD_SLEEP_DURATION_NS.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-13 time defaults/sleep + process naming + IO_COPY_N)
+- Landed TIME_SLEEP_DURATION_NS/INSTANT_DEFAULT/SYSTEM_TIME_DEFAULT, PROCESS_IS_SUCCESS/CODE/OUTPUT_STATUS, and IO_COPY_N bounded handle copy.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+
+## Notes (2026-07-13 BOOL/F32/F64/CHAR Default constants + RESULT_DEFAULT)
+- Landed `BOOL_DEFAULT`, `NUM_F32_DEFAULT`, `NUM_F64_DEFAULT` in `sa_std/num.sal`; `CHAR_DEFAULT` in `sa_std/char.sal`; `RESULT_DEFAULT` macro (Ok(0)) in `sa_std/core/result.sa`.
+- Numeric defaults test extended to cover all four new constants; default types test extended to cover `RESULT_DEFAULT` (panic ID 10463 -> 10464); full suite green.
+- Fixed `RESULT_DEFAULT` test: do NOT pre-alloc the register before calling the macro (it allocates internally, like `OPTION_DEFAULT`/`OPTION_NEW_NONE`).
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-13 INTO/TRY_INTO/SAT_INTO aliases + PTR_SWAP_NONOVERLAPPING_U64)
+- Landed 56 `INTO_*` / `TRY_INTO_*` / `SAT_INTO_*` Rust-named aliases in `sa_std/convert.sa` as wrappers over existing `FROM_*` / `TRY_FROM_*` / `SAT_FROM_*` macros; `PTR_SWAP_NONOVERLAPPING_U64` in `sa_std/ptr.sa`.
+- New test file `std_into_naming_macro_surface.sa` (2 tests, panic IDs 10465/10466); fully integrated into `macro_surface_suites` in `runner.zig`.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-13 DEFAULT_F32/F64/CHAR + RANGE_INCLUSIVE_U64_DEFAULT)
+- Landed `DEFAULT_F32`, `DEFAULT_F64`, `DEFAULT_CHAR` macros in `sa_std/default.sa`; `RANGE_INCLUSIVE_U64_DEFAULT` in `sa_std/ops.sa`.
+- Numeric defaults and default types tests extended; focused tests passing.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-13 CELL_DEFAULT + REFCELL_DEFAULT legacy aliases)
+- Landed `CELL_DEFAULT` in `sa_std/core/cell.sa` (alias for `CELL_NEW`); `REFCELL_DEFAULT` in `sa_std/core/refcell.sa` (zero-init value + borrows).
+- Focused temp tests passed individually; full suite build running.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Notes (2026-07-13 IO_ERROR_KIND + ERROR_CODE + ERROR_REF_IS expansion)
+- Landed 33 new `IO_ERROR_KIND_*` constants in `sa_std/io.sal` covering full Rust `io::ErrorKind` enum; 19 new `ERROR_CODE_*` constants in `sa_std/error.sal`; 19 new `ERROR_REF_IS_*` helper macros in `sa_std/error.sa`.
+- New test file `std_io_error_kinds_macro_surface.sa` (2 tests, panic IDs 10467/10468), registered in `macro_surface_suites` in `runner.zig`.
+- Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 o)
+
+Completed supportable defaults/aliases/macros:
+- 5 unsigned MIN constants in num.sal (NUM_U8/U16/U32/U64/usize_MIN = 0), mirroring Rust u*::MIN.
+- 10 BYTES constants in num.sal (NUM_U8_BYTES=1 through NUM_ISIZE_BYTES=8), mirroring Rust 1.60+ stabilized <integer>::BYTES.
+- 13 f32 associated constants as IEEE 754 bit patterns (INFINITY, NEG_INFINITY, NAN, ZERO, MINUS_ZERO, MIN_POSITIVE, MAX, MIN, EPSILON, MAX_SUBNORMAL, MIN_SUBNORMAL, BITS, BYTES).
+- 13 f64 associated constants as IEEE 754 bit patterns (same set as f32 but 64-bit bit widths).
+- WrappingU64/U32/I64 and SaturatingU64/I64 layout constants (8-byte transparent struct wrappers).
+- DEFAULT_WRAPPING_U64 and DEFAULT_SATURATING_U64 zero-init macros in default.sa.
+- Test file std_float_wrapping_macro_surface.sa (panic IDs 10473/10474).
+
+Panic IDs next free: 10475+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 p)
+
+Completed supportable defaults/aliases/macros:
+- 11 Wrapping/Saturating construction/access macros in num.sa (WRAPPING_U64_NEW/GET/SET, WRAPPING_U32_NEW/GET, WRAPPING_I64_NEW/GET, SATURATING_U64_NEW/GET/SET, SATURATING_I64_NEW/GET).
+- 7 Range<usize>/Bound<usize> layout constants in ops.sal (RangeUsize_SIZE, RangeInclusiveUsize_SIZE, RangeFromUsize_SIZE, RangeToUsize_SIZE, RangeToInclusiveUsize_SIZE, BoundUsize_SIZE + field offsets).
+- 11 RANGE_USIZE_* alias macros in ops.sa wrapping existing RANGE_U64_* macros.
+- Test file std_wrapping_range_macro_surface.sa (panic IDs 10475/10476).
+
+Panic IDs next free: 10477+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 q)
+
+Completed supportable defaults/aliases/macros:
+- 8 new mem size/align constants in mem.sal (MEM_SIZE_F32/4, MEM_ALIGN_F32/4, MEM_SIZE_F64/8, MEM_ALIGN_F64/8, MEM_SIZE_PTR/8, MEM_ALIGN_PTR/8, MEM_SIZE_CHAR/4, MEM_ALIGN_CHAR/4).
+- Test file std_mem_size_macro_surface.sa (panic ID 10477).
+
+Panic IDs next free: 10478+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-13 r)
+
+Completed supportable defaults/aliases/macros:
+- 12 f32/f64 Digits/Radix/Exp constants in num.sal (NUM_F32_DIGITS=6, NUM_F32_RADIX=2, NUM_F32_MIN_EXP=-125, NUM_F32_MAX_EXP=128, NUM_F32_MIN_10_EXP=-37, NUM_F32_MAX_10_EXP=38, plus matching NUM_F64_* for digits=15, radix=2, min_exp=-1021, max_exp=1024, min_10_exp=-307, max_10_exp=308).
+- 8 MEM_SIZE_OF_* / MEM_ALIGN_OF_* macros in mem.sa for f32, f64, ptr, char.
+- Test file std_float_constants_macro_surface.sa (panic ID 10478).
+
+Panic IDs next free: 10479+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 r confirmed)
+
+Completed supportable defaults/aliases/macros:
+- 14 f32/f64 associated constants in num.sal: MANTISSA_DIGITS (24/53), DIGITS (6/15), RADIX (2/2), MIN_EXP (-125/-1021), MAX_EXP (128/1024), MIN_10_EXP (-37/-307), MAX_10_EXP (38/308).
+- 8 MEM_SIZE_OF_* / MEM_ALIGN_OF_* macros in mem.sa for f32, f64, ptr, char.
+- Test file std_float_constants_macro_surface.sa (panic ID 10478).
+
+Full `zig build unit-framework --summary all` passes: 6/6 steps, 5/5 tests passed.
+
+Panic IDs next free: 10479+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 s)
+
+Completed supportable defaults/aliases/macros:
+- 10 Wrapping/Saturating MIN/MAX constants in num.sal (WRAPPING_U64/U32/I64_MIN/MAX, SATURATING_U64/I64_MIN/MAX).
+- 6 Wrapping/Saturating struct-aware arithmetic macros in num.sa (WRAPPING_U64_ADD/SUB/MUL, SATURATING_U64_ADD/SUB/MUL) that read/write through Wrapping/Saturating struct layouts.
+- Test file std_wrapping_arith_macro_surface.sa (panic ID 10479).
+
+Panic IDs next free: 10480+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 t)
+
+Completed supportable defaults/aliases/macros:
+- 5 Atomic Ordering enum constants in sync/atomic.sal (RELAXED=0, RELEASE=1, ACQUIRE=2, ACQ_REL=3, SEQ_CST=4) mirroring Rust std::sync::atomic::Ordering.
+- Test file std_atomic_ordering_macro_surface.sa (panic ID 10480).
+
+Panic IDs next free: 10481+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 w)
+
+Completed supportable defaults/aliases/macros:
+- OsStr/OsString layout constants in ffi.sal (6 constants, both = Slice_SIZE on Unix).
+- OS_STR_FROM_BYTES_OK/INTERIOR_NUL/TO_STR_INVALID_UTF8 error codes in ffi.sal (3 constants).
+- MutexGuard layout: SIZE/rwlock/data in sync/mutex.sal (3 constants).
+- RwLockReadGuard and RwLockWriteGuard layout in sync/rwlock.sal (6 constants).
+- Test file std_ffi_osstr_layout_macro_surface.sa (panic IDs 10483/10484).
+
+Panic IDs next free: 10485+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 x)
+
+Completed supportable defaults/aliases/macros:
+- Duration_SIZE/nanos/ZERO/MIN/MAX in time.sal (5 constants).
+- Instant_SIZE/nanos, SystemTime_SIZE/nanos/UNIX_EPOCH in time.sal (5 constants).
+- Test file std_time_duration_layout_macro_surface.sa (panic ID 10485).
+
+Panic IDs next free: 10486+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 y)
+
+Completed supportable defaults/aliases/macros:
+- 5 IntErrorKind enum constants in num.sal (EMPTY/INVALID_DIGIT/POS_OVERFLOW/NEG_OVERFLOW/ZERO).
+- ParseIntError layout (SIZE/code/msg) in num.sal.
+- Test file std_int_error_kind_macro_surface.sa (panic ID 10486).
+
+Panic IDs next free: 10487+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 z)
+
+Completed supportable defaults/aliases/macros:
+- TryFromIntError layout + POS/NEG overflow error codes in num.sal (4 constants).
+- TryFromSliceError layout + LENGTH_MISMATCH error code in core/slice.sal (3 constants).
+- Test file std_try_from_error_macro_surface.sa (panic ID 10487).
+
+Panic IDs next free: 10488+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 aa)
+
+Completed supportable defaults/aliases/macros:
+- 20 NonZero*::BITS/BYTES associated constants in num.sal mirroring Rust 1.80+.
+- Test file std_nonzero_bits_macro_surface.sa (panic ID 10488) cross-checking against NUM_*_BITS.
+
+Panic IDs next free: 10489+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 ab)
+
+Completed supportable defaults/aliases/macros:
+- OnceLock layout + 3 state aliases in sync/once.sal (4 constants).
+- LazyLock layout + 3 state aliases in sync/once.sal (4 constants).
+- Test file std_once_lock_layout_macro_surface.sa (panic ID 10489) cross-checking OnceLock/LazyLock/Once sizes.
+
+Panic IDs next free: 10490+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+## Active std parity batch (2026-07-14 ac)
+
+Completed supportable defaults/aliases/macros:
+- New thread.sal with JoinHandle layout (SIZE/handle/result) and THREAD_DEFAULT_ID sentinel (4 constants).
+- Test file std_joinhandle_layout_macro_surface.sa (panic ID 10490).
+
+Panic IDs next free: 10491+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ad)
+
+Completed supportable defaults/aliases/macros:
+- char layout constants in char.sal (CHAR_SIZE=4, CHAR_ALIGN=4), cross-checking Rust char's u32-sized scalar representation.
+- char associated constant aliases in char.sal: CHAR_REPLACEMENT_CHARACTER, CHAR_MAX_LEN_UTF8=4, and CHAR_MAX_LEN_UTF16=2.
+- Test file std_char_constants_macro_surface.sa (panic ID 10491).
+
+Panic IDs next free: 10492+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ae)
+
+Completed supportable defaults/aliases/macros:
+- char error layout constants in char.sal for ParseCharError, DecodeUtf16Error, CharTryFromError, and TryFromCharError.
+- ParseCharError kind constants for EmptyString and TooManyChars, plus DecodeUtf16Error unpaired-surrogate payload offset.
+- Test file std_char_error_layout_macro_surface.sa (panic ID 10492).
+
+Panic IDs next free: 10493+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 af)
+
+Completed supportable defaults/aliases/macros:
+- fmt Error zero-sized layout constants in fmt.sal (FmtError_SIZE=0, FmtError_ALIGN=1).
+- fmt Result layout/tag aliases in fmt.sal over the existing Result layout, modeling std::fmt::Result as Result<(), Error> at the SA layout level.
+- Test file std_fmt_layout_macro_surface.sa (panic ID 10493).
+
+Panic IDs next free: 10494+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ag)
+
+Completed supportable defaults/aliases/macros:
+- FFI/string conversion error layout constants in ffi.sal for NulError, FromBytesWithNulError, Utf8Error, and IntoStringError.
+- Error kind aliases connect FromBytesWithNulError variants to the existing CSTR_FROM_BYTES_* validation status codes.
+- Test file std_ffi_error_layout_macro_surface.sa (panic ID 10494).
+
+Panic IDs next free: 10495+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ah)
+
+Completed supportable defaults/aliases/macros:
+- RefCell borrow error zero-sized layout constants in core/refcell.sal for BorrowError and BorrowMutError.
+- Test file std_refcell_error_layout_macro_surface.sa (panic ID 10495).
+
+Panic IDs next free: 10496+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ai)
+
+Completed supportable defaults/aliases/macros:
+- Panic location layout constants in core/panic.sal for Rust `Location`: file fat-pointer view, line, and column offsets.
+- AssertUnwindSafeU64 concrete wrapper layout constants in core/panic.sal.
+- Test file std_panic_layout_macro_surface.sa (panic ID 10496).
+
+Panic IDs next free: 10497+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 aj)
+
+Completed supportable defaults/aliases/macros:
+- String/str conversion error layout constants in string.sal for FromUtf8Error, FromUtf16Error, and ParseBoolError.
+- FromUtf8Error layout cross-checks the existing Vec and Utf8Error layouts; FromUtf16Error records strict UTF-16 failure kind values for lone surrogate and odd byte input.
+- Test file std_string_error_layout_macro_surface.sa (panic ID 10497).
+
+Panic IDs next free: 10498+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

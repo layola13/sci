@@ -2,7 +2,632 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-13 IO_ERROR_KIND + ERROR_CODE + ERROR_REF_IS_* expanded
+
+- `sa_std/io.sal`: 33 new `IO_ERROR_KIND_*` constants covering the full Rust `io::ErrorKind` enum (NotFound, PermissionDenied, ConnectionRefused, ConnectionReset, ConnectionAborted, NotConnected, AddrInUse, AddrNotAvailable, BrokenPipe, AlreadyExists, TimedOut, Unsupported, OutOfMemory, IsADirectory, DirectoryNotEmpty, RecursiveEntry, QuotaExceeded, FileTooLarge, FilesystemLoop, ExecutableFileBusy, CrossedDevices, NotSeekable, ReadOnlyFilesystem, ArgumentListTooLong, ResourceBusy, NameTooLong, TooManyLinks, HostUnreachable, NetworkUnreachable, NetworkDown, StaleNetworkFileHandle, FilesystemQuota, StorageFull, plus existing kinds).
+- `sa_std/error.sal`: 19 new `ERROR_CODE_*` constants (ConnectionRefused through StorageFull, IDs 10-28).
+- `sa_std/error.sa`: 19 new `ERROR_REF_IS_*` convenience helper macros covering the new error codes (ConnectionRefused, ConnectionReset, ConnectionAborted, NotConnected, AddrInUse, AddrNotAvailable, BrokenPipe, AlreadyExists, OutOfMemory, NetworkUnreachable, HostUnreachable, IsADirectory, DirectoryNotEmpty, ReadOnlyFilesystem, ResourceBusy, ArgumentListTooLong, NameTooLong, TooManyLinks, StorageFull).
+- Test: `tests/unit_framework/std_io_error_kinds_macro_surface.sa` — 2 tests (panic IDs 10467/10468) covering all new IO_ERROR_KIND constants and ERROR_CODE constants + ERROR_REF_IS_* macros.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_io_error_kinds_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10469+.
+
+## Completed: 2026-07-13 Default aliases for legacy Cell and legacy RefCell
+
+- `sa_std/core/cell.sa`: `CELL_DEFAULT` — alias for `CELL_NEW` (zero-initialized 4-byte Cell, matching Rust `Cell::<i32>::default`).
+- `sa_std/core/refcell.sa`: `REFCELL_DEFAULT` — zero-initialized legacy RefCell with value=0, borrows=0 (matching Rust `RefCell::default` where `T: Default`).
+- Validation status:
+  - Focused temp tests for CELL_DEFAULT and REFCELL_DEFAULT passed individually.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-13 DEFAULT_F32/F64/CHAR macros + RANGE_INCLUSIVE_U64_DEFAULT
+
+- `sa_std/default.sa`: `DEFAULT_F32`, `DEFAULT_F64`, `DEFAULT_CHAR` macros (return 0, matching Rust `Default::default()` for `f32`, `f64`, `char`).
+- `sa_std/ops.sa`: `RANGE_INCLUSIVE_U64_DEFAULT` macro (0..=0, exhausted=0).
+- Extended `tests/unit_framework/std_from_into_default_macro_surface.sa` numeric defaults block to also test `DEFAULT_F32`, `DEFAULT_F64`, `DEFAULT_CHAR` macros.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_from_into_default_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+
+## Completed: 2026-07-13 RANGE_INCLUSIVE_U64_DEFAULT
+
+- `sa_std/ops.sa`: `RANGE_INCLUSIVE_U64_DEFAULT` macro (0..=0, exhausted=0), matching Rust `RangeInclusive<u64>::default()`.
+- Extended `tests/unit_framework/std_default_types_macro_surface.sa` to verify start=0, end=0, exhausted=0.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_default_types_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+## Completed: 2026-07-13 INTO/TRY_INTO/SAT_INTO naming aliases + PTR_SWAP_NONOVERLAPPING_U64
+
+- Continued Rust std `Into` / `TryInto` / `SaturatingInto` naming parity with thin aliases over existing `FROM_*` / `TRY_FROM_*` / `SAT_FROM_*` macros (no new runtime/FFI). In Rust, `impl From<T> for U` implies `impl Into<U> for T`, and similarly for `TryInto`.
+- `sa_std/convert.sa`: 56 new `INTO_*` / `TRY_INTO_*` / `SAT_INTO_*` Rust-named aliases wrapping existing `FROM_*` / `TRY_FROM_*` / `SAT_FROM_*` macros (168 total macros in convert.sa).
+- `sa_std/ptr.sa`: `PTR_SWAP_NONOVERLAPPING_U64` — non-overlapping concrete `u64` pointer swap alias over `PTR_SWAP_U64` (matches Rust `ptr::swap_nonoverlapping` for typed `u64`).
+- Tests: `tests/unit_framework/std_into_naming_macro_surface.sa` — 2 tests covering `INTO_*` / `TRY_INTO_*` / `SAT_INTO_*` aliases (panic ID 10465) and `PTR_SWAP_NONOVERLAPPING_U64` (panic ID 10466).
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_into_naming_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10467+.
+
+## Completed: 2026-07-13 BOOL/F32/F64/CHAR Default constants + RESULT_DEFAULT macro
+
+- Continued Rust std `Default` parity with constant and macro additions over existing layouts (no new runtime/FFI).
+- `sa_std/num.sal`: `BOOL_DEFAULT = 0`, `NUM_F32_DEFAULT = 0`, `NUM_F64_DEFAULT = 0` (Rust `Default::default() = 0` for bool and float types).
+- `sa_std/char.sal`: `CHAR_DEFAULT = 0` (Rust `char::default()` = `'\0'`).
+- `sa_std/core/result.sa`: `RESULT_DEFAULT` macro (constructs `Ok(0)` — tag=Result_OK, ok=0, err=0 — matching Rust `Result<T,E>::default()` where `T: Default`).
+- Tests:
+  - Extended `tests/unit_framework/std_from_into_default_macro_surface.sa` numeric defaults block (panic ID 10462) to cover `BOOL_DEFAULT`, `NUM_F32_DEFAULT`, `NUM_F64_DEFAULT`, `CHAR_DEFAULT`.
+  - Extended `tests/unit_framework/std_default_types_macro_surface.sa` (panic ID updated 10463 -> 10464) to cover `RESULT_DEFAULT` tag/ok/err verification.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_from_into_default_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_default_types_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10465+.
+
+
+## Completed: 2026-07-13 Slice/Option/Range/Bound Default macros
+
+- Continued Rust std `Default` parity with thin Default-style macros over existing helpers (no new runtime/FFI).
+- `sa_std/core/slice.sa`: `SLICE_DEFAULT` (empty slice: ptr=0, len=0).
+- `sa_std/core/option.sa`: `OPTION_DEFAULT` (alias for `OPTION_NEW_NONE`, returns None).
+- `sa_std/ops.sa`: `RANGE_U64_DEFAULT` (0..0), `RANGE_FULL_DEFAULT` (no-op for RangeFull, SIZE=0), `BOUND_U64_DEFAULT` (Unbounded, alias for `BOUND_U64_UNBOUNDED_NEW`), `RANGE_FROM_U64_DEFAULT` (0..), `RANGE_TO_U64_DEFAULT` (..0), `RANGE_TO_INCLUSIVE_U64_DEFAULT` (..=0).
+- Tests: `tests/unit_framework/std_default_types_macro_surface.sa` (`10463`) covering all 8 new Default macros.
+- Validation status:
+  - Focused: `./zig-out/bin/sa test tests/unit_framework/std_default_types_macro_surface.sa --no-incremental` -> `1 passed`.
+  - Focused: ops surface `1 passed`, option/result surface `5 passed`, slice/vec surface `20 passed`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+- Panic IDs next free: 10464+.
+
+## Completed: 2026-07-13 From/TryFrom/SaturatingFrom naming aliases + numeric Default constants
+
+- Continued Rust std `From`/`TryFrom`/`SaturatingFrom` parity with thin naming aliases over existing `CONVERT_*`/`CONVERT_TRY_*`/`CONVERT_SAT_*` macros (no new runtime/FFI).
+- `sa_std/convert.sa`: 56 new `FROM_*`/`TRY_FROM_*`/`SAT_FROM_*` Rust-named aliases wrapping existing conversion macros.
+- `sa_std/num.sal`: 10 `NUM_*_DEFAULT = 0` constants for all integer types (Rust `Default::default() = 0`).
+- Tests: `tests/unit_framework/std_from_into_default_macro_surface.sa` — 2 tests covering `From`/`TryFrom`/`SaturatingFrom` aliases (`10461`) and numeric defaults (`10462`).
+- Validation status:
+  - Focused: `./zig-out/bin/sa test tests/unit_framework/std_from_into_default_macro_surface.sa --no-incremental` -> `2 passed`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+- Panic IDs next free: 10463+.
+
+## Completed: 2026-07-13 CMP_ORDERING_DEFAULT_VALUE + STRING_BUF_LIT1/2/3 + SA_STD_DIR fix
+
+- Discovered root cause of the previous session's "systemic flattener bug": `SA_STD_DIR=/home/vscode/.sa/std` was pointing to a stale install dated Jul 11 09:13. All edits to project `sa_std/` were invisible during testing because the test runner resolved imports from the stale system copy. Re-synced project `sa_std/` to `/home/vscode/.sa/std/` via rsync. Both `[MACRO]` additions to `.sa` files and `#def` additions to `.sal` files now work correctly.
+- `sa_std/cmp.sal`: `CMP_ORDERING_DEFAULT_VALUE = CMP_ORDERING_EQUAL` (Ordering::default = Equal).
+- `sa_std/string.sa`: `STRING_BUF_LIT1`, `STRING_BUF_LIT2`, `STRING_BUF_LIT3` multi-slice StringBuf constructors over `STRING_BUF_WITH_CAPACITY` + `STRING_BUF_PUSH_STR`.
+- Tests: cmp test extended to verify `CMP_ORDERING_DEFAULT_VALUE` (`2 passed`), string_buf_lit test (`1 passed`), full string surface still `105 passed`.
+- Validation status:
+  - Focused: `./zig-out/bin/sa test tests/unit_framework/std_cmp_macro_surface.sa --no-incremental` -> `2 passed`.
+  - Focused: `./zig-out/bin/sa test tests/unit_framework/std_string_buf_lit_macro_surface.sa --no-incremental` -> `1 passed`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+- Both `[MACRO]` and `#def` additions to existing std files are now unblocked for future batches.
 Current progress: 80% for the active full-test runtime/logging optimization follow-up; 100% for the initial test logging/timeout diagnostics milestone; the large-SAB `sa test --filter` compile-only/list performance slice remains complete, installed, and verified.
+
+## Completed: 2026-07-13 Hash default constructor aliases
+
+- Continued hash Rust API parity with thin Default-style aliases over existing concrete hasher constructors (no new runtime/FFI).
+- `sa_std/hash.sa`: `DEFAULT_HASHER_DEFAULT`, `BUILD_HASHER_DEFAULT_DEFAULT`.
+- Tests: extended existing hash surface test (`10041`) to cover default aliases.
+- Validation status:
+  - Full-file hash surface: pass (`1 passed`).
+  - Full `zig build unit-framework --summary all`: attempted twice, but the Zig build runner remained active without spawning test children or flushing output; no failure output was produced before termination. Focused/full-file hash validation passed.
+
+## Completed: 2026-07-13 Rc/Arc/Weak Default aliases
+
+- Continued reference-counting Rust API parity with thin Default-style aliases over existing concrete `u64` constructors (no new runtime/FFI).
+- `sa_std/core/rc.sa`: `RC_DEFAULT_U64`, `WEAK_DEFAULT`.
+- `sa_std/core/arc.sa`: `ARC_DEFAULT_U64`, `ARC_WEAK_DEFAULT`.
+- Tests: rc/weak defaults (`10459`), arc/weak defaults (`10460`).
+- Validation status:
+  - Focused tests: pass.
+  - Full-file rc/weak surface: pass (`2 passed`).
+  - Full-file arc/weak surface: pass (`2 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-13 Typed net/fs/refcell/process Default aliases
+
+- Continued net/fs/cell/process Rust API parity with thin Default-style aliases over existing helpers (no new runtime/FFI).
+- `sa_std/net.sa`: `NET_IPV4_DEFAULT`, `NET_IPV6_DEFAULT`, `NET_SOCKET_ADDR_V4_DEFAULT`, `NET_SOCKET_ADDR_V6_DEFAULT`.
+- `sa_std/process.sa`: `PROCESS_EXIT_STATUS_DEFAULT` (code 0 success status).
+- `sa_std/core/refcell.sa`: `REFCELL_U64_DEFAULT` (value 0).
+- `sa_std/fs.sa`: `FS_PERMISSIONS_DEFAULT`, `FS_FILE_TIMES_DEFAULT`.
+- Tests: net typed defaults (`10455`), process exit_status default (`10456`), refcell default (`10457`), fs permissions/file_times defaults (`10458`).
+- Validation status:
+  - Focused tests: pass.
+  - Full-file net typed address surface: pass (`4 passed`).
+  - Full-file process surface: pass (`23 passed`).
+  - Full-file refcell surface: pass (`2 passed`).
+  - Full-file fs surface: pass (`15 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-13 Net/process/io/env/mpsc defaults and aliases
+
+- Continued net/process/io/env/sync Rust API parity with thin aliases/defaults over existing helpers (no new runtime/FFI).
+- `sa_std/net.sa`: `NET_IP_ADDR_DEFAULT` (Ipv4 unspecified), `NET_SOCKET_ADDR_DEFAULT` (unspecified:0).
+- `sa_std/process.sa`: `PROCESS_OUTPUT_SUCCESS`, `PROCESS_OUTPUT_CODE` over output status + success/code helpers.
+- `sa_std/io.sa`: `IO_FLUSH_STDOUT`, `IO_FLUSH_STDERR` over stdout/stderr handles + `IO_FLUSH`.
+- `sa_std/env.sa`: `ENV_XDG_*_OS` aliases for data/config/state/cache home dirs and data/config dirs.
+- `sa_std/sync/mpsc.sa`: `MPSC_DEFAULT` over `MPSC_NEW` with capacity 16 (bounded facade, not unbounded mpsc).
+- Tests: net defaults (`10450`), process output success/code (`10451`), io flush stdio (`10452`), env xdg os (`10453`), mpsc default (`10454`).
+- Validation status:
+  - Focused tests: pass.
+  - Full-file net typed address surface: pass (`3 passed`).
+  - Full-file process surface: pass (`22 passed`).
+  - Full-file io utility surface: pass (`8 passed`).
+  - Full-file env surface: pass (`17 passed`).
+  - Full-file mpsc surface: pass (`2 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-13 Time defaults/sleep + process naming + IO_COPY_N
+
+- Continued time/process/io Rust API parity with thin aliases and a bounded copy helper over existing runtime (no new FFI).
+- `sa_std/time.sa`: `TIME_SLEEP_DURATION_NS`, `TIME_INSTANT_DEFAULT`, `TIME_SYSTEM_TIME_DEFAULT`.
+- `sa_std/process.sa`: `PROCESS_IS_SUCCESS`, `PROCESS_CODE`, `PROCESS_OUTPUT_STATUS`.
+- `sa_std/io.sa`: `IO_COPY_N` (handle-to-handle copy with max-bytes bound over `sa_io_read`/`sa_io_write_all`).
+- Tests: time defaults/sleep (`10447`), process is_success/code/output_status (`10448`), io copy_n (`10449`).
+- Validation status:
+  - Focused tests: pass.
+  - Full-file time surface: pass (`6 passed`).
+  - Full-file process surface: pass (`21 passed`).
+  - Full-file io utility surface: pass (`7 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Path unix chown/mkfifo/make_dir + process success + thread sleep duration
+
+- Continued path/process/thread Rust API parity with thin wrappers/aliases over existing helpers (no new runtime/FFI).
+- `sa_std/path.sa`: `PATH_CHOWN`/`PATH_LCHOWN`/`PATH_CHROOT`/`PATH_MKFIFO`/`PATH_MAKE_DIR`/`PATH_MAKE_DIR_WITH_MODE` plus PathBuf wrappers.
+- `sa_std/process.sa`: `PROCESS_SUCCESS` alias over `PROCESS_EXIT_STATUS_SUCCESS`.
+- `sa_std/thread.sa`: `THREAD_SLEEP_DURATION_NS` alias over `THREAD_SLEEP_NS`.
+- Tests: path unix chown/mkfifo/make_dir (`10444`), process success (`10445`), thread sleep duration_ns (`10446`).
+- Validation status:
+  - Focused tests: pass.
+  - Full-file thread surface: pass (`6 passed`).
+  - Full-file process surface: pass (`20 passed`).
+  - Full-file path surface: pass (`20 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Path base64/open-flags + env home_os + once defaults + process exit_code
+
+- Continued path/env/sync/process Rust API parity with thin wrappers/aliases over existing helpers (no new runtime/FFI).
+- `sa_std/path.sa`: `PATH_OPEN_FLAGS`/`PATH_OPEN_WITH_OPTIONS`/`PATH_READ_FILE_BASE64`/`PATH_WRITE_FILE_BASE64` plus PathBuf wrappers.
+- `sa_std/env.sa`: `ENV_HOME_DIR_OS` alias over `ENV_HOME_DIR`.
+- `sa_std/sync/once.sa`: `ONCE_LOCK_DEFAULT`/`LAZY_LOCK_DEFAULT`.
+- `sa_std/process.sa`: `PROCESS_EXIT_CODE` alias over `PROCESS_EXIT_STATUS_CODE`.
+- Tests: path base64/open_flags (`10440`), once_lock/lazy_lock defaults (`10441`), env home_dir_os (`10442`), process exit_code (`10443`).
+- Validation status:
+  - Focused tests: pass.
+  - Full-file once surface: pass (`5 passed`).
+  - Full-file env surface: pass (`16 passed`).
+  - Full-file path surface: pass (`19 passed`).
+  - Full-file process surface: pass (`19 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Collections/Atomic Default aliases + Path permissions/FileTimes objects
+
+- Continued collections/sync/path Rust API parity with thin Default-style constructors and Path object wrappers over existing helpers (no new runtime/FFI).
+- Collections: `MAP_DEFAULT`, `SET_DEFAULT`, `BTREE_MAP_DEFAULT`, `BTREE_SET_DEFAULT`, `VEC_DEQUE_DEFAULT`, `BINARY_HEAP_DEFAULT`.
+- Atomic zero-init defaults: `ATOMIC_BOOL_DEFAULT`, `ATOMIC_U8/U16/U32/U64/USIZE_DEFAULT`.
+- `sa_std/path.sa`: `PATH_SET_PERMISSIONS_OBJ` / `PATH_FILE_TIMES_SET` plus PathBuf wrappers over existing FS permissions-object and FileTimes helpers.
+- Tests: hashmap/set/btree/deque/heap defaults (`10431-10435`), atomic default init (`10436`), path permissions/file_times (`10437`).
+- Validation status:
+  - Focused default/path-object tests: pass.
+  - Full-file hashmap/hashset/btree/deque/heap/atomic/path surfaces: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Atomic signed/ptr defaults + Path metadata/file-size/remove/mode wrappers
+
+- Continued sync/path Rust API parity with thin Default-style atomic constructors and Path/PathBuf filesystem wrappers over existing FS helpers (no new runtime/FFI).
+- Atomic signed/ptr zero-init defaults: `ATOMIC_I8/I16/I32/I64/ISIZE_DEFAULT`, `ATOMIC_PTR_DEFAULT` (null pointer).
+- `sa_std/path.sa`: `PATH_METADATA_JSON`/`PATH_FS_SIZE`/`PATH_REMOVE_ENTRY`/`PATH_REMOVE_ANY`/`PATH_CREATE_DIR_WITH_MODE`/`PATH_CREATE_DIR_ALL_WITH_MODE` plus PathBuf wrappers.
+- Naming notes: avoid `PATH_LEN` (collides with PathBuf string-length macro expansion / hangs compile) and `PATH_CREATE_DIR_MODE` (prefix collision with `PATH_CREATE_DIR`); use `PATH_FS_SIZE` and `*_WITH_MODE`.
+- Tests: atomic signed/ptr default init (`10438`), path PathBuf metadata_json/file-size/remove/mode (`10439`).
+- Validation status:
+  - Focused atomic signed/ptr default + path metadata/file-size/remove/mode tests: pass.
+  - Full-file atomic surface: pass (`12 passed`).
+  - Full-file path surface: pass (`18 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Path DirBuilder/OpenOptions slice facades
+
+- Continued path Rust API parity by wrapping existing FS SSA builders with Path/PathBuf slice entrypoints (no new runtime/FFI).
+- `sa_std/path.sa`: `PATH_DIR_BUILDER_CREATE`, `PATH_OPEN_OPTIONS_BUILDER_OPEN`, plus PathBuf wrappers.
+- Test: path PathBuf dir_builder/open_options aliases (`10430`).
+- Validation status:
+  - Focused path builder test: pass.
+  - Full-file path surface: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Time Duration/SystemTime defaults + OsString default
+
+- Continued time/ffi naming parity with thin aliases over existing helpers (no new runtime/FFI).
+- `sa_std/time.sa`: `TIME_DURATION_DEFAULT`, `TIME_SYSTEM_TIME_UNIX_EPOCH`, `TIME_INSTANT_SATURATING_DURATION_SINCE`.
+- `sa_std/os/unix_ffi.sa`: `OS_STRING_DEFAULT` over `OS_STRING_NEW`.
+- Tests: time duration default/unix epoch (`10428`), path OsString default (`10429`).
+- Validation status:
+  - Focused time/osstring tests: pass.
+  - Full-file time surface: pass.
+  - Full-file path surface: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Path read_dir aliases
+
+- Continued path Rust API parity with directory listing wrappers over existing FS read-dir helpers (no new runtime/FFI).
+- `sa_std/path.sa`: `PATH_READ_DIR_JSON`/`PATH_READ_DIR_ENTRIES` plus PathBuf wrappers `PATH_BUF_READ_DIR_JSON`/`PATH_BUF_READ_DIR_ENTRIES`.
+- Test: path PathBuf read_dir aliases (`10425`).
+- Also landed in the same continuation window:
+  - `THREAD_CURRENT`/`THREAD_YIELD` aliases over current-id / yield_now.
+  - `ENV_SET_VAR_OS`/`ENV_REMOVE_VAR_OS` aliases over set/remove var.
+  - Tests: thread current/yield (`10426`), env set/remove os (`10427`).
+- Validation status:
+  - Focused path read_dir / thread current-yield / env set_var_os: pass.
+  - Full-file path surface: pass.
+  - Full-file env/thread surfaces: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Path FS rename/link/symlink + IO handle aliases
+
+- Continued path/io Rust API parity with thin wrappers over existing FS/IO runtime helpers (no new FFI).
+- `sa_std/path.sa`: `PATH_READ_TO_STRING`/`PATH_CREATE_DIR_ALL`/`PATH_REMOVE_DIR_ALL`/`PATH_RENAME`/`PATH_HARD_LINK`/`PATH_SYMLINK`/`PATH_SET_PERMISSIONS`/`PATH_SET_TIMES_MS` plus PathBuf wrappers.
+- `sa_std/io.sa`: `IO_READ`/`IO_READ_EXACT`/`IO_WRITE`/`IO_WRITE_ALL`/`IO_FLUSH`/`IO_CLOSE` handle-level status-returning aliases over `sa_io_*`.
+- Tests: path PathBuf fs rename/link/symlink/read_to_string (`10423`), io handle read/write/flush/close (`10424`).
+- Validation status:
+  - Focused path more-ops + io handle tests: pass.
+  - Full-file `std_path` surface: pass.
+  - Full-file `std_io_utility` surface: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Path FS ops + mutex/rwlock/once defaults + env path_os + process pid aliases
+
+- Continued path/sync/env/process Rust API parity with thin naming aliases and Path filesystem wrappers over existing helpers (no new runtime/FFI).
+- `sa_std/path.sa`: `PATH_OPEN_READ`/`PATH_OPEN_WRITE`/`PATH_CREATE`/`PATH_READ_FILE`/`PATH_WRITE_FILE`/`PATH_REMOVE_FILE`/`PATH_REMOVE_DIR`/`PATH_CREATE_DIR`/`PATH_COPY` plus PathBuf wrappers `PATH_BUF_OPEN_*`/`CREATE`/`READ_FILE`/`WRITE_FILE`/`REMOVE_*`/`CREATE_DIR`/`COPY`.
+- `sa_std/sync/{mutex,rwlock,once}.sa`: `MUTEX_DEFAULT`, `RWLOCK_DEFAULT`, `ONCE_DEFAULT` aliases of existing constructors.
+- `sa_std/env.sa`: `ENV_TEMP_DIR_OS`/`ENV_CURRENT_EXE_OS`/`ENV_CURRENT_DIR_OS`/`ENV_SET_CURRENT_DIR_OS`.
+- `sa_std/process.sa`: `PROCESS_PID`/`PROCESS_PPID` aliases over `PROCESS_ID`/`PROCESS_PARENT_ID`; `PROCESS_UID`/`PROCESS_GID` over `PROCESS_USER_ID`/`PROCESS_GROUP_ID`.
+- Fixed env temp/current path os test free-status checks to use `ENV_STATUS_IS_OK` (status `0`, not bool `1`).
+- Fixed remaining unit-framework cross-file diagnostic collisions: net unix datagram assert codes `1006`/`1007` renumbered to `10417`/`10418` so they no longer share env panic IDs.
+- New/extended surface tests: path PathBuf fs ops (`10414`), mutex default (`10415`), env temp/current path os (`10416`), process pid/ppid (`10419`), rwlock default (`10420`), once default (`10421`), process uid/gid (`10422`).
+- Validation status:
+  - Focused path/mutex/env/process/once/rwlock tests: pass.
+  - Full-file path/env/mutex surfaces: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Time SystemTime/Instant aliases + IO copy + PathBuf FS queries + OnceLock aliases
+
+- Continued time/io/path/sync Rust API parity with thin naming aliases and one handle-copy utility over existing helpers (no new runtime/FFI).
+- `sa_std/time.sa`: `TIME_INSTANT_NOW`, `TIME_SYSTEM_TIME_NOW`, `TIME_SYSTEM_TIME_FROM_UNIX_NS`, `TIME_SYSTEM_TIME_AS_UNIX_NS`, `TIME_SYSTEM_TIME_CHECKED_DURATION_SINCE`, `TIME_SYSTEM_TIME_DURATION_SINCE`, `TIME_SYSTEM_TIME_ELAPSED`, `TIME_SYSTEM_TIME_CHECKED_ADD`, `TIME_SYSTEM_TIME_CHECKED_SUB` over existing ns clocks / checked duration arithmetic. Instant uses monotonic `TIME_NOW_NS`; SystemTime uses unix-epoch `TIME_NOW_UNIX_NS`.
+- `sa_std/io.sa`: `IO_COPY` handle-to-handle copy via fixed 4096-byte stack chunk + `sa_io_read` / `sa_io_write_all` loop (not trait-object `io::copy`).
+- `sa_std/path.sa` PathBuf FS aliases: `PATH_BUF_TRY_EXISTS`, `PATH_BUF_METADATA`, `PATH_BUF_CANONICALIZE`, `PATH_BUF_READ_LINK`, `PATH_BUF_IS_SYMLINK` over `PATH_BUF_AS_PATH` + existing `PATH_*` helpers.
+- `sa_std/sync/once.sa`: `ONCE_LOCK_*` aliases (`NEW`/`IS_READY`/`SET`/`TRY_GET`/`GET`/`GET_OR_INIT`/`TAKE`/`INTO_INNER`) over existing concrete Once/OnceLock u64 cell.
+- Validation status:
+  - Focused time/once/path/io tests: pass.
+  - Full-file `std_time`/`std_once`/`std_path`/`std_io_utility` surfaces: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+## Completed: 2026-07-12 Atomic signed bitwise + fetch_nand + global panic-id uniqueness
+
+- Continued sync atomic Rust API parity with signed bitwise RMW and multi-width `fetch_nand` helpers over existing `atomic_rmw_*` / `cmpxchg` SSA ops (no new runtime/FFI).
+- `sa_std/sync/atomic.sa`:
+  - signed: `ATOMIC_{I8,I16,I32,I64,ISIZE}_FETCH_{AND,OR,XOR}`
+  - all integer widths: `ATOMIC_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_FETCH_NAND` via load/`and`/`xor -1`/cmpxchg loop (ISA has no native `atomic_rmw_nand`)
+- Also documented/landed the previous unfinished verification batch already present in tree:
+  - multi-width `ATOMIC_*_FETCH_{MIN,MAX,UMIN,UMAX}`
+  - `THREAD_SLEEP_NS` / `THREAD_SLEEP_MS` aliases of `TIME_SLEEP_*`
+  - `PATH_BUF_CLONE_FROM`
+- Tests:
+  - `std_atomic_macro_surface.sa` fetch_min/max + fetch_and/or/xor/nand blocks
+  - `std_thread_macro_surface.sa` sleep
+  - `std_path_macro_surface.sa` clone_from
+- Fixed global duplicate `panic(N)` IDs across unit-framework SA surfaces (not only within-file): first occurrence kept, later collisions renumbered from `10026+`, and matching `@sa_assert_*` codes in the same `@test` block were realigned. Result: 932 unique panic codes across unit-framework suites (including `943/944/945` collisions).
+- Validation status:
+  - Focused atomic nand batch: pass.
+  - Focused path clone_from / atomic min-max / thread sleep: pass.
+  - Per-file `sa test` scan of feature_suite + all std_* macro surfaces after renumber/nand: all passed (string suite can exceed 180s under load; use >=300s timeout).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, EXIT:0).
+
+
+## Completed: 2026-07-12 Thread builder + PathBuf push/join + Env path_os + CStr lossy
+
+- Continued thread/path/env/ffi Rust API parity with thin builder and naming aliases over existing helpers (no new runtime/FFI except already-landed surfaces).
+- `sa_std/thread.sa`: `THREAD_BUILDER_NEW`, `THREAD_BUILDER_WITH_DETACHED`, `THREAD_BUILDER_SPAWN` over `THREAD_SPAWN` / `THREAD_SPAWN_DETACHED` (detached flag only; no stack-size/name ABI).
+- `sa_std/path.sa`: `PATH_BUF_PUSH_PATH_BUF`, `PATH_BUF_JOIN`, `PATH_BUF_JOIN_PATH_BUF`.
+- `sa_std/env.sa`: `ENV_SPLIT_PATHS_OS`, `ENV_JOIN_PATHS_OS` over JSON path helpers.
+- `sa_std/ffi.sa`: `CSTR_TO_STRING_LOSSY` over `CSTR_TO_BYTES` + `STRING_BUF_FROM_UTF8_LOSSY`.
+- Validation status:
+  - Focused `std_thread_macro_surface.sa --filter 'builder'`: pass.
+  - Focused `std_path_macro_surface.sa --filter 'push/join'`: pass.
+  - Focused `std_env_macro_surface.sa --filter 'split_paths_os'`: pass.
+  - Focused `std_ffi_cstr_macro_surface.sa --filter 'cstr to_string_lossy'`: pass.
+
+## Completed: 2026-07-12 Net format_ascii + PathBuf query aliases + Env args_os/vars_os
+
+- Continued net/path/env Rust API parity with typed-address ASCII format helpers, PathBuf query facades, and Os-named env aliases over existing JSON buffers.
+- Runtime (`src/runtime/sa_std.zig`): `sa_net_ipv4_format_ascii`, `sa_net_ipv6_format_ascii`, `sa_net_socket_addr_v4_format_ascii`, `sa_net_socket_addr_v6_format_ascii` writing into caller buffers with explicit `(ok,len)`.
+- `sa_std/net.sai` / `sa_std/net.sa`: `NET_IPV4_FORMAT_ASCII`, `NET_IPV6_FORMAT_ASCII`, `NET_SOCKET_ADDR_V4_FORMAT_ASCII`, `NET_SOCKET_ADDR_V6_FORMAT_ASCII`, `NET_IP_ADDR_FORMAT_ASCII`, `NET_SOCKET_ADDR_FORMAT_ASCII`.
+- Semantics: IPv4 dotted-decimal; IPv6 deterministic expanded lowercase hex segments (no zero-compression); socket V4 `ip:port`; socket V6 `[ip%scope]:port` with optional numeric scope. Not Rust `Display` traits / zero-compression / interface-name zones.
+- `sa_std/path.sa` PathBuf query aliases: `PATH_BUF_IS_ABSOLUTE`, `PATH_BUF_IS_RELATIVE`, `PATH_BUF_HAS_ROOT`, `PATH_BUF_COMPONENT_COUNT`, `PATH_BUF_TRY_COMPONENT_AT`, `PATH_BUF_ANCESTOR_COUNT`, `PATH_BUF_TRY_ANCESTOR_AT`, `PATH_BUF_TRY_PARENT`, `PATH_BUF_TRY_FILE_NAME`, `PATH_BUF_TRY_FILE_STEM`, `PATH_BUF_TRY_EXTENSION` over `PATH_BUF_AS_PATH` + existing `PATH_*` helpers.
+- `sa_std/env.sa`: `ENV_ARGS_OS`, `ENV_VARS_OS` aliases over `ENV_ARGS_JSON` / `ENV_VARS_JSON` (still JSON env-buffer handles, not true OsString iterators).
+- Validation status:
+  - Focused `std_net_typed_address_macro_surface.sa --filter 'format_ascii'`: pass.
+  - Focused `std_path_macro_surface.sa --filter 'query aliases'`: pass.
+  - Focused `std_env_macro_surface.sa --filter 'args_os'`: pass.
+  - Rebuilt `sa-std-static` with new format symbols.
+
+## Completed: 2026-07-12 PathBuf/OsString conversion + lossy string helpers
+
+- Continued path/os/ffi Rust API parity with concrete Unix byte-buffer conversion and lossy UTF-8 materialization helpers over existing `STRING_BUF_FROM_UTF8_LOSSY` / owned buffer constructors (no new runtime/FFI).
+- Added supportable macros:
+  - `sa_std/path.sa`: `PATH_BUF_AS_OS_STR`, `PATH_BUF_FROM_OS_STR`, `PATH_BUF_FROM_OS_STRING`, `PATH_BUF_INTO_OS_STRING`, `PATH_BUF_INTO_OS_STRING_MOVE` (path now imports `os/unix_ffi.sa`)
+  - `sa_std/os/unix_ffi.sa`: `OS_STRING_TO_STRING_LOSSY`, `OS_STR_TO_STRING_LOSSY`, `OS_STRING_FROM_PATH`
+  - `sa_std/ffi.sa`: `CSTRING_TO_STRING_LOSSY`
+- Semantics: conversions copy bytes between PathBuf (StringBuf) and OsString (Vec<u8>) facades. Lossy helpers always materialize owned `StringBuf` via existing UTF-8 lossy reconstruction; they do not model Rust `Cow<str>` or display adapters. `PATH_BUF_INTO_OS_STRING` copies then leaves PathBuf live; `*_MOVE` frees the PathBuf after copy.
+- Validation status:
+  - Focused `std_path_macro_surface.sa --filter 'os conversion'`: pass (`1 passed; 6 skipped`).
+  - Focused `std_os_unix_ffi_macro_surface.sa --filter 'to_string_lossy'`: pass (`1 passed; 4 skipped`).
+  - Focused `std_ffi_cstr_macro_surface.sa --filter 'to_string_lossy'`: pass (`1 passed; 3 skipped`).
+
+## Completed: 2026-07-12 Process Command builder output + CString default/clone/lit
+
+- Continued process/FFI Rust API parity with thin capture and owned-CString convenience helpers over existing runtime/macro surfaces (no new FFI).
+- Added supportable `sa_std/process.sa` macros: `PROCESS_COMMAND_BUILDER_EXEC_CAPTURE`, `PROCESS_COMMAND_BUILDER_OUTPUT`.
+- Semantics: builder `output`/`exec_capture` honor `has_cwd`/`cwd` only and lower through existing `PROCESS_EXEC_CAPTURE*` / `PROCESS_EXEC_CAPTURE_OUTPUT*`. `arg0` / process-group / setsid builder fields are accepted for API shape but not applied on capture paths (capture runtime ABI does not expose those CommandExt fields).
+- Added supportable `sa_std/ffi.sa` macros: `CSTRING_DEFAULT`, `CSTRING_CLONE`, `CSTRING_LIT1`.
+- Semantics: `DEFAULT` is `CSTRING_NEW` of an empty byte slice (owned empty C string with trailing NUL). `CLONE` revalidates/copies through `CSTRING_AS_BYTES_WITH_NUL` + `CSTRING_FROM_BYTES_WITH_NUL`. `LIT1` is a Rust-style single-slice constructor alias over `CSTRING_NEW`.
+- Validation status:
+  - Focused `std_ffi_cstr_macro_surface.sa --filter 'default/clone'`: pass (`1 passed; 2 skipped`).
+  - Focused `std_process_macro_surface.sa --filter 'command builder output'`: pass (`1 passed; 15 skipped`).
+
+## Completed: 2026-07-12 PathBuf/OsString lit+capacity remaining + Env rust-named aliases
+
+- Continued path/os/env Rust API naming parity with thin aliases and multi-part literal constructors over existing owned byte-buffer helpers (no new runtime/FFI).
+- Added supportable macros:
+  - `sa_std/path.sa`: `PATH_BUF_CAPACITY_REMAINING`, `PATH_BUF_REMAINING_CAPACITY`, `PATH_BUF_EXTRA_CAPACITY`, `PATH_BUF_LIT1`, `PATH_BUF_LIT2`, `PATH_BUF_LIT3`
+  - `sa_std/os/unix_ffi.sa`: `OS_STRING_CAPACITY_REMAINING`, `OS_STRING_REMAINING_CAPACITY`, `OS_STRING_EXTRA_CAPACITY`, `OS_STRING_LIT1`, `OS_STRING_LIT2`, `OS_STRING_LIT3`
+  - `sa_std/env.sa`: Rust-named aliases `ENV_VAR`, `ENV_VAR_OS`, `ENV_ARGS`, `ENV_VARS`, `ENV_SPLIT_PATHS`, `ENV_JOIN_PATHS`, `ENV_HOME_DIR` over existing get/try/JSON/home helpers
+- Semantics: capacity-remaining aliases report spare capacity on empty owned buffers. Path/OsString `LIT*` construct by `FROM_*` then sequential push. Env aliases preserve current buffer/JSON contracts rather than introducing true `args_os`/`vars_os` iterators or OsString-returning APIs.
+- Validation status:
+  - Focused `std_path_macro_surface.sa --filter 'lit/capacity'`: pass (`1 passed; 5 skipped`).
+  - Focused `std_os_unix_ffi_macro_surface.sa --filter 'lit/capacity'`: pass (`1 passed; 3 skipped`).
+  - Focused `std_env_macro_surface.sa --filter 'rust-named'`: pass after fixing the test to `stack_alloc Slice_SIZE` (and not explicitly free stack slices).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 Atomic narrow-width fetch_update + FROM_PTR aliases
+
+- Continued sync Rust API parity by finishing remaining concrete `fetch_update` widths and adding Rust-named `from_ptr` aliases over existing transparent `from_mut` helpers.
+- Added supportable `sa_std/sync/atomic.sa` macros:
+  - `ATOMIC_BOOL_FETCH_UPDATE`, `ATOMIC_U8_FETCH_UPDATE`, `ATOMIC_I8_FETCH_UPDATE`, `ATOMIC_U16_FETCH_UPDATE`, `ATOMIC_I16_FETCH_UPDATE`
+  - `ATOMIC_*_FROM_PTR` thin aliases for every existing `ATOMIC_*_FROM_MUT_PTR` surface (Bool/U8/I8/U16/I16/U32/I32/U64/I64/USIZE/ISIZE/PTR)
+- Semantics: fetch_update remains a cmpxchg loop over a macro-level `T -> T` update function with eventual `ok=1`. `FROM_PTR` does not claim Rust strict provenance; it is an address-transparent layout alias of `FROM_MUT_PTR`.
+- Validation status:
+  - Focused `std_atomic_macro_surface.sa --filter 'fetch_update'`: pass (`3 passed; 5 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 IPv6 parse_ascii + IpAddr/SocketAddr enum parse upgrade
+
+- Continued net Rust API parity by adding concrete IPv6 / SocketAddrV6 ASCII parse helpers and upgrading enum parse paths to accept IPv4 or IPv6 text.
+- Runtime (`src/runtime/sa_std.zig`): `sa_net_ipv6_parse_ascii`, `sa_net_socket_addr_v6_parse_ascii` over Zig `Ip6Address.parse` (bracketed `[ip]:port` for sockets; optional numeric `%scope` via Zig parser). Segment/port/scope stored in host little-endian layout matching SA `u16`/`u32` stores.
+- `sa_std/net.sai`: declared both new externs.
+- `sa_std/net.sa` macros: `NET_IPV6_TRY_PARSE_ASCII` / `NET_IPV6_PARSE_ASCII`, `NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII` / `NET_SOCKET_ADDR_V6_PARSE_ASCII`, `NET_IP_ADDR_TO_IPV6`; upgraded `NET_IP_ADDR_TRY_PARSE_ASCII` and `NET_SOCKET_ADDR_TRY_PARSE_ASCII` to fall through V4→V6 without redefining the caller `ok` register mid-branch.
+- Semantics: pure IPv6 text (e.g. `::1`, `2001:db8::1`); socket form requires brackets (`[::1]:8080`). Does not model Rust `AddrParseError` objects, interface-name zone resolution beyond Zig numeric scope digits, or native `u128` bit constructors.
+- Validation status:
+  - Focused `std_net_macro_surface.sa --filter 'parse_ascii'`: pass (`8 passed; 8 skipped`).
+  - Full-file `std_net_macro_surface.sa`: pass (`16 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 Process Command builder SSA facade batch
+
+- Continued process Rust API parity with a concrete Command-style SSA config builder over existing `PROCESS_*_COMMAND_EXT` helpers, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/process.sa` macros: `PROCESS_COMMAND_BUILDER_NEW`, `PROCESS_COMMAND_BUILDER_WITH_CURRENT_DIR`, `PROCESS_COMMAND_BUILDER_WITH_ARG0`, `PROCESS_COMMAND_BUILDER_WITH_PROCESS_GROUP`, `PROCESS_COMMAND_BUILDER_WITH_SETSID`, `PROCESS_COMMAND_BUILDER_STATUS`, `PROCESS_COMMAND_BUILDER_SPAWN`, `PROCESS_COMMAND_BUILDER_SPAWN_STREAM`.
+- Semantics: builder state is propagating scalar flags/lengths only; callers still supply addressable cwd/arg0 buffers at status/spawn time (stack dummy when unused). Does not model env maps, Stdio pipe objects, heap Command values, or uid/gid/groups/chroot extensions.
+- Validation status:
+  - Focused `std_process_macro_surface.sa --filter 'command builder'`: pass (`1 passed; 14 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 multi-width Atomic fetch_update + unit-framework diagnostic ID uniqueness
+
+- Fixed latent unit-framework diagnostic-code collisions where assert codes reused panic IDs from sibling `@test` blocks inside the same surface file.
+  - `tests/unit_framework/std_fs_macro_surface.sa`: aligned assert codes in hard-link/symlink/canonicalize/metadata/remove_dir_all/read_to_string/try_exists blocks to each block's unique panic ID (942..948).
+  - `tests/unit_framework/std_net_unix_macro_surface.sa`: moved datagram pathname/abstract assert codes off shared 996/997 onto free 1006/1007.
+- Continued sync Rust API parity by extending `fetch_update` beyond `AtomicU64`.
+- Added supportable `sa_std/sync/atomic.sa` macros: `ATOMIC_U32_FETCH_UPDATE`, `ATOMIC_I32_FETCH_UPDATE`, `ATOMIC_I64_FETCH_UPDATE`, `ATOMIC_USIZE_FETCH_UPDATE`, `ATOMIC_ISIZE_FETCH_UPDATE`, `ATOMIC_PTR_FETCH_UPDATE`.
+- Semantics: each helper is a cmpxchg loop over a concrete macro-level `T -> T` update function register and always reports `ok=1` on eventual success (no Rust `Option` abort path). `ATOMIC_PTR_FETCH_UPDATE` updates pointer values, not byte offsets.
+- Validation status:
+  - Focused `std_atomic_macro_surface.sa --filter 'fetch_update'`: pass (`2 passed; 5 skipped`).
+  - Focused `std_fs_macro_surface.sa` / `std_net_unix_macro_surface.sa`: pass after diagnostic renumber.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 AtomicU64 fetch_update + StringBuf LIT constructors batch
+
+- Continued sync/string Rust API parity with two small supportable batches, requiring no new runtime/FFI surface.
+- Added `sa_std/sync/atomic.sa`: `ATOMIC_U64_FETCH_UPDATE` (cmpxchg loop over a macro-level `u64 -> u64` update function; always reports `ok=1` on eventual success, no Rust `Option` abort path).
+- Added `sa_std/string.sa`: `STRING_BUF_LIT1`, `STRING_BUF_LIT2`, `STRING_BUF_LIT3` over `STRING_BUF_FROM_STR` + `STRING_BUF_PUSH_STR`.
+- Semantics: fetch_update is a concrete AtomicU64 helper, not a generic closure/`Ordering` enum object. StringBuf lits concatenate fixed-arity `Slice` fragments into an owned buffer.
+- Validation status:
+  - Focused `std_atomic_macro_surface.sa --filter 'fetch_update'`: pass (`1 passed; 5 skipped`).
+  - Dedicated `std_string_buf_lit_macro_surface.sa`: pass (`1 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 LazyLock aliases over Once/OnceLock batch
+
+- Continued sync Rust API parity by adding concrete `LazyLock`-style naming aliases over the existing `Once`/`OnceLock` u64 cell helpers, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/sync/once.sa` macros: `LAZY_LOCK_NEW`, `LAZY_LOCK_FORCE`, `LAZY_LOCK_GET`, `LAZY_LOCK_IS_READY`, `LAZY_LOCK_INTO_INNER`.
+- Semantics: `FORCE` is `ONCE_GET_OR_INIT` with an explicit init function register; `GET` is non-blocking `TRY_GET`. This does not model generic `LazyLock<T,F>` storage of a function object, poison, or auto-drop lifecycle.
+- Validation status:
+  - Full-file `std_once_macro_surface.sa`: pass (`2 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 Vec u64 literal constructors batch
+
+- Continued Vec Rust API parity by adding fixed-arity u64 literal constructors over `VEC_NEW` + `VEC_PUSH_U64`, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/vec.sa` macros: `VEC_LIT1_U64`, `VEC_LIT2_U64`, `VEC_LIT3_U64`.
+- Semantics: constructs a fresh Vec and pushes 1/2/3 concrete u64 values. Does not model generic element literals, array-to-vec From, or allocator-aware constructors.
+- Validation status:
+  - Focused `std_vec_macro_surface.sa --filter 'vec lit'`: pass (`1 passed; 44 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 VecDeque from/lit constructor batch
+
+- Continued VecDeque Rust API parity by adding fixed-arity constructors and from-slice/from-vec helpers over the concrete `u64` ring buffer push path, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/vec_deque.sa` macros:
+  - literals: `VEC_DEQUE_LIT1`, `VEC_DEQUE_LIT2`, `VEC_DEQUE_LIT3`
+  - from: `VEC_DEQUE_FROM_SLICE_U64`, `VEC_DEQUE_FROM_VEC_U64`
+- Semantics: `FROM_*` constructs a fresh deque then push_back each source `u64` element (auto-growing). Slice length is an element count. These do not model generic element support, lazy iterators, or allocator-aware constructors.
+- Validation status:
+  - Focused `std_vec_deque_macro_surface.sa --filter 'from/lit'`: pass (`1 passed; 16 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 BinaryHeap from/lit constructor batch
+
+- Continued BinaryHeap Rust API parity by adding fixed-arity constructors and from/extend helpers over the concrete `u64` max-heap push path, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/binary_heap.sa` macros:
+  - literals: `BINARY_HEAP_LIT1`, `BINARY_HEAP_LIT2`, `BINARY_HEAP_LIT3`
+  - from/extend: `BINARY_HEAP_FROM_SLICE_U64`, `BINARY_HEAP_FROM_VEC_U64`, `BINARY_HEAP_EXTEND_FROM_SLICE_U64`, `BINARY_HEAP_EXTEND_FROM_VEC_U64`
+- Semantics: each constructor/extend helper pushes source elements through the existing heapify path. Slice length is treated as a `u64` element count (not byte length). These do not model generic ordering, lazy iterator `extend`, or allocator-aware constructors.
+- Validation status:
+  - Focused `std_binary_heap_macro_surface.sa --filter 'from/lit'`: pass (`1 passed; 7 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 OsString/OsStr owned byte-buffer facade batch
+
+- Continued the Unix FFI / platform-string Rust API parity audit by expanding the concrete `OsStr`/`OsString` facade over existing `Slice` / `Vec<u8>` storage, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/os/unix_ffi.sa` macros:
+  - OsString ownership/capacity: `OS_STRING_NEW`, `OS_STRING_WITH_CAPACITY`, `OS_STRING_FROM_STR`, `OS_STRING_FROM_OS_STR`, `OS_STRING_FREE`, `OS_STRING_CLEAR`, `OS_STRING_LEN`, `OS_STRING_CAPACITY`, `OS_STRING_IS_EMPTY`, `OS_STRING_RESERVE`, `OS_STRING_CLONE`
+  - mutation/views: `OS_STRING_PUSH_STR`, `OS_STRING_PUSH_OS_STR`, `OS_STRING_PUSH_SLICE`, `OS_STRING_AS_OS_STR`, `OS_STRING_AS_SLICE`
+  - conversions: `OS_STRING_TO_STRING_CHECKED`, `OS_STRING_INTO_STRING_CHECKED` (free source only on UTF-8 success)
+  - OsStr helpers: `OS_STR_LEN`, `OS_STR_IS_EMPTY`, `OS_STR_TO_OS_STRING`, `OS_STR_TO_STR_CHECKED`
+  - retained existing `OS_STR_FROM_BYTES*` / `OS_STR_AS_BYTES*` and `OS_STRING_FROM_VEC*` / `INTO_VEC*` aliases
+- Semantics: Unix-only byte-buffer facade. Non-UTF-8 bytes are preserved in OsString/OsStr views; checked string conversions return `ok=0` instead of Rust `Result`/`OsString` error objects. It does not model Windows WTF-8/OsString, lossy display, or platform path encoding beyond raw bytes.
+- Validation status:
+  - Full-file `std_os_unix_ffi_macro_surface.sa`: pass (`3 passed`).
+  - Focused owned-macros coverage included in that file: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 collection literal arity (LIT1/LIT2/LIT3) batch
+
+- Continued collection Rust API parity by adding fixed-arity collection literal helpers over existing insert/put constructors, requiring no new runtime/FFI surface.
+- Added supportable macros:
+  - `sa_std/hashmap.sa`: `MAP_LIT1`, `MAP_LIT2` (existing), `MAP_LIT3`
+  - `sa_std/hashset.sa`: `SET_LIT1`, `SET_LIT2` (existing), `SET_LIT3`
+  - `sa_std/btree_map.sa`: `BTREE_MAP_LIT1`, `BTREE_MAP_LIT2`, `BTREE_MAP_LIT3`
+  - `sa_std/btree_set.sa`: `BTREE_SET_LIT1`, `BTREE_SET_LIT2` (existing), `BTREE_SET_LIT3`
+- Semantics: each helper constructs a fresh collection then inserts 1/2/3 concrete entries via existing `MAP_PUT` / `SET_INSERT` / `BTREE_MAP_INSERT` / `BTREE_SET_INSERT` contracts. They do not model Rust `FromIterator` / array-literal sugar beyond fixed arity, generic key/value types, or fallible allocation reporting.
+- Validation status:
+  - Focused `std_hashmap_macro_surface.sa --filter 'literal arity'`: pass (`1 passed; 9 skipped`).
+  - Focused `std_hashset_macro_surface.sa --filter 'literal arity'`: pass (`1 passed; 7 skipped`).
+  - Focused `std_btree_macro_surface.sa --filter 'literal arity'`: pass (`1 passed; 9 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 PathBuf owned path buffer macro surface batch
+
+- Continued the parallel `path` Rust API parity audit by adding a concrete owned `PathBuf` facade over the existing `STRING_BUF` / `Vec<u8>` storage and the current POSIX `PATH_*` Slice helpers, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/path.sa` macros:
+  - constructors: `PATH_BUF_NEW`, `PATH_BUF_DEFAULT`, `PATH_BUF_WITH_CAPACITY`, `PATH_BUF_TRY_WITH_CAPACITY`, `PATH_BUF_FROM_PATH`, `PATH_BUF_FROM_STR`
+  - ownership/capacity: `PATH_BUF_FREE`, `PATH_BUF_CLEAR`, `PATH_BUF_LEN`, `PATH_BUF_CAPACITY`, `PATH_BUF_IS_EMPTY`, `PATH_BUF_RESERVE`, `PATH_BUF_CLONE`
+  - views: `PATH_BUF_AS_PATH`, `PATH_BUF_AS_STR`
+  - mutation: `PATH_BUF_PUSH` (delegates to `PATH_JOIN` then reloads owned bytes), `PATH_BUF_POP` (via `PATH_TRY_PARENT`), `PATH_BUF_SET_FILE_NAME`, `PATH_BUF_SET_EXTENSION`, `PATH_BUF_PUSH_TRAILING_SEPARATOR`
+  - filesystem queries: `PATH_BUF_EXISTS`, `PATH_BUF_IS_FILE`, `PATH_BUF_IS_DIR`
+- Semantics: `PathBuf` is a concrete owned UTF-8/byte path buffer, not Rust's platform `OsString`/`PathBuf` type. Absolute `push` replaces the buffer contents through `PATH_JOIN`. `pop` returns `ok=0` at roots/empty paths. Queries materialize temporary `PATH_*` Slice views and free them inside the helper. It does not model Windows prefixes, component iterators, or borrow-scoped path references.
+- Validation status:
+  - Source focused `std_path_macro_surface.sa --filter 'PathBuf owned'`: pass (`1 passed; 4 skipped`).
+  - Full-file source focused `std_path_macro_surface.sa`: pass (`5 passed`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 HashSet/BTreeSet entry aliases + HashMap/HashSet extra_capacity batch
+
+- Continued collection Rust API parity by adding supportable entry-naming and capacity-remaining helpers over existing set/map primitives, requiring no new runtime/FFI surface.
+- Added supportable macros:
+  - `sa_std/hashset.sa`: `SET_ENTRY_GET_OR_INSERT`, `SET_OR_INSERT`, `SET_EXTRA_CAPACITY`
+  - `sa_std/btree_set.sa`: `BTREE_SET_ENTRY_GET_OR_INSERT`, `BTREE_SET_OR_INSERT`
+  - `sa_std/hashmap.sa`: `MAP_EXTRA_CAPACITY`
+- Semantics: entry aliases are thin renames of existing `GET_OR_INSERT` contracts; `EXTRA_CAPACITY` is pure `capacity - len` subtraction. They do not model Rust entry objects, closure `or_insert_with`, generic defaults, or allocator-aware constructors.
+- Validation status:
+  - Focused hashset/hashmap/btree entry-or-capacity tests: pass.
+  - Full-file hashset (`7 passed`), hashmap (`9 passed`), btree (`9 passed`) surfaces: pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 unit-framework panic ID uniqueness renumber
+
+- Fixed pre-existing duplicate `panic(N)` IDs within individual unit-framework SA surface files so every panic code is unique inside its file.
+- Files renumbered (duplicate first-seen IDs kept; later duplicates assigned free IDs above the file max): `feature_suite.sa`, `std_btree_macro_surface.sa`, `std_hashmap_macro_surface.sa`, `std_net_macro_surface.sa`, `std_net_unix_macro_surface.sa`, `std_num_macro_surface.sa`, `std_process_macro_surface.sa`, `std_slice_vec_macro_surface.sa`, `std_string_macro_surface.sa`, `std_vec_deque_macro_surface.sa`, `std_vec_macro_surface.sa`.
+- Validation status:
+  - Focused revalidation of renumbered surfaces: `std_vec_deque_macro_surface.sa` pass (`16 passed`), `std_vec_macro_surface.sa` pass (`44 passed`), plus the newly extended fs/binary_heap/hashmap/btree surfaces all pass.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 HashMap/BTreeMap entry and_modify/or_default aliases batch
+
+- Continued the parallel map entry-API parity audit by adding concrete entry-style helpers over the existing try-insert / get-mut-ptr contracts for both `HashMap` and `BTreeMap`, requiring no new runtime/FFI surface.
+- Added supportable `sa_std/hashmap.sa` macros:
+  - `MAP_OR_INSERT` (thin alias of `MAP_ENTRY_OR_INSERT` / `MAP_TRY_INSERT`)
+  - `MAP_ENTRY_OR_DEFAULT` (entry-or-insert with default null-pointer value `0`)
+  - `MAP_ENTRY_AND_MODIFY` (if the key exists, overwrite the value slot through `sa_map_get_mut_ptr`; missing keys leave the map unchanged and return `ok=0`)
+- Added supportable `sa_std/btree_map.sa` macros:
+  - `BTREE_MAP_OR_INSERT` (thin alias of `BTREE_MAP_ENTRY_OR_INSERT`)
+  - `BTREE_MAP_ENTRY_OR_DEFAULT` (entry-or-insert with default `u64` value `0`)
+  - `BTREE_MAP_ENTRY_AND_MODIFY` (if the key exists, store the replacement `u64` through `sa_btree_map_get_mut_ptr`; missing keys return `ok=0`)
+- Semantics: these are concrete entry-style lowerings, not Rust `OccupiedEntry` / `VacantEntry` objects. They do not model `or_insert_with` closures, generic defaults, scoped entry borrows, or full key/value ownership transfer variants that remain genuinely missing.
+- Validation status:
+  - Source focused hashmap `--filter 'entry and_modify'`: pass (`1 passed; 7 skipped`).
+  - Full-file hashmap surface: pass (`8 passed; 0 failed; 0 skipped`).
+  - Source focused btree `--filter 'entry and_modify'`: pass (`1 passed; 7 skipped`).
+  - Full-file btree surface: pass (`8 passed; 0 failed; 0 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 fs FileTimes object macro surface batch
+
+- Continued the parallel `fs` Rust API parity audit by lowering a concrete `FileTimes` builder over the existing millisecond timestamp FFI (`sa_fs_set_times_ms` / metadata accessed+modified queries), requiring no new syscall surface.
+- Added supportable `sa_std/fs.sa` macros:
+  - `FS_FILE_TIMES_NEW` (initialize builder state as two propagating SSA `i64`/`u64` millisecond timestamps: accessed=0, modified=0)
+  - `FS_FILE_TIMES_WITH_ACCESSED` / `FS_FILE_TIMES_WITH_MODIFIED` (functional updates of one timestamp while preserving the other)
+  - `FS_FILE_TIMES_SET` (apply the final pair through the existing `FS_SET_TIMES_MS` lowering)
+  - `FS_METADATA_FILE_TIMES` (extract `(accessed_ms, modified_ms)` from a metadata handle via the existing metadata time queries)
+- Semantics: builder state is two propagating SSA values rather than a heap-allocated `FileTimes` object. `FS_FILE_TIMES_SET` adds no new FFI surface. It does not model Rust's `FileTimes` optional "leave unchanged" sentinel fields, nanosecond `SystemTime` objects, `set_times` on open `File` handles beyond the path-based helper, or platform-specific birth/creation time mutation.
+- Validation status:
+  - Source focused `std_fs_macro_surface.sa --filter 'FileTimes object'`: pass (`1 passed; 13 skipped`).
+  - Full-file source focused `std_fs_macro_surface.sa`: pass (`14 passed; 0 failed; 0 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 fs Permissions object macro surface batch
+
+- Continued the parallel `fs` Rust API parity audit by completing a concrete `Permissions` object model over the existing POSIX mode slot (`SaFsPermissions`) and `sa_fs_set_permissions` / metadata mode FFI, requiring no new syscall surface.
+- Added supportable `sa_std/fs.sal` constants:
+  - `SA_FS_PERM_WRITE_BITS = 146` (`0222`) and `SA_FS_PERM_OWNER_WRITE = 128` (`0200`) for readonly checks/mutations.
+- Added supportable `sa_std/fs.sa` macros:
+  - `FS_PERMISSIONS_NEW` (zero-initialize a `SaFsPermissions` slot)
+  - `FS_METADATA_PERMISSIONS` (copy `sa_fs_metadata_st_mode` into a `Permissions` slot)
+  - `FS_PERMISSIONS_READONLY` (true when no POSIX write bits remain)
+  - `FS_PERMISSIONS_SET_READONLY` (branchless clear-all-write-bits / set-owner-write mutation; labels avoided so repeated expansion does not collide)
+  - `FS_SET_PERMISSIONS_OBJ` (apply a `Permissions` slot via the existing `sa_fs_set_permissions` FFI)
+- Semantics: `Permissions` is a 4-byte mode object, not a Rust trait object. `readonly` mirrors the common Unix Rust interpretation of "no write bits". `set_readonly(true)` clears `0222`; `set_readonly(false)` ORs owner-write `0200`. Metadata-derived modes include file-type bits, so surface tests mask with `0777` (`511`) when comparing permission bits. It does not model Windows ACL permissions, portable `PermissionsExt` trait objects, or owned builder move semantics.
+- Validation status:
+  - Source focused `std_fs_macro_surface.sa --filter 'Permissions object'`: pass (`1 passed; 12 skipped`).
+  - Full-file source focused `std_fs_macro_surface.sa`: pass (`13 passed; 0 failed; 0 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 BinaryHeap u64/try_peek/pop/extra_capacity aliases batch
+
+- Continued the parallel `BinaryHeap` Rust API parity audit by adding concrete u64-named and try/non-try value-form aliases over the existing push/peek/pop/capacity+len primitives, requiring no new syscall/FFI surface.
+- Added supportable `sa_std/binary_heap.sa` macros:
+  - `BINARY_HEAP_PUSH_U64` / `BINARY_HEAP_PEEK_U64` (thin aliases of `BINARY_HEAP_PUSH` / `BINARY_HEAP_PEEK`)
+  - `BINARY_HEAP_TRY_PEEK` / `BINARY_HEAP_TRY_PEEK_U64` (fallible value view returning `(ok, value)`; empty heaps yield `ok=0,value=0`, non-empty heaps yield `ok=1` plus the current root without removing it)
+  - `BINARY_HEAP_POP` / `BINARY_HEAP_POP_U64` (value-only wrappers around `sa_binary_heap_try_pop`; callers that need the empty-heap failure path keep using `BINARY_HEAP_TRY_POP`)
+  - `BINARY_HEAP_EXTRA_CAPACITY` (returns `capacity - len` as a pure subtraction, mirroring Rust `BinaryHeap`/`VecDeque::extra_capacity` naming)
+- Semantics: the `_U64` aliases preserve the existing concrete `u64` max-heap ABI and only expose explicit typed naming parity. `TRY_PEEK` is a non-destructive fallible value view, not Rust's scoped `PeekMut` guard. `POP` ignores the try-ok bit and returns the loaded slot value (empty-heap callers should use `TRY_POP`). `EXTRA_CAPACITY` never allocates and reports the full initial capacity for a fresh empty heap (`BinaryHeap_INITIAL_CAP=8`). None of these claim generic ordering, iterator/drain adapters, scoped mutable peek guards, or true allocator-failure reporting that remain genuinely missing.
+- Validation notes / fixes in this batch:
+  - Illegal `#` comment lines between macros in `sa_std/binary_heap.sa` were rewritten as `//` comments (the flattener rejects `#` lines as `.unknown line kind` / ForbiddenSyntax).
+  - `BINARY_HEAP_POP` must not `!` its `stack_alloc` slot (StackEscape); only the temporary ok register is consumed.
+  - Surface test uses `BinaryHeap_INITIAL_CAP` (from `binary_heap.sal`), not a non-existent `BINARY_HEAP_INITIAL_CAP` token, and avoids `!heap` after `BINARY_HEAP_FREE` (UseAfterMove).
+- Validation status:
+  - Source focused `std_binary_heap_macro_surface.sa --filter 'u64/try_peek/pop/extra_capacity'`: pass (`1 passed; 6 skipped`).
+  - Full-file source focused `std_binary_heap_macro_surface.sa`: pass (`7 passed; 0 failed; 0 skipped`).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+
+## Completed: 2026-07-12 fs OpenOptions builder custom-flags members macro surface batch
+
+- Continued the parallel `fs` Rust API parity audit by lowering the per-bit `custom_flags` members of Rust's `std::fs::OpenOptions` builder onto the existing `FS_OPEN_OPTIONS` FFI lowering (via the already-landed `FS_OPEN_OPTIONS_BUILDER_WITH_CUSTOM_FLAGS` slot), requiring no new syscall/FFI surface.
+- Added supportable `sa_std/fs.sa` macros:
+  - `FS_OPEN_OPTIONS_BUILDER_WITH_SYNC` / `_WITH_DSYNC` / `_WITH_NONBLOCK` / `_WITH_NOFOLLOW` / `_WITH_DIRECT` / `_WITH_DIRECTORY` / `_WITH_CLOEXEC` (each takes the current `(flags, mode, custom)` triple and a `%flag`; when `%flag != 0` it ORs the corresponding `SA_FS_CUSTOM_SYNC` / `SA_FS_CUSTOM_DSYNC` / `SA_FS_CUSTOM_NONBLOCK` / `SA_FS_CUSTOM_NOFOLLOW` / `SA_FS_CUSTOM_DIRECT` / `SA_FS_CUSTOM_DIRECTORY` / `SA_FS_CUSTOM_CLOEXEC` bit into the builder's `custom_flags` slot, and when `%flag == 0` it carries all three state values through unchanged — matching Rust's `.x(true)` set-the-bit idiom; `.x(false)` clear-the-bit is intentionally not lowered).
+- Semantics: builder state remains three propagating SSA `u64` register values rather than a heap-allocated builder object; each `WITH_*` produces an immutable updated triple (functional style). The seven new macros only OR individual `SA_FS_CUSTOM_*` bits into `custom_flags`, so they add no new syscall/FFI surface. Note that `SA_FS_CUSTOM_SYNC = 1052672 = 0b100000001000000000000` is a synthetic flag that has the `SA_FS_CUSTOM_DSYNC = 4096` bit as a strict subset (the synchronised-write semantics on Linux overlap with `O_DSYNC`), so `SYNC | DSYNC == 1052672` rather than `1056768`; the surface test asserts the OR-accumulated values (`1052672`, `1054720`, `1185792`, `1202176`, `1267712`, `1792000`) rather than simple sums. They do not model Rust's `create_new` (`O_CREAT|O_EXCL`; `O_EXCL` is not exposed by the `SA_FS_CUSTOM_*` table), `set_permissions`-equivalent builder method, Windows ACL fields, or owned builder move/build value semantics.
+- Validation status:
+  - Source focused `std_fs_macro_surface.sa --filter 'OpenOptions builder custom-flags members'`: pass (`1 passed; 11 skipped`).
+  - Full-file source `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`), confirming the new `@test` block (panic 952) does not disturb the twelve pre-existing sibling `@test` blocks and that the surface test passes alongside the rest of the unit-framework suite.
+  - A prior intermediate version of this batch used `#`-comment lines inside `sa_std/fs.sa` and additive `SA_FS_CUSTOM_SYNC + ...` operands inside the test; both are unsupported by the SA flattener (comments between macros are rejected as `.unknown line kind`, and `+`-expressions are parsed as `[UnknownRegister]` operands), and both were removed before this validation entry.
+- This batch also fixed two latent issues in `tests/unit_framework/std_fs_macro_surface.sa`: the prior `panic` IDs were renumbered 940..952 so every panic code in the file is unique (the old numbering reused 943/944/945 across distinct tests), and the regression surfaced by the new `@test` block exercising the `WITH_SYNC`/`WITH_DSYNC` path was corrected to use OR-accumulated expectations rather than simple sums.
 
 ## Completed: 2026-07-12 fs OpenOptions builder macro surface batch
 
@@ -5550,7 +6175,241 @@ Current progress: 100%
   - Added SA unit coverage in `tests/unit_framework/std_num_macro_surface.sa`.
   - Verification: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_macro_surface.sa --jobs 1 --trace-panic` -> `10 passed; 0 failed; 0 skipped`.
 
+## Completed: 2026-07-13 Infallible + CONVERT_* min/max + NonZero* MIN/MAX/ONE constants (Batch m)
+
+- `sa_std/convert.sal`: Added `Infallible_SIZE = 0` and `Infallible_ALIGN = 1` constants model Rust's never-error `convert::Infallible` type (an enum with no inhabitants).
+- `sa_std/convert.sal`: Completed `CONVERT_*` min/max coverage with 9 new constants: `CONVERT_U64_MIN/MAX`, `CONVERT_I64_MIN`, `CONVERT_USIZE_MIN/MAX`, `CONVERT_ISIZE_MIN/MAX`, `CONVERT_BOOL_MIN/MAX`. Mirrors Rust std associated `MIN/MAX` constants.
+- `sa_std/num.sal`: Added 35 `NonZero*` associated constants mirroring Rust 1.70+ stabilized constants: `NONZERO_U8/U16/U32/U64/usize_MIN/MAX/ONE` (15 unsigned: MIN is always 1 since 0 is excluded by definition, MAX equals wrapping type MAX, ONE is 1); `NONZERO_I8/I16/I32/I64/isize_MIN/MAX` (10 signed: MIN is the wrapping type MIN — which is nonzero for all signed types, MAX is the wrapping type MAX).
+- Test: `tests/unit_framework/std_convert_nonzero_macro_surface.sa` — 2 tests (panic IDs 10469/10470) verifying all new `.sal` constants match expected values and the `NonZero*::MAX` constants equal the `NUM_*_MAX` constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_convert_nonzero_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10471+.
+
+## Completed: 2026-07-13 Option zip/unzip, CHAR_MIN, CMP_ORDERING_MIN/MAX (Batch n)
+
+- `sa_std/core/option.sal`: Added `OptionPairU64_SIZE`, `OptionPairU64_tag`, `OptionPairU64_value1`, `OptionPairU64_value2` layout constants modeling Rust 1.46+ `Option::zip` pair result layout (24-byte struct with tag + two u64 values).
+- `sa_std/core/option.sa`: Added `OPTION_ZIP_U64` macro combining two Options into a single Some(pair) when both are Some, otherwise None. Handles all 4 input combinations with proper register release ordering per control-flow path.
+- `sa_std/core/option.sa`: Added `OPTION_UNZIP_TO_U64` macro (Rust nightly `unzip`) extracting the two u64 values from an OptionPairU64 into separate Option layouts.
+- `sa_std/char.sal`: Added `CHAR_MIN = 0` constant alias for Rust `char::MIN`.
+- `sa_std/cmp.sal`: Added `CMP_ORDERING_MIN = -1` and `CMP_ORDERING_MAX = 1` mirroring Rust 1.84+ stabilized `Ordering::MIN`/`MAX` associated constants.
+- Test: `tests/unit_framework/std_option_zip_macro_surface.sa` — 2 tests (panic IDs 10471/10472) verifying zip/unzip, both-some and none-edge cases, Plus new constants (OptionPairU64 layout, CHAR_MIN, CMP_ORDERING_MIN/MAX).
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_option_zip_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10473+.
+
 ## Notes
 
 - Percent is an implementation-progress estimate for the current std supplementation pass, not a claim of complete Rust std compatibility.
 - Plugin-provided APIs remain outside `sa_std` progress.
+
+## Completed: 2026-07-13 f32/f64 IEEE754 constants + Wrapping/Saturating layouts + unsigned MIN/BYTES (Batch o)
+
+- `sa_std/num.sal`: Added 5 unsigned MIN constants (`NUM_U8_MIN`, `NUM_U16_MIN`, `NUM_U32_MIN`, `NUM_U64_MIN`, `NUM_USIZE_MIN` all = 0) mirroring Rust `u8::MIN = 0`, etc.
+- `sa_std/num.sal`: Added 10 BYTES constants (`NUM_U8_BYTES = 1` through `NUM_ISIZE_BYTES = 8`) mirroring Rust 1.60+ stabilized `<integer>::BYTES`.
+- `sa_std/num.sal`: Added 13 f32 associated constants as IEEE 754 bit patterns: `NUM_F32_BITS`, `NUM_F32_BYTES`, `NUM_F32_INFINITY`, `NUM_F32_NEG_INFINITY`, `NUM_F32_NAN`, `NUM_F32_ZERO`, `NUM_F32_MINUS_ZERO`, `NUM_F32_MIN_POSITIVE`, `NUM_F32_MAX`, `NUM_F32_MIN`, `NUM_F32_EPSILON`, `NUM_F32_MAX_SUBNORMAL`, `NUM_F32_MIN_SUBNORMAL`.
+- `sa_std/num.sal`: Added 13 f64 associated constants as IEEE 754 bit patterns: `NUM_F64_BITS`, `NUM_F64_BYTES`, `NUM_F64_INFINITY`, `NUM_F64_NEG_INFINITY`, `NUM_F64_NAN`, `NUM_F64_ZERO`, `NUM_F64_MINUS_ZERO`, `NUM_F64_MIN_POSITIVE`, `NUM_F64_MAX`, `NUM_F64_MIN`, `NUM_F64_EPSILON`, `NUM_F64_MAX_SUBNORMAL`, `NUM_F64_MIN_SUBNORMAL`.
+- `sa_std/num.sal`: Added Wrapping<T> layout constants: `WrappingU64_SIZE`, `WrappingU64_value`, `WrappingU32_SIZE`, `WrappingU32_value`, `WrappingI64_SIZE`, `WrappingI64_value`.
+- `sa_std/num.sal`: Added Saturating<T> layout constants: `SaturatingU64_SIZE`, `SaturatingU64_value`, `SaturatingI64_SIZE`, `SaturatingI64_value`.
+- `sa_std/default.sa`: `DEFAULT_WRAPPING_U64` and `DEFAULT_SATURATING_U64` macros (zero-init constructors).
+- Test: `tests/unit_framework/std_float_wrapping_macro_surface.sa` — 2 tests (panic IDs 10473/10474) verifying all new constants, layout constants, and Wrapping/Saturating store/load semantics.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_float_wrapping_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10475+.
+
+## Completed: 2026-07-13 Wrapping/Saturating construction macros + Range usize aliases (Batch p)
+
+- `sa_std/num.sa`: Added 11 Wrapping/Saturating construction and access macros: `WRAPPING_U64_NEW`, `WRAPPING_U64_GET`, `WRAPPING_U64_SET`, `WRAPPING_U32_NEW`, `WRAPPING_U32_GET`, `WRAPPING_I64_NEW`, `WRAPPING_I64_GET`, `SATURATING_U64_NEW`, `SATURATING_U64_GET`, `SATURATING_U64_SET`, `SATURATING_I64_NEW`, `SATURATING_I64_GET`.
+- `sa_std/ops.sal`: Added 7 `Range<usize>`/`RangeInclusive<usize>`/`RangeFrom<usize>`/`RangeTo<usize>`/`RangeToInclusive<usize>`/`Bound<usize>` layout constants as 64-bit platform aliases.
+- `sa_std/ops.sa`: Added 11 `RANGE_USIZE_*` alias macros wrapping the existing `RANGE_U64_*` macros: `RANGE_USIZE_NEW`, `RANGE_USIZE_START`, `RANGE_USIZE_END`, `RANGE_USIZE_CONTAINS`, `RANGE_USIZE_IS_EMPTY`, `RANGE_USIZE_LEN`, `RANGE_USIZE_DEFAULT`, `RANGE_INCLUSIVE_USIZE_DEFAULT`, `RANGE_FROM_USIZE_DEFAULT`, `RANGE_TO_USIZE_DEFAULT`, `RANGE_TO_INCLUSIVE_USIZE_DEFAULT`, `RANGE_USIZE_FULL_DEFAULT`.
+- Test: `tests/unit_framework/std_wrapping_range_macro_surface.sa` — 2 tests (panic IDs 10475/10476) verifying Wrapping/Saturating construction/access and Range usize layout/macros/defaults.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_wrapping_range_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10477+.
+
+## Completed: 2026-07-13 mem size_of/align_of for float/ptr/char types (Batch q)
+
+- `sa_std/mem.sal`: Added `MEM_SIZE_F32 = 4`, `MEM_ALIGN_F32 = 4`, `MEM_SIZE_F64 = 8`, `MEM_ALIGN_F64 = 8`, `MEM_SIZE_PTR = 8`, `MEM_ALIGN_PTR = 8`, `MEM_SIZE_CHAR = 4`, `MEM_ALIGN_CHAR = 4` mirroring Rust `mem::size_of`/`mem::align_of` for f32, f64, raw pointers, and char types.
+- Test: `tests/unit_framework/std_mem_size_macro_surface.sa` — 1 test (panic ID 10477) verifying all new float/ptr/char size/align constants against known values and cross-checking `MEM_SIZE_F32` == `NUM_F32_BYTES`, `MEM_SIZE_F64` == `NUM_F64_BYTES`.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_mem_size_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10478+.
+
+## Completed: 2026-07-14 f32/f64 Digits/Radix/Exp constants + mem float/ptr/char SIZE_OF/ALIGN_OF macros (Batch r)
+
+- `sa_std/num.sal`: Added 12 f32/f64 numeric constants: `NUM_F32_DIGITS = 6`, `NUM_F32_RADIX = 2`, `NUM_F32_MIN_EXP = -125`, `NUM_F32_MAX_EXP = 128`, `NUM_F32_MIN_10_EXP = -37`, `NUM_F32_MAX_10_EXP = 38`, `NUM_F64_DIGITS = 15`, `NUM_F64_RADIX = 2`, `NUM_F64_MIN_EXP = -1021`, `NUM_F64_MAX_EXP = 1024`, `NUM_F64_MIN_10_EXP = -307`, `NUM_F64_MAX_10_EXP = 308`.
+- `sa_std/mem.sa`: Added 8 `MEM_SIZE_OF_*` / `MEM_ALIGN_OF_*` macros for f32, f64, ptr, and char types (returning the new `MEM_SIZE_*` / `MEM_ALIGN_*` constants).
+- Test: `tests/unit_framework/std_float_constants_macro_surface.sa` — 1 test (panic ID 10478) verifying f32/f64 digits/radix/exp constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_float_constants_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - All prior batch focused tests re-verified: `std_float_wrapping_macro_surface.sa` (2 passed), `std_wrapping_range_macro_surface.sa` (2 passed), `std_mem_size_macro_surface.sa` (1 passed).
+- Panic IDs next free: 10479+.
+
+## Completed: 2026-07-14 f32/f64 Mantissa Digits constants (Batch r final)
+
+- `sa_std/num.sal`: Added `NUM_F32_MANTISSA_DIGITS = 24` and `NUM_F64_MANTISSA_DIGITS = 53` mirroring Rust `f32::MANTISSA_DIGITS` and `f64::MANTISSA_DIGITS`.
+- `tests/unit_framework/std_float_constants_macro_surface.sa`: Extended test to cover mantissa digits alongside the previously-added Digits/Radix/Exp constants.
+- `sa_std/mem.sa`: 8 new `MEM_SIZE_OF_*` / `MEM_ALIGN_OF_*` macros for f32/f64/ptr/char types.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_float_constants_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - All 4 new test files focused-verified: float_wrapping (2p), wrapping_range (2p), mem_size (1p), float_constants (1p).
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`).
+- Panic IDs next free: 10479+.
+
+## Completed: 2026-07-14 Wrapping/Saturating MIN/MAX constants + arithmetic macros (Batch s)
+
+- `sa_std/num.sal`: Added 10 Wrapping/Saturating MIN/MAX constants: `WRAPPING_U64_MIN/MAX`, `WRAPPING_U32_MIN/MAX`, `WRAPPING_I64_MIN/MAX`, `SATURATING_U64_MIN/MAX`, `SATURATING_I64_MIN/MAX` mirroring Rust `Wrapping<T>` and `Saturating<T>` inherent constants.
+- `sa_std/num.sa`: Added 6 Wrapping/Saturating arithmetic macros: `WRAPPING_U64_ADD`, `WRAPPING_U64_SUB`, `WRAPPING_U64_MUL`, `SATURATING_U64_ADD`, `SATURATING_U64_SUB`, `SATURATING_U64_MUL` that get both operands from Wrapping/Saturating struct layouts, call existing `NUM_U64_WRAPPING_*`/`NUM_U64_SATURATING_*` arithmetic, and set the result back.
+- Test: `tests/unit_framework/std_wrapping_arith_macro_surface.sa` — 1 test (panic ID 10479) verifying all MIN/MAX constants plus wrapping add/sub/mul (100+200=300, 100-200 wrapps to 2^64-100, 100*200=20000) and saturating add/sub/mul (100-200 saturates to 0).
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_wrapping_arith_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10480+.
+  - Full `zig build unit-framework --summary all`: pass (`6/6 steps succeeded; 5/5 tests passed`, 15m elapsed).
+
+## Completed: 2026-07-14 Atomic Ordering enum constants (Batch t)
+
+- `sa_std/sync/atomic.sal`: Added 5 Rust `std::sync::atomic::Ordering` enum constants: `ATOMIC_ORDERING_RELAXED = 0`, `ATOMIC_ORDERING_RELEASE = 1`, `ATOMIC_ORDERING_ACQUIRE = 2`, `ATOMIC_ORDERING_ACQ_REL = 3`, `ATOMIC_ORDERING_SEQ_CST = 4`.
+- Test: `tests/unit_framework/std_atomic_ordering_macro_surface.sa` — 1 test (panic ID 10480) verifying all 5 Ordering constants plus all atomic layout sizes (Bool/U8/U16/U32/U64/I64/Usize/Isize/Ptr).
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_atomic_ordering_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10481+.
+
+## Completed: 2026-07-14 f32/f64 bit masks and exponent bias (Batch u)
+
+- `sa_std/num.sal`: Added 8 f32/f64 IEEE 754 bit manipulation constants: `NUM_F32_SIGN_BIT`, `NUM_F32_EXP_MASK`, `NUM_F32_MANT_MASK`, `NUM_F32_EXP_BIAS`, `NUM_F64_SIGN_BIT`, `NUM_F64_EXP_MASK`, `NUM_F64_MANT_MASK`, `NUM_F64_EXP_BIAS`.
+- Test: `tests/unit_framework/std_float_bitmask_macro_surface.sa` — 1 test (panic ID 10481) verifying all bit masks, exponent biases, and cross-checking that `NUM_F32_INFINITY == NUM_F32_EXP_MASK` (INFINITY has all exponent bits set, zero mantissa).
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_float_bitmask_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10482+.
+
+## Completed: 2026-07-14 Path/PathBuf layout constants (Batch v)
+
+- `sa_std/path.sal`: New file with `Path_SIZE`/`Path_ptr`/`Path_len`, `PathBuf_SIZE`/`PathBuf_ptr`/`PathBuf_cap` layout constants (both equal to `Slice_SIZE` on Unix), and `PATH_MAIN_SEPARATOR`/`PATH_MAIN_SEPARATOR_UNIX` constants (47 = ASCII `/`).
+- Test: `tests/unit_framework/std_path_layout_macro_surface.sa` — 1 test (panic ID 10482) verifying Path/PathBuf layout matches Slice layout and Unix separator is `/`.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_path_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10483+.
+
+## Completed: 2026-07-14 OsStr/OsString + sync guard layout constants (Batch w)
+
+- `sa_std/ffi.sal`: Added OsStr/OsString layout constants (`OsStr_SIZE`/`ptr`/`len`, `OsString_SIZE`/`ptr`/`cap`, both equal to `Slice_SIZE` on Unix) and 3 `OS_STR_*` conversion error codes mirroring `std::ffi::OsStr`/`OsString`.
+- `sa_std/sync/mutex.sal`: Added `MutexGuard_SIZE`/`mutex`/`data` layout constants (pointer-sized guard holding a reference to the parent Mutex).
+- `sa_std/sync/rwlock.sal`: Added `RwLockReadGuard_SIZE`/`rwlock`/`data` and `RwLockWriteGuard_SIZE`/`rwlock`/`data` layout constants.
+- Test: `tests/unit_framework/std_ffi_osstr_layout_macro_surface.sa` — 2 tests (panic IDs 10483/10484) verifying all layout offsets and error code values.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_ffi_osstr_layout_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10485+.
+
+## Completed: 2026-07-14 Duration/Instant/SystemTime layout constants (Batch x)
+
+- `sa_std/time.sal`: Added `Duration_SIZE`/`nanos`/`ZERO`/`MIN`/`MAX`, `Instant_SIZE`/`nanos`, `SystemTime_SIZE`/`nanos`/`UNIX_EPOCH` layout constants mirroring `std::time` (all 8-byte ns in this codebase).
+- Test: `tests/unit_framework/std_time_duration_layout_macro_surface.sa` — 1 test (panic ID 10485) verifying Duration/Instant/SystemTime sizes, offsets, the 7 named conversion constants (NS_PER_S/MS/US, MS_PER_S, S_PER_MIN/HOUR/DAY/WEEK), and the DURATION_ZERO/MIN + UNIX_EPOCH sentinels.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_time_duration_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10486+.
+
+## Completed: 2026-07-14 IntErrorKind + ParseIntError layout (Batch y)
+
+- `sa_std/num.sal`: Added 5 `std::num::IntErrorKind` enum constants (`NUM_INT_ERROR_EMPTY`/`INVALID_DIGIT`/`POS_OVERFLOW`/`NEG_OVERFLOW`/`ZERO`) and `ParseIntError` layout (`SIZE`/`code`/`msg`).
+- Test: `tests/unit_framework/std_int_error_kind_macro_surface.sa` — 1 test (panic ID 10486) verifying all 5 error code values and the ParseIntError layout.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_int_error_kind_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10487+.
+
+## Completed: 2026-07-14 TryFromIntError + TryFromSliceError layout constants (Batch z)
+
+- `sa_std/num.sal`: Added `TryFromIntError` layout (`SIZE`/`code`) and 2 error code constants (`TRY_FROM_INT_ERROR_POS_OVERFLOW`/`NEG_OVERFLOW`) mirroring `std::num::TryFromIntError`.
+- `sa_std/core/slice.sal`: Added `TryFromSliceError` layout (`SIZE`/`code`) and 1 error code constant (`TRY_FROM_SLICE_ERROR_LENGTH_MISMATCH`) mirroring `std::array::TryFromSliceError`.
+- Test: `tests/unit_framework/std_try_from_error_macro_surface.sa` — 1 test (panic ID 10487) verifying both layouts and all error code values.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_try_from_error_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10488+.
+
+## Completed: 2026-07-14 NonZero BITS/BYTES constants (Batch aa)
+
+- `sa_std/num.sal`: Added 20 `NonZero*::BITS`/`BYTES` constants (10 integer types × 2) mirroring Rust 1.80+ `NonZero*::BITS`/`BYTES` associated constants: U8/U16/U32/U64/usize/I8/I16/I32/I64/isize.
+- Test: `tests/unit_framework/std_nonzero_bits_macro_surface.sa` — 1 test (panic ID 10488) verifying all 20 new constants plus cross-checking that `NONZERO_*_BITS == NUM_*_BITS` for all 10 integer types.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_nonzero_bits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10489+.
+
+## Completed: 2026-07-14 OnceLock and LazyLock layout constants (Batch ab)
+
+- `sa_std/sync/once.sal`: Added `OnceLock` layout (`SIZE`/`state`/`value`) and 3 state constants aliasing the `Once` states, plus `LazyLock` layout (`SIZE`/`state`/`value`) and 3 state constants. Mirrors Rust 1.70+ `std::sync::OnceLock` and the `LazyLock` adapter (both share the same `Once`-style inner state machine).
+- Test: `tests/unit_framework/std_once_lock_layout_macro_surface.sa` — 1 test (panic ID 10489) verifying both layouts, all 6 state aliases, and cross-checking that `OnceLock_SIZE == Once_SIZE` and `LazyLock_SIZE == Once_SIZE`.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_once_lock_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10490+.
+
+## Completed: 2026-07-14 JoinHandle layout constants (Batch ac)
+
+- `sa_std/thread.sal`: New file with `JoinHandle_SIZE`/`handle`/`result` layout constants (16 bytes: i32 slot + pointer-sized result) mirroring Rust `std::thread::JoinHandle`, and `THREAD_DEFAULT_ID = 0` sentinel for the current-thread ID default.
+- Test: `tests/unit_framework/std_joinhandle_layout_macro_surface.sa` — 1 test (panic ID 10490) verifying the JoinHandle layout and default thread id sentinel.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/.sa/std ./zig-out/bin/sa test tests/unit_framework/std_joinhandle_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10491+.
+
+## Completed: 2026-07-14 char associated constants and layout aliases (Batch ad)
+
+- `sa_std/char.sal`: Added `CHAR_SIZE = 4` and `CHAR_ALIGN = 4`, mirroring Rust `char`'s 32-bit Unicode scalar representation and matching the existing `MEM_SIZE_CHAR` / `MEM_ALIGN_CHAR` constants.
+- `sa_std/char.sal`: Added `CHAR_REPLACEMENT_CHARACTER` as a Rust-named alias for `CHAR_REPLACEMENT`, plus `CHAR_MAX_LEN_UTF8 = 4` and `CHAR_MAX_LEN_UTF16 = 2`, matching Rust `char` associated constants.
+- Test: `tests/unit_framework/std_char_constants_macro_surface.sa` — 1 test (panic ID 10491) verifying the new constants and cross-checking char layout against `mem.sal`.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_char_constants_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10492+.
+
+## Completed: 2026-07-14 char error layout constants (Batch ae)
+
+- `sa_std/char.sal`: Added `ParseCharError_SIZE` / `ParseCharError_kind` layout constants and `PARSE_CHAR_ERROR_EMPTY_STRING` / `PARSE_CHAR_ERROR_TOO_MANY_CHARS` kind constants.
+- `sa_std/char.sal`: Added `DecodeUtf16Error_SIZE` / `DecodeUtf16Error_unpaired_surrogate` and zero-sized `CharTryFromError` / `TryFromCharError` layout constants.
+- Test: `tests/unit_framework/std_char_error_layout_macro_surface.sa` — 1 test (panic ID 10492) verifying the new char error layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_char_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10493+.
+
+## Completed: 2026-07-14 fmt Error and Result layout constants (Batch af)
+
+- `sa_std/fmt.sal`: Added `FmtError_SIZE = 0` and `FmtError_ALIGN = 1`, mirroring Rust `std::fmt::Error` as a zero-sized error marker.
+- `sa_std/fmt.sal`: Added `FmtResult_*` layout/tag aliases over the existing `Result` layout, representing `std::fmt::Result` as `Result<(), Error>` at the SA macro-layout level.
+- Test: `tests/unit_framework/std_fmt_layout_macro_surface.sa` — 1 test (panic ID 10493) verifying fmt Error, fmt Result, and existing `SaFmtBuffer` layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fmt_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10494+.
+
+## Completed: 2026-07-14 FFI and UTF-8 error layout constants (Batch ag)
+
+- `sa_std/ffi.sal`: Added `NulError`, `FromBytesWithNulError`, `Utf8Error`, and `IntoStringError` layout constants over the existing `Vec`, `CString`, and CStr/UTF-8 validation status surfaces.
+- `sa_std/ffi.sal`: Added `FROM_BYTES_WITH_NUL_ERROR_NOT_NUL_TERMINATED` / `INTERIOR_NUL` aliases to the current `CSTR_FROM_BYTES_*` status codes, plus `UTF8_ERROR_LEN_NONE` as the no-error-length sentinel.
+- Test: `tests/unit_framework/std_ffi_error_layout_macro_surface.sa` — 1 test (panic ID 10494) verifying the new error layout constants and cross-checking against `Vec_SIZE`, `CString_SIZE`, and existing validation statuses.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ffi_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10495+.
+
+## Completed: 2026-07-14 RefCell borrow error layout constants (Batch ah)
+
+- `sa_std/core/refcell.sal`: Added zero-sized `BorrowError` and `BorrowMutError` layout constants (`SIZE=0`, `ALIGN=1`) mirroring Rust `std::cell` borrow error marker structs.
+- Test: `tests/unit_framework/std_refcell_error_layout_macro_surface.sa` — 1 test (panic ID 10495) verifying the new error layout constants and cross-checking the existing `RefCellU64` layout.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_refcell_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10496+.
+
+## Completed: 2026-07-14 Panic location layout constants (Batch ai)
+
+- `sa_std/core/panic.sal`: Added `PanicLocation_*` constants for Rust `Location` layout: file fat-pointer view at offset 0, line at offset 16, and column at offset 20.
+- `sa_std/core/panic.sal`: Added concrete `AssertUnwindSafeU64_*` layout constants for the single-field `AssertUnwindSafe<T>` wrapper shape over `u64`.
+- Test: `tests/unit_framework/std_panic_layout_macro_surface.sa` — 1 test (panic ID 10496) verifying the new panic layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_panic_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10497+.
+
+## Completed: 2026-07-14 String conversion error layout constants (Batch aj)
+
+- `sa_std/string.sal`: Added `FromUtf8Error` layout constants over the existing `Vec` + `Utf8Error` surfaces, including `bytes` and `error` offsets.
+- `sa_std/string.sal`: Added `FromUtf16Error` layout constants and strict UTF-16 error kind values for lone surrogate and odd byte input, plus zero-sized `ParseBoolError` layout constants.
+- Test: `tests/unit_framework/std_string_error_layout_macro_surface.sa` — 1 test (panic ID 10497) verifying the new string/str error layout constants and cross-checking `FromUtf8Error_SIZE == Vec_SIZE + Utf8Error_SIZE`.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10498+.

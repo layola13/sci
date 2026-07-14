@@ -5,6 +5,10 @@
     store %hasher+DefaultHasher_state, HASHER_DEFAULT_SEED as u64
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_DEFAULT %hasher
+    EXPAND DEFAULT_HASHER_NEW %hasher
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WITH_SEED %hasher, %seed
     store %hasher+DefaultHasher_state, %seed as u64
 [END_MACRO]
@@ -179,6 +183,10 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
 
 [MACRO] BUILD_HASHER_DEFAULT_NEW %builder
     %builder = add 0, 0
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_DEFAULT %builder
+    EXPAND BUILD_HASHER_DEFAULT_NEW %builder
 [END_MACRO]
 
 [MACRO] BUILD_HASHER_DEFAULT_BUILD %hasher, %builder

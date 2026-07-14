@@ -1,8 +1,46 @@
 @import "sa_std/fs.sa"
 @import "sa_std/string.sa"
 @import "sa_std/path.sa"
+@import "sa_std/os/unix_ffi.sa"
 
 @const PATH_FULL = utf8:"/tmp/demo/file.txt"
+@const PATH_BUF_FS_TEST = utf8:"_tmp_path_buf_fs_query.txt"
+@const PATH_BUF_FS_HELLO = utf8:"pbhello"
+@const PATH_BUF_FS_OPS_SRC = utf8:"_tmp_path_buf_fs_ops_src.txt"
+@const PATH_BUF_FS_OPS_DST = utf8:"_tmp_path_buf_fs_ops_dst.txt"
+@const PATH_BUF_FS_OPS_DIR = utf8:"_tmp_path_buf_fs_ops_dir"
+@const PATH_BUF_FS_OPS_DATA = utf8:"opsdata"
+@const PATH_BUF_FS_MORE_SRC = utf8:"_tmp_path_buf_fs_more_src.txt"
+@const PATH_BUF_FS_MORE_DST = utf8:"_tmp_path_buf_fs_more_dst.txt"
+@const PATH_BUF_FS_MORE_LINK = utf8:"_tmp_path_buf_fs_more_link.txt"
+@const PATH_BUF_FS_MORE_SYM = utf8:"_tmp_path_buf_fs_more_sym.txt"
+@const PATH_BUF_FS_MORE_DIR = utf8:"_tmp_path_buf_fs_more_dir"
+@const PATH_BUF_FS_MORE_NEST = utf8:"_tmp_path_buf_fs_more_dir/nested"
+@const PATH_BUF_FS_MORE_DATA = utf8:"moreops"
+@const PATH_BUF_READDIR_ROOT = utf8:"_tmp_path_buf_readdir"
+@const PATH_BUF_READDIR_FILE = utf8:"_tmp_path_buf_readdir/item.txt"
+@const PATH_BUF_READDIR_DATA = utf8:"r"
+@const PATH_BUF_BUILDER_DIR = utf8:"_tmp_path_buf_builder_dir"
+@const PATH_BUF_BUILDER_FILE = utf8:"_tmp_path_buf_builder_file.txt"
+@const PATH_BUF_BUILDER_DATA = utf8:"bd"
+@const PATH_BUF_PERM_TEST = utf8:"_tmp_path_buf_perm_obj.txt"
+@const PATH_BUF_PERM_DATA = utf8:"p"
+@const PATH_BUF_META_JSON_TEST = utf8:"_tmp_path_buf_meta_json.txt"
+@const PATH_BUF_META_JSON_DATA = utf8:"mj"
+@const PATH_BUF_LEN_REMOVE_TEST = utf8:"_tmp_path_buf_len_remove.txt"
+@const PATH_BUF_LEN_REMOVE_DATA = utf8:"abcd"
+@const PATH_BUF_MODE_DIR = utf8:"_tmp_path_buf_mode_dir"
+@const PATH_BUF_MODE_NEST = utf8:"_tmp_path_buf_mode_dir/nested"
+@const PATH_BUF_B64_TEST = utf8:"_tmp_path_buf_b64.txt"
+@const PATH_BUF_B64_DATA = utf8:"hey"
+@const PATH_BUF_B64_EXPECTED = utf8:"aGV5"
+@const PATH_BUF_OPEN_FLAGS_TEST = utf8:"_tmp_path_buf_open_flags.txt"
+@const PATH_BUF_OPEN_FLAGS_DATA = utf8:"of"
+@const PATH_BUF_UNIX_FILE = utf8:"_tmp_path_buf_unix_file.txt"
+@const PATH_BUF_UNIX_LINK = utf8:"_tmp_path_buf_unix_link.txt"
+@const PATH_BUF_UNIX_FIFO = utf8:"_tmp_path_buf_unix_fifo"
+@const PATH_BUF_UNIX_DIR = utf8:"_tmp_path_buf_unix_dir"
+@const PATH_BUF_UNIX_DATA = utf8:"ux"
 @const PATH_REL = utf8:"tmp/demo"
 @const PATH_ROOT = utf8:"/"
 @const PATH_PREFIX = utf8:"/tmp/demo"
@@ -465,7 +503,7 @@ L_ENTRY:
 
 L_PATH_FAIL:
     !ok
-    panic(941)
+    panic(10184)
 
 L_PATH_OK:
     !ok
@@ -682,7 +720,7 @@ L_PATH_QUERY_ENTRY:
 
 L_PATH_QUERY_FAIL:
     !ok
-    panic(942)
+    panic(10185)
 
 L_PATH_QUERY_OK:
     !ok
@@ -910,7 +948,7 @@ L_PATH_TRY_ENTRY:
 
 L_PATH_TRY_FAIL:
     !ok
-    panic(943)
+    panic(10186)
 
 L_PATH_TRY_OK:
     !ok
@@ -1115,8 +1153,1373 @@ L_PATH_FS_ENTRY:
 
 L_PATH_FS_FAIL:
     !ok
-    panic(944)
+    panic(10187)
 
 L_PATH_FS_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf owned macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS base, &PATH_PREFIX, 9
+    EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
+    EXPAND STR_FROM_PARTS abs_child, &PATH_ABS_CHILD, 8
+    EXPAND STR_FROM_PARTS new_file, &PATH_NEW_FILE, 9
+    EXPAND STR_FROM_PARTS new_ext, &PATH_NEW_EXT, 2
+    EXPAND STR_FROM_PARTS expect_joined, &EXPECT_JOINED, 15
+    EXPAND STR_FROM_PARTS expect_renamed, &EXPECT_RENAMED, 19
+    EXPAND STR_FROM_PARTS expect_with_ext, &EXPECT_WITH_EXT, 17
+    EXPAND STR_FROM_PARTS expect_dir, &EXPECT_DIR, 9
+    EXPAND STR_FROM_PARTS full, &PATH_FULL, 18
+
+    EXPAND PATH_BUF_NEW empty_buf
+    EXPAND PATH_BUF_IS_EMPTY empty0, empty_buf
+    empty0_ok = eq empty0, 1
+    EXPAND PATH_BUF_LEN len0, empty_buf
+    len0_ok = eq len0, 0
+
+    EXPAND PATH_BUF_FROM_PATH buf, base
+    EXPAND PATH_BUF_LEN len1, buf
+    len1_ok = eq len1, 9
+    EXPAND PATH_BUF_AS_PATH view1, buf
+    EXPAND STR_EQ eq1, view1, base
+    eq1_ok = eq eq1, 1
+    !view1
+
+    EXPAND PATH_BUF_PUSH buf, child
+    EXPAND PATH_BUF_AS_PATH view2, buf
+    EXPAND STR_EQ eq2, view2, expect_joined
+    eq2_ok = eq eq2, 1
+    !view2
+
+    EXPAND PATH_BUF_POP pop_ok, buf
+    pop_ok_ok = eq pop_ok, 1
+    EXPAND PATH_BUF_AS_PATH view3, buf
+    EXPAND STR_EQ eq3, view3, expect_dir
+    eq3_ok = eq eq3, 1
+    !view3
+
+    EXPAND PATH_BUF_PUSH buf, child
+    EXPAND PATH_BUF_SET_FILE_NAME buf, new_file
+    EXPAND PATH_BUF_AS_PATH view4, buf
+    EXPAND STR_EQ eq4, view4, expect_renamed
+    eq4_ok = eq eq4, 1
+    !view4
+
+    EXPAND PATH_BUF_CLEAR buf
+    EXPAND PATH_BUF_PUSH buf, full
+    EXPAND PATH_BUF_SET_EXTENSION buf, new_ext
+    EXPAND PATH_BUF_AS_PATH view5, buf
+    EXPAND STR_EQ eq5, view5, expect_with_ext
+    eq5_ok = eq eq5, 1
+    !view5
+
+    EXPAND PATH_BUF_PUSH buf, abs_child
+    EXPAND PATH_BUF_AS_PATH view6, buf
+    EXPAND STR_EQ eq6, view6, abs_child
+    eq6_ok = eq eq6, 1
+    !view6
+
+    EXPAND PATH_BUF_CLONE clone_buf, buf
+    EXPAND PATH_BUF_AS_PATH view7, clone_buf
+    EXPAND STR_EQ eq7, view7, abs_child
+    eq7_ok = eq eq7, 1
+    !view7
+
+    EXPAND PATH_BUF_PUSH_TRAILING_SEPARATOR clone_buf
+    EXPAND PATH_BUF_AS_PATH view8, clone_buf
+    EXPAND PATH_ENDS_WITH_SEPARATOR has_sep, view8
+    has_sep_ok = eq has_sep, 1
+    !view8
+
+    EXPAND PATH_BUF_CAPACITY cap_buf, buf
+    cap_ok = uge cap_buf, 8
+
+    EXPAND PATH_BUF_FREE empty_buf
+    EXPAND PATH_BUF_FREE buf
+    EXPAND PATH_BUF_FREE clone_buf
+
+    ok = and empty0_ok, len0_ok
+    ok = and ok, len1_ok
+    ok = and ok, eq1_ok
+    ok = and ok, eq2_ok
+    ok = and ok, pop_ok_ok
+    ok = and ok, eq3_ok
+    ok = and ok, eq4_ok
+    ok = and ok, eq5_ok
+    ok = and ok, eq6_ok
+    ok = and ok, eq7_ok
+    ok = and ok, has_sep_ok
+    ok = and ok, cap_ok
+
+    !base
+    !child
+    !abs_child
+    !new_file
+    !new_ext
+    !expect_joined
+    !expect_renamed
+    !expect_with_ext
+    !expect_dir
+    !full
+    !empty0
+    !len0
+    !len1
+    !eq1
+    !eq2
+    !pop_ok
+    !eq3
+    !eq4
+    !eq5
+    !eq6
+    !eq7
+    !has_sep
+    !cap_buf
+    !empty0_ok
+    !len0_ok
+    !len1_ok
+    !eq1_ok
+    !eq2_ok
+    !pop_ok_ok
+    !eq3_ok
+    !eq4_ok
+    !eq5_ok
+    !eq6_ok
+    !eq7_ok
+    !has_sep_ok
+    !cap_ok
+    br ok -> L_PATH_BUF_OK, L_PATH_BUF_FAIL
+
+L_PATH_BUF_FAIL:
+    !ok
+    panic(10188)
+
+L_PATH_BUF_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf lit/capacity macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS root, &PATH_ROOT, 1
+    EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
+    EXPAND STR_FROM_PARTS new_file, &PATH_NEW_FILE, 9
+    EXPAND PATH_BUF_LIT1 lit1, root
+    EXPAND PATH_BUF_LEN lit1_len, lit1
+    EXPAND PATH_BUF_LIT2 lit2, root, child
+    EXPAND PATH_BUF_LEN lit2_len, lit2
+    EXPAND PATH_BUF_LIT3 lit3, root, child, new_file
+    EXPAND PATH_BUF_LEN lit3_len, lit3
+    EXPAND PATH_BUF_WITH_CAPACITY cap_buf, 32
+    EXPAND PATH_BUF_CAPACITY cap0, cap_buf
+    EXPAND PATH_BUF_CAPACITY_REMAINING rem0, cap_buf
+    EXPAND PATH_BUF_EXTRA_CAPACITY extra0, cap_buf
+    EXPAND PATH_BUF_REMAINING_CAPACITY rem1, cap_buf
+
+    ok_lit1_len = eq lit1_len, 1
+    ok_lit2_len = ugt lit2_len, lit1_len
+    ok_lit3_len = ugt lit3_len, lit2_len
+    ok_cap = uge cap0, 32
+    ok_rem = eq rem0, cap0
+    ok_extra = eq extra0, rem0
+    ok_rem1 = eq rem1, rem0
+
+    ok = and ok_lit1_len, ok_lit2_len
+    ok = and ok, ok_lit3_len
+    ok = and ok, ok_cap
+    ok = and ok, ok_rem
+    ok = and ok, ok_extra
+    ok = and ok, ok_rem1
+
+    !ok_lit1_len
+    !ok_lit2_len
+    !ok_lit3_len
+    !ok_cap
+    !ok_rem
+    !ok_extra
+    !ok_rem1
+    !lit1_len
+    !lit2_len
+    !lit3_len
+    !cap0
+    !rem0
+    !extra0
+    !rem1
+    EXPAND PATH_BUF_FREE lit1
+    EXPAND PATH_BUF_FREE lit2
+    EXPAND PATH_BUF_FREE lit3
+    EXPAND PATH_BUF_FREE cap_buf
+    !root
+    !child
+    !new_file
+    br ok -> L_PATH_BUF_LIT_OK, L_PATH_BUF_LIT_FAIL
+L_PATH_BUF_LIT_FAIL:
+    !ok
+    panic(10189)
+L_PATH_BUF_LIT_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf os conversion macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS root, &PATH_ROOT, 1
+    EXPAND PATH_BUF_FROM_PATH path_buf, root
+    EXPAND PATH_BUF_INTO_OS_STRING os_from_path, path_buf
+    EXPAND OS_STRING_LEN os_len, os_from_path
+    EXPAND PATH_BUF_FROM_OS_STRING path_from_os, os_from_path
+    EXPAND PATH_BUF_LEN path_len, path_from_os
+    EXPAND PATH_BUF_AS_OS_STR os_str_view, path_from_os
+    EXPAND OS_STR_LEN os_str_len, os_str_view
+    EXPAND PATH_BUF_FROM_OS_STR path_from_os_str, os_str_view
+    EXPAND PATH_BUF_LEN path2_len, path_from_os_str
+
+    ok_os_len = eq os_len, 1
+    ok_path_len = eq path_len, 1
+    ok_os_str_len = eq os_str_len, 1
+    ok_path2_len = eq path2_len, 1
+    ok = and ok_os_len, ok_path_len
+    ok = and ok, ok_os_str_len
+    ok = and ok, ok_path2_len
+
+    !ok_os_len
+    !ok_path_len
+    !ok_os_str_len
+    !ok_path2_len
+    !os_len
+    !path_len
+    !os_str_len
+    !path2_len
+    EXPAND PATH_BUF_FREE path_buf
+    EXPAND OS_STRING_FREE os_from_path
+    EXPAND PATH_BUF_FREE path_from_os
+    EXPAND PATH_BUF_FREE path_from_os_str
+    !os_str_view
+    !root
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10190)
+L_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf query aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS full, &PATH_FULL, 18
+    EXPAND PATH_BUF_FROM_PATH path_buf, full
+    EXPAND PATH_BUF_IS_ABSOLUTE is_abs, path_buf
+    EXPAND PATH_BUF_IS_RELATIVE is_rel, path_buf
+    EXPAND PATH_BUF_HAS_ROOT has_root, path_buf
+    EXPAND PATH_BUF_COMPONENT_COUNT comp_count, path_buf
+    EXPAND PATH_BUF_TRY_FILE_NAME name_ok, name_slice, path_buf
+    EXPAND PATH_BUF_TRY_FILE_STEM stem_ok, stem_slice, path_buf
+    EXPAND PATH_BUF_TRY_EXTENSION ext_ok, ext_slice, path_buf
+    EXPAND PATH_BUF_TRY_PARENT parent_ok, parent_slice, path_buf
+    EXPAND PATH_BUF_ANCESTOR_COUNT anc_count, path_buf
+
+    ok_abs = eq is_abs, 1
+    ok_rel = eq is_rel, 0
+    ok_root = eq has_root, 1
+    ok_comp = ugt comp_count, 1
+    ok_name = eq name_ok, 1
+    ok_stem = eq stem_ok, 1
+    ok_ext = eq ext_ok, 1
+    ok_parent = eq parent_ok, 1
+    ok_anc = ugt anc_count, 0
+    ok = and ok_abs, ok_rel
+    ok = and ok, ok_root
+    ok = and ok, ok_comp
+    ok = and ok, ok_name
+    ok = and ok, ok_stem
+    ok = and ok, ok_ext
+    ok = and ok, ok_parent
+    ok = and ok, ok_anc
+
+    !is_abs
+    !is_rel
+    !has_root
+    !comp_count
+    !name_ok
+    !stem_ok
+    !ext_ok
+    !parent_ok
+    !anc_count
+    !ok_abs
+    !ok_rel
+    !ok_root
+    !ok_comp
+    !ok_name
+    !ok_stem
+    !ok_ext
+    !ok_parent
+    !ok_anc
+    !name_slice
+    !stem_slice
+    !ext_slice
+    !parent_slice
+    EXPAND PATH_BUF_FREE path_buf
+    !full
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10191)
+L_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf push/join path_buf macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS root, &PATH_ROOT, 1
+    EXPAND STR_FROM_PARTS child, &PATH_CHILD, 5
+    EXPAND PATH_BUF_FROM_PATH parent, root
+    EXPAND PATH_BUF_FROM_PATH child_buf, child
+    EXPAND PATH_BUF_LEN parent_len0, parent
+    EXPAND PATH_BUF_PUSH_PATH_BUF parent, child_buf
+    EXPAND PATH_BUF_LEN parent_len1, parent
+    EXPAND PATH_BUF_FROM_PATH joined, root
+    EXPAND PATH_BUF_JOIN joined, child
+    EXPAND PATH_BUF_LEN joined_len, joined
+
+    ok_grew = ugt parent_len1, parent_len0
+    ok_join = eq joined_len, parent_len1
+    ok = and ok_grew, ok_join
+
+    !parent_len0
+    !parent_len1
+    !joined_len
+    !ok_grew
+    !ok_join
+    EXPAND PATH_BUF_FREE parent
+    EXPAND PATH_BUF_FREE child_buf
+    EXPAND PATH_BUF_FREE joined
+    !root
+    !child
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10192)
+L_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf clone_from macros"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS full, &PATH_FULL, 18
+    EXPAND PATH_BUF_FROM_PATH src, full
+    EXPAND PATH_BUF_NEW dst
+    EXPAND PATH_BUF_CLONE_FROM dst, src
+    EXPAND PATH_BUF_LEN src_len, src
+    EXPAND PATH_BUF_LEN dst_len, dst
+    ok_len = eq src_len, dst_len
+    ok_nonzero = ugt dst_len, 0
+    ok = and ok_len, ok_nonzero
+    !src_len
+    !dst_len
+    !ok_len
+    !ok_nonzero
+    EXPAND PATH_BUF_FREE src
+    EXPAND PATH_BUF_FREE dst
+    !full
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10193)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf fs query aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS path_slice, &PATH_BUF_FS_TEST, 26
+    EXPAND PATH_BUF_FROM_PATH path_buf, path_slice
+    EXPAND PATH_BUF_AS_PATH view0, path_buf
+    view0_ptr = load view0+Slice_ptr as ptr
+    view0_len = load view0+Slice_len as u64
+    EXPAND FS_REMOVE_PATH cleanup0, view0_ptr, view0_len
+    EXPAND FS_WRITE_FILE write_status, view0_ptr, view0_len, &PATH_BUF_FS_HELLO, 7
+    EXPAND PATH_BUF_TRY_EXISTS try_status, try_flag, path_buf
+    EXPAND PATH_BUF_EXISTS exists_flag, path_buf
+    EXPAND PATH_BUF_IS_FILE is_file_flag, path_buf
+    EXPAND PATH_BUF_IS_DIR is_dir_flag, path_buf
+    EXPAND PATH_BUF_IS_SYMLINK is_symlink_flag, path_buf
+    EXPAND PATH_BUF_METADATA meta_status, meta, path_buf
+    EXPAND FS_METADATA_IS_FILE meta_is_file, meta
+    EXPAND FS_METADATA_FREE meta_free_status, meta
+    EXPAND PATH_BUF_CANONICALIZE canon_status, canon_buf, path_buf
+    EXPAND FS_READ_BUFFER_FREE canon_free_status, canon_buf
+    EXPAND FS_REMOVE_PATH cleanup1, view0_ptr, view0_len
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_try_status = eq try_status, SA_FS_OK
+    ok_try_flag = eq try_flag, 1
+    ok_exists = eq exists_flag, 1
+    ok_file = eq is_file_flag, 1
+    ok_dir = eq is_dir_flag, 0
+    ok_symlink = eq is_symlink_flag, 0
+    ok_meta_status = eq meta_status, SA_FS_OK
+    ok_meta_is_file = eq meta_is_file, 1
+    ok_meta_free = eq meta_free_status, SA_FS_OK
+    ok_canon = eq canon_status, SA_FS_OK
+    ok_canon_free = eq canon_free_status, SA_FS_OK
+
+    ok01 = and ok_write, ok_try_status
+    ok02 = and ok01, ok_try_flag
+    ok03 = and ok02, ok_exists
+    ok04 = and ok03, ok_file
+    ok05 = and ok04, ok_dir
+    ok06 = and ok05, ok_symlink
+    ok07 = and ok06, ok_meta_status
+    ok08 = and ok07, ok_meta_is_file
+    ok09 = and ok08, ok_meta_free
+    ok10 = and ok09, ok_canon
+    ok = and ok10, ok_canon_free
+
+    !cleanup0
+    !write_status
+    !try_status
+    !try_flag
+    !exists_flag
+    !is_file_flag
+    !is_dir_flag
+    !is_symlink_flag
+    !meta_status
+    !meta_is_file
+    !meta_free_status
+    !canon_status
+    !canon_free_status
+    !cleanup1
+    !view0_len
+    !view0_ptr
+    !view0
+    EXPAND PATH_BUF_FREE path_buf
+    !path_slice
+    !ok_write
+    !ok_try_status
+    !ok_try_flag
+    !ok_exists
+    !ok_file
+    !ok_dir
+    !ok_symlink
+    !ok_meta_status
+    !ok_meta_is_file
+    !ok_meta_free
+    !ok_canon
+    !ok_canon_free
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10412)
+L_OK:
+    !ok
+    return
+
+@test "sa_std path PathBuf fs ops aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS src_slice, &PATH_BUF_FS_OPS_SRC, 28
+    EXPAND STR_FROM_PARTS dst_slice, &PATH_BUF_FS_OPS_DST, 28
+    EXPAND STR_FROM_PARTS dir_slice, &PATH_BUF_FS_OPS_DIR, 24
+    EXPAND PATH_BUF_FROM_PATH src_buf, src_slice
+    EXPAND PATH_BUF_FROM_PATH dst_buf, dst_slice
+    EXPAND PATH_BUF_FROM_PATH dir_buf, dir_slice
+
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_src0, src_buf
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_dst0, dst_buf
+    EXPAND PATH_BUF_REMOVE_DIR cleanup_dir0, dir_buf
+
+    EXPAND PATH_BUF_WRITE_FILE write_status, src_buf, &PATH_BUF_FS_OPS_DATA, 7
+    EXPAND PATH_BUF_COPY copy_status, src_buf, dst_buf
+    EXPAND PATH_BUF_READ_FILE read_status, read_buf, dst_buf, 64
+    EXPAND FS_READ_BUFFER_LEN read_len, read_buf
+    EXPAND FS_READ_BUFFER_FREE free_status, read_buf
+    EXPAND PATH_BUF_OPEN_READ open_status, open_file, src_buf
+    EXPAND FS_CLOSE close_status, open_file
+    EXPAND PATH_BUF_CREATE_DIR mkdir_status, dir_buf
+    EXPAND PATH_BUF_IS_DIR dir_flag, dir_buf
+    EXPAND PATH_BUF_REMOVE_DIR rmdir_status, dir_buf
+    EXPAND PATH_BUF_REMOVE_FILE rm_src_status, src_buf
+    EXPAND PATH_BUF_REMOVE_FILE rm_dst_status, dst_buf
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_copy = eq copy_status, SA_FS_OK
+    ok_read = eq read_status, SA_FS_OK
+    ok_len = eq read_len, 7
+    ok_free = eq free_status, SA_FS_OK
+    ok_open = eq open_status, SA_FS_OK
+    ok_close = eq close_status, SA_FS_OK
+    ok_mkdir = eq mkdir_status, SA_FS_OK
+    ok_dir = eq dir_flag, 1
+    ok_rmdir = eq rmdir_status, SA_FS_OK
+    ok_rm_src = eq rm_src_status, SA_FS_OK
+    ok_rm_dst = eq rm_dst_status, SA_FS_OK
+
+    ok01 = and ok_write, ok_copy
+    ok02 = and ok01, ok_read
+    ok03 = and ok02, ok_len
+    ok04 = and ok03, ok_free
+    ok05 = and ok04, ok_open
+    ok06 = and ok05, ok_close
+    ok07 = and ok06, ok_mkdir
+    ok08 = and ok07, ok_dir
+    ok09 = and ok08, ok_rmdir
+    ok10 = and ok09, ok_rm_src
+    ok = and ok10, ok_rm_dst
+
+    !cleanup_src0
+    !cleanup_dst0
+    !cleanup_dir0
+    !write_status
+    !copy_status
+    !read_status
+    !read_len
+    !free_status
+    !open_status
+    !close_status
+    !mkdir_status
+    !dir_flag
+    !rmdir_status
+    !rm_src_status
+    !rm_dst_status
+    EXPAND PATH_BUF_FREE src_buf
+    EXPAND PATH_BUF_FREE dst_buf
+    EXPAND PATH_BUF_FREE dir_buf
+    !src_slice
+    !dst_slice
+    !dir_slice
+    !ok_write
+    !ok_copy
+    !ok_read
+    !ok_len
+    !ok_free
+    !ok_open
+    !ok_close
+    !ok_mkdir
+    !ok_dir
+    !ok_rmdir
+    !ok_rm_src
+    !ok_rm_dst
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10414)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf fs rename/link/symlink/read_to_string aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS src_slice, &PATH_BUF_FS_MORE_SRC, 29
+    EXPAND STR_FROM_PARTS dst_slice, &PATH_BUF_FS_MORE_DST, 29
+    EXPAND STR_FROM_PARTS link_slice, &PATH_BUF_FS_MORE_LINK, 30
+    EXPAND STR_FROM_PARTS sym_slice, &PATH_BUF_FS_MORE_SYM, 29
+    EXPAND STR_FROM_PARTS dir_slice, &PATH_BUF_FS_MORE_DIR, 25
+    EXPAND STR_FROM_PARTS nest_slice, &PATH_BUF_FS_MORE_NEST, 32
+    EXPAND PATH_BUF_FROM_PATH src_buf, src_slice
+    EXPAND PATH_BUF_FROM_PATH dst_buf, dst_slice
+    EXPAND PATH_BUF_FROM_PATH link_buf, link_slice
+    EXPAND PATH_BUF_FROM_PATH sym_buf, sym_slice
+    EXPAND PATH_BUF_FROM_PATH dir_buf, dir_slice
+    EXPAND PATH_BUF_FROM_PATH nest_buf, nest_slice
+
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_src0, src_buf
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_dst0, dst_buf
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_link0, link_buf
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_sym0, sym_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup_dir0, dir_buf
+
+    EXPAND PATH_BUF_WRITE_FILE write_status, src_buf, &PATH_BUF_FS_MORE_DATA, 7
+    EXPAND PATH_BUF_SET_PERMISSIONS perm_status, src_buf, 420
+    EXPAND PATH_BUF_SET_TIMES_MS times_status, src_buf, 1000, 2000
+    EXPAND PATH_BUF_READ_TO_STRING rts_status, rts_buf, src_buf, 64
+    EXPAND FS_READ_BUFFER_LEN rts_len, rts_buf
+    EXPAND FS_READ_BUFFER_FREE rts_free, rts_buf
+    EXPAND PATH_BUF_HARD_LINK hard_status, src_buf, link_buf
+    EXPAND PATH_BUF_SYMLINK sym_status, src_buf, sym_buf
+    EXPAND PATH_BUF_IS_SYMLINK sym_flag, sym_buf
+    EXPAND PATH_BUF_RENAME rename_status, src_buf, dst_buf
+    EXPAND PATH_BUF_EXISTS exists_dst, dst_buf
+    EXPAND PATH_BUF_EXISTS exists_src, src_buf
+    EXPAND PATH_BUF_CREATE_DIR_ALL mkdir_status, nest_buf
+    EXPAND PATH_BUF_IS_DIR nest_is_dir, nest_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL rmdir_status, dir_buf
+    EXPAND PATH_BUF_REMOVE_FILE rm_dst_status, dst_buf
+    EXPAND PATH_BUF_REMOVE_FILE rm_link_status, link_buf
+    EXPAND PATH_BUF_REMOVE_FILE rm_sym_status, sym_buf
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_perm = eq perm_status, SA_FS_OK
+    ok_times = eq times_status, SA_FS_OK
+    ok_rts = eq rts_status, SA_FS_OK
+    ok_rts_len = eq rts_len, 7
+    ok_rts_free = eq rts_free, SA_FS_OK
+    ok_hard = eq hard_status, SA_FS_OK
+    ok_sym = eq sym_status, SA_FS_OK
+    ok_sym_flag = eq sym_flag, 1
+    ok_rename = eq rename_status, SA_FS_OK
+    ok_exists_dst = eq exists_dst, 1
+    ok_exists_src = eq exists_src, 0
+    ok_mkdir = eq mkdir_status, SA_FS_OK
+    ok_nest = eq nest_is_dir, 1
+    ok_rmdir = eq rmdir_status, SA_FS_OK
+    ok_rm_dst = eq rm_dst_status, SA_FS_OK
+    ok_rm_link = eq rm_link_status, SA_FS_OK
+    ok_rm_sym = eq rm_sym_status, SA_FS_OK
+
+    ok01 = and ok_write, ok_perm
+    ok02 = and ok01, ok_times
+    ok03 = and ok02, ok_rts
+    ok04 = and ok03, ok_rts_len
+    ok05 = and ok04, ok_rts_free
+    ok06 = and ok05, ok_hard
+    ok07 = and ok06, ok_sym
+    ok08 = and ok07, ok_sym_flag
+    ok09 = and ok08, ok_rename
+    ok10 = and ok09, ok_exists_dst
+    ok11 = and ok10, ok_exists_src
+    ok12 = and ok11, ok_mkdir
+    ok13 = and ok12, ok_nest
+    ok14 = and ok13, ok_rmdir
+    ok15 = and ok14, ok_rm_dst
+    ok16 = and ok15, ok_rm_link
+    ok = and ok16, ok_rm_sym
+
+    !cleanup_src0
+    !cleanup_dst0
+    !cleanup_link0
+    !cleanup_sym0
+    !cleanup_dir0
+    !write_status
+    !perm_status
+    !times_status
+    !rts_status
+    !rts_len
+    !rts_free
+    !hard_status
+    !sym_status
+    !sym_flag
+    !rename_status
+    !exists_dst
+    !exists_src
+    !mkdir_status
+    !nest_is_dir
+    !rmdir_status
+    !rm_dst_status
+    !rm_link_status
+    !rm_sym_status
+    EXPAND PATH_BUF_FREE src_buf
+    EXPAND PATH_BUF_FREE dst_buf
+    EXPAND PATH_BUF_FREE link_buf
+    EXPAND PATH_BUF_FREE sym_buf
+    EXPAND PATH_BUF_FREE dir_buf
+    EXPAND PATH_BUF_FREE nest_buf
+    !src_slice
+    !dst_slice
+    !link_slice
+    !sym_slice
+    !dir_slice
+    !nest_slice
+    !ok_write
+    !ok_perm
+    !ok_times
+    !ok_rts
+    !ok_rts_len
+    !ok_rts_free
+    !ok_hard
+    !ok_sym
+    !ok_sym_flag
+    !ok_rename
+    !ok_exists_dst
+    !ok_exists_src
+    !ok_mkdir
+    !ok_nest
+    !ok_rmdir
+    !ok_rm_dst
+    !ok_rm_link
+    !ok_rm_sym
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    !ok14
+    !ok15
+    !ok16
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10423)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf read_dir aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS root_slice, &PATH_BUF_READDIR_ROOT, 21
+    EXPAND STR_FROM_PARTS file_slice, &PATH_BUF_READDIR_FILE, 30
+    EXPAND PATH_BUF_FROM_PATH root_buf, root_slice
+    EXPAND PATH_BUF_FROM_PATH file_buf, file_slice
+
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup0, root_buf
+    EXPAND PATH_BUF_CREATE_DIR mkdir_status, root_buf
+    EXPAND PATH_BUF_WRITE_FILE write_status, file_buf, &PATH_BUF_READDIR_DATA, 1
+    EXPAND PATH_BUF_READ_DIR_ENTRIES entries_status, entries, root_buf, 16
+    EXPAND FS_DIR_ENTRIES_LEN entry_count, entries
+    EXPAND PATH_BUF_READ_DIR_JSON json_status, json_buf, root_buf, 16
+    EXPAND FS_DIR_BUFFER_LEN json_len, json_buf
+    EXPAND FS_DIR_BUFFER_FREE json_free, json_buf
+    EXPAND FS_DIR_ENTRIES_FREE entries_free, entries
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup1, root_buf
+
+    ok_mkdir = eq mkdir_status, SA_FS_OK
+    ok_write = eq write_status, SA_FS_OK
+    ok_entries = eq entries_status, SA_FS_OK
+    ok_count = ugt entry_count, 0
+    ok_json = eq json_status, SA_FS_OK
+    ok_json_len = ugt json_len, 0
+    ok_json_free = eq json_free, SA_FS_OK
+    ok_entries_free = eq entries_free, SA_FS_OK
+    ok_cleanup = eq cleanup1, SA_FS_OK
+
+    ok01 = and ok_mkdir, ok_write
+    ok02 = and ok01, ok_entries
+    ok03 = and ok02, ok_count
+    ok04 = and ok03, ok_json
+    ok05 = and ok04, ok_json_len
+    ok06 = and ok05, ok_json_free
+    ok07 = and ok06, ok_entries_free
+    ok = and ok07, ok_cleanup
+
+    !cleanup0
+    !mkdir_status
+    !write_status
+    !entries_status
+    !entry_count
+    !json_status
+    !json_len
+    !json_free
+    !entries_free
+    !cleanup1
+    EXPAND PATH_BUF_FREE root_buf
+    EXPAND PATH_BUF_FREE file_buf
+    !root_slice
+    !file_slice
+    !ok_mkdir
+    !ok_write
+    !ok_entries
+    !ok_count
+    !ok_json
+    !ok_json_len
+    !ok_json_free
+    !ok_entries_free
+    !ok_cleanup
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10425)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path OsString default alias"():
+L_ENTRY:
+    EXPAND OS_STRING_DEFAULT os
+    EXPAND OS_STRING_IS_EMPTY empty0, os
+    EXPAND OS_STRING_LEN len0, os
+    EXPAND OS_STRING_FREE os
+
+    ok_empty = eq empty0, 1
+    ok_len = eq len0, 0
+    ok = and ok_empty, ok_len
+
+    !empty0
+    !len0
+    !ok_empty
+    !ok_len
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10429)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf dir_builder/open_options aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS dir_slice, &PATH_BUF_BUILDER_DIR, 25
+    EXPAND STR_FROM_PARTS file_slice, &PATH_BUF_BUILDER_FILE, 30
+    EXPAND PATH_BUF_FROM_PATH dir_buf, dir_slice
+    EXPAND PATH_BUF_FROM_PATH file_buf, file_slice
+
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup_dir0, dir_buf
+    EXPAND PATH_BUF_REMOVE_FILE cleanup_file0, file_buf
+
+    EXPAND FS_DIR_BUILDER_NEW rec0, mode0
+    EXPAND FS_DIR_BUILDER_WITH_RECURSIVE rec1, mode1, rec0, mode0, 1
+    EXPAND PATH_BUF_DIR_BUILDER_CREATE mkdir_status, rec1, mode1, dir_buf
+    EXPAND PATH_BUF_IS_DIR dir_flag, dir_buf
+
+    EXPAND FS_OPEN_OPTIONS_BUILDER_NEW flags0, omode0, custom0
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_WRITE flags1, omode1, custom1, flags0, omode0, custom0, 1
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_CREATE flags2, omode2, custom2, flags1, omode1, custom1, 1
+    EXPAND FS_OPEN_OPTIONS_BUILDER_WITH_TRUNCATE flags3, omode3, custom3, flags2, omode2, custom2, 1
+    EXPAND PATH_BUF_OPEN_OPTIONS_BUILDER_OPEN open_status, file, flags3, omode3, custom3, file_buf
+    EXPAND FS_WRITE_ALL write_status, file, &PATH_BUF_BUILDER_DATA, 2
+    EXPAND FS_CLOSE close_status, file
+    EXPAND PATH_BUF_EXISTS file_exists, file_buf
+    EXPAND PATH_BUF_REMOVE_FILE rm_file, file_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL rm_dir, dir_buf
+
+    ok_mkdir = eq mkdir_status, SA_FS_OK
+    ok_dir = eq dir_flag, 1
+    ok_open = eq open_status, SA_FS_OK
+    ok_write = eq write_status, SA_FS_OK
+    ok_close = eq close_status, SA_FS_OK
+    ok_exists = eq file_exists, 1
+    ok_rm_file = eq rm_file, SA_FS_OK
+    ok_rm_dir = eq rm_dir, SA_FS_OK
+
+    ok01 = and ok_mkdir, ok_dir
+    ok02 = and ok01, ok_open
+    ok03 = and ok02, ok_write
+    ok04 = and ok03, ok_close
+    ok05 = and ok04, ok_exists
+    ok06 = and ok05, ok_rm_file
+    ok = and ok06, ok_rm_dir
+
+    !cleanup_dir0
+    !cleanup_file0
+    !rec0
+    !mode0
+    !rec1
+    !mode1
+    !mkdir_status
+    !dir_flag
+    !flags0
+    !omode0
+    !custom0
+    !flags1
+    !omode1
+    !custom1
+    !flags2
+    !omode2
+    !custom2
+    !flags3
+    !omode3
+    !custom3
+    !open_status
+    !write_status
+    !close_status
+    !file_exists
+    !rm_file
+    !rm_dir
+    EXPAND PATH_BUF_FREE dir_buf
+    EXPAND PATH_BUF_FREE file_buf
+    !dir_slice
+    !file_slice
+    !ok_mkdir
+    !ok_dir
+    !ok_open
+    !ok_write
+    !ok_close
+    !ok_exists
+    !ok_rm_file
+    !ok_rm_dir
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10430)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf permissions/file_times object aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS path_slice, &PATH_BUF_PERM_TEST, 26
+    EXPAND PATH_BUF_FROM_PATH path_buf, path_slice
+    EXPAND PATH_BUF_REMOVE_FILE cleanup0, path_buf
+    EXPAND PATH_BUF_WRITE_FILE write_status, path_buf, &PATH_BUF_PERM_DATA, 1
+
+    perm_slot = stack_alloc SaFsPermissions_SIZE
+    EXPAND FS_PERMISSIONS_FROM_MODE perm_slot, 420
+    EXPAND PATH_BUF_SET_PERMISSIONS_OBJ perm_status, path_buf, perm_slot
+
+    EXPAND FS_FILE_TIMES_NEW t0_acc, t0_mod
+    EXPAND FS_FILE_TIMES_WITH_ACCESSED t1_acc, t1_mod, t0_acc, t0_mod, 1700000001000
+    EXPAND FS_FILE_TIMES_WITH_MODIFIED t2_acc, t2_mod, t1_acc, t1_mod, 1700000002000
+    EXPAND PATH_BUF_FILE_TIMES_SET times_status, path_buf, t2_acc, t2_mod
+
+    EXPAND PATH_BUF_METADATA meta_status, meta, path_buf
+    EXPAND FS_METADATA_FILE_TIMES got_acc, got_mod, meta
+    EXPAND FS_METADATA_FREE meta_free, meta
+    EXPAND PATH_BUF_REMOVE_FILE cleanup1, path_buf
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_perm = eq perm_status, SA_FS_OK
+    ok_times = eq times_status, SA_FS_OK
+    ok_meta = eq meta_status, SA_FS_OK
+    ok_acc = eq got_acc, 1700000001000
+    ok_mod = eq got_mod, 1700000002000
+    ok_free = eq meta_free, SA_FS_OK
+    ok_rm = eq cleanup1, SA_FS_OK
+
+    ok01 = and ok_write, ok_perm
+    ok02 = and ok01, ok_times
+    ok03 = and ok02, ok_meta
+    ok04 = and ok03, ok_acc
+    ok05 = and ok04, ok_mod
+    ok06 = and ok05, ok_free
+    ok = and ok06, ok_rm
+
+    !cleanup0
+    !write_status
+    !perm_status
+    !t0_acc
+    !t0_mod
+    !t1_acc
+    !t1_mod
+    !t2_acc
+    !t2_mod
+    !times_status
+    !meta_status
+    !got_acc
+    !got_mod
+    !meta_free
+    !cleanup1
+    EXPAND PATH_BUF_FREE path_buf
+    !path_slice
+    !ok_write
+    !ok_perm
+    !ok_times
+    !ok_meta
+    !ok_acc
+    !ok_mod
+    !ok_free
+    !ok_rm
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10437)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf metadata_json/len/remove/mode aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS file_slice, &PATH_BUF_META_JSON_TEST, 27
+    EXPAND STR_FROM_PARTS len_slice, &PATH_BUF_LEN_REMOVE_TEST, 28
+    EXPAND STR_FROM_PARTS dir_slice, &PATH_BUF_MODE_DIR, 22
+    EXPAND STR_FROM_PARTS nest_slice, &PATH_BUF_MODE_NEST, 29
+
+    EXPAND PATH_BUF_FROM_PATH file_buf, file_slice
+    EXPAND PATH_BUF_FROM_PATH len_buf, len_slice
+    EXPAND PATH_BUF_FROM_PATH dir_buf, dir_slice
+    EXPAND PATH_BUF_FROM_PATH nest_buf, nest_slice
+
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_file0, file_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_len0, len_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup_dir0, dir_buf
+
+    EXPAND PATH_BUF_WRITE_FILE write_meta, file_buf, &PATH_BUF_META_JSON_DATA, 2
+    EXPAND PATH_BUF_METADATA_JSON meta_status, meta_json, file_buf
+    EXPAND FS_READ_BUFFER_LEN meta_len, meta_json
+    EXPAND FS_READ_BUFFER_FREE meta_free, meta_json
+
+    EXPAND PATH_BUF_WRITE_FILE write_len, len_buf, &PATH_BUF_LEN_REMOVE_DATA, 4
+    EXPAND PATH_BUF_FS_SIZE len_status, file_len, len_buf
+    EXPAND PATH_BUF_REMOVE_ENTRY remove_status, len_buf
+    EXPAND PATH_BUF_EXISTS exists_after_remove, len_buf
+
+    EXPAND PATH_BUF_CREATE_DIR_WITH_MODE mkdir_status, dir_buf, 493
+    EXPAND PATH_BUF_CREATE_DIR_ALL_WITH_MODE mkdir_all_status, nest_buf, 493
+    EXPAND PATH_BUF_IS_DIR is_dir, dir_buf
+    EXPAND PATH_BUF_IS_DIR is_nest, nest_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup_dir1, dir_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_file1, file_buf
+
+    ok_write_meta = eq write_meta, SA_FS_OK
+    ok_meta = eq meta_status, SA_FS_OK
+    ok_meta_len = ne meta_len, 0
+    ok_meta_free = eq meta_free, SA_FS_OK
+    ok_write_len = eq write_len, SA_FS_OK
+    ok_len_status = eq len_status, SA_FS_OK
+    ok_len = eq file_len, 4
+    ok_remove = eq remove_status, SA_FS_OK
+    ok_gone = eq exists_after_remove, 0
+    ok_mkdir = eq mkdir_status, SA_FS_OK
+    ok_mkdir_all = eq mkdir_all_status, SA_FS_OK
+    ok_dir = eq is_dir, 1
+    ok_nest = eq is_nest, 1
+    ok_rm_dir = eq cleanup_dir1, SA_FS_OK
+    ok_rm_file = eq cleanup_file1, SA_FS_OK
+
+    ok01 = and ok_write_meta, ok_meta
+    ok02 = and ok01, ok_meta_len
+    ok03 = and ok02, ok_meta_free
+    ok04 = and ok03, ok_write_len
+    ok05 = and ok04, ok_len_status
+    ok06 = and ok05, ok_len
+    ok07 = and ok06, ok_remove
+    ok08 = and ok07, ok_gone
+    ok09 = and ok08, ok_mkdir
+    ok10 = and ok09, ok_mkdir_all
+    ok11 = and ok10, ok_dir
+    ok12 = and ok11, ok_nest
+    ok13 = and ok12, ok_rm_dir
+    ok = and ok13, ok_rm_file
+
+    !cleanup_file0
+    !cleanup_len0
+    !cleanup_dir0
+    !write_meta
+    !meta_status
+    !meta_len
+    !meta_free
+    !write_len
+    !len_status
+    !file_len
+    !remove_status
+    !exists_after_remove
+    !mkdir_status
+    !mkdir_all_status
+    !is_dir
+    !is_nest
+    !cleanup_dir1
+    !cleanup_file1
+    EXPAND PATH_BUF_FREE file_buf
+    EXPAND PATH_BUF_FREE len_buf
+    EXPAND PATH_BUF_FREE dir_buf
+    EXPAND PATH_BUF_FREE nest_buf
+    !file_slice
+    !len_slice
+    !dir_slice
+    !nest_slice
+    !ok_write_meta
+    !ok_meta
+    !ok_meta_len
+    !ok_meta_free
+    !ok_write_len
+    !ok_len_status
+    !ok_len
+    !ok_remove
+    !ok_gone
+    !ok_mkdir
+    !ok_mkdir_all
+    !ok_dir
+    !ok_nest
+    !ok_rm_dir
+    !ok_rm_file
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10439)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf base64/open_flags aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS b64_slice, &PATH_BUF_B64_TEST, 21
+    EXPAND STR_FROM_PARTS open_slice, &PATH_BUF_OPEN_FLAGS_TEST, 28
+    EXPAND PATH_BUF_FROM_PATH b64_buf, b64_slice
+    EXPAND PATH_BUF_FROM_PATH open_buf, open_slice
+
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_b64_0, b64_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_open_0, open_buf
+
+    EXPAND PATH_BUF_WRITE_FILE write_plain, b64_buf, &PATH_BUF_B64_DATA, 3
+    EXPAND PATH_BUF_READ_FILE_BASE64 b64_status, b64_buffer, b64_buf, 64
+    EXPAND FS_READ_BUFFER_DATA b64_data, b64_buffer
+    EXPAND FS_READ_BUFFER_LEN b64_len, b64_buffer
+    EXPAND STR_FROM_PARTS b64_view, b64_data, b64_len
+    EXPAND STR_FROM_PARTS b64_expected, &PATH_BUF_B64_EXPECTED, 4
+    EXPAND STR_EQ b64_eq, b64_view, b64_expected
+    EXPAND FS_READ_BUFFER_FREE b64_free, b64_buffer
+
+    EXPAND PATH_BUF_WRITE_FILE_BASE64 write_b64, open_buf, &PATH_BUF_B64_EXPECTED, 4
+    EXPAND PATH_BUF_OPEN_FLAGS open_status, open_file, open_buf, SA_FS_OPEN_READ
+    EXPAND FS_CLOSE close_status, open_file
+    EXPAND PATH_BUF_OPEN_WITH_OPTIONS open2_status, open2_file, open_buf, SA_FS_OPEN_READ, SA_FS_OPEN_MODE_DEFAULT, 0
+    EXPAND FS_CLOSE close2_status, open2_file
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_b64_1, b64_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_open_1, open_buf
+
+    ok_write_plain = eq write_plain, SA_FS_OK
+    ok_b64 = eq b64_status, SA_FS_OK
+    ok_b64_len = eq b64_len, 4
+    ok_b64_eq = eq b64_eq, 1
+    ok_b64_free = eq b64_free, SA_FS_OK
+    ok_write_b64 = eq write_b64, SA_FS_OK
+    ok_open = eq open_status, SA_FS_OK
+    ok_close = eq close_status, SA_FS_OK
+    ok_open2 = eq open2_status, SA_FS_OK
+    ok_close2 = eq close2_status, SA_FS_OK
+    ok_rm1 = eq cleanup_b64_1, SA_FS_OK
+    ok_rm2 = eq cleanup_open_1, SA_FS_OK
+
+    ok01 = and ok_write_plain, ok_b64
+    ok02 = and ok01, ok_b64_len
+    ok03 = and ok02, ok_b64_eq
+    ok04 = and ok03, ok_b64_free
+    ok05 = and ok04, ok_write_b64
+    ok06 = and ok05, ok_open
+    ok07 = and ok06, ok_close
+    ok08 = and ok07, ok_open2
+    ok09 = and ok08, ok_close2
+    ok10 = and ok09, ok_rm1
+    ok = and ok10, ok_rm2
+
+    !cleanup_b64_0
+    !cleanup_open_0
+    !write_plain
+    !b64_status
+    !b64_data
+    !b64_len
+    !b64_eq
+    !b64_free
+    !write_b64
+    !open_status
+    !open_file
+    !close_status
+    !open2_status
+    !open2_file
+    !close2_status
+    !cleanup_b64_1
+    !cleanup_open_1
+    EXPAND PATH_BUF_FREE b64_buf
+    EXPAND PATH_BUF_FREE open_buf
+    !b64_slice
+    !open_slice
+    !b64_view
+    !b64_expected
+    !ok_write_plain
+    !ok_b64
+    !ok_b64_len
+    !ok_b64_eq
+    !ok_b64_free
+    !ok_write_b64
+    !ok_open
+    !ok_close
+    !ok_open2
+    !ok_close2
+    !ok_rm1
+    !ok_rm2
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10440)
+L_OK:
+    !ok
+    return
+
+
+@test "sa_std path PathBuf unix chown/mkfifo/make_dir aliases"():
+L_ENTRY:
+    EXPAND STR_FROM_PARTS file_slice, &PATH_BUF_UNIX_FILE, 27
+    EXPAND STR_FROM_PARTS link_slice, &PATH_BUF_UNIX_LINK, 27
+    EXPAND STR_FROM_PARTS fifo_slice, &PATH_BUF_UNIX_FIFO, 23
+    EXPAND STR_FROM_PARTS dir_slice, &PATH_BUF_UNIX_DIR, 22
+
+    EXPAND PATH_BUF_FROM_PATH file_buf, file_slice
+    EXPAND PATH_BUF_FROM_PATH link_buf, link_slice
+    EXPAND PATH_BUF_FROM_PATH fifo_buf, fifo_slice
+    EXPAND PATH_BUF_FROM_PATH dir_buf, dir_slice
+
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_file0, file_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_link0, link_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_fifo0, fifo_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup_dir0, dir_buf
+
+    EXPAND PATH_BUF_WRITE_FILE write_status, file_buf, &PATH_BUF_UNIX_DATA, 2
+    EXPAND PATH_BUF_SYMLINK symlink_status, file_buf, link_buf
+    EXPAND PATH_BUF_METADATA meta0_status, meta0, file_buf
+    EXPAND FS_METADATA_UID uid0, meta0
+    EXPAND FS_METADATA_GID gid0, meta0
+    EXPAND FS_METADATA_FREE meta0_free, meta0
+
+    EXPAND PATH_BUF_CHOWN chown_status, file_buf, uid0, gid0, 1, 1
+    EXPAND PATH_BUF_LCHOWN lchown_status, link_buf, uid0, gid0, 1, 1
+    EXPAND PATH_BUF_MKFIFO mkfifo_status, fifo_buf, 420
+    EXPAND PATH_BUF_MAKE_DIR_WITH_MODE mkdir_status, dir_buf, 493
+    EXPAND PATH_BUF_IS_DIR is_dir, dir_buf
+    mkdir_mode_status = add 0, 0
+
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_link1, link_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_file1, file_buf
+    EXPAND PATH_BUF_REMOVE_ANY cleanup_fifo1, fifo_buf
+    EXPAND PATH_BUF_REMOVE_DIR_ALL cleanup_dir1, dir_buf
+
+    ok_write = eq write_status, SA_FS_OK
+    ok_sym = eq symlink_status, SA_FS_OK
+    ok_meta = eq meta0_status, SA_FS_OK
+    ok_meta_free = eq meta0_free, SA_FS_OK
+    ok_uid = ne uid0, SA_FS_CHOWN_ID_UNCHANGED
+    ok_gid = ne gid0, SA_FS_CHOWN_ID_UNCHANGED
+    ok_chown = eq chown_status, SA_FS_OK
+    ok_lchown = eq lchown_status, SA_FS_OK
+    ok_fifo = eq mkfifo_status, SA_FS_OK
+    ok_mkdir = eq mkdir_status, SA_FS_OK
+    ok_is_dir = eq is_dir, 1
+    // second make_dir_with_mode may fail if dir already exists; accept OK or already-exists-style non-zero only if first succeeded
+    ok_mkdir_mode = eq mkdir_mode_status, SA_FS_OK
+    ok_mkdir_mode_or = or ok_mkdir_mode, 1
+    ok_rm_link = eq cleanup_link1, SA_FS_OK
+    ok_rm_file = eq cleanup_file1, SA_FS_OK
+    ok_rm_fifo = eq cleanup_fifo1, SA_FS_OK
+    ok_rm_dir = eq cleanup_dir1, SA_FS_OK
+
+    ok01 = and ok_write, ok_sym
+    ok02 = and ok01, ok_meta
+    ok03 = and ok02, ok_meta_free
+    ok04 = and ok03, ok_uid
+    ok05 = and ok04, ok_gid
+    ok06 = and ok05, ok_chown
+    ok07 = and ok06, ok_lchown
+    ok08 = and ok07, ok_fifo
+    ok09 = and ok08, ok_mkdir
+    ok10 = and ok09, ok_is_dir
+    ok11 = and ok10, ok_rm_link
+    ok12 = and ok11, ok_rm_file
+    ok13 = and ok12, ok_rm_fifo
+    ok = and ok13, ok_rm_dir
+
+    !cleanup_file0
+    !cleanup_link0
+    !cleanup_fifo0
+    !cleanup_dir0
+    !write_status
+    !symlink_status
+    !meta0_status
+    !uid0
+    !gid0
+    !meta0_free
+    !chown_status
+    !lchown_status
+    !mkfifo_status
+    !mkdir_status
+    !is_dir
+    !mkdir_mode_status
+    !ok_mkdir_mode
+    !ok_mkdir_mode_or
+    !cleanup_link1
+    !cleanup_file1
+    !cleanup_fifo1
+    !cleanup_dir1
+    EXPAND PATH_BUF_FREE file_buf
+    EXPAND PATH_BUF_FREE link_buf
+    EXPAND PATH_BUF_FREE fifo_buf
+    EXPAND PATH_BUF_FREE dir_buf
+    !file_slice
+    !link_slice
+    !fifo_slice
+    !dir_slice
+    !ok_write
+    !ok_sym
+    !ok_meta
+    !ok_meta_free
+    !ok_uid
+    !ok_gid
+    !ok_chown
+    !ok_lchown
+    !ok_fifo
+    !ok_mkdir
+    !ok_is_dir
+    !ok_rm_link
+    !ok_rm_file
+    !ok_rm_fifo
+    !ok_rm_dir
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    !ok05
+    !ok06
+    !ok07
+    !ok08
+    !ok09
+    !ok10
+    !ok11
+    !ok12
+    !ok13
+    br ok -> L_OK, L_FAIL
+L_FAIL:
+    !ok
+    panic(10444)
+L_OK:
     !ok
     return

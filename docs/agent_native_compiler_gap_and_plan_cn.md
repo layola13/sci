@@ -14,6 +14,11 @@
 
 ---
 
+
+> **实现更新（2026-07-11，三支柱落地）**：`sa check` + verdict cache、daemon 完整 argv/客户端、
+> generation cancel / per-agent quota、`--affected` 调用图选择、10-Agent bench（`tools/agent_bench.sh`）
+> 已接入主线。下方历史矩阵中的 0%/5% 条目以本节之后的代码为准；Phase F（契约 CLI/多语言 SAB/分布式）仍未做。
+>
 ## 0. 结论速览（能力矩阵）
 
 按你在战略描述里列出的 Agent-native 特性逐项核实：

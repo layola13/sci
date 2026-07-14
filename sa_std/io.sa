@@ -668,3 +668,212 @@ L_IO_TAKE_READ_TO_STRING_END_%out_status:
     !__io_copy_src_len_%out_len
     !__io_copy_src_ptr_%out_len
 [END_MACRO]
+
+// Handle-to-handle byte copy over sa_io_read/sa_io_write_all.
+// Uses a fixed 4096-byte stack chunk; not trait-object io::copy.
+
+[MACRO] IO_COPY %out_status, %out_total, %reader, %writer
+    %out_total = add 0, 0
+    __io_copy_buf_%out_status = stack_alloc 4096
+    __io_copy_read_slot_%out_status = stack_alloc 8
+    jmp L_IO_COPY_HEAD_%out_status
+
+L_IO_COPY_HEAD_%out_status:
+    __io_copy_read_status_%out_status = call @sa_io_read(%reader, &__io_copy_buf_%out_status, 4096, &__io_copy_read_slot_%out_status)
+    __io_copy_read_ok_%out_status = eq __io_copy_read_status_%out_status, SA_IO_OK
+    br __io_copy_read_ok_%out_status -> L_IO_COPY_READ_OK_%out_status, L_IO_COPY_READ_ERR_%out_status
+
+L_IO_COPY_READ_ERR_%out_status:
+    %out_status = add __io_copy_read_status_%out_status, 0
+    !__io_copy_read_ok_%out_status
+    !__io_copy_read_status_%out_status
+    jmp L_IO_COPY_END_%out_status
+
+L_IO_COPY_READ_OK_%out_status:
+    __io_copy_n_%out_status = load __io_copy_read_slot_%out_status+0 as u64
+    __io_copy_is_eof_%out_status = eq __io_copy_n_%out_status, 0
+    br __io_copy_is_eof_%out_status -> L_IO_COPY_DONE_%out_status, L_IO_COPY_WRITE_%out_status
+
+L_IO_COPY_WRITE_%out_status:
+    __io_copy_write_status_%out_status = call @sa_io_write_all(%writer, &__io_copy_buf_%out_status, __io_copy_n_%out_status)
+    __io_copy_write_ok_%out_status = eq __io_copy_write_status_%out_status, SA_IO_OK
+    br __io_copy_write_ok_%out_status -> L_IO_COPY_WRITE_OK_%out_status, L_IO_COPY_WRITE_ERR_%out_status
+
+L_IO_COPY_WRITE_ERR_%out_status:
+    %out_status = add __io_copy_write_status_%out_status, 0
+    !__io_copy_write_ok_%out_status
+    !__io_copy_write_status_%out_status
+    !__io_copy_is_eof_%out_status
+    !__io_copy_n_%out_status
+    !__io_copy_read_ok_%out_status
+    !__io_copy_read_status_%out_status
+    jmp L_IO_COPY_END_%out_status
+
+L_IO_COPY_WRITE_OK_%out_status:
+    %out_total = add %out_total, __io_copy_n_%out_status
+    !__io_copy_write_ok_%out_status
+    !__io_copy_write_status_%out_status
+    !__io_copy_is_eof_%out_status
+    !__io_copy_n_%out_status
+    !__io_copy_read_ok_%out_status
+    !__io_copy_read_status_%out_status
+    jmp L_IO_COPY_HEAD_%out_status
+
+L_IO_COPY_DONE_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_copy_is_eof_%out_status
+    !__io_copy_n_%out_status
+    !__io_copy_read_ok_%out_status
+    !__io_copy_read_status_%out_status
+    jmp L_IO_COPY_END_%out_status
+
+L_IO_COPY_END_%out_status:
+[END_MACRO]
+
+// Handle-to-handle byte copy with an upper bound (%max_bytes).
+// Uses a fixed 4096-byte stack chunk; stops at EOF or when max is reached.
+
+[MACRO] IO_COPY_N %out_status, %out_total, %reader, %writer, %max_bytes
+    %out_total = add 0, 0
+    __io_copy_n_remaining_slot_%out_status = stack_alloc 8
+    store __io_copy_n_remaining_slot_%out_status+0, %max_bytes as u64
+    __io_copy_n_buf_%out_status = stack_alloc 4096
+    __io_copy_n_read_slot_%out_status = stack_alloc 8
+    jmp L_IO_COPY_N_HEAD_%out_status
+
+L_IO_COPY_N_HEAD_%out_status:
+    __io_copy_n_remaining_%out_status = load __io_copy_n_remaining_slot_%out_status+0 as u64
+    __io_copy_n_done_max_%out_status = eq __io_copy_n_remaining_%out_status, 0
+    br __io_copy_n_done_max_%out_status -> L_IO_COPY_N_DONE_MAX_%out_status, L_IO_COPY_N_READ_%out_status
+
+L_IO_COPY_N_DONE_MAX_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_copy_n_done_max_%out_status
+    !__io_copy_n_remaining_%out_status
+    jmp L_IO_COPY_N_END_%out_status
+
+L_IO_COPY_N_READ_%out_status:
+    __io_copy_n_chunk_cap_%out_status = add 0, 4096
+    __io_copy_n_use_rem_%out_status = ult __io_copy_n_remaining_%out_status, __io_copy_n_chunk_cap_%out_status
+    br __io_copy_n_use_rem_%out_status -> L_IO_COPY_N_CAP_REM_%out_status, L_IO_COPY_N_CAP_FULL_%out_status
+
+L_IO_COPY_N_CAP_REM_%out_status:
+    __io_copy_n_cap_%out_status = add __io_copy_n_remaining_%out_status, 0
+    !__io_copy_n_use_rem_%out_status
+    !__io_copy_n_chunk_cap_%out_status
+    jmp L_IO_COPY_N_DO_READ_%out_status
+
+L_IO_COPY_N_CAP_FULL_%out_status:
+    __io_copy_n_cap_%out_status = add 0, 4096
+    !__io_copy_n_use_rem_%out_status
+    !__io_copy_n_chunk_cap_%out_status
+    jmp L_IO_COPY_N_DO_READ_%out_status
+
+L_IO_COPY_N_DO_READ_%out_status:
+    __io_copy_n_read_status_%out_status = call @sa_io_read(%reader, &__io_copy_n_buf_%out_status, __io_copy_n_cap_%out_status, &__io_copy_n_read_slot_%out_status)
+    __io_copy_n_read_ok_%out_status = eq __io_copy_n_read_status_%out_status, SA_IO_OK
+    br __io_copy_n_read_ok_%out_status -> L_IO_COPY_N_READ_OK_%out_status, L_IO_COPY_N_READ_ERR_%out_status
+
+L_IO_COPY_N_READ_ERR_%out_status:
+    %out_status = add __io_copy_n_read_status_%out_status, 0
+    !__io_copy_n_read_ok_%out_status
+    !__io_copy_n_read_status_%out_status
+    !__io_copy_n_cap_%out_status
+    !__io_copy_n_done_max_%out_status
+    !__io_copy_n_remaining_%out_status
+    jmp L_IO_COPY_N_END_%out_status
+
+L_IO_COPY_N_READ_OK_%out_status:
+    __io_copy_n_n_%out_status = load __io_copy_n_read_slot_%out_status+0 as u64
+    __io_copy_n_is_eof_%out_status = eq __io_copy_n_n_%out_status, 0
+    br __io_copy_n_is_eof_%out_status -> L_IO_COPY_N_EOF_%out_status, L_IO_COPY_N_WRITE_%out_status
+
+L_IO_COPY_N_EOF_%out_status:
+    %out_status = add 0, SA_IO_OK
+    !__io_copy_n_is_eof_%out_status
+    !__io_copy_n_n_%out_status
+    !__io_copy_n_read_ok_%out_status
+    !__io_copy_n_read_status_%out_status
+    !__io_copy_n_cap_%out_status
+    !__io_copy_n_done_max_%out_status
+    !__io_copy_n_remaining_%out_status
+    jmp L_IO_COPY_N_END_%out_status
+
+L_IO_COPY_N_WRITE_%out_status:
+    __io_copy_n_write_status_%out_status = call @sa_io_write_all(%writer, &__io_copy_n_buf_%out_status, __io_copy_n_n_%out_status)
+    __io_copy_n_write_ok_%out_status = eq __io_copy_n_write_status_%out_status, SA_IO_OK
+    br __io_copy_n_write_ok_%out_status -> L_IO_COPY_N_WRITE_OK_%out_status, L_IO_COPY_N_WRITE_ERR_%out_status
+
+L_IO_COPY_N_WRITE_ERR_%out_status:
+    %out_status = add __io_copy_n_write_status_%out_status, 0
+    !__io_copy_n_write_ok_%out_status
+    !__io_copy_n_write_status_%out_status
+    !__io_copy_n_is_eof_%out_status
+    !__io_copy_n_n_%out_status
+    !__io_copy_n_read_ok_%out_status
+    !__io_copy_n_read_status_%out_status
+    !__io_copy_n_cap_%out_status
+    !__io_copy_n_done_max_%out_status
+    !__io_copy_n_remaining_%out_status
+    jmp L_IO_COPY_N_END_%out_status
+
+L_IO_COPY_N_WRITE_OK_%out_status:
+    %out_total = add %out_total, __io_copy_n_n_%out_status
+    __io_copy_n_next_rem_%out_status = sub __io_copy_n_remaining_%out_status, __io_copy_n_n_%out_status
+    store __io_copy_n_remaining_slot_%out_status+0, __io_copy_n_next_rem_%out_status as u64
+    !__io_copy_n_next_rem_%out_status
+    !__io_copy_n_write_ok_%out_status
+    !__io_copy_n_write_status_%out_status
+    !__io_copy_n_is_eof_%out_status
+    !__io_copy_n_n_%out_status
+    !__io_copy_n_read_ok_%out_status
+    !__io_copy_n_read_status_%out_status
+    !__io_copy_n_cap_%out_status
+    !__io_copy_n_done_max_%out_status
+    !__io_copy_n_remaining_%out_status
+    jmp L_IO_COPY_N_HEAD_%out_status
+
+L_IO_COPY_N_END_%out_status:
+[END_MACRO]
+
+// Handle-level Read/Write/Flush/Close naming aliases over sa_io_* runtime.
+
+[MACRO] IO_READ %out_status, %out_len, %handle, %buf, %cap
+    __io_read_len_slot_%out_status = stack_alloc 8
+    %out_status = call @sa_io_read(%handle, &%buf, %cap, &__io_read_len_slot_%out_status)
+    %out_len = load __io_read_len_slot_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] IO_READ_EXACT %out_status, %handle, %buf, %len
+    %out_status = call @sa_io_read_exact(%handle, &%buf, %len)
+[END_MACRO]
+
+[MACRO] IO_WRITE %out_status, %out_len, %handle, %buf, %len
+    __io_write_len_slot_%out_status = stack_alloc 8
+    %out_status = call @sa_io_write(%handle, &%buf, %len, &__io_write_len_slot_%out_status)
+    %out_len = load __io_write_len_slot_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] IO_WRITE_ALL %out_status, %handle, %buf, %len
+    %out_status = call @sa_io_write_all(%handle, &%buf, %len)
+[END_MACRO]
+
+[MACRO] IO_FLUSH %out_status, %handle
+    %out_status = call @sa_io_flush(%handle)
+[END_MACRO]
+
+[MACRO] IO_FLUSH_STDOUT %out_status
+    EXPAND IO_STDOUT __io_flush_stdout_handle_%out_status
+    EXPAND IO_FLUSH %out_status, __io_flush_stdout_handle_%out_status
+    !__io_flush_stdout_handle_%out_status
+[END_MACRO]
+
+[MACRO] IO_FLUSH_STDERR %out_status
+    EXPAND IO_STDERR __io_flush_stderr_handle_%out_status
+    EXPAND IO_FLUSH %out_status, __io_flush_stderr_handle_%out_status
+    !__io_flush_stderr_handle_%out_status
+[END_MACRO]
+
+[MACRO] IO_CLOSE %out_status, %handle
+    %out_status = call @sa_io_close(%handle)
+[END_MACRO]

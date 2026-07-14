@@ -229,3 +229,35 @@
 [MACRO] MANUALLY_DROP_U64_DEREF_MUT %out_ptr, %slot_ptr
     EXPAND MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
 [END_MACRO]
+
+[MACRO] MEM_SIZE_OF_F32 %out_size
+    %out_size = add 0, MEM_SIZE_F32
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_F32 %out_align
+    %out_align = add 0, MEM_ALIGN_F32
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_F64 %out_size
+    %out_size = add 0, MEM_SIZE_F64
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_F64 %out_align
+    %out_align = add 0, MEM_ALIGN_F64
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_PTR %out_size
+    %out_size = add 0, MEM_SIZE_PTR
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_PTR %out_align
+    %out_align = add 0, MEM_ALIGN_PTR
+[END_MACRO]
+
+[MACRO] MEM_SIZE_OF_CHAR %out_size
+    %out_size = add 0, MEM_SIZE_CHAR
+[END_MACRO]
+
+[MACRO] MEM_ALIGN_OF_CHAR %out_align
+    %out_align = add 0, MEM_ALIGN_CHAR
+[END_MACRO]

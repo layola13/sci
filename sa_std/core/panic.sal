@@ -1,0 +1,12 @@
+#def PanicLocation_SIZE = 24
+#def PanicLocation_ALIGN = 8
+#def PanicLocation_file = +0
+#def PanicLocation_file_ptr = +0
+#def PanicLocation_file_len = +8
+#def PanicLocation_line = +16
+#def PanicLocation_column = +20
+#def PanicLocation_col = PanicLocation_column
+
+#def AssertUnwindSafeU64_SIZE = 8
+#def AssertUnwindSafeU64_ALIGN = 8
+#def AssertUnwindSafeU64_value = +0

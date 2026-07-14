@@ -499,6 +499,14 @@ L_ENTRY:
     !__btree_set_get_or_insert_ok_%out_inserted
 [END_MACRO]
 
+[MACRO] BTREE_SET_ENTRY_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
+    EXPAND BTREE_SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
+[END_MACRO]
+
+[MACRO] BTREE_SET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
+    EXPAND BTREE_SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
+[END_MACRO]
+
 [MACRO] BTREE_SET_FIRST %out_ok, %out_key, %set_reg
     %out_key = alloc Slice_SIZE
     %out_ok = call @sa_btree_set_first(&%set_reg, &%out_key)
@@ -684,10 +692,32 @@ L_BTREE_SET_RETAIN_DONE_%out_len:
     %out_set = call @sa_btree_set_symmetric_difference(&%set_reg, &%other_set)
 [END_MACRO]
 
+[MACRO] BTREE_SET_LIT1 %out_set, %key1
+    EXPAND BTREE_SET_NEW %out_set
+    EXPAND BTREE_SET_INSERT __btree_set_lit1_ok_1_%out_set, %out_set, %key1
+    !__btree_set_lit1_ok_1_%out_set
+[END_MACRO]
+
 [MACRO] BTREE_SET_LIT2 %out_set, %key1, %key2
     EXPAND BTREE_SET_NEW %out_set
     EXPAND BTREE_SET_INSERT __btree_set_lit2_ok_1_%out_set, %out_set, %key1
     EXPAND BTREE_SET_INSERT __btree_set_lit2_ok_2_%out_set, %out_set, %key2
     !__btree_set_lit2_ok_1_%out_set
     !__btree_set_lit2_ok_2_%out_set
+[END_MACRO]
+
+[MACRO] BTREE_SET_LIT3 %out_set, %key1, %key2, %key3
+    EXPAND BTREE_SET_NEW %out_set
+    EXPAND BTREE_SET_INSERT __btree_set_lit3_ok_1_%out_set, %out_set, %key1
+    EXPAND BTREE_SET_INSERT __btree_set_lit3_ok_2_%out_set, %out_set, %key2
+    EXPAND BTREE_SET_INSERT __btree_set_lit3_ok_3_%out_set, %out_set, %key3
+    !__btree_set_lit3_ok_1_%out_set
+    !__btree_set_lit3_ok_2_%out_set
+    !__btree_set_lit3_ok_3_%out_set
+[END_MACRO]
+
+// Rust Default-style empty BTreeSet constructor alias.
+
+[MACRO] BTREE_SET_DEFAULT %out_set
+    EXPAND BTREE_SET_NEW %out_set
 [END_MACRO]

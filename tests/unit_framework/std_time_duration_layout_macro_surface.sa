@@ -1,0 +1,49 @@
+@import "sa_std/time.sal"
+
+@test "sa_std Duration/Instant/SystemTime layout constants"():
+L_ENTRY:
+    ok_dur_size = eq Duration_SIZE, 8
+    ok_dur_nanos = eq Duration_nanos, +0
+    ok_dur_zero = eq DURATION_ZERO, 0
+    ok_dur_min = eq DURATION_MIN, 0
+
+    ok_inst_size = eq Instant_SIZE, 8
+    ok_inst_nanos = eq Instant_nanos, +0
+
+    ok_sys_size = eq SystemTime_SIZE, 8
+    ok_sys_nanos = eq SystemTime_nanos, +0
+    ok_sys_epoch = eq SYSTEM_TIME_UNIX_EPOCH, 0
+
+    ok_ns_per_s = eq Time_NS_PER_S, 1000000000
+    ok_ns_per_ms = eq Time_NS_PER_MS, 1000000
+    ok_ns_per_us = eq Time_NS_PER_US, 1000
+    ok_ms_per_s = eq Time_MS_PER_S, 1000
+    ok_s_per_min = eq Time_S_PER_MIN, 60
+    ok_s_per_hour = eq Time_S_PER_HOUR, 3600
+    ok_s_per_day = eq Time_S_PER_DAY, 86400
+    ok_s_per_week = eq Time_S_PER_WEEK, 604800
+
+    c01 = and ok_dur_size, ok_dur_nanos
+    c02 = and c01, ok_dur_zero
+    c03 = and c02, ok_dur_min
+    c04 = and c03, ok_inst_size
+    c05 = and c04, ok_inst_nanos
+    c06 = and c05, ok_sys_size
+    c07 = and c06, ok_sys_nanos
+    c08 = and c07, ok_sys_epoch
+    c09 = and c08, ok_ns_per_s
+    c10 = and c09, ok_ns_per_ms
+    c11 = and c10, ok_ns_per_us
+    c12 = and c11, ok_ms_per_s
+    c13 = and c12, ok_s_per_min
+    c14 = and c13, ok_s_per_hour
+    c15 = and c14, ok_s_per_day
+    c16 = and c15, ok_s_per_week
+
+    br c16 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10485)
+
+L_PASS:
+    return 0

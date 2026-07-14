@@ -1098,7 +1098,7 @@ L_ENTRY:
 
 L_VEC_FIRST_LAST_U64_FAIL:
     !ok
-    panic(902)
+    panic(10357)
 
 L_VEC_FIRST_LAST_U64_OK:
     !ok
@@ -1247,7 +1247,7 @@ L_ENTRY:
 
 L_VEC_SPLIT_ALIAS_FAIL:
     !ok
-    panic(937)
+    panic(10358)
 
 L_VEC_SPLIT_ALIAS_OK:
     !ok
@@ -1290,7 +1290,7 @@ L_ENTRY:
 
 L_VEC_UNCHECKED_ALIAS_FAIL:
     !ok
-    panic(938)
+    panic(10359)
 
 L_VEC_UNCHECKED_ALIAS_OK:
     !ok
@@ -1388,7 +1388,7 @@ L_ENTRY:
 
 L_VEC_EXTEND_FAIL:
     !ok
-    panic(943)
+    panic(10360)
 
 L_VEC_EXTEND_OK:
     !ok
@@ -1593,7 +1593,7 @@ L_ENTRY:
 
 L_VEC_CAP_FAIL:
     !ok
-    panic(907)
+    panic(10361)
 
 L_VEC_CAP_OK:
     !ok
@@ -1688,7 +1688,7 @@ L_ENTRY:
 
 L_VEC_SEARCH_FAIL:
     !ok
-    panic(948)
+    panic(10362)
 
 L_VEC_SEARCH_OK:
     !ok
@@ -1816,7 +1816,7 @@ L_ENTRY:
 
 L_VEC_INSERT_FAIL:
     !ok
-    panic(910)
+    panic(10363)
 
 L_VEC_INSERT_OK:
     !ok
@@ -1940,7 +1940,7 @@ L_ENTRY:
 
 L_VEC_PUSH_WITHIN_CAPACITY_ALIAS_FAIL:
     !ok
-    panic(930)
+    panic(10364)
 
 L_VEC_PUSH_WITHIN_CAPACITY_ALIAS_OK:
     !ok
@@ -2014,7 +2014,7 @@ L_ENTRY:
 
 L_VEC_RETAIN_FAIL:
     !ok
-    panic(912)
+    panic(10365)
 
 L_VEC_RETAIN_OK:
     !ok
@@ -2151,7 +2151,7 @@ L_ENTRY:
 
 L_VEC_PEEK_MUT_FAIL:
     !ok
-    panic(914)
+    panic(10366)
 
 L_VEC_PEEK_MUT_OK:
     !ok
@@ -2253,7 +2253,7 @@ L_ENTRY:
 
 L_VEC_PEEK_MUT_ALIAS_FAIL:
     !ok
-    panic(915)
+    panic(10367)
 
 L_VEC_PEEK_MUT_ALIAS_OK:
     !ok
@@ -2314,7 +2314,7 @@ L_ENTRY:
 
 L_VEC_RETAIN_MUT_FAIL:
     !ok
-    panic(913)
+    panic(10368)
 
 L_VEC_RETAIN_MUT_OK:
     !ok
@@ -2452,7 +2452,7 @@ L_ENTRY:
 
 L_VEC_RESIZE_WITH_FAIL:
     !ok
-    panic(915)
+    panic(10369)
 
 L_VEC_RESIZE_WITH_OK:
     !ok
@@ -2600,7 +2600,7 @@ L_ENTRY:
 
 L_VEC_DEDUP_KEY_EXTRACT_FAIL:
     !ok
-    panic(916)
+    panic(10370)
 
 L_VEC_DEDUP_KEY_EXTRACT_OK:
     !ok
@@ -2803,7 +2803,7 @@ L_ENTRY:
 
 L_VEC_DRAIN_SPLICE_FAIL:
     !ok
-    panic(917)
+    panic(10371)
 
 L_VEC_DRAIN_SPLICE_OK:
     !ok
@@ -2840,7 +2840,7 @@ L_ENTRY:
 
 L_VEC_FN_PTR_FAIL:
     !ok
-    panic(918)
+    panic(10372)
 
 L_VEC_FN_PTR_OK:
     !ok
@@ -2901,7 +2901,7 @@ L_ENTRY:
 
 L_VEC_RAW_PARTS_FAIL:
     !ok
-    panic(919)
+    panic(10373)
 
 L_VEC_RAW_PARTS_OK:
     !ok
@@ -2950,7 +2950,7 @@ L_ENTRY:
 
 L_VEC_NONNULL_PARTS_FAIL:
     !ok
-    panic(922)
+    panic(10374)
 
 L_VEC_NONNULL_PARTS_OK:
     !ok
@@ -3027,7 +3027,7 @@ L_ENTRY:
 
 L_VEC_MUT_RETURN_FAIL:
     !ok
-    panic(920)
+    panic(10375)
 
 L_VEC_MUT_RETURN_OK:
     !ok
@@ -3096,7 +3096,7 @@ L_ENTRY:
 
 L_VEC_FROM_FN_FAIL:
     !ok
-    panic(921)
+    panic(10376)
 
 L_VEC_FROM_FN_OK:
     !ok
@@ -3165,7 +3165,7 @@ L_ENTRY:
 
 L_VEC_FROM_ELEM_FAIL:
     !ok
-    panic(922)
+    panic(10377)
 
 L_VEC_FROM_ELEM_OK:
     !ok
@@ -3221,7 +3221,7 @@ L_ENTRY:
 
 L_VEC_LEAK_FAIL:
     !ok
-    panic(923)
+    panic(10378)
 
 L_VEC_LEAK_OK:
     !ok
@@ -3321,7 +3321,7 @@ L_ENTRY:
 
 L_VEC_SPARE_FAIL:
     !ok
-    panic(924)
+    panic(10379)
 
 L_VEC_SPARE_OK:
     !ok
@@ -3519,7 +3519,7 @@ L_VEC_CLONE_ENTRY:
 
 L_VEC_CLONE_FAIL:
     !ok
-    panic(925)
+    panic(10380)
 
 L_VEC_CLONE_OK:
     !ok
@@ -3571,7 +3571,7 @@ L_VEC_STR_BYTES_ENTRY:
 
 L_VEC_STR_BYTES_FAIL:
     !ok
-    panic(926)
+    panic(10381)
 
 L_VEC_STR_BYTES_OK:
     !ok
@@ -3616,7 +3616,7 @@ L_VEC_FROM_STRING_ENTRY:
 
 L_VEC_FROM_STRING_FAIL:
     !ok
-    panic(927)
+    panic(10382)
 
 L_VEC_FROM_STRING_OK:
     !ok
@@ -3685,7 +3685,7 @@ L_VEC_REPEAT_ENTRY:
 
 L_VEC_REPEAT_FAIL:
     !ok
-    panic(928)
+    panic(10383)
 
 L_VEC_REPEAT_OK:
     !ok
@@ -3768,7 +3768,7 @@ L_VEC_TO_OWNED_ENTRY:
 
 L_VEC_TO_OWNED_FAIL:
     !ok
-    panic(929)
+    panic(10384)
 
 L_VEC_TO_OWNED_OK:
     !ok
@@ -3800,7 +3800,7 @@ L_ENTRY:
 
 L_VEC_CAP_REM_FAIL:
     !ok
-    panic(930)
+    panic(10385)
 
 L_VEC_CAP_REM_OK:
     !ok
@@ -3868,7 +3868,7 @@ L_ENTRY:
 
 L_VEC_TRY_SET_LEN_FAIL:
     !ok
-    panic(1052)
+    panic(10386)
 
 L_VEC_TRY_SET_LEN_OK:
     !ok
@@ -3938,7 +3938,7 @@ L_ENTRY:
 
 L_VEC_INSERT_WC_FAIL:
     !ok
-    panic(1058)
+    panic(10387)
 
 L_VEC_INSERT_WC_OK:
     !ok
@@ -4152,7 +4152,7 @@ L_ENTRY:
 
 L_VEC_IFSWC_FAIL:
     !ok
-    panic(1088)
+    panic(10388)
 
 L_VEC_IFSWC_OK:
     !ok
@@ -4292,7 +4292,7 @@ L_ENTRY:
 
 L_VEC_IFSNWC_FAIL:
     !ok
-    panic(1089)
+    panic(10389)
 
 L_VEC_IFSNWC_OK:
     !ok
@@ -4354,7 +4354,7 @@ L_ENTRY:
 
 L_VEC_EFSWC_FAIL:
     !ok
-    panic(1059)
+    panic(10390)
 
 L_VEC_EFSWC_OK:
     !ok
@@ -4707,7 +4707,7 @@ L_ENTRY:
 
 L_VEC_RSWC_FAIL:
     !ok
-    panic(1067)
+    panic(10391)
 
 L_VEC_RSWC_OK:
     !ok
@@ -4779,7 +4779,7 @@ L_ENTRY:
 
 L_VEC_EFWWC_FAIL:
     !ok
-    panic(1063)
+    panic(10392)
 
 L_VEC_EFWWC_OK:
     !ok
@@ -4879,7 +4879,7 @@ L_ENTRY:
 
 L_VEC_RSWWC_FAIL:
     !ok
-    panic(1076)
+    panic(10393)
 
 L_VEC_RSWWC_OK:
     !ok
@@ -5017,7 +5017,7 @@ L_ENTRY:
 
 L_VEC_SWC_FAIL:
     !ok
-    panic(1074)
+    panic(10394)
 
 L_VEC_SWC_OK:
     !ok
@@ -5089,8 +5089,51 @@ L_ENTRY:
 
 L_VEC_AWC_FAIL:
     !ok
-    panic(1061)
+    panic(10395)
 
 L_VEC_AWC_OK:
+    !ok
+    return
+
+@test "sa_std vec lit constructors"():
+L_ENTRY:
+    EXPAND VEC_LIT3_U64 v, 1, 2, 3
+    EXPAND VEC_LEN len0, v
+    len0_ok = eq len0, 3
+    EXPAND VEC_TRY_GET_U64 ok0, g0, v, 0
+    EXPAND VEC_TRY_GET_U64 ok1, g1, v, 1
+    EXPAND VEC_TRY_GET_U64 ok2, g2, v, 2
+    ok0_ok = eq ok0, 1
+    ok1_ok = eq ok1, 1
+    ok2_ok = eq ok2, 1
+    g0_ok = eq g0, 1
+    g1_ok = eq g1, 2
+    g2_ok = eq g2, 3
+    EXPAND VEC_FREE v
+    ok = and len0_ok, ok0_ok
+    ok = and ok, ok1_ok
+    ok = and ok, ok2_ok
+    ok = and ok, g0_ok
+    ok = and ok, g1_ok
+    ok = and ok, g2_ok
+    !len0
+    !ok0
+    !g0
+    !ok1
+    !g1
+    !ok2
+    !g2
+    !len0_ok
+    !ok0_ok
+    !ok1_ok
+    !ok2_ok
+    !g0_ok
+    !g1_ok
+    !g2_ok
+    br ok -> L_VEC_LIT_OK, L_VEC_LIT_FAIL
+L_VEC_LIT_FAIL:
+    !ok
+    panic(10396)
+L_VEC_LIT_OK:
     !ok
     return

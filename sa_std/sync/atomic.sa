@@ -16,6 +16,10 @@
     %out_atomic_ptr = ptr_add %value_ptr, 0
 [END_MACRO]
 
+[MACRO] ATOMIC_BOOL_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_BOOL_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
+[END_MACRO]
+
 [MACRO] ATOMIC_BOOL_INTO_INNER %out_value, %atomic_ptr
     %out_value = load %atomic_ptr+AtomicBool_value as u8
 [END_MACRO]
@@ -40,6 +44,30 @@
     EXPAND ATOMIC_BOOL_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
 [END_MACRO]
 
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `u8 -> u8` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_BOOL_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_BOOL_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_BOOL_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicBool_value as u8 relaxed
+    __atomic_bool_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_bool_fetch_update_cur_%out_ok, __atomic_bool_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicBool_value, %out_old, __atomic_bool_fetch_update_new_%out_ok as u8 %success_ordering %failure_ordering
+    br __atomic_bool_fetch_update_ok_%out_ok -> L_ATOMIC_BOOL_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_BOOL_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_BOOL_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_bool_fetch_update_ok_%out_ok
+    !__atomic_bool_fetch_update_cur_%out_ok
+    !__atomic_bool_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_BOOL_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_BOOL_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_bool_fetch_update_ok_%out_ok
+    !__atomic_bool_fetch_update_cur_%out_ok
+    !__atomic_bool_fetch_update_new_%out_ok
+[END_MACRO]
+
 [MACRO] ATOMIC_U8_INIT %atomic_ptr, %value
     store %atomic_ptr+AtomicU8_value, %value as u8
 [END_MACRO]
@@ -50,6 +78,10 @@
 
 [MACRO] ATOMIC_U8_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_U8_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_U8_INTO_INNER %out_value, %atomic_ptr
@@ -88,12 +120,75 @@
     %out_old = atomic_rmw_xor %atomic_ptr+AtomicU8_value, %value as u8 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_U8_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_U8_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U8_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicU8_value as u8 relaxed
+    __atomic_u8_nand_and_%out_old = and %out_old, %value
+    __atomic_u8_nand_new_%out_old = xor __atomic_u8_nand_and_%out_old, -1
+    __atomic_u8_nand_cur_%out_old, __atomic_u8_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicU8_value, %out_old, __atomic_u8_nand_new_%out_old as u8 %ordering %ordering
+    br __atomic_u8_nand_ok_%out_old -> L_ATOMIC_U8_FETCH_NAND_DONE_%out_old, L_ATOMIC_U8_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_U8_FETCH_NAND_RETRY_%out_old:
+    !__atomic_u8_nand_ok_%out_old
+    !__atomic_u8_nand_cur_%out_old
+    !__atomic_u8_nand_new_%out_old
+    !__atomic_u8_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_U8_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U8_FETCH_NAND_DONE_%out_old:
+    !__atomic_u8_nand_ok_%out_old
+    !__atomic_u8_nand_cur_%out_old
+    !__atomic_u8_nand_new_%out_old
+    !__atomic_u8_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_U8_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_UMIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umin %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_FETCH_UMAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umax %atomic_ptr+AtomicU8_value, %value as u8 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_U8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU8_value, %expected, %new_value as u8 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_U8_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_U8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `u8 -> u8` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_U8_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_U8_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U8_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicU8_value as u8 relaxed
+    __atomic_u8_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_u8_fetch_update_cur_%out_ok, __atomic_u8_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicU8_value, %out_old, __atomic_u8_fetch_update_new_%out_ok as u8 %success_ordering %failure_ordering
+    br __atomic_u8_fetch_update_ok_%out_ok -> L_ATOMIC_U8_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_U8_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_U8_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_u8_fetch_update_ok_%out_ok
+    !__atomic_u8_fetch_update_cur_%out_ok
+    !__atomic_u8_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_U8_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U8_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_u8_fetch_update_ok_%out_ok
+    !__atomic_u8_fetch_update_cur_%out_ok
+    !__atomic_u8_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_I8_INIT %atomic_ptr, %value
@@ -106,6 +201,10 @@
 
 [MACRO] ATOMIC_I8_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_I8_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_I8_INTO_INNER %out_value, %atomic_ptr
@@ -132,12 +231,79 @@
     %out_old = atomic_rmw_sub %atomic_ptr+AtomicI8_value, %value as i8 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_I8_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_I8_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I8_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicI8_value as i8 relaxed
+    __atomic_i8_nand_and_%out_old = and %out_old, %value
+    __atomic_i8_nand_new_%out_old = xor __atomic_i8_nand_and_%out_old, -1
+    __atomic_i8_nand_cur_%out_old, __atomic_i8_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicI8_value, %out_old, __atomic_i8_nand_new_%out_old as i8 %ordering %ordering
+    br __atomic_i8_nand_ok_%out_old -> L_ATOMIC_I8_FETCH_NAND_DONE_%out_old, L_ATOMIC_I8_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_I8_FETCH_NAND_RETRY_%out_old:
+    !__atomic_i8_nand_ok_%out_old
+    !__atomic_i8_nand_cur_%out_old
+    !__atomic_i8_nand_new_%out_old
+    !__atomic_i8_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_I8_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I8_FETCH_NAND_DONE_%out_old:
+    !__atomic_i8_nand_ok_%out_old
+    !__atomic_i8_nand_cur_%out_old
+    !__atomic_i8_nand_new_%out_old
+    !__atomic_i8_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_I8_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicI8_value, %value as i8 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_I8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI8_value, %expected, %new_value as i8 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_I8_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_I8_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `i8 -> i8` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_I8_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_I8_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I8_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicI8_value as i8 relaxed
+    __atomic_i8_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_i8_fetch_update_cur_%out_ok, __atomic_i8_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicI8_value, %out_old, __atomic_i8_fetch_update_new_%out_ok as i8 %success_ordering %failure_ordering
+    br __atomic_i8_fetch_update_ok_%out_ok -> L_ATOMIC_I8_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_I8_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_I8_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_i8_fetch_update_ok_%out_ok
+    !__atomic_i8_fetch_update_cur_%out_ok
+    !__atomic_i8_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_I8_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I8_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_i8_fetch_update_ok_%out_ok
+    !__atomic_i8_fetch_update_cur_%out_ok
+    !__atomic_i8_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_U16_INIT %atomic_ptr, %value
@@ -150,6 +316,10 @@
 
 [MACRO] ATOMIC_U16_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_U16_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_U16_INTO_INNER %out_value, %atomic_ptr
@@ -188,12 +358,75 @@
     %out_old = atomic_rmw_xor %atomic_ptr+AtomicU16_value, %value as u16 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_U16_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_U16_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U16_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicU16_value as u16 relaxed
+    __atomic_u16_nand_and_%out_old = and %out_old, %value
+    __atomic_u16_nand_new_%out_old = xor __atomic_u16_nand_and_%out_old, -1
+    __atomic_u16_nand_cur_%out_old, __atomic_u16_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicU16_value, %out_old, __atomic_u16_nand_new_%out_old as u16 %ordering %ordering
+    br __atomic_u16_nand_ok_%out_old -> L_ATOMIC_U16_FETCH_NAND_DONE_%out_old, L_ATOMIC_U16_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_U16_FETCH_NAND_RETRY_%out_old:
+    !__atomic_u16_nand_ok_%out_old
+    !__atomic_u16_nand_cur_%out_old
+    !__atomic_u16_nand_new_%out_old
+    !__atomic_u16_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_U16_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U16_FETCH_NAND_DONE_%out_old:
+    !__atomic_u16_nand_ok_%out_old
+    !__atomic_u16_nand_cur_%out_old
+    !__atomic_u16_nand_new_%out_old
+    !__atomic_u16_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_U16_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_UMIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umin %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_FETCH_UMAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umax %atomic_ptr+AtomicU16_value, %value as u16 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_U16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU16_value, %expected, %new_value as u16 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_U16_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_U16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `u16 -> u16` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_U16_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_U16_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U16_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicU16_value as u16 relaxed
+    __atomic_u16_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_u16_fetch_update_cur_%out_ok, __atomic_u16_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicU16_value, %out_old, __atomic_u16_fetch_update_new_%out_ok as u16 %success_ordering %failure_ordering
+    br __atomic_u16_fetch_update_ok_%out_ok -> L_ATOMIC_U16_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_U16_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_U16_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_u16_fetch_update_ok_%out_ok
+    !__atomic_u16_fetch_update_cur_%out_ok
+    !__atomic_u16_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_U16_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U16_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_u16_fetch_update_ok_%out_ok
+    !__atomic_u16_fetch_update_cur_%out_ok
+    !__atomic_u16_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_I16_INIT %atomic_ptr, %value
@@ -206,6 +439,10 @@
 
 [MACRO] ATOMIC_I16_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_I16_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_I16_INTO_INNER %out_value, %atomic_ptr
@@ -232,12 +469,79 @@
     %out_old = atomic_rmw_sub %atomic_ptr+AtomicI16_value, %value as i16 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_I16_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_I16_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I16_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicI16_value as i16 relaxed
+    __atomic_i16_nand_and_%out_old = and %out_old, %value
+    __atomic_i16_nand_new_%out_old = xor __atomic_i16_nand_and_%out_old, -1
+    __atomic_i16_nand_cur_%out_old, __atomic_i16_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicI16_value, %out_old, __atomic_i16_nand_new_%out_old as i16 %ordering %ordering
+    br __atomic_i16_nand_ok_%out_old -> L_ATOMIC_I16_FETCH_NAND_DONE_%out_old, L_ATOMIC_I16_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_I16_FETCH_NAND_RETRY_%out_old:
+    !__atomic_i16_nand_ok_%out_old
+    !__atomic_i16_nand_cur_%out_old
+    !__atomic_i16_nand_new_%out_old
+    !__atomic_i16_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_I16_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I16_FETCH_NAND_DONE_%out_old:
+    !__atomic_i16_nand_ok_%out_old
+    !__atomic_i16_nand_cur_%out_old
+    !__atomic_i16_nand_new_%out_old
+    !__atomic_i16_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_I16_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicI16_value, %value as i16 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_I16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI16_value, %expected, %new_value as i16 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_I16_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_I16_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `i16 -> i16` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_I16_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_I16_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I16_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicI16_value as i16 relaxed
+    __atomic_i16_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_i16_fetch_update_cur_%out_ok, __atomic_i16_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicI16_value, %out_old, __atomic_i16_fetch_update_new_%out_ok as i16 %success_ordering %failure_ordering
+    br __atomic_i16_fetch_update_ok_%out_ok -> L_ATOMIC_I16_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_I16_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_I16_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_i16_fetch_update_ok_%out_ok
+    !__atomic_i16_fetch_update_cur_%out_ok
+    !__atomic_i16_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_I16_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I16_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_i16_fetch_update_ok_%out_ok
+    !__atomic_i16_fetch_update_cur_%out_ok
+    !__atomic_i16_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_U32_INIT %atomic_ptr, %value
@@ -250,6 +554,10 @@
 
 [MACRO] ATOMIC_U32_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_U32_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_U32_INTO_INNER %out_value, %atomic_ptr
@@ -288,12 +596,75 @@
     %out_old = atomic_rmw_xor %atomic_ptr+AtomicU32_value, %value as u32 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_U32_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_U32_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U32_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicU32_value as u32 relaxed
+    __atomic_u32_nand_and_%out_old = and %out_old, %value
+    __atomic_u32_nand_new_%out_old = xor __atomic_u32_nand_and_%out_old, -1
+    __atomic_u32_nand_cur_%out_old, __atomic_u32_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicU32_value, %out_old, __atomic_u32_nand_new_%out_old as u32 %ordering %ordering
+    br __atomic_u32_nand_ok_%out_old -> L_ATOMIC_U32_FETCH_NAND_DONE_%out_old, L_ATOMIC_U32_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_U32_FETCH_NAND_RETRY_%out_old:
+    !__atomic_u32_nand_ok_%out_old
+    !__atomic_u32_nand_cur_%out_old
+    !__atomic_u32_nand_new_%out_old
+    !__atomic_u32_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_U32_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U32_FETCH_NAND_DONE_%out_old:
+    !__atomic_u32_nand_ok_%out_old
+    !__atomic_u32_nand_cur_%out_old
+    !__atomic_u32_nand_new_%out_old
+    !__atomic_u32_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_U32_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_UMIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umin %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_FETCH_UMAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umax %atomic_ptr+AtomicU32_value, %value as u32 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_U32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicU32_value, %expected, %new_value as u32 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_U32_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_U32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `u32 -> u32` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_U32_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_U32_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U32_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicU32_value as u32 relaxed
+    __atomic_u32_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_u32_fetch_update_cur_%out_ok, __atomic_u32_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicU32_value, %out_old, __atomic_u32_fetch_update_new_%out_ok as u32 %success_ordering %failure_ordering
+    br __atomic_u32_fetch_update_ok_%out_ok -> L_ATOMIC_U32_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_U32_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_U32_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_u32_fetch_update_ok_%out_ok
+    !__atomic_u32_fetch_update_cur_%out_ok
+    !__atomic_u32_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_U32_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U32_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_u32_fetch_update_ok_%out_ok
+    !__atomic_u32_fetch_update_cur_%out_ok
+    !__atomic_u32_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_I32_INIT %atomic_ptr, %value
@@ -306,6 +677,10 @@
 
 [MACRO] ATOMIC_I32_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_I32_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_I32_INTO_INNER %out_value, %atomic_ptr
@@ -332,12 +707,79 @@
     %out_old = atomic_rmw_sub %atomic_ptr+AtomicI32_value, %value as i32 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_I32_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_I32_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I32_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicI32_value as i32 relaxed
+    __atomic_i32_nand_and_%out_old = and %out_old, %value
+    __atomic_i32_nand_new_%out_old = xor __atomic_i32_nand_and_%out_old, -1
+    __atomic_i32_nand_cur_%out_old, __atomic_i32_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicI32_value, %out_old, __atomic_i32_nand_new_%out_old as i32 %ordering %ordering
+    br __atomic_i32_nand_ok_%out_old -> L_ATOMIC_I32_FETCH_NAND_DONE_%out_old, L_ATOMIC_I32_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_I32_FETCH_NAND_RETRY_%out_old:
+    !__atomic_i32_nand_ok_%out_old
+    !__atomic_i32_nand_cur_%out_old
+    !__atomic_i32_nand_new_%out_old
+    !__atomic_i32_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_I32_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I32_FETCH_NAND_DONE_%out_old:
+    !__atomic_i32_nand_ok_%out_old
+    !__atomic_i32_nand_cur_%out_old
+    !__atomic_i32_nand_new_%out_old
+    !__atomic_i32_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_I32_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicI32_value, %value as i32 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_I32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI32_value, %expected, %new_value as i32 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_I32_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_I32_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `i32 -> i32` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_I32_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_I32_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I32_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicI32_value as i32 relaxed
+    __atomic_i32_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_i32_fetch_update_cur_%out_ok, __atomic_i32_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicI32_value, %out_old, __atomic_i32_fetch_update_new_%out_ok as i32 %success_ordering %failure_ordering
+    br __atomic_i32_fetch_update_ok_%out_ok -> L_ATOMIC_I32_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_I32_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_I32_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_i32_fetch_update_ok_%out_ok
+    !__atomic_i32_fetch_update_cur_%out_ok
+    !__atomic_i32_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_I32_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I32_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_i32_fetch_update_ok_%out_ok
+    !__atomic_i32_fetch_update_cur_%out_ok
+    !__atomic_i32_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_U64_INIT %atomic_ptr, %value
@@ -350,6 +792,10 @@
 
 [MACRO] ATOMIC_U64_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_U64_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_U64_INTO_INNER %out_value, %atomic_ptr
@@ -388,6 +834,28 @@
     %out_old = atomic_rmw_xor %atomic_ptr+AtomicU64_value, %value as u64 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_U64_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_U64_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U64_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicU64_value as u64 relaxed
+    __atomic_u64_nand_and_%out_old = and %out_old, %value
+    __atomic_u64_nand_new_%out_old = xor __atomic_u64_nand_and_%out_old, -1
+    __atomic_u64_nand_cur_%out_old, __atomic_u64_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicU64_value, %out_old, __atomic_u64_nand_new_%out_old as u64 %ordering %ordering
+    br __atomic_u64_nand_ok_%out_old -> L_ATOMIC_U64_FETCH_NAND_DONE_%out_old, L_ATOMIC_U64_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_U64_FETCH_NAND_RETRY_%out_old:
+    !__atomic_u64_nand_ok_%out_old
+    !__atomic_u64_nand_cur_%out_old
+    !__atomic_u64_nand_new_%out_old
+    !__atomic_u64_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_U64_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_U64_FETCH_NAND_DONE_%out_old:
+    !__atomic_u64_nand_ok_%out_old
+    !__atomic_u64_nand_cur_%out_old
+    !__atomic_u64_nand_new_%out_old
+    !__atomic_u64_nand_and_%out_old
+[END_MACRO]
+
 [MACRO] ATOMIC_U64_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
     %out_old = atomic_rmw_min %atomic_ptr+AtomicU64_value, %value as u64 %ordering
 [END_MACRO]
@@ -412,6 +880,30 @@
     EXPAND ATOMIC_U64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
 [END_MACRO]
 
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `u64 -> u64` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_U64_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_U64_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U64_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicU64_value as u64 relaxed
+    __atomic_u64_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_u64_fetch_update_cur_%out_ok, __atomic_u64_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicU64_value, %out_old, __atomic_u64_fetch_update_new_%out_ok as u64 %success_ordering %failure_ordering
+    br __atomic_u64_fetch_update_ok_%out_ok -> L_ATOMIC_U64_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_U64_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_U64_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_u64_fetch_update_ok_%out_ok
+    !__atomic_u64_fetch_update_cur_%out_ok
+    !__atomic_u64_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_U64_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_U64_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_u64_fetch_update_ok_%out_ok
+    !__atomic_u64_fetch_update_cur_%out_ok
+    !__atomic_u64_fetch_update_new_%out_ok
+[END_MACRO]
+
 [MACRO] ATOMIC_I64_INIT %atomic_ptr, %value
     store %atomic_ptr+AtomicI64_value, %value as i64
 [END_MACRO]
@@ -422,6 +914,10 @@
 
 [MACRO] ATOMIC_I64_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_I64_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_I64_INTO_INNER %out_value, %atomic_ptr
@@ -448,12 +944,79 @@
     %out_old = atomic_rmw_sub %atomic_ptr+AtomicI64_value, %value as i64 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_I64_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_I64_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I64_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicI64_value as i64 relaxed
+    __atomic_i64_nand_and_%out_old = and %out_old, %value
+    __atomic_i64_nand_new_%out_old = xor __atomic_i64_nand_and_%out_old, -1
+    __atomic_i64_nand_cur_%out_old, __atomic_i64_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicI64_value, %out_old, __atomic_i64_nand_new_%out_old as i64 %ordering %ordering
+    br __atomic_i64_nand_ok_%out_old -> L_ATOMIC_I64_FETCH_NAND_DONE_%out_old, L_ATOMIC_I64_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_I64_FETCH_NAND_RETRY_%out_old:
+    !__atomic_i64_nand_ok_%out_old
+    !__atomic_i64_nand_cur_%out_old
+    !__atomic_i64_nand_new_%out_old
+    !__atomic_i64_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_I64_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_I64_FETCH_NAND_DONE_%out_old:
+    !__atomic_i64_nand_ok_%out_old
+    !__atomic_i64_nand_cur_%out_old
+    !__atomic_i64_nand_new_%out_old
+    !__atomic_i64_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_I64_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicI64_value, %value as i64 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_I64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicI64_value, %expected, %new_value as i64 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_I64_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_I64_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `i64 -> i64` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_I64_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_I64_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I64_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicI64_value as i64 relaxed
+    __atomic_i64_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_i64_fetch_update_cur_%out_ok, __atomic_i64_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicI64_value, %out_old, __atomic_i64_fetch_update_new_%out_ok as i64 %success_ordering %failure_ordering
+    br __atomic_i64_fetch_update_ok_%out_ok -> L_ATOMIC_I64_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_I64_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_I64_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_i64_fetch_update_ok_%out_ok
+    !__atomic_i64_fetch_update_cur_%out_ok
+    !__atomic_i64_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_I64_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_I64_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_i64_fetch_update_ok_%out_ok
+    !__atomic_i64_fetch_update_cur_%out_ok
+    !__atomic_i64_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_USIZE_INIT %atomic_ptr, %value
@@ -466,6 +1029,10 @@
 
 [MACRO] ATOMIC_USIZE_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_USIZE_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_USIZE_INTO_INNER %out_value, %atomic_ptr
@@ -504,12 +1071,75 @@
     %out_old = atomic_rmw_xor %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_USIZE_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_USIZE_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_USIZE_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicUsize_value as u64 relaxed
+    __atomic_usize_nand_and_%out_old = and %out_old, %value
+    __atomic_usize_nand_new_%out_old = xor __atomic_usize_nand_and_%out_old, -1
+    __atomic_usize_nand_cur_%out_old, __atomic_usize_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicUsize_value, %out_old, __atomic_usize_nand_new_%out_old as u64 %ordering %ordering
+    br __atomic_usize_nand_ok_%out_old -> L_ATOMIC_USIZE_FETCH_NAND_DONE_%out_old, L_ATOMIC_USIZE_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_USIZE_FETCH_NAND_RETRY_%out_old:
+    !__atomic_usize_nand_ok_%out_old
+    !__atomic_usize_nand_cur_%out_old
+    !__atomic_usize_nand_new_%out_old
+    !__atomic_usize_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_USIZE_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_USIZE_FETCH_NAND_DONE_%out_old:
+    !__atomic_usize_nand_ok_%out_old
+    !__atomic_usize_nand_cur_%out_old
+    !__atomic_usize_nand_new_%out_old
+    !__atomic_usize_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_USIZE_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_UMIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umin %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_FETCH_UMAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_umax %atomic_ptr+AtomicUsize_value, %value as u64 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_USIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicUsize_value, %expected, %new_value as u64 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_USIZE_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_USIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `u64 -> u64` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_USIZE_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_USIZE_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_USIZE_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicUsize_value as u64 relaxed
+    __atomic_usize_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_usize_fetch_update_cur_%out_ok, __atomic_usize_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicUsize_value, %out_old, __atomic_usize_fetch_update_new_%out_ok as u64 %success_ordering %failure_ordering
+    br __atomic_usize_fetch_update_ok_%out_ok -> L_ATOMIC_USIZE_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_USIZE_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_USIZE_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_usize_fetch_update_ok_%out_ok
+    !__atomic_usize_fetch_update_cur_%out_ok
+    !__atomic_usize_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_USIZE_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_USIZE_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_usize_fetch_update_ok_%out_ok
+    !__atomic_usize_fetch_update_cur_%out_ok
+    !__atomic_usize_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_ISIZE_INIT %atomic_ptr, %value
@@ -522,6 +1152,10 @@
 
 [MACRO] ATOMIC_ISIZE_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_ISIZE_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_ISIZE_INTO_INNER %out_value, %atomic_ptr
@@ -548,12 +1182,79 @@
     %out_old = atomic_rmw_sub %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_ISIZE_FETCH_AND %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_and %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FETCH_OR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_or %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FETCH_XOR %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_xor %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FETCH_NAND %out_old, %atomic_ptr, %value, %ordering
+    jmp L_ATOMIC_ISIZE_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_ISIZE_FETCH_NAND_HEAD_%out_old:
+    %out_old = atomic_load %atomic_ptr+AtomicIsize_value as i64 relaxed
+    __atomic_isize_nand_and_%out_old = and %out_old, %value
+    __atomic_isize_nand_new_%out_old = xor __atomic_isize_nand_and_%out_old, -1
+    __atomic_isize_nand_cur_%out_old, __atomic_isize_nand_ok_%out_old = cmpxchg %atomic_ptr+AtomicIsize_value, %out_old, __atomic_isize_nand_new_%out_old as i64 %ordering %ordering
+    br __atomic_isize_nand_ok_%out_old -> L_ATOMIC_ISIZE_FETCH_NAND_DONE_%out_old, L_ATOMIC_ISIZE_FETCH_NAND_RETRY_%out_old
+L_ATOMIC_ISIZE_FETCH_NAND_RETRY_%out_old:
+    !__atomic_isize_nand_ok_%out_old
+    !__atomic_isize_nand_cur_%out_old
+    !__atomic_isize_nand_new_%out_old
+    !__atomic_isize_nand_and_%out_old
+    !%out_old
+    jmp L_ATOMIC_ISIZE_FETCH_NAND_HEAD_%out_old
+L_ATOMIC_ISIZE_FETCH_NAND_DONE_%out_old:
+    !__atomic_isize_nand_ok_%out_old
+    !__atomic_isize_nand_cur_%out_old
+    !__atomic_isize_nand_new_%out_old
+    !__atomic_isize_nand_and_%out_old
+[END_MACRO]
+
+
+[MACRO] ATOMIC_ISIZE_FETCH_MIN %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_min %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_FETCH_MAX %out_old, %atomic_ptr, %value, %ordering
+    %out_old = atomic_rmw_max %atomic_ptr+AtomicIsize_value, %value as i64 %ordering
+[END_MACRO]
+
 [MACRO] ATOMIC_ISIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     %out_old, %out_ok = cmpxchg %atomic_ptr+AtomicIsize_value, %expected, %new_value as i64 %success_ordering %failure_ordering
 [END_MACRO]
 
 [MACRO] ATOMIC_ISIZE_COMPARE_EXCHANGE_WEAK %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
     EXPAND ATOMIC_ISIZE_COMPARE_EXCHANGE %out_old, %out_ok, %atomic_ptr, %expected, %new_value, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `i64 -> i64` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_ISIZE_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_ISIZE_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_ISIZE_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicIsize_value as i64 relaxed
+    __atomic_isize_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_isize_fetch_update_cur_%out_ok, __atomic_isize_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicIsize_value, %out_old, __atomic_isize_fetch_update_new_%out_ok as i64 %success_ordering %failure_ordering
+    br __atomic_isize_fetch_update_ok_%out_ok -> L_ATOMIC_ISIZE_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_ISIZE_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_ISIZE_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_isize_fetch_update_ok_%out_ok
+    !__atomic_isize_fetch_update_cur_%out_ok
+    !__atomic_isize_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_ISIZE_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_ISIZE_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_isize_fetch_update_ok_%out_ok
+    !__atomic_isize_fetch_update_cur_%out_ok
+    !__atomic_isize_fetch_update_new_%out_ok
 [END_MACRO]
 
 [MACRO] ATOMIC_PTR_INIT %atomic_ptr, %value_ptr
@@ -566,6 +1267,10 @@
 
 [MACRO] ATOMIC_PTR_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
     %out_atomic_ptr = ptr_add %value_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_FROM_PTR %out_atomic_ptr, %value_ptr
+    EXPAND ATOMIC_PTR_FROM_MUT_PTR %out_atomic_ptr, %value_ptr
 [END_MACRO]
 
 [MACRO] ATOMIC_PTR_INTO_INNER %out_ptr, %atomic_ptr
@@ -664,4 +1369,80 @@ L_ATOMIC_PTR_BYTE_SUB_DONE_%out_old_ptr:
 
 [MACRO] ATOMIC_PTR_COMPARE_EXCHANGE_WEAK %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
     EXPAND ATOMIC_PTR_COMPARE_EXCHANGE %out_old_ptr, %out_ok, %atomic_ptr, %expected_ptr, %new_ptr, %success_ordering, %failure_ordering
+[END_MACRO]
+
+// fetch_update-style loop over cmpxchg. The update function is a macro-level
+// `ptr -> ptr` register, not a Rust closure object. Always reports ok=1 when
+// the store eventually succeeds (no None-abort path).
+
+[MACRO] ATOMIC_PTR_FETCH_UPDATE %out_ok, %out_old, %atomic_ptr, %update_fn, %success_ordering, %failure_ordering
+    jmp L_ATOMIC_PTR_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_PTR_FETCH_UPDATE_HEAD_%out_ok:
+    %out_old = atomic_load %atomic_ptr+AtomicPtr_value as ptr relaxed
+    __atomic_ptr_fetch_update_new_%out_ok = call %update_fn(%out_old)
+    __atomic_ptr_fetch_update_cur_%out_ok, __atomic_ptr_fetch_update_ok_%out_ok = cmpxchg %atomic_ptr+AtomicPtr_value, %out_old, __atomic_ptr_fetch_update_new_%out_ok as ptr %success_ordering %failure_ordering
+    br __atomic_ptr_fetch_update_ok_%out_ok -> L_ATOMIC_PTR_FETCH_UPDATE_DONE_%out_ok, L_ATOMIC_PTR_FETCH_UPDATE_RETRY_%out_ok
+L_ATOMIC_PTR_FETCH_UPDATE_RETRY_%out_ok:
+    !__atomic_ptr_fetch_update_ok_%out_ok
+    !__atomic_ptr_fetch_update_cur_%out_ok
+    !__atomic_ptr_fetch_update_new_%out_ok
+    !%out_old
+    jmp L_ATOMIC_PTR_FETCH_UPDATE_HEAD_%out_ok
+L_ATOMIC_PTR_FETCH_UPDATE_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__atomic_ptr_fetch_update_ok_%out_ok
+    !__atomic_ptr_fetch_update_cur_%out_ok
+    !__atomic_ptr_fetch_update_new_%out_ok
+[END_MACRO]
+
+// Default-style zero initialization helpers (store 0 into existing atomic slots).
+
+[MACRO] ATOMIC_BOOL_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_BOOL_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U8_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_U8_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U16_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_U16_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U32_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_U32_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_U64_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_U64_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_USIZE_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_USIZE_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I8_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_I8_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I16_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_I16_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I32_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_I32_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_I64_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_I64_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_ISIZE_DEFAULT %atomic_ptr
+    EXPAND ATOMIC_ISIZE_INIT %atomic_ptr, 0
+[END_MACRO]
+
+[MACRO] ATOMIC_PTR_DEFAULT %atomic_ptr
+    __atomic_ptr_default_null_%atomic_ptr = 0 as ptr
+    EXPAND ATOMIC_PTR_INIT %atomic_ptr, __atomic_ptr_default_null_%atomic_ptr
+    !__atomic_ptr_default_null_%atomic_ptr
 [END_MACRO]

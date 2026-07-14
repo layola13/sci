@@ -1,0 +1,41 @@
+@import "sa_std/num.sal"
+
+#def T_F32_SIGN = 0x80000000
+#def T_F32_EXP = 0x7F800000
+#def T_F32_MANT = 0x007FFFFF
+#def T_F64_SIGN = 0x8000000000000000
+#def T_F64_EXP = 0x7FF0000000000000
+#def T_F64_MANT = 0x000FFFFFFFFFFFFF
+
+@test "sa_std f32/f64 bit masks and exponent bias"():
+L_ENTRY:
+    ok_f32_sign = eq NUM_F32_SIGN_BIT, T_F32_SIGN
+    ok_f32_exp = eq NUM_F32_EXP_MASK, T_F32_EXP
+    ok_f32_mant = eq NUM_F32_MANT_MASK, T_F32_MANT
+    ok_f32_bias = eq NUM_F32_EXP_BIAS, 127
+
+    ok_f64_sign = eq NUM_F64_SIGN_BIT, T_F64_SIGN
+    ok_f64_exp = eq NUM_F64_EXP_MASK, T_F64_EXP
+    ok_f64_mant = eq NUM_F64_MANT_MASK, T_F64_MANT
+    ok_f64_bias = eq NUM_F64_EXP_BIAS, 1023
+
+    ok_f32_inf_is_exp = eq NUM_F32_INFINITY, NUM_F32_EXP_MASK
+    ok_f64_inf_is_exp = eq NUM_F64_INFINITY, NUM_F64_EXP_MASK
+
+    c01 = and ok_f32_sign, ok_f32_exp
+    c02 = and c01, ok_f32_mant
+    c03 = and c02, ok_f32_bias
+    c04 = and c03, ok_f64_sign
+    c05 = and c04, ok_f64_exp
+    c06 = and c05, ok_f64_mant
+    c07 = and c06, ok_f64_bias
+    c08 = and c07, ok_f32_inf_is_exp
+    c09 = and c08, ok_f64_inf_is_exp
+
+    br c09 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10481)
+
+L_PASS:
+    return 0

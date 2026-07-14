@@ -1,0 +1,119 @@
+@import "sa_std/convert.sal"
+@import "sa_std/num.sal"
+
+@test "sa_std Infallible and NonZero MIN/MAX/ONE constants"():
+L_ENTRY:
+    ok_inf_size = eq Infallible_SIZE, 0
+    ok_inf_align = eq Infallible_ALIGN, 1
+
+    ok_c_u64_min = eq CONVERT_U64_MIN, 0
+    ok_c_u64_max = eq CONVERT_U64_MAX, NUM_U64_MAX
+    ok_c_i64_min = eq CONVERT_I64_MIN, NUM_I64_MIN
+    ok_c_usize_min = eq CONVERT_USIZE_MIN, 0
+    ok_c_usize_max = eq CONVERT_USIZE_MAX, NUM_USIZE_MAX
+    ok_c_isize_min = eq CONVERT_ISIZE_MIN, NUM_ISIZE_MIN
+    ok_c_isize_max = eq CONVERT_ISIZE_MAX, NUM_ISIZE_MAX
+    ok_c_bool_min = eq CONVERT_BOOL_MIN, 0
+    ok_c_bool_max = eq CONVERT_BOOL_MAX, 1
+
+    ok_nz_u8_min = eq NONZERO_U8_MIN, 1
+    ok_nz_u8_max = eq NONZERO_U8_MAX, NUM_U8_MAX
+    ok_nz_u8_one = eq NONZERO_U8_ONE, 1
+    ok_nz_u16_min = eq NONZERO_U16_MIN, 1
+    ok_nz_u16_max = eq NONZERO_U16_MAX, NUM_U16_MAX
+    ok_nz_u16_one = eq NONZERO_U16_ONE, 1
+    ok_nz_u32_min = eq NONZERO_U32_MIN, 1
+    ok_nz_u32_max = eq NONZERO_U32_MAX, NUM_U32_MAX
+    ok_nz_u32_one = eq NONZERO_U32_ONE, 1
+    ok_nz_u64_min = eq NONZERO_U64_MIN, 1
+    ok_nz_u64_max = eq NONZERO_U64_MAX, NUM_U64_MAX
+    ok_nz_u64_one = eq NONZERO_U64_ONE, 1
+    ok_nz_usize_min = eq NONZERO_USIZE_MIN, 1
+    ok_nz_usize_max = eq NONZERO_USIZE_MAX, NUM_USIZE_MAX
+    ok_nz_usize_one = eq NONZERO_USIZE_ONE, 1
+
+    ok_nz_i8_min = eq NONZERO_I8_MIN, NUM_I8_MIN
+    ok_nz_i8_max = eq NONZERO_I8_MAX, NUM_I8_MAX
+    ok_nz_i16_min = eq NONZERO_I16_MIN, NUM_I16_MIN
+    ok_nz_i16_max = eq NONZERO_I16_MAX, NUM_I16_MAX
+    ok_nz_i32_min = eq NONZERO_I32_MIN, NUM_I32_MIN
+    ok_nz_i32_max = eq NONZERO_I32_MAX, NUM_I32_MAX
+    ok_nz_i64_min = eq NONZERO_I64_MIN, NUM_I64_MIN
+    ok_nz_i64_max = eq NONZERO_I64_MAX, NUM_I64_MAX
+    ok_nz_isize_min = eq NONZERO_ISIZE_MIN, NUM_ISIZE_MIN
+    ok_nz_isize_max = eq NONZERO_ISIZE_MAX, NUM_ISIZE_MAX
+
+    c01 = and ok_inf_size, ok_inf_align
+    c02 = and c01, ok_c_u64_min
+    c03 = and c02, ok_c_u64_max
+    c04 = and c03, ok_c_i64_min
+    c05 = and c04, ok_c_usize_min
+    c06 = and c05, ok_c_usize_max
+    c07 = and c06, ok_c_isize_min
+    c08 = and c07, ok_c_isize_max
+    c09 = and c08, ok_c_bool_min
+    c10 = and c09, ok_c_bool_max
+    c11 = and c10, ok_nz_u8_min
+    c12 = and c11, ok_nz_u8_max
+    c13 = and c12, ok_nz_u8_one
+    c14 = and c13, ok_nz_u16_min
+    c15 = and c14, ok_nz_u16_max
+    c16 = and c15, ok_nz_u16_one
+    c17 = and c16, ok_nz_u32_min
+    c18 = and c17, ok_nz_u32_max
+    c19 = and c18, ok_nz_u32_one
+    c20 = and c19, ok_nz_u64_min
+    c21 = and c20, ok_nz_u64_max
+    c22 = and c21, ok_nz_u64_one
+    c23 = and c22, ok_nz_usize_min
+    c24 = and c23, ok_nz_usize_max
+    c25 = and c24, ok_nz_usize_one
+    c26 = and c25, ok_nz_i8_min
+    c27 = and c26, ok_nz_i8_max
+    c28 = and c27, ok_nz_i16_min
+    c29 = and c28, ok_nz_i16_max
+    c30 = and c29, ok_nz_i32_min
+    c31 = and c30, ok_nz_i32_max
+    c32 = and c31, ok_nz_i64_min
+    c33 = and c32, ok_nz_i64_max
+    c34 = and c33, ok_nz_isize_min
+    c35 = and c34, ok_nz_isize_max
+
+    br c35 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10469)
+
+L_PASS:
+    return 0
+
+@test "sa_std NonZero numeric constants match NUM_* MAX constants"():
+L_ENTRY:
+    ok_u8 = eq NONZERO_U8_MAX, NUM_U8_MAX
+    ok_u16 = eq NONZERO_U16_MAX, NUM_U16_MAX
+    ok_u32 = eq NONZERO_U32_MAX, NUM_U32_MAX
+    ok_u64 = eq NONZERO_U64_MAX, NUM_U64_MAX
+    ok_usize = eq NONZERO_USIZE_MAX, NUM_USIZE_MAX
+    ok_i8 = eq NONZERO_I8_MAX, NUM_I8_MAX
+    ok_i16 = eq NONZERO_I16_MAX, NUM_I16_MAX
+    ok_i32 = eq NONZERO_I32_MAX, NUM_I32_MAX
+    ok_i64 = eq NONZERO_I64_MAX, NUM_I64_MAX
+    ok_isize = eq NONZERO_ISIZE_MAX, NUM_ISIZE_MAX
+
+    c01 = and ok_u8, ok_u16
+    c02 = and c01, ok_u32
+    c03 = and c02, ok_u64
+    c04 = and c03, ok_usize
+    c05 = and c04, ok_i8
+    c06 = and c05, ok_i16
+    c07 = and c06, ok_i32
+    c08 = and c07, ok_i64
+    c09 = and c08, ok_isize
+
+    br c09 -> L_PASS2, L_FAIL2
+
+L_FAIL2:
+    panic(10470)
+
+L_PASS2:
+    return 0

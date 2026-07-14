@@ -1,5 +1,10 @@
 # `sa daemon` 协议规范（Phase A 可执行设计）
 
+> **实现备注（2026-07-11）**：已落地 Unix socket daemon、完整 argv（含 `sa`/二进制路径归一化）、
+> `agent_id`/`generation` 取消、`per-agent-limit`、`ping`/`shutdown`/`cancel`、响应 `metrics.wall_ms` 与
+> verdict/affected 计数。客户端通过 `SA_DAEMON_SOCKET`（可选 `SA_AGENT_ID`/`SA_AGENT_GENERATION`）接入。
+>
+
 > 本文是 [`agent_native_compiler_gap_and_plan_cn.md`](agent_native_compiler_gap_and_plan_cn.md)
 > Phase A 的落地规范。目标 KPI：**把 N-Agent 的冷启动成本从 O(N) 降到 O(1)，
 > 缓存跨请求命中**。核实日期：2026-07-11，接口以当前 `src/cli.zig` /

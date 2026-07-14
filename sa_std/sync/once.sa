@@ -245,3 +245,73 @@ L_ONCE_GET_OR_INIT_READY_%out_value:
     jmp L_ONCE_GET_OR_INIT_DONE_%out_value
 L_ONCE_GET_OR_INIT_DONE_%out_value:
 [END_MACRO]
+
+// Concrete LazyLock-style aliases over the existing Once/OnceLock u64 cell.
+// Callers still provide an explicit init function register; this is not a
+// generic type holding a function pointer object.
+
+[MACRO] LAZY_LOCK_NEW %out_lazy
+    EXPAND ONCE_NEW %out_lazy
+[END_MACRO]
+
+[MACRO] LAZY_LOCK_FORCE %out_value, %lazy_reg, %init_fn
+    EXPAND ONCE_GET_OR_INIT %out_value, %lazy_reg, %init_fn
+[END_MACRO]
+
+[MACRO] LAZY_LOCK_GET %out_ok, %out_value, %lazy_reg
+    EXPAND ONCE_TRY_GET %out_ok, %out_value, %lazy_reg
+[END_MACRO]
+
+[MACRO] LAZY_LOCK_IS_READY %out_ready, %lazy_reg
+    EXPAND ONCE_IS_READY %out_ready, %lazy_reg
+[END_MACRO]
+
+[MACRO] LAZY_LOCK_INTO_INNER %out_ok, %out_value, %lazy_reg
+    EXPAND ONCE_INTO_INNER %out_ok, %out_value, %lazy_reg
+[END_MACRO]
+
+// OnceLock-named aliases over the concrete ONCE_* u64 cell facade.
+
+[MACRO] ONCE_LOCK_NEW %out_once
+    EXPAND ONCE_NEW %out_once
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_IS_READY %out_ready, %once_reg
+    EXPAND ONCE_IS_READY %out_ready, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_SET %out_ok, %once_reg, %value
+    EXPAND ONCE_SET %out_ok, %once_reg, %value
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_TRY_GET %out_ok, %out_value, %once_reg
+    EXPAND ONCE_TRY_GET %out_ok, %out_value, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_GET %out_value, %once_reg
+    EXPAND ONCE_GET %out_value, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_GET_OR_INIT %out_value, %once_reg, %init_fn
+    EXPAND ONCE_GET_OR_INIT %out_value, %once_reg, %init_fn
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_TAKE %out_ok, %out_value, %once_reg
+    EXPAND ONCE_TAKE %out_ok, %out_value, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_INTO_INNER %out_ok, %out_value, %once_reg
+    EXPAND ONCE_INTO_INNER %out_ok, %out_value, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_DEFAULT %out_once
+    EXPAND ONCE_NEW %out_once
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_DEFAULT %out_once
+    EXPAND ONCE_LOCK_NEW %out_once
+[END_MACRO]
+
+[MACRO] LAZY_LOCK_DEFAULT %out_once
+    EXPAND LAZY_LOCK_NEW %out_once
+[END_MACRO]

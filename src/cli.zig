@@ -1,4 +1,3 @@
-// PHASEB_PERSIST_PROBE_7731
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -31,6 +30,7 @@ const trap = @import("common/trap.zig");
 const affected_tests = @import("affected_tests.zig");
 const daemon_cancel = @import("daemon_cancel.zig");
 const daemon_client = @import("daemon_client.zig");
+const incr_verify = @import("incr_verify.zig");
 const common_signature = @import("common/signature.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 
@@ -709,6 +709,7 @@ const Command = enum {
     build_obj,
     bc2sa,
     audit,
+    check,
     graph,
     layout,
     fetch,
@@ -1130,6 +1131,7 @@ fn commandName(cmd: Command) []const u8 {
         .build_obj => "build-obj",
         .bc2sa => "bc2sa",
         .audit => "audit",
+        .check => "check",
         .graph => "graph",
         .fetch => "fetch",
         .layout => "layout",
@@ -1406,6 +1408,16 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("  --exact                        Match test names exactly\n");
             try writer.writeAll("  --ignored                      Run only ignored tests\n");
             try writer.writeAll("  --include-ignored              Run all tests including ignored\n");
+            try writer.writeAll("  --affected                     Run only tests impacted by changed functions\n");
+            try writeCompileOptionsHelp(writer);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .check => {
+            try writer.writeAll("usage: sa check <file> [options]\n\n");
+            try writer.writeAll("Flatten and verify a .sa/.sab file without codegen or linking.\n");
+            try writer.writeAll("Uses the process/daemon-scoped verdict cache so unchanged streams skip re-verify.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --json                         Emit JSON report\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -1439,11 +1451,12 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .daemon => {
-            try writer.writeAll("usage: sa daemon [--socket path] [--max-workers N]\n\n");
+            try writer.writeAll("usage: sa daemon [--socket path] [--max-workers N] [--per-agent-limit N]\n\n");
             try writer.writeAll("Run a persistent compile/verify/test server over a Unix socket.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --socket <path>                Unix socket path (default /tmp/sa-daemon.sock)\n");
             try writer.writeAll("  --max-workers <N>              Max concurrent request workers (default 8)\n");
+            try writer.writeAll("  --per-agent-limit <N>          Max in-flight requests per agent_id (default 4)\n");
         },
         .help => {
             try writer.writeAll("usage: sa help [command]\n\n");
@@ -1616,6 +1629,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
+    try writer.writeAll("  check        <file>            Flatten and verify without codegen\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
     try writer.writeAll("  audit        <file>            Use `sa pkg audit` from the package plugin\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
@@ -1625,6 +1639,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  explain      <code>            Explain a diagnostic error code\n");
     try writer.writeAll("  fix          <file>            Suggest fixes for diagnostics\n");
     try writer.writeAll("  skills                         List compiler skills and capabilities\n");
+    try writer.writeAll("  daemon                         Run a persistent compile/verify server\n");
     try writer.writeAll("  help         [command]         Show this help message\n");
     try writer.writeAll("  version                        Print the SA toolchain version\n");
     try writer.writeAll("\nGlobal options:\n");
@@ -1646,6 +1661,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  --exact                        Match test names exactly\n");
     try writer.writeAll("  --ignored                      Run only ignored tests\n");
     try writer.writeAll("  --include-ignored              Run all tests including ignored\n");
+    try writer.writeAll("  --affected                     Run only tests impacted by changed functions\n");
 }
 
 fn printVersion(writer: anytype) !void {
@@ -2099,6 +2115,28 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
         if (phases.total_ns) |ns| {
             try writer.writeAll(",\"total\":");
             try writer.print("{d}", .{ns});
+        }
+        try writer.writeByte('}');
+        try writer.writeAll(",\"phases_ms\":{");
+        try writer.writeAll("\"load\":");
+        try writer.print("{d}", .{phases.load_ns / 1_000_000});
+        try writer.writeAll(",\"setup\":");
+        try writer.print("{d}", .{phases.setup_ns / 1_000_000});
+        try writer.writeAll(",\"flatten\":");
+        try writer.print("{d}", .{phases.flatten_ns / 1_000_000});
+        try writer.writeAll(",\"verify\":");
+        try writer.print("{d}", .{phases.verify_ns / 1_000_000});
+        if (phases.emit_ns) |ns| {
+            try writer.writeAll(",\"emit\":");
+            try writer.print("{d}", .{ns / 1_000_000});
+        }
+        if (phases.link_ns) |ns| {
+            try writer.writeAll(",\"link\":");
+            try writer.print("{d}", .{ns / 1_000_000});
+        }
+        if (phases.total_ns) |ns| {
+            try writer.writeAll(",\"total\":");
+            try writer.print("{d}", .{ns / 1_000_000});
         }
         try writer.writeByte('}');
     }
@@ -3156,6 +3194,9 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
             "explain <code>",
             "fix --plan --json",
             "skills",
+            "check <file>",
+            "test --affected",
+            "daemon",
         } },
         .{ .name = "project lifecycle", .summary = "Rust-like project setup and local builds", .items = &.{
             "init [path]",
@@ -3221,6 +3262,9 @@ fn daemonWorker(allocator: std.mem.Allocator, conn: std.net.Server.Connection, i
     handleDaemonConnection(allocator, conn);
 }
 
+var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
+var daemon_in_flight_global = std.atomic.Value(usize).init(0);
+
 fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Connection) void {
     defer conn.stream.close();
     var read_buf: [65536]u8 = undefined;
@@ -3228,12 +3272,52 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
     if (n == 0) return;
     const request_line = std.mem.trimRight(u8, read_buf[0..n], "\n\r ");
 
+    // Control ops that don't need argv execution.
+    if (std.mem.indexOf(u8, request_line, "\"op\":\"ping\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"ping\"") != null) {
+        const st = daemon_cancel.stats();
+        const vs = incr_verify.stats();
+        const as = affected_tests.stats();
+        var header = std.ArrayList(u8).init(allocator);
+        defer header.deinit();
+        header.writer().print(
+            "{{\"status\":\"ok\",\"code\":0,\"metrics\":{{\"in_flight\":{d},\"accepted\":{d},\"canceled\":{d},\"busy_rejects\":{d},\"verdict_hits\":{d},\"verdict_misses\":{d},\"affected_hits\":{d},\"affected_misses\":{d}}}}}\n",
+            .{
+                daemon_in_flight_global.load(.monotonic),
+                st.accepted,
+                st.canceled,
+                st.busy_rejects,
+                vs.hits,
+                vs.misses,
+                as.hits,
+                as.misses,
+            },
+        ) catch return;
+        conn.stream.writeAll(header.items) catch {};
+        return;
+    }
+    if (std.mem.indexOf(u8, request_line, "\"op\":\"shutdown\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"shutdown\"") != null) {
+        daemon_shutdown_flag.store(true, .monotonic);
+        conn.stream.writeAll("{\"status\":\"ok\",\"code\":0,\"message\":\"shutting down\"}\n") catch {};
+        return;
+    }
+    if (std.mem.indexOf(u8, request_line, "\"op\":\"cancel\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"cancel\"") != null) {
+        const agent_id = daemon_cancel.parseJsonStrField(request_line, "\"agent_id\"") orelse "";
+        const gen = daemon_cancel.cancelAgent(agent_id);
+        daemon_cancel.noteCanceled();
+        var header = std.ArrayList(u8).init(allocator);
+        defer header.deinit();
+        header.writer().print("{{\"status\":\"ok\",\"code\":0,\"canceled_generation\":{d}}}\n", .{gen}) catch return;
+        conn.stream.writeAll(header.items) catch {};
+        return;
+    }
+
     // Cooperative cancellation: skip work if a newer generation superseded this.
     const agent_id = daemon_cancel.parseJsonStrField(request_line, "\"agent_id\"") orelse "";
     const generation = daemon_cancel.parseJsonU64Field(request_line, "\"generation\"") orelse 0;
     if (agent_id.len != 0) {
         _ = daemon_cancel.registerGeneration(agent_id, generation);
         if (!daemon_cancel.generationIsCurrent(agent_id, generation)) {
+            daemon_cancel.noteCanceled();
             conn.stream.writeAll("{\"status\":\"canceled\"}\n") catch {};
             return;
         }
@@ -3253,6 +3337,15 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
     };
     defer freeDaemonArgv(allocator, parsed);
 
+    // Optional cwd change for project isolation.
+    var old_cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const old_cwd = std.fs.cwd().realpath(".", &old_cwd_buf) catch null;
+    if (daemon_cancel.parseJsonStrField(request_line, "\"cwd\"")) |cwd| {
+        std.posix.chdir(cwd) catch {};
+    }
+    defer if (old_cwd) |c| std.posix.chdir(c) catch {};
+
+    const wall_start = std.time.Instant.now() catch null;
     var resp = std.ArrayList(u8).init(allocator);
     defer resp.deinit();
     const code: u8 = executeWithWritersAndOptions(allocator, parsed, resp.writer(), resp.writer(), .{}) catch |err| blk: {
@@ -3260,45 +3353,113 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
         resp.writer().print("execution error: {s}", .{@errorName(err)}) catch {};
         break :blk @as(u8, 1);
     };
+    const wall_ms: u64 = if (wall_start) |s| elapsedNs(s) / 1_000_000 else 0;
+    const vs = incr_verify.stats();
+    const as = affected_tests.stats();
+
+    // Re-check cancellation after work (cooperative end boundary).
+    if (agent_id.len != 0 and !daemon_cancel.generationIsCurrent(agent_id, generation)) {
+        daemon_cancel.noteCanceled();
+        conn.stream.writeAll("{\"status\":\"canceled\"}\n") catch {};
+        return;
+    }
 
     var header = std.ArrayList(u8).init(allocator);
     defer header.deinit();
-    header.writer().print("{{\"status\":\"ok\",\"code\":{d},\"len\":{d}}}\n", .{ code, resp.items.len }) catch return;
+    header.writer().print(
+        "{{\"status\":\"ok\",\"code\":{d},\"len\":{d},\"metrics\":{{\"wall_ms\":{d},\"verdict_hits\":{d},\"verdict_misses\":{d},\"affected_hits\":{d},\"affected_misses\":{d}}}}}\n",
+        .{ code, resp.items.len, wall_ms, vs.hits, vs.misses, as.hits, as.misses },
+    ) catch return;
     conn.stream.writeAll(header.items) catch {};
     conn.stream.writeAll(resp.items) catch {};
 }
 
 fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const []const u8 {
-    // Minimal JSON request: {"argv":["build","file.sa"]}. Extract string items
-    // from the first [...] array.
-    const lb = std.mem.indexOfScalar(u8, request, '[') orelse return error.InvalidRequest;
-    const rb = std.mem.lastIndexOfScalar(u8, request, ']') orelse return error.InvalidRequest;
-    if (rb <= lb) return error.InvalidRequest;
-    const inner = request[lb + 1 .. rb];
+    // Prefer explicit argv array. Also accept op/file/args document style.
+    if (std.mem.indexOf(u8, request, "\"argv\"")) |_| {
+        const lb = std.mem.indexOfScalar(u8, request, '[') orelse return error.InvalidRequest;
+        const rb = std.mem.lastIndexOfScalar(u8, request, ']') orelse return error.InvalidRequest;
+        if (rb <= lb) return error.InvalidRequest;
+        const inner = request[lb + 1 .. rb];
+        var list = std.ArrayList([]const u8).init(allocator);
+        errdefer {
+            for (list.items) |it| allocator.free(it);
+            list.deinit();
+        }
+        var i: usize = 0;
+        while (i < inner.len) {
+            if (inner[i] != '"') {
+                i += 1;
+                continue;
+            }
+            i += 1;
+            var item = std.ArrayList(u8).init(allocator);
+            errdefer item.deinit();
+            while (i < inner.len and inner[i] != '"') {
+                if (inner[i] == '\\' and i + 1 < inner.len) {
+                    i += 1;
+                }
+                try item.append(inner[i]);
+                i += 1;
+            }
+            i += 1; // closing quote
+            try list.append(try item.toOwnedSlice());
+        }
+        // Normalize argv[0] to "sa". Clients may send the real binary path
+        // (e.g. zig-out/bin/sa) or omit argv[0] entirely and start at the command.
+        if (list.items.len == 0) {
+            try list.insert(0, try allocator.dupe(u8, "sa"));
+        } else if (std.mem.eql(u8, list.items[0], "sa") or std.mem.endsWith(u8, list.items[0], "/sa")) {
+            if (!std.mem.eql(u8, list.items[0], "sa")) {
+                allocator.free(list.items[0]);
+                list.items[0] = try allocator.dupe(u8, "sa");
+            }
+        } else if (commandFromName(list.items[0]) != null or std.mem.eql(u8, list.items[0], "help") or std.mem.eql(u8, list.items[0], "version")) {
+            try list.insert(0, try allocator.dupe(u8, "sa"));
+        } else {
+            // Unknown first token: still force sa so dispatch can error cleanly.
+            try list.insert(0, try allocator.dupe(u8, "sa"));
+        }
+        return try list.toOwnedSlice();
+    }
 
+    // Document-style: {"op":"build","file":"x.sa","args":["--json"]}
+    const op = daemon_cancel.parseJsonStrField(request, "\"op\"") orelse return error.InvalidRequest;
     var list = std.ArrayList([]const u8).init(allocator);
     errdefer {
         for (list.items) |it| allocator.free(it);
         list.deinit();
     }
-    var i: usize = 0;
-    while (i < inner.len) {
-        if (inner[i] != '"') {
-            i += 1;
-            continue;
-        }
-        i += 1;
-        var item = std.ArrayList(u8).init(allocator);
-        errdefer item.deinit();
-        while (i < inner.len and inner[i] != '"') {
-            if (inner[i] == '\\' and i + 1 < inner.len) {
+    try list.append(try allocator.dupe(u8, "sa"));
+    try list.append(try allocator.dupe(u8, op));
+    if (daemon_cancel.parseJsonStrField(request, "\"file\"")) |file| {
+        try list.append(try allocator.dupe(u8, file));
+    }
+    // Best-effort: pull string items after "args"
+    if (std.mem.indexOf(u8, request, "\"args\"")) |ap| {
+        const sub = request[ap..];
+        const lb = std.mem.indexOfScalar(u8, sub, '[') orelse 0;
+        const rb = std.mem.indexOfScalar(u8, sub, ']') orelse 0;
+        if (rb > lb) {
+            const inner = sub[lb + 1 .. rb];
+            var i: usize = 0;
+            while (i < inner.len) {
+                if (inner[i] != '"') {
+                    i += 1;
+                    continue;
+                }
                 i += 1;
+                var item = std.ArrayList(u8).init(allocator);
+                errdefer item.deinit();
+                while (i < inner.len and inner[i] != '"') {
+                    if (inner[i] == '\\' and i + 1 < inner.len) i += 1;
+                    try item.append(inner[i]);
+                    i += 1;
+                }
+                i += 1;
+                try list.append(try item.toOwnedSlice());
             }
-            try item.append(inner[i]);
-            i += 1;
         }
-        i += 1; // closing quote
-        try list.append(try item.toOwnedSlice());
     }
     return try list.toOwnedSlice();
 }
@@ -3334,18 +3495,22 @@ fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout:
     try stdout.print("sa daemon listening on {s} (max_workers={d})\n", .{ socket_path, max_workers });
 
     var in_flight = std.atomic.Value(usize).init(0);
-    while (true) {
+    daemon_shutdown_flag.store(false, .monotonic);
+    while (!daemon_shutdown_flag.load(.monotonic)) {
         const conn = server.accept() catch |err| {
+            if (daemon_shutdown_flag.load(.monotonic)) break;
             try stderr.print("daemon: accept failed: {s}\n", .{@errorName(err)});
             continue;
         };
         // Backpressure: at capacity, handle inline (blocks accept) instead of
         // spawning unbounded threads. Bounds memory under many agents.
+        daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
         if (in_flight.load(.monotonic) >= max_workers) {
             handleDaemonConnection(allocator, conn);
             continue;
         }
         _ = in_flight.fetchAdd(1, .monotonic);
+        daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
         const thread = std.Thread.spawn(.{}, daemonWorker, .{ allocator, conn, &in_flight }) catch {
             _ = in_flight.fetchSub(1, .monotonic);
             handleDaemonConnection(allocator, conn);
@@ -3353,6 +3518,12 @@ fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout:
         };
         thread.detach();
     }
+    // Wait briefly for in-flight workers to drain.
+    var spins: usize = 0;
+    while (in_flight.load(.monotonic) > 0 and spins < 1000) : (spins += 1) {
+        std.Thread.sleep(1 * std.time.ns_per_ms);
+    }
+    std.fs.cwd().deleteFile(socket_path) catch {};
     return 0;
 }
 
@@ -5001,7 +5172,11 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             );
         }
         return switch (verified) {
-            .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
+            .ok => |ok| blk: {
+                const digest = incr_verify.hashInstructions(flat.instructions);
+                incr_verify.recordVerified(digest);
+                break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
+            },
             .trap => |report| {
                 var r = report;
                 if (r.file == null) setFile(&r, source_path);
@@ -5096,6 +5271,21 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         null;
 
     const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const content_hash = incr_verify.hashInstructions(flat.instructions);
+    // Phase B-B hybrid: on verdict hit rebuild a trusted annotated shell from the
+    // current FlattenResult (no dangling VerifyOk reuse). Misses run the referee.
+    if (incr_verify.isVerified(content_hash)) {
+        const trusted = try trustedSabVerifyOk(allocator, &flat);
+        const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
+        if (memory_metrics) |*memory| {
+            memory.recordAfterVerify();
+            try writeMemoryStageSampleForOptions(options, "after_verify", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
+            memory.recordEnd();
+        }
+        var metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
+        metrics.cache = .{ .kind = "verdict", .hit = true };
+        return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = metrics } };
+    }
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants, .stage_reporter = verifier_stage_reporter });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
     if (memory_metrics) |*memory| {
@@ -5106,7 +5296,16 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     }
 
     return switch (verified) {
-        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
+        .ok => |ok| blk: {
+            incr_verify.recordVerified(content_hash);
+            var names = std.ArrayList([]const u8).init(allocator);
+            defer names.deinit();
+            for (ok.function_sigs) |fs| names.append(fs.name) catch {};
+            incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
+            var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
+            metrics.cache = .{ .kind = "verdict", .hit = false };
+            break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
+        },
         .trap => |report| {
             var r = report;
             if (r.file == null) {
@@ -6994,6 +7193,160 @@ fn executeLayout(
     return 0;
 }
 
+fn executeCheck(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+    json_mode: bool,
+    exec_options: ExecuteOptions,
+) !u8 {
+    var compile_options = newCompileOptions(exec_options, stderr.any());
+    var source_arg: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (try consumeCompileOption(arg, args, &i, &compile_options)) continue;
+        if (source_arg == null) {
+            source_arg = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+    if (source_arg == null) return error.MissingSourcePath;
+    const source_path = source_arg.?;
+    configureCompileDiagnostics(&compile_options, json_mode);
+
+    const total_start = std.time.Instant.now() catch null;
+    // Flatten via compileSource front half by reusing compileSource then discarding codegen.
+    // Fast path: if we already verified this instruction stream, skip verify.
+    const compiled = try compileSourceForCheck(allocator, source_path, compile_options);
+    const wall_ns = if (total_start) |start| elapsedNs(start) else 0;
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(if (json_mode) stdout else stderr, report, if (json_mode) .json else .human);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+            if (json_mode) {
+                try stdout.writeAll("{\"status\":\"ok\",\"metrics\":");
+                try writeMetricsJson(stdout, owned.metrics);
+                try stdout.print(",\"wall_ms\":{d}", .{wall_ns / 1_000_000});
+                try stdout.writeAll("}\n");
+            } else {
+                const cache_hit = if (owned.metrics.cache) |c| c.hit else false;
+                try stdout.print("check ok: instructions={d} compile_tokens={d} verdict_cache={s}\n", .{
+                    owned.metrics.instruction_count,
+                    owned.metrics.compile_tokens,
+                    if (cache_hit) "hit" else "miss",
+                });
+            }
+            return 0;
+        },
+    }
+}
+
+/// Check-oriented compile: flatten + verify, with verdict-cache short circuit.
+fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
+    var memory_metrics: ?CompileMemoryMetrics = if (options.mem_report) .{} else null;
+    if (memory_metrics) |*memory| memory.recordStart();
+    const total_start = if (options.profile) std.time.Instant.now() catch null else null;
+
+    if (std.mem.endsWith(u8, source_path, ".sab")) {
+        // Reuse the normal SAB path (already records verdict on success).
+        return try compileSource(allocator, source_path, options);
+    }
+
+    const load_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const source = try loadSource(allocator, source_path);
+    defer allocator.free(source);
+    const load_ns = if (load_start) |start| elapsedNs(start) else 0;
+
+    const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
+    var resolution = if (options.project_root) |project_root|
+        try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = options.package_name })
+    else
+        try resolveProjectFromSourcePath(allocator, source_path, options.package_name);
+    defer resolution.deinit(allocator);
+    const project_root = resolution.workspace_root;
+    const member_root = resolution.member_root;
+    const std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(std_root);
+    const project_manifest = resolution.effective_manifest;
+    var dependency_slice: []pkg_resolver.Dependency = &.{};
+    defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
+    var plugin_import_roots: []const []const u8 = &.{};
+    defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
+    const stable_import_roots = try defaultStableImportRoots(allocator, member_root);
+    defer freeOwnedStringSlice(allocator, stable_import_roots);
+    if (project_manifest) |*m| {
+        verifyProjectPackageState(allocator, project_root, m.*, options) catch |err| {
+            if (trapFromPackagePreflightError(err)) |report| return .{ .trap = report };
+            return err;
+        };
+        dependency_slice = try manifestDependencies(m, allocator);
+        plugin_import_roots = try manifestPluginImportRoots(m, allocator);
+    }
+    const package_grants: []const manifest.RequireEntry = if (project_manifest) |*m| m.requires else &.{};
+    var error_ctx: flattener.ErrorContext = .{};
+    const resolve_ctx = flattener.ResolveContext{
+        .dependencies = dependency_slice,
+        .options = .{
+            .project_root = project_root,
+            .std_root = std_root,
+            .offline = options.offline,
+            .plugin_import_roots = plugin_import_roots,
+            .stable_import_roots = stable_import_roots,
+        },
+    };
+    const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
+
+    const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
+    var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
+        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
+    };
+    errdefer flat.deinit(allocator);
+    const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
+
+    const content_hash = incr_verify.hashInstructions(flat.instructions);
+    const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+    if (incr_verify.isVerified(content_hash)) {
+        // Verdict hit: build a trusted shell without re-running the referee.
+        const trusted = try trustedSabVerifyOk(allocator, &flat);
+        const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
+        var metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
+        metrics.cache = .{ .kind = "verdict", .hit = true };
+        return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = metrics } };
+    }
+
+    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
+        .jobs = options.jobs,
+        .package_grants = package_grants,
+        .stage_reporter = null,
+    });
+    const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
+    return switch (verified) {
+        .ok => |ok| blk: {
+            incr_verify.recordVerified(content_hash);
+            var names = std.ArrayList([]const u8).init(allocator);
+            defer names.deinit();
+            for (ok.function_sigs) |fs| names.append(fs.name) catch {};
+            incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
+            var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
+            metrics.cache = .{ .kind = "verdict", .hit = false };
+            break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
+        },
+        .trap => |report| {
+            var r = report;
+            if (r.file == null) setFile(&r, source_path);
+            flat.deinit(allocator);
+            return .{ .trap = r };
+        },
+    };
+}
+
 fn executeGraph(
     allocator: std.mem.Allocator,
     args: []const []const u8,
@@ -7171,6 +7524,8 @@ fn executeTest(
     diagnostics_mode: DiagnosticsMode,
 ) !u8 {
     if (!test_options.affected) return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
+
+    // Level-1 whole-source pass cache (fast path for identical inputs).
     const src = std.fs.cwd().readFileAlloc(allocator, source_path, 1 << 24) catch {
         return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
     };
@@ -7181,13 +7536,214 @@ fn executeTest(
         null;
     const digest = affected_tests.hashInput(src, filt);
     if (affected_tests.isCachedPass(digest)) {
-        try stdout.writeAll("affected: unchanged since last pass; skipped\n");
+        if (diagnostics_mode == .json) {
+            try stdout.writeAll("{\"status\":\"ok\",\"affected\":{\"skipped\":true,\"reason\":\"source-pass-cache\"}}\n");
+        } else {
+            try stdout.writeAll("affected: unchanged since last pass; skipped\n");
+        }
         return 0;
     }
-    const code = try executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
-    if (code == 0) affected_tests.recordPass(digest);
-    return code;
+
+    // Level-2: call-graph selective execution. Compile once to inspect functions,
+    // compute changed set vs baseline, restrict selection.include_filters to
+    // impacted tests, then run. On first baseline, run all selected tests.
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report, diagnostics_mode);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+
+            var function_bodies = try collectFunctionBodyHashes(allocator, &owned.verified);
+            defer freeFunctionBodyHashes(allocator, &function_bodies);
+
+            var changed = std.ArrayList([]const u8).init(allocator);
+            defer changed.deinit();
+            const had_baseline = affected_tests.hasFunctionBaseline();
+            var it = function_bodies.iterator();
+            while (it.next()) |entry| {
+                if (!had_baseline or affected_tests.functionChanged(entry.key_ptr.*, entry.value_ptr.*)) {
+                    try changed.append(entry.key_ptr.*);
+                }
+            }
+
+            // Build call edges from annotated stream.
+            var callers = std.ArrayList([]const u8).init(allocator);
+            defer callers.deinit();
+            var callees = std.ArrayList([]const u8).init(allocator);
+            defer {
+                for (callees.items) |c| allocator.free(c);
+                callees.deinit();
+            }
+            try collectCallEdges(allocator, &owned.verified, &callers, &callees);
+
+            var rev = try affected_tests.buildReverseCallMap(allocator, callers.items, callees.items);
+            defer {
+                var rit = rev.iterator();
+                while (rit.next()) |e| e.value_ptr.deinit();
+                rev.deinit();
+            }
+
+            // Normalize changed names for reverse-graph lookup.
+            var changed_norm = std.ArrayList([]const u8).init(allocator);
+            defer changed_norm.deinit();
+            for (changed.items) |c| try changed_norm.append(normalizeFnName(c));
+            var impacted = try affected_tests.impactedFunctions(allocator, changed_norm.items, &rev);
+            defer impacted.deinit();
+
+            // Identify tests by function_sigs kind == test_func.
+            var selected_names = std.ArrayList([]const u8).init(allocator);
+            defer {
+                for (selected_names.items) |n| allocator.free(n);
+                selected_names.deinit();
+            }
+            var total_tests: usize = 0;
+            for (owned.verified.function_sigs) |fs| {
+                if (fs.kind != .test_func) continue;
+                total_tests += 1;
+                const display = common_signature.displayName(fs.kind, fs.name);
+                const norm = normalizeFnName(fs.name);
+                const keep = if (!had_baseline)
+                    true
+                else
+                    impacted.contains(norm) or impacted.contains(display);
+                if (keep) try selected_names.append(try allocator.dupe(u8, display));
+            }
+
+            if (diagnostics_mode == .json) {
+                try stdout.writeAll("{\"status\":\"ok\",\"affected\":{");
+                try stdout.print("\"had_baseline\":{s},\"changed_functions\":{d},\"selected_tests\":{d},\"total_tests\":{d}", .{
+                    if (had_baseline) "true" else "false",
+                    changed.items.len,
+                    selected_names.items.len,
+                    total_tests,
+                });
+                try stdout.writeAll("}}\n");
+            } else {
+                try stdout.print(
+                    "affected: baseline={s} changed_fns={d} selected_tests={d}/{d}\n",
+                    .{ if (had_baseline) "yes" else "no", changed.items.len, selected_names.items.len, total_tests },
+                );
+            }
+
+            // Update baselines after analysis (whether or not tests pass, body hashes are current).
+            var bit = function_bodies.iterator();
+            while (bit.next()) |entry| {
+                affected_tests.recordFunctionHash(entry.key_ptr.*, entry.value_ptr.*);
+            }
+
+            if (had_baseline and selected_names.items.len == 0) {
+                affected_tests.recordPass(digest);
+                if (diagnostics_mode != .json) try stdout.writeAll("affected: no impacted tests; skipped\n");
+                return 0;
+            }
+
+            // Restrict filters to selected test names when we have a baseline.
+            var effective = test_options;
+            var owned_filters: []const []const u8 = &.{};
+            defer if (owned_filters.len != 0) {
+                for (owned_filters) |f| allocator.free(f);
+                allocator.free(owned_filters);
+            };
+            if (had_baseline and selected_names.items.len > 0) {
+                var filters = try allocator.alloc([]const u8, selected_names.items.len);
+                for (selected_names.items, 0..) |n, idx| filters[idx] = try allocator.dupe(u8, n);
+                owned_filters = filters;
+                effective.selection.include_filters = owned_filters;
+                effective.selection.exact = true;
+            }
+
+            const code = try executeTestInner(allocator, source_path, compile_options, effective, stdout, stderr, diagnostics_mode);
+            if (code == 0) affected_tests.recordPass(digest);
+            return code;
+        },
+    }
 }
+
+const FunctionBodyHashMap = std.StringHashMap([32]u8);
+
+fn collectFunctionBodyHashes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) !FunctionBodyHashMap {
+    var map = FunctionBodyHashMap.init(allocator);
+    errdefer freeFunctionBodyHashes(allocator, &map);
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    while (idx < verified.annotated.len) : (idx += 1) {
+        const item = verified.annotated[idx].base;
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= verified.function_sigs.len) break;
+                const fs = verified.function_sigs[sig_index];
+                sig_index += 1;
+                var end = idx + 1;
+                while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    else => true,
+                }) : (end += 1) {}
+                var lines = std.ArrayList([]const u8).init(allocator);
+                defer lines.deinit();
+                var j = idx;
+                while (j < end) : (j += 1) try lines.append(verified.annotated[j].base.raw_text);
+                const digest = affected_tests.hashFunctionBody(fs.name, lines.items);
+                const key = try allocator.dupe(u8, fs.name);
+                try map.put(key, digest);
+                idx = end - 1;
+            },
+            else => {},
+        }
+    }
+    return map;
+}
+
+fn freeFunctionBodyHashes(allocator: std.mem.Allocator, map: *FunctionBodyHashMap) void {
+    var it = map.keyIterator();
+    while (it.next()) |k| allocator.free(k.*);
+    map.deinit();
+}
+
+fn normalizeFnName(name: []const u8) []const u8 {
+    var s = name;
+    if (s.len > 0 and s[0] == '@') s = s[1..];
+    // Strip signature tail: `@foo() -> i32:` / `foo():` -> foo / display text
+    if (std.mem.indexOfScalar(u8, s, '(')) |paren| s = s[0..paren];
+    if (std.mem.indexOfScalar(u8, s, '"')) |q1| {
+        if (std.mem.indexOfScalar(u8, s[q1 + 1 ..], '"')) |q2| {
+            return s[q1 + 1 .. q1 + 1 + q2];
+        }
+    }
+    return s;
+}
+
+fn collectCallEdges(
+    allocator: std.mem.Allocator,
+    verified: *const referee.VerifyOk,
+    callers: *std.ArrayList([]const u8),
+    callees: *std.ArrayList([]const u8),
+) !void {
+    var current_fn: ?[]const u8 = null;
+    var sig_index: usize = 0;
+    for (verified.annotated) |item| {
+        switch (item.base.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= verified.function_sigs.len) break;
+                current_fn = verified.function_sigs[sig_index].name;
+                sig_index += 1;
+            },
+            .call, .call_indirect => {
+                const caller = current_fn orelse continue;
+                var parsed = referee_call.parseCall(allocator, item.base.raw_text) catch continue;
+                defer parsed.deinit(allocator);
+                try callers.append(normalizeFnName(caller));
+                const callee_owned = try allocator.dupe(u8, normalizeFnName(parsed.callee));
+                try callees.append(callee_owned);
+            },
+            else => {},
+        }
+    }
+}
+
 
 fn executeTestInner(
     allocator: std.mem.Allocator,
@@ -7494,6 +8050,9 @@ pub fn executeWithWritersAndOptions(
         },
         .cache => return try executeCacheCommand(allocator, args[2..], stdout),
         .audit => return error.UnknownCommand,
+        .check => {
+            return try executeCheck(allocator, args[2..], stdout, stderr, json_mode, exec_options);
+        },
         .explain => return try explainCommand(stdout, args, json_mode),
         .fix => return try fixCommand(stdout, args, json_mode),
         .skills => return try skillsCommand(allocator, stdout, json_mode),

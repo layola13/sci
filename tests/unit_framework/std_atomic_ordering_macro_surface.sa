@@ -1,0 +1,47 @@
+@import "sa_std/sync/atomic.sal"
+
+@test "sa_std Atomic Ordering enum constants"():
+L_ENTRY:
+    ok_relaxed = eq ATOMIC_ORDERING_RELAXED, 0
+    ok_release = eq ATOMIC_ORDERING_RELEASE, 1
+    ok_acquire = eq ATOMIC_ORDERING_ACQUIRE, 2
+    ok_acq_rel = eq ATOMIC_ORDERING_ACQ_REL, 3
+    ok_seq_cst = eq ATOMIC_ORDERING_SEQ_CST, 4
+
+    ok_ab_size = eq AtomicBool_SIZE, 1
+    ok_u8_size = eq AtomicU8_SIZE, 1
+    ok_u16_size = eq AtomicU16_SIZE, 2
+    ok_u32_size = eq AtomicU32_SIZE, 4
+    ok_u64_size = eq AtomicU64_SIZE, 8
+    ok_i64_size = eq AtomicI64_SIZE, 8
+    ok_usize_size = eq AtomicUsize_SIZE, 8
+    ok_isize_size = eq AtomicIsize_SIZE, 8
+    ok_ptr_size = eq AtomicPtr_SIZE, 8
+
+    c01 = and ok_relaxed, ok_release
+    c02 = and c01, ok_acquire
+    c03 = and c02, ok_acq_rel
+    c04 = and c03, ok_seq_cst
+    c05 = and c04, ok_ab_size
+    c06 = and c05, ok_u8_size
+    c07 = and c06, ok_u16_size
+    c08 = and c07, ok_u32_size
+    c09 = and c08, ok_u64_size
+    c10 = and c09, ok_i64_size
+    c11 = and c10, ok_usize_size
+    c12 = and c11, ok_isize_size
+    c13 = and c12, ok_ptr_size
+
+    !ok_relaxed
+    !ok_release
+    !ok_acquire
+    !ok_acq_rel
+    !ok_seq_cst
+
+    br c13 -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10480)
+
+L_PASS:
+    return 0

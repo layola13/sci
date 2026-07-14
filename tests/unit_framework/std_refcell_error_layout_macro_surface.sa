@@ -1,0 +1,27 @@
+@import "sa_std/core/refcell.sal"
+
+@test "sa_std refcell borrow error layout constants"():
+L_ENTRY:
+    ok_borrow_size = eq BorrowError_SIZE, 0
+    ok_borrow_align = eq BorrowError_ALIGN, 1
+    ok_borrow_mut_size = eq BorrowMutError_SIZE, 0
+    ok_borrow_mut_align = eq BorrowMutError_ALIGN, 1
+
+    ok_refcell_size = eq RefCellU64_SIZE, 16
+    ok_refcell_value = eq RefCellU64_value, +0
+    ok_refcell_borrows = eq RefCellU64_borrows, +8
+
+    c01 = and ok_borrow_size, ok_borrow_align
+    c02 = and c01, ok_borrow_mut_size
+    c03 = and c02, ok_borrow_mut_align
+    c04 = and c03, ok_refcell_size
+    c05 = and c04, ok_refcell_value
+    ok = and c05, ok_refcell_borrows
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10495)
+
+L_PASS:
+    return 0

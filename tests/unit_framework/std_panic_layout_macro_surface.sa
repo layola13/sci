@@ -1,0 +1,35 @@
+@import "sa_std/panic.sal"
+
+@test "sa_std panic location and unwind layout constants"():
+L_ENTRY:
+    ok_location_size = eq PanicLocation_SIZE, 24
+    ok_location_align = eq PanicLocation_ALIGN, 8
+    ok_location_file = eq PanicLocation_file, +0
+    ok_location_file_ptr = eq PanicLocation_file_ptr, +0
+    ok_location_file_len = eq PanicLocation_file_len, +8
+    ok_location_line = eq PanicLocation_line, +16
+    ok_location_column = eq PanicLocation_column, +20
+    ok_location_col = eq PanicLocation_col, PanicLocation_column
+
+    ok_assert_size = eq AssertUnwindSafeU64_SIZE, 8
+    ok_assert_align = eq AssertUnwindSafeU64_ALIGN, 8
+    ok_assert_value = eq AssertUnwindSafeU64_value, +0
+
+    c01 = and ok_location_size, ok_location_align
+    c02 = and c01, ok_location_file
+    c03 = and c02, ok_location_file_ptr
+    c04 = and c03, ok_location_file_len
+    c05 = and c04, ok_location_line
+    c06 = and c05, ok_location_column
+    c07 = and c06, ok_location_col
+    c08 = and c07, ok_assert_size
+    c09 = and c08, ok_assert_align
+    ok = and c09, ok_assert_value
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10496)
+
+L_PASS:
+    return 0

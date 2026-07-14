@@ -27,3 +27,14 @@
 
 #def ManuallyDropU64_SIZE = 8
 #def ManuallyDropU64_value = +0
+
+#def MEM_SIZE_F32 = 4
+#def MEM_ALIGN_F32 = 4
+#def MEM_SIZE_F64 = 8
+#def MEM_ALIGN_F64 = 8
+
+#def MEM_SIZE_PTR = 8
+#def MEM_ALIGN_PTR = 8
+
+#def MEM_SIZE_CHAR = 4
+#def MEM_ALIGN_CHAR = 4

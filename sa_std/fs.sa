@@ -489,6 +489,61 @@
     store %permissions+SaFsPermissions_mode, %mode as u32
 [END_MACRO]
 
+// Concrete Permissions object helpers over the SaFsPermissions mode slot.
+// readonly checks/clears the POSIX write bits (0222); set_readonly(false)
+// sets owner-write (0200), matching Rust's Unix Permissions::set_readonly.
+
+[MACRO] FS_PERMISSIONS_NEW %out_permissions
+    store %out_permissions+SaFsPermissions_mode, 0 as u32
+[END_MACRO]
+
+// Rust-style Default alias over FS_PERMISSIONS_NEW.
+[MACRO] FS_PERMISSIONS_DEFAULT %out_permissions
+    EXPAND FS_PERMISSIONS_NEW %out_permissions
+[END_MACRO]
+
+[MACRO] FS_METADATA_PERMISSIONS %out_permissions, %metadata
+    __fs_meta_perm_mode_%out_permissions = call @sa_fs_metadata_st_mode(%metadata)
+    store %out_permissions+SaFsPermissions_mode, __fs_meta_perm_mode_%out_permissions as u32
+    !__fs_meta_perm_mode_%out_permissions
+[END_MACRO]
+
+[MACRO] FS_PERMISSIONS_READONLY %out_flag, %permissions
+    __fs_perm_mode_%out_flag = load %permissions+SaFsPermissions_mode as u32
+    __fs_perm_write_%out_flag = and __fs_perm_mode_%out_flag, SA_FS_PERM_WRITE_BITS
+    __fs_perm_is_ro_%out_flag = eq __fs_perm_write_%out_flag, 0
+    %out_flag = add 0, __fs_perm_is_ro_%out_flag
+    !__fs_perm_is_ro_%out_flag
+    !__fs_perm_write_%out_flag
+    !__fs_perm_mode_%out_flag
+[END_MACRO]
+
+[MACRO] FS_PERMISSIONS_SET_READONLY %permissions, %flag
+    __fs_perm_mode_%permissions = load %permissions+SaFsPermissions_mode as u32
+    __fs_perm_is_ro_%permissions = ne %flag, 0
+    __fs_perm_is_rw_%permissions = eq %flag, 0
+    __fs_perm_clear_bits_%permissions = mul SA_FS_PERM_WRITE_BITS, __fs_perm_is_ro_%permissions
+    __fs_perm_mask_%permissions = xor __fs_perm_clear_bits_%permissions, 4294967295
+    __fs_perm_cleared_%permissions = and __fs_perm_mode_%permissions, __fs_perm_mask_%permissions
+    __fs_perm_owner_bits_%permissions = mul SA_FS_PERM_OWNER_WRITE, __fs_perm_is_rw_%permissions
+    __fs_perm_new_mode_%permissions = or __fs_perm_cleared_%permissions, __fs_perm_owner_bits_%permissions
+    store %permissions+SaFsPermissions_mode, __fs_perm_new_mode_%permissions as u32
+    !__fs_perm_new_mode_%permissions
+    !__fs_perm_owner_bits_%permissions
+    !__fs_perm_cleared_%permissions
+    !__fs_perm_mask_%permissions
+    !__fs_perm_clear_bits_%permissions
+    !__fs_perm_is_rw_%permissions
+    !__fs_perm_is_ro_%permissions
+    !__fs_perm_mode_%permissions
+[END_MACRO]
+
+[MACRO] FS_SET_PERMISSIONS_OBJ %out_status, %path, %path_len, %permissions
+    __fs_set_perm_mode_%out_status = load %permissions+SaFsPermissions_mode as u32
+    %out_status = call @sa_fs_set_permissions(&%path, %path_len, __fs_set_perm_mode_%out_status)
+    !__fs_set_perm_mode_%out_status
+[END_MACRO]
+
 [MACRO] FS_SET_TIMES_MS %out_status, %path, %path_len, %accessed_ms, %modified_ms
     %out_status = call @sa_fs_set_times_ms(&%path, %path_len, %accessed_ms, %modified_ms)
 [END_MACRO]
@@ -731,4 +786,194 @@ L_FS_OOB_TRUNCATE_END_%out_flags:
 
 [MACRO] FS_OPEN_OPTIONS_BUILDER_OPEN %out_status, %out_file, %flags, %mode, %custom, %path, %path_len
     EXPAND FS_OPEN_OPTIONS %out_status, %out_file, %path, %path_len, %flags, %mode, %custom
+[END_MACRO]
+
+
+[MACRO] FS_FILE_TYPE_IS_FILE %out_flag, %metadata
+    EXPAND FS_METADATA_IS_FILE %out_flag, %metadata
+[END_MACRO]
+
+[MACRO] FS_FILE_TYPE_IS_DIR %out_flag, %metadata
+    EXPAND FS_METADATA_IS_DIR %out_flag, %metadata
+[END_MACRO]
+
+[MACRO] FS_FILE_TYPE_IS_SYMLINK %out_flag, %metadata
+    EXPAND FS_METADATA_IS_SYMLINK %out_flag, %metadata
+[END_MACRO]
+
+[MACRO] FS_FILE_TYPE_IS_BLOCK_DEVICE %out_flag, %metadata
+    EXPAND FS_METADATA_IS_BLOCK_DEVICE %out_flag, %metadata
+[END_MACRO]
+
+[MACRO] FS_FILE_TYPE_IS_CHAR_DEVICE %out_flag, %metadata
+    EXPAND FS_METADATA_IS_CHAR_DEVICE %out_flag, %metadata
+[END_MACRO]
+
+[MACRO] FS_FILE_TYPE_IS_FIFO %out_flag, %metadata
+    EXPAND FS_METADATA_IS_FIFO %out_flag, %metadata
+[END_MACRO]
+
+[MACRO] FS_FILE_TYPE_IS_SOCKET %out_flag, %metadata
+    EXPAND FS_METADATA_IS_SOCKET %out_flag, %metadata
+[END_MACRO]
+
+
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_SYNC %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_sync_zero_%out_flags = eq %flag, 0
+    br __fs_oob_sync_zero_%out_flags -> L_FS_OOB_SYNC_KEEP_%out_flags, L_FS_OOB_SYNC_OR_%out_flags
+L_FS_OOB_SYNC_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_sync_zero_%out_flags
+    jmp L_FS_OOB_SYNC_END_%out_flags
+L_FS_OOB_SYNC_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_SYNC
+    !__fs_oob_sync_zero_%out_flags
+    jmp L_FS_OOB_SYNC_END_%out_flags
+L_FS_OOB_SYNC_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_DSYNC %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_dsync_zero_%out_flags = eq %flag, 0
+    br __fs_oob_dsync_zero_%out_flags -> L_FS_OOB_DSYNC_KEEP_%out_flags, L_FS_OOB_DSYNC_OR_%out_flags
+L_FS_OOB_DSYNC_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_dsync_zero_%out_flags
+    jmp L_FS_OOB_DSYNC_END_%out_flags
+L_FS_OOB_DSYNC_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_DSYNC
+    !__fs_oob_dsync_zero_%out_flags
+    jmp L_FS_OOB_DSYNC_END_%out_flags
+L_FS_OOB_DSYNC_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_NONBLOCK %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_nonblock_zero_%out_flags = eq %flag, 0
+    br __fs_oob_nonblock_zero_%out_flags -> L_FS_OOB_NONBLOCK_KEEP_%out_flags, L_FS_OOB_NONBLOCK_OR_%out_flags
+L_FS_OOB_NONBLOCK_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_nonblock_zero_%out_flags
+    jmp L_FS_OOB_NONBLOCK_END_%out_flags
+L_FS_OOB_NONBLOCK_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_NONBLOCK
+    !__fs_oob_nonblock_zero_%out_flags
+    jmp L_FS_OOB_NONBLOCK_END_%out_flags
+L_FS_OOB_NONBLOCK_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_NOFOLLOW %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_nofollow_zero_%out_flags = eq %flag, 0
+    br __fs_oob_nofollow_zero_%out_flags -> L_FS_OOB_NOFOLLOW_KEEP_%out_flags, L_FS_OOB_NOFOLLOW_OR_%out_flags
+L_FS_OOB_NOFOLLOW_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_nofollow_zero_%out_flags
+    jmp L_FS_OOB_NOFOLLOW_END_%out_flags
+L_FS_OOB_NOFOLLOW_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_NOFOLLOW
+    !__fs_oob_nofollow_zero_%out_flags
+    jmp L_FS_OOB_NOFOLLOW_END_%out_flags
+L_FS_OOB_NOFOLLOW_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_DIRECT %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_direct_zero_%out_flags = eq %flag, 0
+    br __fs_oob_direct_zero_%out_flags -> L_FS_OOB_DIRECT_KEEP_%out_flags, L_FS_OOB_DIRECT_OR_%out_flags
+L_FS_OOB_DIRECT_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_direct_zero_%out_flags
+    jmp L_FS_OOB_DIRECT_END_%out_flags
+L_FS_OOB_DIRECT_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_DIRECT
+    !__fs_oob_direct_zero_%out_flags
+    jmp L_FS_OOB_DIRECT_END_%out_flags
+L_FS_OOB_DIRECT_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_DIRECTORY %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_directory_zero_%out_flags = eq %flag, 0
+    br __fs_oob_directory_zero_%out_flags -> L_FS_OOB_DIRECTORY_KEEP_%out_flags, L_FS_OOB_DIRECTORY_OR_%out_flags
+L_FS_OOB_DIRECTORY_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_directory_zero_%out_flags
+    jmp L_FS_OOB_DIRECTORY_END_%out_flags
+L_FS_OOB_DIRECTORY_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_DIRECTORY
+    !__fs_oob_directory_zero_%out_flags
+    jmp L_FS_OOB_DIRECTORY_END_%out_flags
+L_FS_OOB_DIRECTORY_END_%out_flags:
+[END_MACRO]
+
+[MACRO] FS_OPEN_OPTIONS_BUILDER_WITH_CLOEXEC %out_flags, %out_mode, %out_custom, %in_flags, %in_mode, %in_custom, %flag
+    __fs_oob_cloexec_zero_%out_flags = eq %flag, 0
+    br __fs_oob_cloexec_zero_%out_flags -> L_FS_OOB_CLOEXEC_KEEP_%out_flags, L_FS_OOB_CLOEXEC_OR_%out_flags
+L_FS_OOB_CLOEXEC_KEEP_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = add 0, %in_custom
+    !__fs_oob_cloexec_zero_%out_flags
+    jmp L_FS_OOB_CLOEXEC_END_%out_flags
+L_FS_OOB_CLOEXEC_OR_%out_flags:
+    %out_flags = add 0, %in_flags
+    %out_mode = add 0, %in_mode
+    %out_custom = or %in_custom, SA_FS_CUSTOM_CLOEXEC
+    !__fs_oob_cloexec_zero_%out_flags
+    jmp L_FS_OOB_CLOEXEC_END_%out_flags
+L_FS_OOB_CLOEXEC_END_%out_flags:
+[END_MACRO]
+
+
+// Concrete FileTimes builder over two propagating SSA millisecond timestamps.
+// Applies through the existing FS_SET_TIMES_MS / sa_fs_set_times_ms FFI.
+
+[MACRO] FS_FILE_TIMES_NEW %out_accessed_ms, %out_modified_ms
+    %out_accessed_ms = add 0, 0
+    %out_modified_ms = add 0, 0
+[END_MACRO]
+
+// Rust-style Default alias over FS_FILE_TIMES_NEW (0,0 timestamps).
+[MACRO] FS_FILE_TIMES_DEFAULT %out_accessed_ms, %out_modified_ms
+    EXPAND FS_FILE_TIMES_NEW %out_accessed_ms, %out_modified_ms
+[END_MACRO]
+
+[MACRO] FS_FILE_TIMES_WITH_ACCESSED %out_accessed_ms, %out_modified_ms, %in_accessed_ms, %in_modified_ms, %accessed_ms
+    %out_accessed_ms = add 0, %accessed_ms
+    %out_modified_ms = add 0, %in_modified_ms
+[END_MACRO]
+
+[MACRO] FS_FILE_TIMES_WITH_MODIFIED %out_accessed_ms, %out_modified_ms, %in_accessed_ms, %in_modified_ms, %modified_ms
+    %out_accessed_ms = add 0, %in_accessed_ms
+    %out_modified_ms = add 0, %modified_ms
+[END_MACRO]
+
+[MACRO] FS_FILE_TIMES_SET %out_status, %path, %path_len, %accessed_ms, %modified_ms
+    EXPAND FS_SET_TIMES_MS %out_status, %path, %path_len, %accessed_ms, %modified_ms
+[END_MACRO]
+
+[MACRO] FS_METADATA_FILE_TIMES %out_accessed_ms, %out_modified_ms, %metadata
+    %out_accessed_ms = call @sa_fs_metadata_accessed_ms(%metadata)
+    %out_modified_ms = call @sa_fs_metadata_modified_ms(%metadata)
 [END_MACRO]
