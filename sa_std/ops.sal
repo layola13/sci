@@ -47,3 +47,10 @@
 #def BoundUsize_SIZE = 16
 #def BoundUsize_tag = +0
 #def BoundUsize_value = +8
+
+#def ControlFlowU64_SIZE = 16
+#def ControlFlowU64_ALIGN = 8
+#def ControlFlowU64_tag = +0
+#def ControlFlowU64_value = +8
+#def CONTROL_FLOW_CONTINUE = 0
+#def CONTROL_FLOW_BREAK = 1

@@ -6469,3 +6469,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_collections_try_reserve_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10505+.
+
+## Completed: 2026-07-14 Ops ControlFlow layout and u64 macros (Batch ar)
+
+- `sa_std/ops.sal`: Added `ControlFlowU64` layout constants plus Continue/Break discriminant constants, matching Rust `ControlFlow`'s variant order at the concrete SA layout level.
+- `sa_std/ops.sa`: Added `CONTROL_FLOW_CONTINUE_U64`, `CONTROL_FLOW_BREAK_U64`, `CONTROL_FLOW_TAG`, `CONTROL_FLOW_VALUE_U64`, `CONTROL_FLOW_IS_CONTINUE`, and `CONTROL_FLOW_IS_BREAK`.
+- Test: `tests/unit_framework/std_ops_control_flow_macro_surface.sa` — 1 test (panic ID 10505) verifying the new ops ControlFlow layout and u64 macros.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_control_flow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10506+.

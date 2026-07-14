@@ -7,6 +7,36 @@
     store %range_ptr+RangeU64_end, %end as u64
 [END_MACRO]
 
+[MACRO] CONTROL_FLOW_CONTINUE_U64 %control_flow_ptr, %value
+    store %control_flow_ptr+ControlFlowU64_tag, CONTROL_FLOW_CONTINUE as u64
+    store %control_flow_ptr+ControlFlowU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_BREAK_U64 %control_flow_ptr, %value
+    store %control_flow_ptr+ControlFlowU64_tag, CONTROL_FLOW_BREAK as u64
+    store %control_flow_ptr+ControlFlowU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_TAG %out_tag, %control_flow_ptr
+    %out_tag = load %control_flow_ptr+ControlFlowU64_tag as u64
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_VALUE_U64 %out_value, %control_flow_ptr
+    %out_value = load %control_flow_ptr+ControlFlowU64_value as u64
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_IS_CONTINUE %out_bool, %control_flow_ptr
+    __control_flow_tag_%out_bool = load %control_flow_ptr+ControlFlowU64_tag as u64
+    %out_bool = eq __control_flow_tag_%out_bool, CONTROL_FLOW_CONTINUE
+    !__control_flow_tag_%out_bool
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_IS_BREAK %out_bool, %control_flow_ptr
+    __control_flow_tag_%out_bool = load %control_flow_ptr+ControlFlowU64_tag as u64
+    %out_bool = eq __control_flow_tag_%out_bool, CONTROL_FLOW_BREAK
+    !__control_flow_tag_%out_bool
+[END_MACRO]
+
 [MACRO] RANGE_U64_START %out_start, %range_ptr
     %out_start = load %range_ptr+RangeU64_start as u64
 [END_MACRO]

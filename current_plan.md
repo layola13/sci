@@ -1126,3 +1126,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10505+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ar)
+
+Completed supportable defaults/aliases/macros:
+- Ops ControlFlow concrete layout constants in ops.sal for ControlFlowU64 tag/value layout.
+- ControlFlow Continue/Break kind constants and u64 constructor/query macros in ops.sa.
+- Test file std_ops_control_flow_macro_surface.sa (panic ID 10505).
+
+Panic IDs next free: 10506+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
