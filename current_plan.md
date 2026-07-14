@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter intersperse collect)
+
+Completed supportable iterator intersperse collect macros:
+- `ITER_INTERSPERSE_COLLECT_U64`: concrete unstable Rust `Iterator::intersperse(separator).collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor.
+- `ITER_INTERSPERSE_WITH_COLLECT_U64`: concrete unstable Rust `Iterator::intersperse_with(separator_fn).collect::<Vec<_>>()` lowering where the separator callback is called once per gap.
+- The macros materialize the first item, then separator/item pairs for later items, and do not call the separator callback for empty or single-item inputs.
+- Test file `std_iter_intersperse_macro_surface.sa` (panic ID 10543).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_intersperse_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10544+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Intersperse` / `IntersperseWith` adapter identity, non-fused iterator resume-after-None semantics, generic `Clone` / closure state, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter cycle take collect)
 
 Completed supportable bounded iterator cycle/take collect macro:

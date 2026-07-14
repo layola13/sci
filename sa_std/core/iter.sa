@@ -987,6 +987,64 @@ L_ITER_TAKE_COLLECT_DONE_%out_vec:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+    EXPAND ITER_VEC_NEW %out_vec
+    EXPAND ITER_NEXT_U64 __iter_intersperse_first_has_%out_vec, __iter_intersperse_first_value_%out_vec, %iter_reg
+    br __iter_intersperse_first_has_%out_vec -> L_ITER_INTERSPERSE_FIRST_%out_vec, L_ITER_INTERSPERSE_DONE_EMPTY_%out_vec
+L_ITER_INTERSPERSE_FIRST_%out_vec:
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_intersperse_first_value_%out_vec
+    !__iter_intersperse_first_value_%out_vec
+    !__iter_intersperse_first_has_%out_vec
+    jmp L_ITER_INTERSPERSE_HEAD_%out_vec
+L_ITER_INTERSPERSE_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_intersperse_has_%out_vec, __iter_intersperse_value_%out_vec, %iter_reg
+    br __iter_intersperse_has_%out_vec -> L_ITER_INTERSPERSE_PUSH_PAIR_%out_vec, L_ITER_INTERSPERSE_DONE_%out_vec
+L_ITER_INTERSPERSE_PUSH_PAIR_%out_vec:
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, %separator
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_intersperse_value_%out_vec
+    !__iter_intersperse_value_%out_vec
+    !__iter_intersperse_has_%out_vec
+    jmp L_ITER_INTERSPERSE_HEAD_%out_vec
+L_ITER_INTERSPERSE_DONE_EMPTY_%out_vec:
+    !__iter_intersperse_first_value_%out_vec
+    !__iter_intersperse_first_has_%out_vec
+    jmp L_ITER_INTERSPERSE_END_%out_vec
+L_ITER_INTERSPERSE_DONE_%out_vec:
+    !__iter_intersperse_value_%out_vec
+    !__iter_intersperse_has_%out_vec
+L_ITER_INTERSPERSE_END_%out_vec:
+[END_MACRO]
+
+[MACRO] ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+    EXPAND ITER_VEC_NEW %out_vec
+    EXPAND ITER_NEXT_U64 __iter_intersperse_with_first_has_%out_vec, __iter_intersperse_with_first_value_%out_vec, %iter_reg
+    br __iter_intersperse_with_first_has_%out_vec -> L_ITER_INTERSPERSE_WITH_FIRST_%out_vec, L_ITER_INTERSPERSE_WITH_DONE_EMPTY_%out_vec
+L_ITER_INTERSPERSE_WITH_FIRST_%out_vec:
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_intersperse_with_first_value_%out_vec
+    !__iter_intersperse_with_first_value_%out_vec
+    !__iter_intersperse_with_first_has_%out_vec
+    jmp L_ITER_INTERSPERSE_WITH_HEAD_%out_vec
+L_ITER_INTERSPERSE_WITH_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_intersperse_with_has_%out_vec, __iter_intersperse_with_value_%out_vec, %iter_reg
+    br __iter_intersperse_with_has_%out_vec -> L_ITER_INTERSPERSE_WITH_PUSH_PAIR_%out_vec, L_ITER_INTERSPERSE_WITH_DONE_%out_vec
+L_ITER_INTERSPERSE_WITH_PUSH_PAIR_%out_vec:
+    __iter_intersperse_with_sep_%out_vec = call %sep_fn()
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_intersperse_with_sep_%out_vec
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_intersperse_with_value_%out_vec
+    !__iter_intersperse_with_sep_%out_vec
+    !__iter_intersperse_with_value_%out_vec
+    !__iter_intersperse_with_has_%out_vec
+    jmp L_ITER_INTERSPERSE_WITH_HEAD_%out_vec
+L_ITER_INTERSPERSE_WITH_DONE_EMPTY_%out_vec:
+    !__iter_intersperse_with_first_value_%out_vec
+    !__iter_intersperse_with_first_has_%out_vec
+    jmp L_ITER_INTERSPERSE_WITH_END_%out_vec
+L_ITER_INTERSPERSE_WITH_DONE_%out_vec:
+    !__iter_intersperse_with_value_%out_vec
+    !__iter_intersperse_with_has_%out_vec
+L_ITER_INTERSPERSE_WITH_END_%out_vec:
+[END_MACRO]
+
 [MACRO] ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
     EXPAND ITER_VEC_NEW %out_vec
     __iter_step_zero_%out_ok = eq %step, 0
