@@ -619,6 +619,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_into_naming_macro_surface.sa",
         "tests/unit_framework/std_default_types_macro_surface.sa",
         "tests/unit_framework/std_convert_nonzero_macro_surface.sa",
+        "tests/unit_framework/std_convert_identity_macro_surface.sa",
         "tests/unit_framework/std_option_zip_macro_surface.sa",
         "tests/unit_framework/std_float_wrapping_macro_surface.sa",
         "tests/unit_framework/std_wrapping_range_macro_surface.sa",

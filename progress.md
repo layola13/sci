@@ -6576,3 +6576,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_control_flow_methods_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10517+.
+
+## Completed: 2026-07-14 Convert identity macros (Batch bd)
+
+- `sa_std/convert.sa`: Added concrete primitive `std::convert::identity` lowering macros for `u64`, `i64`, `usize`, and `bool`, plus Rust-named `IDENTITY_*` aliases.
+- Semantics: helpers copy the input register to the output register unchanged for the concrete primitive subset; they do not claim Rust's generic `identity<T>` function item or trait wiring.
+- Test: `tests/unit_framework/std_convert_identity_macro_surface.sa` — 1 test (panic ID 10517) covering direct `CONVERT_IDENTITY_*` macros and `IDENTITY_*` aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_convert_identity_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10518+.

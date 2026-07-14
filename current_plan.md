@@ -1239,3 +1239,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10517+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bd)
+
+Completed supportable defaults/aliases/macros:
+- Concrete primitive std::convert::identity lowering macros in convert.sa for u64, i64, usize, and bool, plus Rust-named IDENTITY_* aliases.
+- Test file std_convert_identity_macro_surface.sa (panic ID 10517).
+
+Panic IDs next free: 10518+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

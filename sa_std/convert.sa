@@ -1,5 +1,37 @@
 @import "convert.sal"
 
+[MACRO] CONVERT_IDENTITY_U64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_IDENTITY_I64 %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_IDENTITY_USIZE %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] CONVERT_IDENTITY_BOOL %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] IDENTITY_U64 %out_value, %value
+    EXPAND CONVERT_IDENTITY_U64 %out_value, %value
+[END_MACRO]
+
+[MACRO] IDENTITY_I64 %out_value, %value
+    EXPAND CONVERT_IDENTITY_I64 %out_value, %value
+[END_MACRO]
+
+[MACRO] IDENTITY_USIZE %out_value, %value
+    EXPAND CONVERT_IDENTITY_USIZE %out_value, %value
+[END_MACRO]
+
+[MACRO] IDENTITY_BOOL %out_value, %value
+    EXPAND CONVERT_IDENTITY_BOOL %out_value, %value
+[END_MACRO]
+
 [MACRO] CONVERT_BOOL_TO_U64 %out_value, %value
     %out_value = add %value, 0
 [END_MACRO]
