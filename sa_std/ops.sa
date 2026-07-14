@@ -580,6 +580,68 @@ L_RANGE_TO_INC_SLICE_END_%out_ok:
     %out_value = load %bound_ptr+BoundU64_value as u64
 [END_MACRO]
 
+[MACRO] BOUND_U64_AS_REF %dst_bound_ref_ptr, %src_bound_ptr
+    __bound_u64_as_ref_tag_%dst_bound_ref_ptr = load %src_bound_ptr+BoundU64_tag as u64
+    __bound_u64_as_ref_unbounded_%dst_bound_ref_ptr = eq __bound_u64_as_ref_tag_%dst_bound_ref_ptr, BOUND_U64_UNBOUNDED
+    store %dst_bound_ref_ptr+BoundU64Ref_tag, __bound_u64_as_ref_tag_%dst_bound_ref_ptr as u64
+    br __bound_u64_as_ref_unbounded_%dst_bound_ref_ptr -> L_BOUND_U64_AS_REF_UNBOUNDED_%dst_bound_ref_ptr, L_BOUND_U64_AS_REF_VALUE_%dst_bound_ref_ptr
+
+L_BOUND_U64_AS_REF_VALUE_%dst_bound_ref_ptr:
+    __bound_u64_as_ref_ptr_%dst_bound_ref_ptr = ptr_add %src_bound_ptr, BoundU64_value
+    store %dst_bound_ref_ptr+BoundU64Ref_ptr, __bound_u64_as_ref_ptr_%dst_bound_ref_ptr as ptr
+    !__bound_u64_as_ref_ptr_%dst_bound_ref_ptr
+    !__bound_u64_as_ref_unbounded_%dst_bound_ref_ptr
+    !__bound_u64_as_ref_tag_%dst_bound_ref_ptr
+    jmp L_BOUND_U64_AS_REF_DONE_%dst_bound_ref_ptr
+
+L_BOUND_U64_AS_REF_UNBOUNDED_%dst_bound_ref_ptr:
+    store %dst_bound_ref_ptr+BoundU64Ref_ptr, 0 as u64
+    !__bound_u64_as_ref_unbounded_%dst_bound_ref_ptr
+    !__bound_u64_as_ref_tag_%dst_bound_ref_ptr
+
+L_BOUND_U64_AS_REF_DONE_%dst_bound_ref_ptr:
+[END_MACRO]
+
+[MACRO] BOUND_U64_AS_MUT %dst_bound_ref_ptr, %src_bound_ptr
+    EXPAND BOUND_U64_AS_REF %dst_bound_ref_ptr, %src_bound_ptr
+[END_MACRO]
+
+[MACRO] BOUND_U64_REF_TAG %out_tag, %bound_ref_ptr
+    %out_tag = load %bound_ref_ptr+BoundU64Ref_tag as u64
+[END_MACRO]
+
+[MACRO] BOUND_U64_REF_PTR %out_ptr, %bound_ref_ptr
+    %out_ptr = load %bound_ref_ptr+BoundU64Ref_ptr as ptr
+[END_MACRO]
+
+[MACRO] BOUND_U64_REF_COPIED %dst_bound_ptr, %src_bound_ref_ptr
+    __bound_u64_ref_copied_tag_%dst_bound_ptr = load %src_bound_ref_ptr+BoundU64Ref_tag as u64
+    __bound_u64_ref_copied_unbounded_%dst_bound_ptr = eq __bound_u64_ref_copied_tag_%dst_bound_ptr, BOUND_U64_UNBOUNDED
+    store %dst_bound_ptr+BoundU64_tag, __bound_u64_ref_copied_tag_%dst_bound_ptr as u64
+    br __bound_u64_ref_copied_unbounded_%dst_bound_ptr -> L_BOUND_U64_REF_COPIED_UNBOUNDED_%dst_bound_ptr, L_BOUND_U64_REF_COPIED_VALUE_%dst_bound_ptr
+
+L_BOUND_U64_REF_COPIED_VALUE_%dst_bound_ptr:
+    __bound_u64_ref_copied_ptr_%dst_bound_ptr = load %src_bound_ref_ptr+BoundU64Ref_ptr as ptr
+    __bound_u64_ref_copied_value_%dst_bound_ptr = load __bound_u64_ref_copied_ptr_%dst_bound_ptr+0 as u64
+    store %dst_bound_ptr+BoundU64_value, __bound_u64_ref_copied_value_%dst_bound_ptr as u64
+    !__bound_u64_ref_copied_value_%dst_bound_ptr
+    !__bound_u64_ref_copied_ptr_%dst_bound_ptr
+    !__bound_u64_ref_copied_unbounded_%dst_bound_ptr
+    !__bound_u64_ref_copied_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_REF_COPIED_DONE_%dst_bound_ptr
+
+L_BOUND_U64_REF_COPIED_UNBOUNDED_%dst_bound_ptr:
+    store %dst_bound_ptr+BoundU64_value, 0 as u64
+    !__bound_u64_ref_copied_unbounded_%dst_bound_ptr
+    !__bound_u64_ref_copied_tag_%dst_bound_ptr
+
+L_BOUND_U64_REF_COPIED_DONE_%dst_bound_ptr:
+[END_MACRO]
+
+[MACRO] BOUND_U64_REF_CLONED %dst_bound_ptr, %src_bound_ref_ptr
+    EXPAND BOUND_U64_REF_COPIED %dst_bound_ptr, %src_bound_ref_ptr
+[END_MACRO]
+
 [MACRO] BOUND_U64_IS_UNBOUNDED %out_bool, %bound_ptr
     __bound_tag_%out_bool = load %bound_ptr+BoundU64_tag as u64
     %out_bool = eq __bound_tag_%out_bool, BOUND_U64_UNBOUNDED
@@ -810,6 +872,30 @@ L_BOUND_U64_MAP_DONE_%dst_bound_ptr:
 
 [MACRO] BOUND_USIZE_VALUE %out_value, %bound_ptr
     %out_value = load %bound_ptr+BoundUsize_value as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_AS_REF %dst_bound_ref_ptr, %src_bound_ptr
+    EXPAND BOUND_U64_AS_REF %dst_bound_ref_ptr, %src_bound_ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_AS_MUT %dst_bound_ref_ptr, %src_bound_ptr
+    EXPAND BOUND_U64_AS_MUT %dst_bound_ref_ptr, %src_bound_ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_REF_TAG %out_tag, %bound_ref_ptr
+    %out_tag = load %bound_ref_ptr+BoundUsizeRef_tag as u64
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_REF_PTR %out_ptr, %bound_ref_ptr
+    %out_ptr = load %bound_ref_ptr+BoundUsizeRef_ptr as ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_REF_COPIED %dst_bound_ptr, %src_bound_ref_ptr
+    EXPAND BOUND_U64_REF_COPIED %dst_bound_ptr, %src_bound_ref_ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_REF_CLONED %dst_bound_ptr, %src_bound_ref_ptr
+    EXPAND BOUND_U64_REF_CLONED %dst_bound_ptr, %src_bound_ref_ptr
 [END_MACRO]
 
 [MACRO] BOUND_USIZE_IS_UNBOUNDED %out_bool, %bound_ptr

@@ -1220,3 +1220,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10515+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bb)
+
+Completed supportable defaults/aliases/macros:
+- BoundU64Ref and BoundUsizeRef concrete tag+pointer layouts in ops.sal for Rust Bound<&u64> / Bound<&usize> lowering.
+- Bound<u64> and Bound<usize> as_ref/as_mut macros plus ref copied/cloned helpers in ops.sa, mirroring Rust Bound::as_ref/as_mut and Bound<&T>::copied/cloned at the concrete pointer-layout level.
+- Test file std_ops_bound_ref_macro_surface.sa (panic ID 10515).
+
+Panic IDs next free: 10516+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

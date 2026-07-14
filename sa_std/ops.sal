@@ -26,6 +26,10 @@
 #def BOUND_U64_INCLUDED = 1
 #def BOUND_U64_EXCLUDED = 2
 
+#def BoundU64Ref_SIZE = 16
+#def BoundU64Ref_tag = +0
+#def BoundU64Ref_ptr = +8
+
 #def RangeUsize_SIZE = 16
 #def RangeUsize_start = +0
 #def RangeUsize_end = +8
@@ -51,6 +55,10 @@
 #def BOUND_USIZE_UNBOUNDED = BOUND_U64_UNBOUNDED
 #def BOUND_USIZE_INCLUDED = BOUND_U64_INCLUDED
 #def BOUND_USIZE_EXCLUDED = BOUND_U64_EXCLUDED
+
+#def BoundUsizeRef_SIZE = BoundU64Ref_SIZE
+#def BoundUsizeRef_tag = BoundU64Ref_tag
+#def BoundUsizeRef_ptr = BoundU64Ref_ptr
 
 #def ControlFlowU64_SIZE = 16
 #def ControlFlowU64_ALIGN = 8

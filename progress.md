@@ -6557,3 +6557,13 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_intersect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10515+.
+
+## Completed: 2026-07-14 Bound ref macros (Batch bb)
+
+- `sa_std/ops.sal`: Added `BoundU64Ref` and `BoundUsizeRef` tag+pointer layout constants for concrete `Bound<&u64>` / `Bound<&usize>` lowering.
+- `sa_std/ops.sa`: Added `BOUND_U64_AS_REF`, `BOUND_U64_AS_MUT`, `BOUND_U64_REF_TAG`, `BOUND_U64_REF_PTR`, `BOUND_U64_REF_COPIED`, `BOUND_U64_REF_CLONED`, and matching `BOUND_USIZE_*` aliases/helpers.
+- Semantics: Included/Excluded ref bounds point at the original payload slot, Unbounded uses a null payload, and ref copied/cloned reads the pointed-to `u64` back into a value bound. These helpers do not model Rust borrow lifetimes or aliasing rules.
+- Test: `tests/unit_framework/std_ops_bound_ref_macro_surface.sa` — 1 test (panic ID 10515) covering layout constants, `as_ref`, `as_mut`, ref copied/cloned, Unbounded null payload, and usize aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_ref_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10516+.
