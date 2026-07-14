@@ -142,6 +142,38 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND ARRAY_FILL_U64 %array_ptr, %length, %value
 [END_MACRO]
 
+[MACRO] ARRAY_DEFAULT_U64 %array_ptr, %length
+    EXPAND ARRAY_FILL_U64 %array_ptr, %length, 0
+[END_MACRO]
+
+[MACRO] ARRAY_DEFAULT_I64 %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_U64 %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_DEFAULT_USIZE %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_U64 %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_DEFAULT_BOOL %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_U64 %array_ptr, %length
+[END_MACRO]
+
+[MACRO] DEFAULT_ARRAY_U64 %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_U64 %array_ptr, %length
+[END_MACRO]
+
+[MACRO] DEFAULT_ARRAY_I64 %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_I64 %array_ptr, %length
+[END_MACRO]
+
+[MACRO] DEFAULT_ARRAY_USIZE %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_USIZE %array_ptr, %length
+[END_MACRO]
+
+[MACRO] DEFAULT_ARRAY_BOOL %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_BOOL %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
     __array_copy_bytes_%dst_ptr = mul %length, 8
     call @sa_mem_copy(&%dst_ptr, &%src_ptr, __array_copy_bytes_%dst_ptr)

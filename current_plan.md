@@ -1284,3 +1284,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10522+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bi)
+
+Completed supportable defaults/aliases/macros:
+- Concrete primitive array default fill helpers in array.sa for u64, i64, usize, and bool arrays, plus DEFAULT_ARRAY_* aliases.
+- Test file std_array_default_macro_surface.sa (panic ID 10522).
+
+Panic IDs next free: 10523+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

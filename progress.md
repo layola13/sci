@@ -6621,3 +6621,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_ref_try_from_slice_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10522+.
+
+## Completed: 2026-07-14 Array default macros (Batch bi)
+
+- `sa_std/array.sa`: Added concrete primitive array default fill helpers for `u64`, `i64`, `usize`, and `bool` arrays, plus Rust-named `DEFAULT_ARRAY_*` aliases.
+- Semantics: helpers fill caller-owned array storage with the concrete primitive default value (`0`), modeling the common `[T; N]::default()` lowering shape without implementing Rust's generic `Default for [T; N]` trait.
+- Test: `tests/unit_framework/std_array_default_macro_surface.sa` — 1 test (panic ID 10522) covering direct `ARRAY_DEFAULT_*` helpers and `DEFAULT_ARRAY_*` aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10523+.
