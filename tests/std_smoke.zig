@@ -1068,6 +1068,9 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_bool"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_i64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_object_get_f64"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "@extern sa_json_string_ptr(node: ptr) -> &ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "@extern sa_json_buffer_data(&buffer: ptr) -> &ptr"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "@extern sa_json_stream_get_slice_ptr(stream: ptr) -> &ptr"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_stringify"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_buffer_free"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_iface, 1, "sa_json_scanner_next"));

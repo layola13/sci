@@ -9578,7 +9578,6 @@ pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len
     return 1;
 }
 
-
 fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
     var index: usize = 0;
     while (index < 8) : (index += 1) {

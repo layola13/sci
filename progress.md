@@ -6514,3 +6514,37 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_range_usize_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10510+.
+
+## Completed: 2026-07-14 RangeInclusive into_inner macros (Batch aw)
+
+- `sa_std/ops.sa`: Added `RANGE_INCLUSIVE_U64_INTO_INNER` and `RANGE_INCLUSIVE_USIZE_INTO_INNER`, returning the stored start/end pair for concrete RangeInclusive layouts.
+- Test: `tests/unit_framework/std_ops_range_inclusive_inner_macro_surface.sa` — 1 test (panic ID 10510) verifying both u64 and usize into_inner surfaces.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_range_inclusive_inner_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10511+.
+
+## Completed: 2026-07-14 RangeBounds concrete macros (Batch ax)
+
+- `sa_std/ops.sa`: Added concrete RangeBounds/IntoBounds-style `START_BOUND`, `END_BOUND`, and `INTO_BOUNDS` macros for RangeFull, Range, RangeFrom, RangeTo, RangeInclusive, and RangeToInclusive over `BoundU64` and `BoundUsize`.
+- `sa_std/ops.sa`: RangeInclusive end-bound helpers return `Included(end)` while active and `Excluded(end)` after exhaustion, matching Rust's `RangeBounds` / `IntoBounds` behavior for exhausted inclusive ranges.
+- Test: `tests/unit_framework/std_ops_range_bounds_macro_surface.sa` — 1 test (panic ID 10511) verifying u64 and usize bound extraction surfaces.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_range_bounds_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10512+.
+
+## Completed: 2026-07-14 Bound map/copy macros (Batch ay)
+
+- `sa_std/ops.sa`: Added `BOUND_U64_COPY`, `BOUND_U64_COPIED`, `BOUND_U64_CLONED`, and `BOUND_U64_MAP`.
+- `sa_std/ops.sa`: Added matching `Bound<usize>` copy/copied/cloned/map helpers over the current 64-bit SA usize layout.
+- Test: `tests/unit_framework/std_ops_bound_map_macro_surface.sa` — 1 test (panic ID 10512) verifying tag preservation, payload mapping, copy aliases, and Unbounded callback bypass.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_map_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10513+.
+
+## Completed: 2026-07-14 Bound range is_empty macros (Batch az)
+
+- `sa_std/ops.sa`: Added `BOUND_U64_RANGE_IS_EMPTY` and `BOUND_USIZE_RANGE_IS_EMPTY`, mirroring Rust `RangeBounds::is_empty` bound-pair rules for concrete SA bound layouts.
+- Test: `tests/unit_framework/std_ops_bound_range_empty_macro_surface.sa` — 1 test (panic ID 10513) verifying unbounded endpoints, inclusive equal bounds, exclusive equal bounds, and reversed ranges.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_range_empty_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10514+.

@@ -1174,3 +1174,40 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10510+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 aw)
+
+Completed supportable defaults/aliases/macros:
+- RangeInclusive<u64> and RangeInclusive<usize> into_inner macros in ops.sa, mirroring Rust core::ops::RangeInclusive::into_inner over the existing concrete layouts.
+- Test file std_ops_range_inclusive_inner_macro_surface.sa (panic ID 10510).
+
+Panic IDs next free: 10511+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ax)
+
+Completed supportable defaults/aliases/macros:
+- Concrete RangeBounds/IntoBounds-style bound extraction macros for RangeFull, Range, RangeFrom, RangeTo, RangeInclusive, and RangeToInclusive over u64 and usize Bound layouts.
+- RangeInclusive end-bound helpers mirror Rust's exhausted behavior by returning Excluded(end) once exhausted is set.
+- Test file std_ops_range_bounds_macro_surface.sa (panic ID 10511).
+
+Panic IDs next free: 10512+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ay)
+
+Completed supportable defaults/aliases/macros:
+- Bound<u64> and Bound<usize> copy/copied/cloned aliases plus concrete map helpers in ops.sa, mirroring Rust Bound::map's tag-preserving behavior for Included/Excluded and callback bypass for Unbounded.
+- Test file std_ops_bound_map_macro_surface.sa (panic ID 10512).
+
+Panic IDs next free: 10513+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 az)
+
+Completed supportable defaults/aliases/macros:
+- Bound<u64> and Bound<usize> concrete range is_empty helpers in ops.sa, mirroring Rust RangeBounds::is_empty bound-pair rules for unbounded, inclusive, and exclusive endpoints.
+- Test file std_ops_bound_range_empty_macro_surface.sa (panic ID 10513).
+
+Panic IDs next free: 10514+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
