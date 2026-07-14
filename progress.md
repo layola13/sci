@@ -6478,3 +6478,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_control_flow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10506+.
+
+## Completed: 2026-07-14 OnceState layout and poison query macros (Batch as)
+
+- `sa_std/sync/once.sal`: Added `OnceState` layout constants and Linux/futex state constants for COMPLETE/RUNNING/POISONED/INCOMPLETE/QUEUED/MASK, matching the local Rust source's `std::sync::OnceState` backend view at the SA macro-layout level.
+- `sa_std/sync/once.sa`: Added `ONCE_STATE_NEW`, `ONCE_STATE_IS_POISONED`, `ONCE_STATE_POISON`, and `ONCE_STATE_SET_STATE_TO`.
+- Test: `tests/unit_framework/std_once_state_layout_macro_surface.sa` — 1 test (panic ID 10506) verifying the new OnceState layout and poison query/update macros.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_once_state_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10507+.

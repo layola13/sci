@@ -5,6 +5,17 @@
 #def Once_STATE_RUNNING = 1
 #def Once_STATE_READY = 2
 
+#def OnceState_SIZE = 8
+#def OnceState_ALIGN = 4
+#def OnceState_poisoned = +0
+#def OnceState_set_state_to = +4
+#def OnceState_STATE_COMPLETE = 0
+#def OnceState_STATE_RUNNING = 1
+#def OnceState_STATE_POISONED = 2
+#def OnceState_STATE_INCOMPLETE = 3
+#def OnceState_STATE_QUEUED = 4
+#def OnceState_STATE_MASK = 3
+
 #def OnceLock_SIZE = 16
 #def OnceLock_state = +0
 #def OnceLock_value = +8

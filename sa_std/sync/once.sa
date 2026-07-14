@@ -83,6 +83,25 @@ L_ONCE_TRY_READY:
     %out_state = atomic_load %once_reg+Once_state as u32 acquire
 [END_MACRO]
 
+[MACRO] ONCE_STATE_NEW %state_ptr, %poisoned
+    store %state_ptr+OnceState_poisoned, %poisoned as u8
+    store %state_ptr+OnceState_set_state_to, OnceState_STATE_COMPLETE as u32
+[END_MACRO]
+
+[MACRO] ONCE_STATE_IS_POISONED %out_bool, %state_ptr
+    __once_state_poisoned_%out_bool = load %state_ptr+OnceState_poisoned as u8
+    %out_bool = ne __once_state_poisoned_%out_bool, 0
+    !__once_state_poisoned_%out_bool
+[END_MACRO]
+
+[MACRO] ONCE_STATE_POISON %state_ptr
+    store %state_ptr+OnceState_set_state_to, OnceState_STATE_POISONED as u32
+[END_MACRO]
+
+[MACRO] ONCE_STATE_SET_STATE_TO %out_state, %state_ptr
+    %out_state = load %state_ptr+OnceState_set_state_to as u32
+[END_MACRO]
+
 [MACRO] ONCE_IS_UNINIT %out_bool, %once_reg
     __once_uninit_state_%out_bool = atomic_load %once_reg+Once_state as u32 acquire
     %out_bool = eq __once_uninit_state_%out_bool, Once_STATE_UNINIT

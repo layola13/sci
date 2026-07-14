@@ -1136,3 +1136,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10506+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 as)
+
+Completed supportable defaults/aliases/macros:
+- OnceState layout constants in sync/once.sal matching the local Rust Linux/futex backend view: poisoned byte plus set_state_to primitive.
+- OnceState futex state constants for COMPLETE/RUNNING/POISONED/INCOMPLETE/QUEUED/MASK and query/update macros in sync/once.sa.
+- Test file std_once_state_layout_macro_surface.sa (panic ID 10506).
+
+Panic IDs next free: 10507+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

@@ -668,6 +668,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_mutex_macro_surface.sa",
         "tests/unit_framework/std_rwlock_macro_surface.sa",
         "tests/unit_framework/std_sync_poison_error_layout_macro_surface.sa",
+        "tests/unit_framework/std_once_state_layout_macro_surface.sa",
         "tests/unit_framework/std_mpsc_error_layout_macro_surface.sa",
         "tests/unit_framework/std_mpsc_macro_surface.sa",
         "tests/unit_framework/std_process_macro_surface.sa",
