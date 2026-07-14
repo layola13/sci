@@ -1225,6 +1225,39 @@ L_ITER_FILTER_MAP_DONE_%out_vec:
     !__iter_filter_map_has_%out_vec
 [END_MACRO]
 
+[MACRO] ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND ITER_VEC_NEW %out_vec
+    __iter_map_while_slot_%out_vec = stack_alloc 8
+    jmp L_ITER_MAP_WHILE_HEAD_%out_vec
+L_ITER_MAP_WHILE_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_map_while_has_%out_vec, __iter_map_while_value_%out_vec, %iter_reg
+    br __iter_map_while_has_%out_vec -> L_ITER_MAP_WHILE_CHECK_%out_vec, L_ITER_MAP_WHILE_DONE_EMPTY_%out_vec
+L_ITER_MAP_WHILE_CHECK_%out_vec:
+    __iter_map_while_found_%out_vec = call %map_fn(__iter_map_while_value_%out_vec, &__iter_map_while_slot_%out_vec)
+    __iter_map_while_keep_%out_vec = ne __iter_map_while_found_%out_vec, 0
+    br __iter_map_while_keep_%out_vec -> L_ITER_MAP_WHILE_PUSH_%out_vec, L_ITER_MAP_WHILE_STOP_%out_vec
+L_ITER_MAP_WHILE_PUSH_%out_vec:
+    __iter_map_while_mapped_%out_vec = load __iter_map_while_slot_%out_vec+0 as u64
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_map_while_mapped_%out_vec
+    !__iter_map_while_mapped_%out_vec
+    !__iter_map_while_keep_%out_vec
+    !__iter_map_while_found_%out_vec
+    !__iter_map_while_value_%out_vec
+    !__iter_map_while_has_%out_vec
+    jmp L_ITER_MAP_WHILE_HEAD_%out_vec
+L_ITER_MAP_WHILE_STOP_%out_vec:
+    !__iter_map_while_keep_%out_vec
+    !__iter_map_while_found_%out_vec
+    !__iter_map_while_value_%out_vec
+    !__iter_map_while_has_%out_vec
+    jmp L_ITER_MAP_WHILE_DONE_%out_vec
+L_ITER_MAP_WHILE_DONE_EMPTY_%out_vec:
+    !__iter_map_while_value_%out_vec
+    !__iter_map_while_has_%out_vec
+    jmp L_ITER_MAP_WHILE_DONE_%out_vec
+L_ITER_MAP_WHILE_DONE_%out_vec:
+[END_MACRO]
+
 [MACRO] ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
     EXPAND ITER_VEC_NEW %out_true_vec
     EXPAND ITER_VEC_NEW %out_false_vec

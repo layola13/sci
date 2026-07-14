@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter map_while collect)
+
+Completed supportable iterator map-while collect macro:
+- `ITER_MAP_WHILE_COLLECT_U64`: concrete Rust `Iterator::map_while(...).collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor.
+- The macro uses the existing `(value, out_mapped_ptr) -> ok` callback shape, consumes and maps items while the callback returns nonzero, consumes the first zero/None-style item without collecting it, and leaves later suffix items available, matching the Rust documented stopping-item behavior for this concrete eager collect subset.
+- Test file `std_iter_map_while_macro_surface.sa` (panic ID 10537).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_map_while_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10538+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `MapWhile` adapter identity, generic item/reference semantics, generic `Option` return and `collect`, `IntoIterator`, Rust `Try` residual/error object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter collect_into)
 
 Completed supportable iterator collect-into macro:
