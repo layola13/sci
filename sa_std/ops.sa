@@ -1221,6 +1221,169 @@ L_RANGE_INC_USIZE_BOUND_END_DONE_%bound_ptr:
     EXPAND RANGE_TO_INCLUSIVE_USIZE_END_BOUND %end_bound_ptr, %range_ptr
 [END_MACRO]
 
+[MACRO] BOUND_U64_INTERSECT_START %dst_bound_ptr, %left_bound_ptr, %right_bound_ptr
+    __bound_u64_intersect_start_left_tag_%dst_bound_ptr = load %left_bound_ptr+BoundU64_tag as u64
+    __bound_u64_intersect_start_right_tag_%dst_bound_ptr = load %right_bound_ptr+BoundU64_tag as u64
+    __bound_u64_intersect_start_left_unbounded_%dst_bound_ptr = eq __bound_u64_intersect_start_left_tag_%dst_bound_ptr, BOUND_U64_UNBOUNDED
+    br __bound_u64_intersect_start_left_unbounded_%dst_bound_ptr -> L_BOUND_U64_INTERSECT_START_COPY_RIGHT_UNBOUNDED_%dst_bound_ptr, L_BOUND_U64_INTERSECT_START_CHECK_RIGHT_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_CHECK_RIGHT_%dst_bound_ptr:
+    __bound_u64_intersect_start_right_unbounded_%dst_bound_ptr = eq __bound_u64_intersect_start_right_tag_%dst_bound_ptr, BOUND_U64_UNBOUNDED
+    br __bound_u64_intersect_start_right_unbounded_%dst_bound_ptr -> L_BOUND_U64_INTERSECT_START_COPY_LEFT_UNBOUNDED_%dst_bound_ptr, L_BOUND_U64_INTERSECT_START_BOUNDED_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_BOUNDED_%dst_bound_ptr:
+    __bound_u64_intersect_start_left_value_%dst_bound_ptr = load %left_bound_ptr+BoundU64_value as u64
+    __bound_u64_intersect_start_right_value_%dst_bound_ptr = load %right_bound_ptr+BoundU64_value as u64
+    __bound_u64_intersect_start_left_gt_%dst_bound_ptr = ugt __bound_u64_intersect_start_left_value_%dst_bound_ptr, __bound_u64_intersect_start_right_value_%dst_bound_ptr
+    __bound_u64_intersect_start_values_eq_%dst_bound_ptr = eq __bound_u64_intersect_start_left_value_%dst_bound_ptr, __bound_u64_intersect_start_right_value_%dst_bound_ptr
+    __bound_u64_intersect_start_left_excluded_%dst_bound_ptr = eq __bound_u64_intersect_start_left_tag_%dst_bound_ptr, BOUND_U64_EXCLUDED
+    __bound_u64_intersect_start_right_included_%dst_bound_ptr = eq __bound_u64_intersect_start_right_tag_%dst_bound_ptr, BOUND_U64_INCLUDED
+    __bound_u64_intersect_start_tie_excluded_%dst_bound_ptr = and __bound_u64_intersect_start_left_excluded_%dst_bound_ptr, __bound_u64_intersect_start_right_included_%dst_bound_ptr
+    __bound_u64_intersect_start_tie_left_%dst_bound_ptr = and __bound_u64_intersect_start_values_eq_%dst_bound_ptr, __bound_u64_intersect_start_tie_excluded_%dst_bound_ptr
+    __bound_u64_intersect_start_choose_left_%dst_bound_ptr = or __bound_u64_intersect_start_left_gt_%dst_bound_ptr, __bound_u64_intersect_start_tie_left_%dst_bound_ptr
+    br __bound_u64_intersect_start_choose_left_%dst_bound_ptr -> L_BOUND_U64_INTERSECT_START_COPY_LEFT_BOUNDED_%dst_bound_ptr, L_BOUND_U64_INTERSECT_START_COPY_RIGHT_BOUNDED_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_COPY_LEFT_BOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %left_bound_ptr
+    !__bound_u64_intersect_start_choose_left_%dst_bound_ptr
+    !__bound_u64_intersect_start_tie_left_%dst_bound_ptr
+    !__bound_u64_intersect_start_tie_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_included_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_start_values_eq_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_gt_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_value_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_value_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_INTERSECT_START_DONE_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_COPY_RIGHT_BOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %right_bound_ptr
+    !__bound_u64_intersect_start_choose_left_%dst_bound_ptr
+    !__bound_u64_intersect_start_tie_left_%dst_bound_ptr
+    !__bound_u64_intersect_start_tie_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_included_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_start_values_eq_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_gt_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_value_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_value_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_INTERSECT_START_DONE_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_COPY_LEFT_UNBOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %left_bound_ptr
+    !__bound_u64_intersect_start_right_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_INTERSECT_START_DONE_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_COPY_RIGHT_UNBOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %right_bound_ptr
+    !__bound_u64_intersect_start_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_start_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_start_left_tag_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_START_DONE_%dst_bound_ptr:
+[END_MACRO]
+
+[MACRO] BOUND_U64_INTERSECT_END %dst_bound_ptr, %left_bound_ptr, %right_bound_ptr
+    __bound_u64_intersect_end_left_tag_%dst_bound_ptr = load %left_bound_ptr+BoundU64_tag as u64
+    __bound_u64_intersect_end_right_tag_%dst_bound_ptr = load %right_bound_ptr+BoundU64_tag as u64
+    __bound_u64_intersect_end_left_unbounded_%dst_bound_ptr = eq __bound_u64_intersect_end_left_tag_%dst_bound_ptr, BOUND_U64_UNBOUNDED
+    br __bound_u64_intersect_end_left_unbounded_%dst_bound_ptr -> L_BOUND_U64_INTERSECT_END_COPY_RIGHT_UNBOUNDED_%dst_bound_ptr, L_BOUND_U64_INTERSECT_END_CHECK_RIGHT_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_CHECK_RIGHT_%dst_bound_ptr:
+    __bound_u64_intersect_end_right_unbounded_%dst_bound_ptr = eq __bound_u64_intersect_end_right_tag_%dst_bound_ptr, BOUND_U64_UNBOUNDED
+    br __bound_u64_intersect_end_right_unbounded_%dst_bound_ptr -> L_BOUND_U64_INTERSECT_END_COPY_LEFT_UNBOUNDED_%dst_bound_ptr, L_BOUND_U64_INTERSECT_END_BOUNDED_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_BOUNDED_%dst_bound_ptr:
+    __bound_u64_intersect_end_left_value_%dst_bound_ptr = load %left_bound_ptr+BoundU64_value as u64
+    __bound_u64_intersect_end_right_value_%dst_bound_ptr = load %right_bound_ptr+BoundU64_value as u64
+    __bound_u64_intersect_end_left_lt_%dst_bound_ptr = ult __bound_u64_intersect_end_left_value_%dst_bound_ptr, __bound_u64_intersect_end_right_value_%dst_bound_ptr
+    __bound_u64_intersect_end_values_eq_%dst_bound_ptr = eq __bound_u64_intersect_end_left_value_%dst_bound_ptr, __bound_u64_intersect_end_right_value_%dst_bound_ptr
+    __bound_u64_intersect_end_left_excluded_%dst_bound_ptr = eq __bound_u64_intersect_end_left_tag_%dst_bound_ptr, BOUND_U64_EXCLUDED
+    __bound_u64_intersect_end_right_included_%dst_bound_ptr = eq __bound_u64_intersect_end_right_tag_%dst_bound_ptr, BOUND_U64_INCLUDED
+    __bound_u64_intersect_end_tie_excluded_%dst_bound_ptr = and __bound_u64_intersect_end_left_excluded_%dst_bound_ptr, __bound_u64_intersect_end_right_included_%dst_bound_ptr
+    __bound_u64_intersect_end_tie_left_%dst_bound_ptr = and __bound_u64_intersect_end_values_eq_%dst_bound_ptr, __bound_u64_intersect_end_tie_excluded_%dst_bound_ptr
+    __bound_u64_intersect_end_choose_left_%dst_bound_ptr = or __bound_u64_intersect_end_left_lt_%dst_bound_ptr, __bound_u64_intersect_end_tie_left_%dst_bound_ptr
+    br __bound_u64_intersect_end_choose_left_%dst_bound_ptr -> L_BOUND_U64_INTERSECT_END_COPY_LEFT_BOUNDED_%dst_bound_ptr, L_BOUND_U64_INTERSECT_END_COPY_RIGHT_BOUNDED_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_COPY_LEFT_BOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %left_bound_ptr
+    !__bound_u64_intersect_end_choose_left_%dst_bound_ptr
+    !__bound_u64_intersect_end_tie_left_%dst_bound_ptr
+    !__bound_u64_intersect_end_tie_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_included_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_end_values_eq_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_lt_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_value_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_value_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_INTERSECT_END_DONE_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_COPY_RIGHT_BOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %right_bound_ptr
+    !__bound_u64_intersect_end_choose_left_%dst_bound_ptr
+    !__bound_u64_intersect_end_tie_left_%dst_bound_ptr
+    !__bound_u64_intersect_end_tie_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_included_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_excluded_%dst_bound_ptr
+    !__bound_u64_intersect_end_values_eq_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_lt_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_value_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_value_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_INTERSECT_END_DONE_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_COPY_LEFT_UNBOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %left_bound_ptr
+    !__bound_u64_intersect_end_right_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_tag_%dst_bound_ptr
+    jmp L_BOUND_U64_INTERSECT_END_DONE_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_COPY_RIGHT_UNBOUNDED_%dst_bound_ptr:
+    EXPAND BOUND_U64_COPY %dst_bound_ptr, %right_bound_ptr
+    !__bound_u64_intersect_end_left_unbounded_%dst_bound_ptr
+    !__bound_u64_intersect_end_right_tag_%dst_bound_ptr
+    !__bound_u64_intersect_end_left_tag_%dst_bound_ptr
+
+L_BOUND_U64_INTERSECT_END_DONE_%dst_bound_ptr:
+[END_MACRO]
+
+[MACRO] BOUND_U64_INTERSECT_RANGE %out_start_bound_ptr, %out_end_bound_ptr, %left_start_bound_ptr, %left_end_bound_ptr, %right_start_bound_ptr, %right_end_bound_ptr
+    EXPAND BOUND_U64_INTERSECT_START %out_start_bound_ptr, %left_start_bound_ptr, %right_start_bound_ptr
+    EXPAND BOUND_U64_INTERSECT_END %out_end_bound_ptr, %left_end_bound_ptr, %right_end_bound_ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_INTERSECT_START %dst_bound_ptr, %left_bound_ptr, %right_bound_ptr
+    EXPAND BOUND_U64_INTERSECT_START %dst_bound_ptr, %left_bound_ptr, %right_bound_ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_INTERSECT_END %dst_bound_ptr, %left_bound_ptr, %right_bound_ptr
+    EXPAND BOUND_U64_INTERSECT_END %dst_bound_ptr, %left_bound_ptr, %right_bound_ptr
+[END_MACRO]
+
+[MACRO] BOUND_USIZE_INTERSECT_RANGE %out_start_bound_ptr, %out_end_bound_ptr, %left_start_bound_ptr, %left_end_bound_ptr, %right_start_bound_ptr, %right_end_bound_ptr
+    EXPAND BOUND_U64_INTERSECT_RANGE %out_start_bound_ptr, %out_end_bound_ptr, %left_start_bound_ptr, %left_end_bound_ptr, %right_start_bound_ptr, %right_end_bound_ptr
+[END_MACRO]
+
 [MACRO] RANGE_FROM_U64_DEFAULT %range_ptr
     store %range_ptr+RangeFromU64_start, 0 as u64
 [END_MACRO]

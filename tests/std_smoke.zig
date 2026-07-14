@@ -1092,6 +1092,7 @@ test "sa_std json helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_AS_I64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_IS_OBJECT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_ARRAY_GET"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_STRING_PTR"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_ARRAY_LOOP_INIT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_OBJECT_LOOP_INIT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, json_src, 1, "[MACRO] JSON_WRITER_BEGIN_OBJECT"));

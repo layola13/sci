@@ -664,6 +664,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_ops_range_bounds_macro_surface.sa",
         "tests/unit_framework/std_ops_bound_map_macro_surface.sa",
         "tests/unit_framework/std_ops_bound_range_empty_macro_surface.sa",
+        "tests/unit_framework/std_ops_bound_intersect_macro_surface.sa",
         "tests/unit_framework/std_ops_control_flow_macro_surface.sa",
         "tests/unit_framework/std_ops_bound_usize_macro_surface.sa",
         "tests/unit_framework/std_char_macro_surface.sa",

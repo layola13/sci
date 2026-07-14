@@ -1211,3 +1211,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10514+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ba)
+
+Completed supportable defaults/aliases/macros:
+- Bound<u64> and Bound<usize> concrete start/end/range intersection helpers in ops.sa, mirroring Rust IntoBounds::intersect bound-selection rules over the existing concrete Bound layouts.
+- Test file std_ops_bound_intersect_macro_surface.sa (panic ID 10514).
+
+Panic IDs next free: 10515+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

@@ -6548,3 +6548,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_range_empty_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10514+.
+
+## Completed: 2026-07-14 Bound intersect macros (Batch ba)
+
+- `sa_std/ops.sa`: Added `BOUND_U64_INTERSECT_START`, `BOUND_U64_INTERSECT_END`, `BOUND_U64_INTERSECT_RANGE`, and matching `BOUND_USIZE_INTERSECT_*` aliases over the current 64-bit SA usize layout.
+- Semantics: these helpers mirror Rust `IntoBounds::intersect` for concrete bound pairs by selecting the stricter/larger lower bound for starts and stricter/smaller upper bound for ends; equal-value Included/Excluded pairs keep Excluded as the stricter edge.
+- Test: `tests/unit_framework/std_ops_bound_intersect_macro_surface.sa` — 1 test (panic ID 10514) covering Rust's documented intersect examples over concrete unsigned ranges plus a usize range pair.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_intersect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10515+.

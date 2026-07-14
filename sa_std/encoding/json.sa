@@ -154,6 +154,10 @@
     %out_len = call @sa_json_string_len(%node)
 [END_MACRO]
 
+[MACRO] JSON_STRING_PTR %out_ptr, %node
+    %out_ptr = call @sa_json_string_ptr(%node)
+[END_MACRO]
+
 [MACRO] JSON_FREE %node
     __json_free_res_%node = call @sa_json_free(^%node)
     !__json_free_res_%node
