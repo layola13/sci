@@ -6437,3 +6437,11 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_alloc_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10501+.
+
+## Completed: 2026-07-14 MPSC error layout constants (Batch an)
+
+- `sa_std/sync/mpsc.sal`: Added layout constants for `SendError<u64>`, `RecvError`, `TryRecvError`, `RecvTimeoutError`, and `TrySendError<u64>`, plus Rust mpsc error kind constants for Empty/Timeout/Full and Disconnected categories.
+- Test: `tests/unit_framework/std_mpsc_error_layout_macro_surface.sa` — 1 test (panic ID 10501) verifying the new mpsc error layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_mpsc_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10502+.

@@ -1,0 +1,58 @@
+@import "sa_std/sync/mpsc.sal"
+
+@test "sa_std mpsc error layout constants"():
+L_ENTRY:
+    ok_send_size = eq SendErrorU64_SIZE, 8
+    ok_send_align = eq SendErrorU64_ALIGN, 8
+    ok_send_value = eq SendErrorU64_value, +0
+
+    ok_recv_size = eq RecvError_SIZE, 0
+    ok_recv_align = eq RecvError_ALIGN, 1
+
+    ok_try_recv_size = eq TryRecvError_SIZE, 8
+    ok_try_recv_align = eq TryRecvError_ALIGN, 8
+    ok_try_recv_kind = eq TryRecvError_kind, +0
+    ok_try_recv_empty = eq TRY_RECV_ERROR_EMPTY, 0
+    ok_try_recv_disconnected = eq TRY_RECV_ERROR_DISCONNECTED, 1
+
+    ok_recv_timeout_size = eq RecvTimeoutError_SIZE, 8
+    ok_recv_timeout_align = eq RecvTimeoutError_ALIGN, 8
+    ok_recv_timeout_kind = eq RecvTimeoutError_kind, +0
+    ok_recv_timeout_timeout = eq RECV_TIMEOUT_ERROR_TIMEOUT, 0
+    ok_recv_timeout_disconnected = eq RECV_TIMEOUT_ERROR_DISCONNECTED, 1
+
+    ok_try_send_size = eq TrySendErrorU64_SIZE, 16
+    ok_try_send_align = eq TrySendErrorU64_ALIGN, 8
+    ok_try_send_kind = eq TrySendErrorU64_kind, +0
+    ok_try_send_value = eq TrySendErrorU64_value, +8
+    ok_try_send_full = eq TRY_SEND_ERROR_FULL, 0
+    ok_try_send_disconnected = eq TRY_SEND_ERROR_DISCONNECTED, 1
+
+    c01 = and ok_send_size, ok_send_align
+    c02 = and c01, ok_send_value
+    c03 = and c02, ok_recv_size
+    c04 = and c03, ok_recv_align
+    c05 = and c04, ok_try_recv_size
+    c06 = and c05, ok_try_recv_align
+    c07 = and c06, ok_try_recv_kind
+    c08 = and c07, ok_try_recv_empty
+    c09 = and c08, ok_try_recv_disconnected
+    c10 = and c09, ok_recv_timeout_size
+    c11 = and c10, ok_recv_timeout_align
+    c12 = and c11, ok_recv_timeout_kind
+    c13 = and c12, ok_recv_timeout_timeout
+    c14 = and c13, ok_recv_timeout_disconnected
+    c15 = and c14, ok_try_send_size
+    c16 = and c15, ok_try_send_align
+    c17 = and c16, ok_try_send_kind
+    c18 = and c17, ok_try_send_value
+    c19 = and c18, ok_try_send_full
+    ok = and c19, ok_try_send_disconnected
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10501)
+
+L_PASS:
+    return 0

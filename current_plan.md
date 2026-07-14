@@ -1087,3 +1087,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10501+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 an)
+
+Completed supportable defaults/aliases/macros:
+- MPSC error layout constants in sync/mpsc.sal for SendError<u64>, RecvError, TryRecvError, RecvTimeoutError, and TrySendError<u64>.
+- Error kind constants cover Empty/Disconnected, Timeout/Disconnected, and Full/Disconnected categories from Rust `std::sync::mpsc`.
+- Test file std_mpsc_error_layout_macro_surface.sa (panic ID 10501).
+
+Panic IDs next free: 10502+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
