@@ -28,7 +28,9 @@
 - 🔗 **[Network Protocol Bindings Sinking (网络协议 binding 下沉)](./net_bindings_sink.md)**  
   HTTP/2 (nghttp2) / TLS-server / DTLS (OpenSSL) / QUIC / HTTP/3 真后端从 `sa_plugin_node` 下沉到 `sci` runtime 与 `sa_std` ABI/宏的分级进展、真机状态与严格单测证明。
 - 💻 **[Multi-Platform Architecture (全平台架构)](./multi_platform_architecture.md)**  
-  PAL 抽象层设计，支持 Windows IOCP 与 macOS kqueue。
+  PAL 与跨平台 Reactor 的长期概念设计。
+- 🧭 **[macOS / Windows Portability Evaluation (可移植性评估与最小改动方案)](./macos_windows_portability_evaluation_cn.md)**
+  基于当前代码和交叉目标诊断，给出 ABI 保持、typed resource、宿主/runtime 双边界、原生 CI 与分阶段交付方案。
 
 ## 🧾 2.1 SA 文件后缀与清单速查
 
