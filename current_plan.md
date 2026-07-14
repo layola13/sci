@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter try_find)
+
+Completed supportable iterator try-find macro:
+- `ITER_TRY_FIND_U64`: concrete unstable Rust `Iterator::try_find` shape over the slice-backed `u64` cursor.
+- The macro takes a concrete `(value, out_match_ptr) -> ok` callback, returns `(ok, has, value)`, reports callback failure as `ok=0`, reports successful miss as `ok=1, has=0`, consumes the matching or failing item, and preserves later suffix elements.
+- Test file `std_iter_try_find_macro_surface.sa` (panic ID 10546).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_try_find_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10547+.
+Still blocked without redesign: real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result`, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter comparator-by)
 
 Completed supportable iterator comparator-by macros:

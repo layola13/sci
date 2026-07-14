@@ -281,6 +281,57 @@ L_ITER_FIND_NONE_%out_has:
 L_ITER_FIND_END_%out_has:
 [END_MACRO]
 
+[MACRO] ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    __iter_try_find_match_slot_%out_ok = stack_alloc 8
+    jmp L_ITER_TRY_FIND_HEAD_%out_ok
+L_ITER_TRY_FIND_HEAD_%out_ok:
+    EXPAND ITER_NEXT_U64 __iter_try_find_has_%out_ok, __iter_try_find_value_%out_ok, %iter_reg
+    br __iter_try_find_has_%out_ok -> L_ITER_TRY_FIND_CHECK_%out_ok, L_ITER_TRY_FIND_NONE_%out_ok
+L_ITER_TRY_FIND_CHECK_%out_ok:
+    __iter_try_find_ok_%out_ok = call %pred_fn(__iter_try_find_value_%out_ok, &__iter_try_find_match_slot_%out_ok)
+    __iter_try_find_continue_%out_ok = ne __iter_try_find_ok_%out_ok, 0
+    br __iter_try_find_continue_%out_ok -> L_ITER_TRY_FIND_MATCH_CHECK_%out_ok, L_ITER_TRY_FIND_FAIL_%out_ok
+L_ITER_TRY_FIND_MATCH_CHECK_%out_ok:
+    __iter_try_find_match_value_%out_ok = load __iter_try_find_match_slot_%out_ok+0 as u64
+    __iter_try_find_match_%out_ok = ne __iter_try_find_match_value_%out_ok, 0
+    br __iter_try_find_match_%out_ok -> L_ITER_TRY_FIND_SOME_%out_ok, L_ITER_TRY_FIND_NEXT_%out_ok
+L_ITER_TRY_FIND_NEXT_%out_ok:
+    !__iter_try_find_match_%out_ok
+    !__iter_try_find_match_value_%out_ok
+    !__iter_try_find_continue_%out_ok
+    !__iter_try_find_ok_%out_ok
+    !__iter_try_find_value_%out_ok
+    !__iter_try_find_has_%out_ok
+    jmp L_ITER_TRY_FIND_HEAD_%out_ok
+L_ITER_TRY_FIND_SOME_%out_ok:
+    %out_value = add __iter_try_find_value_%out_ok, 0
+    %out_has = add 0, 1
+    %out_ok = add 0, 1
+    !__iter_try_find_match_%out_ok
+    !__iter_try_find_match_value_%out_ok
+    !__iter_try_find_continue_%out_ok
+    !__iter_try_find_ok_%out_ok
+    !__iter_try_find_value_%out_ok
+    !__iter_try_find_has_%out_ok
+    jmp L_ITER_TRY_FIND_END_%out_ok
+L_ITER_TRY_FIND_FAIL_%out_ok:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    %out_ok = add 0, 0
+    !__iter_try_find_continue_%out_ok
+    !__iter_try_find_ok_%out_ok
+    !__iter_try_find_value_%out_ok
+    !__iter_try_find_has_%out_ok
+    jmp L_ITER_TRY_FIND_END_%out_ok
+L_ITER_TRY_FIND_NONE_%out_ok:
+    %out_value = add 0, 0
+    %out_has = add 0, 0
+    %out_ok = add 0, 1
+    !__iter_try_find_value_%out_ok
+    !__iter_try_find_has_%out_ok
+L_ITER_TRY_FIND_END_%out_ok:
+[END_MACRO]
+
 [MACRO] ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
     __iter_find_map_slot_%out_has = stack_alloc 8
     jmp L_ITER_FIND_MAP_HEAD_%out_has

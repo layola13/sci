@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator try_find macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_TRY_FIND_U64`.
+- The helper models a concrete unstable `Iterator::try_find` lowering for the supported `u64` cursor subset: it calls a `(value, out_match_ptr) -> ok` callback, returns `(ok, has, value)`, reports successful misses as `ok=1, has=0`, consumes the first found or failing item, and leaves later suffix elements available.
+- Test: `tests/unit_framework/std_iter_try_find_macro_surface.sa` - 1 test (panic ID 10546) covering successful find with suffix preservation, callback failure with suffix preservation, successful miss, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_try_find_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10547+.
+
 ## Completed: 2026-07-14 Iterator comparator-by macros
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
