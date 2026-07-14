@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator array_chunks collect macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor, referencing Rust's local `core::iter::ArrayChunks` implementation under `/home/vscode/projects/rust`.
+- `sa_std/core/iter.sa`: added `ITER_ARRAY_CHUNKS_COLLECT_U64`.
+- The helper models a concrete `Iterator::array_chunks::<N>().collect::<Vec<_>>()` lowering for the supported `u64` cursor subset by materializing complete non-overlapping chunks into a flat `Vec<u64>`. It reports `ok=0` and leaves the cursor untouched for `chunk_size == 0`; for nonzero chunk sizes it consumes only complete chunks and leaves an incomplete tail available in the cursor.
+- Test: `tests/unit_framework/std_iter_array_chunks_macro_surface.sa` - 1 test (panic ID 10550) covering short-tail retention, partially consumed input, exact division, chunk size larger than the remaining cursor, and zero chunk size.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_array_chunks_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10551+.
+
 ## Completed: 2026-07-14 Iterator peekable macros
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.

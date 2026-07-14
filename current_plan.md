@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter array_chunks collect)
+
+Completed supportable iterator array_chunks collect macro:
+- `ITER_ARRAY_CHUNKS_COLLECT_U64`: concrete Rust `Iterator::array_chunks::<N>().collect::<Vec<_>>()` shape over the slice-backed `u64` cursor.
+- The macro materializes complete non-overlapping chunks into a flat `Vec<u64>` (`[1,2,3,4,5]` with chunk size 2 becomes `[1,2,3,4]`), reports `ok=0` without consumption for zero chunk size, and leaves any incomplete nonzero tail available in the source cursor.
+- This is a concrete lowering surface only; it does not expose a lazy `ArrayChunks` adapter object, const-generic array item values, `IntoIter` remainder objects, or generic item/reference semantics.
+- Test file `std_iter_array_chunks_macro_surface.sa` (panic ID 10550).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_array_chunks_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10551+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `ArrayChunks` adapter identity, const-generic array item returns, Rust `into_remainder` object semantics, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter peekable)
 
 Completed supportable iterator peekable macros:
