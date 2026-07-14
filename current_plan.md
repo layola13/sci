@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter fuse collect)
+
+Completed supportable iterator fuse collect macro:
+- `ITER_FUSE_COLLECT_U64`: concrete Rust `Iterator::fuse().collect::<Vec<_>>()` shape over the finite slice-backed `u64` cursor.
+- The macro delegates to `ITER_COLLECT_U64` because this cursor already has fused exhaustion behavior: after collection drains it, later `ITER_NEXT_U64` calls keep returning none-style `(has=0, value=0)`.
+- Test file `std_iter_fuse_collect_macro_surface.sa` (panic ID 10548).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_fuse_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10549+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Fuse` adapter identity, non-fused source iterator wrapping semantics, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter by_ref collect)
 
 Completed supportable iterator by-ref collect macro:

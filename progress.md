@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator fuse collect macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_FUSE_COLLECT_U64`.
+- The helper models a concrete `Iterator::fuse().collect::<Vec<_>>()` lowering for the supported finite `u64` cursor subset. The current cursor is already fused after exhaustion, so the helper delegates to `ITER_COLLECT_U64` and keeps post-exhaustion `next()` calls returning none-style `(has=0, value=0)`.
+- Test: `tests/unit_framework/std_iter_fuse_collect_macro_surface.sa` - 1 test (panic ID 10548) covering partial-consume then fuse-collect, repeated post-exhaustion `next()`, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_fuse_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10549+.
+
 ## Completed: 2026-07-14 Iterator by_ref collect macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
