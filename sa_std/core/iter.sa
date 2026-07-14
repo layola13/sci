@@ -1129,6 +1129,63 @@ L_ITER_ARRAY_CHUNKS_INVALID_%out_ok:
 L_ITER_ARRAY_CHUNKS_END_%out_ok:
 [END_MACRO]
 
+[MACRO] ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+    EXPAND ITER_VEC_NEW %out_vec
+    __iter_map_windows_zero_%out_ok = eq %window_size, 0
+    br __iter_map_windows_zero_%out_ok -> L_ITER_MAP_WINDOWS_INVALID_%out_ok, L_ITER_MAP_WINDOWS_INIT_%out_ok
+L_ITER_MAP_WINDOWS_INIT_%out_ok:
+    __iter_map_windows_ptr_%out_ok = load %iter_reg+Iter_ptr as ptr
+    __iter_map_windows_len_%out_ok = load %iter_reg+Iter_len as u64
+    __iter_map_windows_start_%out_ok = load %iter_reg+Iter_index as u64
+    __iter_map_windows_remaining_%out_ok = sub __iter_map_windows_len_%out_ok, __iter_map_windows_start_%out_ok
+    __iter_map_windows_short_%out_ok = ult __iter_map_windows_remaining_%out_ok, %window_size
+    %out_ok = add 0, 1
+    br __iter_map_windows_short_%out_ok -> L_ITER_MAP_WINDOWS_CONSUME_EMPTY_%out_ok, L_ITER_MAP_WINDOWS_RUN_%out_ok
+L_ITER_MAP_WINDOWS_RUN_%out_ok:
+    __iter_map_windows_span_%out_ok = sub __iter_map_windows_remaining_%out_ok, %window_size
+    __iter_map_windows_count_%out_ok = add __iter_map_windows_span_%out_ok, 1
+    __iter_map_windows_done_count_%out_ok = add 0, 0
+    jmp L_ITER_MAP_WINDOWS_HEAD_%out_ok
+L_ITER_MAP_WINDOWS_HEAD_%out_ok:
+    __iter_map_windows_more_%out_ok = ult __iter_map_windows_done_count_%out_ok, __iter_map_windows_count_%out_ok
+    br __iter_map_windows_more_%out_ok -> L_ITER_MAP_WINDOWS_PUSH_%out_ok, L_ITER_MAP_WINDOWS_DONE_MORE_%out_ok
+L_ITER_MAP_WINDOWS_PUSH_%out_ok:
+    __iter_map_windows_abs_index_%out_ok = add __iter_map_windows_start_%out_ok, __iter_map_windows_done_count_%out_ok
+    __iter_map_windows_off_%out_ok = mul __iter_map_windows_abs_index_%out_ok, 8
+    __iter_map_windows_item_%out_ok = ptr_add __iter_map_windows_ptr_%out_ok, __iter_map_windows_off_%out_ok
+    __iter_map_windows_mapped_%out_ok = call %map_fn(__iter_map_windows_item_%out_ok, %window_size)
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_map_windows_mapped_%out_ok
+    __iter_map_windows_next_count_%out_ok = add __iter_map_windows_done_count_%out_ok, 1
+    !__iter_map_windows_done_count_%out_ok
+    __iter_map_windows_done_count_%out_ok = add __iter_map_windows_next_count_%out_ok, 0
+    !__iter_map_windows_next_count_%out_ok
+    !__iter_map_windows_mapped_%out_ok
+    !__iter_map_windows_item_%out_ok
+    !__iter_map_windows_off_%out_ok
+    !__iter_map_windows_abs_index_%out_ok
+    !__iter_map_windows_more_%out_ok
+    jmp L_ITER_MAP_WINDOWS_HEAD_%out_ok
+L_ITER_MAP_WINDOWS_DONE_MORE_%out_ok:
+    !__iter_map_windows_more_%out_ok
+    !__iter_map_windows_done_count_%out_ok
+    !__iter_map_windows_count_%out_ok
+    !__iter_map_windows_span_%out_ok
+    jmp L_ITER_MAP_WINDOWS_CONSUME_EMPTY_%out_ok
+L_ITER_MAP_WINDOWS_CONSUME_EMPTY_%out_ok:
+    store %iter_reg+Iter_index, __iter_map_windows_len_%out_ok as u64
+    !__iter_map_windows_short_%out_ok
+    !__iter_map_windows_remaining_%out_ok
+    !__iter_map_windows_start_%out_ok
+    !__iter_map_windows_len_%out_ok
+    !__iter_map_windows_ptr_%out_ok
+    !__iter_map_windows_zero_%out_ok
+    jmp L_ITER_MAP_WINDOWS_END_%out_ok
+L_ITER_MAP_WINDOWS_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__iter_map_windows_zero_%out_ok
+L_ITER_MAP_WINDOWS_END_%out_ok:
+[END_MACRO]
+
 [MACRO] ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     jmp L_ITER_COLLECT_INTO_HEAD_%iter_reg
 L_ITER_COLLECT_INTO_HEAD_%iter_reg:

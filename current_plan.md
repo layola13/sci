@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter map_windows collect)
+
+Completed supportable iterator map_windows collect macro:
+- `ITER_MAP_WINDOWS_COLLECT_U64`: concrete unstable Rust `Iterator::map_windows(...).collect::<Vec<_>>()` shape over the slice-backed `u64` cursor.
+- The macro calls a concrete `(window_ptr, window_len) -> u64` mapper for each overlapping window and materializes mapped values into `Vec<u64>`. For nonzero window sizes it consumes the source cursor, including the short-input case that produces no mapped values; for zero window size it reports `ok=0` without consumption.
+- This is a concrete lowering surface only; it does not expose a lazy `MapWindows` adapter object, const-generic array references, generic closure capture, non-fused resume-after-None behavior, or generic item/reference semantics.
+- Test file `std_iter_map_windows_macro_surface.sa` (panic ID 10551).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_map_windows_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10552+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `MapWindows` adapter identity, const-generic array reference returns, non-fused iterator resume-after-None state reset, generic item/reference semantics, generic closure capture, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter array_chunks collect)
 
 Completed supportable iterator array_chunks collect macro:

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator map_windows collect macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor, referencing Rust's local `core::iter::MapWindows` implementation under `/home/vscode/projects/rust`.
+- `sa_std/core/iter.sa`: added `ITER_MAP_WINDOWS_COLLECT_U64`.
+- The helper models a concrete unstable `Iterator::map_windows(...).collect::<Vec<_>>()` lowering for the supported `u64` cursor subset. It calls a concrete `(window_ptr, window_len) -> u64` mapper for each overlapping window, materializes mapped values into `Vec<u64>`, consumes the source cursor for nonzero window sizes, and reports `ok=0` without consuming for `window_size == 0`.
+- Test: `tests/unit_framework/std_iter_map_windows_macro_surface.sa` - 1 test (panic ID 10551) covering overlapping windows, partially consumed input, short input consuming to empty, zero window no-consume behavior, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_map_windows_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10552+.
+
 ## Completed: 2026-07-14 Iterator array_chunks collect macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor, referencing Rust's local `core::iter::ArrayChunks` implementation under `/home/vscode/projects/rust`.
