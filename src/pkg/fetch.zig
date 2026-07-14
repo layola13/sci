@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const audit = @import("audit.zig");
 const manifest = @import("manifest.zig");
@@ -159,13 +160,23 @@ fn validateExpectedSourceHash(expected: ?[32]u8, actual: [32]u8) !void {
 fn chmodFileReadOnly(path: []const u8) !void {
     var file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
-    try file.chmod(0o444);
+    var permissions = (try file.metadata()).permissions();
+    permissions.setReadOnly(true);
+    try file.setPermissions(permissions);
 }
 
 fn chmodDirReadOnly(path: []const u8) !void {
     var dir = try std.fs.cwd().openDir(path, .{ .iterate = true, .no_follow = true });
     defer dir.close();
-    try dir.chmod(0o555);
+    var permissions = (try dir.metadata()).permissions();
+    permissions.setReadOnly(true);
+    try dir.setPermissions(permissions);
+}
+
+fn setDirWritable(dir: std.fs.Dir) !void {
+    var permissions = (try dir.metadata()).permissions();
+    permissions.setReadOnly(false);
+    try dir.setPermissions(permissions);
 }
 
 fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Allocator, options: CopyTreeOptions) !void {
@@ -226,19 +237,25 @@ fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !vo
             .file => {
                 var file = try entry.dir.openFile(entry.basename, .{ .mode = .read_only });
                 defer file.close();
-                try file.chmod(0o444);
+                var permissions = (try file.metadata()).permissions();
+                permissions.setReadOnly(true);
+                try file.setPermissions(permissions);
             },
             .directory => {
                 var dir = try entry.dir.openDir(entry.basename, .{ .iterate = true, .no_follow = true });
                 defer dir.close();
-                try dir.chmod(0o555);
+                var permissions = (try dir.metadata()).permissions();
+                permissions.setReadOnly(true);
+                try dir.setPermissions(permissions);
             },
             .sym_link => continue,
             else => {},
         }
     }
 
-    try root_dir.chmod(0o555);
+    var permissions = (try root_dir.metadata()).permissions();
+    permissions.setReadOnly(true);
+    try root_dir.setPermissions(permissions);
 }
 
 fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8, target_root: []const u8) !void {
@@ -261,34 +278,32 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     try inheritEnvIfPresent(allocator, &env_map, "PATH");
     try inheritEnvIfPresent(allocator, &env_map, "HOME");
     try inheritEnvIfPresent(allocator, &env_map, "USERPROFILE");
+    try inheritEnvIfPresent(allocator, &env_map, "SystemRoot");
+    try inheritEnvIfPresent(allocator, &env_map, "COMSPEC");
+    try inheritEnvIfPresent(allocator, &env_map, "TEMP");
+    try inheritEnvIfPresent(allocator, &env_map, "TMP");
+    try inheritEnvIfPresent(allocator, &env_map, "LOCALAPPDATA");
+    try inheritEnvIfPresent(allocator, &env_map, "APPDATA");
     try inheritEnvIfPresent(allocator, &env_map, "SSL_CERT_FILE");
     try inheritEnvIfPresent(allocator, &env_map, "SSL_CERT_DIR");
     try env_map.put("GIT_TERMINAL_PROMPT", "0");
-    try env_map.put("GIT_ASKPASS", "/bin/false");
+    if (builtin.os.tag != .windows) {
+        try env_map.put("GIT_ASKPASS", "/bin/false");
+    }
     try env_map.put("GCM_INTERACTIVE", "Never");
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_alloc = arena.allocator();
 
-    const exec_argv = try arena_alloc.allocSentinel(?[*:0]const u8, argv.items.len, null);
-    for (argv.items, 0..) |arg, idx| {
-        exec_argv[idx] = (try arena_alloc.dupeZ(u8, arg)).ptr;
-    }
-    const envp = (try std.process.createNullDelimitedEnvMap(arena_alloc, &env_map)).ptr;
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv.items,
+        .env_map = &env_map,
+        .max_output_bytes = 4 * 1024 * 1024,
+    }) catch return error.SourceNotFound;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
-    const pid = try std.posix.fork();
-    if (pid == 0) {
-        const git_z: [*:0]const u8 = "git";
-        std.posix.execvpeZ(git_z, exec_argv.ptr, envp) catch {
-            std.posix.exit(127);
-        };
-        unreachable;
-    }
-
-    const wait_result = std.posix.waitpid(pid, 0);
-    if (wait_result.pid != pid) return error.SourceNotFound;
-    if (wait_result.status != 0) {
-        return error.SourceNotFound;
+    switch (result.term) {
+        .Exited => |code| if (code != 0) return error.SourceNotFound,
+        else => return error.SourceNotFound,
     }
 }
 
@@ -410,6 +425,8 @@ test "fetch copies a local source tree into sa_vendor" {
 }
 
 test "copyTree can set read-only permissions while skipping symlinks" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -427,12 +444,12 @@ test "copyTree can set read-only permissions while skipping symlinks" {
     defer {
         var nested = std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true }) catch null;
         if (nested) |*dir| {
-            dir.chmod(0o755) catch {};
+            setDirWritable(dir.*) catch {};
             dir.close();
         }
         var dst = std.fs.cwd().openDir("dst", .{ .iterate = true, .no_follow = true }) catch null;
         if (dst) |*dir| {
-            dir.chmod(0o755) catch {};
+            setDirWritable(dir.*) catch {};
             dir.close();
         }
     }
@@ -455,6 +472,8 @@ test "copyTree can set read-only permissions while skipping symlinks" {
 }
 
 test "setReadOnlyRecursive does not follow symlinked directories" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -472,12 +491,12 @@ test "setReadOnlyRecursive does not follow symlinked directories" {
     defer {
         var root = std.fs.cwd().openDir("root", .{ .iterate = true, .no_follow = true }) catch null;
         if (root) |*dir| {
-            dir.chmod(0o755) catch {};
+            setDirWritable(dir.*) catch {};
             dir.close();
         }
         var outside = std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true }) catch null;
         if (outside) |*dir| {
-            dir.chmod(0o755) catch {};
+            setDirWritable(dir.*) catch {};
             dir.close();
         }
     }
@@ -502,7 +521,7 @@ test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {
         \\echo executed > executed.marker
         \\
     );
-    try postinstall.chmod(0o755);
+    if (builtin.os.tag != .windows) try postinstall.chmod(0o755);
     postinstall.close();
 
     const source_root = try tmp.dir.realpathAlloc(std.testing.allocator, "github.com/example/smoke");

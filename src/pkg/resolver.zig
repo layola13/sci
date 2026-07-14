@@ -155,13 +155,10 @@ pub const ResolvedImport = struct {
     source_sha256: ?[32]u8 = null,
     source: []const u8,
     owned_source: ?[]u8 = null,
-    mapped: ?[]align(std.heap.page_size_min) u8 = null,
     is_global: bool = false,
 
     pub fn deinit(self: *ResolvedImport, allocator: std.mem.Allocator) void {
-        if (self.mapped) |mapped| {
-            std.posix.munmap(mapped);
-        } else if (self.owned_source) |owned_source| {
+        if (self.owned_source) |owned_source| {
             allocator.free(owned_source);
         }
         if (self.entry_path_owned) allocator.free(self.entry_path);
@@ -265,28 +262,6 @@ fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usiz
     return file.readToEndAlloc(allocator, max_bytes) catch error.PackageNotResolved;
 }
 
-fn mapFileReadOnly(path: []const u8) ResolveError!struct { mapped: []align(std.heap.page_size_min) u8, source: []u8 } {
-    var file = std.fs.cwd().openFile(path, .{}) catch return error.PackageNotResolved;
-    defer file.close();
-
-    const end_pos = file.getEndPos() catch return error.PackageNotResolved;
-    const len = std.math.cast(usize, end_pos) orelse return error.PackageNotResolved;
-    if (len == 0) return error.PackageNotResolved;
-
-    const mapped = std.posix.mmap(
-        null,
-        len,
-        std.posix.PROT.READ,
-        .{ .TYPE = .SHARED },
-        file.handle,
-        0,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return error.PackageNotResolved,
-    };
-    return .{ .mapped = mapped, .source = mapped };
-}
-
 fn computeResolvedSourceHash(
     allocator: std.mem.Allocator,
     entry_path: []const u8,
@@ -380,24 +355,6 @@ fn resolveFromPackageRoot(
         errdefer allocator.free(canonical_entry);
         if (!pathWithinRoot(canonical_root, canonical_entry)) return error.InvalidImportPath;
 
-        if (global) {
-            const mapped = try mapFileReadOnly(canonical_entry);
-            const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, mapped.source);
-            var resolved: ResolvedImport = .{
-                .entry_path = canonical_entry,
-                .root_dir = canonical_root,
-                .source = mapped.source,
-                .owned_source = null,
-                .mapped = mapped.mapped,
-                .is_global = true,
-                .source_sha256 = source_hash,
-            };
-            if (package_identity) |identity| {
-                resolved.package_identity = try allocator.dupe(u8, identity);
-            }
-            return resolved;
-        }
-
         const source = try readFileAlloc(allocator, canonical_entry, max_bytes);
         const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
         var resolved: ResolvedImport = .{
@@ -405,6 +362,7 @@ fn resolveFromPackageRoot(
             .root_dir = canonical_root,
             .source = source,
             .owned_source = source,
+            .is_global = global,
             .source_sha256 = source_hash,
         };
         if (package_identity) |identity| {
@@ -679,7 +637,7 @@ test "resolveImport falls back to local vendor package roots" {
     try std.testing.expect(!resolved.is_global);
 }
 
-test "resolveImport maps global cache entries read-only" {
+test "resolveImport loads global cache entries into owned memory" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -709,7 +667,7 @@ test "resolveImport maps global cache entries read-only" {
     }
 
     try std.testing.expect(resolved.is_global);
-    try std.testing.expect(resolved.mapped != null);
+    try std.testing.expect(resolved.owned_source != null);
     try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.sa"));
     try std.testing.expectEqualStrings("@global() -> i32:\n    return 7\n", resolved.source);
 }

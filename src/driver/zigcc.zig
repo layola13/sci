@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Optimization = enum {
     release_small,
@@ -54,7 +55,11 @@ pub fn argvForExe(
     for (extra_inputs) |input| {
         try argv.items.append(input);
     }
-    try argv.items.append("-Wl,-rpath,$ORIGIN");
+    switch (builtin.os.tag) {
+        .linux => try argv.items.append("-Wl,-rpath,$ORIGIN"),
+        .macos => try argv.items.append("-Wl,-rpath,@loader_path"),
+        else => {},
+    }
     try argv.items.append("-o");
     try argv.items.append(out_path);
     return argv;

@@ -1,10 +1,23 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const abi_version: u32 = 1;
 pub const host_version: []const u8 = "sci-0.2";
 pub const descriptor_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1";
 pub const descriptor_fn_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1_fn";
 pub const broker_abi_version: u32 = 1;
+
+fn nativeLibraryExtension() []const u8 {
+    return switch (builtin.os.tag) {
+        .macos => ".dylib",
+        .windows => ".dll",
+        else => ".so",
+    };
+}
+
+fn isNativeLibraryPath(path: []const u8) bool {
+    return std.ascii.endsWithIgnoreCase(path, nativeLibraryExtension());
+}
 
 pub const SkillSection = struct {
     name: []const u8,
@@ -1168,7 +1181,7 @@ pub const Runtime = struct {
     }
 
     pub fn loadPathList(self: *Runtime, path_list: []const u8) !void {
-        var it = std.mem.splitScalar(u8, path_list, ':');
+        var it = std.mem.splitScalar(u8, path_list, std.fs.path.delimiter);
         while (it.next()) |raw_entry| {
             const entry = std.mem.trim(u8, raw_entry, " \t\r\n");
             if (entry.len == 0) continue;
@@ -1188,7 +1201,7 @@ pub const Runtime = struct {
         };
         defer if (resolved_path) |absolute| self.allocator.free(absolute);
 
-        if (std.mem.endsWith(u8, load_path, ".so")) {
+        if (isNativeLibraryPath(load_path)) {
             try self.noteManifestHelpForLibrary(load_path);
             if (try self.runtimePolicyDenialForLibrary(load_path)) |reason| {
                 defer self.allocator.free(reason);
@@ -1474,7 +1487,7 @@ pub const Runtime = struct {
         var it = dir.iterate();
         while (try it.next()) |entry| {
             if (entry.kind != .file and entry.kind != .sym_link) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".so")) continue;
+            if (!isNativeLibraryPath(entry.name)) continue;
             const lib_path = try std.fs.path.join(self.allocator, &.{ dir_path, entry.name });
             defer self.allocator.free(lib_path);
             try self.loadLibrary(lib_path);
@@ -2744,12 +2757,32 @@ fn selectArtifact(value: std.json.Value) !SelectedArtifact {
         .object => |o| o,
         else => return error.InvalidSapManifest,
     };
-    if (obj.get("linux-x86_64")) |target_value| {
+    const target_key = try currentArtifactTarget();
+    if (obj.get(target_key)) |target_value| {
         return try artifactFromValue(target_value);
     }
-    var it = obj.iterator();
-    if (it.next()) |entry| return try artifactFromValue(entry.value_ptr.*);
-    return error.InvalidSapManifest;
+    return error.PluginTargetUnsupported;
+}
+
+fn currentArtifactTarget() ![]const u8 {
+    return switch (builtin.os.tag) {
+        .linux => switch (builtin.cpu.arch) {
+            .x86_64 => "linux-x86_64",
+            .aarch64 => "linux-aarch64",
+            else => error.PluginTargetUnsupported,
+        },
+        .macos => switch (builtin.cpu.arch) {
+            .x86_64 => "macos-x86_64",
+            .aarch64 => "macos-aarch64",
+            else => error.PluginTargetUnsupported,
+        },
+        .windows => switch (builtin.cpu.arch) {
+            .x86_64 => "windows-x86_64",
+            .aarch64 => "windows-aarch64",
+            else => error.PluginTargetUnsupported,
+        },
+        else => error.PluginTargetUnsupported,
+    };
 }
 
 fn artifactFromValue(value: std.json.Value) !SelectedArtifact {
