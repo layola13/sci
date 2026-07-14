@@ -2,6 +2,7 @@
 @import "core/slice.sa"
 @import "core/iter.sa"
 @import "core/mem.sa"
+@import "hash.sa"
 
 [MACRO] ARRAY_LEN %out_len, %length
     %out_len = add %length, 0
@@ -273,6 +274,19 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND ARRAY_CMP_U64 __array_ge_order_%out_bool, %left_ptr, %right_ptr, %length
     %out_bool = sge __array_ge_order_%out_bool, 0
     !__array_ge_order_%out_bool
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_ARRAY_U64 %hasher, %array_ptr, %length
+    __array_hash_slice_%hasher = stack_alloc Slice_SIZE
+    EXPAND ARRAY_AS_SLICE_U64 __array_hash_slice_%hasher, %array_ptr, %length
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 %hasher, __array_hash_slice_%hasher
+[END_MACRO]
+
+[MACRO] ARRAY_HASH_U64 %out_hash, %array_ptr, %length
+    __array_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __array_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_ARRAY_U64 __array_hash_hasher_%out_hash, %array_ptr, %length
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __array_hash_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice

@@ -1338,3 +1338,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10528+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bo)
+
+Completed supportable defaults/aliases/macros:
+- Concrete u64 array hash aliases in array.sa: DEFAULT_HASHER_WRITE_ARRAY_U64 and ARRAY_HASH_U64.
+- Test file std_array_hash_macro_surface.sa (panic ID 10528).
+
+Panic IDs next free: 10529+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

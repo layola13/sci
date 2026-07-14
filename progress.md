@@ -6675,3 +6675,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10528+.
+
+## Completed: 2026-07-14 Array hash aliases (Batch bo)
+
+- `sa_std/array.sa`: Added concrete u64 array hash aliases: `DEFAULT_HASHER_WRITE_ARRAY_U64` and `ARRAY_HASH_U64`.
+- Semantics: helpers wrap caller-owned `u64` array storage as a slice and delegate to existing slice hashing, modeling Rust array `Hash` lowering to slice hashing for the deterministic SA `DefaultHasher` subset without generic `Hash` trait dispatch or randomized hasher behavior.
+- Test: `tests/unit_framework/std_array_hash_macro_surface.sa` — 1 test (panic ID 10528) covering direct array hash, slice hash equivalence, and hasher-write equivalence.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_hash_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10529+.
