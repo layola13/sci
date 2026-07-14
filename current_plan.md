@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter sorted)
+
+Completed supportable iterator sortedness macros:
+- `ITER_IS_SORTED_U64`: concrete `Iterator::is_sorted` lowering over the remaining slice-backed `u64` cursor.
+- `ITER_IS_SORTED_BY_U64`: concrete `Iterator::is_sorted_by` lowering with a `(left, right) -> bool` callback.
+- `ITER_IS_SORTED_BY_KEY_U64`: concrete `Iterator::is_sorted_by_key` lowering with a `value -> key` callback.
+- These macros delegate to existing slice sortedness helpers and then mark the cursor empty, modeling Rust's consuming method shape for this concrete cursor facade.
+- Test file `std_iter_sorted_macro_surface.sa` (panic ID 10533).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10534+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy adapter objects, generic item/reference semantics, `IntoIterator`, true `Option` / `Result` object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter aliases)
 
 Completed supportable iterator aliases/macros:

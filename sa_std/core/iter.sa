@@ -1,5 +1,6 @@
 @import "iter.sal"
 @import "slice.sal"
+@import "slice.sa"
 @import "../vec_runtime_macros.sa"
 
 [MACRO] ITER_NEW %out_iter, %slice_reg
@@ -1468,4 +1469,31 @@ L_ITER_CMP_END_%out_ordering:
 
 [MACRO] ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] ITER_IS_SORTED_U64 %out_bool, %iter_reg
+    __iter_sorted_slice_%out_bool = stack_alloc Slice_SIZE
+    EXPAND ITER_AS_SLICE_U64 __iter_sorted_slice_%out_bool, %iter_reg
+    EXPAND SLICE_IS_SORTED_U64 %out_bool, __iter_sorted_slice_%out_bool
+    __iter_sorted_len_%out_bool = load %iter_reg+Iter_len as u64
+    store %iter_reg+Iter_index, __iter_sorted_len_%out_bool as u64
+    !__iter_sorted_len_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
+    __iter_sorted_by_slice_%out_bool = stack_alloc Slice_SIZE
+    EXPAND ITER_AS_SLICE_U64 __iter_sorted_by_slice_%out_bool, %iter_reg
+    EXPAND SLICE_IS_SORTED_BY_U64 %out_bool, __iter_sorted_by_slice_%out_bool, %compare_fn
+    __iter_sorted_by_len_%out_bool = load %iter_reg+Iter_len as u64
+    store %iter_reg+Iter_index, __iter_sorted_by_len_%out_bool as u64
+    !__iter_sorted_by_len_%out_bool
+[END_MACRO]
+
+[MACRO] ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
+    __iter_sorted_key_slice_%out_bool = stack_alloc Slice_SIZE
+    EXPAND ITER_AS_SLICE_U64 __iter_sorted_key_slice_%out_bool, %iter_reg
+    EXPAND SLICE_IS_SORTED_BY_KEY_U64 %out_bool, __iter_sorted_key_slice_%out_bool, %key_fn
+    __iter_sorted_key_len_%out_bool = load %iter_reg+Iter_len as u64
+    store %iter_reg+Iter_index, __iter_sorted_key_len_%out_bool as u64
+    !__iter_sorted_key_len_%out_bool
 [END_MACRO]

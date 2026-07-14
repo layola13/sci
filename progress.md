@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator sortedness macros
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_IS_SORTED_U64`, `ITER_IS_SORTED_BY_U64`, and `ITER_IS_SORTED_BY_KEY_U64`.
+- These helpers check the cursor's remaining elements via existing concrete slice sortedness helpers and then consume the cursor by marking it empty.
+- Test: `tests/unit_framework/std_iter_sorted_macro_surface.sa` — 1 test (panic ID 10533) covering sorted, unsorted, duplicate strict-comparator failure, key-sorted/key-unsorted paths, empty input, tail-only checking after one `next`, and cursor consumption after each check.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only ran the newly added focused test.
+- Panic IDs next free: 10534+.
+
 ## Completed: 2026-07-14 Iterator Rust naming aliases
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
