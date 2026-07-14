@@ -6684,3 +6684,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_hash_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10529+.
+
+## Completed: 2026-07-14 BuildHasher hash_one helpers (Batch bp)
+
+- `sa_std/hash.sa`: Added concrete `BuildHasher::hash_one`-style helpers for the existing deterministic builder: `BUILD_HASHER_DEFAULT_HASH_ONE_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_STR`, `BUILD_HASHER_DEFAULT_HASH_ONE_SLICE_U8`, and `BUILD_HASHER_DEFAULT_HASH_ONE_SLICE_U64`.
+- Semantics: helpers build a fresh SA `DefaultHasher`, write exactly one concrete value/slice using the same write path as the direct hash helper, and return `finish`, modeling Rust's default `BuildHasher::hash_one` shape without generic `Hash` dispatch or randomized hasher behavior.
+- Test: `tests/unit_framework/std_hash_build_hasher_hash_one_macro_surface.sa` — 1 test (panic ID 10529) covering u64, str, u8 slice, u64 slice, and str-vs-byte-slice domain separation.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_build_hasher_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10530+.

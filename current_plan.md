@@ -1347,3 +1347,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10529+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bp)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BuildHasherDefault hash_one helpers in hash.sa for u64, str, u8 slices, and u64 slices.
+- Test file std_hash_build_hasher_hash_one_macro_surface.sa (panic ID 10529).
+
+Panic IDs next free: 10530+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
