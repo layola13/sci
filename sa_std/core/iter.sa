@@ -1240,6 +1240,21 @@ L_ITER_PARTITION_DONE_%out_true_vec:
     !__iter_partition_has_%out_true_vec
 [END_MACRO]
 
+[MACRO] ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
+    EXPAND ITER_ALL_U64 __iter_partitioned_all_%out_bool, %iter_reg, %pred_fn
+    br __iter_partitioned_all_%out_bool -> L_ITER_IS_PARTITIONED_TRUE_%out_bool, L_ITER_IS_PARTITIONED_CHECK_REST_%out_bool
+L_ITER_IS_PARTITIONED_TRUE_%out_bool:
+    %out_bool = add 0, 1
+    !__iter_partitioned_all_%out_bool
+    jmp L_ITER_IS_PARTITIONED_END_%out_bool
+L_ITER_IS_PARTITIONED_CHECK_REST_%out_bool:
+    EXPAND ITER_ANY_U64 __iter_partitioned_any_%out_bool, %iter_reg, %pred_fn
+    %out_bool = eq __iter_partitioned_any_%out_bool, 0
+    !__iter_partitioned_any_%out_bool
+    !__iter_partitioned_all_%out_bool
+L_ITER_IS_PARTITIONED_END_%out_bool:
+[END_MACRO]
+
 [MACRO] ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND ITER_NEXT_U64 __iter_min_by_has_%out_has, __iter_min_by_value_%out_has, %iter_reg
     br __iter_min_by_has_%out_has -> L_ITER_MIN_BY_INIT_%out_has, L_ITER_MIN_BY_NONE_%out_has

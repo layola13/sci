@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter is_partitioned)
+
+Completed supportable iterator partition-check macro:
+- `ITER_IS_PARTITIONED_U64`: concrete unstable Rust `Iterator::is_partitioned` shape over the slice-backed `u64` cursor.
+- The macro follows Rust's default `all(predicate) || !any(predicate)` behavior, including short-circuit cursor consumption.
+- Test file `std_iter_is_partitioned_macro_surface.sa` (panic ID 10535).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_is_partitioned_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10536+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy adapter objects, generic item/reference semantics, `IntoIterator`, Rust `Try` residual/error object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter rfold)
 
 Completed supportable reverse-fold macros:
