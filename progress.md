@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Hash RandomState macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `std::hash::RandomState` and `BuildHasher::hash_one` implementation under `/home/vscode/projects/rust`.
+- `sa_std/hash.sal`: added the concrete `RandomState` layout and deterministic default seed constants.
+- `sa_std/hash.sa`: added `RANDOM_STATE_NEW`, `RANDOM_STATE_DEFAULT`, `RANDOM_STATE_WITH_SEEDS`, `RANDOM_STATE_CLONE`, `RANDOM_STATE_BUILD`, and concrete `RANDOM_STATE_HASH_ONE_U64` / `RANDOM_STATE_HASH_ONE_STR` / `RANDOM_STATE_HASH_ONE_SLICE_U8` / `RANDOM_STATE_HASH_ONE_SLICE_U64`.
+- The helper surface models cloned state consistency, explicit seed-pair variation, and `BuildHasher::hash_one` over the existing deterministic `DefaultHasher`. It does not claim Rust's OS-random keys, per-thread key evolution, SipHash compatibility, generic `Hash`, or collection trait integration.
+- Test: `tests/unit_framework/std_hash_random_state_macro_surface.sa` - 1 test (panic ID 10554) covering new/default/clone behavior, seeded-state difference, `build_hasher`, and concrete `hash_one` for `u64`, `str`, `Slice<u8>`, and `Slice<u64>`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_random_state_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10555+.
+
 ## Completed: 2026-07-14 Iterator try_collect macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor, referencing Rust's local `Iterator::try_collect` implementation under `/home/vscode/projects/rust`.

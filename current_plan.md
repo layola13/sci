@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 hash RandomState)
+
+Completed supportable RandomState macro surface:
+- `RandomState` layout plus `RANDOM_STATE_NEW`, `RANDOM_STATE_DEFAULT`, `RANDOM_STATE_WITH_SEEDS`, `RANDOM_STATE_CLONE`, `RANDOM_STATE_BUILD`, and concrete `RANDOM_STATE_HASH_ONE_*` helpers for `u64`, `str`, `Slice<u8>`, and `Slice<u64>`.
+- The macros model Rust's `RandomState` / `BuildHasher` shape over the existing deterministic SA `DefaultHasher`: cloned states build equivalent hashers, explicit seed pairs can build distinct hashers, and `hash_one` builds a fresh hasher, writes one concrete value, then finishes.
+- This is a concrete lowering surface only; it does not expose OS randomness, Rust's per-thread randomized key evolution, SipHash output compatibility, generic `Hash`, or collection trait integration.
+- Test file `std_hash_random_state_macro_surface.sa` (panic ID 10554).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_random_state_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10555+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter try_collect)
 
 Completed supportable iterator try_collect macro:

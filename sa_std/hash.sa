@@ -252,3 +252,63 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 __build_hash_one_slice_u64_hasher_%out_hash, %slice_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_slice_u64_hasher_%out_hash
 [END_MACRO]
+
+[MACRO] RANDOM_STATE_NEW %state
+    store %state+RandomState_k0, RANDOM_STATE_DEFAULT_K0 as u64
+    store %state+RandomState_k1, RANDOM_STATE_DEFAULT_K1 as u64
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_DEFAULT %state
+    EXPAND RANDOM_STATE_NEW %state
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_WITH_SEEDS %state, %k0, %k1
+    store %state+RandomState_k0, %k0 as u64
+    store %state+RandomState_k1, %k1 as u64
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_CLONE %out_state, %state
+    __random_state_k0_%out_state = load %state+RandomState_k0 as u64
+    __random_state_k1_%out_state = load %state+RandomState_k1 as u64
+    store %out_state+RandomState_k0, __random_state_k0_%out_state as u64
+    store %out_state+RandomState_k1, __random_state_k1_%out_state as u64
+    !__random_state_k1_%out_state
+    !__random_state_k0_%out_state
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_BUILD %hasher, %state
+    __random_state_build_k0_%hasher = load %state+RandomState_k0 as u64
+    __random_state_build_k1_%hasher = load %state+RandomState_k1 as u64
+    EXPAND DEFAULT_HASHER_WITH_SEED %hasher, __random_state_build_k0_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __random_state_build_k1_%hasher
+    !__random_state_build_k1_%hasher
+    !__random_state_build_k0_%hasher
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_U64 %out_hash, %state, %value
+    __random_state_hash_one_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_U64 __random_state_hash_one_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_STR %out_hash, %state, %slice_reg
+    __random_state_hash_one_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_str_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_STR __random_state_hash_one_str_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_str_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SLICE_U8 %out_hash, %state, %slice_reg
+    __random_state_hash_one_slice_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_slice_u8_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U8 __random_state_hash_one_slice_u8_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_slice_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SLICE_U64 %out_hash, %state, %slice_reg
+    __random_state_hash_one_slice_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_slice_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 __random_state_hash_one_slice_u64_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_slice_u64_hasher_%out_hash
+[END_MACRO]
