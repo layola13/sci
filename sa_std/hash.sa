@@ -205,6 +205,22 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND BUILD_HASHER_DEFAULT_NEW %builder
 [END_MACRO]
 
+[MACRO] BUILD_HASHER_DEFAULT_CLONE %out_builder, %builder
+    EXPAND BUILD_HASHER_DEFAULT_NEW %out_builder
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_COPY %out_builder, %builder
+    EXPAND BUILD_HASHER_DEFAULT_CLONE %out_builder, %builder
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_EQ %out_bool, %left_builder, %right_builder
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_NE %out_bool, %left_builder, %right_builder
+    %out_bool = add 0, 0
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_BUILD %hasher, %builder
     EXPAND DEFAULT_HASHER_NEW %hasher
 [END_MACRO]

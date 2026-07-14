@@ -1365,3 +1365,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10531+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 br)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BuildHasherDefault zero-sized trait aliases in hash.sa: BUILD_HASHER_DEFAULT_CLONE, BUILD_HASHER_DEFAULT_COPY, BUILD_HASHER_DEFAULT_EQ, and BUILD_HASHER_DEFAULT_NE.
+- Test file std_hash_build_hasher_default_traits_macro_surface.sa (panic ID 10531).
+
+Panic IDs next free: 10532+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

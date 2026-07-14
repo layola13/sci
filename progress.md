@@ -6702,3 +6702,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_signed_write_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10531+.
+
+## Completed: 2026-07-14 BuildHasherDefault trait aliases (Batch br)
+
+- `sa_std/hash.sa`: Added concrete zero-sized `BuildHasherDefault` trait aliases: `BUILD_HASHER_DEFAULT_CLONE`, `BUILD_HASHER_DEFAULT_COPY`, `BUILD_HASHER_DEFAULT_EQ`, and `BUILD_HASHER_DEFAULT_NE`.
+- Semantics: helpers model Rust's `Clone` and `PartialEq` / `Eq` behavior for the zero-sized `BuildHasherDefault<H>` marker by recreating the zero marker and treating any two concrete builders as equal; they do not model generic `H` type parameters or `Debug` formatting.
+- Test: `tests/unit_framework/std_hash_build_hasher_default_traits_macro_surface.sa` — 1 test (panic ID 10531) covering clone/copy/default zero marker behavior, equality/inequality, and build consistency.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_build_hasher_default_traits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10532+.
