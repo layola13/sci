@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator comparator-by macros
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_CMP_BY_U64`, `ITER_PARTIAL_CMP_BY_U64`, and `ITER_EQ_BY_U64`.
+- The helpers model concrete unstable `Iterator::{cmp_by,partial_cmp_by,eq_by}` lowering shapes for the supported `u64` cursor subset. `cmp_by` uses `(left, right) -> Ordering`, `partial_cmp_by` uses `(left, right, out_order_ptr) -> ok`, and `eq_by` uses `(left, right) -> bool`, with lexicographic short-circuit consumption matching the existing cursor comparison model.
+- Test: `tests/unit_framework/std_iter_compare_by_macro_surface.sa` — 1 test (panic ID 10545) covering callback equality, non-equal short-circuiting, length mismatch, `partial_cmp_by` Some ordering, and `partial_cmp_by` None short-circuit suffix preservation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_compare_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10546+.
+
 ## Completed: 2026-07-14 Iterator try_reduce macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.

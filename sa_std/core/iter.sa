@@ -1806,6 +1806,191 @@ L_ITER_CMP_BOTH_DONE_%out_ordering:
 L_ITER_CMP_END_%out_ordering:
 [END_MACRO]
 
+[MACRO] ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+    jmp L_ITER_CMP_BY_HEAD_%out_ordering
+L_ITER_CMP_BY_HEAD_%out_ordering:
+    EXPAND ITER_NEXT_U64 __iter_cmp_by_left_has_%out_ordering, __iter_cmp_by_left_value_%out_ordering, %left_iter
+    EXPAND ITER_NEXT_U64 __iter_cmp_by_right_has_%out_ordering, __iter_cmp_by_right_value_%out_ordering, %right_iter
+    br __iter_cmp_by_left_has_%out_ordering -> L_ITER_CMP_BY_LEFT_SOME_%out_ordering, L_ITER_CMP_BY_LEFT_NONE_%out_ordering
+L_ITER_CMP_BY_LEFT_SOME_%out_ordering:
+    br __iter_cmp_by_right_has_%out_ordering -> L_ITER_CMP_BY_BOTH_SOME_%out_ordering, L_ITER_CMP_BY_RIGHT_NONE_%out_ordering
+L_ITER_CMP_BY_BOTH_SOME_%out_ordering:
+    __iter_cmp_by_order_%out_ordering = call %compare_fn(__iter_cmp_by_left_value_%out_ordering, __iter_cmp_by_right_value_%out_ordering)
+    __iter_cmp_by_equal_%out_ordering = eq __iter_cmp_by_order_%out_ordering, 0
+    br __iter_cmp_by_equal_%out_ordering -> L_ITER_CMP_BY_EQUAL_ITEM_%out_ordering, L_ITER_CMP_BY_NON_EQUAL_%out_ordering
+L_ITER_CMP_BY_EQUAL_ITEM_%out_ordering:
+    !__iter_cmp_by_equal_%out_ordering
+    !__iter_cmp_by_order_%out_ordering
+    !__iter_cmp_by_right_value_%out_ordering
+    !__iter_cmp_by_right_has_%out_ordering
+    !__iter_cmp_by_left_value_%out_ordering
+    !__iter_cmp_by_left_has_%out_ordering
+    jmp L_ITER_CMP_BY_HEAD_%out_ordering
+L_ITER_CMP_BY_NON_EQUAL_%out_ordering:
+    %out_ordering = add __iter_cmp_by_order_%out_ordering, 0
+    !__iter_cmp_by_equal_%out_ordering
+    !__iter_cmp_by_order_%out_ordering
+    !__iter_cmp_by_right_value_%out_ordering
+    !__iter_cmp_by_right_has_%out_ordering
+    !__iter_cmp_by_left_value_%out_ordering
+    !__iter_cmp_by_left_has_%out_ordering
+    jmp L_ITER_CMP_BY_END_%out_ordering
+L_ITER_CMP_BY_RIGHT_NONE_%out_ordering:
+    %out_ordering = add 0, 1
+    !__iter_cmp_by_right_value_%out_ordering
+    !__iter_cmp_by_right_has_%out_ordering
+    !__iter_cmp_by_left_value_%out_ordering
+    !__iter_cmp_by_left_has_%out_ordering
+    jmp L_ITER_CMP_BY_END_%out_ordering
+L_ITER_CMP_BY_LEFT_NONE_%out_ordering:
+    br __iter_cmp_by_right_has_%out_ordering -> L_ITER_CMP_BY_LEFT_SHORT_%out_ordering, L_ITER_CMP_BY_BOTH_DONE_%out_ordering
+L_ITER_CMP_BY_LEFT_SHORT_%out_ordering:
+    %out_ordering = sub 0, 1
+    !__iter_cmp_by_right_value_%out_ordering
+    !__iter_cmp_by_right_has_%out_ordering
+    !__iter_cmp_by_left_value_%out_ordering
+    !__iter_cmp_by_left_has_%out_ordering
+    jmp L_ITER_CMP_BY_END_%out_ordering
+L_ITER_CMP_BY_BOTH_DONE_%out_ordering:
+    %out_ordering = add 0, 0
+    !__iter_cmp_by_right_value_%out_ordering
+    !__iter_cmp_by_right_has_%out_ordering
+    !__iter_cmp_by_left_value_%out_ordering
+    !__iter_cmp_by_left_has_%out_ordering
+L_ITER_CMP_BY_END_%out_ordering:
+[END_MACRO]
+
+[MACRO] ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    __iter_partial_cmp_by_order_slot_%out_ok = stack_alloc 8
+    jmp L_ITER_PARTIAL_CMP_BY_HEAD_%out_ok
+L_ITER_PARTIAL_CMP_BY_HEAD_%out_ok:
+    EXPAND ITER_NEXT_U64 __iter_partial_cmp_by_left_has_%out_ok, __iter_partial_cmp_by_left_value_%out_ok, %left_iter
+    EXPAND ITER_NEXT_U64 __iter_partial_cmp_by_right_has_%out_ok, __iter_partial_cmp_by_right_value_%out_ok, %right_iter
+    br __iter_partial_cmp_by_left_has_%out_ok -> L_ITER_PARTIAL_CMP_BY_LEFT_SOME_%out_ok, L_ITER_PARTIAL_CMP_BY_LEFT_NONE_%out_ok
+L_ITER_PARTIAL_CMP_BY_LEFT_SOME_%out_ok:
+    br __iter_partial_cmp_by_right_has_%out_ok -> L_ITER_PARTIAL_CMP_BY_BOTH_SOME_%out_ok, L_ITER_PARTIAL_CMP_BY_RIGHT_NONE_%out_ok
+L_ITER_PARTIAL_CMP_BY_BOTH_SOME_%out_ok:
+    __iter_partial_cmp_by_ok_%out_ok = call %compare_fn(__iter_partial_cmp_by_left_value_%out_ok, __iter_partial_cmp_by_right_value_%out_ok, &__iter_partial_cmp_by_order_slot_%out_ok)
+    __iter_partial_cmp_by_has_order_%out_ok = ne __iter_partial_cmp_by_ok_%out_ok, 0
+    br __iter_partial_cmp_by_has_order_%out_ok -> L_ITER_PARTIAL_CMP_BY_CHECK_ORDER_%out_ok, L_ITER_PARTIAL_CMP_BY_NONE_%out_ok
+L_ITER_PARTIAL_CMP_BY_CHECK_ORDER_%out_ok:
+    __iter_partial_cmp_by_order_%out_ok = load __iter_partial_cmp_by_order_slot_%out_ok+0 as i64
+    __iter_partial_cmp_by_equal_%out_ok = eq __iter_partial_cmp_by_order_%out_ok, 0
+    br __iter_partial_cmp_by_equal_%out_ok -> L_ITER_PARTIAL_CMP_BY_EQUAL_ITEM_%out_ok, L_ITER_PARTIAL_CMP_BY_NON_EQUAL_%out_ok
+L_ITER_PARTIAL_CMP_BY_EQUAL_ITEM_%out_ok:
+    !__iter_partial_cmp_by_equal_%out_ok
+    !__iter_partial_cmp_by_order_%out_ok
+    !__iter_partial_cmp_by_has_order_%out_ok
+    !__iter_partial_cmp_by_ok_%out_ok
+    !__iter_partial_cmp_by_right_value_%out_ok
+    !__iter_partial_cmp_by_right_has_%out_ok
+    !__iter_partial_cmp_by_left_value_%out_ok
+    !__iter_partial_cmp_by_left_has_%out_ok
+    jmp L_ITER_PARTIAL_CMP_BY_HEAD_%out_ok
+L_ITER_PARTIAL_CMP_BY_NON_EQUAL_%out_ok:
+    %out_ordering = add __iter_partial_cmp_by_order_%out_ok, 0
+    %out_ok = add 0, 1
+    !__iter_partial_cmp_by_equal_%out_ok
+    !__iter_partial_cmp_by_order_%out_ok
+    !__iter_partial_cmp_by_has_order_%out_ok
+    !__iter_partial_cmp_by_ok_%out_ok
+    !__iter_partial_cmp_by_right_value_%out_ok
+    !__iter_partial_cmp_by_right_has_%out_ok
+    !__iter_partial_cmp_by_left_value_%out_ok
+    !__iter_partial_cmp_by_left_has_%out_ok
+    jmp L_ITER_PARTIAL_CMP_BY_END_%out_ok
+L_ITER_PARTIAL_CMP_BY_NONE_%out_ok:
+    %out_ordering = add 0, 0
+    %out_ok = add 0, 0
+    !__iter_partial_cmp_by_has_order_%out_ok
+    !__iter_partial_cmp_by_ok_%out_ok
+    !__iter_partial_cmp_by_right_value_%out_ok
+    !__iter_partial_cmp_by_right_has_%out_ok
+    !__iter_partial_cmp_by_left_value_%out_ok
+    !__iter_partial_cmp_by_left_has_%out_ok
+    jmp L_ITER_PARTIAL_CMP_BY_END_%out_ok
+L_ITER_PARTIAL_CMP_BY_RIGHT_NONE_%out_ok:
+    %out_ordering = add 0, 1
+    %out_ok = add 0, 1
+    !__iter_partial_cmp_by_right_value_%out_ok
+    !__iter_partial_cmp_by_right_has_%out_ok
+    !__iter_partial_cmp_by_left_value_%out_ok
+    !__iter_partial_cmp_by_left_has_%out_ok
+    jmp L_ITER_PARTIAL_CMP_BY_END_%out_ok
+L_ITER_PARTIAL_CMP_BY_LEFT_NONE_%out_ok:
+    br __iter_partial_cmp_by_right_has_%out_ok -> L_ITER_PARTIAL_CMP_BY_LEFT_SHORT_%out_ok, L_ITER_PARTIAL_CMP_BY_BOTH_DONE_%out_ok
+L_ITER_PARTIAL_CMP_BY_LEFT_SHORT_%out_ok:
+    %out_ordering = sub 0, 1
+    %out_ok = add 0, 1
+    !__iter_partial_cmp_by_right_value_%out_ok
+    !__iter_partial_cmp_by_right_has_%out_ok
+    !__iter_partial_cmp_by_left_value_%out_ok
+    !__iter_partial_cmp_by_left_has_%out_ok
+    jmp L_ITER_PARTIAL_CMP_BY_END_%out_ok
+L_ITER_PARTIAL_CMP_BY_BOTH_DONE_%out_ok:
+    %out_ordering = add 0, 0
+    %out_ok = add 0, 1
+    !__iter_partial_cmp_by_right_value_%out_ok
+    !__iter_partial_cmp_by_right_has_%out_ok
+    !__iter_partial_cmp_by_left_value_%out_ok
+    !__iter_partial_cmp_by_left_has_%out_ok
+L_ITER_PARTIAL_CMP_BY_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+    jmp L_ITER_EQ_BY_HEAD_%out_bool
+L_ITER_EQ_BY_HEAD_%out_bool:
+    EXPAND ITER_NEXT_U64 __iter_eq_by_left_has_%out_bool, __iter_eq_by_left_value_%out_bool, %left_iter
+    EXPAND ITER_NEXT_U64 __iter_eq_by_right_has_%out_bool, __iter_eq_by_right_value_%out_bool, %right_iter
+    br __iter_eq_by_left_has_%out_bool -> L_ITER_EQ_BY_LEFT_SOME_%out_bool, L_ITER_EQ_BY_LEFT_NONE_%out_bool
+L_ITER_EQ_BY_LEFT_SOME_%out_bool:
+    br __iter_eq_by_right_has_%out_bool -> L_ITER_EQ_BY_BOTH_SOME_%out_bool, L_ITER_EQ_BY_RIGHT_NONE_%out_bool
+L_ITER_EQ_BY_BOTH_SOME_%out_bool:
+    __iter_eq_by_same_%out_bool = call %eq_fn(__iter_eq_by_left_value_%out_bool, __iter_eq_by_right_value_%out_bool)
+    __iter_eq_by_matches_%out_bool = ne __iter_eq_by_same_%out_bool, 0
+    br __iter_eq_by_matches_%out_bool -> L_ITER_EQ_BY_EQUAL_ITEM_%out_bool, L_ITER_EQ_BY_FALSE_%out_bool
+L_ITER_EQ_BY_EQUAL_ITEM_%out_bool:
+    !__iter_eq_by_matches_%out_bool
+    !__iter_eq_by_same_%out_bool
+    !__iter_eq_by_right_value_%out_bool
+    !__iter_eq_by_right_has_%out_bool
+    !__iter_eq_by_left_value_%out_bool
+    !__iter_eq_by_left_has_%out_bool
+    jmp L_ITER_EQ_BY_HEAD_%out_bool
+L_ITER_EQ_BY_FALSE_%out_bool:
+    %out_bool = add 0, 0
+    !__iter_eq_by_matches_%out_bool
+    !__iter_eq_by_same_%out_bool
+    !__iter_eq_by_right_value_%out_bool
+    !__iter_eq_by_right_has_%out_bool
+    !__iter_eq_by_left_value_%out_bool
+    !__iter_eq_by_left_has_%out_bool
+    jmp L_ITER_EQ_BY_END_%out_bool
+L_ITER_EQ_BY_RIGHT_NONE_%out_bool:
+    %out_bool = add 0, 0
+    !__iter_eq_by_right_value_%out_bool
+    !__iter_eq_by_right_has_%out_bool
+    !__iter_eq_by_left_value_%out_bool
+    !__iter_eq_by_left_has_%out_bool
+    jmp L_ITER_EQ_BY_END_%out_bool
+L_ITER_EQ_BY_LEFT_NONE_%out_bool:
+    br __iter_eq_by_right_has_%out_bool -> L_ITER_EQ_BY_LEFT_SHORT_%out_bool, L_ITER_EQ_BY_BOTH_DONE_%out_bool
+L_ITER_EQ_BY_LEFT_SHORT_%out_bool:
+    %out_bool = add 0, 0
+    !__iter_eq_by_right_value_%out_bool
+    !__iter_eq_by_right_has_%out_bool
+    !__iter_eq_by_left_value_%out_bool
+    !__iter_eq_by_left_has_%out_bool
+    jmp L_ITER_EQ_BY_END_%out_bool
+L_ITER_EQ_BY_BOTH_DONE_%out_bool:
+    %out_bool = add 0, 1
+    !__iter_eq_by_right_value_%out_bool
+    !__iter_eq_by_right_has_%out_bool
+    !__iter_eq_by_left_value_%out_bool
+    !__iter_eq_by_left_has_%out_bool
+L_ITER_EQ_BY_END_%out_bool:
+[END_MACRO]
+
 [MACRO] ITER_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_CMP_U64 __iter_eq_order_%out_bool, %left_iter, %right_iter
     %out_bool = eq __iter_eq_order_%out_bool, 0

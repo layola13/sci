@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter comparator-by)
+
+Completed supportable iterator comparator-by macros:
+- `ITER_CMP_BY_U64`: concrete unstable Rust `Iterator::cmp_by` shape over two slice-backed `u64` cursors.
+- `ITER_PARTIAL_CMP_BY_U64`: concrete unstable Rust `Iterator::partial_cmp_by` shape returning `(ok, ordering)` instead of Rust `Option<Ordering>`.
+- `ITER_EQ_BY_U64`: concrete unstable Rust `Iterator::eq_by` shape over two slice-backed `u64` cursors.
+- The macros preserve the existing lexicographic consumption model: compared pairs are consumed until a non-equal/None/mismatch/end result is determined, and suffix after a short-circuit remains available.
+- Test file `std_iter_compare_by_macro_surface.sa` (panic ID 10545).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_compare_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10546+.
+Still blocked without redesign: real Rust iterator trait hierarchy, generic item/reference semantics, generic `Option` / `Ordering` object integration, `IntoIterator`, true lazy adapters, generic `collect`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter try_reduce)
 
 Completed supportable iterator try-reduce macro:
