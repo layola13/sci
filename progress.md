@@ -6648,3 +6648,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_eq_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10525+.
+
+## Completed: 2026-07-14 Array ordering aliases (Batch bl)
+
+- `sa_std/array.sa`: Added concrete u64 array ordering aliases: `ARRAY_CMP_U64`, `ARRAY_PARTIAL_CMP_U64`, `ARRAY_LT_U64`, `ARRAY_LE_U64`, `ARRAY_GT_U64`, and `ARRAY_GE_U64`.
+- Semantics: helpers compare equal-length caller-owned `u64` array storage lexicographically through existing `Slice` comparison, modeling Rust array `PartialOrd` / `Ord` lowering for concrete arrays without generic trait dispatch or `Option<Ordering>` object modeling.
+- Test: `tests/unit_framework/std_array_cmp_macro_surface.sa` — 1 test (panic ID 10525) covering comparison ordering and boolean relation aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10526+.

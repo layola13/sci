@@ -210,6 +210,42 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND ARRAY_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
 [END_MACRO]
 
+[MACRO] ARRAY_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
+    __array_cmp_left_%out_ordering = stack_alloc Slice_SIZE
+    __array_cmp_right_%out_ordering = stack_alloc Slice_SIZE
+    EXPAND ARRAY_AS_SLICE_U64 __array_cmp_left_%out_ordering, %left_ptr, %length
+    EXPAND ARRAY_AS_SLICE_U64 __array_cmp_right_%out_ordering, %right_ptr, %length
+    EXPAND SLICE_CMP_U64 %out_ordering, __array_cmp_left_%out_ordering, __array_cmp_right_%out_ordering
+[END_MACRO]
+
+[MACRO] ARRAY_PARTIAL_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_LT_U64 %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_CMP_U64 __array_lt_order_%out_bool, %left_ptr, %right_ptr, %length
+    %out_bool = slt __array_lt_order_%out_bool, 0
+    !__array_lt_order_%out_bool
+[END_MACRO]
+
+[MACRO] ARRAY_LE_U64 %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_CMP_U64 __array_le_order_%out_bool, %left_ptr, %right_ptr, %length
+    %out_bool = sle __array_le_order_%out_bool, 0
+    !__array_le_order_%out_bool
+[END_MACRO]
+
+[MACRO] ARRAY_GT_U64 %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_CMP_U64 __array_gt_order_%out_bool, %left_ptr, %right_ptr, %length
+    %out_bool = sgt __array_gt_order_%out_bool, 0
+    !__array_gt_order_%out_bool
+[END_MACRO]
+
+[MACRO] ARRAY_GE_U64 %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_CMP_U64 __array_ge_order_%out_bool, %left_ptr, %right_ptr, %length
+    %out_bool = sge __array_ge_order_%out_bool, 0
+    !__array_ge_order_%out_bool
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
     __array_copy_src_len_%out_ok = load %src_slice+Slice_len as u64
     __array_copy_same_len_%out_ok = eq %length, __array_copy_src_len_%out_ok
