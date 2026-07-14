@@ -1202,6 +1202,24 @@ L_ITER_MAP_COLLECT_DONE_%out_vec:
     !__iter_map_collect_has_%out_vec
 [END_MACRO]
 
+[MACRO] ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+    EXPAND ITER_VEC_NEW %out_vec
+    jmp L_ITER_INSPECT_COLLECT_HEAD_%out_vec
+L_ITER_INSPECT_COLLECT_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_inspect_collect_has_%out_vec, __iter_inspect_collect_value_%out_vec, %iter_reg
+    br __iter_inspect_collect_has_%out_vec -> L_ITER_INSPECT_COLLECT_PUSH_%out_vec, L_ITER_INSPECT_COLLECT_DONE_%out_vec
+L_ITER_INSPECT_COLLECT_PUSH_%out_vec:
+    __iter_inspect_collect_result_%out_vec = call %inspect_fn(__iter_inspect_collect_value_%out_vec)
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_inspect_collect_value_%out_vec
+    !__iter_inspect_collect_result_%out_vec
+    !__iter_inspect_collect_value_%out_vec
+    !__iter_inspect_collect_has_%out_vec
+    jmp L_ITER_INSPECT_COLLECT_HEAD_%out_vec
+L_ITER_INSPECT_COLLECT_DONE_%out_vec:
+    !__iter_inspect_collect_value_%out_vec
+    !__iter_inspect_collect_has_%out_vec
+[END_MACRO]
+
 [MACRO] ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_FILTER_COLLECT_HEAD_%out_vec

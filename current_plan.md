@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter inspect collect)
+
+Completed supportable iterator inspect collect macro:
+- `ITER_INSPECT_COLLECT_U64`: concrete Rust `Iterator::inspect(...).collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor.
+- The macro calls a `value -> u64` inspection callback for each consumed item, ignores the callback return value, preserves the original item in the output Vec, and consumes the cursor.
+- Test file `std_iter_inspect_macro_surface.sa` (panic ID 10539).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_inspect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10540+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Inspect` adapter identity, borrow-scoped `FnMut(&Item)` callback semantics, generic item/reference semantics, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter step_by collect)
 
 Completed supportable iterator step-by collect macros:
