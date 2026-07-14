@@ -1097,3 +1097,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10502+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ao)
+
+Completed supportable defaults/aliases/macros:
+- SystemTimeError layout constants in time.sal, modeling Rust `std::time::SystemTimeError(Duration)` over the existing SA Duration layout.
+- Test file std_time_error_layout_macro_surface.sa (panic ID 10502).
+
+Panic IDs next free: 10503+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

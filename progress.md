@@ -6445,3 +6445,11 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_mpsc_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10502+.
+
+## Completed: 2026-07-14 SystemTimeError layout constants (Batch ao)
+
+- `sa_std/time.sal`: Added `SystemTimeError` layout constants over the existing `Duration` layout, matching Rust `std::time::SystemTimeError(Duration)` at the SA macro-layout level.
+- Test: `tests/unit_framework/std_time_error_layout_macro_surface.sa` — 1 test (panic ID 10502) verifying the new time error layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_time_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10503+.

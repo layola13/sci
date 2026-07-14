@@ -1,0 +1,20 @@
+@import "sa_std/time.sal"
+
+@test "sa_std SystemTimeError layout constants"():
+L_ENTRY:
+    ok_size = eq SystemTimeError_SIZE, Duration_SIZE
+    ok_align = eq SystemTimeError_ALIGN, 8
+    ok_duration = eq SystemTimeError_duration, +0
+    ok_duration_alias = eq SystemTimeError_duration, Duration_nanos
+
+    c01 = and ok_size, ok_align
+    c02 = and c01, ok_duration
+    ok = and c02, ok_duration_alias
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10502)
+
+L_PASS:
+    return 0

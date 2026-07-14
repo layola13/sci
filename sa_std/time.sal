@@ -29,3 +29,7 @@
 #def SystemTime_SIZE = 8
 #def SystemTime_nanos = +0
 #def SYSTEM_TIME_UNIX_EPOCH = 0
+
+#def SystemTimeError_SIZE = 8
+#def SystemTimeError_ALIGN = 8
+#def SystemTimeError_duration = +0
