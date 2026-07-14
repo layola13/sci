@@ -723,6 +723,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_iter_is_partitioned_macro_surface.sa",
         "tests/unit_framework/std_iter_collect_into_macro_surface.sa",
         "tests/unit_framework/std_iter_map_while_macro_surface.sa",
+        "tests/unit_framework/std_iter_step_by_macro_surface.sa",
         "tests/unit_framework/std_fs_macro_surface.sa",
         "tests/unit_framework/std_fs_metadata_ext_macro_surface.sa",
         "tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa",

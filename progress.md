@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator step_by collect macros
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor and `Vec<u64>` facade.
+- `sa_std/core/iter.sa`: added `ITER_TRY_STEP_BY_COLLECT_U64` and `ITER_STEP_BY_COLLECT_U64`.
+- The helpers model a concrete eager `step_by(n).collect::<Vec<_>>()` lowering by collecting the first cursor item, skipping `step - 1` elements between collected values, and consuming skipped elements. The try form reports `ok=0` and leaves the cursor untouched for `step == 0`; the non-try wrapper is for callers that have already met Rust's nonzero-step precondition.
+- Test: `tests/unit_framework/std_iter_step_by_macro_surface.sa` — 1 test (panic ID 10538) covering step=2, tail-start step=3, step=1, cursor consumption, and invalid step no-consume behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_step_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only ran the newly added focused test.
+- Panic IDs next free: 10539+.
+
 ## Completed: 2026-07-14 Iterator map_while collect macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor and `Vec<u64>` facade.

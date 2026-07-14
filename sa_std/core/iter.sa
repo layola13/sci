@@ -979,6 +979,42 @@ L_ITER_TAKE_COLLECT_DONE_%out_vec:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+    EXPAND ITER_VEC_NEW %out_vec
+    __iter_step_zero_%out_ok = eq %step, 0
+    br __iter_step_zero_%out_ok -> L_ITER_STEP_BY_INVALID_%out_ok, L_ITER_STEP_BY_INIT_%out_ok
+L_ITER_STEP_BY_INIT_%out_ok:
+    __iter_step_skip_%out_ok = sub %step, 1
+    %out_ok = add 0, 1
+    jmp L_ITER_STEP_BY_HEAD_%out_ok
+L_ITER_STEP_BY_HEAD_%out_ok:
+    EXPAND ITER_NEXT_U64 __iter_step_has_%out_ok, __iter_step_value_%out_ok, %iter_reg
+    br __iter_step_has_%out_ok -> L_ITER_STEP_BY_PUSH_%out_ok, L_ITER_STEP_BY_DONE_%out_ok
+L_ITER_STEP_BY_PUSH_%out_ok:
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_step_value_%out_ok
+    EXPAND ITER_ADVANCE_BY __iter_step_adv_ok_%out_ok, __iter_step_adv_remaining_%out_ok, %iter_reg, __iter_step_skip_%out_ok
+    !__iter_step_adv_remaining_%out_ok
+    !__iter_step_adv_ok_%out_ok
+    !__iter_step_value_%out_ok
+    !__iter_step_has_%out_ok
+    jmp L_ITER_STEP_BY_HEAD_%out_ok
+L_ITER_STEP_BY_INVALID_%out_ok:
+    %out_ok = add 0, 0
+    !__iter_step_zero_%out_ok
+    jmp L_ITER_STEP_BY_END_%out_ok
+L_ITER_STEP_BY_DONE_%out_ok:
+    !__iter_step_value_%out_ok
+    !__iter_step_has_%out_ok
+    !__iter_step_skip_%out_ok
+    !__iter_step_zero_%out_ok
+L_ITER_STEP_BY_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+    EXPAND ITER_TRY_STEP_BY_COLLECT_U64 __iter_step_by_ok_%out_vec, %out_vec, %iter_reg, %step
+    !__iter_step_by_ok_%out_vec
+[END_MACRO]
+
 [MACRO] ITER_REV_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_REV_COLLECT_HEAD_%out_vec

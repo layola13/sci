@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter step_by collect)
+
+Completed supportable iterator step-by collect macros:
+- `ITER_TRY_STEP_BY_COLLECT_U64`: concrete Rust `Iterator::step_by(n).collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor, returning `ok=0` without consuming when `step == 0`.
+- `ITER_STEP_BY_COLLECT_U64`: non-try convenience wrapper for callers that already satisfy Rust's `step != 0` precondition.
+- The macro collects the first item, then skips `step - 1` items between collected values, consuming skipped items through the finite cursor.
+- Test file `std_iter_step_by_macro_surface.sa` (panic ID 10538).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_step_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10539+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `StepBy` adapter identity, generic item/reference semantics, Rust panic integration for `step_by(0)`, generic `collect`, `IntoIterator`, Rust `Try` residual/error object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter map_while collect)
 
 Completed supportable iterator map-while collect macro:
