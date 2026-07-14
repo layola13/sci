@@ -1116,3 +1116,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10504+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 aq)
+
+Completed supportable defaults/aliases/macros:
+- Collections try-reserve error layout constants in collections.sal for TryReserveErrorKind and TryReserveError.
+- TryReserveError kind constants cover CapacityOverflow and AllocError, with AllocError carrying the existing AllocLayout payload.
+- Test file std_collections_try_reserve_error_layout_macro_surface.sa (panic ID 10504).
+
+Panic IDs next free: 10505+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

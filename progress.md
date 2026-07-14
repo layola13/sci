@@ -6461,3 +6461,11 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_sync_poison_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10504+.
+
+## Completed: 2026-07-14 Collections try-reserve error layout constants (Batch aq)
+
+- `sa_std/collections.sal`: Added `TryReserveErrorKind` and `TryReserveError` layout constants, plus CapacityOverflow and AllocError kind constants over the existing `AllocLayout` payload.
+- Test: `tests/unit_framework/std_collections_try_reserve_error_layout_macro_surface.sa` — 1 test (panic ID 10504) verifying the new collections error layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_collections_try_reserve_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10505+.

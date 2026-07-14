@@ -1,0 +1,13 @@
+@import "alloc/layout.sal"
+
+#def TryReserveErrorKind_SIZE = 24
+#def TryReserveErrorKind_ALIGN = 8
+#def TryReserveErrorKind_kind = +0
+#def TryReserveErrorKind_layout = +8
+#def TRY_RESERVE_ERROR_CAPACITY_OVERFLOW = 0
+#def TRY_RESERVE_ERROR_ALLOC_ERROR = 1
+
+#def TryReserveError_SIZE = TryReserveErrorKind_SIZE
+#def TryReserveError_ALIGN = TryReserveErrorKind_ALIGN
+#def TryReserveError_kind = TryReserveErrorKind_kind
+#def TryReserveError_layout = TryReserveErrorKind_layout
