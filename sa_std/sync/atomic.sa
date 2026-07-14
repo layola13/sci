@@ -4,6 +4,58 @@
     fence %ordering
 [END_MACRO]
 
+[MACRO] ATOMIC_ORDERING_NEW %ordering_ptr, %ordering
+    store %ordering_ptr+AtomicOrdering_value, %ordering as u8
+[END_MACRO]
+
+[MACRO] ATOMIC_ORDERING_GET %out_ordering, %ordering_ptr
+    %out_ordering = load %ordering_ptr+AtomicOrdering_value as u8
+[END_MACRO]
+
+[MACRO] ATOMIC_ORDERING_IS_LOAD_VALID %out_bool, %ordering
+    __atomic_order_load_relaxed_%out_bool = eq %ordering, ATOMIC_ORDERING_RELAXED
+    __atomic_order_load_acquire_%out_bool = eq %ordering, ATOMIC_ORDERING_ACQUIRE
+    __atomic_order_load_seq_%out_bool = eq %ordering, ATOMIC_ORDERING_SEQ_CST
+    __atomic_order_load_ra_%out_bool = or __atomic_order_load_relaxed_%out_bool, __atomic_order_load_acquire_%out_bool
+    %out_bool = or __atomic_order_load_ra_%out_bool, __atomic_order_load_seq_%out_bool
+    !__atomic_order_load_ra_%out_bool
+    !__atomic_order_load_seq_%out_bool
+    !__atomic_order_load_acquire_%out_bool
+    !__atomic_order_load_relaxed_%out_bool
+[END_MACRO]
+
+[MACRO] ATOMIC_ORDERING_IS_STORE_VALID %out_bool, %ordering
+    __atomic_order_store_relaxed_%out_bool = eq %ordering, ATOMIC_ORDERING_RELAXED
+    __atomic_order_store_release_%out_bool = eq %ordering, ATOMIC_ORDERING_RELEASE
+    __atomic_order_store_seq_%out_bool = eq %ordering, ATOMIC_ORDERING_SEQ_CST
+    __atomic_order_store_rr_%out_bool = or __atomic_order_store_relaxed_%out_bool, __atomic_order_store_release_%out_bool
+    %out_bool = or __atomic_order_store_rr_%out_bool, __atomic_order_store_seq_%out_bool
+    !__atomic_order_store_rr_%out_bool
+    !__atomic_order_store_seq_%out_bool
+    !__atomic_order_store_release_%out_bool
+    !__atomic_order_store_relaxed_%out_bool
+[END_MACRO]
+
+[MACRO] ATOMIC_ORDERING_IS_FAILURE_VALID %out_bool, %ordering
+    EXPAND ATOMIC_ORDERING_IS_LOAD_VALID %out_bool, %ordering
+[END_MACRO]
+
+[MACRO] ATOMIC_ORDERING_IS_FENCE_VALID %out_bool, %ordering
+    __atomic_order_fence_acquire_%out_bool = eq %ordering, ATOMIC_ORDERING_ACQUIRE
+    __atomic_order_fence_release_%out_bool = eq %ordering, ATOMIC_ORDERING_RELEASE
+    __atomic_order_fence_acqrel_%out_bool = eq %ordering, ATOMIC_ORDERING_ACQ_REL
+    __atomic_order_fence_seq_%out_bool = eq %ordering, ATOMIC_ORDERING_SEQ_CST
+    __atomic_order_fence_ar_%out_bool = or __atomic_order_fence_acquire_%out_bool, __atomic_order_fence_release_%out_bool
+    __atomic_order_fence_as_%out_bool = or __atomic_order_fence_acqrel_%out_bool, __atomic_order_fence_seq_%out_bool
+    %out_bool = or __atomic_order_fence_ar_%out_bool, __atomic_order_fence_as_%out_bool
+    !__atomic_order_fence_as_%out_bool
+    !__atomic_order_fence_ar_%out_bool
+    !__atomic_order_fence_seq_%out_bool
+    !__atomic_order_fence_acqrel_%out_bool
+    !__atomic_order_fence_release_%out_bool
+    !__atomic_order_fence_acquire_%out_bool
+[END_MACRO]
+
 [MACRO] ATOMIC_BOOL_INIT %atomic_ptr, %value
     store %atomic_ptr+AtomicBool_value, %value as u8
 [END_MACRO]

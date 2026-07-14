@@ -34,6 +34,10 @@
 #def AtomicPtr_SIZE = 8
 #def AtomicPtr_value = +0
 
+#def AtomicOrdering_SIZE = 1
+#def AtomicOrdering_ALIGN = 1
+#def AtomicOrdering_value = +0
+
 #def ATOMIC_ORDERING_RELAXED = 0
 #def ATOMIC_ORDERING_RELEASE = 1
 #def ATOMIC_ORDERING_ACQUIRE = 2

@@ -1146,3 +1146,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10507+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 at)
+
+Completed supportable defaults/aliases/macros:
+- AtomicOrdering layout constants in sync/atomic.sal for Rust std::sync::atomic::Ordering's one-byte enum view.
+- Atomic ordering constructor/getter and load/store/failure/fence validation predicate macros in sync/atomic.sa.
+- Test file std_atomic_ordering_layout_macro_surface.sa (panic ID 10507).
+
+Panic IDs next free: 10508+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

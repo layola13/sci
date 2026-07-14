@@ -6487,3 +6487,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_once_state_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10507+.
+
+## Completed: 2026-07-14 AtomicOrdering layout and validation macros (Batch at)
+
+- `sa_std/sync/atomic.sal`: Added `AtomicOrdering` layout constants for the one-byte Rust `std::sync::atomic::Ordering` enum view.
+- `sa_std/sync/atomic.sa`: Added `ATOMIC_ORDERING_NEW`, `ATOMIC_ORDERING_GET`, and validation predicates for load, store, compare-exchange failure, and fence orderings.
+- Test: `tests/unit_framework/std_atomic_ordering_layout_macro_surface.sa` — 1 test (panic ID 10507) verifying the new AtomicOrdering layout and validation macros.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_atomic_ordering_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10508+.

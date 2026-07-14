@@ -626,6 +626,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_float_constants_macro_surface.sa",
         "tests/unit_framework/std_wrapping_arith_macro_surface.sa",
         "tests/unit_framework/std_atomic_ordering_macro_surface.sa",
+        "tests/unit_framework/std_atomic_ordering_layout_macro_surface.sa",
         "tests/unit_framework/std_float_bitmask_macro_surface.sa",
         "tests/unit_framework/std_path_layout_macro_surface.sa",
         "tests/unit_framework/std_ffi_osstr_layout_macro_surface.sa",
