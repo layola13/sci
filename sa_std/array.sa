@@ -1,5 +1,6 @@
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "core/iter.sa"
 @import "core/mem.sa"
 
 [MACRO] ARRAY_LEN %out_len, %length
@@ -48,6 +49,26 @@
 
 [MACRO] ARRAY_EACH_MUT_U64 %out_slice, %array_ptr, %length
     EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_ITER_U64 %out_iter, %array_ptr, %length
+    __array_iter_slice_%out_iter = stack_alloc Slice_SIZE
+    EXPAND ARRAY_AS_SLICE_U64 __array_iter_slice_%out_iter, %array_ptr, %length
+    EXPAND ITER_FROM_SLICE %out_iter, __array_iter_slice_%out_iter
+[END_MACRO]
+
+[MACRO] ARRAY_ITER_MUT_U64 %out_iter, %array_ptr, %length
+    __array_iter_mut_slice_%out_iter = stack_alloc Slice_SIZE
+    EXPAND ARRAY_AS_MUT_SLICE_U64 __array_iter_mut_slice_%out_iter, %array_ptr, %length
+    EXPAND ITER_FROM_SLICE %out_iter, __array_iter_mut_slice_%out_iter
+[END_MACRO]
+
+[MACRO] ARRAY_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
+    EXPAND ARRAY_ITER_U64 %out_iter, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_MUT_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
+    EXPAND ARRAY_ITER_MUT_U64 %out_iter, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_GET_U64 %out_value, %array_ptr, %index

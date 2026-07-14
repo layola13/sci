@@ -6666,3 +6666,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_index_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10527+.
+
+## Completed: 2026-07-14 Array iterator aliases (Batch bn)
+
+- `sa_std/array.sa`: Added concrete u64 array iterator construction aliases: `ARRAY_ITER_U64`, `ARRAY_ITER_MUT_U64`, `ARRAY_REF_INTO_ITER_U64`, and `ARRAY_MUT_REF_INTO_ITER_U64`.
+- Semantics: helpers wrap caller-owned `u64` array storage as slice views and construct the existing concrete value-yielding `Iter`, modeling Rust array-reference `IntoIterator` lowering to slice iterators without by-value `array::IntoIter`, reference item types, mutable item references, or lifetime semantics.
+- Test: `tests/unit_framework/std_array_iter_macro_surface.sa` — 1 test (panic ID 10527) covering iter, iter_mut, ref into_iter, mut-ref into_iter, remaining slice, next, and next_back behavior.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10528+.

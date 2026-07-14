@@ -1329,3 +1329,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10527+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bn)
+
+Completed supportable defaults/aliases/macros:
+- Concrete u64 array iterator construction aliases in array.sa: ARRAY_ITER_U64, ARRAY_ITER_MUT_U64, ARRAY_REF_INTO_ITER_U64, and ARRAY_MUT_REF_INTO_ITER_U64.
+- Test file std_array_iter_macro_surface.sa (panic ID 10527).
+
+Panic IDs next free: 10528+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
