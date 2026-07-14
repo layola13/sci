@@ -74,3 +74,13 @@
 
 #def NetTcpIncoming_SIZE = 8
 #def NetTcpIncoming_listener = +0
+
+#def AddrParseError_SIZE = 8
+#def AddrParseError_ALIGN = 8
+#def AddrParseError_kind = +0
+#def ADDR_PARSE_ERROR_IP = 0
+#def ADDR_PARSE_ERROR_IPV4 = 1
+#def ADDR_PARSE_ERROR_IPV6 = 2
+#def ADDR_PARSE_ERROR_SOCKET = 3
+#def ADDR_PARSE_ERROR_SOCKET_V4 = 4
+#def ADDR_PARSE_ERROR_SOCKET_V6 = 5

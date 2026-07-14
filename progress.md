@@ -6413,3 +6413,11 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10498+.
+
+## Completed: 2026-07-14 Net address parse error layout constants (Batch ak)
+
+- `sa_std/net.sal`: Added `AddrParseError` layout constants and parser-kind constants for Ip, Ipv4, Ipv6, Socket, SocketV4, and SocketV6 parse failures, mirroring Rust `std::net::AddrParseError`'s internal `AddrKind` categories at the SA layout level.
+- Test: `tests/unit_framework/std_net_error_layout_macro_surface.sa` — 1 test (panic ID 10498) verifying the new net error layout constants.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10499+.

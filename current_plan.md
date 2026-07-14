@@ -1057,3 +1057,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10498+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 ak)
+
+Completed supportable defaults/aliases/macros:
+- Net address parse error layout constants in net.sal for Rust `AddrParseError`.
+- AddrParseError kind constants cover Ip, Ipv4, Ipv6, Socket, SocketV4, and SocketV6 parser failure categories.
+- Test file std_net_error_layout_macro_surface.sa (panic ID 10498).
+
+Panic IDs next free: 10499+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

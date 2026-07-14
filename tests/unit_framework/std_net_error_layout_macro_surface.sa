@@ -1,0 +1,31 @@
+@import "sa_std/net.sal"
+
+@test "sa_std net address parse error layout constants"():
+L_ENTRY:
+    ok_size = eq AddrParseError_SIZE, 8
+    ok_align = eq AddrParseError_ALIGN, 8
+    ok_kind = eq AddrParseError_kind, +0
+
+    ok_ip = eq ADDR_PARSE_ERROR_IP, 0
+    ok_ipv4 = eq ADDR_PARSE_ERROR_IPV4, 1
+    ok_ipv6 = eq ADDR_PARSE_ERROR_IPV6, 2
+    ok_socket = eq ADDR_PARSE_ERROR_SOCKET, 3
+    ok_socket_v4 = eq ADDR_PARSE_ERROR_SOCKET_V4, 4
+    ok_socket_v6 = eq ADDR_PARSE_ERROR_SOCKET_V6, 5
+
+    c01 = and ok_size, ok_align
+    c02 = and c01, ok_kind
+    c03 = and c02, ok_ip
+    c04 = and c03, ok_ipv4
+    c05 = and c04, ok_ipv6
+    c06 = and c05, ok_socket
+    c07 = and c06, ok_socket_v4
+    ok = and c07, ok_socket_v6
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10498)
+
+L_PASS:
+    return 0
