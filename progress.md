@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator reverse-fold macros
+
+- Continued Rust `std::iter` / `DoubleEndedIterator` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_RFOLD_U64` and `ITER_TRY_RFOLD_U64`.
+- `ITER_RFOLD_U64` consumes from the back with the existing `(acc, value) -> acc` callback shape. `ITER_TRY_RFOLD_U64` mirrors `ITER_TRY_FOLD_U64` but uses `ITER_NEXT_BACK_U64`, returning `(ok, acc)` and preserving not-yet-consumed front elements on early stop.
+- Test: `tests/unit_framework/std_iter_rfold_macro_surface.sa` — 1 test (panic ID 10534) covering reverse fold order, successful and short-circuiting try reverse fold, remaining-front cursor state after early stop, and empty iterator identity values.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_rfold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only ran the newly added focused test.
+- Panic IDs next free: 10535+.
+
 ## Completed: 2026-07-14 Iterator sortedness macros
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.

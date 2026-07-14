@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter rfold)
+
+Completed supportable reverse-fold macros:
+- `ITER_RFOLD_U64`: concrete `DoubleEndedIterator::rfold` lowering over the slice-backed cursor using `ITER_NEXT_BACK_U64`.
+- `ITER_TRY_RFOLD_U64`: concrete `DoubleEndedIterator::try_rfold` shape with `(acc, value, out_next_ptr) -> ok` callback, preserving not-yet-consumed front elements after early stop.
+- Test file `std_iter_rfold_macro_surface.sa` (panic ID 10534).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_rfold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10535+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy adapter objects, generic item/reference semantics, `IntoIterator`, Rust `Try` residual/error object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter sorted)
 
 Completed supportable iterator sortedness macros:

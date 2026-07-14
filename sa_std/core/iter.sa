@@ -512,6 +512,69 @@ L_ITER_TRY_FOLD_DONE_%out_ok:
 L_ITER_TRY_FOLD_END_%out_ok:
 [END_MACRO]
 
+[MACRO] ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    __iter_rfold_acc_slot_%out_value = stack_alloc 8
+    store __iter_rfold_acc_slot_%out_value+0, %init_value as u64
+    jmp L_ITER_RFOLD_HEAD_%out_value
+L_ITER_RFOLD_HEAD_%out_value:
+    EXPAND ITER_NEXT_BACK_U64 __iter_rfold_has_%out_value, __iter_rfold_value_%out_value, %iter_reg
+    br __iter_rfold_has_%out_value -> L_ITER_RFOLD_BODY_%out_value, L_ITER_RFOLD_DONE_%out_value
+L_ITER_RFOLD_BODY_%out_value:
+    __iter_rfold_acc_%out_value = load __iter_rfold_acc_slot_%out_value+0 as u64
+    __iter_rfold_next_%out_value = call %fold_fn(__iter_rfold_acc_%out_value, __iter_rfold_value_%out_value)
+    store __iter_rfold_acc_slot_%out_value+0, __iter_rfold_next_%out_value as u64
+    !__iter_rfold_next_%out_value
+    !__iter_rfold_acc_%out_value
+    !__iter_rfold_value_%out_value
+    !__iter_rfold_has_%out_value
+    jmp L_ITER_RFOLD_HEAD_%out_value
+L_ITER_RFOLD_DONE_%out_value:
+    %out_value = load __iter_rfold_acc_slot_%out_value+0 as u64
+    !__iter_rfold_value_%out_value
+    !__iter_rfold_has_%out_value
+[END_MACRO]
+
+[MACRO] ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    __iter_try_rfold_acc_slot_%out_ok = stack_alloc 8
+    __iter_try_rfold_next_slot_%out_ok = stack_alloc 8
+    store __iter_try_rfold_acc_slot_%out_ok+0, %init_value as u64
+    store __iter_try_rfold_next_slot_%out_ok+0, %init_value as u64
+    jmp L_ITER_TRY_RFOLD_HEAD_%out_ok
+L_ITER_TRY_RFOLD_HEAD_%out_ok:
+    EXPAND ITER_NEXT_BACK_U64 __iter_try_rfold_has_%out_ok, __iter_try_rfold_value_%out_ok, %iter_reg
+    br __iter_try_rfold_has_%out_ok -> L_ITER_TRY_RFOLD_BODY_%out_ok, L_ITER_TRY_RFOLD_DONE_%out_ok
+L_ITER_TRY_RFOLD_BODY_%out_ok:
+    __iter_try_rfold_acc_%out_ok = load __iter_try_rfold_acc_slot_%out_ok+0 as u64
+    __iter_try_rfold_status_%out_ok = call %fold_fn(__iter_try_rfold_acc_%out_ok, __iter_try_rfold_value_%out_ok, &__iter_try_rfold_next_slot_%out_ok)
+    __iter_try_rfold_continue_%out_ok = ne __iter_try_rfold_status_%out_ok, 0
+    br __iter_try_rfold_continue_%out_ok -> L_ITER_TRY_RFOLD_NEXT_%out_ok, L_ITER_TRY_RFOLD_FAIL_%out_ok
+L_ITER_TRY_RFOLD_NEXT_%out_ok:
+    __iter_try_rfold_next_%out_ok = load __iter_try_rfold_next_slot_%out_ok+0 as u64
+    store __iter_try_rfold_acc_slot_%out_ok+0, __iter_try_rfold_next_%out_ok as u64
+    !__iter_try_rfold_next_%out_ok
+    !__iter_try_rfold_continue_%out_ok
+    !__iter_try_rfold_status_%out_ok
+    !__iter_try_rfold_acc_%out_ok
+    !__iter_try_rfold_value_%out_ok
+    !__iter_try_rfold_has_%out_ok
+    jmp L_ITER_TRY_RFOLD_HEAD_%out_ok
+L_ITER_TRY_RFOLD_FAIL_%out_ok:
+    %out_value = load __iter_try_rfold_acc_slot_%out_ok+0 as u64
+    %out_ok = add 0, 0
+    !__iter_try_rfold_continue_%out_ok
+    !__iter_try_rfold_status_%out_ok
+    !__iter_try_rfold_acc_%out_ok
+    !__iter_try_rfold_value_%out_ok
+    !__iter_try_rfold_has_%out_ok
+    jmp L_ITER_TRY_RFOLD_END_%out_ok
+L_ITER_TRY_RFOLD_DONE_%out_ok:
+    %out_value = load __iter_try_rfold_acc_slot_%out_ok+0 as u64
+    %out_ok = add 0, 1
+    !__iter_try_rfold_value_%out_ok
+    !__iter_try_rfold_has_%out_ok
+L_ITER_TRY_RFOLD_END_%out_ok:
+[END_MACRO]
+
 [MACRO] ITER_SUM_U64 %out_value, %iter_reg
     __iter_sum_slot_%out_value = stack_alloc 8
     store __iter_sum_slot_%out_value+0, 0 as u64
