@@ -6630,3 +6630,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10523+.
+
+## Completed: 2026-07-14 Array clone/copy aliases (Batch bj)
+
+- `sa_std/array.sa`: Added concrete u64 array clone/copy aliases: `ARRAY_CLONE_U64`, `ARRAY_CLONE_FROM_U64`, and `ARRAY_COPY_FROM_U64`.
+- Semantics: helpers copy caller-owned contiguous `u64` storage, modeling Rust array `Clone` / `Copy` lowering for trivially copied concrete elements without implementing generic trait dispatch.
+- Test: `tests/unit_framework/std_array_clone_macro_surface.sa` — 1 test (panic ID 10523) covering clone, clone_from, and copy_from aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10524+.

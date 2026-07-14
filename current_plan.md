@@ -1293,3 +1293,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10523+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bj)
+
+Completed supportable defaults/aliases/macros:
+- Concrete u64 array clone/copy aliases in array.sa: ARRAY_CLONE_U64, ARRAY_CLONE_FROM_U64, and ARRAY_COPY_FROM_U64.
+- Test file std_array_clone_macro_surface.sa (panic ID 10523).
+
+Panic IDs next free: 10524+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

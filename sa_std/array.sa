@@ -180,6 +180,18 @@ L_ARRAY_FILL_DONE_%array_ptr:
     !__array_copy_bytes_%dst_ptr
 [END_MACRO]
 
+[MACRO] ARRAY_CLONE_U64 %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_CLONE_FROM_U64 %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_COPY_FROM_U64 %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
     __array_copy_src_len_%out_ok = load %src_slice+Slice_len as u64
     __array_copy_same_len_%out_ok = eq %length, __array_copy_src_len_%out_ok
