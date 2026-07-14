@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 hash bool)
+
+Completed supportable bool hash macro:
+- `HASH_BOOL`: direct one-shot hash helper for Rust `bool` lowering over the existing `DEFAULT_HASHER_WRITE_BOOL` path.
+- The helper normalizes nonzero inputs to true, matching the existing concrete bool writer contract for frontend-lowered booleans.
+- This mirrors Rust's `impl Hash for bool { state.write_u8(*self as u8) }` shape for the supported deterministic SA hasher surface, without exposing generic `Hash` dispatch or SipHash-compatible output.
+- Test file `std_hash_bool_macro_surface.sa` (panic ID 10558).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_bool_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10559+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 hash char)
 
 Completed supportable char hash macro:

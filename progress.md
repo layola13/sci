@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Hash bool macro
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `impl Hash for bool` under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `HASH_BOOL`.
+- The helper surface uses the existing concrete `DEFAULT_HASHER_WRITE_BOOL` path, normalizing nonzero values to true for frontend-lowered booleans. It does not claim generic `Hash` trait dispatch or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_bool_macro_surface.sa` - 1 test (panic ID 10558) covering equivalence with `WRITE_BOOL`, true/false distinction, nonzero normalization, and direct one-shot hashing.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_bool_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10559+.
+
 ## Completed: 2026-07-14 Hash char macro
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `impl Hash for char` under `/home/vscode/projects/rust`.
