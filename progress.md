@@ -6657,3 +6657,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10526+.
+
+## Completed: 2026-07-14 Array index aliases (Batch bm)
+
+- `sa_std/array.sa`: Added concrete u64 array `Index` / `IndexMut` aliases: `ARRAY_INDEX_U64` and `ARRAY_INDEX_MUT_PTR_U64`.
+- Semantics: helpers delegate to the existing concrete element-load and mutable-pointer helpers, modeling Rust array indexing lowering to slice indexing for concrete `u64` arrays without generic index types, borrow lifetimes, or bounds-check panic modeling.
+- Test: `tests/unit_framework/std_array_index_macro_surface.sa` — 1 test (panic ID 10526) covering immutable index reads and mutable index pointer writes.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_index_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10527+.

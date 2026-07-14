@@ -64,6 +64,14 @@
     !__array_mut_off_%out_ptr
 [END_MACRO]
 
+[MACRO] ARRAY_INDEX_U64 %out_value, %array_ptr, %index
+    EXPAND ARRAY_GET_U64 %out_value, %array_ptr, %index
+[END_MACRO]
+
+[MACRO] ARRAY_INDEX_MUT_PTR_U64 %out_ptr, %array_ptr, %index
+    EXPAND ARRAY_GET_MUT_PTR_U64 %out_ptr, %array_ptr, %index
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_GET_U64 %out_ok, %out_value, %array_ptr, %length, %index
     __array_get_in_bounds_%out_ok = ult %index, %length
     br __array_get_in_bounds_%out_ok -> L_ARRAY_TRY_GET_HIT_%out_ok, L_ARRAY_TRY_GET_MISS_%out_ok

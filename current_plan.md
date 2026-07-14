@@ -1320,3 +1320,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10526+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bm)
+
+Completed supportable defaults/aliases/macros:
+- Concrete u64 array Index/IndexMut aliases in array.sa: ARRAY_INDEX_U64 and ARRAY_INDEX_MUT_PTR_U64.
+- Test file std_array_index_macro_surface.sa (panic ID 10526).
+
+Panic IDs next free: 10527+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
