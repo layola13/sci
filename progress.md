@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator scan collect macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor and `Vec<u64>` facade.
+- `sa_std/core/iter.sa`: added `ITER_SCAN_COLLECT_U64`.
+- The helper models a concrete eager `scan(...).collect::<Vec<_>>()` lowering: it keeps a `u64` state slot, calls a `(state_ptr, value, out_mapped_ptr) -> ok` callback, pushes yielded values while nonzero, consumes the first zero/None-style stopping item without collecting it, and leaves later suffix items in the cursor.
+- Test: `tests/unit_framework/std_iter_scan_macro_surface.sa` — 1 test (panic ID 10540) covering state updates, yielded values, stopping-item consumption with suffix preservation, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_scan_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only ran the newly added focused test.
+- Panic IDs next free: 10541+.
+
 ## Completed: 2026-07-14 Iterator inspect collect macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor and `Vec<u64>` facade.

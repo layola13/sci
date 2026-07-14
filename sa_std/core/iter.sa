@@ -1220,6 +1220,41 @@ L_ITER_INSPECT_COLLECT_DONE_%out_vec:
     !__iter_inspect_collect_has_%out_vec
 [END_MACRO]
 
+[MACRO] ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND ITER_VEC_NEW %out_vec
+    __iter_scan_state_%out_vec = stack_alloc 8
+    __iter_scan_collect_slot_%out_vec = stack_alloc 8
+    store __iter_scan_state_%out_vec+0, %initial_state as u64
+    jmp L_ITER_SCAN_COLLECT_HEAD_%out_vec
+L_ITER_SCAN_COLLECT_HEAD_%out_vec:
+    EXPAND ITER_NEXT_U64 __iter_scan_collect_has_%out_vec, __iter_scan_collect_value_%out_vec, %iter_reg
+    br __iter_scan_collect_has_%out_vec -> L_ITER_SCAN_COLLECT_CHECK_%out_vec, L_ITER_SCAN_COLLECT_DONE_EMPTY_%out_vec
+L_ITER_SCAN_COLLECT_CHECK_%out_vec:
+    __iter_scan_collect_yielded_%out_vec = call %scan_fn(&__iter_scan_state_%out_vec, __iter_scan_collect_value_%out_vec, &__iter_scan_collect_slot_%out_vec)
+    __iter_scan_collect_keep_%out_vec = ne __iter_scan_collect_yielded_%out_vec, 0
+    br __iter_scan_collect_keep_%out_vec -> L_ITER_SCAN_COLLECT_PUSH_%out_vec, L_ITER_SCAN_COLLECT_STOP_%out_vec
+L_ITER_SCAN_COLLECT_PUSH_%out_vec:
+    __iter_scan_collect_mapped_%out_vec = load __iter_scan_collect_slot_%out_vec+0 as u64
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_scan_collect_mapped_%out_vec
+    !__iter_scan_collect_mapped_%out_vec
+    !__iter_scan_collect_keep_%out_vec
+    !__iter_scan_collect_yielded_%out_vec
+    !__iter_scan_collect_value_%out_vec
+    !__iter_scan_collect_has_%out_vec
+    jmp L_ITER_SCAN_COLLECT_HEAD_%out_vec
+L_ITER_SCAN_COLLECT_STOP_%out_vec:
+    !__iter_scan_collect_keep_%out_vec
+    !__iter_scan_collect_yielded_%out_vec
+    !__iter_scan_collect_value_%out_vec
+    !__iter_scan_collect_has_%out_vec
+    jmp L_ITER_SCAN_COLLECT_DONE_%out_vec
+L_ITER_SCAN_COLLECT_DONE_EMPTY_%out_vec:
+    !__iter_scan_collect_value_%out_vec
+    !__iter_scan_collect_has_%out_vec
+    jmp L_ITER_SCAN_COLLECT_DONE_%out_vec
+L_ITER_SCAN_COLLECT_DONE_%out_vec:
+[END_MACRO]
+
 [MACRO] ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_VEC_NEW %out_vec
     jmp L_ITER_FILTER_COLLECT_HEAD_%out_vec

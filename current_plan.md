@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter scan collect)
+
+Completed supportable iterator scan collect macro:
+- `ITER_SCAN_COLLECT_U64`: concrete Rust `Iterator::scan(...).collect::<Vec<_>>()` lowering over the slice-backed `u64` cursor.
+- The macro keeps a concrete `u64` state slot, calls a `(state_ptr, value, out_mapped_ptr) -> ok` callback, pushes yielded values while ok is nonzero, consumes the first None-style stopping item without collecting it, and leaves later suffix items available.
+- Test file `std_iter_scan_macro_surface.sa` (panic ID 10540).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_scan_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10541+.
+Still blocked without redesign: real Rust iterator trait hierarchy, lazy `Scan` adapter identity, generic state/item/reference semantics, generic `Option` return and `collect`, `IntoIterator`, Rust `Try` residual/error object integration, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter inspect collect)
 
 Completed supportable iterator inspect collect macro:
