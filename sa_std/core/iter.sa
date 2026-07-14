@@ -1749,6 +1749,111 @@ L_ITER_PARTITION_DONE_%out_true_vec:
     !__iter_partition_has_%out_true_vec
 [END_MACRO]
 
+[MACRO] ITER_PARTITION_IN_PLACE_U64 %out_count, %iter_reg, %pred_fn
+    __iter_partition_in_place_ptr_%out_count = load %iter_reg+Iter_ptr as ptr
+    __iter_partition_in_place_len_%out_count = load %iter_reg+Iter_len as u64
+    __iter_partition_in_place_left_%out_count = load %iter_reg+Iter_index as u64
+    __iter_partition_in_place_right_%out_count = add __iter_partition_in_place_len_%out_count, 0
+    %out_count = add 0, 0
+    jmp L_ITER_PARTITION_IN_PLACE_HEAD_%out_count
+L_ITER_PARTITION_IN_PLACE_HEAD_%out_count:
+    __iter_partition_in_place_head_done_%out_count = uge __iter_partition_in_place_left_%out_count, __iter_partition_in_place_right_%out_count
+    br __iter_partition_in_place_head_done_%out_count -> L_ITER_PARTITION_IN_PLACE_HEAD_DONE_%out_count, L_ITER_PARTITION_IN_PLACE_CHECK_HEAD_%out_count
+L_ITER_PARTITION_IN_PLACE_CHECK_HEAD_%out_count:
+    !__iter_partition_in_place_head_done_%out_count
+    __iter_partition_in_place_head_off_%out_count = mul __iter_partition_in_place_left_%out_count, 8
+    __iter_partition_in_place_head_ptr_%out_count = ptr_add __iter_partition_in_place_ptr_%out_count, __iter_partition_in_place_head_off_%out_count
+    __iter_partition_in_place_head_value_%out_count = load __iter_partition_in_place_head_ptr_%out_count+0 as u64
+    __iter_partition_in_place_head_pred_%out_count = call %pred_fn(__iter_partition_in_place_head_value_%out_count)
+    __iter_partition_in_place_head_true_%out_count = ne __iter_partition_in_place_head_pred_%out_count, 0
+    br __iter_partition_in_place_head_true_%out_count -> L_ITER_PARTITION_IN_PLACE_ADVANCE_TRUE_%out_count, L_ITER_PARTITION_IN_PLACE_TAIL_START_%out_count
+L_ITER_PARTITION_IN_PLACE_ADVANCE_TRUE_%out_count:
+    __iter_partition_in_place_next_count_%out_count = add %out_count, 1
+    !%out_count
+    %out_count = add __iter_partition_in_place_next_count_%out_count, 0
+    __iter_partition_in_place_next_left_%out_count = add __iter_partition_in_place_left_%out_count, 1
+    !__iter_partition_in_place_left_%out_count
+    __iter_partition_in_place_left_%out_count = add __iter_partition_in_place_next_left_%out_count, 0
+    !__iter_partition_in_place_next_left_%out_count
+    !__iter_partition_in_place_next_count_%out_count
+    !__iter_partition_in_place_head_true_%out_count
+    !__iter_partition_in_place_head_pred_%out_count
+    !__iter_partition_in_place_head_value_%out_count
+    !__iter_partition_in_place_head_ptr_%out_count
+    !__iter_partition_in_place_head_off_%out_count
+    jmp L_ITER_PARTITION_IN_PLACE_HEAD_%out_count
+L_ITER_PARTITION_IN_PLACE_TAIL_START_%out_count:
+    !__iter_partition_in_place_head_true_%out_count
+    !__iter_partition_in_place_head_pred_%out_count
+    !__iter_partition_in_place_head_value_%out_count
+    !__iter_partition_in_place_head_ptr_%out_count
+    !__iter_partition_in_place_head_off_%out_count
+    jmp L_ITER_PARTITION_IN_PLACE_TAIL_HEAD_%out_count
+L_ITER_PARTITION_IN_PLACE_TAIL_HEAD_%out_count:
+    __iter_partition_in_place_tail_min_%out_count = add __iter_partition_in_place_left_%out_count, 1
+    __iter_partition_in_place_tail_done_%out_count = ule __iter_partition_in_place_right_%out_count, __iter_partition_in_place_tail_min_%out_count
+    br __iter_partition_in_place_tail_done_%out_count -> L_ITER_PARTITION_IN_PLACE_TAIL_DONE_%out_count, L_ITER_PARTITION_IN_PLACE_CHECK_TAIL_%out_count
+L_ITER_PARTITION_IN_PLACE_CHECK_TAIL_%out_count:
+    !__iter_partition_in_place_tail_done_%out_count
+    !__iter_partition_in_place_tail_min_%out_count
+    __iter_partition_in_place_tail_index_%out_count = sub __iter_partition_in_place_right_%out_count, 1
+    __iter_partition_in_place_tail_off_%out_count = mul __iter_partition_in_place_tail_index_%out_count, 8
+    __iter_partition_in_place_tail_ptr_%out_count = ptr_add __iter_partition_in_place_ptr_%out_count, __iter_partition_in_place_tail_off_%out_count
+    __iter_partition_in_place_tail_value_%out_count = load __iter_partition_in_place_tail_ptr_%out_count+0 as u64
+    __iter_partition_in_place_tail_pred_%out_count = call %pred_fn(__iter_partition_in_place_tail_value_%out_count)
+    __iter_partition_in_place_tail_true_%out_count = ne __iter_partition_in_place_tail_pred_%out_count, 0
+    br __iter_partition_in_place_tail_true_%out_count -> L_ITER_PARTITION_IN_PLACE_SWAP_%out_count, L_ITER_PARTITION_IN_PLACE_DROP_TAIL_%out_count
+L_ITER_PARTITION_IN_PLACE_DROP_TAIL_%out_count:
+    !__iter_partition_in_place_right_%out_count
+    __iter_partition_in_place_right_%out_count = add __iter_partition_in_place_tail_index_%out_count, 0
+    !__iter_partition_in_place_tail_true_%out_count
+    !__iter_partition_in_place_tail_pred_%out_count
+    !__iter_partition_in_place_tail_value_%out_count
+    !__iter_partition_in_place_tail_ptr_%out_count
+    !__iter_partition_in_place_tail_off_%out_count
+    !__iter_partition_in_place_tail_index_%out_count
+    jmp L_ITER_PARTITION_IN_PLACE_TAIL_HEAD_%out_count
+L_ITER_PARTITION_IN_PLACE_SWAP_%out_count:
+    __iter_partition_in_place_left_off_%out_count = mul __iter_partition_in_place_left_%out_count, 8
+    __iter_partition_in_place_left_ptr_%out_count = ptr_add __iter_partition_in_place_ptr_%out_count, __iter_partition_in_place_left_off_%out_count
+    __iter_partition_in_place_left_value_%out_count = load __iter_partition_in_place_left_ptr_%out_count+0 as u64
+    store __iter_partition_in_place_left_ptr_%out_count+0, __iter_partition_in_place_tail_value_%out_count as u64
+    store __iter_partition_in_place_tail_ptr_%out_count+0, __iter_partition_in_place_left_value_%out_count as u64
+    __iter_partition_in_place_swap_count_%out_count = add %out_count, 1
+    !%out_count
+    %out_count = add __iter_partition_in_place_swap_count_%out_count, 0
+    __iter_partition_in_place_swap_left_%out_count = add __iter_partition_in_place_left_%out_count, 1
+    !__iter_partition_in_place_left_%out_count
+    __iter_partition_in_place_left_%out_count = add __iter_partition_in_place_swap_left_%out_count, 0
+    !__iter_partition_in_place_right_%out_count
+    __iter_partition_in_place_right_%out_count = add __iter_partition_in_place_tail_index_%out_count, 0
+    !__iter_partition_in_place_swap_left_%out_count
+    !__iter_partition_in_place_swap_count_%out_count
+    !__iter_partition_in_place_left_value_%out_count
+    !__iter_partition_in_place_left_ptr_%out_count
+    !__iter_partition_in_place_left_off_%out_count
+    !__iter_partition_in_place_tail_true_%out_count
+    !__iter_partition_in_place_tail_pred_%out_count
+    !__iter_partition_in_place_tail_value_%out_count
+    !__iter_partition_in_place_tail_ptr_%out_count
+    !__iter_partition_in_place_tail_off_%out_count
+    !__iter_partition_in_place_tail_index_%out_count
+    jmp L_ITER_PARTITION_IN_PLACE_HEAD_%out_count
+L_ITER_PARTITION_IN_PLACE_TAIL_DONE_%out_count:
+    !__iter_partition_in_place_tail_done_%out_count
+    !__iter_partition_in_place_tail_min_%out_count
+    jmp L_ITER_PARTITION_IN_PLACE_DONE_%out_count
+L_ITER_PARTITION_IN_PLACE_HEAD_DONE_%out_count:
+    !__iter_partition_in_place_head_done_%out_count
+    jmp L_ITER_PARTITION_IN_PLACE_DONE_%out_count
+L_ITER_PARTITION_IN_PLACE_DONE_%out_count:
+    store %iter_reg+Iter_index, __iter_partition_in_place_len_%out_count as u64
+    !__iter_partition_in_place_right_%out_count
+    !__iter_partition_in_place_left_%out_count
+    !__iter_partition_in_place_len_%out_count
+    !__iter_partition_in_place_ptr_%out_count
+[END_MACRO]
+
 [MACRO] ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ALL_U64 __iter_partitioned_all_%out_bool, %iter_reg, %pred_fn
     br __iter_partitioned_all_%out_bool -> L_ITER_IS_PARTITIONED_TRUE_%out_bool, L_ITER_IS_PARTITIONED_CHECK_REST_%out_bool

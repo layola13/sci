@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter partition_in_place)
+
+Completed supportable iterator partition_in_place macro:
+- `ITER_PARTITION_IN_PLACE_U64`: concrete unstable Rust `Iterator::partition_in_place` shape over the slice-backed `u64` cursor's current mutable remaining window.
+- The macro follows Rust's current swap-based partition shape: find the first predicate-false value from the front, find a predicate-true value from the back, swap them, and return the true partition length. It marks the source cursor consumed and does not preserve relative order.
+- This is a concrete lowering surface only; it does not expose borrow-scoped `iter_mut`, `DoubleEndedIterator<Item = &mut T>` trait machinery, generic references, closure capture, or Rust panic/drop behavior around predicate calls.
+- Test file `std_iter_partition_in_place_macro_surface.sa` (panic ID 10552).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_partition_in_place_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10553+.
+Still blocked without redesign: real Rust iterator trait hierarchy, borrow-scoped mutable references, `DoubleEndedIterator<Item = &mut T>` semantics, generic item/reference semantics, generic closure capture, exact panic/drop behavior, generic `collect`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter map_windows collect)
 
 Completed supportable iterator map_windows collect macro:
