@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator try_collect macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor, referencing Rust's local `Iterator::try_collect` implementation under `/home/vscode/projects/rust`.
+- `sa_std/core/iter.sa`: added `ITER_TRY_COLLECT_U64`.
+- The helper models a concrete unstable `Iterator::try_collect::<Vec<_>>()` lowering for the supported `u64` cursor subset. It calls a `(value, out_value_ptr) -> ok` callback for each item, pushes mapped successes into a `Vec<u64>`, returns `ok=0` after consuming the first failing item, and leaves later suffix items available.
+- Test: `tests/unit_framework/std_iter_try_collect_macro_surface.sa` - 1 test (panic ID 10553) covering success collection, failure short-circuit with suffix preservation, first-item failure, and empty input success.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_try_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10554+.
+
 ## Completed: 2026-07-14 Iterator partition_in_place macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor, referencing Rust's local `Iterator::partition_in_place` implementation under `/home/vscode/projects/rust`.

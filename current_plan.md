@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter try_collect)
+
+Completed supportable iterator try_collect macro:
+- `ITER_TRY_COLLECT_U64`: concrete unstable Rust `Iterator::try_collect::<Vec<_>>()` shape over the slice-backed `u64` cursor.
+- The macro uses a concrete `(value, out_value_ptr) -> ok` callback to model the supported part of `Try::branch`: successes are mapped into a `Vec<u64>`, the first failure is consumed and returns `ok=0`, and any later suffix remains available on the source cursor.
+- This is a concrete lowering surface only; it does not expose Rust's generic `Try`, `Residual`, `ChangeOutputType`, outer `Option`/`Result`/`ControlFlow` objects, or generic `FromIterator`.
+- Test file `std_iter_try_collect_macro_surface.sa` (panic ID 10553).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_try_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10554+.
+Still blocked without redesign: real Rust iterator trait hierarchy, generic `Try` residual/error object integration, `ChangeOutputType`, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter partition_in_place)
 
 Completed supportable iterator partition_in_place macro:

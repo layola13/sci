@@ -1074,6 +1074,40 @@ L_ITER_COLLECT_DONE_%out_vec:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND ITER_VEC_NEW %out_vec
+    __iter_try_collect_slot_%out_ok = stack_alloc 8
+    jmp L_ITER_TRY_COLLECT_HEAD_%out_ok
+L_ITER_TRY_COLLECT_HEAD_%out_ok:
+    EXPAND ITER_NEXT_U64 __iter_try_collect_has_%out_ok, __iter_try_collect_value_%out_ok, %iter_reg
+    br __iter_try_collect_has_%out_ok -> L_ITER_TRY_COLLECT_CHECK_%out_ok, L_ITER_TRY_COLLECT_DONE_%out_ok
+L_ITER_TRY_COLLECT_CHECK_%out_ok:
+    __iter_try_collect_status_%out_ok = call %try_fn(__iter_try_collect_value_%out_ok, &__iter_try_collect_slot_%out_ok)
+    __iter_try_collect_continue_%out_ok = ne __iter_try_collect_status_%out_ok, 0
+    br __iter_try_collect_continue_%out_ok -> L_ITER_TRY_COLLECT_PUSH_%out_ok, L_ITER_TRY_COLLECT_FAIL_%out_ok
+L_ITER_TRY_COLLECT_PUSH_%out_ok:
+    __iter_try_collect_mapped_%out_ok = load __iter_try_collect_slot_%out_ok+0 as u64
+    EXPAND ITER_VEC_PUSH_U64 %out_vec, __iter_try_collect_mapped_%out_ok
+    !__iter_try_collect_mapped_%out_ok
+    !__iter_try_collect_continue_%out_ok
+    !__iter_try_collect_status_%out_ok
+    !__iter_try_collect_value_%out_ok
+    !__iter_try_collect_has_%out_ok
+    jmp L_ITER_TRY_COLLECT_HEAD_%out_ok
+L_ITER_TRY_COLLECT_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__iter_try_collect_continue_%out_ok
+    !__iter_try_collect_status_%out_ok
+    !__iter_try_collect_value_%out_ok
+    !__iter_try_collect_has_%out_ok
+    jmp L_ITER_TRY_COLLECT_END_%out_ok
+L_ITER_TRY_COLLECT_DONE_%out_ok:
+    %out_ok = add 0, 1
+    !__iter_try_collect_value_%out_ok
+    !__iter_try_collect_has_%out_ok
+L_ITER_TRY_COLLECT_END_%out_ok:
+[END_MACRO]
+
 [MACRO] ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
     EXPAND ITER_VEC_NEW %out_vec
     __iter_array_chunks_zero_%out_ok = eq %chunk_size, 0
