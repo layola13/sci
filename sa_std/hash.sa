@@ -79,6 +79,10 @@
     !__hasher_bool_%hasher
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_CHAR %hasher, %code
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, %code
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_PTR %hasher, %ptr
     __hasher_ptr_bits_%hasher = bitcast %ptr as u64
     EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_ptr_bits_%hasher
@@ -191,6 +195,13 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_NEW __hash_str_hasher_%out_hash
     EXPAND DEFAULT_HASHER_WRITE_STR __hash_str_hasher_%out_hash, %slice_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_str_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_CHAR %out_hash, %code
+    __hash_char_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_char_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CHAR __hash_char_hasher_%out_hash, %code
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_char_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] HASH_SLICE_U8 %out_hash, %slice_reg
