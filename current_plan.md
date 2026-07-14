@@ -1165,3 +1165,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10509+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 av)
+
+Completed supportable defaults/aliases/macros:
+- Range<usize> finite cursor/count/slice-view aliases in ops.sa, plus RangeFrom/RangeTo/RangeInclusive/RangeToInclusive<usize> constructor/access/contains/slice-view aliases over the current 64-bit SA usize layout.
+- Test file std_ops_range_usize_macro_surface.sa (panic ID 10509).
+
+Panic IDs next free: 10510+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

@@ -6505,3 +6505,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_usize_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10509+.
+
+## Completed: 2026-07-14 Range usize macro aliases (Batch av)
+
+- `sa_std/ops.sa`: Added `RANGE_USIZE_NEXT`, `NEXT_BACK`, `NTH`, `COUNT`, and `TRY_GET_SLICE` over the existing finite `Range<usize>` layout.
+- `sa_std/ops.sa`: Added `RangeFrom`, `RangeTo`, `RangeInclusive`, and `RangeToInclusive` usize constructor/access/contains/slice-view aliases, plus inclusive finite cursor/count helpers and `RANGE_FULL_CONTAINS_USIZE`.
+- Test: `tests/unit_framework/std_ops_range_usize_macro_surface.sa` — 1 test (panic ID 10509) verifying the new Range<usize> macro surface.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_range_usize_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10510+.

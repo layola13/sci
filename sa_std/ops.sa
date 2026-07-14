@@ -846,8 +846,124 @@ L_BOUND_USIZE_END_END_%out_bool:
     EXPAND RANGE_U64_LEN %out_len, %range_ptr
 [END_MACRO]
 
+[MACRO] RANGE_USIZE_NEXT %out_ok, %out_value, %range_ptr
+    EXPAND RANGE_U64_NEXT %out_ok, %out_value, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_NEXT_BACK %out_ok, %out_value, %range_ptr
+    EXPAND RANGE_U64_NEXT_BACK %out_ok, %out_value, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_NTH %out_ok, %out_value, %range_ptr, %nth
+    EXPAND RANGE_U64_NTH %out_ok, %out_value, %range_ptr, %nth
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_COUNT %out_count, %range_ptr
+    EXPAND RANGE_U64_COUNT %out_count, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_USIZE_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+    EXPAND RANGE_U64_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+[END_MACRO]
+
 [MACRO] RANGE_USIZE_DEFAULT %range_ptr
     EXPAND RANGE_U64_DEFAULT %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_FROM_USIZE_NEW %range_ptr, %start
+    EXPAND RANGE_FROM_U64_NEW %range_ptr, %start
+[END_MACRO]
+
+[MACRO] RANGE_FROM_USIZE_START %out_start, %range_ptr
+    EXPAND RANGE_FROM_U64_START %out_start, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_FROM_USIZE_CONTAINS %out_bool, %range_ptr, %item
+    EXPAND RANGE_FROM_U64_CONTAINS %out_bool, %range_ptr, %item
+[END_MACRO]
+
+[MACRO] RANGE_FROM_USIZE_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+    EXPAND RANGE_FROM_U64_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_TO_USIZE_NEW %range_ptr, %end
+    EXPAND RANGE_TO_U64_NEW %range_ptr, %end
+[END_MACRO]
+
+[MACRO] RANGE_TO_USIZE_END %out_end, %range_ptr
+    EXPAND RANGE_TO_U64_END %out_end, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_TO_USIZE_CONTAINS %out_bool, %range_ptr, %item
+    EXPAND RANGE_TO_U64_CONTAINS %out_bool, %range_ptr, %item
+[END_MACRO]
+
+[MACRO] RANGE_TO_USIZE_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+    EXPAND RANGE_TO_U64_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_NEW %range_ptr, %start, %end
+    EXPAND RANGE_INCLUSIVE_U64_NEW %range_ptr, %start, %end
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_SET_EXHAUSTED %range_ptr, %exhausted
+    EXPAND RANGE_INCLUSIVE_U64_SET_EXHAUSTED %range_ptr, %exhausted
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_START %out_start, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_START %out_start, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_END %out_end, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_END %out_end, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_CONTAINS %out_bool, %range_ptr, %item
+    EXPAND RANGE_INCLUSIVE_U64_CONTAINS %out_bool, %range_ptr, %item
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_IS_EMPTY %out_bool, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_IS_EMPTY %out_bool, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_LEN %out_len, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_LEN %out_len, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_NEXT %out_ok, %out_value, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_NEXT %out_ok, %out_value, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_NEXT_BACK %out_ok, %out_value, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_NEXT_BACK %out_ok, %out_value, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_COUNT %out_count, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_COUNT %out_count, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_INCLUSIVE_USIZE_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+    EXPAND RANGE_INCLUSIVE_U64_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_TO_INCLUSIVE_USIZE_NEW %range_ptr, %end
+    EXPAND RANGE_TO_INCLUSIVE_U64_NEW %range_ptr, %end
+[END_MACRO]
+
+[MACRO] RANGE_TO_INCLUSIVE_USIZE_END %out_end, %range_ptr
+    EXPAND RANGE_TO_INCLUSIVE_U64_END %out_end, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_TO_INCLUSIVE_USIZE_CONTAINS %out_bool, %range_ptr, %item
+    EXPAND RANGE_TO_INCLUSIVE_U64_CONTAINS %out_bool, %range_ptr, %item
+[END_MACRO]
+
+[MACRO] RANGE_TO_INCLUSIVE_USIZE_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+    EXPAND RANGE_TO_INCLUSIVE_U64_TRY_GET_SLICE %out_ok, %out_slice, %base_slice, %range_ptr
+[END_MACRO]
+
+[MACRO] RANGE_FULL_CONTAINS_USIZE %out_bool, %item
+    EXPAND RANGE_FULL_CONTAINS_U64 %out_bool, %item
 [END_MACRO]
 
 [MACRO] RANGE_INCLUSIVE_USIZE_DEFAULT %range_ptr
