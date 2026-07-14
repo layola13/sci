@@ -1077,3 +1077,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10500+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 am)
+
+Completed supportable defaults/aliases/macros:
+- Alloc layout constants in alloc/layout.sal for Rust `core::alloc::Layout` at the SA macro-layout level.
+- Zero-sized LayoutError/LayoutErr and AllocError marker layout constants.
+- Test file std_alloc_layout_macro_surface.sa (panic ID 10500).
+
+Panic IDs next free: 10501+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

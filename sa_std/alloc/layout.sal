@@ -1,0 +1,12 @@
+#def AllocLayout_SIZE = 16
+#def AllocLayout_ALIGN = 8
+#def AllocLayout_size = +0
+#def AllocLayout_align = +8
+
+#def LayoutError_SIZE = 0
+#def LayoutError_ALIGN = 1
+#def LayoutErr_SIZE = LayoutError_SIZE
+#def LayoutErr_ALIGN = LayoutError_ALIGN
+
+#def AllocError_SIZE = 0
+#def AllocError_ALIGN = 1

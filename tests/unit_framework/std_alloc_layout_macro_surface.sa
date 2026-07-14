@@ -1,0 +1,36 @@
+@import "sa_std/alloc/layout.sal"
+@import "sa_std/mem.sal"
+
+@test "sa_std alloc Layout and error layout constants"():
+L_ENTRY:
+    expected_layout_size = add MEM_SIZE_USIZE, MEM_SIZE_USIZE
+    ok_layout_size = eq AllocLayout_SIZE, expected_layout_size
+    ok_layout_align = eq AllocLayout_ALIGN, MEM_ALIGN_USIZE
+    ok_layout_size_offset = eq AllocLayout_size, +0
+    ok_layout_align_offset = eq AllocLayout_align, +8
+
+    ok_layout_error_size = eq LayoutError_SIZE, 0
+    ok_layout_error_align = eq LayoutError_ALIGN, 1
+    ok_layout_err_size = eq LayoutErr_SIZE, LayoutError_SIZE
+    ok_layout_err_align = eq LayoutErr_ALIGN, LayoutError_ALIGN
+
+    ok_alloc_error_size = eq AllocError_SIZE, 0
+    ok_alloc_error_align = eq AllocError_ALIGN, 1
+
+    c01 = and ok_layout_size, ok_layout_align
+    c02 = and c01, ok_layout_size_offset
+    c03 = and c02, ok_layout_align_offset
+    c04 = and c03, ok_layout_error_size
+    c05 = and c04, ok_layout_error_align
+    c06 = and c05, ok_layout_err_size
+    c07 = and c06, ok_layout_err_align
+    c08 = and c07, ok_alloc_error_size
+    ok = and c08, ok_alloc_error_align
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10500)
+
+L_PASS:
+    return 0

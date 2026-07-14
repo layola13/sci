@@ -6429,3 +6429,11 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_float_error_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10500+.
+
+## Completed: 2026-07-14 Alloc layout and error marker constants (Batch am)
+
+- `sa_std/alloc/layout.sal`: Added `AllocLayout` layout constants for Rust `core::alloc::Layout` plus zero-sized `LayoutError` / `LayoutErr` and `AllocError` marker layout constants.
+- Test: `tests/unit_framework/std_alloc_layout_macro_surface.sa` — 1 test (panic ID 10500) verifying the new alloc layout constants and cross-checking the layout size/alignment against `mem.sal`.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_alloc_layout_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10501+.
