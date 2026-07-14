@@ -1,4 +1,6 @@
 @import "ops.sal"
+@import "core/option.sal"
+@import "core/result.sal"
 @import "core/slice.sal"
 @import "core/slice.sa"
 
@@ -35,6 +37,160 @@
     __control_flow_tag_%out_bool = load %control_flow_ptr+ControlFlowU64_tag as u64
     %out_bool = eq __control_flow_tag_%out_bool, CONTROL_FLOW_BREAK
     !__control_flow_tag_%out_bool
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_BREAK_VALUE_U64 %out_option_ptr, %control_flow_ptr
+    __control_flow_break_value_tag_%out_option_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
+    __control_flow_break_value_is_break_%out_option_ptr = eq __control_flow_break_value_tag_%out_option_ptr, CONTROL_FLOW_BREAK
+    br __control_flow_break_value_is_break_%out_option_ptr -> L_CONTROL_FLOW_BREAK_VALUE_SOME_%out_option_ptr, L_CONTROL_FLOW_BREAK_VALUE_NONE_%out_option_ptr
+
+L_CONTROL_FLOW_BREAK_VALUE_SOME_%out_option_ptr:
+    __control_flow_break_value_%out_option_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
+    store %out_option_ptr+Option_tag, Option_SOME as u64
+    store %out_option_ptr+Option_value, __control_flow_break_value_%out_option_ptr as u64
+    !__control_flow_break_value_%out_option_ptr
+    !__control_flow_break_value_is_break_%out_option_ptr
+    !__control_flow_break_value_tag_%out_option_ptr
+    jmp L_CONTROL_FLOW_BREAK_VALUE_DONE_%out_option_ptr
+
+L_CONTROL_FLOW_BREAK_VALUE_NONE_%out_option_ptr:
+    store %out_option_ptr+Option_tag, Option_NONE as u64
+    store %out_option_ptr+Option_value, 0 as u64
+    !__control_flow_break_value_is_break_%out_option_ptr
+    !__control_flow_break_value_tag_%out_option_ptr
+
+L_CONTROL_FLOW_BREAK_VALUE_DONE_%out_option_ptr:
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_CONTINUE_VALUE_U64 %out_option_ptr, %control_flow_ptr
+    __control_flow_continue_value_tag_%out_option_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
+    __control_flow_continue_value_is_continue_%out_option_ptr = eq __control_flow_continue_value_tag_%out_option_ptr, CONTROL_FLOW_CONTINUE
+    br __control_flow_continue_value_is_continue_%out_option_ptr -> L_CONTROL_FLOW_CONTINUE_VALUE_SOME_%out_option_ptr, L_CONTROL_FLOW_CONTINUE_VALUE_NONE_%out_option_ptr
+
+L_CONTROL_FLOW_CONTINUE_VALUE_SOME_%out_option_ptr:
+    __control_flow_continue_value_%out_option_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
+    store %out_option_ptr+Option_tag, Option_SOME as u64
+    store %out_option_ptr+Option_value, __control_flow_continue_value_%out_option_ptr as u64
+    !__control_flow_continue_value_%out_option_ptr
+    !__control_flow_continue_value_is_continue_%out_option_ptr
+    !__control_flow_continue_value_tag_%out_option_ptr
+    jmp L_CONTROL_FLOW_CONTINUE_VALUE_DONE_%out_option_ptr
+
+L_CONTROL_FLOW_CONTINUE_VALUE_NONE_%out_option_ptr:
+    store %out_option_ptr+Option_tag, Option_NONE as u64
+    store %out_option_ptr+Option_value, 0 as u64
+    !__control_flow_continue_value_is_continue_%out_option_ptr
+    !__control_flow_continue_value_tag_%out_option_ptr
+
+L_CONTROL_FLOW_CONTINUE_VALUE_DONE_%out_option_ptr:
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_BREAK_OK_U64 %out_result_ptr, %control_flow_ptr
+    __control_flow_break_ok_tag_%out_result_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
+    __control_flow_break_ok_value_%out_result_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
+    __control_flow_break_ok_is_break_%out_result_ptr = eq __control_flow_break_ok_tag_%out_result_ptr, CONTROL_FLOW_BREAK
+    br __control_flow_break_ok_is_break_%out_result_ptr -> L_CONTROL_FLOW_BREAK_OK_OK_%out_result_ptr, L_CONTROL_FLOW_BREAK_OK_ERR_%out_result_ptr
+
+L_CONTROL_FLOW_BREAK_OK_OK_%out_result_ptr:
+    store %out_result_ptr+Result_tag, Result_OK as u64
+    store %out_result_ptr+Result_ok, __control_flow_break_ok_value_%out_result_ptr as u64
+    store %out_result_ptr+Result_err, 0 as u64
+    !__control_flow_break_ok_is_break_%out_result_ptr
+    !__control_flow_break_ok_value_%out_result_ptr
+    !__control_flow_break_ok_tag_%out_result_ptr
+    jmp L_CONTROL_FLOW_BREAK_OK_DONE_%out_result_ptr
+
+L_CONTROL_FLOW_BREAK_OK_ERR_%out_result_ptr:
+    store %out_result_ptr+Result_tag, Result_ERR as u64
+    store %out_result_ptr+Result_ok, 0 as u64
+    store %out_result_ptr+Result_err, __control_flow_break_ok_value_%out_result_ptr as u64
+    !__control_flow_break_ok_is_break_%out_result_ptr
+    !__control_flow_break_ok_value_%out_result_ptr
+    !__control_flow_break_ok_tag_%out_result_ptr
+
+L_CONTROL_FLOW_BREAK_OK_DONE_%out_result_ptr:
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_CONTINUE_OK_U64 %out_result_ptr, %control_flow_ptr
+    __control_flow_continue_ok_tag_%out_result_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
+    __control_flow_continue_ok_value_%out_result_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
+    __control_flow_continue_ok_is_continue_%out_result_ptr = eq __control_flow_continue_ok_tag_%out_result_ptr, CONTROL_FLOW_CONTINUE
+    br __control_flow_continue_ok_is_continue_%out_result_ptr -> L_CONTROL_FLOW_CONTINUE_OK_OK_%out_result_ptr, L_CONTROL_FLOW_CONTINUE_OK_ERR_%out_result_ptr
+
+L_CONTROL_FLOW_CONTINUE_OK_OK_%out_result_ptr:
+    store %out_result_ptr+Result_tag, Result_OK as u64
+    store %out_result_ptr+Result_ok, __control_flow_continue_ok_value_%out_result_ptr as u64
+    store %out_result_ptr+Result_err, 0 as u64
+    !__control_flow_continue_ok_is_continue_%out_result_ptr
+    !__control_flow_continue_ok_value_%out_result_ptr
+    !__control_flow_continue_ok_tag_%out_result_ptr
+    jmp L_CONTROL_FLOW_CONTINUE_OK_DONE_%out_result_ptr
+
+L_CONTROL_FLOW_CONTINUE_OK_ERR_%out_result_ptr:
+    store %out_result_ptr+Result_tag, Result_ERR as u64
+    store %out_result_ptr+Result_ok, 0 as u64
+    store %out_result_ptr+Result_err, __control_flow_continue_ok_value_%out_result_ptr as u64
+    !__control_flow_continue_ok_is_continue_%out_result_ptr
+    !__control_flow_continue_ok_value_%out_result_ptr
+    !__control_flow_continue_ok_tag_%out_result_ptr
+
+L_CONTROL_FLOW_CONTINUE_OK_DONE_%out_result_ptr:
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_MAP_BREAK_U64 %out_control_flow_ptr, %control_flow_ptr, %map_fn
+    __control_flow_map_break_tag_%out_control_flow_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
+    __control_flow_map_break_value_%out_control_flow_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
+    __control_flow_map_break_is_break_%out_control_flow_ptr = eq __control_flow_map_break_tag_%out_control_flow_ptr, CONTROL_FLOW_BREAK
+    br __control_flow_map_break_is_break_%out_control_flow_ptr -> L_CONTROL_FLOW_MAP_BREAK_CALL_%out_control_flow_ptr, L_CONTROL_FLOW_MAP_BREAK_COPY_%out_control_flow_ptr
+
+L_CONTROL_FLOW_MAP_BREAK_CALL_%out_control_flow_ptr:
+    __control_flow_map_break_mapped_%out_control_flow_ptr = call %map_fn(__control_flow_map_break_value_%out_control_flow_ptr)
+    store %out_control_flow_ptr+ControlFlowU64_tag, CONTROL_FLOW_BREAK as u64
+    store %out_control_flow_ptr+ControlFlowU64_value, __control_flow_map_break_mapped_%out_control_flow_ptr as u64
+    !__control_flow_map_break_mapped_%out_control_flow_ptr
+    !__control_flow_map_break_is_break_%out_control_flow_ptr
+    !__control_flow_map_break_value_%out_control_flow_ptr
+    !__control_flow_map_break_tag_%out_control_flow_ptr
+    jmp L_CONTROL_FLOW_MAP_BREAK_DONE_%out_control_flow_ptr
+
+L_CONTROL_FLOW_MAP_BREAK_COPY_%out_control_flow_ptr:
+    store %out_control_flow_ptr+ControlFlowU64_tag, __control_flow_map_break_tag_%out_control_flow_ptr as u64
+    store %out_control_flow_ptr+ControlFlowU64_value, __control_flow_map_break_value_%out_control_flow_ptr as u64
+    !__control_flow_map_break_is_break_%out_control_flow_ptr
+    !__control_flow_map_break_value_%out_control_flow_ptr
+    !__control_flow_map_break_tag_%out_control_flow_ptr
+
+L_CONTROL_FLOW_MAP_BREAK_DONE_%out_control_flow_ptr:
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_MAP_CONTINUE_U64 %out_control_flow_ptr, %control_flow_ptr, %map_fn
+    __control_flow_map_continue_tag_%out_control_flow_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
+    __control_flow_map_continue_value_%out_control_flow_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
+    __control_flow_map_continue_is_continue_%out_control_flow_ptr = eq __control_flow_map_continue_tag_%out_control_flow_ptr, CONTROL_FLOW_CONTINUE
+    br __control_flow_map_continue_is_continue_%out_control_flow_ptr -> L_CONTROL_FLOW_MAP_CONTINUE_CALL_%out_control_flow_ptr, L_CONTROL_FLOW_MAP_CONTINUE_COPY_%out_control_flow_ptr
+
+L_CONTROL_FLOW_MAP_CONTINUE_CALL_%out_control_flow_ptr:
+    __control_flow_map_continue_mapped_%out_control_flow_ptr = call %map_fn(__control_flow_map_continue_value_%out_control_flow_ptr)
+    store %out_control_flow_ptr+ControlFlowU64_tag, CONTROL_FLOW_CONTINUE as u64
+    store %out_control_flow_ptr+ControlFlowU64_value, __control_flow_map_continue_mapped_%out_control_flow_ptr as u64
+    !__control_flow_map_continue_mapped_%out_control_flow_ptr
+    !__control_flow_map_continue_is_continue_%out_control_flow_ptr
+    !__control_flow_map_continue_value_%out_control_flow_ptr
+    !__control_flow_map_continue_tag_%out_control_flow_ptr
+    jmp L_CONTROL_FLOW_MAP_CONTINUE_DONE_%out_control_flow_ptr
+
+L_CONTROL_FLOW_MAP_CONTINUE_COPY_%out_control_flow_ptr:
+    store %out_control_flow_ptr+ControlFlowU64_tag, __control_flow_map_continue_tag_%out_control_flow_ptr as u64
+    store %out_control_flow_ptr+ControlFlowU64_value, __control_flow_map_continue_value_%out_control_flow_ptr as u64
+    !__control_flow_map_continue_is_continue_%out_control_flow_ptr
+    !__control_flow_map_continue_value_%out_control_flow_ptr
+    !__control_flow_map_continue_tag_%out_control_flow_ptr
+
+L_CONTROL_FLOW_MAP_CONTINUE_DONE_%out_control_flow_ptr:
+[END_MACRO]
+
+[MACRO] CONTROL_FLOW_INTO_VALUE_U64 %out_value, %control_flow_ptr
+    %out_value = load %control_flow_ptr+ControlFlowU64_value as u64
 [END_MACRO]
 
 [MACRO] RANGE_U64_START %out_start, %range_ptr

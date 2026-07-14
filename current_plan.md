@@ -1230,3 +1230,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10516+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bc)
+
+Completed supportable defaults/aliases/macros:
+- ControlFlow<u64, u64> concrete value/result/map helpers in ops.sa: break_value, continue_value, break_ok, continue_ok, map_break, map_continue, and into_value.
+- Test file std_ops_control_flow_methods_macro_surface.sa (panic ID 10516).
+
+Panic IDs next free: 10517+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

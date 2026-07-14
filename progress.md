@@ -6567,3 +6567,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_bound_ref_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10516+.
+
+## Completed: 2026-07-14 ControlFlow method macros (Batch bc)
+
+- `sa_std/ops.sa`: Added concrete `ControlFlow<u64, u64>` method helpers: `CONTROL_FLOW_BREAK_VALUE_U64`, `CONTROL_FLOW_CONTINUE_VALUE_U64`, `CONTROL_FLOW_BREAK_OK_U64`, `CONTROL_FLOW_CONTINUE_OK_U64`, `CONTROL_FLOW_MAP_BREAK_U64`, `CONTROL_FLOW_MAP_CONTINUE_U64`, and `CONTROL_FLOW_INTO_VALUE_U64`.
+- Semantics: value helpers write existing `Option` layouts, ok helpers write existing `Result` layouts, map helpers call a `u64 -> u64` callback only for the targeted variant, and `into_value` exposes the shared u64 payload for the same-payload concrete subset.
+- Test: `tests/unit_framework/std_ops_control_flow_methods_macro_surface.sa` — 1 test (panic ID 10516) covering value/result conversion, map passthrough behavior, targeted callback behavior, and into_value.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ops_control_flow_methods_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10517+.
