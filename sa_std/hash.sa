@@ -9,6 +9,12 @@
     EXPAND DEFAULT_HASHER_NEW %hasher
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_CLONE %out_hasher, %hasher
+    __default_hasher_clone_state_%out_hasher = load %hasher+DefaultHasher_state as u64
+    store %out_hasher+DefaultHasher_state, __default_hasher_clone_state_%out_hasher as u64
+    !__default_hasher_clone_state_%out_hasher
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WITH_SEED %hasher, %seed
     store %hasher+DefaultHasher_state, %seed as u64
 [END_MACRO]
