@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-14 Iterator by_ref collect macro
+
+- Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.
+- `sa_std/core/iter.sa`: added `ITER_BY_REF_COLLECT_U64`.
+- The helper models a concrete `Iterator::by_ref().collect::<Vec<_>>()` lowering for the supported `u64` cursor subset: it takes the existing `ITER_BY_REF` alias to the original cursor and collects through that alias, so the original cursor is consumed while separately cloned cursors remain independent.
+- Test: `tests/unit_framework/std_iter_by_ref_collect_macro_surface.sa` - 1 test (panic ID 10547) covering partially consumed by-ref collection, original cursor consumption, clone independence, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_by_ref_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10548+.
+
 ## Completed: 2026-07-14 Iterator try_find macro
 
 - Continued Rust `std::iter` macro-surface parity over the existing concrete slice-backed `Iter<u64>` cursor.

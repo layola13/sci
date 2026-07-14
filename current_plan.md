@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-14 iter by_ref collect)
+
+Completed supportable iterator by-ref collect macro:
+- `ITER_BY_REF_COLLECT_U64`: concrete Rust `Iterator::by_ref().collect::<Vec<_>>()` shape over the slice-backed `u64` cursor.
+- The macro delegates through `ITER_BY_REF` before collection, preserving the existing alias contract: the borrowed alias mutates the original cursor, while a prior `ITER_CLONE` remains independent.
+- Test file `std_iter_by_ref_collect_macro_surface.sa` (panic ID 10547).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_iter_by_ref_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10548+.
+Still blocked without redesign: real Rust iterator trait hierarchy, borrow/lifetime-checked `&mut self` semantics, generic item/reference semantics, generic `collect`, `IntoIterator`, lazy adapter identities, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-14 iter try_find)
 
 Completed supportable iterator try-find macro:

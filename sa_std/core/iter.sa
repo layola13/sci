@@ -1039,6 +1039,12 @@ L_ITER_COLLECT_DONE_%out_vec:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_BY_REF __iter_by_ref_collect_iter_%out_vec, %iter_reg
+    EXPAND ITER_COLLECT_U64 %out_vec, __iter_by_ref_collect_iter_%out_vec
+    !__iter_by_ref_collect_iter_%out_vec
+[END_MACRO]
+
 [MACRO] ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     jmp L_ITER_COLLECT_INTO_HEAD_%iter_reg
 L_ITER_COLLECT_INTO_HEAD_%iter_reg:
