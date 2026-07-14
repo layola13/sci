@@ -6585,3 +6585,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_convert_identity_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10518+.
+
+## Completed: 2026-07-14 Array rsplit macros (Batch be)
+
+- `sa_std/array.sa`: Added `ARRAY_TRY_RSPLIT_ARRAY_REF_U64` and `ARRAY_TRY_RSPLIT_ARRAY_MUT_U64`, the right-split counterparts to the existing concrete split-array helpers.
+- Semantics: helpers return `(ok, prefix_slice, suffix_slice)` over caller-owned `u64` storage, with suffix length chosen from the end. `suffix_len > length` returns `ok=0` and empty slice views instead of Rust's panic.
+- Test: `tests/unit_framework/std_array_rsplit_macro_surface.sa` — 1 test (panic ID 10518) covering suffix lengths 0, 2, and full length, mutable suffix writes, and oversize failure.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_rsplit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10519+.

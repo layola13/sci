@@ -184,6 +184,36 @@ L_ARRAY_SPLIT_REF_END_%out_ok:
     EXPAND ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
 [END_MACRO]
 
+[MACRO] ARRAY_TRY_RSPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+    __array_rsplit_ref_ok_%out_ok = ule %suffix_len, %length
+    br __array_rsplit_ref_ok_%out_ok -> L_ARRAY_RSPLIT_REF_OK_%out_ok, L_ARRAY_RSPLIT_REF_MISS_%out_ok
+
+L_ARRAY_RSPLIT_REF_OK_%out_ok:
+    __array_rsplit_ref_prefix_len_%out_ok = sub %length, %suffix_len
+    __array_rsplit_ref_suffix_off_%out_ok = mul __array_rsplit_ref_prefix_len_%out_ok, 8
+    __array_rsplit_ref_suffix_ptr_%out_ok = ptr_add %array_ptr, __array_rsplit_ref_suffix_off_%out_ok
+    EXPAND SLICE_NEW %out_prefix, %array_ptr, __array_rsplit_ref_prefix_len_%out_ok
+    EXPAND SLICE_NEW %out_suffix, __array_rsplit_ref_suffix_ptr_%out_ok, %suffix_len
+    %out_ok = add 0, 1
+    !__array_rsplit_ref_suffix_ptr_%out_ok
+    !__array_rsplit_ref_suffix_off_%out_ok
+    !__array_rsplit_ref_prefix_len_%out_ok
+    !__array_rsplit_ref_ok_%out_ok
+    jmp L_ARRAY_RSPLIT_REF_END_%out_ok
+
+L_ARRAY_RSPLIT_REF_MISS_%out_ok:
+    EXPAND SLICE_NEW %out_prefix, %array_ptr, 0
+    EXPAND SLICE_NEW %out_suffix, %array_ptr, 0
+    %out_ok = add 0, 0
+    !__array_rsplit_ref_ok_%out_ok
+
+L_ARRAY_RSPLIT_REF_END_%out_ok:
+[END_MACRO]
+
+[MACRO] ARRAY_TRY_RSPLIT_ARRAY_MUT_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+    EXPAND ARRAY_TRY_RSPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
     __array_as_ref_len_%out_ok = load %slice+Slice_len as u64
     __array_as_ref_ok_%out_ok = eq __array_as_ref_len_%out_ok, %length

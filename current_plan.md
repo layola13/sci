@@ -1248,3 +1248,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10518+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 be)
+
+Completed supportable defaults/aliases/macros:
+- Concrete array rsplit helpers in array.sa: ARRAY_TRY_RSPLIT_ARRAY_REF_U64 and ARRAY_TRY_RSPLIT_ARRAY_MUT_U64, mirroring Rust rsplit_array_ref/rsplit_array_mut over existing Slice views.
+- Test file std_array_rsplit_macro_surface.sa (panic ID 10518).
+
+Panic IDs next free: 10519+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
