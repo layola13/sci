@@ -1257,3 +1257,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10519+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-14 bf)
+
+Completed supportable defaults/aliases/macros:
+- Concrete array AsRef/AsMut/Borrow/BorrowMut slice-view aliases in array.sa for u64 arrays.
+- Test file std_array_ref_borrow_macro_surface.sa (panic ID 10519).
+
+Panic IDs next free: 10520+.
+Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

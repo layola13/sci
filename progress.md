@@ -6594,3 +6594,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_rsplit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10519+.
+
+## Completed: 2026-07-14 Array ref/borrow aliases (Batch bf)
+
+- `sa_std/array.sa`: Added concrete u64 array slice-view aliases for Rust array `AsRef<[T]>`, `AsMut<[T]>`, `Borrow<[T]>`, and `BorrowMut<[T]>` lowering: `ARRAY_AS_REF_SLICE_U64`, `ARRAY_AS_MUT_REF_SLICE_U64`, `ARRAY_BORROW_SLICE_U64`, and `ARRAY_BORROW_MUT_SLICE_U64`.
+- Semantics: aliases materialize the same `Slice` views as `ARRAY_AS_SLICE_U64` / `ARRAY_AS_MUT_SLICE_U64`; they do not implement generic trait dispatch or borrow lifetimes.
+- Test: `tests/unit_framework/std_array_ref_borrow_macro_surface.sa` — 1 test (panic ID 10519) covering pointer/length preservation and mutable slice writes through AsMut/BorrowMut aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_ref_borrow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10520+.

@@ -18,6 +18,22 @@
     EXPAND SLICE_NEW %out_slice, %array_ptr, %length
 [END_MACRO]
 
+[MACRO] ARRAY_AS_REF_SLICE_U64 %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_AS_MUT_REF_SLICE_U64 %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_MUT_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_BORROW_SLICE_U64 %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_REF_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_BORROW_MUT_SLICE_U64 %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_MUT_REF_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_FROM_REF_U64 %out_slice, %value_ptr
     EXPAND SLICE_NEW %out_slice, %value_ptr, 1
 [END_MACRO]
