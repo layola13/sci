@@ -4279,6 +4279,46 @@ L_NUM_I32_SIGN_EXTEND_POS_%out_value:
 L_NUM_I32_SIGN_EXTEND_END_%out_value:
 [END_MACRO]
 
+[MACRO] NUM_U8_CAST_SIGNED %out_value, %value
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_U16_CAST_SIGNED %out_value, %value
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_U32_CAST_SIGNED %out_value, %value
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_U64_CAST_SIGNED %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CAST_SIGNED %out_value, %value
+    EXPAND NUM_U64_CAST_SIGNED %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_CAST_UNSIGNED %out_value, %value
+    %out_value = and %value, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_CAST_UNSIGNED %out_value, %value
+    %out_value = and %value, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_CAST_UNSIGNED %out_value, %value
+    %out_value = and %value, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_I64_CAST_UNSIGNED %out_value, %value
+    %out_value = add %value, 0
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_CAST_UNSIGNED %out_value, %value
+    EXPAND NUM_I64_CAST_UNSIGNED %out_value, %value
+[END_MACRO]
+
 [MACRO] NUM_I8_IS_POSITIVE %out_bool, %value
     %out_bool = sgt %value, 0
 [END_MACRO]

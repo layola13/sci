@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 primitive same-width sign cast macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `cast_signed` / `cast_unsigned` methods under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_CAST_SIGNED`, `NUM_U16_CAST_SIGNED`, `NUM_U32_CAST_SIGNED`, `NUM_U64_CAST_SIGNED`, `NUM_USIZE_CAST_SIGNED`, `NUM_I8_CAST_UNSIGNED`, `NUM_I16_CAST_UNSIGNED`, `NUM_I32_CAST_UNSIGNED`, `NUM_I64_CAST_UNSIGNED`, and `NUM_ISIZE_CAST_UNSIGNED`.
+- The helper surface preserves the same-width bit pattern while returning the target signed or unsigned primitive register shape. Narrow unsigned-to-signed casts sign-extend to SA's signed register shape, and narrow signed-to-unsigned casts mask to the declared Rust width. It does not claim cross-width conversions, `u128` / `i128`, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_primitive_sign_cast_macro_surface.sa` - 1 test (panic ID 10628) expanding all 10 new macros and covering max unsigned values, negative signed values, and signed-min `isize` bit-pattern preservation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_primitive_sign_cast_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10629+.
+
 ## Completed: 2026-07-15 signed checked_isqrt macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `checked_isqrt` implementation under `/home/vscode/projects/rust`.

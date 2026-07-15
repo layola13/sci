@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 primitive sign casts)
+
+Completed supportable primitive same-width sign-cast helpers:
+- `NUM_U8_CAST_SIGNED`, `NUM_U16_CAST_SIGNED`, `NUM_U32_CAST_SIGNED`, `NUM_U64_CAST_SIGNED`, and `NUM_USIZE_CAST_SIGNED`: concrete Rust unsigned primitive `cast_signed` bit-pattern shape for existing SA unsigned integer widths.
+- `NUM_I8_CAST_UNSIGNED`, `NUM_I16_CAST_UNSIGNED`, `NUM_I32_CAST_UNSIGNED`, `NUM_I64_CAST_UNSIGNED`, and `NUM_ISIZE_CAST_UNSIGNED`: matching Rust signed primitive `cast_unsigned` same-width shape.
+- Narrow unsigned-to-signed casts sign-extend into SA's signed register shape; narrow signed-to-unsigned casts mask to the declared Rust width. `usize` / `isize` alias the current 64-bit SA ABI.
+- This follows Rust's current primitive integer `integer_sign_cast` methods for existing concrete widths. It deliberately does not expose cross-width conversions, `u128` / `i128`, or trait-level dispatch.
+- Test file `std_num_primitive_sign_cast_macro_surface.sa` (panic ID 10628).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_primitive_sign_cast_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10629+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic object behavior for invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 signed checked_isqrt)
 
 Completed supportable signed checked integer square-root helpers:
