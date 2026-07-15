@@ -12,8 +12,15 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] record canonical included-file path, size, and digest through recursive includes;
    - [x] persist dependencies in manifest v2 and prevalidate them before cache publication;
    - [x] retain safe bypass/fallback whenever dependency capture is incomplete or changes during capture;
-   - focused verified: INCLUDE `2/2`, absent `OPTION_ENV!` `1/1`, validator `1/1`, INCLUDE_STR cache closure `1/1`;
-   - [ ] add the explicit absent→present environment cache regression and finish the combined gate.
+   - focused verified: INCLUDE `2/2`, absent `OPTION_ENV!` `1/1`, validator `1/1`, INCLUDE_STR cache closure `1/1`, explicit absent→present cache closure `1/1`;
+   - [x] publish artifact/output/test metadata as one staging directory with manifest last and atomic directory rename;
+   - [x] pin hit/store/incremental/clean paths with per-key shared/exclusive locks and preserve active staging during cleanup;
+   - [x] split structural manifest validation from current dynamic-dependency reusability; direct gates `4/4`, CLI cache closures `3/3`;
+   - [x] add explicit `OPTION_ENV!` absent→present regression, including single-entry and no-raw-value manifest assertions;
+   - [x] split entry locks from blocking build-owner locks and pass direct failed-owner handoff plus OOM no-partial-entry gates `1/1` each;
+   - [x] compile/restore build outputs in private sibling stages and make build/test cache claim/store failures best-effort;
+   - [x] serialize final publication for different keys sharing one `-o` through `.sa-output-locks/<basename>` and pass the forced-interleaving pair test `1/1`;
+   - [ ] atomically publish/validate incremental function objects, repair failed artifact/output publication, unify manifest size limits, account for persistent locks, and add broader corruption recovery.
 3. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
    - [x] index function body ranges once and process every reachable function body at most once;
    - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;
@@ -29,13 +36,15 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] pass an isolated same-path/same-size archive content-flip key test `1/1`;
    - [ ] add linker/toolchain, ordered plugin/export/rpath/link flags, backend/pass epoch, target CPU/features policy, corruption, and authorization inputs/tests.
 6. [ ] Run the immediate combined-worktree gate before recording any new completion claim:
-   - `/opt/zig/zig build -Doptimize=Debug -j1`;
+   - [ ] rerun `/opt/zig/zig build -Doptimize=Debug -j1` after the latest single-flight/output-stage delta; the preceding snapshot passed;
    - focused dynamic-dependency/cache, artifact authorization, affected, SAB/LLVM reachability, include, and Referee tests;
-   - `/opt/zig/zig fmt --check src tests` and `git diff --check`.
+   - [x] `git diff --check`;
+   - [x] focused format check for `src/cli.zig` and `tests/cli_smoke.zig`;
+   - [ ] full `/opt/zig/zig fmt --check src tests` (currently reports 16 untouched pre-existing files) and the remaining focused authorization/affected/Referee gates.
 7. [ ] Continue the Phase 0 gaps in dependency order: P0.1 metrics, P0.2 verify key v2, remaining P0.3/P0.4/P0.5, P0.6 explainable cache miss, P0.7 formal baseline, then P0.8 backend profile.
 8. [ ] Continue Phase 1 only behind the Phase 0 gates: P1.1 SAB lazy body decode, finish P1.2 journal, P1.3 result-region merge, and P1.4 weighted physical-core-aware scheduling.
 
-Status boundary: Phase -1/P0 containment is landed, but the full Phase 0 and Phase 1 roadmaps are not complete. Dynamic-depfile, LLVM queue, and runtime archive keying are focused-verified only until the remaining regressions and combined Debug build pass; the current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
+Status boundary: Phase -1/P0 containment is landed, but the full Phase 0 and Phase 1 roadmaps are not complete. Dynamic depfile, whole-entry publication, compile single-flight, same-output publication, LLVM queue, and runtime archive keying have focused tests; the latest single-flight/output-stage delta still needs a fresh combined Debug build. Incremental-object integrity, failed-publication repair, remaining field-flip/corruption, and cross-consumer gates prevent a full Phase 0 claim. The current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
 
 ## Active objective: macOS / Windows portability
 
@@ -61,7 +70,11 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - build an isolated compiler/static-runtime payload and verify archive roots, required std files, sidecars, and aggregate checksums;
    - aggregate and publish all tar/zip/sidecar artifacts without enabling unverified non-Linux release matrix entries;
    - pass `release-contract` `4/4`, real Linux archive/install smoke, installed Hello World build/run, and checksum failure paths.
-7. [ ] Add native Windows x86_64 CI and run compiler/runtime Hello World plus fs/process/net/env/thread/console contracts.
+7. [x] Define the native Windows x86_64 CI gate and reviewed compiler/runtime contract subset:
+   - [x] add `.github/workflows/windows-native.yml` on `windows-2025` with pinned Zig/LLVM, isolated static/shared runtime prefixes, portable tests, filtered Windows runtime tests, ABI checks, and worktree cleanliness checks;
+   - [x] add staged PowerShell smoke for version/help/check, native Hello, wasm32 magic, isolated HOME/TEMP/plugin state, offline package resolution, and deterministic missing-package failure;
+   - [x] verify the static contract `3/3`, YAML parse, and Linux `portable-host-typecheck` `8/8`;
+   - [ ] execute the workflow on a Windows runner; until then this is a gate definition, not native Windows runtime evidence or an L2 claim.
 8. [x] Audit the macOS Phase 2/MVP boundary before implementation:
    - confirm the repository has no native macOS workflow and no native-run evidence;
    - identify aggregate build gates that pull in Linux-only io_uring;

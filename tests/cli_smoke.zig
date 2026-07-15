@@ -2,6 +2,32 @@ const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
 
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+
+fn setProcessEnvironmentVariable(allocator: std.mem.Allocator, name: []const u8, value: ?[]const u8) !void {
+    if (builtin.os.tag == .windows) {
+        const name_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, name);
+        defer allocator.free(name_w);
+        const value_w = if (value) |bytes| try std.unicode.utf8ToUtf16LeAllocZ(allocator, bytes) else null;
+        defer if (value_w) |bytes| allocator.free(bytes);
+
+        if (std.os.windows.kernel32.SetEnvironmentVariableW(name_w.ptr, if (value_w) |bytes| bytes.ptr else null) != 0) return;
+        if (value == null and std.os.windows.kernel32.GetLastError() == .ENVVAR_NOT_FOUND) return;
+        return error.SetEnvironmentVariableFailed;
+    }
+
+    const name_z = try allocator.dupeZ(u8, name);
+    defer allocator.free(name_z);
+    if (value) |bytes| {
+        const value_z = try allocator.dupeZ(u8, bytes);
+        defer allocator.free(value_z);
+        if (setenv(name_z.ptr, value_z.ptr, 1) != 0) return error.SetEnvironmentVariableFailed;
+    } else if (unsetenv(name_z.ptr) != 0) {
+        return error.SetEnvironmentVariableFailed;
+    }
+}
+
 fn parseJsonValue(allocator: std.mem.Allocator, text: []const u8) !std.json.Parsed(std.json.Value) {
     return try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
 }
@@ -125,6 +151,17 @@ fn cachedFunctionManifestCount(dir: std.fs.Dir) !usize {
     return count;
 }
 
+fn isProjectCacheEntryName(name: []const u8) bool {
+    if (name.len != 64) return false;
+    for (name) |byte| {
+        switch (byte) {
+            '0'...'9', 'a'...'f' => {},
+            else => return false,
+        }
+    }
+    return true;
+}
+
 fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.fs.Dir, rel_path: []const u8) ![]u8 {
     var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
     defer cache_root.close();
@@ -132,7 +169,7 @@ fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.fs.Dir, rel_path:
     var found: ?[]u8 = null;
     errdefer if (found) |name| allocator.free(name);
     while (try cache_iter.next()) |entry| {
-        if (entry.kind != .directory) continue;
+        if (entry.kind != .directory or !isProjectCacheEntryName(entry.name)) continue;
         if (found != null) return error.TestUnexpectedResult;
         found = try allocator.dupe(u8, entry.name);
     }
@@ -145,7 +182,7 @@ fn cacheEntryCount(dir: std.fs.Dir, rel_path: []const u8) !usize {
     var cache_iter = cache_root.iterate();
     var count: usize = 0;
     while (try cache_iter.next()) |entry| {
-        if (entry.kind == .directory) count += 1;
+        if (entry.kind == .directory and isProjectCacheEntryName(entry.name)) count += 1;
     }
     return count;
 }
@@ -828,6 +865,112 @@ test "project cache manifest revalidates INCLUDE_STR dependencies" {
     defer std.testing.allocator.free(manifest_bytes);
     try std.testing.expect(std.mem.indexOf(u8, manifest_bytes, "dynamic_dependencies") != null);
     try std.testing.expect(std.mem.indexOf(u8, manifest_bytes, "payload.txt") != null);
+}
+
+test "project cache manifest revalidates OPTION_ENV absent to present" {
+    const env_name = "SA_PROJECT_CACHE_OPTION_ENV_9E72D31B";
+    const env_value = "cache-sensitive-secret-4c719a";
+    const source =
+        \\#def Slice_SIZE = 16
+        \\#def Slice_ptr = +0
+        \\#def Slice_len = +8
+        \\#def Option_SIZE = 16
+        \\#def Option_tag = +0
+        \\#def Option_value = +8
+        \\#def Option_NONE = 0
+        \\#def Option_SOME = 1
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    option = alloc Option_SIZE
+        \\    EXPAND OPTION_ENV! option, "SA_PROJECT_CACHE_OPTION_ENV_9E72D31B"
+        \\    !option
+        \\    return 9
+    ;
+
+    const original_env = std.process.getEnvVarOwned(std.testing.allocator, env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (original_env) |bytes| std.testing.allocator.free(bytes);
+    try setProcessEnvironmentVariable(std.testing.allocator, env_name, null);
+    defer setProcessEnvironmentVariable(std.testing.allocator, env_name, original_env) catch {};
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "dynamic_env.sa", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+    const build_argv = [_][]const u8{ "sa", "build-exe", "dynamic_env.sa", "-o", "dynamic_env.out", "--json", "--profile", "--jobs", "1" };
+
+    const absent_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), absent_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    var absent_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer absent_json.deinit();
+    const absent_cache = try jsonObjectGetValue(try jsonObjectGet(&absent_json, "metrics"), "cache");
+    try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(absent_cache, "hit")));
+
+    try tmp.dir.deleteFile("dynamic_env.out");
+    try tmp.dir.deleteFile("dynamic_env.out.sa.bc");
+    stderr_buf.clearRetainingCapacity();
+    const absent_warm_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), absent_warm_code);
+    var absent_warm_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer absent_warm_json.deinit();
+    const absent_warm_cache = try jsonObjectGetValue(try jsonObjectGet(&absent_warm_json, "metrics"), "cache");
+    try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(absent_warm_cache, "hit")));
+
+    try setProcessEnvironmentVariable(std.testing.allocator, env_name, env_value);
+    try tmp.dir.deleteFile("dynamic_env.out");
+    try tmp.dir.deleteFile("dynamic_env.out.sa.bc");
+    stderr_buf.clearRetainingCapacity();
+    const present_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), present_code);
+    var present_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer present_json.deinit();
+    const present_cache = try jsonObjectGetValue(try jsonObjectGet(&present_json, "metrics"), "cache");
+    try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(present_cache, "hit")));
+
+    try tmp.dir.deleteFile("dynamic_env.out");
+    try tmp.dir.deleteFile("dynamic_env.out.sa.bc");
+    stderr_buf.clearRetainingCapacity();
+    const present_warm_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), present_warm_code);
+    var present_warm_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer present_warm_json.deinit();
+    const present_warm_cache = try jsonObjectGetValue(try jsonObjectGet(&present_warm_json, "metrics"), "cache");
+    try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(present_warm_cache, "hit")));
+
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/build-exe"));
+    const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
+    defer std.testing.allocator.free(cache_key);
+    const manifest_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/build-exe/{s}/manifest.json", .{cache_key});
+    defer std.testing.allocator.free(manifest_path);
+    const manifest_bytes = try tmp.dir.readFileAlloc(std.testing.allocator, manifest_path, 64 * 1024);
+    defer std.testing.allocator.free(manifest_bytes);
+    try std.testing.expect(std.mem.indexOf(u8, manifest_bytes, env_value) == null);
+
+    var manifest_json = try parseJsonValue(std.testing.allocator, manifest_bytes);
+    defer manifest_json.deinit();
+    const dependencies = switch (try jsonObjectGet(&manifest_json, "dynamic_dependencies")) {
+        .array => |array| array.items,
+        else => return error.TestUnexpectedResult,
+    };
+    try std.testing.expectEqual(@as(usize, 1), dependencies.len);
+    const dependency = dependencies[0];
+    try std.testing.expectEqualStrings("environment", try jsonStringValue(try jsonObjectGetValue(dependency, "kind")));
+    try std.testing.expectEqualStrings(env_name, try jsonStringValue(try jsonObjectGetValue(dependency, "key")));
+    try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(dependency, "present")));
+    const expected_digest = bytesHashHex(env_value);
+    try std.testing.expectEqualStrings(expected_digest[0..], try jsonStringValue(try jsonObjectGetValue(dependency, "sha256")));
 }
 
 test "cli cache clean removes invalid project cache entries" {

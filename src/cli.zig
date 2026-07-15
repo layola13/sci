@@ -1700,6 +1700,95 @@ const TmpWorkDir = struct {
     }
 };
 
+const BuildOutputPublishLock = struct {
+    file: std.fs.File,
+
+    fn deinit(self: *BuildOutputPublishLock) void {
+        self.file.close();
+        self.* = undefined;
+    }
+};
+
+const BuildOutputPublishTestPause = struct {
+    reached: std.Thread.ResetEvent = .{},
+    continue_event: std.Thread.ResetEvent = .{},
+};
+
+var build_output_publish_test_pause: ?*BuildOutputPublishTestPause = null;
+
+fn acquireBuildOutputPublishLock(allocator: std.mem.Allocator, out_path: []const u8) !BuildOutputPublishLock {
+    const parent_path = std.fs.path.dirname(out_path) orelse ".";
+    const lock_dir_path = try std.fs.path.join(allocator, &.{ parent_path, ".sa-output-locks" });
+    defer allocator.free(lock_dir_path);
+    try std.fs.cwd().makePath(lock_dir_path);
+    const lock_path = try std.fs.path.join(allocator, &.{ lock_dir_path, std.fs.path.basename(out_path) });
+    defer allocator.free(lock_path);
+    return .{ .file = try std.fs.cwd().createFile(lock_path, .{
+        .read = true,
+        .truncate = false,
+        .lock = .exclusive,
+    }) };
+}
+
+const BuildOutputStage = struct {
+    dir_path: []u8,
+    artifact_path: []u8,
+    output_path: []u8,
+
+    fn init(allocator: std.mem.Allocator, out_path: []const u8) !BuildOutputStage {
+        const dir_path = try createProjectCacheStagingDir(allocator, out_path);
+        errdefer allocator.free(dir_path);
+        errdefer deleteCacheTree(dir_path);
+        const artifact_path = try std.fs.path.join(allocator, &.{ dir_path, "artifact.sa.bc" });
+        errdefer allocator.free(artifact_path);
+        const output_path = try std.fs.path.join(allocator, &.{ dir_path, "output.bin" });
+        return .{
+            .dir_path = dir_path,
+            .artifact_path = artifact_path,
+            .output_path = output_path,
+        };
+    }
+
+    fn publish(
+        self: *const BuildOutputStage,
+        allocator: std.mem.Allocator,
+        artifact_path: []const u8,
+        out_path: []const u8,
+        include_artifact: bool,
+        executable: bool,
+    ) !void {
+        if (executable) try makeExecutable(self.output_path);
+        var output_lock = try acquireBuildOutputPublishLock(allocator, out_path);
+        defer output_lock.deinit();
+        if (include_artifact) {
+            try renameCachePath(self.artifact_path, artifact_path);
+        } else {
+            std.fs.cwd().deleteFile(artifact_path) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => return err,
+            };
+        }
+        if (builtin.is_test) {
+            if (build_output_publish_test_pause) |pause| {
+                if (!pause.reached.isSet()) {
+                    pause.reached.set();
+                    pause.continue_event.wait();
+                }
+            }
+        }
+        // The primary output is the successful publication commit marker.
+        try renameCachePath(self.output_path, out_path);
+    }
+
+    fn deinit(self: *BuildOutputStage, allocator: std.mem.Allocator) void {
+        allocator.free(self.artifact_path);
+        allocator.free(self.output_path);
+        deleteCacheTree(self.dir_path);
+        allocator.free(self.dir_path);
+        self.* = undefined;
+    }
+};
+
 fn writeFile(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
@@ -5916,13 +6005,135 @@ fn projectCacheArtifactPath(allocator: std.mem.Allocator, project_root: []const 
     return try pathJoinAlloc(allocator, &.{ dir, filename });
 }
 
-fn projectCacheRemoveKey(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) void {
-    const dir = projectCacheDir(allocator, project_root, kind, key) catch return;
-    defer allocator.free(dir);
-    std.fs.cwd().deleteTree(dir) catch |err| {
-        // Build cache repair is opportunistic here; callers fall back to recompilation on unusable entries.
+fn projectCacheEntryPath(allocator: std.mem.Allocator, entry_dir: []const u8, filename: []const u8) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ entry_dir, filename });
+}
+
+fn createProjectCacheStagingDir(allocator: std.mem.Allocator, final_dir: []const u8) ![]u8 {
+    try ensureParentDir(final_dir);
+    for (0..8) |_| {
+        var random: [8]u8 = undefined;
+        std.crypto.random.bytes(&random);
+        const suffix = std.fmt.bytesToHex(random, .lower);
+        const staging_dir = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ final_dir, suffix[0..] });
+        std.fs.cwd().makeDir(staging_dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {
+                allocator.free(staging_dir);
+                continue;
+            },
+            else => {
+                allocator.free(staging_dir);
+                return err;
+            },
+        };
+        return staging_dir;
+    }
+    return error.PathAlreadyExists;
+}
+
+fn deleteCacheTree(path: []const u8) void {
+    std.fs.cwd().deleteTree(path) catch |err| {
         _ = @errorName(err);
     };
+}
+
+fn renameCachePath(old_path: []const u8, new_path: []const u8) !void {
+    if (std.fs.path.isAbsolute(old_path) and std.fs.path.isAbsolute(new_path)) {
+        return try std.fs.renameAbsolute(old_path, new_path);
+    }
+    return try std.fs.cwd().rename(old_path, new_path);
+}
+
+fn syncCacheFile(path: []const u8) !void {
+    var file = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
+    defer file.close();
+    try file.sync();
+}
+
+fn copyCacheFileSynced(src_path: []const u8, dst_path: []const u8) !void {
+    try ensureParentDir(dst_path);
+    try std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{ .override_mode = std.fs.File.default_mode });
+    try syncCacheFile(dst_path);
+}
+
+const ProjectCacheEntryLock = struct {
+    file: std.fs.File,
+
+    fn deinit(self: *ProjectCacheEntryLock) void {
+        self.file.close();
+        self.* = undefined;
+    }
+};
+
+fn releaseProjectCacheOwner(owner: *?ProjectCacheEntryLock) void {
+    if (owner.*) |*entry_lock| entry_lock.deinit();
+    owner.* = null;
+}
+
+const ProjectCacheStoreTestPause = struct {
+    reached: std.Thread.ResetEvent = .{},
+    continue_event: std.Thread.ResetEvent = .{},
+};
+
+var project_cache_store_test_pause: ?*ProjectCacheStoreTestPause = null;
+
+fn projectCacheLockPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    const filename = try std.fmt.allocPrint(allocator, "{s}.lock", .{key.slice()});
+    defer allocator.free(filename);
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName(), ".locks", filename });
+}
+
+fn projectCacheBuildLockPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    const filename = try std.fmt.allocPrint(allocator, "{s}.build.lock", .{key.slice()});
+    defer allocator.free(filename);
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName(), ".locks", filename });
+}
+
+fn acquireProjectCacheEntryLock(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    mode: std.fs.File.Lock,
+) !ProjectCacheEntryLock {
+    const lock_path = try projectCacheLockPath(allocator, project_root, kind, key);
+    defer allocator.free(lock_path);
+    try ensureParentDir(lock_path);
+    return .{ .file = try std.fs.cwd().createFile(lock_path, .{
+        .read = true,
+        .truncate = false,
+        .lock = mode,
+    }) };
+}
+
+fn acquireProjectCacheBuildLock(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    mode: std.fs.File.Lock,
+) !ProjectCacheEntryLock {
+    const lock_path = try projectCacheBuildLockPath(allocator, project_root, kind, key);
+    defer allocator.free(lock_path);
+    try ensureParentDir(lock_path);
+    return .{ .file = try std.fs.cwd().createFile(lock_path, .{
+        .read = true,
+        .truncate = false,
+        .lock = mode,
+    }) };
+}
+
+fn tryAcquireProjectCacheEntryLockInKindDir(kind_dir: std.fs.Dir, key_name: []const u8) !?ProjectCacheEntryLock {
+    try kind_dir.makePath(".locks");
+    var lock_name_buf: [96]u8 = undefined;
+    const lock_name = try std.fmt.bufPrint(&lock_name_buf, ".locks/{s}.lock", .{key_name});
+    var file = try kind_dir.createFile(lock_name, .{ .read = true, .truncate = false });
+    errdefer file.close();
+    if (!try file.tryLock(.exclusive)) {
+        file.close();
+        return null;
+    }
+    return .{ .file = file };
 }
 
 fn projectCacheArtifactExistsNonEmpty(path: []const u8) bool {
@@ -5963,7 +6174,60 @@ fn jsonString(value: std.json.Value) ![]const u8 {
     };
 }
 
+fn jsonSha256(value: std.json.Value) !bool {
+    const text = try jsonString(value);
+    if (text.len != 64) return false;
+    for (text) |byte| {
+        switch (byte) {
+            '0'...'9', 'a'...'f' => {},
+            else => return false,
+        }
+    }
+    return true;
+}
+
+fn projectCacheDynamicDependenciesWellFormed(value: std.json.Value) !bool {
+    const dependencies = switch (value) {
+        .array => |items| items.items,
+        else => return error.InvalidCacheManifest,
+    };
+    if (dependencies.len > 4096) return false;
+
+    for (dependencies) |dependency| {
+        const object = switch (dependency) {
+            .object => |object| object,
+            else => return error.InvalidCacheManifest,
+        };
+        const kind = try jsonString(object.get("kind") orelse return error.InvalidCacheManifest);
+        if (std.mem.eql(u8, kind, "environment")) {
+            const key = try jsonString(object.get("key") orelse return error.InvalidCacheManifest);
+            if (key.len == 0 or key.len > 4096) return false;
+            const present = try jsonBool(object.get("present") orelse return error.InvalidCacheManifest);
+            if (present) {
+                if (!try jsonSha256(object.get("sha256") orelse return error.InvalidCacheManifest)) return false;
+            } else if (object.get("sha256") != null) {
+                return false;
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, kind, "file")) {
+            const path = try jsonString(object.get("path") orelse return error.InvalidCacheManifest);
+            if (path.len == 0 or path.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path)) return false;
+            const size = object.get("size") orelse return error.InvalidCacheManifest;
+            switch (size) {
+                .integer => |integer| if (integer < 0) return false,
+                else => return error.InvalidCacheManifest,
+            }
+            if (!try jsonSha256(object.get("sha256") orelse return error.InvalidCacheManifest)) return false;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 fn projectCacheDynamicDependenciesValid(allocator: std.mem.Allocator, value: std.json.Value) !bool {
+    if (!try projectCacheDynamicDependenciesWellFormed(value)) return false;
     const dependencies = switch (value) {
         .array => |items| items.items,
         else => return error.InvalidCacheManifest,
@@ -6086,17 +6350,39 @@ fn writeProjectCacheDynamicDependencies(writer: anytype, dependencies: []const f
     try writer.writeByte(']');
 }
 
-fn projectCacheWriteManifest(
+const project_cache_manifest_max_bytes = 16 * 1024 * 1024;
+
+fn writeCacheManifestBytesAtomically(allocator: std.mem.Allocator, manifest_path: []const u8, contents: []const u8) !void {
+    if (contents.len > project_cache_manifest_max_bytes) return error.CacheManifestTooLarge;
+    try ensureParentDir(manifest_path);
+    var random: [8]u8 = undefined;
+    std.crypto.random.bytes(&random);
+    const suffix = std.fmt.bytesToHex(random, .lower);
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ manifest_path, suffix[0..] });
+    defer allocator.free(tmp_path);
+    var file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
+    var file_open = true;
+    errdefer if (file_open) file.close();
+    errdefer std.fs.cwd().deleteFile(tmp_path) catch |err| {
+        _ = @errorName(err);
+    };
+    try file.writeAll(contents);
+    try file.sync();
+    file.close();
+    file_open = false;
+    try renameCachePath(tmp_path, manifest_path);
+}
+
+fn projectCacheWriteManifestAt(
     allocator: std.mem.Allocator,
-    project_root: []const u8,
+    manifest_path: []const u8,
     kind: BuildCacheKind,
     key: ProjectCacheKey,
     cached_artifact: []const u8,
     cached_output: []const u8,
+    cached_test_metadata: ?[]const u8,
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
-    const manifest_path = try projectCacheManifestPath(allocator, project_root, kind, key);
-    defer allocator.free(manifest_path);
     try ensureParentDir(manifest_path);
 
     var contents = std.ArrayList(u8).init(allocator);
@@ -6113,33 +6399,13 @@ fn projectCacheWriteManifest(
     try writer.writeByte(',');
     try writeCacheArtifactManifestEntry(writer, allocator, "output", cached_output);
     if (kind == .test_cache) {
-        const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
-        defer allocator.free(metadata_path);
+        const metadata_path = cached_test_metadata orelse return error.InvalidCacheManifest;
         try writer.writeByte(',');
         try writeCacheArtifactManifestEntry(writer, allocator, "test_metadata", metadata_path);
     }
     try writer.writeAll("}\n");
 
-    var random: [8]u8 = undefined;
-    std.crypto.random.bytes(&random);
-    const suffix = std.fmt.bytesToHex(random, .lower);
-    const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ manifest_path, suffix[0..] });
-    defer allocator.free(tmp_path);
-    var file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
-    var file_open = true;
-    errdefer if (file_open) file.close();
-    errdefer std.fs.cwd().deleteFile(tmp_path) catch |err| {
-        _ = @errorName(err);
-    };
-    try file.writeAll(contents.items);
-    try file.sync();
-    file.close();
-    file_open = false;
-    if (std.fs.path.isAbsolute(manifest_path)) {
-        try std.fs.renameAbsolute(tmp_path, manifest_path);
-    } else {
-        try std.fs.cwd().rename(tmp_path, manifest_path);
-    }
+    try writeCacheManifestBytesAtomically(allocator, manifest_path, contents.items);
 }
 
 const ProjectCacheHitResult = enum {
@@ -6148,7 +6414,13 @@ const ProjectCacheHitResult = enum {
     authorization_rejected,
 };
 
-fn projectCacheHit(
+const ProjectCacheClaimResult = union(enum) {
+    hit,
+    owner: ProjectCacheEntryLock,
+    authorization_rejected,
+};
+
+fn projectCacheHitLocked(
     allocator: std.mem.Allocator,
     project_root: []const u8,
     kind: BuildCacheKind,
@@ -6171,7 +6443,6 @@ fn projectCacheHit(
         (if (cached_test_metadata) |path| !projectCacheArtifactExistsNonEmpty(path) else false) or
         !projectCacheManifestValid(allocator, project_root, kind, key, cached_artifact, cached_output))
     {
-        projectCacheRemoveKey(allocator, project_root, kind, key);
         return .miss;
     }
 
@@ -6188,14 +6459,95 @@ fn projectCacheHit(
         };
     }
     copyFileAlloc(allocator, cached_artifact, artifact_path) catch |err| {
-        projectCacheRemoveKey(allocator, project_root, kind, key);
         return err;
     };
     copyFileAlloc(allocator, cached_output, out_path) catch |err| {
-        projectCacheRemoveKey(allocator, project_root, kind, key);
         return err;
     };
     return .hit;
+}
+
+fn projectCacheClaim(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    project_context: *const ProjectContext,
+    options: CompileOptions,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
+) !ProjectCacheClaimResult {
+    {
+        var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, kind, key, .shared);
+        defer entry_lock.deinit();
+        switch (try projectCacheHitLocked(allocator, project_root, kind, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => {},
+            .hit => return .hit,
+            .authorization_rejected => return .authorization_rejected,
+        }
+    }
+
+    var owner = try acquireProjectCacheBuildLock(allocator, project_root, kind, key, .exclusive);
+    errdefer owner.deinit();
+    {
+        var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, kind, key, .shared);
+        defer entry_lock.deinit();
+        switch (try projectCacheHitLocked(allocator, project_root, kind, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => return .{ .owner = owner },
+            .hit => {
+                owner.deinit();
+                return .hit;
+            },
+            .authorization_rejected => {
+                owner.deinit();
+                return .authorization_rejected;
+            },
+        }
+    }
+}
+
+fn projectCacheEntryValidAtPath(kind: BuildCacheKind, key: ProjectCacheKey, entry_path: []const u8) bool {
+    var entry_dir = std.fs.cwd().openDir(entry_path, .{}) catch return false;
+    defer entry_dir.close();
+    return cacheEntryComplete(kind, entry_dir) and cacheEntryManifestValid(kind, key.slice(), entry_dir);
+}
+
+fn projectCacheEntryReusableNow(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) bool {
+    const cached_artifact = projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc") catch return false;
+    defer allocator.free(cached_artifact);
+    const cached_output = projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin") catch return false;
+    defer allocator.free(cached_output);
+    if (!projectCacheArtifactExistsNonEmpty(cached_artifact) or !projectCacheArtifactExistsNonEmpty(cached_output)) return false;
+    if (kind == .test_cache) {
+        const metadata_path = projectCacheTestMetadataPath(allocator, project_root, key) catch return false;
+        defer allocator.free(metadata_path);
+        if (!projectCacheArtifactExistsNonEmpty(metadata_path)) return false;
+    }
+    if (!projectCacheManifestValid(allocator, project_root, kind, key, cached_artifact, cached_output)) return false;
+    if (kind == .test_cache) {
+        var test_list = projectCacheReadTestMetadata(allocator, project_root, key) catch return false;
+        test_list.deinit(allocator);
+    }
+    return true;
+}
+
+const ProjectCachePublishResult = enum {
+    published,
+    winner_exists,
+};
+
+fn publishProjectCacheEntry(kind: BuildCacheKind, key: ProjectCacheKey, staging_dir: []const u8, final_dir: []const u8) !ProjectCachePublishResult {
+    renameCachePath(staging_dir, final_dir) catch |err| switch (err) {
+        error.PathAlreadyExists => if (projectCacheEntryValidAtPath(kind, key, final_dir)) return .winner_exists else return err,
+        // Windows can report AccessDenied for a directory rename collision.
+        // Only accept it as a winner when the existing entry is structurally
+        // complete; unrelated access failures must remain visible.
+        error.AccessDenied => if (projectCacheEntryValidAtPath(kind, key, final_dir)) return .winner_exists else return err,
+        else => return err,
+    };
+    return .published;
 }
 
 fn projectCacheStore(
@@ -6207,13 +6559,7 @@ fn projectCacheStore(
     out_path: []const u8,
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
-    const cached_artifact = try projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc");
-    defer allocator.free(cached_artifact);
-    const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
-    defer allocator.free(cached_output);
-    try copyFileAlloc(allocator, artifact_path, cached_artifact);
-    try copyFileAlloc(allocator, out_path, cached_output);
-    try projectCacheWriteManifest(allocator, project_root, kind, key, cached_artifact, cached_output, dynamic_dependencies);
+    try projectCacheStoreEntry(allocator, project_root, kind, key, artifact_path, out_path, null, dynamic_dependencies);
 }
 
 fn projectCacheTestMetadataPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
@@ -6228,14 +6574,12 @@ fn writeOptionalJsonString(writer: anytype, value: ?[]const u8) !void {
     }
 }
 
-fn projectCacheWriteTestMetadata(
+fn projectCacheWriteTestMetadataAt(
     allocator: std.mem.Allocator,
-    project_root: []const u8,
-    key: ProjectCacheKey,
+    metadata_path: []const u8,
     test_list: test_meta.TestList,
 ) !void {
-    const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
-    defer allocator.free(metadata_path);
+    _ = allocator;
     try ensureParentDir(metadata_path);
     var file = try std.fs.cwd().createFile(metadata_path, .{ .truncate = true });
     defer file.close();
@@ -6262,6 +6606,80 @@ fn projectCacheWriteTestMetadata(
         try writer.writeByte('}');
     }
     try writer.writeAll("]}\n");
+    try file.sync();
+}
+
+fn projectCacheStoreEntryLocked(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    test_list: ?test_meta.TestList,
+    dynamic_dependencies: []const flattener.DynamicDependency,
+) !void {
+    if ((kind == .test_cache) != (test_list != null)) return error.InvalidCacheManifest;
+    const final_dir = try projectCacheDir(allocator, project_root, kind, key);
+    defer allocator.free(final_dir);
+    if (projectCacheEntryReusableNow(allocator, project_root, kind, key)) return;
+    if (projectPathExists(final_dir)) {
+        // The exclusive key lock pins readers and other writers while an old
+        // unusable entry is retired. Readers therefore observe either the old
+        // complete directory or the final staging rename, never partial files.
+        try std.fs.cwd().deleteTree(final_dir);
+    }
+
+    const staging_dir = try createProjectCacheStagingDir(allocator, final_dir);
+    defer allocator.free(staging_dir);
+    var staging_live = true;
+    defer if (staging_live) deleteCacheTree(staging_dir);
+
+    const cached_artifact = try projectCacheEntryPath(allocator, staging_dir, "artifact.sa.bc");
+    defer allocator.free(cached_artifact);
+    const cached_output = try projectCacheEntryPath(allocator, staging_dir, "output.bin");
+    defer allocator.free(cached_output);
+    const cached_test_metadata = if (test_list != null)
+        try projectCacheEntryPath(allocator, staging_dir, "test-metadata.json")
+    else
+        null;
+    defer if (cached_test_metadata) |path| allocator.free(path);
+    const manifest_path = try projectCacheEntryPath(allocator, staging_dir, "manifest.json");
+    defer allocator.free(manifest_path);
+
+    try copyCacheFileSynced(artifact_path, cached_artifact);
+    try copyCacheFileSynced(out_path, cached_output);
+    if (test_list) |metadata| {
+        try projectCacheWriteTestMetadataAt(allocator, cached_test_metadata.?, metadata);
+    } else if (kind == .test_cache) {
+        return error.InvalidCacheManifest;
+    }
+    try projectCacheWriteManifestAt(allocator, manifest_path, kind, key, cached_artifact, cached_output, cached_test_metadata, dynamic_dependencies);
+    if (builtin.is_test) {
+        if (project_cache_store_test_pause) |pause| {
+            pause.reached.set();
+            pause.continue_event.wait();
+        }
+    }
+    switch (try publishProjectCacheEntry(kind, key, staging_dir, final_dir)) {
+        .published => staging_live = false,
+        .winner_exists => {},
+    }
+}
+
+fn projectCacheStoreEntry(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    test_list: ?test_meta.TestList,
+    dynamic_dependencies: []const flattener.DynamicDependency,
+) !void {
+    var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, kind, key, .exclusive);
+    defer entry_lock.deinit();
+    try projectCacheStoreEntryLocked(allocator, project_root, kind, key, artifact_path, out_path, test_list, dynamic_dependencies);
 }
 
 fn projectCacheStoreTest(
@@ -6273,14 +6691,7 @@ fn projectCacheStoreTest(
     test_list: test_meta.TestList,
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
-    const cached_artifact = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "artifact.sa.bc");
-    defer allocator.free(cached_artifact);
-    const cached_output = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "output.bin");
-    defer allocator.free(cached_output);
-    try copyFileAlloc(allocator, artifact_path, cached_artifact);
-    try copyFileAlloc(allocator, out_path, cached_output);
-    try projectCacheWriteTestMetadata(allocator, project_root, key, test_list);
-    try projectCacheWriteManifest(allocator, project_root, .test_cache, key, cached_artifact, cached_output, dynamic_dependencies);
+    try projectCacheStoreEntry(allocator, project_root, .test_cache, key, artifact_path, out_path, test_list, dynamic_dependencies);
 }
 
 fn jsonBool(value: std.json.Value) !bool {
@@ -6321,6 +6732,10 @@ fn projectCacheReadTestMetadata(
     defer allocator.free(metadata_path);
     const metadata_bytes = try readTextFileAlloc(allocator, metadata_path);
     defer allocator.free(metadata_bytes);
+    return try parseProjectCacheTestMetadata(allocator, metadata_bytes);
+}
+
+fn parseProjectCacheTestMetadata(allocator: std.mem.Allocator, metadata_bytes: []const u8) !test_meta.TestList {
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, metadata_bytes, .{});
     defer parsed.deinit();
     if (!jsonIntEquals(try jsonGetObject(parsed.value, "version"), 1)) return error.InvalidCacheManifest;
@@ -6362,6 +6777,82 @@ fn projectCacheReadTestMetadata(
     return .{ .tests = try tests.toOwnedSlice(), .order = .Unsorted };
 }
 
+const ProjectCacheTestHitResult = union(enum) {
+    miss,
+    hit: test_meta.TestList,
+    authorization_rejected,
+};
+
+const ProjectCacheTestClaimResult = union(enum) {
+    hit: test_meta.TestList,
+    owner: ProjectCacheEntryLock,
+    authorization_rejected,
+};
+
+fn projectCacheTestHitLocked(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    project_context: *const ProjectContext,
+    options: CompileOptions,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
+) !ProjectCacheTestHitResult {
+    switch (try projectCacheHitLocked(allocator, project_root, .test_cache, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
+        .miss => return .miss,
+        .authorization_rejected => return .authorization_rejected,
+        .hit => {
+            const test_list = projectCacheReadTestMetadata(allocator, project_root, key) catch |err| switch (err) {
+                error.OutOfMemory => return err,
+                else => return .miss,
+            };
+            return .{ .hit = test_list };
+        },
+    }
+}
+
+fn projectCacheTestClaim(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    project_context: *const ProjectContext,
+    options: CompileOptions,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
+) !ProjectCacheTestClaimResult {
+    {
+        var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, .test_cache, key, .shared);
+        defer entry_lock.deinit();
+        switch (try projectCacheTestHitLocked(allocator, project_root, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => {},
+            .hit => |test_list| return .{ .hit = test_list },
+            .authorization_rejected => return .authorization_rejected,
+        }
+    }
+
+    var owner = try acquireProjectCacheBuildLock(allocator, project_root, .test_cache, key, .exclusive);
+    errdefer owner.deinit();
+    {
+        var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, .test_cache, key, .shared);
+        defer entry_lock.deinit();
+        switch (try projectCacheTestHitLocked(allocator, project_root, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => return .{ .owner = owner },
+            .hit => |test_list| {
+                owner.deinit();
+                return .{ .hit = test_list };
+            },
+            .authorization_rejected => {
+                owner.deinit();
+                return .authorization_rejected;
+            },
+        }
+    }
+}
+
 fn isHexCacheKey(name: []const u8) bool {
     if (name.len != 64) return false;
     for (name) |c| {
@@ -6371,6 +6862,19 @@ fn isHexCacheKey(name: []const u8) bool {
         }
     }
     return true;
+}
+
+fn cacheStagingKey(name: []const u8) ?[]const u8 {
+    const separator = ".tmp.";
+    if (name.len != 64 + separator.len + 16) return null;
+    if (!isHexCacheKey(name[0..64]) or !std.mem.eql(u8, name[64 .. 64 + separator.len], separator)) return null;
+    for (name[64 + separator.len ..]) |byte| {
+        switch (byte) {
+            '0'...'9', 'a'...'f' => {},
+            else => return null,
+        }
+    }
+    return name[0..64];
 }
 
 fn cacheEntryExpired(stat: std.fs.File.Stat, max_age_days: u64) bool {
@@ -6407,19 +6911,34 @@ fn cacheEntryArtifactMatchesManifest(entry_dir: std.fs.Dir, artifact_value: std.
     return jsonStringEquals(try jsonGetObject(artifact_value, "sha256"), hash_hex[0..]);
 }
 
+fn cacheEntryTestMetadataValid(entry_dir: std.fs.Dir) bool {
+    const metadata_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "test-metadata.json", 16 * 1024 * 1024) catch return false;
+    defer std.heap.page_allocator.free(metadata_bytes);
+    var test_list = parseProjectCacheTestMetadata(std.heap.page_allocator, metadata_bytes) catch return false;
+    defer test_list.deinit(std.heap.page_allocator);
+    return true;
+}
+
 fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir: std.fs.Dir) bool {
-    if (kind == .build_obj_incremental) return true;
-    const manifest_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "manifest.json", 64 * 1024) catch return false;
+    if (kind == .build_obj_incremental) {
+        var incremental_manifest = readIncrementalObjectManifest(std.heap.page_allocator, entry_dir, key_name, null) catch return false;
+        defer incremental_manifest.deinit(std.heap.page_allocator);
+        return incremental_manifest.complete();
+    }
+    const manifest_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "manifest.json", project_cache_manifest_max_bytes) catch return false;
     defer std.heap.page_allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, manifest_bytes, .{}) catch return false;
     defer parsed.deinit();
     if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 2)) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key_name)) return false;
-    if (!(projectCacheDynamicDependenciesValid(std.heap.page_allocator, jsonGetObject(parsed.value, "dynamic_dependencies") catch return false) catch return false)) return false;
+    if (!(projectCacheDynamicDependenciesWellFormed(jsonGetObject(parsed.value, "dynamic_dependencies") catch return false) catch return false)) return false;
     if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "artifact") catch return false, "artifact.sa.bc") catch return false)) return false;
     if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "output") catch return false, "output.bin") catch return false)) return false;
-    if (kind == .test_cache and !(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "test_metadata") catch return false, "test-metadata.json") catch return false)) return false;
+    if (kind == .test_cache) {
+        if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "test_metadata") catch return false, "test-metadata.json") catch return false)) return false;
+        if (!cacheEntryTestMetadataValid(entry_dir)) return false;
+    }
     return true;
 }
 
@@ -6440,24 +6959,38 @@ fn cleanCacheKindDir(
         else => return err,
     };
     defer kind_dir.close();
+    if (!options.dry_run) try kind_dir.makePath(".locks");
 
     var iter = kind_dir.iterate();
     while (try iter.next()) |entry| {
+        if (std.mem.eql(u8, entry.name, ".locks")) continue;
         stats.scanned += 1;
-        var remove = entry.kind != .directory or !isHexCacheKey(entry.name);
-        if (!remove) {
-            var entry_dir = kind_dir.openDir(entry.name, .{}) catch {
-                remove = true;
-                if (!options.dry_run) try kind_dir.deleteTree(entry.name);
-                stats.removed += 1;
-                continue;
-            };
-            defer entry_dir.close();
+        const staging_key = cacheStagingKey(entry.name);
+        const lock_key: ?[]const u8 = if (isHexCacheKey(entry.name)) entry.name else staging_key;
+        var entry_lock: ?ProjectCacheEntryLock = if (!options.dry_run and lock_key != null)
+            try tryAcquireProjectCacheEntryLockInKindDir(kind_dir, lock_key.?)
+        else
+            null;
+        defer if (entry_lock) |*lock| lock.deinit();
+        if (!options.dry_run and lock_key != null and entry_lock == null) {
+            stats.kept += 1;
+            continue;
+        }
 
+        var remove = entry.kind != .directory or !isHexCacheKey(entry.name);
+        if (staging_key != null) {
+            remove = true;
+        } else if (!remove) {
             const stat: ?std.fs.File.Stat = kind_dir.statFile(entry.name) catch null;
-            remove = !cacheEntryComplete(kind, entry_dir) or
-                !cacheEntryManifestValid(kind, entry.name, entry_dir) or
-                (if (stat) |s| cacheEntryExpired(s, options.max_age_days) else true);
+            if (kind_dir.openDir(entry.name, .{})) |entry_dir_value| {
+                var entry_dir = entry_dir_value;
+                remove = !cacheEntryComplete(kind, entry_dir) or
+                    !cacheEntryManifestValid(kind, entry.name, entry_dir) or
+                    (if (stat) |s| cacheEntryExpired(s, options.max_age_days) else true);
+                entry_dir.close();
+            } else |_| {
+                remove = true;
+            }
         }
 
         if (remove) {
@@ -6550,6 +7083,139 @@ fn projectFunctionCacheManifestPath(allocator: std.mem.Allocator, project_root: 
     return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "manifest.json" });
 }
 
+const IncrementalFunctionManifestEntry = struct {
+    relative_path: []const u8,
+    size: u64,
+    sha256: []const u8,
+    valid: bool = false,
+};
+
+const IncrementalObjectManifest = struct {
+    bytes: []u8,
+    parsed: std.json.Parsed(std.json.Value),
+    functions: std.StringHashMap(IncrementalFunctionManifestEntry),
+    unexpected_entries: bool = false,
+
+    fn deinit(self: *IncrementalObjectManifest, allocator: std.mem.Allocator) void {
+        self.functions.deinit();
+        self.parsed.deinit();
+        allocator.free(self.bytes);
+        self.* = undefined;
+    }
+
+    fn objectValid(self: *const IncrementalObjectManifest, function_key: []const u8) bool {
+        const entry = self.functions.get(function_key) orelse return false;
+        return entry.valid;
+    }
+
+    fn complete(self: *const IncrementalObjectManifest) bool {
+        if (self.unexpected_entries or self.functions.count() == 0) return false;
+        var iter = self.functions.valueIterator();
+        while (iter.next()) |entry| {
+            if (!entry.valid) return false;
+        }
+        return true;
+    }
+};
+
+fn jsonPositiveU64(value: std.json.Value) !u64 {
+    return switch (value) {
+        .integer => |integer| if (integer > 0) @intCast(integer) else error.InvalidCacheManifest,
+        else => error.InvalidCacheManifest,
+    };
+}
+
+fn parseOwnedIncrementalObjectManifest(
+    allocator: std.mem.Allocator,
+    manifest_bytes: []u8,
+    expected_key: []const u8,
+    expected_source: ?[]const u8,
+) !IncrementalObjectManifest {
+    errdefer allocator.free(manifest_bytes);
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{});
+    errdefer parsed.deinit();
+    if (!jsonIntEquals(try jsonGetObject(parsed.value, "version"), 2)) return error.InvalidCacheManifest;
+    if (!jsonStringEquals(try jsonGetObject(parsed.value, "kind"), BuildCacheKind.build_obj_incremental.dirName())) return error.InvalidCacheManifest;
+    if (!jsonStringEquals(try jsonGetObject(parsed.value, "key"), expected_key)) return error.InvalidCacheManifest;
+    const source = try jsonString(try jsonGetObject(parsed.value, "source"));
+    if (expected_source) |expected| {
+        if (!std.mem.eql(u8, source, expected)) return error.InvalidCacheManifest;
+    }
+    const functions_value = try jsonGetObject(parsed.value, "functions");
+    const function_items = switch (functions_value) {
+        .array => |array| array.items,
+        else => return error.InvalidCacheManifest,
+    };
+    if (function_items.len == 0 or function_items.len > 65_536) return error.InvalidCacheManifest;
+
+    var functions = std.StringHashMap(IncrementalFunctionManifestEntry).init(allocator);
+    errdefer functions.deinit();
+    for (function_items) |item| {
+        const function_key = try jsonString(try jsonGetObject(item, "key"));
+        if (!isHexCacheKey(function_key) or functions.contains(function_key)) return error.InvalidCacheManifest;
+        const relative_path = try jsonString(try jsonGetObject(item, "path"));
+        var expected_path_buf: [96]u8 = undefined;
+        const expected_path = try std.fmt.bufPrint(&expected_path_buf, "functions/{s}.o", .{function_key});
+        if (!std.mem.eql(u8, relative_path, expected_path)) return error.InvalidCacheManifest;
+        const size = try jsonPositiveU64(try jsonGetObject(item, "size"));
+        const sha256 = try jsonString(try jsonGetObject(item, "sha256"));
+        if (!try jsonSha256(.{ .string = sha256 })) return error.InvalidCacheManifest;
+        try functions.put(function_key, .{
+            .relative_path = relative_path,
+            .size = size,
+            .sha256 = sha256,
+        });
+    }
+
+    return .{
+        .bytes = manifest_bytes,
+        .parsed = parsed,
+        .functions = functions,
+    };
+}
+
+fn markIncrementalManifestFiles(manifest_value: *IncrementalObjectManifest, entry_dir: std.fs.Dir) void {
+    var functions_dir = entry_dir.openDir("functions", .{ .iterate = true, .no_follow = true }) catch {
+        manifest_value.unexpected_entries = true;
+        return;
+    };
+    defer functions_dir.close();
+    var iter = functions_dir.iterate();
+    while (iter.next() catch {
+        manifest_value.unexpected_entries = true;
+        return;
+    }) |entry| {
+        if (entry.name.len != 66 or !std.mem.endsWith(u8, entry.name, ".o") or !isHexCacheKey(entry.name[0..64])) {
+            manifest_value.unexpected_entries = true;
+            continue;
+        }
+        const manifest_entry = manifest_value.functions.getPtr(entry.name[0..64]) orelse {
+            manifest_value.unexpected_entries = true;
+            continue;
+        };
+        if (entry.kind != .file) {
+            manifest_value.unexpected_entries = true;
+            continue;
+        }
+        const stat = functions_dir.statFile(entry.name) catch continue;
+        if (stat.kind != .file or stat.size != manifest_entry.size) continue;
+        const hash_hex = hashDirFileHex(functions_dir, entry.name) catch continue;
+        manifest_entry.valid = std.mem.eql(u8, manifest_entry.sha256, hash_hex[0..]);
+    }
+}
+
+fn readIncrementalObjectManifest(
+    allocator: std.mem.Allocator,
+    entry_dir: std.fs.Dir,
+    expected_key: []const u8,
+    expected_source: ?[]const u8,
+) !IncrementalObjectManifest {
+    const manifest_bytes = try entry_dir.readFileAlloc(allocator, "manifest.json", project_cache_manifest_max_bytes);
+    var manifest_value = try parseOwnedIncrementalObjectManifest(allocator, manifest_bytes, expected_key, expected_source);
+    markIncrementalManifestFiles(&manifest_value, entry_dir);
+    return manifest_value;
+}
+
 fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) void {
     cacheBytes(hasher, sig_item.name);
     cacheU64(hasher, @intFromEnum(sig_item.kind));
@@ -6606,6 +7272,8 @@ fn buildIncrementalObject(
     compile_options: CompileOptions,
     stderr: anytype,
 ) !void {
+    var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, .build_obj_incremental, cache_key, .exclusive);
+    defer entry_lock.deinit();
     const opt_level = emitOptLevel(debug, optimization);
     const emit_std_root = try stdRootFromEnv(allocator);
     defer allocator.free(emit_std_root);
@@ -7066,20 +7734,28 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
+    var output_stage = try BuildOutputStage.init(allocator, out_path);
+    defer output_stage.deinit(allocator);
+    var cache_owner: ?ProjectCacheEntryLock = null;
+    defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
-        switch (try projectCacheHit(allocator, project_root, .build_exe, key, &project_context, compile_options, artifact_path, out_path, stderr, diagnostics_mode)) {
-            .miss => {},
+        const claim: ?ProjectCacheClaimResult = projectCacheClaim(allocator, project_root, .build_exe, key, &project_context, compile_options, output_stage.artifact_path, output_stage.output_path, stderr, diagnostics_mode) catch |err| blk: {
+            _ = @errorName(err);
+            break :blk null;
+        };
+        if (claim) |result| switch (result) {
+            .owner => |owner| cache_owner = owner,
             .authorization_rejected => return 1,
             .hit => {
-                try makeExecutable(out_path);
+                try output_stage.publish(allocator, artifact_path, out_path, true, true);
                 if (diagnostics_mode == .json or compile_options.mem_report) {
                     const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
                     try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
                 }
                 return 0;
             },
-        }
+        };
     }
 
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -7102,6 +7778,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             };
             const emission_workers = @max(@min(worker_count, 4), 1);
             const use_cgu = (compile_options.jobs_explicit and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
+            if (use_cgu or !owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
 
             if (use_cgu) {
                 const cgu_count = @min(@max(emission_workers, 2), 4);
@@ -7112,7 +7789,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     allocator.free(cgu_obj_paths);
                 }
                 for (0..cgu_count) |i| {
-                    cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{ out_path, i });
+                    cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{ output_stage.output_path, i });
                 }
 
                 // Ensure parent directory exists for all of them
@@ -7230,7 +7907,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
+                driver.compileExe(allocator, cgu_obj_paths[0], output_stage.output_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -7240,10 +7917,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 recordMetricMemoryEnd(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
+                try output_stage.publish(allocator, artifact_path, out_path, false, true);
             } else {
-                try ensureParentDir(artifact_path);
+                try ensureParentDir(output_stage.artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path);
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
                 recordMetricMemoryAfterEmit(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7257,7 +7935,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     owned_link_inputs.deinit();
                 }
                 try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
-                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
+                driver.compileExe(allocator, output_stage.artifact_path, output_stage.output_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -7268,10 +7946,14 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
                 if (cache_key) |key| {
-                    if (owned.flat.dynamic_dependencies_cacheable) {
-                        try projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, out_path, owned.flat.dynamic_dependencies);
+                    if (owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
+                        projectCacheStore(allocator, project_root, .build_exe, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies) catch |err| {
+                            _ = @errorName(err);
+                        };
+                        releaseProjectCacheOwner(&cache_owner);
                     }
                 }
+                try output_stage.publish(allocator, artifact_path, out_path, true, true);
             }
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
@@ -7295,19 +7977,28 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
+    var output_stage = try BuildOutputStage.init(allocator, out_path);
+    defer output_stage.deinit(allocator);
+    var cache_owner: ?ProjectCacheEntryLock = null;
+    defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
-        switch (try projectCacheHit(allocator, project_root, .build_obj, key, &project_context, compile_options, artifact_path, out_path, stderr, diagnostics_mode)) {
-            .miss => {},
+        const claim: ?ProjectCacheClaimResult = projectCacheClaim(allocator, project_root, .build_obj, key, &project_context, compile_options, output_stage.artifact_path, output_stage.output_path, stderr, diagnostics_mode) catch |err| blk: {
+            _ = @errorName(err);
+            break :blk null;
+        };
+        if (claim) |result| switch (result) {
+            .owner => |owner| cache_owner = owner,
             .authorization_rejected => return 1,
             .hit => {
+                try output_stage.publish(allocator, artifact_path, out_path, true, false);
                 if (diagnostics_mode == .json or compile_options.mem_report) {
                     const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
                     try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
                 }
                 return 0;
             },
-        }
+        };
     }
 
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -7319,17 +8010,18 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            if (!owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            try ensureParentDir(artifact_path);
+            try ensureParentDir(output_stage.artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
                 const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})) orelse unreachable;
-                try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+                try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, output_stage.output_path, debug, optimization, compile_options, stderr);
+                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path);
             } else {
-                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level);
+                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path, output_stage.output_path, opt_level);
             }
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7338,10 +8030,14 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key) |key| {
-                if (owned.flat.dynamic_dependencies_cacheable) {
-                    try projectCacheStore(allocator, project_root, .build_obj, key, artifact_path, out_path, owned.flat.dynamic_dependencies);
+                if (owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
+                    projectCacheStore(allocator, project_root, .build_obj, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies) catch |err| {
+                        _ = @errorName(err);
+                    };
+                    releaseProjectCacheOwner(&cache_owner);
                 }
             }
+            try output_stage.publish(allocator, artifact_path, out_path, true, false);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false };
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
@@ -7362,19 +8058,28 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
+    var output_stage = try BuildOutputStage.init(allocator, out_path);
+    defer output_stage.deinit(allocator);
+    var cache_owner: ?ProjectCacheEntryLock = null;
+    defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
-        switch (try projectCacheHit(allocator, project_root, .build_wasm, key, &project_context, compile_options, artifact_path, out_path, stderr, diagnostics_mode)) {
-            .miss => {},
+        const claim: ?ProjectCacheClaimResult = projectCacheClaim(allocator, project_root, .build_wasm, key, &project_context, compile_options, output_stage.artifact_path, output_stage.output_path, stderr, diagnostics_mode) catch |err| blk: {
+            _ = @errorName(err);
+            break :blk null;
+        };
+        if (claim) |result| switch (result) {
+            .owner => |owner| cache_owner = owner,
             .authorization_rejected => return 1,
             .hit => {
+                try output_stage.publish(allocator, artifact_path, out_path, true, false);
                 if (diagnostics_mode == .json or compile_options.mem_report) {
                     const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
                     try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
                 }
                 return 0;
             },
-        }
+        };
     }
 
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -7386,17 +8091,18 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            if (!owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            try ensureParentDir(artifact_path);
+            try ensureParentDir(output_stage.artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path);
             const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
+            driver.compileWasm(allocator, output_stage.artifact_path, output_stage.output_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -7408,10 +8114,14 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key) |key| {
-                if (owned.flat.dynamic_dependencies_cacheable) {
-                    try projectCacheStore(allocator, project_root, .build_wasm, key, artifact_path, out_path, owned.flat.dynamic_dependencies);
+                if (owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
+                    projectCacheStore(allocator, project_root, .build_wasm, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies) catch |err| {
+                        _ = @errorName(err);
+                    };
+                    releaseProjectCacheOwner(&cache_owner);
                 }
             }
+            try output_stage.publish(allocator, artifact_path, out_path, true, false);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
@@ -8172,23 +8882,22 @@ fn executeTestInner(
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
     else
         null;
+    var cache_owner: ?ProjectCacheEntryLock = null;
+    defer releaseProjectCacheOwner(&cache_owner);
 
-    if (cache_key) |key| cached: {
-        var cached_test_list = projectCacheReadTestMetadata(allocator, project_root, key) catch |err| {
+    if (cache_key) |key| {
+        const claim: ?ProjectCacheTestClaimResult = projectCacheTestClaim(allocator, project_root, key, &project_context, compile_options, artifact_full_path, exe_full_path, stderr, diagnostics_mode) catch |err| blk: {
             _ = @errorName(err);
-            break :cached;
+            break :blk null;
         };
-        const hit = projectCacheHit(allocator, project_root, .test_cache, key, &project_context, compile_options, artifact_full_path, exe_full_path, stderr, diagnostics_mode) catch |err| {
-            cached_test_list.deinit(allocator);
-            return err;
-        };
-        switch (hit) {
-            .authorization_rejected => {
-                cached_test_list.deinit(allocator);
-                return 1;
+        if (claim) |result| switch (result) {
+            .owner => |owner| {
+                cache_owner = owner;
+                if (test_options.list or hasExplicitTestSelection(test_options.selection)) releaseProjectCacheOwner(&cache_owner);
             },
-            .miss => cached_test_list.deinit(allocator),
-            .hit => {
+            .authorization_rejected => return 1,
+            .hit => |hit_test_list| {
+                var cached_test_list = hit_test_list;
                 makeExecutable(exe_full_path) catch |err| {
                     cached_test_list.deinit(allocator);
                     return err;
@@ -8221,7 +8930,7 @@ fn executeTestInner(
                     stderr.any(),
                 );
             },
-        }
+        };
     }
 
     const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
@@ -8248,6 +8957,7 @@ fn executeTestInner(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            if (!owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
 
             var compiled_test_list: ?test_meta.TestList = null;
             defer if (compiled_test_list) |*list| list.deinit(allocator);
@@ -8273,6 +8983,7 @@ fn executeTestInner(
                 owned_link_inputs.deinit();
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+            if (link_inputs.items.len != 0) releaseProjectCacheOwner(&cache_owner);
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
@@ -8321,8 +9032,11 @@ fn executeTestInner(
             }
 
             if (cache_key) |key| {
-                if (!has_explicit_test_selection and link_inputs.items.len == 0 and owned.flat.dynamic_dependencies_cacheable) {
-                    try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*, owned.flat.dynamic_dependencies);
+                if (!has_explicit_test_selection and link_inputs.items.len == 0 and owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
+                    projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*, owned.flat.dynamic_dependencies) catch |err| {
+                        _ = @errorName(err);
+                    };
+                    releaseProjectCacheOwner(&cache_owner);
                 }
             }
 
@@ -9063,6 +9777,443 @@ test "project build key tracks runtime archive content" {
     )) orelse unreachable;
 
     try std.testing.expect(!std.mem.eql(u8, first.slice(), second.slice()));
+}
+
+test "build output publication serializes artifact output pairs" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    var stage_a = try BuildOutputStage.init(std.testing.allocator, "shared.out");
+    defer stage_a.deinit(std.testing.allocator);
+    var stage_b = try BuildOutputStage.init(std.testing.allocator, "shared.out");
+    defer stage_b.deinit(std.testing.allocator);
+    try writeAllFile(stage_a.artifact_path, "artifact-A");
+    try writeAllFile(stage_a.output_path, "output-A");
+    try writeAllFile(stage_b.artifact_path, "artifact-B");
+    try writeAllFile(stage_b.output_path, "output-B");
+
+    var pause = BuildOutputPublishTestPause{};
+    build_output_publish_test_pause = &pause;
+    defer {
+        pause.continue_event.set();
+        build_output_publish_test_pause = null;
+    }
+
+    const Publisher = struct {
+        stage: *const BuildOutputStage,
+        started: std.Thread.ResetEvent = .{},
+        done: std.Thread.ResetEvent = .{},
+        failure: ?anyerror = null,
+
+        fn run(self: *@This()) void {
+            defer self.done.set();
+            self.started.set();
+            self.stage.publish(std.heap.page_allocator, "shared.out.sa.bc", "shared.out", true, false) catch |err| {
+                self.failure = err;
+            };
+        }
+    };
+
+    var publisher_a = Publisher{ .stage = &stage_a };
+    var publisher_b = Publisher{ .stage = &stage_b };
+    const thread_a = try std.Thread.spawn(.{}, Publisher.run, .{&publisher_a});
+    var joined_a = false;
+    defer if (!joined_a) thread_a.join();
+    try pause.reached.timedWait(5 * std.time.ns_per_s);
+
+    const thread_b = try std.Thread.spawn(.{}, Publisher.run, .{&publisher_b});
+    var joined_b = false;
+    defer if (!joined_b) thread_b.join();
+    publisher_b.started.wait();
+    try std.testing.expectError(error.Timeout, publisher_b.done.timedWait(20 * std.time.ns_per_ms));
+
+    pause.continue_event.set();
+    thread_a.join();
+    joined_a = true;
+    thread_b.join();
+    joined_b = true;
+    if (publisher_a.failure) |err| return err;
+    if (publisher_b.failure) |err| return err;
+
+    const artifact = try tmp.dir.readFileAlloc(std.testing.allocator, "shared.out.sa.bc", 1024);
+    defer std.testing.allocator.free(artifact);
+    const output = try tmp.dir.readFileAlloc(std.testing.allocator, "shared.out", 1024);
+    defer std.testing.allocator.free(output);
+    try std.testing.expectEqualStrings("artifact-B", artifact);
+    try std.testing.expectEqualStrings("output-B", output);
+}
+
+test "project cache publishes one complete entry under concurrent writers" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact-a.bc", .data = "artifact-A" });
+    try tmp.dir.writeFile(.{ .sub_path = "output-a.bin", .data = "output-A" });
+    try tmp.dir.writeFile(.{ .sub_path = "artifact-b.bc", .data = "artifact-B" });
+    try tmp.dir.writeFile(.{ .sub_path = "output-b.bin", .data = "output-B" });
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_a = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact-a.bc");
+    defer std.testing.allocator.free(artifact_a);
+    const output_a = try tmp.dir.realpathAlloc(std.testing.allocator, "output-a.bin");
+    defer std.testing.allocator.free(output_a);
+    const artifact_b = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact-b.bc");
+    defer std.testing.allocator.free(artifact_b);
+    const output_b = try tmp.dir.realpathAlloc(std.testing.allocator, "output-b.bin");
+    defer std.testing.allocator.free(output_b);
+
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'a');
+    const Writer = struct {
+        project_root: []const u8,
+        key: ProjectCacheKey,
+        artifact: []const u8,
+        output: []const u8,
+        failure: ?anyerror = null,
+
+        fn run(self: *@This()) void {
+            projectCacheStore(std.heap.page_allocator, self.project_root, .build_exe, self.key, self.artifact, self.output, &.{}) catch |err| {
+                self.failure = err;
+            };
+        }
+    };
+    var writer_a = Writer{ .project_root = project_root, .key = key, .artifact = artifact_a, .output = output_a };
+    var writer_b = Writer{ .project_root = project_root, .key = key, .artifact = artifact_b, .output = output_b };
+    const thread_a = try std.Thread.spawn(.{}, Writer.run, .{&writer_a});
+    const thread_b = try std.Thread.spawn(.{}, Writer.run, .{&writer_b});
+    thread_a.join();
+    thread_b.join();
+    if (writer_a.failure) |err| return err;
+    if (writer_b.failure) |err| return err;
+
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
+    const cached_artifact = try projectCacheEntryPath(std.testing.allocator, entry_dir, "artifact.sa.bc");
+    defer std.testing.allocator.free(cached_artifact);
+    const cached_output = try projectCacheEntryPath(std.testing.allocator, entry_dir, "output.bin");
+    defer std.testing.allocator.free(cached_output);
+    const artifact_bytes = try readTextFileAlloc(std.testing.allocator, cached_artifact);
+    defer std.testing.allocator.free(artifact_bytes);
+    const output_bytes = try readTextFileAlloc(std.testing.allocator, cached_output);
+    defer std.testing.allocator.free(output_bytes);
+    const coherent_a = std.mem.eql(u8, artifact_bytes, "artifact-A") and std.mem.eql(u8, output_bytes, "output-A");
+    const coherent_b = std.mem.eql(u8, artifact_bytes, "artifact-B") and std.mem.eql(u8, output_bytes, "output-B");
+    try std.testing.expect(coherent_a or coherent_b);
+
+    var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
+    defer kind_dir.close();
+    var entries = kind_dir.iterate();
+    var entry_count: usize = 0;
+    while (try entries.next()) |entry| {
+        if (std.mem.eql(u8, entry.name, ".locks")) continue;
+        entry_count += 1;
+        try std.testing.expectEqualStrings(key.slice(), entry.name);
+    }
+    try std.testing.expectEqual(@as(usize, 1), entry_count);
+}
+
+const ProjectCacheFailureTest = struct {
+    fn expectNoEntryOrStaging(dir: std.fs.Dir, key: ProjectCacheKey) !void {
+        var kind_dir = dir.openDir(".sa_cache/build-exe", .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => return,
+            else => return err,
+        };
+        defer kind_dir.close();
+        var entries = kind_dir.iterate();
+        while (try entries.next()) |entry| {
+            if (std.mem.eql(u8, entry.name, key.slice()) or cacheStagingKey(entry.name) != null) {
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+};
+
+test "project cache single flight hands a failed owner to one waiter" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "owner-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "owner-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const missing_manifest = try std.fs.path.join(std.testing.allocator, &.{ project_root, "missing.sa.mod" });
+    defer std.testing.allocator.free(missing_manifest);
+    const project_context = ProjectContext{
+        .root_path = project_root,
+        .member_root_path = project_root,
+        .workspace_manifest_path = missing_manifest,
+        .member_manifest_path = missing_manifest,
+        .manifest = null,
+        .workspace_manifest = null,
+        .member_manifest = null,
+        .lock_file = null,
+        .sum_file = null,
+    };
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'd');
+
+    const null_writer = std.io.null_writer;
+    var first_owner: ?ProjectCacheEntryLock = null;
+    defer releaseProjectCacheOwner(&first_owner);
+    switch (try projectCacheClaim(
+        std.testing.allocator,
+        project_root,
+        .build_exe,
+        key,
+        &project_context,
+        .{},
+        "first-restore.bc",
+        "first-restore.bin",
+        null_writer,
+        .human,
+    )) {
+        .owner => |owner| first_owner = owner,
+        else => return error.TestUnexpectedResult,
+    }
+
+    const Waiter = struct {
+        project_root: []const u8,
+        project_context: *const ProjectContext,
+        key: ProjectCacheKey,
+        artifact_path: []const u8,
+        output_path: []const u8,
+        started: std.Thread.ResetEvent = .{},
+        done: std.Thread.ResetEvent = .{},
+        became_owner: bool = false,
+        failure: ?anyerror = null,
+
+        fn run(self: *@This()) void {
+            defer self.done.set();
+            self.started.set();
+            const thread_null_writer = std.io.null_writer;
+            var owner: ?ProjectCacheEntryLock = null;
+            defer releaseProjectCacheOwner(&owner);
+            const claim = projectCacheClaim(
+                std.heap.page_allocator,
+                self.project_root,
+                .build_exe,
+                self.key,
+                self.project_context,
+                .{},
+                "waiter-restore.bc",
+                "waiter-restore.bin",
+                thread_null_writer,
+                .human,
+            ) catch |err| {
+                self.failure = err;
+                return;
+            };
+            switch (claim) {
+                .owner => |owner_value| owner = owner_value,
+                else => {
+                    self.failure = error.TestUnexpectedResult;
+                    return;
+                },
+            }
+            projectCacheStore(std.heap.page_allocator, self.project_root, .build_exe, self.key, self.artifact_path, self.output_path, &.{}) catch |err| {
+                self.failure = err;
+                return;
+            };
+            self.became_owner = true;
+        }
+    };
+    var waiter = Waiter{
+        .project_root = project_root,
+        .project_context = &project_context,
+        .key = key,
+        .artifact_path = artifact_path,
+        .output_path = output_path,
+    };
+    const thread = try std.Thread.spawn(.{}, Waiter.run, .{&waiter});
+    var joined = false;
+    defer if (!joined) thread.join();
+    waiter.started.wait();
+    try std.testing.expectError(error.Timeout, waiter.done.timedWait(20 * std.time.ns_per_ms));
+
+    try std.testing.expectError(
+        error.FileNotFound,
+        projectCacheStore(std.testing.allocator, project_root, .build_exe, key, artifact_path, "missing-output.bin", &.{}),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStaging(tmp.dir, key);
+
+    releaseProjectCacheOwner(&first_owner);
+    thread.join();
+    joined = true;
+    if (waiter.failure) |err| return err;
+    try std.testing.expect(waiter.became_owner);
+
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
+    var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
+    defer kind_dir.close();
+    var entries = kind_dir.iterate();
+    while (try entries.next()) |entry| try std.testing.expect(cacheStagingKey(entry.name) == null);
+}
+
+test "project cache OOM never publishes a partial entry" {
+    const Ctx = struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var original_cwd = try std.fs.cwd().openDir(".", .{});
+            defer original_cwd.close();
+            var tmp = std.testing.tmpDir(.{ .iterate = true });
+            defer tmp.cleanup();
+            try tmp.dir.setAsCwd();
+            defer original_cwd.setAsCwd() catch {};
+
+            try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "oom-artifact" });
+            try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "oom-output" });
+            const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+            defer std.testing.allocator.free(project_root);
+            const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+            defer std.testing.allocator.free(artifact_path);
+            const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+            defer std.testing.allocator.free(output_path);
+            var key = ProjectCacheKey{ .hex = undefined };
+            @memset(key.hex[0..], 'e');
+
+            projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, output_path, &.{}) catch |err| {
+                if (err == error.OutOfMemory) try ProjectCacheFailureTest.expectNoEntryOrStaging(tmp.dir, key);
+                return err;
+            };
+
+            const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+            defer std.testing.allocator.free(entry_dir);
+            try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
+        }
+    };
+
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, Ctx.run, .{});
+}
+
+test "project cache clean pins an active staging writer" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "active-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "active-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'b');
+
+    const Writer = struct {
+        project_root: []const u8,
+        key: ProjectCacheKey,
+        artifact: []const u8,
+        output: []const u8,
+        failure: ?anyerror = null,
+
+        fn run(self: *@This()) void {
+            projectCacheStore(std.heap.page_allocator, self.project_root, .build_exe, self.key, self.artifact, self.output, &.{}) catch |err| {
+                self.failure = err;
+            };
+        }
+    };
+    var pause = ProjectCacheStoreTestPause{};
+    project_cache_store_test_pause = &pause;
+    var writer = Writer{ .project_root = project_root, .key = key, .artifact = artifact_path, .output = output_path };
+    const thread = try std.Thread.spawn(.{}, Writer.run, .{&writer});
+    var joined = false;
+    defer {
+        pause.continue_event.set();
+        if (!joined) thread.join();
+        project_cache_store_test_pause = null;
+    }
+    try pause.reached.timedWait(5 * std.time.ns_per_s);
+
+    const final_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(final_dir);
+    try std.testing.expect(!projectPathExists(final_dir));
+    const clean_stats = try cleanProjectCache(std.testing.allocator, project_root, .{ .max_age_days = 0 });
+    try std.testing.expectEqual(@as(usize, 0), clean_stats.removed);
+    try std.testing.expectEqual(@as(usize, 1), clean_stats.kept);
+
+    var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
+    defer kind_dir.close();
+    var entries = kind_dir.iterate();
+    var staging_count: usize = 0;
+    while (try entries.next()) |entry| {
+        if (cacheStagingKey(entry.name) != null) staging_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), staging_count);
+
+    pause.continue_event.set();
+    thread.join();
+    joined = true;
+    project_cache_store_test_pause = null;
+    if (writer.failure) |err| return err;
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+}
+
+test "project cache clean preserves structurally valid stale dynamic entry" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "output" });
+    try tmp.dir.writeFile(.{ .sub_path = "dependency.txt", .data = "first" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const dependency_path = try tmp.dir.realpathAlloc(std.testing.allocator, "dependency.txt");
+    defer std.testing.allocator.free(dependency_path);
+    var dependency_digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash("first", &dependency_digest, .{});
+    const dependencies = [_]flattener.DynamicDependency{.{
+        .kind = .file,
+        .key = dependency_path,
+        .present = true,
+        .size = 5,
+        .sha256 = dependency_digest,
+    }};
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'c');
+    try projectCacheStore(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path, &dependencies);
+
+    try tmp.dir.writeFile(.{ .sub_path = "dependency.txt", .data = "second" });
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
+    try std.testing.expect(!projectCacheEntryReusableNow(std.testing.allocator, project_root, .build_exe, key));
+
+    const clean_stats = try cleanProjectCache(std.testing.allocator, project_root, .{ .max_age_days = 0 });
+    try std.testing.expectEqual(@as(usize, 0), clean_stats.removed);
+    try std.testing.expectEqual(@as(usize, 1), clean_stats.kept);
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
 }
 
 test "project cache dynamic dependency validation detects file and environment changes" {
