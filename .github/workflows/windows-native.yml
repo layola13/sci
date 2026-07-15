@@ -1,0 +1,189 @@
+name: Windows Native L0-L1 and L2 Subset
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-native:
+    name: Windows x86_64 native L0/L1 + L2 subset
+    runs-on: windows-2025
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check clean checkout
+        run: |
+          $status = @(git status --porcelain=v1 --untracked-files=all)
+          $statusCode = $LASTEXITCODE
+          if ($statusCode -ne 0) {
+            throw "git status failed with exit code $statusCode"
+          }
+          if ($status.Count -ne 0) {
+            throw "The checkout is not clean before the native gate: $($status -join '; ')"
+          }
+          git diff --exit-code -- artifacts/sa_std
+          $diffCode = $LASTEXITCODE
+          if ($diffCode -ne 0) {
+            throw "artifacts/sa_std is already dirty before the native gate"
+          }
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install pinned LLVM 14
+        run: |
+          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/LLVM-14.0.6-win64.exe"
+          $llvmSha256 = "e8dbb2f7de8e37915273d65c1c2f2d96844b96bb8e8035f62c5182475e80b9fc"
+          $installer = Join-Path $env:RUNNER_TEMP "LLVM-14.0.6-win64.exe"
+          $llvmRoot = "C:\llvm-14.0.6"
+          Invoke-WebRequest -Uri $llvmUrl -OutFile $installer -UseBasicParsing
+          $actualSha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $llvmSha256) {
+            throw "LLVM installer SHA-256 mismatch: expected $llvmSha256, got $actualSha256"
+          }
+          if (Test-Path -LiteralPath $llvmRoot) {
+            Remove-Item -LiteralPath $llvmRoot -Recurse -Force
+          }
+          $installProcess = Start-Process -FilePath $installer -ArgumentList @("/S", "/D=$llvmRoot") -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) {
+            throw "LLVM installer failed with exit code $($installProcess.ExitCode)"
+          }
+
+          $includeDir = Join-Path $llvmRoot "include"
+          $libDir = Join-Path $llvmRoot "lib"
+          $binDir = Join-Path $llvmRoot "bin"
+          $header = Join-Path $includeDir "llvm-c\Core.h"
+          $importLibrary = Join-Path $libDir "LLVM-C.lib"
+          $runtimeDll = Join-Path $binDir "LLVM-C.dll"
+          $clang = Join-Path $binDir "clang.exe"
+          foreach ($requiredPath in @($header, $importLibrary, $runtimeDll, $clang)) {
+            if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+              throw "Pinned LLVM installation is missing $requiredPath"
+            }
+          }
+          $clangLines = @(& $clang --version)
+          $clangExitCode = $LASTEXITCODE
+          if ($clangExitCode -ne 0) {
+            throw "clang --version failed with exit code $clangExitCode"
+          }
+          $clangVersion = ($clangLines | Select-Object -First 1)
+          if ($clangVersion -notmatch "version 14\.") {
+            throw "Expected LLVM/Clang 14.x, got: $clangVersion"
+          }
+
+          $utf8NoBom = New-Object Text.UTF8Encoding($false)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_INCLUDE_DIR=$includeDir`n", $utf8NoBom)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_LIB_DIR=$libDir`n", $utf8NoBom)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_LIB_NAME=LLVM-C`n", $utf8NoBom)
+          [IO.File]::AppendAllText($env:GITHUB_PATH, "$binDir`n", $utf8NoBom)
+
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~\AppData\Local\zig
+          key: windows-native-zig-0.14.1-llvm14-${{ github.sha }}
+          restore-keys: |
+            windows-native-zig-0.14.1-llvm14-
+
+      - name: Build native compiler CLI
+        run: |
+          zig build sa-cli -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "sa-cli build failed with exit code $exitCode"
+          }
+
+      - name: Run portable compiler and package tests
+        run: |
+          zig build test-portable -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "test-portable failed with exit code $exitCode"
+          }
+
+      - name: Run reviewed Windows runtime subset
+        run: |
+          zig build test-runtime-windows -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "test-runtime-windows failed with exit code $exitCode"
+          }
+
+      - name: Build isolated native runtime artifacts
+        run: |
+          $staticRoot = Join-Path $env:RUNNER_TEMP "sa-runtime-static"
+          $sharedRoot = Join-Path $env:RUNNER_TEMP "sa-runtime-shared"
+          foreach ($root in @($staticRoot, $sharedRoot)) {
+            if (Test-Path -LiteralPath $root) {
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+            [void][IO.Directory]::CreateDirectory($root)
+          }
+
+          zig build sa-std-static -Doptimize=ReleaseSafe --prefix $staticRoot --summary all
+          $staticExitCode = $LASTEXITCODE
+          if ($staticExitCode -ne 0) {
+            throw "static runtime build failed with exit code $staticExitCode"
+          }
+          zig build sa-std-shared -Doptimize=ReleaseSafe --prefix $sharedRoot --summary all
+          $sharedExitCode = $LASTEXITCODE
+          if ($sharedExitCode -ne 0) {
+            throw "shared runtime build failed with exit code $sharedExitCode"
+          }
+
+          foreach ($requiredPath in @(
+              (Join-Path $staticRoot "lib\sa_std.lib"),
+              (Join-Path $staticRoot "include\sa_std.h"),
+              (Join-Path $sharedRoot "bin\sa_std.dll"),
+              (Join-Path $sharedRoot "lib\sa_std.lib"))) {
+            if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+              throw "Runtime install is missing $requiredPath"
+            }
+          }
+          $utf8NoBom = New-Object Text.UTF8Encoding($false)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "SA_STATIC_ROOT=$staticRoot`n", $utf8NoBom)
+
+      - name: Run source and layout ABI contracts
+        run: |
+          zig build sa-std-abi -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "sa-std-abi failed with exit code $exitCode"
+          }
+
+      - name: Run compiler and release-layout smoke
+        run: .\tools\ci\windows_native_smoke.ps1 -RuntimeRoot $env:SA_STATIC_ROOT
+
+      - name: Check source artifact cleanliness
+        run: |
+          git diff --exit-code -- artifacts/sa_std
+          $diffCode = $LASTEXITCODE
+          if ($diffCode -ne 0) {
+            throw "The Windows build modified tracked artifacts/sa_std files"
+          }
+          $status = @(git status --porcelain=v1 --untracked-files=all)
+          $statusCode = $LASTEXITCODE
+          if ($statusCode -ne 0) {
+            throw "git status failed with exit code $statusCode"
+          }
+          if ($status.Count -ne 0) {
+            throw "The Windows native gate left the checkout dirty: $($status -join '; ')"
+          }

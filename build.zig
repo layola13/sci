@@ -389,6 +389,16 @@ pub fn build(b: *std.Build) void {
     const release_contract_step = b.step("release-contract", "Check release archive, checksum, workflow, and installer contracts");
     release_contract_step.dependOn(&release_contract_tests.step);
 
+    const windows_ci_contract_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/windows_native_ci_contract.zig",
+    });
+    windows_ci_contract_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&windows_ci_contract_tests.step);
+    const windows_ci_contract_step = b.step("windows-ci-contract", "Check the Windows native CI and compiler smoke contracts");
+    windows_ci_contract_step.dependOn(&windows_ci_contract_tests.step);
+
     const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
     const portable_targets = [_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" };
     for (portable_targets) |portable_target| {
@@ -532,6 +542,8 @@ pub fn build(b: *std.Build) void {
     });
     const install_sa_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_sa_exe.step);
+    const sa_cli_step = b.step("sa-cli", "Build and install the native SA compiler CLI");
+    sa_cli_step.dependOn(&install_sa_exe.step);
     const release_artifacts_step = b.step("release-artifacts", "Build and install the compiler and static runtime release payload");
     release_artifacts_step.dependOn(&install_sa_exe.step);
     release_artifacts_step.dependOn(&install_sa_std_static.step);
@@ -715,6 +727,50 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_sa_std_unit.step);
     const sa_std_unit_step = b.step("sa-std-unit", "Run Zig unit tests for the SA standard runtime");
     sa_std_unit_step.dependOn(&run_sa_std_unit.step);
+
+    const windows_sa_std_smoke_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    windows_sa_std_smoke_module.addOptions("build_options", build_options);
+    const windows_sa_std_smoke = b.addTest(.{
+        .root_module = windows_sa_std_smoke_module,
+        .filters = &.{
+            "windows unsupported io buffer producer clears its output",
+            "windows network address ABI stays platform independent",
+            "windows TCP loopback supports canonical and generic IO",
+            "windows UDP loopback supports addressing and datagrams",
+            "windows fs path APIs reject invalid paths and clear failure output",
+            "windows fs path lifecycle",
+            "windows process argv is owned and rejects invalid entries",
+            "windows process spawn failure leaves no live child handle",
+            "windows environment distinguishes empty values and case-insensitive missing keys",
+            "windows environment path lists use semicolons and strict JSON strings",
+            "windows terminal APIs clear failed outputs and keep epoll unsupported",
+            "windows redirected files are valid non-terminal handles",
+            "windows pthread compatibility joins results without consuming invalid calls",
+        },
+    });
+    const run_windows_sa_std_smoke = b.addRunArtifact(windows_sa_std_smoke);
+    run_windows_sa_std_smoke.setCwd(repo_root_lazy);
+    const test_runtime_windows_step = b.step("test-runtime-windows", "Run the reviewed Windows x86_64 native runtime subset");
+    if (target.result.os.tag == .windows and
+        target.result.cpu.arch == .x86_64 and
+        b.graph.host.result.os.tag == .windows and
+        b.graph.host.result.cpu.arch == .x86_64)
+    {
+        test_runtime_windows_step.dependOn(&run_windows_sa_std_smoke.step);
+    } else {
+        const fail = b.addFail("test-runtime-windows requires a native Windows x86_64 host and target");
+        test_runtime_windows_step.dependOn(&fail.step);
+    }
+
+    const test_portable_step = b.step("test-portable", "Run the reviewed cross-platform compiler and package tests");
+    test_portable_step.dependOn(&run_lib_root_smoke.step);
+    test_portable_step.dependOn(&run_trap_baseline.step);
+    test_portable_step.dependOn(&run_pkg_core_tests.step);
 
     const sa_std_runtime_module = b.createModule(.{
         .root_source_file = b.path("tests/sa_std_runtime.zig"),
@@ -942,6 +998,7 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&referee_loc_lint.step);
     ci_step.dependOn(&run_wasm_matrix.step);
     ci_step.dependOn(&release_contract_tests.step);
+    ci_step.dependOn(&windows_ci_contract_tests.step);
 
     const pre_push_step = b.step("pre-push", "Run the pre-push gate");
     pre_push_step.dependOn(ci_step);

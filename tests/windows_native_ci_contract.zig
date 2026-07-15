@@ -1,0 +1,109 @@
+const std = @import("std");
+
+const max_source_size = 2 * 1024 * 1024;
+
+fn readSource(path: []const u8) ![]u8 {
+    return std.fs.cwd().readFileAlloc(std.testing.allocator, path, max_source_size);
+}
+
+fn expectContains(source: []const u8, needle: []const u8) !void {
+    if (std.mem.indexOf(u8, source, needle) == null) {
+        std.debug.print("missing Windows CI contract fragment: {s}\n", .{needle});
+        return error.TestExpectedEqual;
+    }
+}
+
+fn expectNotContains(source: []const u8, needle: []const u8) !void {
+    if (std.mem.indexOf(u8, source, needle) != null) {
+        std.debug.print("forbidden Windows CI contract fragment: {s}\n", .{needle});
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "Windows native workflow pins toolchains and runs only the reviewed subset" {
+    const workflow = try readSource(".github/workflows/windows-native.yml");
+    defer std.testing.allocator.free(workflow);
+
+    const required = [_][]const u8{
+        "pull_request:",
+        "workflow_dispatch:",
+        "runs-on: windows-2025",
+        "Windows x86_64 native L0/L1 + L2 subset",
+        "version: 0.14.1",
+        "Install pinned LLVM 14",
+        "LLVM-14.0.6-win64.exe",
+        "e8dbb2f7de8e37915273d65c1c2f2d96844b96bb8e8035f62c5182475e80b9fc",
+        "LLVM-C.dll",
+        "LLVM_LIB_NAME=LLVM-C",
+        "zig build sa-cli -Doptimize=ReleaseSafe",
+        "zig build test-portable -Doptimize=ReleaseSafe",
+        "zig build test-runtime-windows -Doptimize=ReleaseSafe",
+        "zig build sa-std-static -Doptimize=ReleaseSafe --prefix",
+        "zig build sa-std-shared -Doptimize=ReleaseSafe --prefix",
+        "zig build sa-std-abi -Doptimize=ReleaseSafe",
+        ".\\tools\\ci\\windows_native_smoke.ps1 -RuntimeRoot $env:SA_STATIC_ROOT",
+        "git status --porcelain=v1 --untracked-files=all",
+        "git diff --exit-code -- artifacts/sa_std",
+    };
+    for (required) |fragment| try expectContains(workflow, fragment);
+
+    const forbidden = [_][]const u8{
+        "choco install llvm",
+        "zig build ci",
+        "zig build test ",
+        "zig build sa-std-unit",
+        "zig build pkg-core-test",
+        "sa-std-runtime",
+        "plugin-host-smoke",
+        "sa-net-uring",
+    };
+    for (forbidden) |fragment| try expectNotContains(workflow, fragment);
+}
+
+test "Windows compiler smoke exercises native and wasm outputs in a portable path" {
+    const smoke = try readSource("tools/ci/windows_native_smoke.ps1");
+    defer std.testing.allocator.free(smoke);
+
+    const required = [_][]const u8{
+        "staged sa.exe version",
+        "Invoke-NativeCapture",
+        "Copy-Item -LiteralPath $sourceSa -Destination $sa",
+        "include\\sa_std.h",
+        "SetEnvironmentVariable(\"SA_STD_DIR\", $stdRoot, \"Process\")",
+        "HOME",
+        "USERPROFILE",
+        "TEMP",
+        "TMP",
+        "SA_PLUGINS_HOME",
+        "Push-Location -LiteralPath $packageProjectRoot",
+        "Pop-Location",
+        "[char]0x6D4B",
+        "sa windows smoke",
+        "hello, saasm",
+        "build-wasm",
+        "--target",
+        "wasm32",
+        "$wasmBytes[0] -ne 0x00",
+        "pkg",
+        "install",
+        "--offline",
+        "offline package resolve",
+        "SourceNotFound",
+        "try {",
+        "finally {",
+    };
+    for (required) |fragment| try expectContains(smoke, fragment);
+}
+
+test "build graph exposes focused Windows CI entry points" {
+    const build_source = try readSource("build.zig");
+    defer std.testing.allocator.free(build_source);
+
+    try expectContains(build_source, "b.step(\"sa-cli\"");
+    try expectContains(build_source, "b.step(\"test-portable\"");
+    try expectContains(build_source, "b.step(\"test-runtime-windows\"");
+    try expectContains(build_source, "requires a native Windows x86_64 host and target");
+    try expectContains(build_source, "windows process spawn failure leaves no live child handle");
+    try expectContains(build_source, "b.step(\"windows-ci-contract\"");
+    try expectContains(build_source, "tests/windows_native_ci_contract.zig");
+}

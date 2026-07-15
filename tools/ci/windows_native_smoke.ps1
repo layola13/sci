@@ -1,0 +1,193 @@
+[CmdletBinding()]
+param(
+    [string]$SaPath = "zig-out\bin\sa.exe",
+    [string]$RuntimeRoot = $env:SA_STATIC_ROOT,
+    [string]$DemoPath = "demos\rosetta\01_hello_world\main.sa"
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Resolve-InputPath {
+    param(
+        [string]$BasePath,
+        [string]$InputPath
+    )
+
+    $candidate = if ([IO.Path]::IsPathRooted($InputPath)) {
+        $InputPath
+    } else {
+        Join-Path $BasePath $InputPath
+    }
+    return (Resolve-Path -LiteralPath $candidate).Path
+}
+
+function Invoke-NativeCapture {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+
+    $outputLines = @(& $FilePath @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+    $outputText = ($outputLines | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Output = $outputText.Trim()
+    }
+}
+
+function Assert-Success {
+    param(
+        [string]$Action,
+        [pscustomobject]$Result
+    )
+
+    if ($Result.ExitCode -ne 0) {
+        throw "$Action failed with exit code $($Result.ExitCode).`n$($Result.Output)"
+    }
+}
+
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
+if ([string]::IsNullOrWhiteSpace($RuntimeRoot)) {
+    $RuntimeRoot = "zig-out"
+}
+
+$sourceSa = Resolve-InputPath -BasePath $repoRoot -InputPath $SaPath
+$demo = Resolve-InputPath -BasePath $repoRoot -InputPath $DemoPath
+$runtimeRootPath = Resolve-InputPath -BasePath $repoRoot -InputPath $RuntimeRoot
+$runtimeArchive = (Resolve-Path -LiteralPath (Join-Path $runtimeRootPath "lib\sa_std.lib")).Path
+$runtimeHeader = (Resolve-Path -LiteralPath (Join-Path $runtimeRootPath "include\sa_std.h")).Path
+$sourceStdRoot = (Resolve-Path -LiteralPath (Join-Path $repoRoot "sa_std")).Path
+
+$unicodeWord = -join @([char]0x6D4B, [char]0x8BD5)
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("sa windows smoke {0} {1}" -f $unicodeWord, [guid]::NewGuid().ToString("N"))
+$releaseRoot = Join-Path $tempRoot "release payload"
+$binRoot = Join-Path $releaseRoot "bin"
+$stdRoot = Join-Path $releaseRoot "std"
+$sa = Join-Path $binRoot "sa.exe"
+$tempDemo = Join-Path $tempRoot "hello main.sa"
+$nativeOutput = Join-Path $tempRoot "hello output.exe"
+$wasmOutput = Join-Path $tempRoot "hello output.wasm"
+$homeRoot = Join-Path $tempRoot "isolated home"
+$processTempRoot = Join-Path $tempRoot "isolated temp"
+$pluginsRoot = Join-Path $tempRoot "isolated plugins"
+$packageProjectRoot = Join-Path $tempRoot "offline package project"
+$packageSourceRoot = Join-Path $packageProjectRoot "github.com\example\pkg"
+$packageSource = Join-Path $packageSourceRoot "index.sa"
+$packageMain = Join-Path $packageProjectRoot "main.sa"
+$vendorPackage = Join-Path $packageProjectRoot "sa_vendor\github.com\example\pkg\index.sa"
+$utf8NoBom = New-Object Text.UTF8Encoding($false)
+$environmentNames = @("HOME", "USERPROFILE", "TEMP", "TMP", "SA_PLUGINS_HOME", "SA_STD_DIR")
+$savedEnvironment = @{}
+$locationPushed = $false
+
+foreach ($name in $environmentNames) {
+    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+}
+
+try {
+    foreach ($path in @($binRoot, $stdRoot, $homeRoot, $processTempRoot, $pluginsRoot, $packageSourceRoot)) {
+        [void][IO.Directory]::CreateDirectory($path)
+    }
+
+    Copy-Item -LiteralPath $sourceSa -Destination $sa -Force
+    Get-ChildItem -LiteralPath $sourceStdRoot -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $stdRoot -Recurse -Force
+    }
+    Copy-Item -LiteralPath $runtimeArchive -Destination (Join-Path $stdRoot "sa_std.lib") -Force
+    Copy-Item -LiteralPath $runtimeHeader -Destination (Join-Path $stdRoot "sa_std.h") -Force
+    Copy-Item -LiteralPath $demo -Destination $tempDemo -Force
+
+    [IO.File]::WriteAllText(
+        $packageSource,
+        "@pkg_value() -> i32:`nreturn 42`n",
+        $utf8NoBom
+    )
+    [IO.File]::WriteAllText(
+        $packageMain,
+        "@import `"github.com/example/pkg`"`n@main() -> i32:`nreturn 0`n",
+        $utf8NoBom
+    )
+
+    [Environment]::SetEnvironmentVariable("HOME", $homeRoot, "Process")
+    [Environment]::SetEnvironmentVariable("USERPROFILE", $homeRoot, "Process")
+    [Environment]::SetEnvironmentVariable("TEMP", $processTempRoot, "Process")
+    [Environment]::SetEnvironmentVariable("TMP", $processTempRoot, "Process")
+    [Environment]::SetEnvironmentVariable("SA_PLUGINS_HOME", $pluginsRoot, "Process")
+    [Environment]::SetEnvironmentVariable("SA_STD_DIR", $stdRoot, "Process")
+
+    Push-Location -LiteralPath $packageProjectRoot
+    $locationPushed = $true
+
+    $versionResult = Invoke-NativeCapture -FilePath $sa -Arguments @("version")
+    Assert-Success -Action "staged sa.exe version" -Result $versionResult
+    if ($versionResult.Output -notmatch '^sa\s+\S+$') {
+        throw "Unexpected version output: $($versionResult.Output)"
+    }
+
+    $helpResult = Invoke-NativeCapture -FilePath $sa -Arguments @("help")
+    Assert-Success -Action "staged sa.exe help" -Result $helpResult
+    if ($helpResult.Output -notmatch 'usage:\s+sa') {
+        throw "Unexpected help output: $($helpResult.Output)"
+    }
+
+    $checkResult = Invoke-NativeCapture -FilePath $sa -Arguments @("check", $tempDemo)
+    Assert-Success -Action "staged sa.exe check" -Result $checkResult
+
+    $buildResult = Invoke-NativeCapture -FilePath $sa -Arguments @("build-exe", $tempDemo, "-o", $nativeOutput)
+    Assert-Success -Action "staged sa.exe build-exe" -Result $buildResult
+    if (-not (Test-Path -LiteralPath $nativeOutput -PathType Leaf)) {
+        throw "sa.exe build-exe did not create $nativeOutput"
+    }
+
+    $programResult = Invoke-NativeCapture -FilePath $nativeOutput
+    Assert-Success -Action "generated hello.exe" -Result $programResult
+    if ($programResult.Output -ne "hello, saasm") {
+        throw "Unexpected generated program output: $($programResult.Output)"
+    }
+
+    $wasmResult = Invoke-NativeCapture -FilePath $sa -Arguments @("build-wasm", $tempDemo, "-o", $wasmOutput, "--target", "wasm32")
+    Assert-Success -Action "staged sa.exe build-wasm" -Result $wasmResult
+    if (-not (Test-Path -LiteralPath $wasmOutput -PathType Leaf)) {
+        throw "sa.exe build-wasm did not create $wasmOutput"
+    }
+    $wasmBytes = [IO.File]::ReadAllBytes($wasmOutput)
+    if ($wasmBytes.Length -lt 4 -or
+        $wasmBytes[0] -ne 0x00 -or
+        $wasmBytes[1] -ne 0x61 -or
+        $wasmBytes[2] -ne 0x73 -or
+        $wasmBytes[3] -ne 0x6D) {
+        throw "sa.exe build-wasm did not create a WebAssembly module"
+    }
+
+    $installResult = Invoke-NativeCapture -FilePath $sa -Arguments @("pkg", "install", "--offline", "github.com/example/pkg")
+    Assert-Success -Action "offline package install" -Result $installResult
+    if (-not (Test-Path -LiteralPath $vendorPackage -PathType Leaf)) {
+        throw "offline package install did not create $vendorPackage"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $packageProjectRoot "github.com") -Recurse -Force
+    $offlineCheckResult = Invoke-NativeCapture -FilePath $sa -Arguments @("check", $packageMain, "--offline")
+    Assert-Success -Action "offline package resolve" -Result $offlineCheckResult
+
+    $missingResult = Invoke-NativeCapture -FilePath $sa -Arguments @("pkg", "install", "--offline", "github.com/example/missing", "--json")
+    if ($missingResult.ExitCode -ne 1) {
+        throw "missing offline package returned $($missingResult.ExitCode), expected 1.`n$($missingResult.Output)"
+    }
+    if ($missingResult.Output -notmatch '"name"\s*:\s*"SourceNotFound"') {
+        throw "missing offline package did not report SourceNotFound.`n$($missingResult.Output)"
+    }
+} finally {
+    if ($locationPushed) {
+        Pop-Location
+    }
+    foreach ($name in $environmentNames) {
+        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+    }
+    if (Test-Path -LiteralPath $tempRoot) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Host "Windows native compiler smoke passed."
