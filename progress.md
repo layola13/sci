@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 signed checked_isqrt macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `checked_isqrt` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_I8_CHECKED_ISQRT`, `NUM_I16_CHECKED_ISQRT`, `NUM_I32_CHECKED_ISQRT`, `NUM_I64_CHECKED_ISQRT`, and `NUM_ISIZE_CHECKED_ISQRT`.
+- The helper surface returns explicit `ok/out` values instead of Rust `Option<Self>`: nonnegative inputs return the floor integer square root with `ok=1`, while negative inputs return `ok=0/out=0`. Narrow signed inputs follow the existing declared-width SA signed-value convention, and `isize` aliases the current 64-bit ABI. It does not claim panic-style signed `isqrt`, `i128`, Rust panic objects, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_signed_checked_isqrt_macro_surface.sa` - 1 test (panic ID 10627) expanding all 5 new macros for positive and negative inputs, including max-value floor roots for `i8`, `i16`, `i32`, and `i64`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_checked_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10628+.
+
 ## Completed: 2026-07-15 unsigned isqrt macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive unsigned `isqrt` and unsigned `NonZero<T>::isqrt` methods under `/home/vscode/projects/rust`.

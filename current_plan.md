@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 signed checked_isqrt)
+
+Completed supportable signed checked integer square-root helpers:
+- `NUM_I8_CHECKED_ISQRT`, `NUM_I16_CHECKED_ISQRT`, `NUM_I32_CHECKED_ISQRT`, `NUM_I64_CHECKED_ISQRT`, and `NUM_ISIZE_CHECKED_ISQRT`: concrete Rust signed primitive `checked_isqrt` Option-like shape for the existing SA signed integer widths.
+- Nonnegative inputs delegate to the unsigned floor-root helper and return `ok=1`; negative inputs return `ok=0/out=0`. `isize` aliases the current 64-bit SA ABI.
+- This follows Rust's current signed primitive `checked_isqrt` method. It deliberately does not expose panic-style signed `isqrt`, `i128`, Rust `Option<Self>` object layout, panic objects, or trait-level dispatch.
+- Test file `std_num_signed_checked_isqrt_macro_surface.sa` (panic ID 10627).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_checked_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10628+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, panic-style signed `isqrt` negative-argument behavior, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic object behavior for invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 unsigned isqrt)
 
 Completed supportable unsigned integer square-root helpers:
