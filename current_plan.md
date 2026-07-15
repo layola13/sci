@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero unsigned ilog)
+
+Completed supportable NonZero unsigned logarithm helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE}_ILOG2`: concrete Rust `NonZero<T>::ilog2` shape for SA's existing unsigned NonZero integer layouts, returning the highest set-bit index as a direct scalar.
+- `NONZERO_{U8,U16,U32,U64,USIZE}_ILOG10`: concrete Rust `NonZero<T>::ilog10` shape for the same unsigned wrappers, returning floor log10 as a direct scalar.
+- This follows Rust's current unsigned `core::num::NonZero<T>` inherent logarithm implementation for the existing SA unsigned integer widths. It deliberately does not expose signed NonZero variants, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test file `std_num_nonzero_ilog_macro_surface.sa` (panic ID 10612).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_ilog_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10613+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero unsigned checked next power)
 
 Completed supportable NonZero unsigned checked-next-power helpers:

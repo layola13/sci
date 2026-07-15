@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero unsigned ilog macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `ilog2` and `ilog10` methods for unsigned `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_ILOG2` and `*_ILOG10` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, and `NonZeroUsize`.
+- The helper surface returns direct scalar floor-log values with no failure case because the source wrapper is nonzero. `ilog2` reuses the already implemented highest-set-bit index path, while `ilog10` forwards the stored unsigned value through the existing primitive decimal-log helper. It does not claim signed NonZero coverage, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_ilog_macro_surface.sa` - 1 test (panic ID 10612) expanding all 10 new macros and covering representative decimal and binary floor-log values across all five unsigned wrappers.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_ilog_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10613+.
+
 ## Completed: 2026-07-15 NonZero unsigned checked next power macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `checked_next_power_of_two` method for unsigned `core::num::NonZero<T>` under `/home/vscode/projects/rust`.

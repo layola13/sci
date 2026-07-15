@@ -6878,6 +6878,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_U64_TRAILING_ZEROS %out_index, %nz
 [END_MACRO]
 
+[MACRO] NONZERO_U64_ILOG2 %out_value, %nz
+    EXPAND NONZERO_U64_HIGHEST_ONE %out_value, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_U64_ILOG10 %out_value, %nz
+    __nonzero_u64_ilog10_value_%out_value = load %nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_ILOG10 %out_value, __nonzero_u64_ilog10_value_%out_value
+    !__nonzero_u64_ilog10_value_%out_value
+[END_MACRO]
+
 [MACRO] NONZERO_U64_ISOLATE_HIGHEST_ONE %out_ok, %out_nz, %nz
     __nonzero_u64_iso_high_value_%out_ok = load %nz+NonZeroU64_value as u64
     EXPAND NUM_U64_ISOLATE_HIGHEST_ONE __nonzero_u64_iso_high_result_%out_ok, __nonzero_u64_iso_high_value_%out_ok
@@ -7044,6 +7054,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_U8_TRAILING_ZEROS %out_index, %nz
 [END_MACRO]
 
+[MACRO] NONZERO_U8_ILOG2 %out_value, %nz
+    EXPAND NONZERO_U8_HIGHEST_ONE %out_value, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_U8_ILOG10 %out_value, %nz
+    __nonzero_u8_ilog10_value_%out_value = load %nz+NonZeroU8_value as u64
+    EXPAND NUM_U64_ILOG10 %out_value, __nonzero_u8_ilog10_value_%out_value
+    !__nonzero_u8_ilog10_value_%out_value
+[END_MACRO]
+
 [MACRO] NONZERO_U8_ISOLATE_HIGHEST_ONE %out_ok, %out_nz, %nz
     EXPAND NONZERO_U8_HIGHEST_ONE __nonzero_u8_iso_high_index_%out_ok, %nz
     __nonzero_u8_iso_high_result_%out_ok = shl 1, __nonzero_u8_iso_high_index_%out_ok
@@ -7128,6 +7148,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_U16_LOWEST_ONE %out_index, %nz
     EXPAND NONZERO_U16_TRAILING_ZEROS %out_index, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_ILOG2 %out_value, %nz
+    EXPAND NONZERO_U16_HIGHEST_ONE %out_value, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_ILOG10 %out_value, %nz
+    __nonzero_u16_ilog10_value_%out_value = load %nz+NonZeroU16_value as u64
+    EXPAND NUM_U64_ILOG10 %out_value, __nonzero_u16_ilog10_value_%out_value
+    !__nonzero_u16_ilog10_value_%out_value
 [END_MACRO]
 
 [MACRO] NONZERO_U16_ISOLATE_HIGHEST_ONE %out_ok, %out_nz, %nz
@@ -7216,6 +7246,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_U32_TRAILING_ZEROS %out_index, %nz
 [END_MACRO]
 
+[MACRO] NONZERO_U32_ILOG2 %out_value, %nz
+    EXPAND NONZERO_U32_HIGHEST_ONE %out_value, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_ILOG10 %out_value, %nz
+    __nonzero_u32_ilog10_value_%out_value = load %nz+NonZeroU32_value as u64
+    EXPAND NUM_U64_ILOG10 %out_value, __nonzero_u32_ilog10_value_%out_value
+    !__nonzero_u32_ilog10_value_%out_value
+[END_MACRO]
+
 [MACRO] NONZERO_U32_ISOLATE_HIGHEST_ONE %out_ok, %out_nz, %nz
     EXPAND NONZERO_U32_HIGHEST_ONE __nonzero_u32_iso_high_index_%out_ok, %nz
     __nonzero_u32_iso_high_result_%out_ok = shl 1, __nonzero_u32_iso_high_index_%out_ok
@@ -7288,6 +7328,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_USIZE_LOWEST_ONE %out_index, %nz
     EXPAND NONZERO_U64_LOWEST_ONE %out_index, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_ILOG2 %out_value, %nz
+    EXPAND NONZERO_U64_ILOG2 %out_value, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_ILOG10 %out_value, %nz
+    EXPAND NONZERO_U64_ILOG10 %out_value, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_USIZE_ISOLATE_HIGHEST_ONE %out_ok, %out_nz, %nz
