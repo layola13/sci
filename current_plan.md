@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Instant/SystemTime hash_one)
+
+Completed supportable `Instant` / `SystemTime` hash macros:
+- `DEFAULT_HASHER_WRITE_UNIX_TIMESPEC_NS`: concrete Unix `Timespec` hashing shape for SA's existing non-negative nanosecond scalar time representation, by splitting `time_ns` into `tv_sec = ns / 1_000_000_000` and `tv_nsec = ns % 1_000_000_000`, then hashing `tv_sec` through `i64` and `tv_nsec` through `u32`.
+- `DEFAULT_HASHER_WRITE_INSTANT` / `TIME_INSTANT_HASH` and `DEFAULT_HASHER_WRITE_SYSTEM_TIME` / `TIME_SYSTEM_TIME_HASH`: concrete Rust Unix `Hash` derived-field shape for SA `Instant` and `SystemTime` scalar facades.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_INSTANT`, `RANDOM_STATE_HASH_ONE_INSTANT`, `BUILD_HASHER_DEFAULT_HASH_ONE_SYSTEM_TIME`, and `RANDOM_STATE_HASH_ONE_SYSTEM_TIME`: concrete `BuildHasher::hash_one` lowerings for the same subset.
+- This follows Rust's current Unix backend shape where `std::time::{Instant,SystemTime}` derive `Hash` through a `Timespec { tv_sec: i64, tv_nsec: Nanoseconds(u32) }`. It does not expose Rust's opaque/platform-varying time object storage, negative/pre-epoch `SystemTime`, monotonic clock guarantees, generic trait dispatch, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_time_instant_system_hash_one_macro_surface.sa` (panic ID 10593).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_time_instant_system_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10594+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, Rust opaque/platform-varying `Instant` / `SystemTime` storage, negative/pre-epoch Unix `SystemTime`, non-Unix time hash storage, Rust typed two-field `Duration` storage and `Nanoseconds` niche type, `u128` / float / signed duration conversions, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Duration hash_one)
 
 Completed supportable `Duration` hash macros:

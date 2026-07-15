@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Instant/SystemTime hash_one macros
+
+- Continued Rust `std::hash` / `std::time::{Instant,SystemTime}` macro-surface parity, referencing Rust's local Unix `Timespec` derived `Hash` shape under `/home/vscode/projects/rust`.
+- `sa_std/time.sa`: added `DEFAULT_HASHER_WRITE_UNIX_TIMESPEC_NS`, `DEFAULT_HASHER_WRITE_INSTANT`, `TIME_INSTANT_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_INSTANT`, `RANDOM_STATE_HASH_ONE_INSTANT`, `DEFAULT_HASHER_WRITE_SYSTEM_TIME`, `TIME_SYSTEM_TIME_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_SYSTEM_TIME`, and `RANDOM_STATE_HASH_ONE_SYSTEM_TIME`.
+- The helper surface models Rust's Unix backend hash shape for SA's concrete non-negative nanosecond scalar `Instant` / `SystemTime` facades by hashing `time_ns / 1_000_000_000` as `i64` followed by `time_ns % 1_000_000_000` as `u32`. It does not claim Rust's opaque/platform-varying time object storage, negative/pre-epoch `SystemTime`, monotonic clock semantics, generic `Hash` trait dispatch, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_time_instant_system_hash_one_macro_surface.sa` - 1 test (panic ID 10593) covering writer/direct/manual field-order equivalence, same-value stability, seconds and nanoseconds sensitivity, `BuildHasherDefault::hash_one`, and `RandomState::hash_one` for both `Instant` and `SystemTime`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_time_instant_system_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10594+.
+
 ## Completed: 2026-07-15 Duration hash_one macros
 
 - Continued Rust `std::hash` / `std::time::Duration` macro-surface parity, referencing Rust's local `core::time::Duration` derived `Hash` shape under `/home/vscode/projects/rust`.

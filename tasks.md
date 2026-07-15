@@ -1,5 +1,6 @@
 # 架构设计参考 (Technical Design Reference)
 
+- [x] `std::time::{Instant,SystemTime}` hash/hash_one 宏表面批次已完成：新增 Unix `Timespec` 形状的 `DEFAULT_HASHER_WRITE_UNIX_TIMESPEC_NS`，以及 `DEFAULT_HASHER_WRITE_INSTANT` / `TIME_INSTANT_HASH` / `BUILD_HASHER_DEFAULT_HASH_ONE_INSTANT` / `RANDOM_STATE_HASH_ONE_INSTANT` 和 `DEFAULT_HASHER_WRITE_SYSTEM_TIME` / `TIME_SYSTEM_TIME_HASH` / `BUILD_HASHER_DEFAULT_HASH_ONE_SYSTEM_TIME` / `RANDOM_STATE_HASH_ONE_SYSTEM_TIME`；新增 focused 单测并同步 `progress/current_plan/std_missing`。不主张 Rust opaque/platform-varying time storage、pre-epoch negative `SystemTime`、monotonic clock 保证、随机 `RandomState` 或 SipHash 兼容。
 - [x] `std::time::Duration` hash/hash_one 宏表面批次已完成：新增 `DEFAULT_HASHER_WRITE_DURATION` / `TIME_DURATION_HASH` / `BUILD_HASHER_DEFAULT_HASH_ONE_DURATION` / `RANDOM_STATE_HASH_ONE_DURATION`，按 Rust `core::time::Duration` 派生 `Hash` 的 `secs: u64` + `nanos: u32` 字段顺序从 SA `u64` 纳秒值拆分后写入 hasher；新增 focused 单测并同步 `progress/current_plan/std_missing`。不主张 Rust typed two-field Duration 存储、`Nanoseconds` niche 类型、`u128`/float/signed duration 转换、随机 `RandomState` 或 SipHash 兼容。
 
 ## Active test logging diagnostics (2026-07-09)

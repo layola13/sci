@@ -292,6 +292,65 @@ L_TIME_CHECKED_NEW_END_%out_ok:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_duration_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_UNIX_TIMESPEC_NS %hasher, %time_ns
+    __time_timespec_hash_secs_%hasher = udiv %time_ns, Time_NS_PER_S
+    __time_timespec_hash_nanos_%hasher = urem %time_ns, Time_NS_PER_S
+    EXPAND DEFAULT_HASHER_WRITE_I64 %hasher, __time_timespec_hash_secs_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __time_timespec_hash_nanos_%hasher
+    !__time_timespec_hash_nanos_%hasher
+    !__time_timespec_hash_secs_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_INSTANT %hasher, %instant_ns
+    EXPAND DEFAULT_HASHER_WRITE_UNIX_TIMESPEC_NS %hasher, %instant_ns
+[END_MACRO]
+
+[MACRO] TIME_INSTANT_HASH %out_hash, %instant_ns
+    __time_instant_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __time_instant_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_INSTANT __time_instant_hash_hasher_%out_hash, %instant_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __time_instant_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_INSTANT %out_hash, %builder, %instant_ns
+    __build_hash_one_instant_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_instant_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_INSTANT __build_hash_one_instant_hasher_%out_hash, %instant_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_instant_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_INSTANT %out_hash, %state, %instant_ns
+    __random_state_hash_one_instant_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_instant_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_INSTANT __random_state_hash_one_instant_hasher_%out_hash, %instant_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_instant_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_SYSTEM_TIME %hasher, %system_ns
+    EXPAND DEFAULT_HASHER_WRITE_UNIX_TIMESPEC_NS %hasher, %system_ns
+[END_MACRO]
+
+[MACRO] TIME_SYSTEM_TIME_HASH %out_hash, %system_ns
+    __time_system_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __time_system_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_SYSTEM_TIME __time_system_hash_hasher_%out_hash, %system_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __time_system_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_SYSTEM_TIME %out_hash, %builder, %system_ns
+    __build_hash_one_system_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_system_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_SYSTEM_TIME __build_hash_one_system_hasher_%out_hash, %system_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_system_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SYSTEM_TIME %out_hash, %state, %system_ns
+    __random_state_hash_one_system_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_system_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SYSTEM_TIME __random_state_hash_one_system_hasher_%out_hash, %system_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_system_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] TIME_DURATION_DIV_DURATION_FLOOR %out_ok, %out_ratio, %duration_ns, %rhs_ns
     __time_div_dur_zero_%out_ok = eq %rhs_ns, 0
     br __time_div_dur_zero_%out_ok -> L_TIME_DIV_DUR_FLOOR_ZERO_%out_ok, L_TIME_DIV_DUR_FLOOR_OK_%out_ok
