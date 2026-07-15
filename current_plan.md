@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash rc arc u64)
+
+Completed supportable reference-counted value hash macros:
+- `DEFAULT_HASHER_WRITE_RC_U64` / `DEFAULT_HASHER_WRITE_ARC_U64`: concrete Rust `Hash for Rc<T>` / `Hash for Arc<T>` forwarding shapes for `Rc<u64>` and `Arc<u64>` payloads, by loading the stored value and writing it through the existing `u64` path.
+- `HASH_RC_U64` / `HASH_ARC_U64`: direct one-shot helpers for the same concrete subsets.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_RC_U64` / `ARC_U64` and `RANDOM_STATE_HASH_ONE_RC_U64` / `ARC_U64`: concrete `BuildHasher::hash_one` lowerings for reference-counted `u64` values.
+- This follows Rust's `Rc<T>` / `Arc<T>` `Hash` implementations by hashing `**self`, without exposing generic `Rc<T>` / `Arc<T>`, allocator parameters, weak pointer hashing, unsized metadata, drop glue, or thread-safety semantics beyond the existing concrete Arc payload.
+- Test file `std_hash_rc_arc_u64_macro_surface.sa` (panic ID 10581).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_rc_arc_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10582+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `Rc<T>` / `Arc<T>` and allocator-aware variants, weak pointer hashing semantics, boxed/reference-counted `Hasher` trait forwarding, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash box u64)
 
 Completed supportable boxed value hash macros:

@@ -1,5 +1,7 @@
 @import "hash.sal"
 @import "core/slice.sal"
+@import "core/rc.sal"
+@import "core/arc.sal"
 
 [MACRO] DEFAULT_HASHER_NEW %hasher
     store %hasher+DefaultHasher_state, HASHER_DEFAULT_SEED as u64
@@ -116,6 +118,18 @@
     __hasher_box_u64_value_%hasher = load %box_reg+0 as u64
     EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_box_u64_value_%hasher
     !__hasher_box_u64_value_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_RC_U64 %hasher, %rc_reg
+    __hasher_rc_u64_value_%hasher = load %rc_reg+RcBox_data as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_rc_u64_value_%hasher
+    !__hasher_rc_u64_value_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_ARC_U64 %hasher, %arc_reg
+    __hasher_arc_u64_value_%hasher = load %arc_reg+ArcBox_data as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_arc_u64_value_%hasher
+    !__hasher_arc_u64_value_%hasher
 [END_MACRO]
 
 [MACRO] DEFAULT_HASHER_WRITE_TUPLE2_U64 %hasher, %left, %right
@@ -441,6 +455,20 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_box_u64_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] HASH_RC_U64 %out_hash, %rc_reg
+    __hash_rc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_rc_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 __hash_rc_u64_hasher_%out_hash, %rc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_rc_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_ARC_U64 %out_hash, %arc_reg
+    __hash_arc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_arc_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 __hash_arc_u64_hasher_%out_hash, %arc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_arc_u64_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] HASH_TUPLE2_U64 %out_hash, %left, %right
     __hash_tuple2_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND DEFAULT_HASHER_NEW __hash_tuple2_u64_hasher_%out_hash
@@ -710,6 +738,20 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_box_u64_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_RC_U64 %out_hash, %builder, %rc_reg
+    __build_hash_one_rc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_rc_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 __build_hash_one_rc_u64_hasher_%out_hash, %rc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_rc_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_ARC_U64 %out_hash, %builder, %arc_reg
+    __build_hash_one_arc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_arc_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 __build_hash_one_arc_u64_hasher_%out_hash, %arc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_arc_u64_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE2_U64 %out_hash, %builder, %left, %right
     __build_hash_one_tuple2_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple2_u64_hasher_%out_hash, %builder
@@ -974,6 +1016,20 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_box_u64_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_BOX_U64 __random_state_hash_one_box_u64_hasher_%out_hash, %box_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_box_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_RC_U64 %out_hash, %state, %rc_reg
+    __random_state_hash_one_rc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_rc_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 __random_state_hash_one_rc_u64_hasher_%out_hash, %rc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_rc_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_ARC_U64 %out_hash, %state, %arc_reg
+    __random_state_hash_one_arc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_arc_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 __random_state_hash_one_arc_u64_hasher_%out_hash, %arc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_arc_u64_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] RANDOM_STATE_HASH_ONE_TUPLE2_U64 %out_hash, %state, %left, %right

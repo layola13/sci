@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash Rc/Arc u64 macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for Rc<T, A>` and `Hash for Arc<T, A>` implementations under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `DEFAULT_HASHER_WRITE_RC_U64`, `DEFAULT_HASHER_WRITE_ARC_U64`, `HASH_RC_U64`, `HASH_ARC_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_RC_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_ARC_U64`, `RANDOM_STATE_HASH_ONE_RC_U64`, and `RANDOM_STATE_HASH_ONE_ARC_U64`.
+- The helper surface models Rust's reference-counted-value forwarding by hashing the concrete stored `u64` payload rather than the Rc/Arc allocation address. It does not claim generic `Rc<T>` / `Arc<T>`, allocator-aware variants, weak pointer hashing, unsized metadata, drop glue, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_rc_arc_u64_macro_surface.sa` - 1 test (panic ID 10581) covering writer/direct equivalence with `HASH_U64`, equal-value/different-address Rc/Arc values, value sensitivity after mutation, pointer-hash distinction, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_rc_arc_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10582+.
+
 ## Completed: 2026-07-15 Hash Box u64 macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for Box<T, A>` implementation under `/home/vscode/projects/rust`.
