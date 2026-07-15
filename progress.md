@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Array u64 hash_one macros
+
+- Continued Rust `std::hash` / array macro-surface parity, referencing Rust's local `Hash for [T; N]` implementation under `/home/vscode/projects/rust`.
+- `sa_std/array.sa`: added `BUILD_HASHER_DEFAULT_HASH_ONE_ARRAY_U64` and `RANDOM_STATE_HASH_ONE_ARRAY_U64`.
+- The helper surface models concrete `u64` array hashing by using the existing array-to-slice hash path with a caller-provided array pointer and length. It does not claim generic arrays, Rust const-generic trait dispatch, non-`u64` elements, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_array_hash_one_macro_surface.sa` - 1 test (panic ID 10579) covering equivalence with `ARRAY_HASH_U64`, slice hash_one parity, manual writer parity, value sensitivity, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10580+.
+
 ## Completed: 2026-07-15 Hash const raw pointer macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for *const T` implementation under `/home/vscode/projects/rust`.

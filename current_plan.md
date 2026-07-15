@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 array hash_one u64)
+
+Completed supportable array hash_one macros:
+- `BUILD_HASHER_DEFAULT_HASH_ONE_ARRAY_U64`: concrete `BuildHasher::hash_one` lowering for a caller-provided `u64` array pointer and length.
+- `RANDOM_STATE_HASH_ONE_ARRAY_U64`: concrete `RandomState::hash_one` lowering for the same `u64` array subset.
+- These mirror Rust's `Hash for [T; N]` shape by hashing the array through the slice hashing path, matching the existing `ARRAY_HASH_U64` / `DEFAULT_HASHER_WRITE_ARRAY_U64` surface.
+- Test file `std_array_hash_one_macro_surface.sa` (panic ID 10579).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10580+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic arrays and const-generic trait dispatch beyond concrete `u64` pointer/length lowering, generic reference forwarding beyond concrete `u64` pointers, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash const ptr)
 
 Completed supportable const raw pointer hash macros:
