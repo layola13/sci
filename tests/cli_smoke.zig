@@ -790,7 +790,7 @@ test "cli build-obj incremental reuses local cache layout" {
     defer freeStringMtimeMap(std.testing.allocator, &before_mtimes);
     try std.testing.expectEqual(@as(u32, 3), before_mtimes.count());
 
-    const scheduling_argv = [_][]const u8{ "sa", "build-obj", "incremental.sa", "--incremental", "--no-incremental", "--jobs", "2", "--dce", "full", "-o", "incremental.o" };
+    const scheduling_argv = [_][]const u8{ "sa", "build-obj", "incremental.sa", "--incremental", "--no-incremental", "--jobs", "2", "-o", "incremental.o" };
     const scheduling_code = try saasm.cli.execute(std.testing.allocator, scheduling_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), scheduling_code);
     var scheduling_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
@@ -960,6 +960,201 @@ test "cli build-obj incremental without main owns process globals" {
     }
     try std.testing.expectEqual(@as(usize, 0), run_result.stdout.len);
     try std.testing.expectEqual(@as(usize, 0), run_result.stderr.len);
+}
+
+test "cli incremental function shards preserve global indirect provenance indices" {
+    const source =
+        \\@const CALLBACK_VTABLE = vtable { call = @callback }
+        \\#def CallbackVTable_call = +0
+        \\@unrelated(value: i64) -> i64:
+        \\return value
+        \\
+        \\@callback(value: i32) -> i32:
+        \\next = add value, 5
+        \\!value
+        \\return next
+        \\
+        \\@main() -> i32:
+        \\vtable = &CALLBACK_VTABLE
+        \\function = load vtable+CallbackVTable_call as ptr
+        \\value = call_indirect function(7)
+        \\!function
+        \\!vtable
+        \\return value
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "indirect.sa", source);
+
+    const plain_argv = [_][]const u8{ "sa", "build-obj", "indirect.sa", "--no-incremental", "-o", "indirect-plain.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, plain_argv[0..]));
+    const incremental_argv = [_][]const u8{ "sa", "build-obj", "indirect.sa", "--incremental", "--no-incremental", "-o", "indirect-incremental.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, incremental_argv[0..]));
+
+    const plain_exe = if (builtin.os.tag == .windows) "indirect-plain.exe" else "indirect-plain.out";
+    const incremental_exe = if (builtin.os.tag == .windows) "indirect-incremental.exe" else "indirect-incremental.out";
+    for ([_]struct { object: []const u8, exe: []const u8 }{
+        .{ .object = "indirect-plain.o", .exe = plain_exe },
+        .{ .object = "indirect-incremental.o", .exe = incremental_exe },
+    }) |artifact| {
+        const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", artifact.object, "-o", artifact.exe });
+        defer std.testing.allocator.free(link_result.stdout);
+        defer std.testing.allocator.free(link_result.stderr);
+        switch (link_result.term) {
+            .Exited => |code| {
+                if (code != 0) std.debug.print("indirect object link failed for {s}:\nstdout:\n{s}\nstderr:\n{s}\n", .{ artifact.object, link_result.stdout, link_result.stderr });
+                try std.testing.expectEqual(@as(u8, 0), code);
+            },
+            else => return error.TestUnexpectedResult,
+        }
+
+        const run_path = if (builtin.os.tag == .windows)
+            try std.fmt.allocPrint(std.testing.allocator, ".\\{s}", .{artifact.exe})
+        else
+            try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{artifact.exe});
+        defer std.testing.allocator.free(run_path);
+        const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+        defer std.testing.allocator.free(run_result.stdout);
+        defer std.testing.allocator.free(run_result.stderr);
+        switch (run_result.term) {
+            .Exited => |code| try std.testing.expectEqual(@as(u8, 12), code),
+            else => return error.TestUnexpectedResult,
+        }
+    }
+}
+
+test "cli incremental objects isolate same-named private functions across modules" {
+    const left_source =
+        \\@helper(value: i32) -> i32:
+        \\next = add value, 1
+        \\!value
+        \\return next
+        \\
+        \\@ffi_wrapper left_probe() -> i32:
+        \\value = call @helper(10)
+        \\return value
+    ;
+    const right_source =
+        \\@helper(value: i32) -> i32:
+        \\next = add value, 2
+        \\!value
+        \\return next
+        \\
+        \\@ffi_wrapper right_probe() -> i32:
+        \\value = call @helper(10)
+        \\return value
+    ;
+    const driver_source =
+        \\#include <stdint.h>
+        \\extern int32_t left_probe(void);
+        \\extern int32_t right_probe(void);
+        \\int main(void) {
+        \\    return left_probe() == 11 && right_probe() == 12 ? 0 : 1;
+        \\}
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "left.sa", left_source);
+    try writeSource(tmp.dir, "right.sa", right_source);
+    try writeSource(tmp.dir, "driver.c", driver_source);
+
+    const left_argv = [_][]const u8{ "sa", "build-obj", "left.sa", "--incremental", "--no-incremental", "-o", "left.o" };
+    const right_argv = [_][]const u8{ "sa", "build-obj", "right.sa", "--incremental", "--no-incremental", "-o", "right.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, left_argv[0..]));
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, right_argv[0..]));
+
+    const linked_name = if (builtin.os.tag == .windows) "private-collision.exe" else "private-collision.out";
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "driver.c", "left.o", "right.o", "-o", linked_name });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("private symbol collision link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const run_path = if (builtin.os.tag == .windows) ".\\private-collision.exe" else "./private-collision.out";
+    const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "cli incremental full DCE prunes dead first task and assigns process globals owner" {
+    const source =
+        \\@dead(value: i32) -> i32:
+        \\next = add value, 99
+        \\!value
+        \\return next
+        \\
+        \\@main() -> i32:
+        \\return 9
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "dce.sa", source);
+
+    const incremental_argv = [_][]const u8{ "sa", "build-obj", "dce.sa", "--incremental", "--no-incremental", "--dce", "full", "-o", "dce-incremental.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, incremental_argv[0..]));
+    const manifest_object = try expectIncrementalManifestV2(std.testing.allocator, tmp.dir, 1);
+    defer std.testing.allocator.free(manifest_object);
+
+    const plain_argv = [_][]const u8{ "sa", "build-obj", "dce.sa", "--no-incremental", "--dce", "full", "-o", "dce-plain.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, plain_argv[0..]));
+
+    if (builtin.os.tag == .linux) {
+        const incremental_nm = try runCommand(std.testing.allocator, &.{ "nm", "--defined-only", "dce-incremental.o" });
+        defer std.testing.allocator.free(incremental_nm);
+        const plain_nm = try runCommand(std.testing.allocator, &.{ "nm", "--defined-only", "dce-plain.o" });
+        defer std.testing.allocator.free(plain_nm);
+        try std.testing.expect(std.mem.indexOf(u8, incremental_nm, "_dead") == null);
+        try std.testing.expect(std.mem.indexOf(u8, plain_nm, " dead") == null);
+        try std.testing.expect(std.mem.indexOf(u8, incremental_nm, " saasm_main") != null);
+    }
+
+    const linked_name = if (builtin.os.tag == .windows) "dce-incremental.exe" else "dce-incremental.out";
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "dce-incremental.o", "-o", linked_name });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("incremental DCE object link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const run_path = if (builtin.os.tag == .windows) ".\\dce-incremental.exe" else "./dce-incremental.out";
+    const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 9), code),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "cli build project cache is default and can be disabled" {

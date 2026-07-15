@@ -5906,6 +5906,9 @@ fn computeProjectBuildKey(
     var project_cacheable = true;
     cacheBytes(&hasher, "sa-build-cache-v3");
     cacheBytes(&hasher, cacheCompilerVersion());
+    const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
+    defer allocator.free(backend_identity);
+    cacheBytes(&hasher, backend_identity);
     cacheBytes(&hasher, builtin.zig_version_string);
     cacheBytes(&hasher, @tagName(builtin.target.cpu.arch));
     cacheBytes(&hasher, builtin.target.cpu.model.name);
@@ -7453,9 +7456,12 @@ fn computeFunctionObjectKeyBase(
     debug: bool,
 ) !std.crypto.hash.sha2.Sha256 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheFunctionKeyBytes(&hasher, "sa-build-obj-function-cache/v3");
-    cacheFunctionKeyBytes(&hasher, "llvmc-function-object/v3");
+    cacheFunctionKeyBytes(&hasher, "sa-build-obj-function-cache/v5");
+    cacheFunctionKeyBytes(&hasher, "llvmc-function-object/v5-global-context-namespace");
     cacheFunctionKeyBytes(&hasher, cacheCompilerVersion());
+    const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
+    defer allocator.free(backend_identity);
+    cacheFunctionKeyBytes(&hasher, backend_identity);
     cacheFunctionKeyBytes(&hasher, cache_key.slice());
     cacheFunctionKeyBytes(&hasher, source_path);
     cacheBool(&hasher, debug);
@@ -7472,6 +7478,14 @@ fn computeFunctionObjectKeyBase(
     return hasher;
 }
 
+fn functionObjectInternalSymbolNamespace(base_hasher: std.crypto.hash.sha2.Sha256) [64]u8 {
+    var hasher = base_hasher;
+    cacheFunctionKeyBytes(&hasher, "internal-symbol-namespace/v1");
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return std.fmt.bytesToHex(digest, .lower);
+}
+
 fn computeFunctionObjectKey(
     allocator: std.mem.Allocator,
     base_hasher: std.crypto.hash.sha2.Sha256,
@@ -7481,10 +7495,12 @@ fn computeFunctionObjectKey(
     start_idx: usize,
     end_idx: usize,
     debug: bool,
+    owns_process_globals: bool,
 ) ![]const u8 {
     var hasher = base_hasher;
     cacheU64(&hasher, sig_index);
     cacheU64(&hasher, task_index);
+    cacheBool(&hasher, owns_process_globals);
     cacheU64(&hasher, end_idx - start_idx);
     for (compiled.verified.annotated[start_idx..end_idx], start_idx..) |item, annotated_idx| {
         const loc = if (annotated_idx < compiled.flat.loc_table.len) compiled.flat.loc_table[annotated_idx] else null;
@@ -7564,6 +7580,8 @@ fn emitIncrementalFunctionObjectAtomically(
     debug: bool,
     opt_level: u8,
     task_index: usize,
+    owns_process_globals: bool,
+    internal_symbol_namespace: []const u8,
     compile_options: CompileOptions,
     emit_std_root: []const u8,
     publish: bool,
@@ -7589,6 +7607,8 @@ fn emitIncrementalFunctionObjectAtomically(
             .jobs = 1,
             .opt_level = opt_level,
             .function_task_index = task_index,
+            .function_task_owns_process_globals = owns_process_globals,
+            .internal_symbol_namespace = internal_symbol_namespace,
             .dce = compile_options.dce,
             .std_root = emit_std_root,
         },
@@ -7728,6 +7748,32 @@ fn buildIncrementalObject(
     const opt_level = emitOptLevel(debug, optimization);
     const emit_std_root = try stdRootFromEnv(allocator);
     defer allocator.free(emit_std_root);
+    const selected_task_indices = try emit_llvm_llvmc.collectIncrementalFunctionTaskIndices(allocator, compiled.verified, source_path, .{
+        .dce = compile_options.dce,
+        .std_root = emit_std_root,
+    });
+    defer allocator.free(selected_task_indices);
+    if (selected_task_indices.len == 0) {
+        try emit_llvm_llvmc.emitLlvmcToObject(
+            allocator,
+            compiled.verified,
+            &compiled.flat.def_dict,
+            compiled.flat.loc_table,
+            source_path,
+            nativeSizeBits(),
+            .{
+                .debug = debug,
+                .jobs = compile_options.jobs,
+                .opt_level = opt_level,
+                .dce = compile_options.dce,
+                .std_root = emit_std_root,
+            },
+            out_path,
+            opt_level,
+        );
+        return;
+    }
+    const process_globals_owner_task_index = selected_task_indices[0];
     var records = std.ArrayList(IncrementalFunctionObjectRecord).init(allocator);
     defer {
         for (records.items) |record| {
@@ -7743,10 +7789,12 @@ fn buildIncrementalObject(
     }
     var cache_publication_ready = cacheable;
     const function_key_base = try computeFunctionObjectKeyBase(allocator, cache_key, source_path, compiled, debug);
+    const internal_symbol_namespace = functionObjectInternalSymbolNamespace(function_key_base);
 
     var sig_index: usize = 0;
     var idx: usize = 0;
     var task_idx: usize = 0;
+    var selected_task_cursor: usize = 0;
     while (idx < compiled.verified.annotated.len) : (idx += 1) {
         const item = compiled.verified.annotated[idx].base;
         switch (item.kind) {
@@ -7761,8 +7809,11 @@ fn buildIncrementalObject(
                     else => true,
                 }) : (end += 1) {}
 
-                if (item.kind != .extern_decl) {
-                    const function_key = try computeFunctionObjectKey(allocator, function_key_base, compiled, current_sig_index, task_idx, idx, end, debug);
+                const selected = selected_task_cursor < selected_task_indices.len and selected_task_indices[selected_task_cursor] == task_idx;
+                if (selected) {
+                    selected_task_cursor += 1;
+                    const owns_process_globals = task_idx == process_globals_owner_task_index;
+                    const function_key = try computeFunctionObjectKey(allocator, function_key_base, compiled, current_sig_index, task_idx, idx, end, debug, owns_process_globals);
                     var function_key_owned = true;
                     errdefer if (function_key_owned) allocator.free(function_key);
                     var record_owned = true;
@@ -7778,7 +7829,7 @@ fn buildIncrementalObject(
                     };
                     var metadata = if (existing_manifest) |*manifest_value| manifest_value.objectMetadata(function_key) else null;
                     if (metadata == null) {
-                        const emission = try emitIncrementalFunctionObjectAtomically(allocator, compiled, source_path, object_path, debug, opt_level, task_idx, compile_options, emit_std_root, cache_publication_ready);
+                        const emission = try emitIncrementalFunctionObjectAtomically(allocator, compiled, source_path, object_path, debug, opt_level, task_idx, owns_process_globals, internal_symbol_namespace[0..], compile_options, emit_std_root, cache_publication_ready);
                         metadata = emission.metadata;
                         if (emission.transient_path) |transient_path| {
                             allocator.free(object_path);
@@ -7804,6 +7855,7 @@ fn buildIncrementalObject(
         }
     }
 
+    if (selected_task_cursor != selected_task_indices.len) return error.UnknownFunction;
     if (records.items.len == 0) return error.UnknownFunction;
 
     const object_paths = try allocator.alloc([]const u8, records.items.len);
@@ -8460,9 +8512,9 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
-                // Function tasks always emit serially and do not run module DCE, so those
-                // scheduling choices must not partition the reusable object namespace.
-                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, .no, null, false, &.{})) orelse unreachable;
+                // Function tasks always emit serially, so job scheduling must not
+                // partition their reusable object namespace. DCE remains semantic.
+                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, null, false, &.{})) orelse unreachable;
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, output_stage.output_path, debug, optimization, compile_options, stderr);
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path);
             } else {

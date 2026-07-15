@@ -1201,7 +1201,34 @@ const DarwinDynLib = struct {
     }
 };
 
-const RuntimeDynLib = if (builtin.os.tag == .macos) DarwinDynLib else std.DynLib;
+extern fn sa_host_dlopen(path: [*:0]const u8, flags: c_int) callconv(.c) ?*anyopaque;
+extern fn sa_host_dlsym(handle: *anyopaque, symbol: [*:0]const u8) callconv(.c) ?*anyopaque;
+extern fn sa_host_dlclose(handle: *anyopaque) callconv(.c) c_int;
+
+const LinuxDynLib = struct {
+    handle: *anyopaque,
+
+    fn openZ(path: [*:0]const u8) !LinuxDynLib {
+        return .{ .handle = sa_host_dlopen(path, 0x1) orelse return error.FileNotFound };
+    }
+
+    fn close(self: *LinuxDynLib) void {
+        _ = sa_host_dlclose(self.handle);
+        self.* = undefined;
+    }
+
+    fn lookup(self: *LinuxDynLib, comptime T: type, name: [:0]const u8) ?T {
+        const symbol = sa_host_dlsym(self.handle, name.ptr) orelse return null;
+        return @ptrCast(@alignCast(symbol));
+    }
+};
+
+const RuntimeDynLib = if (builtin.os.tag == .macos)
+    DarwinDynLib
+else if (builtin.os.tag == .linux and !builtin.is_test)
+    LinuxDynLib
+else
+    std.DynLib;
 
 fn openRuntimeDynLib(path: [*:0]const u8) anyerror!RuntimeDynLib {
     return RuntimeDynLib.openZ(path);
@@ -7909,8 +7936,6 @@ test "io read line returns an owned public ABI buffer" {
 const sa_fs_open_accmode_mask: u32 = 0x3;
 
 fn saFsOpenFile(path: []const u8, flags: u32, create_mode: u32, custom_flags: u32) !std.fs.File {
-    if (builtin.os.tag != .linux) return error.Unsupported;
-
     const read = (flags & 1) != 0;
     const write = (flags & 2) != 0;
     const create = (flags & 4) != 0;
@@ -8346,6 +8371,15 @@ fn dirEntryKindFromLinuxType(kind: u8) u32 {
     };
 }
 
+fn dirEntryKindFromFileKind(kind: std.fs.File.Kind) u32 {
+    return switch (kind) {
+        .file => SA_FS_FILE_REGULAR,
+        .directory => SA_FS_FILE_DIR,
+        .sym_link => SA_FS_FILE_SYMLINK,
+        else => SA_FS_FILE_OTHER,
+    };
+}
+
 fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
     if (builtin.os.tag != .linux) return error.Unsupported;
 
@@ -8393,6 +8427,53 @@ fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
     }
 
     return .{ .allocator = std.heap.page_allocator, .entries = try out.toOwnedSlice() };
+}
+
+fn readDirEntriesPortable(path: []const u8, max_entries: usize) !DirEntriesHandle {
+    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
+    defer dir.close();
+
+    var out = std.ArrayList(DirEntrySnapshot).init(std.heap.page_allocator);
+    errdefer {
+        for (out.items) |entry| if (entry.name.len != 0) std.heap.page_allocator.free(entry.name);
+        out.deinit();
+    }
+
+    var iterator = dir.iterate();
+    while (out.items.len < max_entries) {
+        const entry = try iterator.next() orelse break;
+        const owned_name = try std.heap.page_allocator.dupe(u8, entry.name);
+        errdefer std.heap.page_allocator.free(owned_name);
+        const raw_stat = std.posix.fstatat(dir.fd, entry.name, std.posix.AT.SYMLINK_NOFOLLOW) catch null;
+        const kind = if (entry.kind == .unknown and raw_stat != null)
+            std.fs.File.Stat.fromPosix(raw_stat.?).kind
+        else
+            entry.kind;
+        try out.append(.{
+            .name = owned_name,
+            .kind = dirEntryKindFromFileKind(kind),
+            .ino = if (raw_stat) |stat| stat.ino else 0,
+        });
+    }
+
+    return .{ .allocator = std.heap.page_allocator, .entries = try out.toOwnedSlice() };
+}
+
+test "portable directory entry snapshots preserve names and file kinds" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var file = try tmp.dir.createFile("entry.txt", .{});
+    file.close();
+
+    const path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(path);
+    var entries = try readDirEntriesPortable(path, 16);
+    defer entries.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), entries.entries.len);
+    try std.testing.expectEqualStrings("entry.txt", entries.entries[0].name);
+    try std.testing.expectEqual(SA_FS_FILE_REGULAR, entries.entries[0].kind);
+    try std.testing.expect(entries.entries[0].ino != 0);
 }
 
 fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
@@ -8489,7 +8570,10 @@ pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
 pub export fn sa_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
     const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
     const limit = lenAsUsize(max_entries) catch |err| return fail(u64, mapError(err));
-    var entries = readDirEntriesLinux(path, limit) catch |err| return fail(u64, mapError(err));
+    var entries = if (builtin.os.tag == .linux)
+        readDirEntriesLinux(path, limit) catch |err| return fail(u64, mapError(err))
+    else
+        readDirEntriesPortable(path, limit) catch |err| return fail(u64, mapError(err));
     const handle = registerResource(.{ .dir_entries = entries }) catch |err| {
         entries.deinit();
         return fail(u64, mapError(err));

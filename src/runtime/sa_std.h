@@ -25,6 +25,22 @@ extern "C" {
 #define SA_STD_STDOUT 2ull
 #define SA_STD_STDERR 3ull
 
+#define SA_FS_OPEN_READ 1u
+#define SA_FS_OPEN_WRITE 2u
+#define SA_FS_OPEN_CREATE 4u
+#define SA_FS_OPEN_TRUNCATE 8u
+#define SA_FS_OPEN_APPEND 16u
+#define SA_FS_OPEN_MODE_DEFAULT 438u
+
+#define SA_FS_SEEK_START 0u
+#define SA_FS_SEEK_CURRENT 1u
+#define SA_FS_SEEK_END 2u
+
+#define SA_FS_FILE_REGULAR 1u
+#define SA_FS_FILE_DIR 2u
+#define SA_FS_FILE_SYMLINK 3u
+#define SA_FS_FILE_OTHER 255u
+
 #define SA_JSON_KIND_INVALID 4294967295u
 #define SA_JSON_KIND_NULL 0u
 #define SA_JSON_KIND_BOOL 1u

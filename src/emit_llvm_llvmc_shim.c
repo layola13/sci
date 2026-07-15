@@ -13,6 +13,7 @@
 #include <llvm-c/Transforms/Scalar.h>
 #include <llvm-c/Transforms/Utils.h>
 #include <llvm-c/Transforms/Vectorize.h>
+#include <llvm/Config/llvm-config.h>
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
@@ -69,6 +70,7 @@ typedef struct {
     const SaDebugVar *debug_vars;
     size_t debug_var_count;
     unsigned char emit_main_wrapper;
+    unsigned char internal_symbol;
 } SaFunction;
 typedef struct {
     unsigned short size_bits;
@@ -145,6 +147,18 @@ static int set_error(char **out_error, const char *message) {
 }
 
 void sa_llvmc_free(void *ptr) { free(ptr); }
+
+const char *sa_llvmc_backend_version(void) { return LLVM_VERSION_STRING; }
+
+char *sa_llvmc_backend_target_triple(void) {
+    char *llvm_triple = LLVMGetDefaultTargetTriple();
+    if (llvm_triple == NULL) return NULL;
+    size_t len = strlen(llvm_triple);
+    char *copy = (char *)malloc(len + 1);
+    if (copy != NULL) memcpy(copy, llvm_triple, len + 1);
+    LLVMDisposeMessage(llvm_triple);
+    return copy;
+}
 
 static void dispose_emit_ctx(EmitCtx *e) {
     if (e == NULL) return;
@@ -1864,6 +1878,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         LLVMTypeRef fty = fn_type_for(e, &m->functions[i]);
         if (fty == NULL) { dispose_emit_ctx(e); return set_error(out_error, "function type failed"); }
         LLVMValueRef fn = LLVMAddFunction(e->module, m->functions[i].name, fty);
+        if (m->functions[i].internal_symbol) LLVMSetVisibility(fn, LLVMHiddenVisibility);
         if (m->functions[i].kind != SA_F_EXPORTED && strcmp(m->functions[i].name, "saasm_main") != 0)
             LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
         int direct_self_call = function_has_direct_self_call(&m->functions[i]);
@@ -1990,15 +2005,13 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
         default: cg_opt = LLVMCodeGenLevelAggressive;  break;
     }
 
-    /* Use the host CPU so we get tuned codegen (equivalent to -mcpu=native) */
-    char *cpu      = LLVMGetHostCPUName();
-    char *features = LLVMGetHostCPUFeatures();
+    /* Keep cached native objects portable across machines for the keyed target triple. */
+    const char *cpu = "";
+    const char *features = "";
     LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
         target, triple, cpu, features,
         cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
     );
-    LLVMDisposeMessage(cpu);
-    LLVMDisposeMessage(features);
     LLVMDisposeMessage(triple);
 
     if (tm == NULL) {
@@ -2050,14 +2063,12 @@ int sa_llvmc_emit_module_artifacts(const SaModule *m, const char *out_bitcode_pa
         default: cg_opt = LLVMCodeGenLevelAggressive;  break;
     }
 
-    char *cpu      = LLVMGetHostCPUName();
-    char *features = LLVMGetHostCPUFeatures();
+    const char *cpu = "";
+    const char *features = "";
     LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
         target, triple, cpu, features,
         cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
     );
-    LLVMDisposeMessage(cpu);
-    LLVMDisposeMessage(features);
     LLVMDisposeMessage(triple);
 
     if (tm == NULL) {
