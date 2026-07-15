@@ -224,6 +224,16 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
 
+    const sa_std_abi_contract = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/sa_std_abi.zig",
+    });
+    sa_std_abi_contract.setCwd(repo_root_lazy);
+    test_step.dependOn(&sa_std_abi_contract.step);
+    const sa_std_abi_step = b.step("sa-std-abi", "Check the direct SA runtime v1 export surface");
+    sa_std_abi_step.dependOn(&sa_std_abi_contract.step);
+
     const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
     const portable_targets = [_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" };
     for (portable_targets) |portable_target| {
