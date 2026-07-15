@@ -60,7 +60,7 @@ static int termios_matches(const struct termios *expected, const struct termios 
 static int termios_is_runtime_raw(const struct termios *value) {
     const tcflag_t disabled_input =
         IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXOFF;
-    const tcflag_t disabled_local = ISIG | ICANON | ECHO | IEXTEN;
+    const tcflag_t disabled_local = ISIG | ICANON | ECHO | ECHONL | IEXTEN;
     return (value->c_iflag & disabled_input) == 0 && (value->c_oflag & OPOST) == 0 &&
            (value->c_lflag & disabled_local) == 0 && (value->c_cflag & CSIZE) == CS8 &&
            (value->c_cflag & PARENB) == 0 && (value->c_cflag & CREAD) != 0 &&
@@ -72,8 +72,11 @@ int main(void) {
     int master_fd = -1;
     int slave_fd = -1;
     int runtime_fd = -1;
+    int pipe_fds[2] = {-1, -1};
     uint64_t slave_handle = 0;
+    uint64_t pipe_handle = 0;
     uint64_t session = 0;
+    uint64_t closed_session = 0;
     uint8_t is_terminal = 0;
     struct termios configured;
     struct termios before;
@@ -92,7 +95,7 @@ int main(void) {
     configured.c_oflag |= OPOST;
     configured.c_cflag &= ~CSIZE;
     configured.c_cflag |= CS8 | CREAD;
-    configured.c_lflag |= ISIG | ICANON | ECHO | IEXTEN;
+    configured.c_lflag |= ISIG | ICANON | ECHO | ECHONL | IEXTEN;
     configured.c_cc[VMIN] = 7;
     configured.c_cc[VTIME] = 3;
     CHECK(tcsetattr(slave_fd, TCSANOW, &configured) == 0, 103);
@@ -123,23 +126,40 @@ int main(void) {
               queried_size.xpixel == requested_size.ws_xpixel &&
               queried_size.ypixel == requested_size.ws_ypixel,
           114);
+    closed_session = session;
     CHECK(sa_term_raw_leave(session) == SA_STD_OK, 115);
     session = 0;
     CHECK(tcgetattr(runtime_fd, &after) == 0 && termios_matches(&before, &after), 116);
+    CHECK(sa_term_raw_leave(closed_session) == SA_STD_ERR_INVALID_HANDLE, 117);
+    closed_session = 0;
 
-    CHECK(sa_term_raw_enter(slave_handle, &session) == SA_STD_OK && session != 0, 117);
-    CHECK(tcgetattr(runtime_fd, &after) == 0 && termios_is_runtime_raw(&after), 118);
-    CHECK(sa_std_close(session) == SA_STD_OK, 119);
+    CHECK(sa_term_raw_enter(slave_handle, &session) == SA_STD_OK && session != 0, 118);
+    CHECK(tcgetattr(runtime_fd, &after) == 0 && termios_is_runtime_raw(&after), 119);
+    CHECK(sa_std_close(session) == SA_STD_OK, 120);
     session = 0;
-    CHECK(tcgetattr(runtime_fd, &after) == 0 && termios_matches(&before, &after), 120);
+    CHECK(tcgetattr(runtime_fd, &after) == 0 && termios_matches(&before, &after), 121);
 
-    CHECK(sa_std_close(slave_handle) == SA_STD_OK, 121);
+    CHECK(pipe(pipe_fds) == 0, 122);
+    CHECK(sa_std_fd_from_raw(pipe_fds[0], &pipe_handle) == SA_STD_OK && pipe_handle != 0, 123);
+    pipe_fds[0] = -1;
+    queried_size = (SaTermWinsize){.row = 1, .col = 2, .xpixel = 3, .ypixel = 4};
+    CHECK(sa_term_winsize(pipe_handle, &queried_size) == SA_STD_ERR_UNSUPPORTED, 124);
+    CHECK(queried_size.row == 0 && queried_size.col == 0 && queried_size.xpixel == 0 &&
+              queried_size.ypixel == 0,
+          125);
+    CHECK(sa_std_close(pipe_handle) == SA_STD_OK, 126);
+    pipe_handle = 0;
+
+    CHECK(sa_std_close(slave_handle) == SA_STD_OK, 127);
     slave_handle = 0;
     runtime_fd = -1;
 
 cleanup:
     if (session != 0) (void)sa_term_raw_leave(session);
+    if (pipe_handle != 0) (void)sa_std_close(pipe_handle);
     if (slave_handle != 0) (void)sa_std_close(slave_handle);
+    if (pipe_fds[0] >= 0) close(pipe_fds[0]);
+    if (pipe_fds[1] >= 0) close(pipe_fds[1]);
     if (slave_fd >= 0) close(slave_fd);
     if (master_fd >= 0) close(master_fd);
     if (result == 0) puts("runtime Darwin PTY contract ok");

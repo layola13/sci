@@ -92,7 +92,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - keep the native workflow on reviewed portable gates and outside Linux-only aggregate/runtime steps;
    - define x86_64/arm64 jobs with Zig 0.14.1, SHA-pinned LLVM 14 bottles, isolated compiler/static-runtime builds, architecture/linkage validation, and staged compiler/package smoke;
    - validate on Linux with contract `3/3`, YAML/actionlint and shell parsing, `portability-check` `30/30`, `test-portable` `9/9` steps and `49/49` tests, plus x86_64/aarch64 static-runtime builds `4/4` each with matching Mach-O archive members.
-10. [ ] Execute both macOS workflow jobs and record native L0/L1 plus basic/Darwin/Darwin-socket runtime results; until then the workflow and Linux cross evidence are neither macOS native evidence nor an L2 claim.
+10. [ ] Execute both macOS workflow jobs and record native L0/L1 plus basic/Darwin/Darwin-socket/Darwin-PTY runtime results; until then the workflow and Linux cross evidence are neither macOS native evidence nor an L2 claim.
 11. [x] Define and wire the shared basic and Darwin runtime gates:
    - link the production static runtime and a target-built dynamic-library fixture rather than a mock runtime;
    - cover handle ownership, fs/dir/metadata, env/time, threads, exact small-output process capture, and dynamic loading in `test-runtime-basic`, with raw timestamps and waitpid-path behavior in `test-runtime-darwin`;
@@ -105,10 +105,16 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - link the production runtime into a DNS/TCP/UDP/IPv6-hop/pathname-UDS/socket-option C contract and wire its native run step into both macOS jobs;
    - pass Linux socket `7/7`, runtime `74/74`, portable runtime `19/19`, portability `42/42`, portable suite `9/9` steps and `49/49` tests, ABI `11/11`, macOS CI contract `3/3`, and x86_64/aarch64 Darwin warnings-as-errors compile plus production Mach-O link `4/4` each;
    - retain the evidence boundary: no macOS native run exists yet, and multicast join/leave remains cross-compile/system-header evidence only.
-14. [ ] Implement Darwin winsize and native PTY raw-mode tests.
+14. [x] Implement Darwin winsize and native PTY raw-mode tests:
+   - route `sa_term_winsize` through target POSIX `ioctl(TIOCGWINSZ)` instead of Linux-only constants, preserving `UNSUPPORTED` plus cleared output for non-terminal descriptors;
+   - clear `ECHONL` in raw mode and mirror the raw/winsize/error contract in the Linux terminal C integration test;
+   - add `tests/runtime_darwin_pty_contract.c`, `runtime-darwin-pty-link`, and `test-runtime-darwin-pty`, with the native run step guarded to fail on non-macOS/non-native targets;
+   - cover a real PTY, `TIOCSWINSZ`, runtime fd wrapping, terminal detection, raw flag clearing including `ECHONL`, `VMIN/VTIME`, restore via leave and close, duplicate leave invalidation, and pipe winsize `UNSUPPORTED` output clearing;
+   - validate Linux executable gates `sa-term-runtime` `2/2`, `test-portable` `9/9` and `49/49`, ABI `11/11`, static macOS CI contract `3/3`, `portable-runtime-typecheck` `21/21`, `portability-check` `44/44`, format/diff checks, and x86_64/aarch64 Darwin warnings-as-errors compile plus production Mach-O PTY links `4/4` each;
+   - retain the evidence boundary: no macOS native PTY run exists yet, and `sa-std-runtime` is still the known Linux-container `13/14` IPv6 multicast environment failure.
 15. [ ] Finish native `.dll`/`.dylib` plugin, daemon Unix-socket, PowerShell/macOS installer, archive, and release smoke.
 
-Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket contract has not run natively, and its multicast join/leave paths remain uncovered.
+Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket and PTY contracts have not run natively, and socket multicast join/leave paths remain uncovered.
 
 Commit rule: commit each coherent, verified portability batch promptly. Do not stage unrelated concurrent worktree changes.
 
