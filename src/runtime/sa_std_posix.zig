@@ -267,6 +267,18 @@ const NetAddrHandle = struct {
     }
 };
 
+const SA_NET_AF_UNSPEC: u32 = 0;
+const SA_NET_AF_INET: u32 = 2;
+const SA_NET_AF_INET6: u32 = 10;
+
+fn nativeNetAddressFamilyToAbi(family: anytype) u32 {
+    return switch (family) {
+        std.posix.AF.INET => SA_NET_AF_INET,
+        std.posix.AF.INET6 => SA_NET_AF_INET6,
+        else => SA_NET_AF_UNSPEC,
+    };
+}
+
 const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
 const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
 const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
@@ -4948,9 +4960,16 @@ pub export fn sa_deno_date_now_iso() u64 {
     return openOwnedByteBuffer(text) catch return 0;
 }
 
-const struct_sockaddr = extern struct {
-    sa_family: u16,
-    sa_data: [14]u8,
+const struct_sockaddr = switch (builtin.os.tag) {
+    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+        sa_len: u8,
+        sa_family: u8,
+        sa_data: [14]u8,
+    },
+    else => extern struct {
+        sa_family: u16,
+        sa_data: [14]u8,
+    },
 };
 const struct_ifaddrs = extern struct {
     ifa_next: ?*struct_ifaddrs,
@@ -5076,15 +5095,16 @@ pub export fn sa_deno_network_interfaces() u64 {
     while (current) |ifa| : (current = ifa.ifa_next) {
         const addr_ptr = ifa.ifa_addr orelse continue;
         const family = addr_ptr.sa_family;
-        if (family != 2 and family != 10) continue;
+        const is_ipv4 = family == std.posix.AF.INET;
+        if (!is_ipv4 and family != std.posix.AF.INET6) continue;
 
         const name = std.mem.sliceTo(ifa.ifa_name, 0);
 
         var ip_buf: [46]u8 = undefined;
-        const family_str = if (family == 2) "IPv4" else "IPv6";
-        const af: c_int = if (family == 2) 2 else 10;
+        const family_str = if (is_ipv4) "IPv4" else "IPv6";
+        const af: c_int = @intCast(family);
 
-        const ip_src = if (family == 2)
+        const ip_src = if (is_ipv4)
             @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
                 sa_family: u16,
                 sin_port: u16,
@@ -5106,7 +5126,7 @@ pub export fn sa_deno_network_interfaces() u64 {
         var cidr: u32 = 0;
         var mask_str: []const u8 = "000.000.000.000";
         if (ifa.ifa_netmask) |mask_ptr| {
-            const mask_src = if (family == 2)
+            const mask_src = if (is_ipv4)
                 @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
                     sa_family: u16,
                     sin_port: u16,
@@ -5124,7 +5144,7 @@ pub export fn sa_deno_network_interfaces() u64 {
                 mask_str = std.mem.sliceTo(mask_z, 0);
             }
 
-            if (family == 2) {
+            if (is_ipv4) {
                 const sin_addr = @as(*align(1) const extern struct {
                     sa_family: u16,
                     sin_port: u16,
@@ -9586,12 +9606,49 @@ pub export fn sa_net_addr_family(addr: u64) u32 {
         return 0;
     };
     return switch (resource.*) {
-        .net_addr => |net_addr| @as(u32, @intCast(net_addr.addr.any.family)),
+        .net_addr => |net_addr| nativeNetAddressFamilyToAbi(net_addr.addr.any.family),
         else => {
             _ = finish(SA_STD_ERR_INVALID_HANDLE);
             return 0;
         },
     };
+}
+
+test "network address families use stable SA ABI values" {
+    try std.testing.expectEqual(SA_NET_AF_INET, nativeNetAddressFamilyToAbi(std.posix.AF.INET));
+    try std.testing.expectEqual(SA_NET_AF_INET6, nativeNetAddressFamilyToAbi(std.posix.AF.INET6));
+    try std.testing.expectEqual(SA_NET_AF_UNSPEC, nativeNetAddressFamilyToAbi(std.posix.AF.UNIX));
+
+    var ipv4 = try NetAddrHandle.init(std.testing.allocator, std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 0));
+    const ipv4_handle = registerResource(.{ .net_addr = ipv4 }) catch |err| {
+        ipv4.deinit();
+        return err;
+    };
+    defer _ = sa_std_close(ipv4_handle);
+
+    var ipv6 = try NetAddrHandle.init(std.testing.allocator, std.net.Address.initIp6(([_]u8{0} ** 15) ++ [_]u8{1}, 0, 0, 0));
+    const ipv6_handle = registerResource(.{ .net_addr = ipv6 }) catch |err| {
+        ipv6.deinit();
+        return err;
+    };
+    defer _ = sa_std_close(ipv6_handle);
+
+    try std.testing.expectEqual(SA_NET_AF_INET, sa_net_addr_family(ipv4_handle));
+    try std.testing.expectEqual(SA_NET_AF_INET6, sa_net_addr_family(ipv6_handle));
+}
+
+test "network address family failures return a cleared value" {
+    try std.testing.expectEqual(SA_NET_AF_UNSPEC, sa_net_addr_family(0));
+
+    const bytes = try std.testing.allocator.dupe(u8, "not an address");
+    var buffer = BufferHandle{ .allocator = std.testing.allocator, .bytes = bytes };
+    const buffer_handle = registerResource(.{ .buffer = buffer }) catch |err| {
+        buffer.deinit();
+        return err;
+    };
+    defer _ = sa_std_close(buffer_handle);
+
+    try std.testing.expectEqual(SA_NET_AF_UNSPEC, sa_net_addr_family(buffer_handle));
 }
 
 pub export fn sa_net_addr_scope_id(addr: u64) u64 {
