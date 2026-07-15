@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating operator macros
+
+- Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local operator implementations and signed inherent helpers under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `DIV`, `REM`, wrapping `SHL` / `SHR`, `NOT`, `BITAND`, `BITOR`, and `BITXOR` helpers for `WrappingU64`, `WrappingU32`, and `WrappingI64`; added `NEG`, `ABS`, `SIGNUM`, `IS_POSITIVE`, and `IS_NEGATIVE` for `WrappingI64`; added the same signed unary/sign helper set for `SaturatingI64`.
+- `WrappingU32` masks operands/results to the concrete 32-bit width. `WrappingI64` uses signed division/remainder and arithmetic right shift. This batch intentionally does not add Saturating div/rem because Rust preserves panic behavior for zero divisors, while the existing SA saturating division helper is a non-panicking convenience.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_ops_macro_surface.sa` - 1 test (panic ID 10620) expanding all 34 new macros and covering unsigned, 32-bit masked, signed, and signed-min saturating behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10621+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating comparison macros
 
 - Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local derived `PartialEq`, `Eq`, `PartialOrd`, and `Ord` behavior under `/home/vscode/projects/rust`.

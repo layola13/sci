@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Wrapping/Saturating operators)
+
+Completed supportable Wrapping/Saturating operator helpers:
+- `WRAPPING_{U64,U32,I64}_DIV`, `*_REM`, `*_SHL`, `*_SHR`, `*_NOT`, `*_BITAND`, `*_BITOR`, and `*_BITXOR`: concrete Rust operator-forwarding shape for SA's existing wrapper layouts, loading inner values, applying the matching primitive wrapping or bit-pattern operation, and writing a destination wrapper.
+- `WRAPPING_I64_NEG`, `WRAPPING_I64_ABS`, `WRAPPING_I64_SIGNUM`, `WRAPPING_I64_IS_POSITIVE`, and `WRAPPING_I64_IS_NEGATIVE`: concrete signed `Wrapping<i64>` unary/sign helper shape, forwarding to existing signed primitive helpers.
+- `SATURATING_I64_NEG`, `SATURATING_I64_ABS`, `SATURATING_I64_SIGNUM`, `SATURATING_I64_IS_POSITIVE`, and `SATURATING_I64_IS_NEGATIVE`: concrete signed `Saturating<i64>` unary/sign helper shape, forwarding to existing signed saturating primitive helpers where relevant.
+- `WrappingU32` masks operands/results to the concrete 32-bit width for division, remainder, shifts, and bitwise operations.
+- This follows Rust's current `core::num::{Wrapping,Saturating}` operator/inherent method shapes for the existing SA wrapper widths. It deliberately does not expose generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, Saturating div/rem panic behavior, assignment operator traits, formatting traits, or generic trait/type-level integration.
+- Test file `std_num_wrapping_saturating_ops_macro_surface.sa` (panic ID 10620).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10621+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust panic behavior for Saturating div/rem and invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping/Saturating comparisons)
 
 Completed supportable Wrapping/Saturating comparison helpers:
