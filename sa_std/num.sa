@@ -7648,6 +7648,94 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I64_FROM_LE %out_value, %value
 [END_MACRO]
 
+[MACRO] NONZERO_UNSIGNED_WIDTH_REVERSE_BITS %out_value, %value, %bits, %mask
+    __nonzero_rev_masked_%out_value = and %value, %mask
+    EXPAND NUM_U64_REVERSE_BITS __nonzero_rev_u64_%out_value, __nonzero_rev_masked_%out_value
+    __nonzero_rev_shift_%out_value = sub NUM_U64_BITS, %bits
+    %out_value = lshr __nonzero_rev_u64_%out_value, __nonzero_rev_shift_%out_value
+    !__nonzero_rev_shift_%out_value
+    !__nonzero_rev_u64_%out_value
+    !__nonzero_rev_masked_%out_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_u64_rev_value_%out_ok = load %nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_REVERSE_BITS __nonzero_u64_rev_result_%out_ok, __nonzero_u64_rev_value_%out_ok
+    EXPAND NONZERO_U64_NEW %out_ok, %out_nz, __nonzero_u64_rev_result_%out_ok
+    !__nonzero_u64_rev_result_%out_ok
+    !__nonzero_u64_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I64_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_i64_rev_value_%out_ok = load %nz+NonZeroI64_value as i64
+    EXPAND NUM_U64_REVERSE_BITS __nonzero_i64_rev_result_%out_ok, __nonzero_i64_rev_value_%out_ok
+    EXPAND NONZERO_I64_NEW %out_ok, %out_nz, __nonzero_i64_rev_result_%out_ok
+    !__nonzero_i64_rev_result_%out_ok
+    !__nonzero_i64_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U8_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_u8_rev_value_%out_ok = load %nz+NonZeroU8_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __nonzero_u8_rev_result_%out_ok, __nonzero_u8_rev_value_%out_ok, NUM_U8_BITS, NUM_U8_MAX
+    EXPAND NONZERO_U8_NEW %out_ok, %out_nz, __nonzero_u8_rev_result_%out_ok
+    !__nonzero_u8_rev_result_%out_ok
+    !__nonzero_u8_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U16_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_u16_rev_value_%out_ok = load %nz+NonZeroU16_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __nonzero_u16_rev_result_%out_ok, __nonzero_u16_rev_value_%out_ok, NUM_U16_BITS, NUM_U16_MAX
+    EXPAND NONZERO_U16_NEW %out_ok, %out_nz, __nonzero_u16_rev_result_%out_ok
+    !__nonzero_u16_rev_result_%out_ok
+    !__nonzero_u16_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U32_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_u32_rev_value_%out_ok = load %nz+NonZeroU32_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __nonzero_u32_rev_result_%out_ok, __nonzero_u32_rev_value_%out_ok, NUM_U32_BITS, NUM_U32_MAX
+    EXPAND NONZERO_U32_NEW %out_ok, %out_nz, __nonzero_u32_rev_result_%out_ok
+    !__nonzero_u32_rev_result_%out_ok
+    !__nonzero_u32_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I8_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_i8_rev_value_%out_ok = load %nz+NonZeroI8_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __nonzero_i8_rev_raw_%out_ok, __nonzero_i8_rev_value_%out_ok, NUM_I8_BITS, NUM_U8_MAX
+    EXPAND NUM_I8_SIGN_EXTEND __nonzero_i8_rev_result_%out_ok, __nonzero_i8_rev_raw_%out_ok
+    EXPAND NONZERO_I8_NEW %out_ok, %out_nz, __nonzero_i8_rev_result_%out_ok
+    !__nonzero_i8_rev_result_%out_ok
+    !__nonzero_i8_rev_raw_%out_ok
+    !__nonzero_i8_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I16_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_i16_rev_value_%out_ok = load %nz+NonZeroI16_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __nonzero_i16_rev_raw_%out_ok, __nonzero_i16_rev_value_%out_ok, NUM_I16_BITS, NUM_U16_MAX
+    EXPAND NUM_I16_SIGN_EXTEND __nonzero_i16_rev_result_%out_ok, __nonzero_i16_rev_raw_%out_ok
+    EXPAND NONZERO_I16_NEW %out_ok, %out_nz, __nonzero_i16_rev_result_%out_ok
+    !__nonzero_i16_rev_result_%out_ok
+    !__nonzero_i16_rev_raw_%out_ok
+    !__nonzero_i16_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I32_REVERSE_BITS %out_ok, %out_nz, %nz
+    __nonzero_i32_rev_value_%out_ok = load %nz+NonZeroI32_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __nonzero_i32_rev_raw_%out_ok, __nonzero_i32_rev_value_%out_ok, NUM_I32_BITS, NUM_U32_MAX
+    EXPAND NUM_I32_SIGN_EXTEND __nonzero_i32_rev_result_%out_ok, __nonzero_i32_rev_raw_%out_ok
+    EXPAND NONZERO_I32_NEW %out_ok, %out_nz, __nonzero_i32_rev_result_%out_ok
+    !__nonzero_i32_rev_result_%out_ok
+    !__nonzero_i32_rev_raw_%out_ok
+    !__nonzero_i32_rev_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_REVERSE_BITS %out_ok, %out_nz, %nz
+    EXPAND NONZERO_U64_REVERSE_BITS %out_ok, %out_nz, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_REVERSE_BITS %out_ok, %out_nz, %nz
+    EXPAND NONZERO_I64_REVERSE_BITS %out_ok, %out_nz, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_U64_SWAP_BYTES %out_ok, %out_nz, %nz
     __nonzero_u64_swap_value_%out_ok = load %nz+NonZeroU64_value as u64
     EXPAND NUM_U64_SWAP_BYTES __nonzero_u64_swap_result_%out_ok, __nonzero_u64_swap_value_%out_ok

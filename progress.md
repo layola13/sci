@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer reverse_bits macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `reverse_bits` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_REVERSE_BITS` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface reverses each concrete wrapper's stored primitive bit-pattern and writes the nonzero result into a destination wrapper. Narrow signed wrappers sign-extend the reversed bit-pattern back to the declared signed width before reconstruction. It does not claim Rust nightly feature-gate handling, generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_reverse_bits_macro_surface.sa` - 1 test (panic ID 10608) expanding all 10 new macros and covering unsigned values, signed negative bit-patterns, and signed low-bit reversal to the matching signed minimum value.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_reverse_bits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10609+.
+
 ## Completed: 2026-07-15 NonZero integer bit-position macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `highest_one` and `lowest_one` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
