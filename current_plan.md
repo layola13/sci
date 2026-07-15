@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero integer comparison)
+
+Completed supportable NonZero integer comparison helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_EQ` and matching `*_NE`: concrete Rust `PartialEq` / `Eq` forwarding shape for SA's existing NonZero integer layouts, comparing each wrapper's stored primitive `get()` value.
+- `*_CMP` and `*_PARTIAL_CMP`: concrete Rust `Ord` / `PartialOrd` forwarding shape for the same wrappers, using unsigned ordering for `U*` / `USIZE` and signed ordering for `I*` / `ISIZE`.
+- `*_LT`, `*_LE`, `*_GT`, and `*_GE`: relation helpers matching Rust's `self.get() <op> other.get()` implementations for each concrete width.
+- This follows Rust's current `core::num::NonZero<T>` comparison implementations only for the existing SA integer widths. It deliberately does not expose generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, Rust `Option<Ordering>` object modeling, or generic trait dispatch.
+- Test file `std_num_nonzero_cmp_macro_surface.sa` (panic ID 10605).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10606+.
+Still blocked without redesign: trait-level `PartialEq` / `Eq` / `PartialOrd` / `Ord`, generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero integer copy/clone)
 
 Completed supportable NonZero integer copy/clone helpers:

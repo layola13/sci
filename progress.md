@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer comparison macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `PartialEq`, `Eq`, `PartialOrd`, and `Ord` implementations for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_EQ`, `*_NE`, `*_CMP`, `*_PARTIAL_CMP`, `*_LT`, `*_LE`, `*_GT`, and `*_GE` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface compares each concrete wrapper's stored nonzero primitive with unsigned or signed integer ordering as appropriate. It does not claim generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, Rust `Option<Ordering>` object modeling, or generic trait dispatch.
+- Test: `tests/unit_framework/std_num_nonzero_cmp_macro_surface.sa` - 1 test (panic ID 10605) expanding all 80 new macros across the ten concrete widths and covering equality, inequality, total ordering, partial-cmp aliasing, and relation helpers.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10606+.
+
 ## Completed: 2026-07-15 NonZero integer copy/clone macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `Copy` and `Clone` implementations for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.

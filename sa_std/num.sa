@@ -1,5 +1,466 @@
 @import "num.sal"
 @import "hash.sa"
+@import "cmp.sal"
+
+[MACRO] NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_unsigned_eq_left_%out_bool = load %left_nz+%field as u64
+    __nonzero_unsigned_eq_right_%out_bool = load %right_nz+%field as u64
+    %out_bool = eq __nonzero_unsigned_eq_left_%out_bool, __nonzero_unsigned_eq_right_%out_bool
+    !__nonzero_unsigned_eq_right_%out_bool
+    !__nonzero_unsigned_eq_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, %field
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD __nonzero_unsigned_ne_eq_%out_bool, %left_nz, %right_nz, %field
+    %out_bool = eq __nonzero_unsigned_ne_eq_%out_bool, 0
+    !__nonzero_unsigned_ne_eq_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, %field
+    __nonzero_unsigned_cmp_left_%out_ordering = load %left_nz+%field as u64
+    __nonzero_unsigned_cmp_right_%out_ordering = load %right_nz+%field as u64
+    __nonzero_unsigned_cmp_lt_%out_ordering = ult __nonzero_unsigned_cmp_left_%out_ordering, __nonzero_unsigned_cmp_right_%out_ordering
+    br __nonzero_unsigned_cmp_lt_%out_ordering -> L_NONZERO_UNSIGNED_CMP_LESS_%out_ordering, L_NONZERO_UNSIGNED_CMP_CHECK_GT_%out_ordering
+L_NONZERO_UNSIGNED_CMP_LESS_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_LESS
+    jmp L_NONZERO_UNSIGNED_CMP_DONE_%out_ordering
+L_NONZERO_UNSIGNED_CMP_CHECK_GT_%out_ordering:
+    __nonzero_unsigned_cmp_gt_%out_ordering = ugt __nonzero_unsigned_cmp_left_%out_ordering, __nonzero_unsigned_cmp_right_%out_ordering
+    br __nonzero_unsigned_cmp_gt_%out_ordering -> L_NONZERO_UNSIGNED_CMP_GREATER_%out_ordering, L_NONZERO_UNSIGNED_CMP_EQUAL_%out_ordering
+L_NONZERO_UNSIGNED_CMP_GREATER_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_GREATER
+    !__nonzero_unsigned_cmp_gt_%out_ordering
+    jmp L_NONZERO_UNSIGNED_CMP_DONE_%out_ordering
+L_NONZERO_UNSIGNED_CMP_EQUAL_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_EQUAL
+    !__nonzero_unsigned_cmp_gt_%out_ordering
+L_NONZERO_UNSIGNED_CMP_DONE_%out_ordering:
+    !__nonzero_unsigned_cmp_lt_%out_ordering
+    !__nonzero_unsigned_cmp_right_%out_ordering
+    !__nonzero_unsigned_cmp_left_%out_ordering
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_unsigned_lt_left_%out_bool = load %left_nz+%field as u64
+    __nonzero_unsigned_lt_right_%out_bool = load %right_nz+%field as u64
+    %out_bool = ult __nonzero_unsigned_lt_left_%out_bool, __nonzero_unsigned_lt_right_%out_bool
+    !__nonzero_unsigned_lt_right_%out_bool
+    !__nonzero_unsigned_lt_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_unsigned_le_left_%out_bool = load %left_nz+%field as u64
+    __nonzero_unsigned_le_right_%out_bool = load %right_nz+%field as u64
+    %out_bool = ule __nonzero_unsigned_le_left_%out_bool, __nonzero_unsigned_le_right_%out_bool
+    !__nonzero_unsigned_le_right_%out_bool
+    !__nonzero_unsigned_le_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_unsigned_gt_left_%out_bool = load %left_nz+%field as u64
+    __nonzero_unsigned_gt_right_%out_bool = load %right_nz+%field as u64
+    %out_bool = ugt __nonzero_unsigned_gt_left_%out_bool, __nonzero_unsigned_gt_right_%out_bool
+    !__nonzero_unsigned_gt_right_%out_bool
+    !__nonzero_unsigned_gt_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_unsigned_ge_left_%out_bool = load %left_nz+%field as u64
+    __nonzero_unsigned_ge_right_%out_bool = load %right_nz+%field as u64
+    %out_bool = uge __nonzero_unsigned_ge_left_%out_bool, __nonzero_unsigned_ge_right_%out_bool
+    !__nonzero_unsigned_ge_right_%out_bool
+    !__nonzero_unsigned_ge_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_signed_eq_left_%out_bool = load %left_nz+%field as i64
+    __nonzero_signed_eq_right_%out_bool = load %right_nz+%field as i64
+    %out_bool = eq __nonzero_signed_eq_left_%out_bool, __nonzero_signed_eq_right_%out_bool
+    !__nonzero_signed_eq_right_%out_bool
+    !__nonzero_signed_eq_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, %field
+    EXPAND NONZERO_SIGNED_EQ_FIELD __nonzero_signed_ne_eq_%out_bool, %left_nz, %right_nz, %field
+    %out_bool = eq __nonzero_signed_ne_eq_%out_bool, 0
+    !__nonzero_signed_ne_eq_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, %field
+    __nonzero_signed_cmp_left_%out_ordering = load %left_nz+%field as i64
+    __nonzero_signed_cmp_right_%out_ordering = load %right_nz+%field as i64
+    __nonzero_signed_cmp_lt_%out_ordering = slt __nonzero_signed_cmp_left_%out_ordering, __nonzero_signed_cmp_right_%out_ordering
+    br __nonzero_signed_cmp_lt_%out_ordering -> L_NONZERO_SIGNED_CMP_LESS_%out_ordering, L_NONZERO_SIGNED_CMP_CHECK_GT_%out_ordering
+L_NONZERO_SIGNED_CMP_LESS_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_LESS
+    jmp L_NONZERO_SIGNED_CMP_DONE_%out_ordering
+L_NONZERO_SIGNED_CMP_CHECK_GT_%out_ordering:
+    __nonzero_signed_cmp_gt_%out_ordering = sgt __nonzero_signed_cmp_left_%out_ordering, __nonzero_signed_cmp_right_%out_ordering
+    br __nonzero_signed_cmp_gt_%out_ordering -> L_NONZERO_SIGNED_CMP_GREATER_%out_ordering, L_NONZERO_SIGNED_CMP_EQUAL_%out_ordering
+L_NONZERO_SIGNED_CMP_GREATER_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_GREATER
+    !__nonzero_signed_cmp_gt_%out_ordering
+    jmp L_NONZERO_SIGNED_CMP_DONE_%out_ordering
+L_NONZERO_SIGNED_CMP_EQUAL_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_EQUAL
+    !__nonzero_signed_cmp_gt_%out_ordering
+L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
+    !__nonzero_signed_cmp_lt_%out_ordering
+    !__nonzero_signed_cmp_right_%out_ordering
+    !__nonzero_signed_cmp_left_%out_ordering
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_signed_lt_left_%out_bool = load %left_nz+%field as i64
+    __nonzero_signed_lt_right_%out_bool = load %right_nz+%field as i64
+    %out_bool = slt __nonzero_signed_lt_left_%out_bool, __nonzero_signed_lt_right_%out_bool
+    !__nonzero_signed_lt_right_%out_bool
+    !__nonzero_signed_lt_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_signed_le_left_%out_bool = load %left_nz+%field as i64
+    __nonzero_signed_le_right_%out_bool = load %right_nz+%field as i64
+    %out_bool = sle __nonzero_signed_le_left_%out_bool, __nonzero_signed_le_right_%out_bool
+    !__nonzero_signed_le_right_%out_bool
+    !__nonzero_signed_le_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_signed_gt_left_%out_bool = load %left_nz+%field as i64
+    __nonzero_signed_gt_right_%out_bool = load %right_nz+%field as i64
+    %out_bool = sgt __nonzero_signed_gt_left_%out_bool, __nonzero_signed_gt_right_%out_bool
+    !__nonzero_signed_gt_right_%out_bool
+    !__nonzero_signed_gt_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, %field
+    __nonzero_signed_ge_left_%out_bool = load %left_nz+%field as i64
+    __nonzero_signed_ge_right_%out_bool = load %right_nz+%field as i64
+    %out_bool = sge __nonzero_signed_ge_left_%out_bool, __nonzero_signed_ge_right_%out_bool
+    !__nonzero_signed_ge_right_%out_bool
+    !__nonzero_signed_ge_left_%out_bool
+[END_MACRO]
+
+[MACRO] NONZERO_U64_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_U64_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U64_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_U32_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_U16_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_U8_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U8_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_USIZE_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_I64_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_I32_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I32_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_I16_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_I8_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I8_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_EQ %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_NE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_PARTIAL_CMP %out_ordering, %left_nz, %right_nz
+    EXPAND NONZERO_ISIZE_CMP %out_ordering, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_LT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_LE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_GT %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_GE %out_bool, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
 
 [MACRO] NONZERO_U64_COPY %dst_nz, %src_nz
     __nonzero_u64_copy_value_%dst_nz = load %src_nz+NonZeroU64_value as u64
