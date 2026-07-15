@@ -7,7 +7,7 @@ Date: 2026-07-15
 Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is explicitly excluded. Correctness, cache authorization, deterministic diagnostics, and ownership semantics remain hard gates; no trusted/empty-delta verification shortcut may be reintroduced for codegen.
 
 1. [x] Land Phase -1 containment: full Referee for compile/check/emit, affected last-good transactionality, cache-hit authorization preflight, conservative focused-prune fallback, daemon cwd serialization/hard worker limit, and backend debug-output removal.
-2. [ ] **In progress — finish the request-local dynamic depfile (P0.3):**
+2. [ ] **In progress — finish the P0.3 cache contract:**
    - [x] record environment present/absent state and value digest;
    - [x] record canonical included-file path, size, and digest through recursive includes;
    - [x] persist dependencies in manifest v2 and prevalidate them before cache publication;
@@ -20,32 +20,36 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] split entry locks from blocking build-owner locks and pass direct failed-owner handoff plus OOM no-partial-entry gates `1/1` each;
    - [x] compile/restore build outputs in private sibling stages and make build/test cache claim/store failures best-effort;
    - [x] serialize final publication for different keys sharing one `-o` through `.sa-output-locks/<basename>` and pass the forced-interleaving pair test `1/1`;
-   - [ ] finish incremental function-object integrity: the current worktree implements manifest v2, digest-authorized reuse, atomic sibling-temp emission, manifest-last commit, post-commit stale/temp cleanup, and function-key v2 coverage of lowering inputs; the same-size corruption focused gate is running before this becomes a verified checkpoint;
-   - [ ] repair failed artifact/output publication, account for persistent locks, and add broader corruption recovery.
+   - [x] close the focused incremental function-object integrity checkpoint: manifest v2 digest-authorized reuse; function key v8 with global/local lowering-context separation and numeric local slots for body `.reg` operands plus verifier `change.reg`; backend ABI v11; synced sibling-temp emission; link-before-manifest, manifest-last commit, and post-commit cleanup; non-cacheable dependency bypass; `DT_UNKNOWN` fallback; DCE-selected global owner; full indirect-provenance signature ordering; function-local collision-safe anonymous strings; Linux ELF hidden-symbol localization; and direct/indirect owned-return release correctness are focused verified;
+   - [ ] add emit/sync/rename/link/manifest failure injection, malformed/legacy/oversize/path/symlink/missing/extra-object cases, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
+   - [ ] repair remaining failed artifact/output publication cases and broaden corruption recovery.
 3. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
    - [x] index function body ranges once and process every reachable function body at most once;
    - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;
    - [x] pass focused direct-closure/function-reference/unknown-call tests `3/3`;
    - [ ] finish recursion and both LLVM emit-path differential tests before shared-engine completion.
-4. [ ] **Partial — validate and then extend the Referee delta work (P1.2):**
-   - current checkpoint reuses `state_before`/change scratch and performs one ordered diff scan;
-   - first run the combined Debug build and focused allocation/equivalence gates;
-   - then introduce `StateWriter` + dirty epoch/list so executable instructions no longer copy the whole state;
-   - keep seed/reset/label restore non-recording and dual-check old/new deltas during migration.
+4. [ ] **Partial — extend the verified Referee delta checkpoint (P1.2):**
+   - [x] reuse `state_before`/change scratch and perform one ordered diff scan;
+   - [x] pass focused/all 63 Referee tests and the 128-register allocation fixture (`434 -> 307` allocations, `175,722 -> 143,978` requested bytes);
+   - [ ] introduce `StateWriter` + dirty epoch/list so executable instructions no longer copy the whole state;
+   - [ ] keep seed/reset/label restore non-recording and dual-check old/new deltas during migration.
 5. [ ] Close the remaining artifact-key boundary:
    - [x] key native `build-exe`/`test` on canonical runtime archive path, size, and SHA-256 under namespace v3;
    - [x] pass an isolated same-path/same-size archive content-flip key test `1/1`;
-   - [ ] add linker/toolchain, ordered plugin/export/rpath/link flags, backend/pass epoch, target CPU/features policy, corruption, and authorization inputs/tests.
-6. [ ] Run the immediate combined-worktree gate before recording any new completion claim:
-   - [ ] rerun `/opt/zig/zig build -Doptimize=Debug -j1` after the latest single-flight/output-stage delta; the preceding snapshot passed;
-   - focused dynamic-dependency/cache, artifact authorization, affected, SAB/LLVM reachability, include, and Referee tests;
+   - [x] include LLVM version, target triple, generic CPU policy, backend pipeline, and partial-link policy through backend ABI v11 in artifact key v3 and function key v8;
+   - [ ] add exact linker/`zig cc`/`objcopy` executable, version, and build identity plus ordered plugin/export/rpath/link flags, target CPU/features policy, corruption, and authorization inputs/tests.
+6. [ ] Continue the combined-worktree gates without turning focused evidence into a full-suite claim:
+   - [x] pass a fresh `/opt/zig/zig build -Doptimize=Debug -j1` for the final v11 snapshot;
+   - [x] pass incremental CLI `10/10`, `DT_UNKNOWN` and non-cacheable safety `1/1 + 1/1`, split-module emitter `2/2`, local owned-pointer delta `1/1`, and anonymous-name collision `1/1`;
+   - [ ] finish the remaining artifact authorization, affected-selection, Referee, and cross-consumer reachability closures;
    - [x] `git diff --check`;
-   - [x] focused format check for `src/cli.zig` and `tests/cli_smoke.zig`;
-   - [ ] full `/opt/zig/zig fmt --check src tests` (currently reports 16 untouched pre-existing files) and the remaining focused authorization/affected/Referee gates.
+   - [x] focused format check for the related compiler/test files;
+   - [ ] obtain a clean full `/opt/zig/zig fmt --check src tests` result; no full-tree format pass is claimed. The stopped full emitter run (`83/119`) and incomplete `llvmc-test` are not passes.
 7. [ ] Continue the Phase 0 gaps in dependency order: P0.1 metrics, P0.2 verify key v2, remaining P0.3/P0.4/P0.5, P0.6 explainable cache miss, P0.7 formal baseline, then P0.8 backend profile.
 8. [ ] Continue Phase 1 only behind the Phase 0 gates: P1.1 SAB lazy body decode, finish P1.2 journal, P1.3 result-region merge, and P1.4 weighted physical-core-aware scheduling.
+9. [ ] Continue Phase 2 only after integrity/key gates: build a reusable ModuleIndex so each function miss no longer scans the full verified stream or rebuilds the complete declaration table; then design and prove an artifact-contract-preserving direct-object or bitcode-composition path before removing the extra whole-module bitcode emit; finally measure disabled/cold/hit P50/P95/RSS on at least 100 functions.
 
-Status boundary: Phase -1/P0 containment is landed, but the full Phase 0 and Phase 1 roadmaps are not complete. Dynamic depfile, whole-entry publication, compile single-flight, same-output publication, LLVM queue, and runtime archive keying have focused tests; the latest single-flight/output-stage delta still needs a fresh combined Debug build. Incremental-object integrity, failed-publication repair, remaining field-flip/corruption, and cross-consumer gates prevent a full Phase 0 claim. The current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
+Status boundary: Phase -1/P0 containment and the focused incremental-object integrity checkpoint are landed, but full P0.3, Phase 0, Phase 1, and Phase 2 are not complete. The final v11 snapshot has a fresh Debug build and the named Linux focused gates only. A cold miss remains approximately `O(F·I + F²)`, with per-miss verified-stream scans, a complete declaration table, and a final whole-module bitcode emit. Key v8 is not complete alpha-normalization, and the tested `DT_UNKNOWN` symlink rejection is not TOCTOU-hard path authorization. Linux requires PATH-resolved `objcopy`; macOS/Windows localization remains natively unverified. Failure injection, crash recovery, cross-process/cross-platform behavior, complete tool identity keying, ModuleIndex, formal performance measurements, failed-publication repair, remaining corruption cases, and cross-consumer gates remain. The current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
 
 ## Active objective: macOS / Windows portability
 
@@ -88,18 +92,23 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - keep the native workflow on reviewed portable gates and outside Linux-only aggregate/runtime steps;
    - define x86_64/arm64 jobs with Zig 0.14.1, SHA-pinned LLVM 14 bottles, isolated compiler/static-runtime builds, architecture/linkage validation, and staged compiler/package smoke;
    - validate on Linux with contract `3/3`, YAML/actionlint and shell parsing, `portability-check` `30/30`, `test-portable` `9/9` steps and `49/49` tests, plus x86_64/aarch64 static-runtime builds `4/4` each with matching Mach-O archive members.
-10. [ ] Execute both macOS workflow jobs and record native L0/L1 plus basic/Darwin runtime results; until then the workflow and Linux cross evidence are neither macOS native evidence nor an L2 claim.
+10. [ ] Execute both macOS workflow jobs and record native L0/L1 plus basic/Darwin/Darwin-socket runtime results; until then the workflow and Linux cross evidence are neither macOS native evidence nor an L2 claim.
 11. [x] Define and wire the shared basic and Darwin runtime gates:
    - link the production static runtime and a target-built dynamic-library fixture rather than a mock runtime;
    - cover handle ownership, fs/dir/metadata, env/time, threads, exact small-output process capture, and dynamic loading in `test-runtime-basic`, with raw timestamps and waitpid-path behavior in `test-runtime-darwin`;
    - wire macOS to both gates and Windows to the shared basic gate, with explicit native OS/architecture guards that fail rather than skip;
    - validate Linux native basic `6/6`, `portability-check` `40/40`, `test-portable` `9/9` steps and `49/49` tests, contracts `3/3` and `4/4`, dual-architecture Mach-O links, and an x86_64 PE/DLL cross link without claiming native macOS/Windows execution.
 12. [ ] Harden POSIX process capture: drain both pipes while the child runs to avoid wait-before-drain deadlock, and loop beyond the current one-shot 8192-byte read per stream.
-13. [ ] Platformize Darwin sockets and add TCP/UDP/DNS/pathname-UDS tests plus stable unsupported assertions for Linux-only facilities.
+13. [x] Platformize Darwin sockets and define the native socket gate:
+   - route initialized-length socket option calls through the target system ABI and use Darwin/Linux constants for TTL/hop limit, multicast, keepalive, `SO.TYPE`, and `SO.ACCEPTCONN`;
+   - fix Darwin pathname UDS NUL/length handling and make abstract UDS, PASSCRED/peer credentials, QUICKACK/DEFER_ACCEPT, epoll, pidfd, and netx deterministically unsupported with cleared outputs;
+   - link the production runtime into a DNS/TCP/UDP/IPv6-hop/pathname-UDS/socket-option C contract and wire its native run step into both macOS jobs;
+   - pass Linux socket `7/7`, runtime `74/74`, portable runtime `19/19`, portability `42/42`, portable suite `9/9` steps and `49/49` tests, ABI `11/11`, macOS CI contract `3/3`, and x86_64/aarch64 Darwin warnings-as-errors compile plus production Mach-O link `4/4` each;
+   - retain the evidence boundary: no macOS native run exists yet, and multicast join/leave remains cross-compile/system-header evidence only.
 14. [ ] Implement Darwin winsize and native PTY raw-mode tests.
 15. [ ] Finish native `.dll`/`.dylib` plugin, daemon Unix-socket, PowerShell/macOS installer, archive, and release smoke.
 
-Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture.
+Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket contract has not run natively, and its multicast join/leave paths remain uncovered.
 
 Commit rule: commit each coherent, verified portability batch promptly. Do not stage unrelated concurrent worktree changes.
 

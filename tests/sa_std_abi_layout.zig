@@ -217,9 +217,21 @@ test "64-bit desktop C and Zig v1 struct layouts remain stable" {
     try expectOffset(c.SaRegexMatch, zig_abi.SaRegexMatch, "groups", 8);
 }
 
-test "network declarations preserve fallible and keepalive contracts" {
+test "network constants and declarations preserve v1 contracts" {
+    try std.testing.expectEqual(@as(u32, 0), c.SA_NET_AF_UNSPEC);
+    try std.testing.expectEqual(@as(u32, 4), c.SA_NET_AF_IPV4);
+    try std.testing.expectEqual(@as(u32, 6), c.SA_NET_AF_IPV6);
+    try std.testing.expectEqual(@as(u32, 2), c.SA_NET_AF_INET);
+    try std.testing.expectEqual(@as(u32, 10), c.SA_NET_AF_INET6);
+    try std.testing.expectEqual(@as(u32, 0), c.SA_NET_UNIX_ADDR_UNNAMED);
+    try std.testing.expectEqual(@as(u32, 1), c.SA_NET_UNIX_ADDR_PATHNAME);
+    try std.testing.expectEqual(@as(u32, 2), c.SA_NET_UNIX_ADDR_ABSTRACT);
+
     const addr_free = @typeInfo(@TypeOf(c.sa_net_addr_free)).@"fn";
+    const unix_addr_free = @typeInfo(@TypeOf(c.sa_net_unix_addr_free)).@"fn";
     try std.testing.expect(addr_free.return_type.? == c.sa_std_fallible_i32);
+    try std.testing.expect(unix_addr_free.return_type.? == c.sa_std_fallible_i32);
+    try std.testing.expectEqual(@as(usize, 1), unix_addr_free.params.len);
 
     try std.testing.expect(@hasDecl(c, "sa_std_net_tcp_stream_set_keepalive"));
     try std.testing.expect(@hasDecl(c, "sa_std_net_tcp_stream_set_keepalive_params"));

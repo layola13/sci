@@ -21,6 +21,16 @@ extern "C" {
 #define SA_STD_ERR_TRUNCATED 9
 #define SA_STD_ERR_UNKNOWN 127
 
+#define SA_NET_AF_UNSPEC 0u
+#define SA_NET_AF_IPV4 4u
+#define SA_NET_AF_IPV6 6u
+#define SA_NET_AF_INET 2u
+#define SA_NET_AF_INET6 10u
+
+#define SA_NET_UNIX_ADDR_UNNAMED 0u
+#define SA_NET_UNIX_ADDR_PATHNAME 1u
+#define SA_NET_UNIX_ADDR_ABSTRACT 2u
+
 #define SA_STD_STDIN 1ull
 #define SA_STD_STDOUT 2ull
 #define SA_STD_STDERR 3ull
@@ -561,7 +571,7 @@ uint8_t *sa_net_unix_addr_path_ptr(uint64_t addr_handle);
 uint64_t sa_net_unix_addr_path_len(uint64_t addr_handle);
 uint8_t *sa_net_unix_addr_abstract_ptr(uint64_t addr_handle);
 uint64_t sa_net_unix_addr_abstract_len(uint64_t addr_handle);
-int32_t sa_net_unix_addr_free(uint64_t addr_handle);
+sa_std_fallible_i32 sa_net_unix_addr_free(uint64_t addr_handle);
 int32_t sa_net_ipv4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_addr);
 int32_t sa_net_socket_addr_v4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_socket_addr);
 
