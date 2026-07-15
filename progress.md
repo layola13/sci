@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating bit-count macros
+
+- Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `count_ones`, `count_zeros`, `leading_zeros`, and `trailing_zeros` forwarding methods under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_COUNT_ONES`, `*_COUNT_ZEROS`, `*_LEADING_ZEROS`, and `*_TRAILING_ZEROS` helpers for `WrappingU64`, `WrappingU32`, `WrappingI64`, `SaturatingU64`, and `SaturatingI64`.
+- The helper surface returns direct scalar counts from the inner primitive value. `WrappingU32` masks to 32 bits before counting, including Rust-shaped zero-input leading/trailing counts of 32; signed `i64` wrappers preserve the current two's-complement bit-pattern behavior through existing primitive helpers. It does not claim generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, feature-gate modeling, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_bit_count_macro_surface.sa` - 1 test (panic ID 10617) expanding all 20 new macros and covering unsigned, signed, zero-input, and 32-bit masking behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_bit_count_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10618+.
+
 ## Completed: 2026-07-15 NonZero count_ones NonZeroU32 macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `count_ones` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.

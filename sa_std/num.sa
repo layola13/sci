@@ -8942,6 +8942,30 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     EXPAND WRAPPING_U64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
+[MACRO] WRAPPING_U64_COUNT_ONES %out_count, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_count_value_%out_count, %src_ptr
+    EXPAND NUM_U64_COUNT_ONES %out_count, __wrapping_u64_count_value_%out_count
+    !__wrapping_u64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_COUNT_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_count_value_%out_count, %src_ptr
+    EXPAND NUM_U64_COUNT_ZEROS %out_count, __wrapping_u64_count_value_%out_count
+    !__wrapping_u64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_LEADING_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_lz_value_%out_count, %src_ptr
+    EXPAND NUM_U64_LEADING_ZEROS %out_count, __wrapping_u64_lz_value_%out_count
+    !__wrapping_u64_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_TRAILING_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_tz_value_%out_count, %src_ptr
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, __wrapping_u64_tz_value_%out_count
+    !__wrapping_u64_tz_value_%out_count
+[END_MACRO]
+
 [MACRO] WRAPPING_U32_NEW %out_ptr, %value
     store %out_ptr+WrappingU32_value, %value as u64
 [END_MACRO]
@@ -8968,6 +8992,52 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     EXPAND WRAPPING_U32_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
+[MACRO] WRAPPING_U32_COUNT_ONES %out_count, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_count_raw_%out_count, %src_ptr
+    __wrapping_u32_count_value_%out_count = and __wrapping_u32_count_raw_%out_count, NUM_U32_MAX
+    EXPAND NUM_U64_COUNT_ONES %out_count, __wrapping_u32_count_value_%out_count
+    !__wrapping_u32_count_value_%out_count
+    !__wrapping_u32_count_raw_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_COUNT_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_U32_COUNT_ONES __wrapping_u32_count_ones_%out_count, %src_ptr
+    %out_count = sub NUM_U32_BITS, __wrapping_u32_count_ones_%out_count
+    !__wrapping_u32_count_ones_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_LEADING_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_lz_raw_%out_count, %src_ptr
+    __wrapping_u32_lz_value_%out_count = and __wrapping_u32_lz_raw_%out_count, NUM_U32_MAX
+    EXPAND NUM_U64_LEADING_ZEROS __wrapping_u32_lz64_%out_count, __wrapping_u32_lz_value_%out_count
+    %out_count = sub __wrapping_u32_lz64_%out_count, 32
+    !__wrapping_u32_lz64_%out_count
+    !__wrapping_u32_lz_value_%out_count
+    !__wrapping_u32_lz_raw_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_TRAILING_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_tz_raw_%out_count, %src_ptr
+    __wrapping_u32_tz_value_%out_count = and __wrapping_u32_tz_raw_%out_count, NUM_U32_MAX
+    __wrapping_u32_tz_zero_%out_count = eq __wrapping_u32_tz_value_%out_count, 0
+    br __wrapping_u32_tz_zero_%out_count -> L_WRAPPING_U32_TRAILING_ZEROS_ZERO_%out_count, L_WRAPPING_U32_TRAILING_ZEROS_BODY_%out_count
+
+L_WRAPPING_U32_TRAILING_ZEROS_BODY_%out_count:
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, __wrapping_u32_tz_value_%out_count
+    !__wrapping_u32_tz_zero_%out_count
+    !__wrapping_u32_tz_value_%out_count
+    !__wrapping_u32_tz_raw_%out_count
+    jmp L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count
+
+L_WRAPPING_U32_TRAILING_ZEROS_ZERO_%out_count:
+    %out_count = add 0, NUM_U32_BITS
+    !__wrapping_u32_tz_zero_%out_count
+    !__wrapping_u32_tz_value_%out_count
+    !__wrapping_u32_tz_raw_%out_count
+
+L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
+[END_MACRO]
+
 [MACRO] WRAPPING_I64_NEW %out_ptr, %value
     store %out_ptr+WrappingI64_value, %value as u64
 [END_MACRO]
@@ -8992,6 +9062,30 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
 
 [MACRO] WRAPPING_I64_CLONE_FROM %dst_ptr, %src_ptr
     EXPAND WRAPPING_I64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_COUNT_ONES %out_count, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_count_value_%out_count, %src_ptr
+    EXPAND NUM_I64_COUNT_ONES %out_count, __wrapping_i64_count_value_%out_count
+    !__wrapping_i64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_COUNT_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_count_value_%out_count, %src_ptr
+    EXPAND NUM_I64_COUNT_ZEROS %out_count, __wrapping_i64_count_value_%out_count
+    !__wrapping_i64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_LEADING_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_lz_value_%out_count, %src_ptr
+    EXPAND NUM_I64_LEADING_ZEROS %out_count, __wrapping_i64_lz_value_%out_count
+    !__wrapping_i64_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_TRAILING_ZEROS %out_count, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_tz_value_%out_count, %src_ptr
+    EXPAND NUM_I64_TRAILING_ZEROS %out_count, __wrapping_i64_tz_value_%out_count
+    !__wrapping_i64_tz_value_%out_count
 [END_MACRO]
 
 [MACRO] SATURATING_U64_NEW %out_ptr, %value
@@ -9024,6 +9118,30 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     EXPAND SATURATING_U64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
+[MACRO] SATURATING_U64_COUNT_ONES %out_count, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_count_value_%out_count, %src_ptr
+    EXPAND NUM_U64_COUNT_ONES %out_count, __saturating_u64_count_value_%out_count
+    !__saturating_u64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_U64_COUNT_ZEROS %out_count, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_count_value_%out_count, %src_ptr
+    EXPAND NUM_U64_COUNT_ZEROS %out_count, __saturating_u64_count_value_%out_count
+    !__saturating_u64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_U64_LEADING_ZEROS %out_count, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_lz_value_%out_count, %src_ptr
+    EXPAND NUM_U64_LEADING_ZEROS %out_count, __saturating_u64_lz_value_%out_count
+    !__saturating_u64_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_U64_TRAILING_ZEROS %out_count, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_tz_value_%out_count, %src_ptr
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, __saturating_u64_tz_value_%out_count
+    !__saturating_u64_tz_value_%out_count
+[END_MACRO]
+
 [MACRO] SATURATING_I64_NEW %out_ptr, %value
     store %out_ptr+SaturatingI64_value, %value as u64
 [END_MACRO]
@@ -9048,6 +9166,30 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
 
 [MACRO] SATURATING_I64_CLONE_FROM %dst_ptr, %src_ptr
     EXPAND SATURATING_I64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_COUNT_ONES %out_count, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_count_value_%out_count, %src_ptr
+    EXPAND NUM_I64_COUNT_ONES %out_count, __saturating_i64_count_value_%out_count
+    !__saturating_i64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_I64_COUNT_ZEROS %out_count, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_count_value_%out_count, %src_ptr
+    EXPAND NUM_I64_COUNT_ZEROS %out_count, __saturating_i64_count_value_%out_count
+    !__saturating_i64_count_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_I64_LEADING_ZEROS %out_count, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_lz_value_%out_count, %src_ptr
+    EXPAND NUM_I64_LEADING_ZEROS %out_count, __saturating_i64_lz_value_%out_count
+    !__saturating_i64_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_I64_TRAILING_ZEROS %out_count, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_tz_value_%out_count, %src_ptr
+    EXPAND NUM_I64_TRAILING_ZEROS %out_count, __saturating_i64_tz_value_%out_count
+    !__saturating_i64_tz_value_%out_count
 [END_MACRO]
 
 [MACRO] WRAPPING_U64_ADD %out_ptr, %lhs_ptr, %rhs_ptr
