@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 CStr/CString hash_one macros
+
+- Continued Rust `std::hash` / `std::ffi::{CStr,CString}` macro-surface parity, referencing Rust's local `core::ffi::CStr` and `alloc::ffi::CString` derived `Hash` storage shapes under `/home/vscode/projects/rust`.
+- `sa_std/ffi.sa`: added `DEFAULT_HASHER_WRITE_CSTR`, `CSTR_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_CSTR`, `RANDOM_STATE_HASH_ONE_CSTR`, `DEFAULT_HASHER_WRITE_CSTRING`, `CSTRING_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_CSTRING`, and `RANDOM_STATE_HASH_ONE_CSTRING`.
+- The helper surface models Rust's supportable backing-byte hashing shape for SA C strings by hashing bytes including the trailing NUL through the existing deterministic `u8` slice path. `CString` and `CStr` with the same bytes-with-NUL hash identically. It does not claim platform `c_char` signedness nuance, generic `Hash` trait dispatch, allocator/drop/lifetime semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_ffi_cstr_hash_one_macro_surface.sa` - 1 test (panic ID 10594) covering writer/direct equivalence, parity with `HASH_SLICE_U8` over bytes-with-NUL, distinction from bytes without NUL, equal-value stability, value sensitivity, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and matching `CStr`/`CString` hashes for the same bytes.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_ffi_cstr_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10595+.
+
 ## Completed: 2026-07-15 Instant/SystemTime hash_one macros
 
 - Continued Rust `std::hash` / `std::time::{Instant,SystemTime}` macro-surface parity, referencing Rust's local Unix `Timespec` derived `Hash` shape under `/home/vscode/projects/rust`.

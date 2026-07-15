@@ -3,6 +3,7 @@
 @import "core/slice.sa"
 @import "string.sai"
 @import "string.sa"
+@import "hash.sa"
 
 [MACRO] CSTR_FROM_PARTS_UNCHECKED %cstr_reg, %ptr_reg, %len_with_nul
     EXPAND SLICE_NEW %cstr_reg, %ptr_reg, %len_with_nul
@@ -450,6 +451,60 @@ L_CSTRING_FROM_NUL_END_%out_status:
     EXPAND CSTR_TO_STR %out_status, %out_slice, __cstring_to_str_cstr_%out_status
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_CSTR %hasher, %cstr_reg
+    __cstr_hash_bytes_%hasher = stack_alloc Slice_SIZE
+    EXPAND CSTR_TO_BYTES_WITH_NUL __cstr_hash_bytes_%hasher, %cstr_reg
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U8 %hasher, __cstr_hash_bytes_%hasher
+[END_MACRO]
+
+[MACRO] CSTR_HASH %out_hash, %cstr_reg
+    __cstr_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __cstr_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CSTR __cstr_hash_hasher_%out_hash, %cstr_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __cstr_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CSTR %out_hash, %builder, %cstr_reg
+    __build_hash_one_cstr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_cstr_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CSTR __build_hash_one_cstr_hasher_%out_hash, %cstr_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_cstr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CSTR %out_hash, %state, %cstr_reg
+    __random_state_hash_one_cstr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_cstr_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CSTR __random_state_hash_one_cstr_hasher_%out_hash, %cstr_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_cstr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_CSTRING %hasher, %cstring_reg
+    __cstring_hash_bytes_%hasher = stack_alloc Slice_SIZE
+    EXPAND CSTRING_AS_BYTES_WITH_NUL __cstring_hash_bytes_%hasher, %cstring_reg
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U8 %hasher, __cstring_hash_bytes_%hasher
+[END_MACRO]
+
+[MACRO] CSTRING_HASH %out_hash, %cstring_reg
+    __cstring_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __cstring_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CSTRING __cstring_hash_hasher_%out_hash, %cstring_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __cstring_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CSTRING %out_hash, %builder, %cstring_reg
+    __build_hash_one_cstring_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_cstring_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CSTRING __build_hash_one_cstring_hasher_%out_hash, %cstring_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_cstring_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CSTRING %out_hash, %state, %cstring_reg
+    __random_state_hash_one_cstring_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_cstring_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CSTRING __random_state_hash_one_cstring_hasher_%out_hash, %cstring_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_cstring_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] CSTRING_AS_PTR %out_ptr, %cstring_reg
     %out_ptr = load %cstring_reg+CString_ptr as ptr
 [END_MACRO]
@@ -529,4 +584,3 @@ L_CSTRING_FREE_AFTER_%cstring_reg:
     EXPAND CSTR_TO_BYTES __cstr_lossy_bytes_%out_string, %cstr_reg
     EXPAND STRING_BUF_FROM_UTF8_LOSSY %out_string, __cstr_lossy_bytes_%out_string
 [END_MACRO]
-
