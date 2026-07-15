@@ -4319,6 +4319,160 @@ L_NUM_I32_SIGN_EXTEND_END_%out_value:
     EXPAND NUM_I64_CAST_UNSIGNED %out_value, %value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_SATURATING_CAST_SIGNED %out_value, %value, %mask, %signed_max
+    __num_usat_cast_masked_%out_value = and %value, %mask
+    __num_usat_cast_in_range_%out_value = ule __num_usat_cast_masked_%out_value, %signed_max
+    br __num_usat_cast_in_range_%out_value -> L_NUM_UNSIGNED_SAT_CAST_VALUE_%out_value, L_NUM_UNSIGNED_SAT_CAST_MAX_%out_value
+
+L_NUM_UNSIGNED_SAT_CAST_VALUE_%out_value:
+    %out_value = add __num_usat_cast_masked_%out_value, 0
+    !__num_usat_cast_in_range_%out_value
+    !__num_usat_cast_masked_%out_value
+    jmp L_NUM_UNSIGNED_SAT_CAST_END_%out_value
+
+L_NUM_UNSIGNED_SAT_CAST_MAX_%out_value:
+    %out_value = add 0, %signed_max
+    !__num_usat_cast_in_range_%out_value
+    !__num_usat_cast_masked_%out_value
+
+L_NUM_UNSIGNED_SAT_CAST_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_CHECKED_CAST_SIGNED %out_ok, %out_value, %value, %mask, %signed_max
+    __num_uchecked_cast_masked_%out_ok = and %value, %mask
+    __num_uchecked_cast_in_range_%out_ok = ule __num_uchecked_cast_masked_%out_ok, %signed_max
+    br __num_uchecked_cast_in_range_%out_ok -> L_NUM_UNSIGNED_CHECKED_CAST_SOME_%out_ok, L_NUM_UNSIGNED_CHECKED_CAST_NONE_%out_ok
+
+L_NUM_UNSIGNED_CHECKED_CAST_SOME_%out_ok:
+    %out_value = add __num_uchecked_cast_masked_%out_ok, 0
+    %out_ok = add 0, 1
+    !__num_uchecked_cast_in_range_%out_ok
+    !__num_uchecked_cast_masked_%out_ok
+    jmp L_NUM_UNSIGNED_CHECKED_CAST_END_%out_ok
+
+L_NUM_UNSIGNED_CHECKED_CAST_NONE_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_uchecked_cast_in_range_%out_ok
+    !__num_uchecked_cast_masked_%out_ok
+
+L_NUM_UNSIGNED_CHECKED_CAST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_SATURATING_CAST_UNSIGNED %out_value, %value, %mask
+    __num_isat_cast_nonnegative_%out_value = sge %value, 0
+    br __num_isat_cast_nonnegative_%out_value -> L_NUM_SIGNED_SAT_CAST_VALUE_%out_value, L_NUM_SIGNED_SAT_CAST_ZERO_%out_value
+
+L_NUM_SIGNED_SAT_CAST_VALUE_%out_value:
+    %out_value = and %value, %mask
+    !__num_isat_cast_nonnegative_%out_value
+    jmp L_NUM_SIGNED_SAT_CAST_END_%out_value
+
+L_NUM_SIGNED_SAT_CAST_ZERO_%out_value:
+    %out_value = add 0, 0
+    !__num_isat_cast_nonnegative_%out_value
+
+L_NUM_SIGNED_SAT_CAST_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value, %mask
+    __num_ichecked_cast_nonnegative_%out_ok = sge %value, 0
+    br __num_ichecked_cast_nonnegative_%out_ok -> L_NUM_SIGNED_CHECKED_CAST_SOME_%out_ok, L_NUM_SIGNED_CHECKED_CAST_NONE_%out_ok
+
+L_NUM_SIGNED_CHECKED_CAST_SOME_%out_ok:
+    %out_value = and %value, %mask
+    %out_ok = add 0, 1
+    !__num_ichecked_cast_nonnegative_%out_ok
+    jmp L_NUM_SIGNED_CHECKED_CAST_END_%out_ok
+
+L_NUM_SIGNED_CHECKED_CAST_NONE_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_ichecked_cast_nonnegative_%out_ok
+
+L_NUM_SIGNED_CHECKED_CAST_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U8_SATURATING_CAST_SIGNED %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_SATURATING_CAST_SIGNED %out_value, %value, NUM_U8_MAX, NUM_I8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_SATURATING_CAST_SIGNED %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_SATURATING_CAST_SIGNED %out_value, %value, NUM_U16_MAX, NUM_I16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_SATURATING_CAST_SIGNED %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_SATURATING_CAST_SIGNED %out_value, %value, NUM_U32_MAX, NUM_I32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_SATURATING_CAST_SIGNED %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_SATURATING_CAST_SIGNED %out_value, %value, NUM_U64_MAX, NUM_I64_MAX
+[END_MACRO]
+
+[MACRO] NUM_USIZE_SATURATING_CAST_SIGNED %out_value, %value
+    EXPAND NUM_U64_SATURATING_CAST_SIGNED %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_U8_CHECKED_CAST_SIGNED %out_ok, %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_CHECKED_CAST_SIGNED %out_ok, %out_value, %value, NUM_U8_MAX, NUM_I8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_CAST_SIGNED %out_ok, %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_CHECKED_CAST_SIGNED %out_ok, %out_value, %value, NUM_U16_MAX, NUM_I16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_CAST_SIGNED %out_ok, %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_CHECKED_CAST_SIGNED %out_ok, %out_value, %value, NUM_U32_MAX, NUM_I32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_CHECKED_CAST_SIGNED %out_ok, %out_value, %value
+    EXPAND NUM_UNSIGNED_WIDTH_CHECKED_CAST_SIGNED %out_ok, %out_value, %value, NUM_U64_MAX, NUM_I64_MAX
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CHECKED_CAST_SIGNED %out_ok, %out_value, %value
+    EXPAND NUM_U64_CHECKED_CAST_SIGNED %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_SATURATING_CAST_UNSIGNED %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_SATURATING_CAST_UNSIGNED %out_value, %value, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_SATURATING_CAST_UNSIGNED %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_SATURATING_CAST_UNSIGNED %out_value, %value, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_SATURATING_CAST_UNSIGNED %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_SATURATING_CAST_UNSIGNED %out_value, %value, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_I64_SATURATING_CAST_UNSIGNED %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_SATURATING_CAST_UNSIGNED %out_value, %value, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_SATURATING_CAST_UNSIGNED %out_value, %value
+    EXPAND NUM_I64_SATURATING_CAST_UNSIGNED %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_I64_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value
+    EXPAND NUM_SIGNED_WIDTH_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value
+    EXPAND NUM_I64_CHECKED_CAST_UNSIGNED %out_ok, %out_value, %value
+[END_MACRO]
+
 [MACRO] NUM_I8_IS_POSITIVE %out_bool, %value
     %out_bool = sgt %value, 0
 [END_MACRO]

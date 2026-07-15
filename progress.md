@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 primitive checked/saturating sign cast macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local nightly `integer_cast_extras` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_CHECKED_CAST_SIGNED` and `*_SATURATING_CAST_SIGNED` for `U8`, `U16`, `U32`, `U64`, and `USIZE`; added `*_CHECKED_CAST_UNSIGNED` and `*_SATURATING_CAST_UNSIGNED` for `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Unsigned checked-to-signed helpers return `ok=0/out=0` above the same-width signed maximum, while saturating helpers clamp there. Signed checked-to-unsigned helpers return `ok=0/out=0` for negative values, while saturating helpers clamp negatives to zero. It does not claim strict panic casts, `u128` / `i128`, Rust Option object layout, feature-gate enforcement, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_checked_saturating_sign_cast_macro_surface.sa` - 1 test (panic ID 10629) expanding all 20 public helpers and covering checked success/failure plus saturating pass-through/clamp behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_saturating_sign_cast_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10630+.
+
 ## Completed: 2026-07-15 primitive same-width sign cast macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `cast_signed` / `cast_unsigned` methods under `/home/vscode/projects/rust`.
