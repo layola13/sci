@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash integer primitive macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local primitive `impl_write!` `Hash` implementations under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `HASH_U8`, `HASH_U16`, `HASH_U32`, `HASH_I8`, `HASH_I16`, `HASH_I32`, `HASH_I64`, and `HASH_ISIZE`.
+- The helper surface uses the existing concrete `DEFAULT_HASHER_WRITE_*` paths. Signed helpers preserve the current SA forwarding shape to their same-width unsigned/register-sized writers; this does not claim generic `Hash` trait dispatch, endian-exact byte serialization, `u128` / `i128`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_integer_primitives_macro_surface.sa` - 1 test (panic ID 10560) covering equivalence with each existing writer, signed/unsigned forwarding consistency on this SA target, distinct values, and direct one-shot hashing.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_integer_primitives_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10561+.
+
 ## Completed: 2026-07-15 Hash usize macro
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local primitive `Hash` implementations under `/home/vscode/projects/rust`.

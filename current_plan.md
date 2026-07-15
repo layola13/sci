@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash integer primitives)
+
+Completed supportable integer primitive hash macros:
+- `HASH_U8`, `HASH_U16`, `HASH_U32`: direct one-shot hash helpers for Rust unsigned primitive `Hash` lowering over the existing `DEFAULT_HASHER_WRITE_U*` paths.
+- `HASH_I8`, `HASH_I16`, `HASH_I32`, `HASH_I64`, `HASH_ISIZE`: direct one-shot hash helpers for Rust signed primitive `Hash` lowering over the existing `DEFAULT_HASHER_WRITE_I*` / `WRITE_ISIZE` paths.
+- This mirrors Rust's primitive `impl_write!` `Hash` dispatch shape for the supported deterministic SA hasher surface, without exposing generic `Hash` dispatch, endian-exact byte serialization, `u128` / `i128`, or SipHash-compatible output.
+- Test file `std_hash_integer_primitives_macro_surface.sa` (panic ID 10560).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_integer_primitives_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10561+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash usize)
 
 Completed supportable usize hash macro:

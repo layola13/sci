@@ -183,11 +183,67 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u64_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] HASH_U32 %out_hash, %value
+    __hash_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u32_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U32 __hash_u32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_U16 %out_hash, %value
+    __hash_u16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u16_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U16 __hash_u16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_U8 %out_hash, %value
+    __hash_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u8_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U8 __hash_u8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u8_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] HASH_USIZE %out_hash, %value
     __hash_usize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND DEFAULT_HASHER_NEW __hash_usize_hasher_%out_hash
     EXPAND DEFAULT_HASHER_WRITE_USIZE __hash_usize_hasher_%out_hash, %value
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_usize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I64 %out_hash, %value
+    __hash_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I64 __hash_i64_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I32 %out_hash, %value
+    __hash_i32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i32_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I32 __hash_i32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I16 %out_hash, %value
+    __hash_i16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i16_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I16 __hash_i16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I8 %out_hash, %value
+    __hash_i8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i8_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I8 __hash_i8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_ISIZE %out_hash, %value
+    __hash_isize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_isize_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_ISIZE __hash_isize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_isize_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] HASH_BOOL %out_hash, %value
