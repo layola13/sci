@@ -89,6 +89,10 @@
     !__hasher_ptr_bits_%hasher
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_CONST_PTR %hasher, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_PTR %hasher, %ptr
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_MUT_PTR %hasher, %ptr
     EXPAND DEFAULT_HASHER_WRITE_PTR %hasher, %ptr
 [END_MACRO]
@@ -389,6 +393,13 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_ptr_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] HASH_CONST_PTR_VALUE %out_hash, %ptr
+    __hash_const_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_const_ptr_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CONST_PTR __hash_const_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_const_ptr_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] HASH_MUT_PTR_VALUE %out_hash, %ptr
     __hash_mut_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND DEFAULT_HASHER_NEW __hash_mut_ptr_hasher_%out_hash
@@ -649,6 +660,14 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ptr_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CONST_PTR_VALUE %out_hash, %builder, %ptr
+    __build_hash_one_const_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_const_ptr_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CONST_PTR __build_hash_one_const_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __build_hash_one_const_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_const_ptr_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_MUT_PTR_VALUE %out_hash, %builder, %ptr
     __build_hash_one_mut_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_mut_ptr_hasher_%out_hash, %builder
@@ -898,6 +917,14 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_WRITE_PTR __random_state_hash_one_ptr_hasher_%out_hash, %ptr
     EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_ptr_hasher_%out_hash, 0
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CONST_PTR_VALUE %out_hash, %state, %ptr
+    __random_state_hash_one_const_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_const_ptr_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CONST_PTR __random_state_hash_one_const_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_const_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_const_ptr_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] RANDOM_STATE_HASH_ONE_MUT_PTR_VALUE %out_hash, %state, %ptr

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash const raw pointer macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for *const T` implementation under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `DEFAULT_HASHER_WRITE_CONST_PTR`, `HASH_CONST_PTR_VALUE`, `BUILD_HASHER_DEFAULT_HASH_ONE_CONST_PTR_VALUE`, and `RANDOM_STATE_HASH_ONE_CONST_PTR_VALUE`.
+- The helper surface models sized const raw pointer hashing by forwarding the pointer address through the existing deterministic pointer writer and using unit metadata as the no-op sized-pointee metadata shape. It does not claim unsized pointer metadata, pointer provenance/lifetime semantics, generic raw-pointer trait dispatch, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_const_ptr_macro_surface.sa` - 1 test (panic ID 10578) covering writer/direct equivalence with the existing pointer hash, address sensitivity, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_const_ptr_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10579+.
+
 ## Completed: 2026-07-15 Hash mutable raw pointer macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for *mut T` implementation under `/home/vscode/projects/rust`.
