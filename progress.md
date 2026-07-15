@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 unsigned isqrt macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive unsigned `isqrt` and unsigned `NonZero<T>::isqrt` methods under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_ISQRT`, `NUM_U16_ISQRT`, `NUM_U32_ISQRT`, `NUM_U64_ISQRT`, and `NUM_USIZE_ISQRT`; added `NONZERO_U8_ISQRT`, `NONZERO_U16_ISQRT`, `NONZERO_U32_ISQRT`, `NONZERO_U64_ISQRT`, and `NONZERO_USIZE_ISQRT`.
+- The primitive helper surface returns the floor integer square root and avoids multiplication overflow during the `u64` search. Narrow unsigned helpers mask to their declared Rust width before delegation, and unsigned NonZero wrappers write a concrete nonzero output wrapper. It does not claim signed `isqrt`, generic `NonZero<T>`, `u128`, Rust feature-gate behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_isqrt_macro_surface.sa` - 1 test (panic ID 10626) expanding all 10 new macros and covering zero, ordinary values, max-width primitive results, narrow masks, and NonZero output values.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10627+.
+
 ## Completed: 2026-07-15 NonZero same-width sign cast macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `cast_signed` / `cast_unsigned` same-width bit-pattern methods under `/home/vscode/projects/rust`.

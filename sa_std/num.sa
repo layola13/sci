@@ -500,6 +500,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     !__nonzero_u64_div_ceil_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U64_ISQRT %out_nz, %nz
+    __nonzero_u64_isqrt_value_%out_nz = load %nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_ISQRT __nonzero_u64_isqrt_result_%out_nz, __nonzero_u64_isqrt_value_%out_nz
+    store %out_nz+NonZeroU64_value, __nonzero_u64_isqrt_result_%out_nz as u64
+    !__nonzero_u64_isqrt_result_%out_nz
+    !__nonzero_u64_isqrt_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U32_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
 [END_MACRO]
@@ -558,6 +566,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     !__nonzero_u32_div_ceil_value_%out_nz
     !__nonzero_u32_div_ceil_right_%out_nz
     !__nonzero_u32_div_ceil_left_%out_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_ISQRT %out_nz, %nz
+    __nonzero_u32_isqrt_value_%out_nz = load %nz+NonZeroU32_value as u64
+    EXPAND NUM_U32_ISQRT __nonzero_u32_isqrt_result_%out_nz, __nonzero_u32_isqrt_value_%out_nz
+    store %out_nz+NonZeroU32_value, __nonzero_u32_isqrt_result_%out_nz as u64
+    !__nonzero_u32_isqrt_result_%out_nz
+    !__nonzero_u32_isqrt_value_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_U16_EQ %out_bool, %left_nz, %right_nz
@@ -620,6 +636,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     !__nonzero_u16_div_ceil_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U16_ISQRT %out_nz, %nz
+    __nonzero_u16_isqrt_value_%out_nz = load %nz+NonZeroU16_value as u64
+    EXPAND NUM_U16_ISQRT __nonzero_u16_isqrt_result_%out_nz, __nonzero_u16_isqrt_value_%out_nz
+    store %out_nz+NonZeroU16_value, __nonzero_u16_isqrt_result_%out_nz as u64
+    !__nonzero_u16_isqrt_result_%out_nz
+    !__nonzero_u16_isqrt_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U8_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
 [END_MACRO]
@@ -680,6 +704,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     !__nonzero_u8_div_ceil_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U8_ISQRT %out_nz, %nz
+    __nonzero_u8_isqrt_value_%out_nz = load %nz+NonZeroU8_value as u64
+    EXPAND NUM_U8_ISQRT __nonzero_u8_isqrt_result_%out_nz, __nonzero_u8_isqrt_value_%out_nz
+    store %out_nz+NonZeroU8_value, __nonzero_u8_isqrt_result_%out_nz as u64
+    !__nonzero_u8_isqrt_result_%out_nz
+    !__nonzero_u8_isqrt_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_USIZE_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
 [END_MACRO]
@@ -726,6 +758,10 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
 
 [MACRO] NONZERO_USIZE_DIV_CEIL %out_nz, %left_nz, %right_nz
     EXPAND NONZERO_U64_DIV_CEIL %out_nz, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_ISQRT %out_nz, %nz
+    EXPAND NONZERO_U64_ISQRT %out_nz, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_I64_EQ %out_bool, %left_nz, %right_nz
@@ -1760,6 +1796,71 @@ L_NUM_U64_ABS_DIFF_END_%out_value:
     !__num_mid_half_%out_value
     !__num_mid_xor_%out_value
     !__num_mid_and_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_ISQRT %out_value, %value
+    __num_u64_isqrt_zero_%out_value = eq %value, 0
+    br __num_u64_isqrt_zero_%out_value -> L_NUM_U64_ISQRT_ZERO_%out_value, L_NUM_U64_ISQRT_INIT_%out_value
+
+L_NUM_U64_ISQRT_INIT_%out_value:
+    __num_u64_isqrt_lo_slot_%out_value = stack_alloc 8
+    __num_u64_isqrt_hi_slot_%out_value = stack_alloc 8
+    __num_u64_isqrt_hi_init_%out_value = shl 1, 32
+    store __num_u64_isqrt_lo_slot_%out_value+0, 1 as u64
+    store __num_u64_isqrt_hi_slot_%out_value+0, __num_u64_isqrt_hi_init_%out_value as u64
+    !__num_u64_isqrt_hi_init_%out_value
+    !__num_u64_isqrt_zero_%out_value
+    jmp L_NUM_U64_ISQRT_HEAD_%out_value
+
+L_NUM_U64_ISQRT_HEAD_%out_value:
+    __num_u64_isqrt_lo_%out_value = load __num_u64_isqrt_lo_slot_%out_value+0 as u64
+    __num_u64_isqrt_hi_%out_value = load __num_u64_isqrt_hi_slot_%out_value+0 as u64
+    __num_u64_isqrt_more_%out_value = ult __num_u64_isqrt_lo_%out_value, __num_u64_isqrt_hi_%out_value
+    br __num_u64_isqrt_more_%out_value -> L_NUM_U64_ISQRT_BODY_%out_value, L_NUM_U64_ISQRT_DONE_%out_value
+
+L_NUM_U64_ISQRT_BODY_%out_value:
+    __num_u64_isqrt_sum_%out_value = add __num_u64_isqrt_lo_%out_value, __num_u64_isqrt_hi_%out_value
+    __num_u64_isqrt_mid_%out_value = lshr __num_u64_isqrt_sum_%out_value, 1
+    __num_u64_isqrt_quot_%out_value = udiv %value, __num_u64_isqrt_mid_%out_value
+    __num_u64_isqrt_keep_mid_%out_value = ule __num_u64_isqrt_mid_%out_value, __num_u64_isqrt_quot_%out_value
+    br __num_u64_isqrt_keep_mid_%out_value -> L_NUM_U64_ISQRT_KEEP_%out_value, L_NUM_U64_ISQRT_DROP_%out_value
+
+L_NUM_U64_ISQRT_KEEP_%out_value:
+    __num_u64_isqrt_next_lo_%out_value = add __num_u64_isqrt_mid_%out_value, 1
+    store __num_u64_isqrt_lo_slot_%out_value+0, __num_u64_isqrt_next_lo_%out_value as u64
+    !__num_u64_isqrt_next_lo_%out_value
+    !__num_u64_isqrt_keep_mid_%out_value
+    !__num_u64_isqrt_quot_%out_value
+    !__num_u64_isqrt_mid_%out_value
+    !__num_u64_isqrt_sum_%out_value
+    !__num_u64_isqrt_more_%out_value
+    !__num_u64_isqrt_hi_%out_value
+    !__num_u64_isqrt_lo_%out_value
+    jmp L_NUM_U64_ISQRT_HEAD_%out_value
+
+L_NUM_U64_ISQRT_DROP_%out_value:
+    store __num_u64_isqrt_hi_slot_%out_value+0, __num_u64_isqrt_mid_%out_value as u64
+    !__num_u64_isqrt_keep_mid_%out_value
+    !__num_u64_isqrt_quot_%out_value
+    !__num_u64_isqrt_mid_%out_value
+    !__num_u64_isqrt_sum_%out_value
+    !__num_u64_isqrt_more_%out_value
+    !__num_u64_isqrt_hi_%out_value
+    !__num_u64_isqrt_lo_%out_value
+    jmp L_NUM_U64_ISQRT_HEAD_%out_value
+
+L_NUM_U64_ISQRT_DONE_%out_value:
+    %out_value = sub __num_u64_isqrt_lo_%out_value, 1
+    !__num_u64_isqrt_more_%out_value
+    !__num_u64_isqrt_hi_%out_value
+    !__num_u64_isqrt_lo_%out_value
+    jmp L_NUM_U64_ISQRT_END_%out_value
+
+L_NUM_U64_ISQRT_ZERO_%out_value:
+    %out_value = add 0, 0
+    !__num_u64_isqrt_zero_%out_value
+
+L_NUM_U64_ISQRT_END_%out_value:
 [END_MACRO]
 
 [MACRO] NUM_U64_ROTATE_LEFT %out_value, %value, %shift
@@ -5760,6 +5861,24 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U64_MIDPOINT %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_U8_ISQRT %out_value, %value
+    __num_u8_isqrt_value_%out_value = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_ISQRT %out_value, __num_u8_isqrt_value_%out_value
+    !__num_u8_isqrt_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_ISQRT %out_value, %value
+    __num_u16_isqrt_value_%out_value = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_ISQRT %out_value, __num_u16_isqrt_value_%out_value
+    !__num_u16_isqrt_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_ISQRT %out_value, %value
+    __num_u32_isqrt_value_%out_value = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_ISQRT %out_value, __num_u32_isqrt_value_%out_value
+    !__num_u32_isqrt_value_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U8_POW %out_value, %base, %exp
     EXPAND NUM_U64_POW __num_u8_pow_value_%out_value, %base, %exp
     %out_value = and __num_u8_pow_value_%out_value, NUM_U8_MAX
@@ -5844,6 +5963,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NUM_USIZE_MIDPOINT %out_value, %lhs, %rhs
     EXPAND NUM_U64_MIDPOINT %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_ISQRT %out_value, %value
+    EXPAND NUM_U64_ISQRT %out_value, %value
 [END_MACRO]
 
 [MACRO] NUM_USIZE_POW %out_value, %base, %exp

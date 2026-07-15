@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 unsigned isqrt)
+
+Completed supportable unsigned integer square-root helpers:
+- `NUM_U8_ISQRT`, `NUM_U16_ISQRT`, `NUM_U32_ISQRT`, `NUM_U64_ISQRT`, and `NUM_USIZE_ISQRT`: concrete Rust unsigned primitive `isqrt` floor-result shape for the existing SA integer widths.
+- `NONZERO_U8_ISQRT`, `NONZERO_U16_ISQRT`, `NONZERO_U32_ISQRT`, `NONZERO_U64_ISQRT`, and `NONZERO_USIZE_ISQRT`: matching Rust unsigned `NonZero<T>::isqrt` wrapper shape for existing concrete NonZero layouts.
+- Narrow unsigned primitives mask to the declared Rust width before computing. `usize` / `NonZeroUsize` alias the current 64-bit SA ABI. NonZero outputs remain nonzero because unsigned nonzero inputs are at least 1.
+- This follows Rust's current primitive unsigned and `core::num::NonZero` unsigned `isqrt` methods for the existing concrete widths. It deliberately does not expose signed `isqrt`, generic `NonZero<T>`, `u128`, Rust feature-gate modeling, niche optimization, or trait-level dispatch.
+- Test file `std_num_isqrt_macro_surface.sa` (panic ID 10626).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10627+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, signed `isqrt` panic/range modeling, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic object behavior for invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero sign casts)
 
 Completed supportable NonZero same-width sign-cast helpers:
