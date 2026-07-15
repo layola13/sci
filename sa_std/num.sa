@@ -72,6 +72,40 @@ L_NONZERO_UNSIGNED_CMP_DONE_%out_ordering:
     !__nonzero_unsigned_ge_left_%out_bool
 [END_MACRO]
 
+[MACRO] NONZERO_UNSIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, %field
+    __nonzero_unsigned_min_left_%out_nz = load %left_nz+%field as u64
+    __nonzero_unsigned_min_right_%out_nz = load %right_nz+%field as u64
+    __nonzero_unsigned_min_take_left_%out_nz = ule __nonzero_unsigned_min_left_%out_nz, __nonzero_unsigned_min_right_%out_nz
+    br __nonzero_unsigned_min_take_left_%out_nz -> L_NONZERO_UNSIGNED_MIN_LEFT_%out_nz, L_NONZERO_UNSIGNED_MIN_RIGHT_%out_nz
+L_NONZERO_UNSIGNED_MIN_LEFT_%out_nz:
+    store %out_nz+%field, __nonzero_unsigned_min_left_%out_nz as u64
+    !__nonzero_unsigned_min_take_left_%out_nz
+    jmp L_NONZERO_UNSIGNED_MIN_DONE_%out_nz
+L_NONZERO_UNSIGNED_MIN_RIGHT_%out_nz:
+    store %out_nz+%field, __nonzero_unsigned_min_right_%out_nz as u64
+    !__nonzero_unsigned_min_take_left_%out_nz
+L_NONZERO_UNSIGNED_MIN_DONE_%out_nz:
+    !__nonzero_unsigned_min_right_%out_nz
+    !__nonzero_unsigned_min_left_%out_nz
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, %field
+    __nonzero_unsigned_max_left_%out_nz = load %left_nz+%field as u64
+    __nonzero_unsigned_max_right_%out_nz = load %right_nz+%field as u64
+    __nonzero_unsigned_max_take_left_%out_nz = uge __nonzero_unsigned_max_left_%out_nz, __nonzero_unsigned_max_right_%out_nz
+    br __nonzero_unsigned_max_take_left_%out_nz -> L_NONZERO_UNSIGNED_MAX_LEFT_%out_nz, L_NONZERO_UNSIGNED_MAX_RIGHT_%out_nz
+L_NONZERO_UNSIGNED_MAX_LEFT_%out_nz:
+    store %out_nz+%field, __nonzero_unsigned_max_left_%out_nz as u64
+    !__nonzero_unsigned_max_take_left_%out_nz
+    jmp L_NONZERO_UNSIGNED_MAX_DONE_%out_nz
+L_NONZERO_UNSIGNED_MAX_RIGHT_%out_nz:
+    store %out_nz+%field, __nonzero_unsigned_max_right_%out_nz as u64
+    !__nonzero_unsigned_max_take_left_%out_nz
+L_NONZERO_UNSIGNED_MAX_DONE_%out_nz:
+    !__nonzero_unsigned_max_right_%out_nz
+    !__nonzero_unsigned_max_left_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, %field
     __nonzero_signed_eq_left_%out_bool = load %left_nz+%field as i64
     __nonzero_signed_eq_right_%out_bool = load %right_nz+%field as i64
@@ -142,6 +176,40 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
     !__nonzero_signed_ge_left_%out_bool
 [END_MACRO]
 
+[MACRO] NONZERO_SIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, %field
+    __nonzero_signed_min_left_%out_nz = load %left_nz+%field as i64
+    __nonzero_signed_min_right_%out_nz = load %right_nz+%field as i64
+    __nonzero_signed_min_take_left_%out_nz = sle __nonzero_signed_min_left_%out_nz, __nonzero_signed_min_right_%out_nz
+    br __nonzero_signed_min_take_left_%out_nz -> L_NONZERO_SIGNED_MIN_LEFT_%out_nz, L_NONZERO_SIGNED_MIN_RIGHT_%out_nz
+L_NONZERO_SIGNED_MIN_LEFT_%out_nz:
+    store %out_nz+%field, __nonzero_signed_min_left_%out_nz as i64
+    !__nonzero_signed_min_take_left_%out_nz
+    jmp L_NONZERO_SIGNED_MIN_DONE_%out_nz
+L_NONZERO_SIGNED_MIN_RIGHT_%out_nz:
+    store %out_nz+%field, __nonzero_signed_min_right_%out_nz as i64
+    !__nonzero_signed_min_take_left_%out_nz
+L_NONZERO_SIGNED_MIN_DONE_%out_nz:
+    !__nonzero_signed_min_right_%out_nz
+    !__nonzero_signed_min_left_%out_nz
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, %field
+    __nonzero_signed_max_left_%out_nz = load %left_nz+%field as i64
+    __nonzero_signed_max_right_%out_nz = load %right_nz+%field as i64
+    __nonzero_signed_max_take_left_%out_nz = sge __nonzero_signed_max_left_%out_nz, __nonzero_signed_max_right_%out_nz
+    br __nonzero_signed_max_take_left_%out_nz -> L_NONZERO_SIGNED_MAX_LEFT_%out_nz, L_NONZERO_SIGNED_MAX_RIGHT_%out_nz
+L_NONZERO_SIGNED_MAX_LEFT_%out_nz:
+    store %out_nz+%field, __nonzero_signed_max_left_%out_nz as i64
+    !__nonzero_signed_max_take_left_%out_nz
+    jmp L_NONZERO_SIGNED_MAX_DONE_%out_nz
+L_NONZERO_SIGNED_MAX_RIGHT_%out_nz:
+    store %out_nz+%field, __nonzero_signed_max_right_%out_nz as i64
+    !__nonzero_signed_max_take_left_%out_nz
+L_NONZERO_SIGNED_MAX_DONE_%out_nz:
+    !__nonzero_signed_max_right_%out_nz
+    !__nonzero_signed_max_left_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U64_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
 [END_MACRO]
@@ -172,6 +240,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
 
 [MACRO] NONZERO_U64_GE %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroU64_value
+[END_MACRO]
+
+[MACRO] NONZERO_U64_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroU64_value
 [END_MACRO]
 
 [MACRO] NONZERO_U32_EQ %out_bool, %left_nz, %right_nz
@@ -206,6 +282,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
     EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
 [END_MACRO]
 
+[MACRO] NONZERO_U32_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
+[MACRO] NONZERO_U32_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroU32_value
+[END_MACRO]
+
 [MACRO] NONZERO_U16_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
 [END_MACRO]
@@ -236,6 +320,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
 
 [MACRO] NONZERO_U16_GE %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroU16_value
+[END_MACRO]
+
+[MACRO] NONZERO_U16_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroU16_value
 [END_MACRO]
 
 [MACRO] NONZERO_U8_EQ %out_bool, %left_nz, %right_nz
@@ -270,6 +362,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
     EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
 [END_MACRO]
 
+[MACRO] NONZERO_U8_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
+[MACRO] NONZERO_U8_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroU8_value
+[END_MACRO]
+
 [MACRO] NONZERO_USIZE_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
 [END_MACRO]
@@ -300,6 +400,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
 
 [MACRO] NONZERO_USIZE_GE %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroUsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_UNSIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroUsize_value
 [END_MACRO]
 
 [MACRO] NONZERO_I64_EQ %out_bool, %left_nz, %right_nz
@@ -334,6 +442,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
     EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI64_value
 [END_MACRO]
 
+[MACRO] NONZERO_I64_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
+[MACRO] NONZERO_I64_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI64_value
+[END_MACRO]
+
 [MACRO] NONZERO_I32_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
 [END_MACRO]
@@ -364,6 +480,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
 
 [MACRO] NONZERO_I32_GE %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI32_value
 [END_MACRO]
 
 [MACRO] NONZERO_I16_EQ %out_bool, %left_nz, %right_nz
@@ -398,6 +522,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
     EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI16_value
 [END_MACRO]
 
+[MACRO] NONZERO_I16_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
+[MACRO] NONZERO_I16_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI16_value
+[END_MACRO]
+
 [MACRO] NONZERO_I8_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
 [END_MACRO]
@@ -430,6 +562,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
     EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
 [END_MACRO]
 
+[MACRO] NONZERO_I8_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
+[MACRO] NONZERO_I8_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI8_value
+[END_MACRO]
+
 [MACRO] NONZERO_ISIZE_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
 [END_MACRO]
@@ -460,6 +600,14 @@ L_NONZERO_SIGNED_CMP_DONE_%out_ordering:
 
 [MACRO] NONZERO_ISIZE_GE %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_MIN %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MIN_FIELD %out_nz, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_MAX %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroIsize_value
 [END_MACRO]
 
 [MACRO] NONZERO_U64_COPY %dst_nz, %src_nz

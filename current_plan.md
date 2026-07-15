@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero integer min/max)
+
+Completed supportable NonZero integer min/max helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_MIN`: concrete Rust `NonZero<T>::min` shape for SA's existing NonZero integer layouts, choosing the smaller stored primitive value and writing it into a destination wrapper.
+- Matching `*_MAX` helpers choose the larger stored primitive value with unsigned ordering for `U*` / `USIZE` and signed ordering for `I*` / `ISIZE`.
+- This follows Rust's current `core::num::NonZero<T>` inherent min/max methods only for the existing SA integer widths. It deliberately does not expose `clamp` in this batch because Rust `Ord::clamp` has invalid-range panic semantics while the available concrete `CMP_CLAMP_*` helpers are non-panicking.
+- Test file `std_num_nonzero_min_max_macro_surface.sa` (panic ID 10606).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_min_max_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10607+.
+Still blocked without redesign: trait-level `Ord::clamp` panic modeling, generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero integer comparison)
 
 Completed supportable NonZero integer comparison helpers:

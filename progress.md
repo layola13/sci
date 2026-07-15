@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer min/max macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `min` and `max` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_MIN` and `*_MAX` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface compares each concrete wrapper's stored nonzero primitive with unsigned or signed integer ordering as appropriate, then writes the chosen primitive into the destination wrapper. It intentionally does not add `clamp` in this batch because Rust `Ord::clamp` panics when `min > max`, while the existing concrete `CMP_CLAMP_*` helpers are non-panicking.
+- Test: `tests/unit_framework/std_num_nonzero_min_max_macro_surface.sa` - 1 test (panic ID 10606) expanding all 20 new macros across the ten concrete widths and covering forward, reverse, and tie cases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_min_max_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10607+.
+
 ## Completed: 2026-07-15 NonZero integer comparison macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `PartialEq`, `Eq`, `PartialOrd`, and `Ord` implementations for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
