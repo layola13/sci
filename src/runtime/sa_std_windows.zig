@@ -275,6 +275,8 @@ const Resource = union(enum) {
 
 var registry_mutex: std.Thread.Mutex = .{};
 var time_mutex: std.Thread.Mutex = .{};
+var env_mutex: std.Thread.Mutex = .{};
+var cwd_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
 var io_buffer_mutex: std.Thread.Mutex = .{};
 var io_buffers = std.AutoHashMap(usize, IoBufferAllocation).init(std.heap.page_allocator);
@@ -359,6 +361,7 @@ fn mutBytes(ptr: ?[*]u8, len: u64) ![]u8 {
 fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     const path = try constBytes(ptr, len);
     if (path.len == 0 or std.mem.indexOfScalar(u8, path, 0) != null) return error.InvalidArgument;
+    if (!std.unicode.utf8ValidateSlice(path)) return error.InvalidArgument;
     return path;
 }
 
@@ -791,6 +794,7 @@ fn initProcessHandle(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: Pro
         if (@intFromPtr(entry.data) == 0) return error.InvalidArgument;
         const bytes = entry.data[0..len];
         if (std.mem.indexOfScalar(u8, bytes, 0) != null) return error.InvalidArgument;
+        if (!std.unicode.utf8ValidateSlice(bytes)) return error.InvalidArgument;
         owned.* = try std.heap.page_allocator.dupe(u8, bytes);
         view.* = owned.*;
     }
@@ -4530,44 +4534,332 @@ pub export fn sa_fmt_bytes_into(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, _: ?
     return unsupported();
 }
 
-pub export fn sa_env_get(_: ?[*]const u8, _: u64) u64 {
-    return unsupportedU64();
+const EnvVarJson = struct {
+    key: []u8,
+    value: []u8,
+};
+
+extern "kernel32" fn GetTempPathW(
+    nBufferLength: std.os.windows.DWORD,
+    lpBuffer: ?[*]std.os.windows.WCHAR,
+) callconv(.winapi) std.os.windows.DWORD;
+
+fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
+    const key = try constBytes(key_ptr, key_len);
+    if (key.len == 0 or std.mem.indexOfScalar(u8, key, 0) != null or std.mem.indexOfScalar(u8, key, '=') != null) {
+        return error.InvalidArgument;
+    }
+    if (!std.unicode.utf8ValidateSlice(key)) return error.InvalidArgument;
+    return key;
+}
+
+fn envValueBytes(value_ptr: ?[*]const u8, value_len: u64) ![]const u8 {
+    const value = try constBytes(value_ptr, value_len);
+    if (std.mem.indexOfScalar(u8, value, 0) != null or !std.unicode.utf8ValidateSlice(value)) {
+        return error.InvalidArgument;
+    }
+    return value;
+}
+
+fn strictUtf16ToUtf8Alloc(allocator: std.mem.Allocator, value: []const u16) ![]u8 {
+    return std.unicode.utf16LeToUtf8Alloc(allocator, value) catch |err| switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => error.NativeStringNotUnicode,
+    };
+}
+
+fn validateOwnedNativeUtf8(allocator: std.mem.Allocator, value: []u8) ![]u8 {
+    if (std.unicode.utf8ValidateSlice(value)) return value;
+    allocator.free(value);
+    return error.NativeStringNotUnicode;
+}
+
+fn windowsEnvironmentError(code: std.os.windows.Win32Error) anyerror {
+    return switch (code) {
+        .ACCESS_DENIED => error.AccessDenied,
+        .NOT_ENOUGH_MEMORY, .OUTOFMEMORY => error.OutOfMemory,
+        .ENVVAR_NOT_FOUND, .FILE_NOT_FOUND, .PATH_NOT_FOUND => error.EnvironmentVariableNotFound,
+        .INVALID_PARAMETER => error.InvalidArgument,
+        else => error.WindowsEnvironmentFailure,
+    };
+}
+
+fn windowsEnvironmentProbeLocked(key_w: [*:0]const u16) !bool {
+    const windows = std.os.windows;
+    windows.kernel32.SetLastError(.SUCCESS);
+    const required = windows.kernel32.GetEnvironmentVariableW(key_w, null, 0);
+    if (required != 0) return true;
+    return switch (windows.kernel32.GetLastError()) {
+        .SUCCESS => true,
+        .ENVVAR_NOT_FOUND => false,
+        else => |code| windowsEnvironmentError(code),
+    };
+}
+
+fn windowsEnvironmentGetOwnedLocked(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
+    const windows = std.os.windows;
+    const key_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
+    defer allocator.free(key_w);
+
+    windows.kernel32.SetLastError(.SUCCESS);
+    var capacity = windows.kernel32.GetEnvironmentVariableW(key_w.ptr, null, 0);
+    if (capacity == 0) {
+        return switch (windows.kernel32.GetLastError()) {
+            .SUCCESS => allocator.alloc(u8, 0),
+            .ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
+            else => |code| windowsEnvironmentError(code),
+        };
+    }
+
+    while (true) {
+        const wide = try allocator.alloc(u16, @intCast(capacity));
+        windows.kernel32.SetLastError(.SUCCESS);
+        const written = windows.kernel32.GetEnvironmentVariableW(key_w.ptr, wide.ptr, capacity);
+        if (written == 0) {
+            const code = windows.kernel32.GetLastError();
+            allocator.free(wide);
+            return switch (code) {
+                .SUCCESS => allocator.alloc(u8, 0),
+                .ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
+                else => windowsEnvironmentError(code),
+            };
+        }
+        if (written >= capacity) {
+            allocator.free(wide);
+            capacity = if (written == capacity) std.math.add(u32, written, 1) catch return error.OutOfMemory else written;
+            continue;
+        }
+        defer allocator.free(wide);
+        return strictUtf16ToUtf8Alloc(allocator, wide[0..@intCast(written)]);
+    }
+}
+
+fn windowsEnvironmentGetOwned(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
+    env_mutex.lock();
+    defer env_mutex.unlock();
+    return windowsEnvironmentGetOwnedLocked(allocator, key);
+}
+
+fn windowsEnvironmentGetOptionalOwnedLocked(allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
+    return windowsEnvironmentGetOwnedLocked(allocator, key) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |other| return other,
+    };
+}
+
+fn windowsEnvironmentSet(key: []const u8, value: ?[]const u8) !void {
+    const allocator = std.heap.page_allocator;
+    const key_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
+    defer allocator.free(key_w);
+    const value_w = if (value) |bytes| try std.unicode.utf8ToUtf16LeAllocZ(allocator, bytes) else null;
+    defer if (value_w) |bytes| allocator.free(bytes);
+
+    env_mutex.lock();
+    defer env_mutex.unlock();
+    if (std.os.windows.kernel32.SetEnvironmentVariableW(key_w.ptr, if (value_w) |bytes| bytes.ptr else null) != 0) return;
+    const code = std.os.windows.kernel32.GetLastError();
+    if (value == null and code == .ENVVAR_NOT_FOUND) return;
+    return windowsEnvironmentError(code);
+}
+
+fn windowsEnvironmentBlockJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
+    const windows = std.os.windows;
+    env_mutex.lock();
+    const environment = windows.GetEnvironmentStringsW() catch |err| {
+        env_mutex.unlock();
+        return err;
+    };
+    env_mutex.unlock();
+    const block = environment;
+    defer windows.FreeEnvironmentStringsW(block);
+
+    var pairs = std.ArrayList(EnvVarJson).init(allocator);
+    defer {
+        for (pairs.items) |pair| {
+            allocator.free(pair.key);
+            allocator.free(pair.value);
+        }
+        pairs.deinit();
+    }
+
+    var cursor: usize = 0;
+    while (block[cursor] != 0) {
+        const entry_start = cursor;
+        while (block[cursor] != 0) : (cursor += 1) {}
+        const entry = block[entry_start..cursor];
+        cursor += 1;
+
+        // Windows drive-current-directory entries use keys such as "=C:".
+        if (entry.len == 0 or entry[0] == '=') continue;
+        const separator = std.mem.indexOfScalar(u16, entry, '=') orelse return error.WindowsEnvironmentFailure;
+        const key = try strictUtf16ToUtf8Alloc(allocator, entry[0..separator]);
+        const value = strictUtf16ToUtf8Alloc(allocator, entry[separator + 1 ..]) catch |err| {
+            allocator.free(key);
+            return err;
+        };
+        pairs.append(.{ .key = key, .value = value }) catch |err| {
+            allocator.free(key);
+            allocator.free(value);
+            return err;
+        };
+    }
+
+    return std.json.stringifyAlloc(allocator, pairs.items, .{});
+}
+
+fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+    for (args) |arg| {
+        if (!std.unicode.utf8ValidateSlice(arg)) return error.NativeStringNotUnicode;
+    }
+    return std.json.stringifyAlloc(allocator, args, .{});
+}
+
+fn splitWindowsPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
+    if (!std.unicode.utf8ValidateSlice(path_list) or std.mem.indexOfScalar(u8, path_list, 0) != null) {
+        return error.InvalidArgument;
+    }
+    var paths = std.ArrayList([]const u8).init(allocator);
+    defer paths.deinit();
+    var it = std.mem.splitScalar(u8, path_list, ';');
+    while (it.next()) |path| try paths.append(path);
+    return std.json.stringifyAlloc(allocator, paths.items, .{});
+}
+
+fn joinWindowsPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) ![]u8 {
+    if (!std.unicode.utf8ValidateSlice(paths_json)) return error.InvalidArgument;
+    const parsed = std.json.parseFromSlice([]const []const u8, allocator, paths_json, .{}) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidArgument,
+    };
+    defer parsed.deinit();
+    for (parsed.value) |path| {
+        if (!std.unicode.utf8ValidateSlice(path) or std.mem.indexOfScalar(u8, path, 0) != null) {
+            return error.InvalidArgument;
+        }
+    }
+    return std.mem.join(allocator, ";", parsed.value);
+}
+
+fn windowsTempPathAlloc(allocator: std.mem.Allocator) ![]u8 {
+    const windows = std.os.windows;
+    env_mutex.lock();
+    defer env_mutex.unlock();
+    windows.kernel32.SetLastError(.SUCCESS);
+    var capacity = GetTempPathW(0, null);
+    if (capacity == 0) return windowsEnvironmentError(windows.kernel32.GetLastError());
+
+    while (true) {
+        const wide = try allocator.alloc(u16, @intCast(capacity));
+        windows.kernel32.SetLastError(.SUCCESS);
+        const written = GetTempPathW(capacity, wide.ptr);
+        if (written == 0) {
+            const code = windows.kernel32.GetLastError();
+            allocator.free(wide);
+            return windowsEnvironmentError(code);
+        }
+        if (written >= capacity) {
+            allocator.free(wide);
+            capacity = if (written == capacity) std.math.add(u32, written, 1) catch return error.OutOfMemory else written;
+            continue;
+        }
+        defer allocator.free(wide);
+        return strictUtf16ToUtf8Alloc(allocator, wide[0..@intCast(written)]);
+    }
+}
+
+fn windowsHomeDirAlloc(allocator: std.mem.Allocator) ![]u8 {
+    env_mutex.lock();
+    defer env_mutex.unlock();
+
+    if (try windowsEnvironmentGetOptionalOwnedLocked(allocator, "USERPROFILE")) |profile| {
+        if (profile.len != 0) return profile;
+        allocator.free(profile);
+    }
+
+    const drive = (try windowsEnvironmentGetOptionalOwnedLocked(allocator, "HOMEDRIVE")) orelse return error.EnvironmentVariableNotFound;
+    defer allocator.free(drive);
+    const path = (try windowsEnvironmentGetOptionalOwnedLocked(allocator, "HOMEPATH")) orelse return error.EnvironmentVariableNotFound;
+    defer allocator.free(path);
+    if (drive.len == 0 or path.len == 0) return error.EnvironmentVariableNotFound;
+    return std.mem.concat(allocator, u8, &.{ drive, path });
+}
+
+fn finishOwnedEnvBuffer(bytes: []u8) u64 {
+    const handle = registerOwnedBytes(bytes) catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return handle;
+}
+
+fn failEnvHandle(err: anyerror) u64 {
+    _ = finishErr(err);
+    return 0;
+}
+
+pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return failEnvHandle(err);
+    const owned = windowsEnvironmentGetOwned(std.heap.page_allocator, key) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(owned);
 }
 
 pub export fn sa_env_current_dir() u64 {
-    return unsupportedU64();
+    const cwd = blk: {
+        cwd_mutex.lock();
+        defer cwd_mutex.unlock();
+        break :blk std.process.getCwdAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    };
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, cwd) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
-pub export fn sa_env_set_current_dir(_: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_env_set_current_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    cwd_mutex.lock();
+    defer cwd_mutex.unlock();
+    std.process.changeCurDir(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_env_temp_dir() u64 {
-    return unsupportedU64();
+    const path = windowsTempPathAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(path);
 }
 
 pub export fn sa_env_current_exe() u64 {
-    return unsupportedU64();
+    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, path) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
 pub export fn sa_env_home_dir() u64 {
-    return unsupportedU64();
+    const path = windowsHomeDirAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(path);
 }
 
 pub export fn sa_env_args_json() u64 {
-    return unsupportedU64();
+    const json = processArgsJsonAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(json);
 }
 
 pub export fn sa_env_vars_json() u64 {
-    return unsupportedU64();
+    const json = windowsEnvironmentBlockJsonAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(json);
 }
 
-pub export fn sa_env_split_paths_json(_: ?[*]const u8, _: u64) u64 {
-    return unsupportedU64();
+pub export fn sa_env_split_paths_json(path_list_ptr: ?[*]const u8, path_list_len: u64) u64 {
+    const path_list = constBytes(path_list_ptr, path_list_len) catch |err| return failEnvHandle(err);
+    const json = splitWindowsPathsJsonAlloc(std.heap.page_allocator, path_list) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(json);
 }
 
-pub export fn sa_env_join_paths_json(_: ?[*]const u8, _: u64) u64 {
-    return unsupportedU64();
+pub export fn sa_env_join_paths_json(paths_json_ptr: ?[*]const u8, paths_json_len: u64) u64 {
+    const paths_json = constBytes(paths_json_ptr, paths_json_len) catch |err| return failEnvHandle(err);
+    const joined = joinWindowsPathsJsonAlloc(std.heap.page_allocator, paths_json) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(joined);
 }
 
 pub export fn sa_env_xdg_data_home_dir() u64 {
@@ -4594,28 +4886,86 @@ pub export fn sa_env_xdg_config_dirs() u64 {
     return unsupportedU64();
 }
 
-pub export fn sa_env_has(_: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_env_has(key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const key_w = std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, key) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(key_w);
+    env_mutex.lock();
+    defer env_mutex.unlock();
+    const present = windowsEnvironmentProbeLocked(key_w.ptr) catch |err| return finishErr(err);
+    return finish(if (present) SA_STD_OK else SA_STD_ERR_NOT_FOUND);
 }
 
-pub export fn sa_env_set_var(_: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_env_set_var(key_ptr: ?[*]const u8, key_len: u64, value_ptr: ?[*]const u8, value_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const value = envValueBytes(value_ptr, value_len) catch |err| return finishErr(err);
+    windowsEnvironmentSet(key, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_env_remove_var(_: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_env_remove_var(key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    windowsEnvironmentSet(key, null) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_env_buffer_data(_: u64) ?[*]u8 {
-    return null;
+pub export fn sa_env_buffer_data(handle: u64) ?[*]u8 {
+    registry_mutex.lock();
+    const resource = getResourceLocked(handle) orelse {
+        registry_mutex.unlock();
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return null;
+    };
+    const data = switch (resource.*) {
+        .buffer => |bytes| bytes.ptr,
+        else => {
+            registry_mutex.unlock();
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return null;
+        },
+    };
+    registry_mutex.unlock();
+    _ = finish(SA_STD_OK);
+    return data;
 }
 
-pub export fn sa_env_buffer_len(_: u64) u64 {
-    return unsupportedU64();
+pub export fn sa_env_buffer_len(handle: u64) u64 {
+    registry_mutex.lock();
+    const resource = getResourceLocked(handle) orelse {
+        registry_mutex.unlock();
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    const len: u64 = switch (resource.*) {
+        .buffer => |bytes| @intCast(bytes.len),
+        else => {
+            registry_mutex.unlock();
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+    registry_mutex.unlock();
+    _ = finish(SA_STD_OK);
+    return len;
 }
 
-pub export fn sa_env_buffer_free(_: u64) i32 {
-    return unsupported();
+pub export fn sa_env_buffer_free(handle: u64) i32 {
+    registry_mutex.lock();
+    const resource = getResourceLocked(handle) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    switch (resource.*) {
+        .buffer => {},
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
+    }
+    var owned = takeResourceLocked(handle).?;
+    registry_mutex.unlock();
+    owned.close();
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_string_concat(_: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64) u64 {
@@ -5384,6 +5734,13 @@ test "windows process argv is owned and rejects invalid entries" {
     };
     try std.testing.expectError(error.InvalidArgument, initProcessHandle(&invalid, invalid.len, .inherit));
 
+    const invalid_utf8 = [_]u8{ 0xed, 0xa0, 0x80 };
+    const invalid_unicode = [_]SaProcessArgv{
+        .{ .data = executable.ptr, .len = executable.len },
+        .{ .data = invalid_utf8[0..].ptr, .len = invalid_utf8.len },
+    };
+    try std.testing.expectError(error.InvalidArgument, initProcessHandle(&invalid_unicode, invalid_unicode.len, .inherit));
+
     var mutable_executable = [_]u8{ 't', 'o', 'o', 'l' };
     const valid = [_]SaProcessArgv{.{ .data = mutable_executable[0..].ptr, .len = mutable_executable.len }};
     var process = try initProcessHandle(&valid, valid.len, .inherit);
@@ -5486,4 +5843,169 @@ test "windows process capture preserves completion failures" {
     var read: u64 = 123;
     try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_process_read_stdout(handle, null, 0, &read));
     try std.testing.expectEqual(@as(u64, 0), read);
+}
+
+fn expectEnvBufferEquals(handle: u64, expected: []const u8) !void {
+    try std.testing.expect(handle != 0);
+    const data = sa_env_buffer_data(handle) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_last_error());
+    const len = sa_env_buffer_len(handle);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_last_error());
+    try std.testing.expectEqualStrings(expected, data[0..@intCast(len)]);
+}
+
+fn expectStrictEnvBuffer(handle: u64) ![]const u8 {
+    try std.testing.expect(handle != 0);
+    const data = sa_env_buffer_data(handle) orelse return error.TestUnexpectedResult;
+    const len = sa_env_buffer_len(handle);
+    const bytes = data[0..@intCast(len)];
+    try std.testing.expect(std.unicode.utf8ValidateSlice(bytes));
+    return bytes;
+}
+
+test "windows environment distinguishes empty values and case-insensitive missing keys" {
+    const key = "SA_STD_WINDOWS_ENV_CONTRACT_7F0D92C1";
+    const lower_key = "sa_std_windows_env_contract_7f0d92c1";
+    _ = sa_env_remove_var(key.ptr, key.len);
+    defer _ = sa_env_remove_var(key.ptr, key.len);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_env_set_var(key.ptr, key.len, null, 0));
+    try std.testing.expectEqual(SA_STD_OK, sa_env_has(lower_key.ptr, lower_key.len));
+    const empty_handle = sa_env_get(lower_key.ptr, lower_key.len);
+    try expectEnvBufferEquals(empty_handle, "");
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(empty_handle));
+    try std.testing.expectEqual(@as(?[*]u8, null), sa_env_buffer_data(empty_handle));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_last_error());
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_env_buffer_free(empty_handle));
+
+    const value = "Windows UTF-8 \xc3\xa9";
+    try std.testing.expectEqual(SA_STD_OK, sa_env_set_var(lower_key.ptr, lower_key.len, value.ptr, value.len));
+    const value_handle = sa_env_get(key.ptr, key.len);
+    try expectEnvBufferEquals(value_handle, value);
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(value_handle));
+
+    try std.testing.expectEqual(SA_STD_OK, sa_env_remove_var(key.ptr, key.len));
+    try std.testing.expectEqual(SA_STD_OK, sa_env_remove_var(key.ptr, key.len));
+    try std.testing.expectEqual(SA_STD_ERR_NOT_FOUND, sa_env_has(lower_key.ptr, lower_key.len));
+    try std.testing.expectEqual(@as(u64, 0), sa_env_get(lower_key.ptr, lower_key.len));
+    try std.testing.expectEqual(SA_STD_ERR_NOT_FOUND, sa_std_last_error());
+}
+
+test "windows environment rejects invalid public UTF-8 and native isolated surrogates" {
+    const key = "SA_STD_WINDOWS_ENV_SURROGATE_0B517E2A";
+    const invalid_utf8 = [_]u8{ 0xed, 0xa0, 0x80 };
+    const key_with_equals = "BAD=KEY";
+    const key_with_nul = [_]u8{ 'B', 'A', 0, 'D' };
+
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_env_set_var(invalid_utf8[0..].ptr, invalid_utf8.len, null, 0));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_env_set_var(key.ptr, key.len, invalid_utf8[0..].ptr, invalid_utf8.len));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_env_has(key_with_equals.ptr, key_with_equals.len));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_env_remove_var(key_with_nul[0..].ptr, key_with_nul.len));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_env_set_current_dir(invalid_utf8[0..].ptr, invalid_utf8.len));
+
+    const key_w = std.unicode.utf8ToUtf16LeStringLiteral(key);
+    const surrogate_value = [_:0]u16{0xd800};
+    try std.testing.expect(std.os.windows.kernel32.SetEnvironmentVariableW(key_w, &surrogate_value) != 0);
+    defer _ = std.os.windows.kernel32.SetEnvironmentVariableW(key_w, null);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_env_has(key.ptr, key.len));
+    try std.testing.expectEqual(@as(u64, 0), sa_env_get(key.ptr, key.len));
+    try std.testing.expectEqual(SA_STD_ERR_IO, sa_std_last_error());
+    try std.testing.expectEqual(@as(u64, 0), sa_env_vars_json());
+    try std.testing.expectEqual(SA_STD_ERR_IO, sa_std_last_error());
+}
+
+test "windows environment path lists use semicolons and strict JSON strings" {
+    const path_list = "C:\\one;;D:\\two";
+    const split_handle = sa_env_split_paths_json(path_list.ptr, path_list.len);
+    const split_json = try expectStrictEnvBuffer(split_handle);
+    const split = try std.json.parseFromSlice([]const []const u8, std.testing.allocator, split_json, .{});
+    defer split.deinit();
+    try std.testing.expectEqual(@as(usize, 3), split.value.len);
+    try std.testing.expectEqualStrings("C:\\one", split.value[0]);
+    try std.testing.expectEqualStrings("", split.value[1]);
+    try std.testing.expectEqualStrings("D:\\two", split.value[2]);
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(split_handle));
+
+    const paths_json = "[\"C:\\\\one\",\"\",\"D:\\\\two\"]";
+    const joined_handle = sa_env_join_paths_json(paths_json.ptr, paths_json.len);
+    try expectEnvBufferEquals(joined_handle, path_list);
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(joined_handle));
+
+    const embedded_separator_json = "[\"a;b\",\"c\"]";
+    const embedded_handle = sa_env_join_paths_json(embedded_separator_json.ptr, embedded_separator_json.len);
+    try expectEnvBufferEquals(embedded_handle, "a;b;c");
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(embedded_handle));
+
+    const lone_surrogate_json = "[\"\\uD800\"]";
+    try std.testing.expectEqual(@as(u64, 0), sa_env_join_paths_json(lone_surrogate_json.ptr, lone_surrogate_json.len));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_last_error());
+    const nul_path_json = "[\"a\\u0000b\"]";
+    try std.testing.expectEqual(@as(u64, 0), sa_env_join_paths_json(nul_path_json.ptr, nul_path_json.len));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_last_error());
+    const invalid_utf8 = [_]u8{ 0xed, 0xa0, 0x80 };
+    try std.testing.expectEqual(@as(u64, 0), sa_env_split_paths_json(invalid_utf8[0..].ptr, invalid_utf8.len));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_last_error());
+}
+
+test "windows environment path and JSON outputs use owned strict UTF-8 buffers" {
+    const cwd_handle = sa_env_current_dir();
+    const cwd_view = try expectStrictEnvBuffer(cwd_handle);
+    const cwd = try std.testing.allocator.dupe(u8, cwd_view);
+    defer std.testing.allocator.free(cwd);
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(cwd_handle));
+    try std.testing.expectEqual(SA_STD_OK, sa_env_set_current_dir(cwd.ptr, cwd.len));
+
+    const temp_handle = sa_env_temp_dir();
+    const temp = try expectStrictEnvBuffer(temp_handle);
+    try std.testing.expect(temp.len != 0);
+    try std.testing.expect(std.mem.indexOfScalar(u8, temp, 0) == null);
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(temp_handle));
+
+    const exe_handle = sa_env_current_exe();
+    const exe = try expectStrictEnvBuffer(exe_handle);
+    try std.testing.expect(exe.len != 0);
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(exe_handle));
+
+    const home_handle = sa_env_home_dir();
+    if (home_handle == 0) {
+        try std.testing.expectEqual(SA_STD_ERR_NOT_FOUND, sa_std_last_error());
+    } else {
+        const home = try expectStrictEnvBuffer(home_handle);
+        try std.testing.expect(home.len != 0);
+        try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(home_handle));
+    }
+
+    const args_handle = sa_env_args_json();
+    const args_json = try expectStrictEnvBuffer(args_handle);
+    const args = try std.json.parseFromSlice([]const []const u8, std.testing.allocator, args_json, .{});
+    defer args.deinit();
+    try std.testing.expect(args.value.len != 0);
+    for (args.value) |arg| try std.testing.expect(std.unicode.utf8ValidateSlice(arg));
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(args_handle));
+
+    const EnvPair = struct { key: []const u8, value: []const u8 };
+    const vars_handle = sa_env_vars_json();
+    const vars_json = try expectStrictEnvBuffer(vars_handle);
+    const vars = try std.json.parseFromSlice([]const EnvPair, std.testing.allocator, vars_json, .{});
+    defer vars.deinit();
+    for (vars.value) |pair| {
+        try std.testing.expect(pair.key.len != 0 and pair.key[0] != '=');
+        try std.testing.expect(std.unicode.utf8ValidateSlice(pair.key));
+        try std.testing.expect(std.unicode.utf8ValidateSlice(pair.value));
+    }
+    try std.testing.expectEqual(SA_STD_OK, sa_env_buffer_free(vars_handle));
+
+    const xdg_calls = [_]*const fn () callconv(.c) u64{
+        &sa_env_xdg_data_home_dir,
+        &sa_env_xdg_config_home_dir,
+        &sa_env_xdg_state_home_dir,
+        &sa_env_xdg_cache_home_dir,
+        &sa_env_xdg_data_dirs,
+        &sa_env_xdg_config_dirs,
+    };
+    for (xdg_calls) |call| {
+        try std.testing.expectEqual(@as(u64, 0), call());
+        try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_last_error());
+    }
 }
