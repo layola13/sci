@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Phantom marker extended traits)
+
+Completed supportable `PhantomData` / `PhantomPinned` derived/explicit trait helpers:
+- `DEFAULT_PHANTOM_DATA` and `DEFAULT_PHANTOM_PINNED` expose cross-module zero-token default aliases for the existing marker layouts.
+- `PHANTOM_DATA_COPY` / `PHANTOM_PINNED_COPY` and `PHANTOM_DATA_CLONE_FROM` / `PHANTOM_PINNED_CLONE_FROM` recreate the zero token, matching the supportable ZST copy/clone shape.
+- `PHANTOM_DATA_NE` / `PHANTOM_PINNED_NE`, `*_PARTIAL_CMP`, and `*_LT` / `*_LE` / `*_GT` / `*_GE` expose the always-equal ordering surface for these marker tokens.
+- This follows Rust's current `core::marker::PhantomData<T>` explicit `Copy`, `Clone`, `Default`, `PartialEq`, `PartialOrd`, and `Ord` implementations and `PhantomPinned`'s matching derived implementations only as a concrete ZST token contract. It does not expose generic marker trait dispatch, drop-check/lifetime effects, full pinning semantics, or a Rust auto-trait solver.
+- Test file `std_marker_traits_extended_macro_surface.sa` (panic ID 10603).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_marker_traits_extended_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10604+.
+Still blocked without redesign: trait-level `Default` / `Copy` / `Clone` / `PartialEq` / `Eq` / `PartialOrd` / `Ord`, generic marker trait dispatch, real marker trait solver / auto-trait inference, `PhantomData<T>` drop-check and ownership effects, full pinning semantics, `UnsafeUnpin`, `StructuralPartialEq`, `DiscriminantKind`, `Freeze`, generic primitive/container trait impl dispatch, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping/Saturating default/copy/clone)
 
 Completed supportable numeric-wrapper derived helpers:

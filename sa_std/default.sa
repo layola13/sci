@@ -55,6 +55,14 @@
 [END_MACRO]
 
 
+[MACRO] DEFAULT_PHANTOM_DATA %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_PHANTOM_PINNED %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
 [MACRO] DEFAULT_WRAPPING_U64 %out_value
     %out_value = add 0, 0
 [END_MACRO]

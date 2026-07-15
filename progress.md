@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Phantom marker extended trait macros
+
+- Continued Rust `std::marker::{PhantomData,PhantomPinned}` macro-surface parity, referencing Rust's local `core::marker` implementations under `/home/vscode/projects/rust`.
+- `sa_std/default.sa`: added `DEFAULT_PHANTOM_DATA` and `DEFAULT_PHANTOM_PINNED` zero-token aliases.
+- `sa_std/marker.sa`: added `PHANTOM_DATA_COPY`, `PHANTOM_DATA_CLONE_FROM`, `PHANTOM_DATA_NE`, `PHANTOM_DATA_PARTIAL_CMP`, `PHANTOM_DATA_LT`, `PHANTOM_DATA_LE`, `PHANTOM_DATA_GT`, `PHANTOM_DATA_GE`, plus the matching `PHANTOM_PINNED_*` helpers.
+- The helper surface models the supportable ZST behavior: copy/clone/default recreate the zero token, equality is always true, inequality and strict ordering are always false, and `cmp`/`partial_cmp` are always equal. It does not claim generic marker trait dispatch, drop-check/lifetime effects, full pinning semantics, or a Rust auto-trait solver.
+- Test: `tests/unit_framework/std_marker_traits_extended_macro_surface.sa` - 1 test (panic ID 10603) expanding all 18 new macros and covering ignored token input, equality/ordering constants, and `Default` aliases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_marker_traits_extended_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10604+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating default/copy/clone macros
 
 - Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing both transparent tuple structs' derived `Clone`, `Copy`, and `Default` implementations under `/home/vscode/projects/rust`.
