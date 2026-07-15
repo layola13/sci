@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer isolate-one macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `isolate_highest_one` and `isolate_lowest_one` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_ISOLATE_HIGHEST_ONE` and `*_ISOLATE_LOWEST_ONE` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface preserves only each concrete wrapper's most or least significant set bit and writes the nonzero result into a destination wrapper. Narrow signed wrappers sign-extend the isolated bit-pattern back to the declared signed width before reconstruction. It does not claim Rust nightly feature-gate handling, generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_isolate_one_macro_surface.sa` - 1 test (panic ID 10610) expanding all 20 new macros and covering declared-width unsigned values plus signed negative bit-patterns.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_isolate_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10611+.
+
 ## Completed: 2026-07-15 NonZero integer rotate macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `rotate_left` and `rotate_right` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
