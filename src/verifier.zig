@@ -3418,10 +3418,12 @@ fn verifyBody(
                 if (!parsed.is_indirect) {
                     if (sig_match) |resolved| {
                         if (resolved.params.len != parsed.args.len) {
+                            std.debug.print("DBG cap len callee={s} params={} args={}\n", .{ parsed.callee, resolved.params.len, parsed.args.len });
                             return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                         }
                         for (parsed.args, resolved.params) |arg, param| {
                             if (!callPrefixMatchesParam(param, arg.prefix)) {
+                                std.debug.print("DBG cap prefix callee={s} arg={s} arg_prefix={s} param={s} param_cap={s} param_ty={s}\n", .{ parsed.callee, arg.text, @tagName(arg.prefix), param.name, @tagName(param.cap), @tagName(param.ty) });
                                 return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                             }
                         }
