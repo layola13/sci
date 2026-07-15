@@ -4153,6 +4153,17 @@ L_NUM_I64_ISQRT_NONE_%out_ok:
 L_NUM_I64_ISQRT_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_I64_ISQRT %out_value, %value
+    EXPAND NUM_I64_CHECKED_ISQRT __num_i64_isqrt_ok_%out_value, %out_value, %value
+    br __num_i64_isqrt_ok_%out_value -> L_NUM_I64_DIRECT_ISQRT_OK_%out_value, L_NUM_I64_DIRECT_ISQRT_PANIC_%out_value
+
+L_NUM_I64_DIRECT_ISQRT_PANIC_%out_value:
+    panic(2203)
+
+L_NUM_I64_DIRECT_ISQRT_OK_%out_value:
+    !__num_i64_isqrt_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I64_MIDPOINT %out_value, %lhs, %rhs
     __num_imid_lhs_nonneg_%out_value = sge %lhs, 0
     __num_imid_rhs_nonneg_%out_value = sge %rhs, 0
@@ -5531,6 +5542,18 @@ L_NUM_I32_CHECKED_ABS_END_%out_ok:
     EXPAND NUM_I64_CHECKED_ISQRT %out_ok, %out_value, %value
 [END_MACRO]
 
+[MACRO] NUM_I8_ISQRT %out_value, %value
+    EXPAND NUM_I64_ISQRT %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_ISQRT %out_value, %value
+    EXPAND NUM_I64_ISQRT %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_ISQRT %out_value, %value
+    EXPAND NUM_I64_ISQRT %out_value, %value
+[END_MACRO]
+
 [MACRO] NUM_I8_SATURATING_NEG %out_value, %value
     EXPAND NUM_I8_CHECKED_NEG __num_i8_sat_neg_ok_%out_value, __num_i8_sat_neg_value_%out_value, %value
     br __num_i8_sat_neg_ok_%out_value -> L_NUM_I8_SAT_NEG_VALUE_%out_value, L_NUM_I8_SAT_NEG_MAX_%out_value
@@ -6545,6 +6568,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NUM_ISIZE_CHECKED_ISQRT %out_ok, %out_value, %value
     EXPAND NUM_I64_CHECKED_ISQRT %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_ISQRT %out_value, %value
+    EXPAND NUM_I64_ISQRT %out_value, %value
 [END_MACRO]
 
 [MACRO] NONZERO_U64_NEW %out_ok, %nz, %value

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 signed isqrt macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `isqrt` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_I8_ISQRT`, `NUM_I16_ISQRT`, `NUM_I32_ISQRT`, `NUM_I64_ISQRT`, and `NUM_ISIZE_ISQRT`.
+- Direct signed `isqrt` helpers reuse the checked signed floor-root path for nonnegative inputs and trap via SA `panic(2203)` for negative inputs. This models Rust's negative-argument panic control-flow shape, not Rust panic message/object identity, `i128`, feature-gate enforcement, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_signed_isqrt_macro_surface.sa` - 6 tests (panic ID 10631 for the non-panic assertion path) covering valid roots for all 5 public helpers plus each negative panic path.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `6 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10632+.
+
 ## Completed: 2026-07-15 primitive strict sign cast macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local nightly `integer_cast_extras` `strict_cast_signed` / `strict_cast_unsigned` implementations under `/home/vscode/projects/rust`.
