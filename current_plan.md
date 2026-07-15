@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash box u64)
+
+Completed supportable boxed value hash macros:
+- `DEFAULT_HASHER_WRITE_BOX_U64`: concrete Rust `Hash for Box<T>` forwarding shape for a `Box<u64>` payload, by loading the boxed value and writing it through the existing `u64` path.
+- `HASH_BOX_U64`: direct one-shot helper for the same concrete `Box<u64>` subset.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_BOX_U64` and `RANDOM_STATE_HASH_ONE_BOX_U64`: concrete `BuildHasher::hash_one` lowerings for boxed `u64` values.
+- This follows Rust's `Box<T>` `Hash` implementation by hashing `**self`, without exposing generic `Box<T>`, allocator parameters, unsized metadata, drop glue, or boxed `Hasher` trait forwarding.
+- Test file `std_hash_box_u64_macro_surface.sa` (panic ID 10580).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_box_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10581+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `Box<T>` and allocator-aware `Box<T, A>`, boxed `Hasher` trait forwarding, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 array hash_one u64)
 
 Completed supportable array hash_one macros:
