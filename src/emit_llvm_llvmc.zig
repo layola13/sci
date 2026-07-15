@@ -569,28 +569,124 @@ fn buildFunctionSigIndex(allocator: std.mem.Allocator, sigs: []const sig.Functio
     return index;
 }
 
-fn markReachableFunctionByName(reachable: *std.StringHashMap(void), sigs: []const sig.FunctionSig, sig_index: *const std.StringHashMap(usize), name: []const u8) !bool {
+fn markReachableFunctionByName(
+    reachable: *std.StringHashMap(void),
+    sigs: []const sig.FunctionSig,
+    sig_index: *const std.StringHashMap(usize),
+    name: []const u8,
+    newly_reachable: ?*std.ArrayList(usize),
+) !bool {
     const idx = sig_index.get(name) orelse return false;
     const canonical_name = sigs[idx].name;
     if (reachable.contains(canonical_name)) return false;
     try reachable.put(canonical_name, {});
+    if (newly_reachable) |work_queue| try work_queue.append(idx);
     return true;
 }
 
-fn collectBodyDirectCallees(allocator: std.mem.Allocator, verified: anytype, sig_index: *const std.StringHashMap(usize), start_idx: usize, end_idx: usize, reachable: *std.StringHashMap(void)) !bool {
+fn isFunctionReferenceDelimiter(byte: u8) bool {
+    return std.ascii.isWhitespace(byte) or switch (byte) {
+        '(', ')', '[', ']', '{', '}', ',', ':', ';', '=', '+', '*', '/', '&', '^', '<', '>', '!', '"', '\'' => true,
+        else => false,
+    };
+}
+
+fn collectTextFunctionReferences(
+    verified: anytype,
+    sig_index: *const std.StringHashMap(usize),
+    text_value: []const u8,
+    reachable: *std.StringHashMap(void),
+    closure_complete: *bool,
+    newly_reachable: ?*std.ArrayList(usize),
+) !bool {
+    var changed = false;
+    var search_from: usize = 0;
+    while (std.mem.indexOfScalarPos(u8, text_value, search_from, '@')) |at_index| {
+        const name_start = at_index + 1;
+        var name_end = name_start;
+        while (name_end < text_value.len and !isFunctionReferenceDelimiter(text_value[name_end])) : (name_end += 1) {}
+        search_from = @max(name_end, name_start);
+        if (name_end == name_start) {
+            closure_complete.* = false;
+            continue;
+        }
+
+        const name = text_value[name_start..name_end];
+        if (!sig_index.contains(name)) {
+            closure_complete.* = false;
+            continue;
+        }
+        changed = (try markReachableFunctionByName(reachable, verified.function_sigs, sig_index, name, newly_reachable)) or changed;
+    }
+    return changed;
+}
+
+fn collectInstructionFunctionReferences(
+    verified: anytype,
+    sig_index: *const std.StringHashMap(usize),
+    base: inst.Instruction,
+    reachable: *std.StringHashMap(void),
+    closure_complete: *bool,
+    newly_reachable: ?*std.ArrayList(usize),
+) !bool {
+    var changed = try collectTextFunctionReferences(verified, sig_index, base.raw_text, reachable, closure_complete, newly_reachable);
+    for (base.operands) |operand| {
+        switch (operand) {
+            .func => |id| {
+                const name = verified.symbols.lookupName(id) orelse {
+                    closure_complete.* = false;
+                    continue;
+                };
+                if (!sig_index.contains(name)) {
+                    closure_complete.* = false;
+                    continue;
+                }
+                changed = (try markReachableFunctionByName(reachable, verified.function_sigs, sig_index, name, newly_reachable)) or changed;
+            },
+            .text => |text_value| changed = (try collectTextFunctionReferences(verified, sig_index, text_value, reachable, closure_complete, newly_reachable)) or changed,
+            .native_text => |text_value| changed = (try collectTextFunctionReferences(verified, sig_index, text_value, reachable, closure_complete, newly_reachable)) or changed,
+            else => {},
+        }
+    }
+    return changed;
+}
+
+fn collectBodyDirectCallees(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    sig_index: *const std.StringHashMap(usize),
+    start_idx: usize,
+    end_idx: usize,
+    reachable: *std.StringHashMap(void),
+    closure_complete: ?*bool,
+    newly_reachable: ?*std.ArrayList(usize),
+) !bool {
     var changed = false;
     for (verified.annotated[start_idx..end_idx]) |body_item| {
         const base = body_item.base;
+        if (closure_complete) |complete| {
+            changed = (try collectInstructionFunctionReferences(verified, sig_index, base, reachable, complete, newly_reachable)) or changed;
+        }
         if (base.kind != .call and base.kind != .call_indirect) continue;
 
         var parsed = call.parseInstructionCall(allocator, base, &verified.symbols) catch |err| switch (err) {
-            error.InvalidCallSyntax => continue,
+            error.InvalidCallSyntax => {
+                if (closure_complete) |complete| complete.* = false;
+                continue;
+            },
             else => return err,
         };
         defer parsed.deinit(allocator);
 
-        if (parsed.is_indirect) continue;
-        changed = (try markReachableFunctionByName(reachable, verified.function_sigs, sig_index, parsed.callee)) or changed;
+        if (parsed.is_indirect) {
+            if (closure_complete) |complete| complete.* = false;
+            continue;
+        }
+        if (!sig_index.contains(parsed.callee)) {
+            if (closure_complete) |complete| complete.* = false;
+            continue;
+        }
+        changed = (try markReachableFunctionByName(reachable, verified.function_sigs, sig_index, parsed.callee, newly_reachable)) or changed;
     }
     return changed;
 }
@@ -646,7 +742,7 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
                     }) : (end += 1) {}
 
                     if (reachable.contains(fsig.name)) {
-                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable)) or changed;
+                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable, null)) or changed;
                     }
                     idx = end - 1;
                 },
@@ -656,11 +752,16 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
     }
 }
 
-fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), selected_test_names: []const []const u8, reachable: *std.StringHashMap(void)) !void {
+fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), selected_test_names: []const []const u8, reachable: *std.StringHashMap(void)) !bool {
+    var closure_complete = true;
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
                 for (literal.slots) |slot| {
+                    if (!sig_index_by_name.contains(slot.func_name)) {
+                        closure_complete = false;
+                        continue;
+                    }
                     _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name);
                 }
             },
@@ -669,12 +770,15 @@ fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anyty
     }
 
     for (selected_test_names) |name| {
+        if (!sig_index_by_name.contains(name)) {
+            closure_complete = false;
+            continue;
+        }
         _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, name);
     }
 
-    var changed = true;
-    while (changed) {
-        changed = false;
+    while (true) {
+        const reachable_before = reachable.count();
         var sig_index: usize = 0;
         var idx: usize = 0;
         while (idx < verified.annotated.len) : (idx += 1) {
@@ -691,14 +795,27 @@ fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anyty
                     }) : (end += 1) {}
 
                     if (reachable.contains(fsig.name)) {
-                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable)) or changed;
+                        _ = try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable, &closure_complete);
                     }
                     idx = end - 1;
                 },
                 else => {},
             }
         }
+        if (reachable.count() == reachable_before) break;
     }
+    return closure_complete;
+}
+
+fn collectFocusedTestPruneReachability(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    sig_index_by_name: *const std.StringHashMap(usize),
+    selected_test_names: []const []const u8,
+    reachable: *std.StringHashMap(void),
+) !bool {
+    const closure_complete = try collectSelectedTestReachability(allocator, verified, sig_index_by_name, selected_test_names, reachable);
+    return closure_complete and reachable.count() != 0;
 }
 
 fn isPathSepByte(byte: u8) bool {
@@ -1227,9 +1344,6 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
                     job.err = err;
                     return;
                 }) |ci| {
-                    if (std.mem.eql(u8, fsig.name, "sla__imported_json_get_type") or std.mem.eql(u8, fsig.name, "sla__imported_json_struct") or std.mem.eql(u8, fsig.name, "sla__imported_json_struct_field_key")) {
-                        std.debug.print("emit {s} inst#{d} kind={s} c_op={s} dst={d} op0_kind={s} op0_reg={d} op1_kind={s} op1_reg={d}\n", .{ fsig.name, annotated_idx - (task.start_idx + 1), @tagName(body_item.base.kind), @tagName(ci.op), ci.dst, @tagName(ci.operand0.kind), ci.operand0.reg, @tagName(ci.operand1.kind), ci.operand1.reg });
-                    }
                     insts.append(ci) catch |err| {
                         job.err = err;
                         return;
@@ -1316,8 +1430,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
     var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
     if (focused_test_prune) {
-        try collectSelectedTestReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
-        prune_unreachable = referenced_functions.count() != 0;
+        prune_unreachable = try collectFocusedTestPruneReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
     } else if (prune_unreachable) {
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
@@ -1351,7 +1464,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1376,7 +1489,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1601,8 +1714,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
     var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
     if (focused_test_prune) {
-        try collectSelectedTestReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
-        prune_unreachable = referenced_functions.count() != 0;
+        prune_unreachable = try collectFocusedTestPruneReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
     } else if (prune_unreachable) {
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
@@ -1634,7 +1746,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1659,7 +1771,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1818,6 +1930,64 @@ pub fn emitLlvmcToFile(allocator: std.mem.Allocator, verified: anytype, def_dict
     try file.writeAll(verified_bitcode);
 }
 
+const FocusedReachabilityTestAnnotated = struct {
+    base: inst.Instruction,
+};
+
+const FocusedReachabilityTestSymbols = struct {
+    names: []const []const u8,
+
+    pub fn lookupName(self: *const FocusedReachabilityTestSymbols, id: u32) ?[]const u8 {
+        const index: usize = @intCast(id);
+        if (index >= self.names.len) return null;
+        return self.names[index];
+    }
+};
+
+const FocusedReachabilityTestResult = struct {
+    prune_enabled: bool,
+    selected_reachable: bool,
+    helper_reachable: bool,
+    unrelated_reachable: bool,
+};
+
+fn runFocusedReachabilityTest(body: inst.Instruction) !FocusedReachabilityTestResult {
+    const function_sigs = [_]sig.FunctionSig{
+        .{ .id = 0, .name = "selected", .params = &.{}, .kind = .test_func, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 1, .name = "helper", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 3, .is_ffi_wrapper = false },
+        .{ .id = 2, .name = "unrelated", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 5, .is_ffi_wrapper = false },
+    };
+    const annotated = [_]FocusedReachabilityTestAnnotated{
+        .{ .base = inst.makeInstruction(.test_decl, 1, 0, null, "@test selected():") },
+        .{ .base = body },
+        .{ .base = inst.makeInstruction(.return_, 3, 2, null, "return") },
+        .{ .base = inst.makeInstruction(.func_decl, 4, 3, null, "@helper():") },
+        .{ .base = inst.makeInstruction(.return_, 5, 4, null, "return") },
+        .{ .base = inst.makeInstruction(.func_decl, 6, 5, null, "@unrelated():") },
+        .{ .base = inst.makeInstruction(.return_, 7, 6, null, "return") },
+    };
+    var symbol_names = [_][]const u8{"helper"};
+    const verified = .{
+        .annotated = annotated[0..],
+        .function_sigs = function_sigs[0..],
+        .symbols = FocusedReachabilityTestSymbols{ .names = symbol_names[0..] },
+        .const_decls = @as([]const const_decl.ConstDecl, &.{}),
+    };
+
+    var function_sig_index = try buildFunctionSigIndex(std.testing.allocator, function_sigs[0..]);
+    defer function_sig_index.deinit();
+    var reachable = std.StringHashMap(void).init(std.testing.allocator);
+    defer reachable.deinit();
+
+    const prune_enabled = try collectFocusedTestPruneReachability(std.testing.allocator, verified, &function_sig_index, &.{"selected"}, &reachable);
+    return .{
+        .prune_enabled = prune_enabled,
+        .selected_reachable = reachable.contains("selected"),
+        .helper_reachable = reachable.contains("helper"),
+        .unrelated_reachable = reachable.contains("unrelated"),
+    };
+}
+
 test "function signature index preserves linear alias precedence" {
     const sigs = [_]sig.FunctionSig{
         .{ .id = 0, .name = "one", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false, .llvm_name = "shared" },
@@ -1831,6 +2001,40 @@ test "function signature index preserves linear alias precedence" {
     try std.testing.expectEqual(@as(usize, 0), index.get("shared").?);
     try std.testing.expectEqual(@as(usize, 2), index.get("main").?);
     try std.testing.expectEqual(@as(usize, 2), index.get("saasm_main").?);
+}
+
+test "focused test prune keeps a complete direct-call closure" {
+    const body = inst.makeInstruction(.call, 2, 1, null, "call @helper()");
+    const result = try runFocusedReachabilityTest(body);
+
+    try std.testing.expect(result.prune_enabled);
+    try std.testing.expect(result.selected_reachable);
+    try std.testing.expect(result.helper_reachable);
+    try std.testing.expect(!result.unrelated_reachable);
+}
+
+test "focused test prune falls back for indirect invalid and unknown calls" {
+    const indirect = try runFocusedReachabilityTest(inst.makeInstruction(.call_indirect, 2, 1, null, "call_indirect callback()"));
+    try std.testing.expect(!indirect.prune_enabled);
+
+    const invalid = try runFocusedReachabilityTest(inst.makeInstruction(.call, 2, 1, null, "call @"));
+    try std.testing.expect(!invalid.prune_enabled);
+
+    const unknown = try runFocusedReachabilityTest(inst.makeInstruction(.call, 2, 1, null, "call @missing()"));
+    try std.testing.expect(!unknown.prune_enabled);
+}
+
+test "focused test prune tracks function operands and rejects unresolved addresses" {
+    var known_body = inst.makeInstruction(.assign, 2, 1, null, "");
+    known_body.operands[1] = .{ .func = 0 };
+    const known = try runFocusedReachabilityTest(known_body);
+    try std.testing.expect(known.prune_enabled);
+    try std.testing.expect(known.helper_reachable);
+
+    var unknown_body = inst.makeInstruction(.assign, 2, 1, null, "");
+    unknown_body.operands[1] = .{ .func = 99 };
+    const unknown = try runFocusedReachabilityTest(unknown_body);
+    try std.testing.expect(!unknown.prune_enabled);
 }
 
 test "dce modes prune std and user functions at distinct levels" {
@@ -1891,6 +2095,7 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .allocator = std.testing.allocator,
         .symbols = &symbols,
         .fsig = fsig,
+        .reg_operands_are_global_ids = false,
         .const_names = std.StringHashMap(void).init(std.testing.allocator),
         .anon_string_names = &anon_string_names,
         .const_decls = &.{},

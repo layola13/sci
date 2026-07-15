@@ -169,6 +169,10 @@ pub fn noteCanceled() void {
     _ = canceled.fetchAdd(1, .monotonic);
 }
 
+pub fn noteBusyRejected() void {
+    _ = busy_rejects.fetchAdd(1, .monotonic);
+}
+
 pub fn stats() struct { accepted: u64, canceled: u64, busy_rejects: u64 } {
     return .{
         .accepted = accepted.load(.monotonic),

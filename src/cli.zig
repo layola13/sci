@@ -3257,12 +3257,33 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
 }
 
 fn daemonWorker(allocator: std.mem.Allocator, conn: std.net.Server.Connection, in_flight: *std.atomic.Value(usize)) void {
-    defer _ = in_flight.fetchSub(1, .monotonic);
+    defer {
+        const previous = in_flight.fetchSub(1, .monotonic);
+        daemon_in_flight_global.store(previous - 1, .monotonic);
+    }
     handleDaemonConnection(allocator, conn);
 }
 
 var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
 var daemon_in_flight_global = std.atomic.Value(usize).init(0);
+// Process cwd is shared by every thread. Until command execution accepts an
+// explicit request-local root throughout the stack, serialize all non-control
+// requests so a request without a cwd cannot observe another request's chdir.
+var daemon_execution_mutex: std.Thread.Mutex = .{};
+
+fn reserveDaemonWorkerSlot(in_flight: *std.atomic.Value(usize), max_workers: usize) bool {
+    const current = in_flight.load(.monotonic);
+    if (current >= max_workers) return false;
+    _ = in_flight.fetchAdd(1, .monotonic);
+    daemon_in_flight_global.store(current + 1, .monotonic);
+    return true;
+}
+
+fn rejectDaemonBusy(conn: std.net.Server.Connection) void {
+    defer conn.stream.close();
+    daemon_cancel.noteBusyRejected();
+    conn.stream.writeAll("{\"status\":\"busy\",\"message\":\"daemon worker limit reached\"}\n") catch {};
+}
 
 fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Connection) void {
     defer conn.stream.close();
@@ -3336,21 +3357,28 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
     };
     defer freeDaemonArgv(allocator, parsed);
 
-    // Optional cwd change for project isolation.
-    var old_cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const old_cwd = std.fs.cwd().realpath(".", &old_cwd_buf) catch null;
-    if (daemon_cancel.parseJsonStrField(request_line, "\"cwd\"")) |cwd| {
-        std.posix.chdir(cwd) catch {};
-    }
-    defer if (old_cwd) |c| std.posix.chdir(c) catch {};
-
     const wall_start = std.time.Instant.now() catch null;
     var resp = std.ArrayList(u8).init(allocator);
     defer resp.deinit();
-    const code: u8 = executeWithWritersAndOptions(allocator, parsed, resp.writer(), resp.writer(), .{}) catch |err| blk: {
-        resp.clearRetainingCapacity();
-        resp.writer().print("execution error: {s}", .{@errorName(err)}) catch {};
-        break :blk @as(u8, 1);
+    const code: u8 = execution: {
+        daemon_execution_mutex.lock();
+        defer daemon_execution_mutex.unlock();
+
+        var old_cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const old_cwd = std.fs.cwd().realpath(".", &old_cwd_buf) catch null;
+        defer if (old_cwd) |cwd| std.posix.chdir(cwd) catch {};
+        if (daemon_cancel.parseJsonStrField(request_line, "\"cwd\"")) |cwd| {
+            std.posix.chdir(cwd) catch |err| {
+                resp.writer().print("execution error: invalid cwd: {s}", .{@errorName(err)}) catch {};
+                break :execution 1;
+            };
+        }
+
+        break :execution executeWithWritersAndOptions(allocator, parsed, resp.writer(), resp.writer(), .{}) catch |err| {
+            resp.clearRetainingCapacity();
+            resp.writer().print("execution error: {s}", .{@errorName(err)}) catch {};
+            break :execution 1;
+        };
     };
     const wall_ms: u64 = if (wall_start) |s| elapsedNs(s) / 1_000_000 else 0;
     const vs = incr_verify.stats();
@@ -3498,7 +3526,7 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
             socket_path = args[i + 1];
             i += 1;
         } else if (std.mem.eql(u8, args[i], "--max-workers") and i + 1 < args.len) {
-            max_workers = std.fmt.parseInt(usize, args[i + 1], 10) catch 8;
+            max_workers = @max(1, std.fmt.parseInt(usize, args[i + 1], 10) catch 8);
             i += 1;
         } else if (std.mem.eql(u8, args[i], "--per-agent-limit") and i + 1 < args.len) {
             daemon_cancel.setPerAgentLimit(std.fmt.parseInt(u32, args[i + 1], 10) catch 4);
@@ -3522,18 +3550,16 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
             try stderr.print("daemon: accept failed: {s}\n", .{@errorName(err)});
             continue;
         };
-        // Backpressure: at capacity, handle inline (blocks accept) instead of
-        // spawning unbounded threads. Bounds memory under many agents.
-        daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
-        if (in_flight.load(.monotonic) >= max_workers) {
-            handleDaemonConnection(allocator, conn);
+        // Hard backpressure: never execute an N+1 request on the accept thread.
+        // A bounded queue is a later scheduler step; containment rejects busy.
+        if (!reserveDaemonWorkerSlot(&in_flight, max_workers)) {
+            rejectDaemonBusy(conn);
             continue;
         }
-        _ = in_flight.fetchAdd(1, .monotonic);
-        daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
         const thread = std.Thread.spawn(.{}, daemonWorker, .{ allocator, conn, &in_flight }) catch {
-            _ = in_flight.fetchSub(1, .monotonic);
-            handleDaemonConnection(allocator, conn);
+            const previous = in_flight.fetchSub(1, .monotonic);
+            daemon_in_flight_global.store(previous - 1, .monotonic);
+            rejectDaemonBusy(conn);
             continue;
         };
         thread.detach();
@@ -3545,6 +3571,17 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
     }
     std.fs.cwd().deleteFile(socket_path) catch {};
     return 0;
+}
+
+test "daemon worker reservation enforces a hard max without inline N plus one" {
+    var in_flight = std.atomic.Value(usize).init(0);
+    try std.testing.expect(reserveDaemonWorkerSlot(&in_flight, 2));
+    try std.testing.expect(reserveDaemonWorkerSlot(&in_flight, 2));
+    try std.testing.expect(!reserveDaemonWorkerSlot(&in_flight, 2));
+    try std.testing.expectEqual(@as(usize, 2), in_flight.load(.monotonic));
+    _ = in_flight.fetchSub(1, .monotonic);
+    try std.testing.expect(reserveDaemonWorkerSlot(&in_flight, 2));
+    try std.testing.expectEqual(@as(usize, 2), in_flight.load(.monotonic));
 }
 
 fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerror, last_line: ?u32) trap.TrapReport {
@@ -4474,14 +4511,16 @@ fn buildSabConstIndex(allocator: std.mem.Allocator, const_decls: []const flatten
     return index;
 }
 
-fn markSabReachableByName(
+fn enqueueSabReachableByName(
     reachable: *std.AutoHashMap(usize, void),
+    queue: *std.ArrayList(usize),
     sig_index_by_name: *const std.StringHashMap(usize),
     name: []const u8,
 ) !bool {
     const sig_index = sig_index_by_name.get(name) orelse return false;
     if (reachable.contains(sig_index)) return false;
     try reachable.put(sig_index, {});
+    try queue.append(sig_index);
     return true;
 }
 
@@ -4490,7 +4529,16 @@ fn sabReferenceName(text: []const u8) []const u8 {
     while (trimmed.len != 0 and (trimmed[0] == '&' or trimmed[0] == '^' or trimmed[0] == '*')) {
         trimmed = std.mem.trim(u8, trimmed[1..], " \t\r");
     }
+    if (trimmed.len != 0 and trimmed[0] == '@') trimmed = trimmed[1..];
     return trimmed;
+}
+
+fn sabReferenceIsExplicitSymbol(text: []const u8) bool {
+    var trimmed = std.mem.trim(u8, text, " \t\r");
+    while (trimmed.len != 0 and (trimmed[0] == '&' or trimmed[0] == '^' or trimmed[0] == '*')) {
+        trimmed = std.mem.trim(u8, trimmed[1..], " \t\r");
+    }
+    return trimmed.len != 0 and trimmed[0] == '@';
 }
 
 fn markSabReachableVtableConstByName(
@@ -4500,19 +4548,23 @@ fn markSabReachableVtableConstByName(
     const_index_by_name: *const std.StringHashMap(usize),
     const_decls: []const flattener.ConstDecl,
     name: []const u8,
+    closure_complete: *bool,
+    queue: *std.ArrayList(usize),
 ) !bool {
     const normalized = sabReferenceName(name);
     if (normalized.len == 0) return false;
     const const_index = const_index_by_name.get(normalized) orelse return false;
     switch (const_decls[const_index].value) {
         .vtable => |literal| {
-            var changed = false;
-            if (!reachable_vtable_consts.contains(const_index)) {
-                try reachable_vtable_consts.put(const_index, {});
-                changed = true;
-            }
+            if (reachable_vtable_consts.contains(const_index)) return false;
+            try reachable_vtable_consts.put(const_index, {});
+            var changed = true;
             for (literal.slots) |slot| {
-                changed = (try markSabReachableByName(reachable_functions, sig_index_by_name, slot.func_name)) or changed;
+                if (!sig_index_by_name.contains(slot.func_name)) {
+                    closure_complete.* = false;
+                    continue;
+                }
+                changed = (try enqueueSabReachableByName(reachable_functions, queue, sig_index_by_name, slot.func_name)) or changed;
             }
             return changed;
         },
@@ -4527,6 +4579,8 @@ fn markSabReachableVtableConstFromOperand(
     const_index_by_name: *const std.StringHashMap(usize),
     flat: *const flattener.FlattenResult,
     operand: anytype,
+    closure_complete: *bool,
+    queue: *std.ArrayList(usize),
 ) !bool {
     const text = switch (operand) {
         .reg => |id| flat.symbols.lookupName(id),
@@ -4537,7 +4591,7 @@ fn markSabReachableVtableConstFromOperand(
         .native_text => |value| value,
         else => null,
     } orelse return false;
-    return try markSabReachableVtableConstByName(reachable_functions, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat.const_decls, text);
+    return try markSabReachableVtableConstByName(reachable_functions, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat.const_decls, text, closure_complete, queue);
 }
 
 fn freeFlatInstructionMetadata(allocator: std.mem.Allocator, item: flattener.Instruction) void {
@@ -4597,33 +4651,95 @@ fn collectSabSelectedReachability(
     const_index_by_name: *const std.StringHashMap(usize),
     selected_test_names: []const []const u8,
     reachable_vtable_consts: *std.AutoHashMap(usize, void),
+    closure_complete: *bool,
 ) !std.AutoHashMap(usize, void) {
     var reachable = std.AutoHashMap(usize, void).init(allocator);
     errdefer reachable.deinit();
+    var queue = std.ArrayList(usize).init(allocator);
+    defer queue.deinit();
 
-    for (selected_test_names) |name| {
-        _ = try markSabReachableByName(&reachable, sig_index_by_name, name);
+    var range_index_by_sig = try allocator.alloc(?usize, flat.function_sigs.len);
+    defer allocator.free(range_index_by_sig);
+    @memset(range_index_by_sig, null);
+    for (ranges, 0..) |range, range_index| {
+        if (range.sig_index < range_index_by_sig.len) range_index_by_sig[range.sig_index] = range_index;
     }
 
-    var changed = true;
-    while (changed) {
-        changed = false;
-        for (ranges) |range| {
-            if (!reachable.contains(range.sig_index)) continue;
-            for (flat.instructions[range.start..range.end]) |item| {
-                if (item.kind != .call and item.kind != .call_indirect) continue;
-                var parsed = referee_call.parseInstructionCall(allocator, item, &flat.symbols) catch |err| switch (err) {
-                    error.InvalidCallSyntax => continue,
-                    else => return err,
-                };
-                defer parsed.deinit(allocator);
-                if (parsed.is_indirect) continue;
-                changed = (try markSabReachableByName(&reachable, sig_index_by_name, parsed.callee)) or changed;
+    for (selected_test_names) |name| {
+        if (!sig_index_by_name.contains(name)) {
+            closure_complete.* = false;
+            continue;
+        }
+        _ = try enqueueSabReachableByName(&reachable, &queue, sig_index_by_name, name);
+    }
+
+    var queue_index: usize = 0;
+    while (queue_index < queue.items.len) : (queue_index += 1) {
+        const sig_index = queue.items[queue_index];
+        const range_index = if (sig_index < range_index_by_sig.len) range_index_by_sig[sig_index] else null;
+        const range = ranges[range_index orelse {
+            closure_complete.* = false;
+            continue;
+        }];
+
+        for (flat.instructions[range.start..range.end]) |item| {
+            if (item.kind != .call and item.kind != .call_indirect) continue;
+            var parsed = referee_call.parseInstructionCall(allocator, item, &flat.symbols) catch |err| switch (err) {
+                error.InvalidCallSyntax => {
+                    closure_complete.* = false;
+                    continue;
+                },
+                else => return err,
+            };
+            defer parsed.deinit(allocator);
+            if (parsed.is_indirect) {
+                closure_complete.* = false;
+                continue;
             }
-            for (flat.instructions[range.start..range.end]) |item| {
-                inline for (0..4) |operand_index| {
-                    changed = (try markSabReachableVtableConstFromOperand(&reachable, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat, item.operands[operand_index])) or changed;
+            if (!sig_index_by_name.contains(parsed.callee)) {
+                closure_complete.* = false;
+                continue;
+            }
+            _ = try enqueueSabReachableByName(&reachable, &queue, sig_index_by_name, parsed.callee);
+        }
+        for (flat.instructions[range.start..range.end]) |item| {
+            for (item.operands) |operand| {
+                switch (operand) {
+                    .func => |id| {
+                        const function_name = flat.symbols.lookupName(id) orelse {
+                            closure_complete.* = false;
+                            continue;
+                        };
+                        if (!sig_index_by_name.contains(function_name)) {
+                            closure_complete.* = false;
+                        } else {
+                            _ = try enqueueSabReachableByName(&reachable, &queue, sig_index_by_name, function_name);
+                        }
+                    },
+                    else => {},
                 }
+
+                if (item.kind != .call and item.kind != .call_indirect and !isSabFunctionDecl(item.kind)) {
+                    const reference_text = switch (operand) {
+                        .reg => |id| flat.symbols.lookupName(id),
+                        .symbol => |id| flat.symbols.lookupName(id),
+                        .func => |id| flat.symbols.lookupName(id),
+                        .text => |text| text,
+                        .native_text => |text| text,
+                        else => null,
+                    };
+                    if (reference_text) |text| {
+                        if (sabReferenceIsExplicitSymbol(text)) {
+                            const referenced_name = sabReferenceName(text);
+                            if (sig_index_by_name.contains(referenced_name)) {
+                                _ = try enqueueSabReachableByName(&reachable, &queue, sig_index_by_name, referenced_name);
+                            } else if (!const_index_by_name.contains(referenced_name)) {
+                                closure_complete.* = false;
+                            }
+                        }
+                    }
+                }
+                _ = try markSabReachableVtableConstFromOperand(&reachable, reachable_vtable_consts, sig_index_by_name, const_index_by_name, flat, operand, closure_complete, &queue);
             }
         }
     }
@@ -4651,8 +4767,13 @@ fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.Fl
     var reachable_vtable_consts = std.AutoHashMap(usize, void).init(allocator);
     defer reachable_vtable_consts.deinit();
 
-    var reachable = try collectSabSelectedReachability(allocator, flat, ranges, &sig_index_by_name, &const_index_by_name, selected_test_names, &reachable_vtable_consts);
+    var closure_complete = true;
+    var reachable = try collectSabSelectedReachability(allocator, flat, ranges, &sig_index_by_name, &const_index_by_name, selected_test_names, &reachable_vtable_consts, &closure_complete);
     defer reachable.deinit();
+    // The full module is the only sound fallback while indirect/address-taken
+    // target sets are unresolved. This return occurs before any FlatResult
+    // allocation is transferred or freed.
+    if (!closure_complete) return;
     if (reachable.count() == 0) return;
 
     var kept_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
@@ -5429,8 +5550,14 @@ const SourceTreeFileStat = struct {
 
 const SourceTreeHashCacheEntry = struct {
     digest: [32]u8,
+    project_cacheable: bool,
     files: []SourceTreeFileStat,
     last_used_tick: u64,
+};
+
+const SourceTreeHashResult = struct {
+    digest: [32]u8,
+    project_cacheable: bool,
 };
 
 var source_tree_hash_cache_mutex: std.Thread.Mutex = .{};
@@ -5495,7 +5622,7 @@ fn appendCacheKeyBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
     try out.append(0);
 }
 
-fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
+fn sourceTreeHashCacheHit(cache_key: []const u8) ?SourceTreeHashResult {
     source_tree_hash_cache_mutex.lock();
     defer source_tree_hash_cache_mutex.unlock();
     const cache = sourceTreeHashCacheMap();
@@ -5505,10 +5632,10 @@ fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
         if (stat.mtime != file.mtime or stat.size != file.size) return null;
     }
     entry.last_used_tick = nextSourceTreeHashCacheTickLocked();
-    return entry.digest;
+    return .{ .digest = entry.digest, .project_cacheable = entry.project_cacheable };
 }
 
-fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: []const SourceTreeFileStat) !void {
+fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, project_cacheable: bool, files: []const SourceTreeFileStat) !void {
     const cache_allocator = std.heap.page_allocator;
     const owned_key = try cache_allocator.dupe(u8, cache_key);
     errdefer cache_allocator.free(owned_key);
@@ -5532,12 +5659,12 @@ fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: [
     var cache = sourceTreeHashCacheMap();
     if (cache.getPtr(cache_key)) |old| {
         freeSourceTreeHashCacheEntry(old.*);
-        old.* = .{ .digest = digest, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() };
+        old.* = .{ .digest = digest, .project_cacheable = project_cacheable, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() };
         cache_allocator.free(owned_key);
         evictSourceTreeHashCacheIfNeeded(cache, sourceTreeHashCacheMaxEntries());
         return;
     }
-    try cache.put(owned_key, .{ .digest = digest, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() });
+    try cache.put(owned_key, .{ .digest = digest, .project_cacheable = project_cacheable, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() });
     evictSourceTreeHashCacheIfNeeded(cache, sourceTreeHashCacheMaxEntries());
 }
 
@@ -5568,6 +5695,18 @@ fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32
     hasher.update(&digest);
 }
 
+fn sourceMayReadDynamicCompileInput(source: []const u8) bool {
+    // Until manifest v2 carries a request-local depfile, entries whose
+    // expansion can read environment or include files must not enter the
+    // project artifact cache. False positives only reduce reuse; false
+    // negatives could publish a stale executable.
+    return std.mem.indexOf(u8, source, "ENV!") != null or
+        std.mem.indexOf(u8, source, "OPTION_ENV!") != null or
+        std.mem.indexOf(u8, source, "INCLUDE!") != null or
+        std.mem.indexOf(u8, source, "INCLUDE_STR!") != null or
+        std.mem.indexOf(u8, source, "INCLUDE_BYTES!") != null;
+}
+
 fn hashResolvedSourceTreeUncached(
     allocator: std.mem.Allocator,
     hasher: *std.crypto.hash.sha2.Sha256,
@@ -5580,6 +5719,7 @@ fn hashResolvedSourceTreeUncached(
     visited: *std.StringHashMap(void),
     files: *std.ArrayList(SourceTreeFileStat),
     resolved_source: ?[]const u8,
+    project_cacheable: *bool,
 ) !void {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
     var owned_by_files = false;
@@ -5603,6 +5743,7 @@ fn hashResolvedSourceTreeUncached(
     defer if (owned_source) |source| allocator.free(source);
     const source = resolved_source orelse owned_source.?;
     cacheBytes(hasher, source);
+    if (sourceMayReadDynamicCompileInput(source)) project_cacheable.* = false;
 
     var iter = std.mem.splitScalar(u8, source, '\n');
     while (iter.next()) |line| {
@@ -5617,7 +5758,7 @@ fn hashResolvedSourceTreeUncached(
         } };
         var imported = try flattener.readImportSourceFile(allocator, std.fs.path.dirname(source_path) orelse ".", import_path, resolve_ctx);
         defer imported.deinit(allocator);
-        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files, imported.source);
+        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files, imported.source, project_cacheable);
     }
 }
 
@@ -5630,14 +5771,14 @@ fn hashResolvedSourceTree(
     std_root: []const u8,
     offline: bool,
     source_path: []const u8,
-) !void {
+) !bool {
     const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
     defer allocator.free(real_source_path);
     const cache_key = try buildSourceTreeHashCacheKey(allocator, dependencies, plugin_import_roots, project_root, std_root, offline, real_source_path);
     defer allocator.free(cache_key);
-    if (sourceTreeHashCacheHit(cache_key)) |digest| {
-        addSourceTreeDigestToHasher(hasher, digest);
-        return;
+    if (sourceTreeHashCacheHit(cache_key)) |result| {
+        addSourceTreeDigestToHasher(hasher, result.digest);
+        return result.project_cacheable;
     }
 
     var tree_hasher = std.crypto.hash.sha2.Sha256.init(.{});
@@ -5652,11 +5793,13 @@ fn hashResolvedSourceTree(
         for (files.items) |file| allocator.free(file.path);
         files.deinit();
     }
-    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files, null);
+    var project_cacheable = true;
+    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files, null, &project_cacheable);
     var digest: [32]u8 = undefined;
     tree_hasher.final(&digest);
-    try storeSourceTreeHashCacheEntry(cache_key, digest, files.items);
+    try storeSourceTreeHashCacheEntry(cache_key, digest, project_cacheable, files.items);
     addSourceTreeDigestToHasher(hasher, digest);
+    return project_cacheable;
 }
 
 fn computeProjectBuildKey(
@@ -5674,13 +5817,21 @@ fn computeProjectBuildKey(
     hash_source_tree: bool,
     offline: bool,
     dce: DceMode,
-) !ProjectCacheKey {
+    jobs: ?usize,
+    jobs_explicit: bool,
+) !?ProjectCacheKey {
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
 
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBytes(&hasher, "sa-build-cache");
+    var project_cacheable = true;
+    cacheBytes(&hasher, "sa-build-cache-v2");
     cacheBytes(&hasher, cacheCompilerVersion());
+    cacheBytes(&hasher, builtin.zig_version_string);
+    cacheBytes(&hasher, @tagName(builtin.target.cpu.arch));
+    cacheBytes(&hasher, builtin.target.cpu.model.name);
+    cacheBytes(&hasher, @tagName(builtin.target.os.tag));
+    cacheBytes(&hasher, @tagName(builtin.target.abi));
     cacheBytes(&hasher, project_root);
     cacheBytes(&hasher, kind.dirName());
     cacheBytes(&hasher, source_path);
@@ -5690,6 +5841,8 @@ fn computeProjectBuildKey(
     cacheBool(&hasher, release_fast);
     cacheBool(&hasher, incremental);
     cacheBytes(&hasher, dce.name());
+    cacheBool(&hasher, jobs_explicit);
+    cacheU64(&hasher, if (jobs) |count| @intCast(count) else 0);
     if (wasm) |target| {
         cacheBytes(&hasher, target.triple);
         cacheBool(&hasher, target.no_entry);
@@ -5734,7 +5887,7 @@ fn computeProjectBuildKey(
         }
 
         if (hash_source_tree) {
-            try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
+            project_cacheable = try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
         }
     } else {
         try projectFileMaybeHash(&hasher, allocator, project_context.workspace_manifest_path);
@@ -5742,9 +5895,11 @@ fn computeProjectBuildKey(
             try projectFileMaybeHash(&hasher, allocator, project_context.member_manifest_path);
         }
         if (hash_source_tree) {
-            try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
+            project_cacheable = try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
         }
     }
+
+    if (!project_cacheable) return null;
 
     var out: [32]u8 = undefined;
     hasher.final(&out);
@@ -5801,6 +5956,13 @@ fn jsonIntEquals(value: std.json.Value, expected: u64) bool {
     };
 }
 
+fn jsonArrayIsEmpty(value: std.json.Value) bool {
+    return switch (value) {
+        .array => |items| items.items.len == 0,
+        else => false,
+    };
+}
+
 fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) !bool {
     const stat = std.fs.cwd().statFile(path) catch return false;
     if (stat.kind != .file or stat.size == 0) return false;
@@ -5823,11 +5985,18 @@ fn projectCacheManifestValid(
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return false;
     defer parsed.deinit();
-    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 1)) return false;
+    // v1 had no dynamic-dependency contract and must never be reused.
+    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 2)) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key.slice())) return false;
+    if (!jsonArrayIsEmpty(jsonGetObject(parsed.value, "dynamic_dependencies") catch return false)) return false;
     if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "artifact") catch return false, artifact_path) catch return false)) return false;
     if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "output") catch return false, out_path) catch return false)) return false;
+    if (kind == .test_cache) {
+        const metadata_path = projectCacheTestMetadataPath(allocator, project_root, key) catch return false;
+        defer allocator.free(metadata_path);
+        if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "test_metadata") catch return false, metadata_path) catch return false)) return false;
+    }
     return true;
 }
 
@@ -5854,28 +6023,70 @@ fn projectCacheWriteManifest(
     const manifest_path = try projectCacheManifestPath(allocator, project_root, kind, key);
     defer allocator.free(manifest_path);
     try ensureParentDir(manifest_path);
-    var file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
-    defer file.close();
-    var writer = file.writer();
-    try writer.writeAll("{\"version\":1,\"kind\":");
+
+    var contents = std.ArrayList(u8).init(allocator);
+    defer contents.deinit();
+    var writer = contents.writer();
+    try writer.writeAll("{\"version\":2,\"kind\":");
     try writeJsonString(writer, kind.dirName());
     try writer.writeAll(",\"key\":");
     try writeJsonString(writer, key.slice());
+    // Dynamic-input trees are currently rejected before a key is returned.
+    // Keeping an explicit empty depfile makes that containment auditable and
+    // guarantees old v1 entries miss after upgrade.
+    try writer.writeAll(",\"dynamic_dependencies\":[]");
     try writer.writeByte(',');
     try writeCacheArtifactManifestEntry(writer, allocator, "artifact", cached_artifact);
     try writer.writeByte(',');
     try writeCacheArtifactManifestEntry(writer, allocator, "output", cached_output);
+    if (kind == .test_cache) {
+        const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
+        defer allocator.free(metadata_path);
+        try writer.writeByte(',');
+        try writeCacheArtifactManifestEntry(writer, allocator, "test_metadata", metadata_path);
+    }
     try writer.writeAll("}\n");
+
+    var random: [8]u8 = undefined;
+    std.crypto.random.bytes(&random);
+    const suffix = std.fmt.bytesToHex(random, .lower);
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ manifest_path, suffix[0..] });
+    defer allocator.free(tmp_path);
+    var file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
+    var file_open = true;
+    errdefer if (file_open) file.close();
+    errdefer std.fs.cwd().deleteFile(tmp_path) catch |err| {
+        _ = @errorName(err);
+    };
+    try file.writeAll(contents.items);
+    try file.sync();
+    file.close();
+    file_open = false;
+    if (std.fs.path.isAbsolute(manifest_path)) {
+        try std.fs.renameAbsolute(tmp_path, manifest_path);
+    } else {
+        try std.fs.cwd().rename(tmp_path, manifest_path);
+    }
 }
+
+const ProjectCacheHitResult = enum {
+    miss,
+    hit,
+    authorization_rejected,
+};
 
 fn projectCacheHit(
     allocator: std.mem.Allocator,
     project_root: []const u8,
     kind: BuildCacheKind,
     key: ProjectCacheKey,
+    project_context: *const ProjectContext,
+    options: CompileOptions,
     artifact_path: []const u8,
     out_path: []const u8,
-) !bool {
+    stderr: anytype,
+    diagnostics_mode: DiagnosticsMode,
+) !ProjectCacheHitResult {
     const cached_artifact = try projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc");
     defer allocator.free(cached_artifact);
     const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
@@ -5888,7 +6099,20 @@ fn projectCacheHit(
         !projectCacheManifestValid(allocator, project_root, kind, key, cached_artifact, cached_output))
     {
         projectCacheRemoveKey(allocator, project_root, kind, key);
-        return false;
+        return .miss;
+    }
+
+    // A cache manifest proves artifact identity, not that this request is
+    // currently authorized to use it. Run package and permission checks only
+    // after finding a valid entry, but before publishing either cached file.
+    if (project_context.manifest) |project_manifest| {
+        verifyProjectPackageState(allocator, project_context.root_path, project_manifest, options) catch |err| {
+            if (trapFromPackagePreflightError(err)) |report| {
+                try printTrapReport(stderr, report, diagnostics_mode);
+                return .authorization_rejected;
+            }
+            return err;
+        };
     }
     copyFileAlloc(allocator, cached_artifact, artifact_path) catch |err| {
         projectCacheRemoveKey(allocator, project_root, kind, key);
@@ -5898,7 +6122,7 @@ fn projectCacheHit(
         projectCacheRemoveKey(allocator, project_root, kind, key);
         return err;
     };
-    return true;
+    return .hit;
 }
 
 fn projectCacheStore(
@@ -6114,11 +6338,13 @@ fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir
     defer std.heap.page_allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, manifest_bytes, .{}) catch return false;
     defer parsed.deinit();
-    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 1)) return false;
+    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 2)) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key_name)) return false;
+    if (!jsonArrayIsEmpty(jsonGetObject(parsed.value, "dynamic_dependencies") catch return false)) return false;
     if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "artifact") catch return false, "artifact.sa.bc") catch return false)) return false;
     if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "output") catch return false, "output.bin") catch return false)) return false;
+    if (kind == .test_cache and !(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "test_metadata") catch return false, "test-metadata.json") catch return false)) return false;
     return true;
 }
 
@@ -6758,20 +6984,24 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
 
     if (cache_key) |key| {
-        if (try projectCacheHit(allocator, project_root, .build_exe, key, artifact_path, out_path)) {
-            try makeExecutable(out_path);
-            if (diagnostics_mode == .json or compile_options.mem_report) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
-                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
-            }
-            return 0;
+        switch (try projectCacheHit(allocator, project_root, .build_exe, key, &project_context, compile_options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => {},
+            .authorization_rejected => return 1,
+            .hit => {
+                try makeExecutable(out_path);
+                if (diagnostics_mode == .json or compile_options.mem_report) {
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
+                    try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
+                }
+                return 0;
+            },
         }
     }
 
@@ -6981,19 +7211,23 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
 
     if (cache_key) |key| {
-        if (try projectCacheHit(allocator, project_root, .build_obj, key, artifact_path, out_path)) {
-            if (diagnostics_mode == .json or compile_options.mem_report) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
-                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
-            }
-            return 0;
+        switch (try projectCacheHit(allocator, project_root, .build_obj, key, &project_context, compile_options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => {},
+            .authorization_rejected => return 1,
+            .hit => {
+                if (diagnostics_mode == .json or compile_options.mem_report) {
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
+                    try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
+                }
+                return 0;
+            },
         }
     }
 
@@ -7012,7 +7246,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
+                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)) orelse unreachable;
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
             } else {
@@ -7040,19 +7274,23 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
     defer allocator.free(artifact_path);
 
     if (cache_key) |key| {
-        if (try projectCacheHit(allocator, project_root, .build_wasm, key, artifact_path, out_path)) {
-            if (diagnostics_mode == .json or compile_options.mem_report) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
-                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
-            }
-            return 0;
+        switch (try projectCacheHit(allocator, project_root, .build_wasm, key, &project_context, compile_options, artifact_path, out_path, stderr, diagnostics_mode)) {
+            .miss => {},
+            .authorization_rejected => return 1,
+            .hit => {
+                if (diagnostics_mode == .json or compile_options.mem_report) {
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
+                    try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
+                }
+                return 0;
+            },
         }
     }
 
@@ -7464,6 +7702,89 @@ fn emitOptLevel(debug: bool, optimization: driver.Optimization) u8 {
     };
 }
 
+const affected_module_context_key = "\x00sa-affected-module-context-v2";
+
+fn affectedBaselineNamespace(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    compile_options: CompileOptions,
+    test_options: TestCommandOptions,
+) ![64]u8 {
+    const canonical_source = std.fs.cwd().realpathAlloc(allocator, source_path) catch try allocator.dupe(u8, source_path);
+    defer allocator.free(canonical_source);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBytes(&hasher, "sa-affected-baseline-v2");
+    cacheBytes(&hasher, cacheCompilerVersion());
+    cacheBytes(&hasher, canonical_source);
+    if (compile_options.project_root) |root| {
+        const canonical_root = std.fs.cwd().realpathAlloc(allocator, root) catch try allocator.dupe(u8, root);
+        defer allocator.free(canonical_root);
+        cacheBytes(&hasher, canonical_root);
+    } else {
+        cacheBytes(&hasher, "<project-root-from-source>");
+    }
+    cacheBytes(&hasher, compile_options.package_name orelse "");
+    cacheBytes(&hasher, compile_options.permission_set orelse "");
+    cacheBytes(&hasher, compile_options.dce.name());
+    cacheBool(&hasher, compile_options.offline);
+    cacheBool(&hasher, compile_options.ci);
+    cacheBool(&hasher, compile_options.allow_unaudited_risks);
+    cacheBool(&hasher, compile_options.auto_approve_requested);
+    cacheBool(&hasher, compile_options.allow_env_requested);
+    cacheBool(&hasher, compile_options.allow_net_requested);
+    cacheBool(&hasher, compile_options.allow_read_requested);
+    cacheBool(&hasher, compile_options.allow_write_requested);
+    cacheBool(&hasher, compile_options.allow_run_requested);
+
+    cacheBytes(&hasher, "include");
+    cacheU64(&hasher, @intCast(test_options.selection.include_filters.len));
+    for (test_options.selection.include_filters) |filter| cacheBytes(&hasher, filter);
+    cacheBytes(&hasher, "skip");
+    cacheU64(&hasher, @intCast(test_options.selection.skip_filters.len));
+    for (test_options.selection.skip_filters) |filter| cacheBytes(&hasher, filter);
+    cacheBool(&hasher, test_options.selection.exact);
+    cacheU64(&hasher, @intFromEnum(test_options.selection.ignored));
+    cacheBool(&hasher, test_options.trace_panic);
+    cacheBool(&hasher, test_options.list);
+    cacheBool(&hasher, test_options.compile_only);
+
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return std.fmt.bytesToHex(digest, .lower);
+}
+
+fn addAffectedModuleContextHash(
+    allocator: std.mem.Allocator,
+    flat: *const flattener.FlattenResult,
+    function_bodies: *affected_tests.FunctionHashMap,
+) !void {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBytes(&hasher, "sa-affected-module-context-v2");
+    for (flat.const_decls) |decl| cacheBytes(&hasher, decl.raw_text);
+    for (flat.instructions) |item| {
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => break,
+            else => cacheBytes(&hasher, item.raw_text),
+        }
+    }
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    const owned_key = try allocator.dupe(u8, affected_module_context_key);
+    errdefer allocator.free(owned_key);
+    try function_bodies.put(owned_key, digest);
+}
+
+fn affectedGraphHasVtable(flat: *const flattener.FlattenResult) bool {
+    for (flat.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
 fn executeTest(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -7475,26 +7796,10 @@ fn executeTest(
 ) !u8 {
     if (!test_options.affected) return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
 
-    // Level-1 whole-source pass cache (fast path for identical inputs).
-    const src = std.fs.cwd().readFileAlloc(allocator, source_path, 1 << 24) catch {
-        return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
-    };
-    defer allocator.free(src);
-    const filt: ?[]const u8 = if (test_options.selection.include_filters.len > 0)
-        test_options.selection.include_filters[0]
-    else
-        null;
-    const digest = affected_tests.hashInput(src, filt);
-    if (affected_tests.isCachedPass(digest)) {
-        if (diagnostics_mode == .json) {
-            try stdout.writeAll("{\"status\":\"ok\",\"affected\":{\"skipped\":true,\"reason\":\"source-pass-cache\"}}\n");
-        } else {
-            try stdout.writeAll("affected: unchanged since last pass; skipped\n");
-        }
-        return 0;
-    }
-
-    // Level-2: call-graph selective execution. Compile once to inspect functions,
+    // Call-graph selective execution. The legacy whole-source pass cache is
+    // intentionally not consulted: its key omits project, full selection,
+    // imports, dynamic dependencies, permissions, and runner semantics.
+    // Compile once to inspect functions,
     // compute changed set vs baseline, restrict selection.include_filters to
     // impacted tests, then run. On first baseline, run all selected tests.
     const compiled = try compileSource(allocator, source_path, compile_options);
@@ -7509,16 +7814,24 @@ fn executeTest(
 
             var function_bodies = try collectFunctionBodyHashes(allocator, &owned.verified);
             defer freeFunctionBodyHashes(allocator, &function_bodies);
+            try addAffectedModuleContextHash(allocator, &owned.flat, &function_bodies);
+
+            const namespace = try affectedBaselineNamespace(allocator, source_path, compile_options, test_options);
 
             var changed = std.ArrayList([]const u8).init(allocator);
             defer changed.deinit();
-            const had_baseline = affected_tests.hasFunctionBaseline();
+            const had_baseline = affected_tests.hasFunctionBaseline(&namespace);
+            var module_context_changed = !had_baseline;
             var it = function_bodies.iterator();
             while (it.next()) |entry| {
-                if (!had_baseline or affected_tests.functionChanged(entry.key_ptr.*, entry.value_ptr.*)) {
+                const entry_changed = !had_baseline or affected_tests.functionChanged(&namespace, entry.key_ptr.*, entry.value_ptr.*);
+                if (std.mem.eql(u8, entry.key_ptr.*, affected_module_context_key)) {
+                    module_context_changed = entry_changed;
+                } else if (entry_changed) {
                     try changed.append(entry.key_ptr.*);
                 }
             }
+            const deleted_function = had_baseline and affected_tests.baselineHasDeletedFunctions(&namespace, &function_bodies);
 
             // Build call edges from annotated stream.
             var callers = std.ArrayList([]const u8).init(allocator);
@@ -7528,7 +7841,8 @@ fn executeTest(
                 for (callees.items) |c| allocator.free(c);
                 callees.deinit();
             }
-            try collectCallEdges(allocator, &owned.verified, &callers, &callees);
+            const call_graph_complete = try collectCallEdges(allocator, &owned.verified, &callers, &callees);
+            const force_full_selection = module_context_changed or deleted_function or !call_graph_complete or affectedGraphHasVtable(&owned.flat);
 
             var rev = try affected_tests.buildReverseCallMap(allocator, callers.items, callees.items);
             defer {
@@ -7544,19 +7858,22 @@ fn executeTest(
             var impacted = try affected_tests.impactedFunctions(allocator, changed_norm.items, &rev);
             defer impacted.deinit();
 
-            // Identify tests by function_sigs kind == test_func.
+            // Restrict only within the user's original selection. If the graph
+            // is incomplete, leave that selection untouched and run it fully.
+            var discovered_tests = try test_meta.collect(allocator, owned.verified.function_sigs);
+            defer discovered_tests.deinit(allocator);
             var selected_names = std.ArrayList([]const u8).init(allocator);
             defer {
                 for (selected_names.items) |n| allocator.free(n);
                 selected_names.deinit();
             }
             var total_tests: usize = 0;
-            for (owned.verified.function_sigs) |fs| {
-                if (fs.kind != .test_func) continue;
+            for (discovered_tests.tests) |test_case| {
+                if (!test_options.selection.shouldRun(test_case)) continue;
                 total_tests += 1;
-                const display = common_signature.displayName(fs.kind, fs.name);
-                const norm = normalizeFnName(fs.name);
-                const keep = if (!had_baseline)
+                const display = test_case.displayName();
+                const norm = normalizeFnName(test_case.selectorName());
+                const keep = if (!had_baseline or force_full_selection)
                     true
                 else
                     impacted.contains(norm) or impacted.contains(display);
@@ -7565,30 +7882,27 @@ fn executeTest(
 
             if (diagnostics_mode == .json) {
                 try stdout.writeAll("{\"status\":\"ok\",\"affected\":{");
-                try stdout.print("\"had_baseline\":{s},\"changed_functions\":{d},\"selected_tests\":{d},\"total_tests\":{d}", .{
+                try stdout.print("\"had_baseline\":{s},\"changed_functions\":{d},\"selected_tests\":{d},\"total_tests\":{d},\"graph_complete\":{s},\"full_fallback\":{s}", .{
                     if (had_baseline) "true" else "false",
                     changed.items.len,
                     selected_names.items.len,
                     total_tests,
+                    if (call_graph_complete) "true" else "false",
+                    if (force_full_selection) "true" else "false",
                 });
                 try stdout.writeAll("}}\n");
             } else {
                 try stdout.print(
-                    "affected: baseline={s} changed_fns={d} selected_tests={d}/{d}\n",
-                    .{ if (had_baseline) "yes" else "no", changed.items.len, selected_names.items.len, total_tests },
+                    "affected: baseline={s} changed_fns={d} selected_tests={d}/{d} graph={s} fallback={s}\n",
+                    .{
+                        if (had_baseline) "yes" else "no",
+                        changed.items.len,
+                        selected_names.items.len,
+                        total_tests,
+                        if (call_graph_complete) "complete" else "incomplete",
+                        if (force_full_selection) "full" else "none",
+                    },
                 );
-            }
-
-            // Update baselines after analysis (whether or not tests pass, body hashes are current).
-            var bit = function_bodies.iterator();
-            while (bit.next()) |entry| {
-                affected_tests.recordFunctionHash(entry.key_ptr.*, entry.value_ptr.*);
-            }
-
-            if (had_baseline and selected_names.items.len == 0) {
-                affected_tests.recordPass(digest);
-                if (diagnostics_mode != .json) try stdout.writeAll("affected: no impacted tests; skipped\n");
-                return 0;
             }
 
             // Restrict filters to selected test names when we have a baseline.
@@ -7598,7 +7912,7 @@ fn executeTest(
                 for (owned_filters) |f| allocator.free(f);
                 allocator.free(owned_filters);
             };
-            if (had_baseline and selected_names.items.len > 0) {
+            if (had_baseline and !force_full_selection and selected_names.items.len > 0) {
                 var filters = try allocator.alloc([]const u8, selected_names.items.len);
                 for (selected_names.items, 0..) |n, idx| filters[idx] = try allocator.dupe(u8, n);
                 owned_filters = filters;
@@ -7607,13 +7921,15 @@ fn executeTest(
             }
 
             const code = try executeTestInner(allocator, source_path, compile_options, effective, stdout, stderr, diagnostics_mode);
-            if (code == 0) affected_tests.recordPass(digest);
+            if (code == 0 and !test_options.list and !test_options.compile_only) {
+                try affected_tests.replaceFunctionBaseline(&namespace, &function_bodies);
+            }
             return code;
         },
     }
 }
 
-const FunctionBodyHashMap = std.StringHashMap([32]u8);
+const FunctionBodyHashMap = affected_tests.FunctionHashMap;
 
 fn collectFunctionBodyHashes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) !FunctionBodyHashMap {
     var map = FunctionBodyHashMap.init(allocator);
@@ -7671,7 +7987,14 @@ fn collectCallEdges(
     verified: *const referee.VerifyOk,
     callers: *std.ArrayList([]const u8),
     callees: *std.ArrayList([]const u8),
-) !void {
+) !bool {
+    var known_functions = std.StringHashMap(void).init(allocator);
+    defer known_functions.deinit();
+    for (verified.function_sigs) |sig_item| {
+        try known_functions.put(normalizeFnName(sig_item.name), {});
+    }
+
+    var complete = true;
     var current_fn: ?[]const u8 = null;
     var sig_index: usize = 0;
     for (verified.annotated) |item| {
@@ -7683,15 +8006,38 @@ fn collectCallEdges(
             },
             .call, .call_indirect => {
                 const caller = current_fn orelse continue;
-                var parsed = referee_call.parseCall(allocator, item.base.raw_text) catch continue;
+                var parsed = referee_call.parseCall(allocator, item.base.raw_text) catch {
+                    complete = false;
+                    continue;
+                };
                 defer parsed.deinit(allocator);
+                if (item.base.kind == .call_indirect or parsed.is_indirect) {
+                    complete = false;
+                    continue;
+                }
+                const callee = normalizeFnName(parsed.callee);
+                if (!known_functions.contains(callee)) {
+                    complete = false;
+                    continue;
+                }
                 try callers.append(normalizeFnName(caller));
-                const callee_owned = try allocator.dupe(u8, normalizeFnName(parsed.callee));
+                const callee_owned = try allocator.dupe(u8, callee);
                 try callees.append(callee_owned);
             },
-            else => {},
+            else => {
+                // A function operand outside a resolved direct call is an
+                // address-taken edge. The current reverse graph has no sound
+                // target set for it, so affected selection must fall back.
+                for (item.base.operands) |operand| {
+                    switch (operand) {
+                        .func => complete = false,
+                        else => {},
+                    }
+                }
+            },
         }
     }
+    return complete;
 }
 
 fn executeTestInner(
@@ -7736,7 +8082,7 @@ fn executeTestInner(
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
     else
         null;
 
@@ -7745,44 +8091,50 @@ fn executeTestInner(
             _ = @errorName(err);
             break :cached;
         };
-        const hit = projectCacheHit(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path) catch |err| {
+        const hit = projectCacheHit(allocator, project_root, .test_cache, key, &project_context, compile_options, artifact_full_path, exe_full_path, stderr, diagnostics_mode) catch |err| {
             cached_test_list.deinit(allocator);
             return err;
         };
-        if (hit) {
-            makeExecutable(exe_full_path) catch |err| {
+        switch (hit) {
+            .authorization_rejected => {
                 cached_test_list.deinit(allocator);
-                return err;
-            };
-            if (test_options.list) {
-                defer cached_test_list.deinit(allocator);
-                try test_formatter.writeList(stdout, cached_test_list.tests, test_options.selection);
-                return 0;
-            }
-            if (test_options.compile_only) {
-                defer cached_test_list.deinit(allocator);
-                try stdout.print(
-                    "compiled {d} selected tests ({d} discovered)\n",
-                    .{
-                        test_options.selection.countSelected(cached_test_list.tests),
-                        cached_test_list.tests.len,
-                    },
+                return 1;
+            },
+            .miss => cached_test_list.deinit(allocator),
+            .hit => {
+                makeExecutable(exe_full_path) catch |err| {
+                    cached_test_list.deinit(allocator);
+                    return err;
+                };
+                if (test_options.list) {
+                    defer cached_test_list.deinit(allocator);
+                    try test_formatter.writeList(stdout, cached_test_list.tests, test_options.selection);
+                    return 0;
+                }
+                if (test_options.compile_only) {
+                    defer cached_test_list.deinit(allocator);
+                    try stdout.print(
+                        "compiled {d} selected tests ({d} discovered)\n",
+                        .{
+                            test_options.selection.countSelected(cached_test_list.tests),
+                            cached_test_list.tests.len,
+                        },
+                    );
+                    return 0;
+                }
+                return try test_runner.run(
+                    allocator,
+                    exe_full_path,
+                    tmp.dir,
+                    &cached_test_list,
+                    test_options.selection,
+                    test_options.trace_panic,
+                    compile_options.jobs,
+                    stdout.any(),
+                    stderr.any(),
                 );
-                return 0;
-            }
-            return try test_runner.run(
-                allocator,
-                exe_full_path,
-                tmp.dir,
-                &cached_test_list,
-                test_options.selection,
-                test_options.trace_panic,
-                compile_options.jobs,
-                stdout.any(),
-                stderr.any(),
-            );
+            },
         }
-        cached_test_list.deinit(allocator);
     }
 
     const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
@@ -8481,7 +8833,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
 
     test_source_tree_load_count = 0;
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var first_digest: [32]u8 = undefined;
     first_hasher.final(&first_digest);
     try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
@@ -8492,7 +8844,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try std.testing.expect(warmed_import.owned_source == null);
 
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var second_digest: [32]u8 = undefined;
     second_hasher.final(&second_digest);
     try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
@@ -8505,11 +8857,50 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     }
 
     var third_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &third_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &third_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var third_digest: [32]u8 = undefined;
     third_hasher.final(&third_digest);
     try std.testing.expect(test_source_tree_load_count > 1);
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
+}
+
+test "project artifact cache is bypassed for unresolved dynamic compile inputs" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "dynamic.sa",
+        .data =
+        \\EXPAND OPTION_ENV! "SA_DYNAMIC_CACHE_PROBE"
+        \\@dynamic_helper() -> i32:
+        \\return 1
+        ,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "main.sa",
+        .data =
+        \\@import "dynamic.sa"
+        \\@main() -> i32:
+        \\return 0
+        ,
+    });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    const first_cacheable = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "main.sa");
+    try std.testing.expect(!first_cacheable);
+
+    // Eligibility is part of the in-process source-tree cache entry too; a
+    // warm probe must not accidentally turn an unsafe tree back into a hit.
+    var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    const second_cacheable = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "main.sa");
+    try std.testing.expect(!second_cacheable);
+    try std.testing.expect(sourceMayReadDynamicCompileInput("EXPAND INCLUDE_BYTES! \"payload.bin\""));
 }
 
 test "source tree hash missing import returns PackageNotResolved without ownership errors" {
@@ -8582,19 +8973,19 @@ test "source tree hash cache LRU is opt-in" {
 
     test_source_tree_load_count = 0;
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
     try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
 
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
     try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
 
     var second_hit_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &second_hit_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hit_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
     try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
 
     var first_again_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    try hashResolvedSourceTree(std.testing.allocator, &first_again_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &first_again_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
     try std.testing.expectEqual(@as(usize, 3), test_source_tree_load_count);
 }
 
@@ -8679,4 +9070,208 @@ test "selected SAB compileSource runs Referee and preserves annotation deltas" {
         },
         .trap => return error.TestUnexpectedResult,
     }
+}
+
+test "selected SAB prune keeps the full module for unresolved indirect calls" {
+    const source =
+        \\@test "selected indirect root"():
+        \\result = call_indirect callback()
+        \\!result
+        \\return
+        \\@test "unselected ownership sentinel"():
+        \\leaked = alloc 8
+        \\return
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 2), flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 2), flat.test_sigs.len);
+
+    const selected_name = flat.test_sigs[0].name;
+    const original_instruction_count = flat.instructions.len;
+    try pruneSabFlatToSelectedTests(std.testing.allocator, &flat, &.{selected_name});
+
+    try std.testing.expectEqual(@as(usize, 2), flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 2), flat.test_sigs.len);
+    try std.testing.expectEqual(original_instruction_count, flat.instructions.len);
+}
+
+test "selected SAB prune falls back for an unknown direct callee" {
+    const source =
+        \\@test "selected unknown callee"():
+        \\call @missing_target()
+        \\return
+        \\@test "unselected sentinel"():
+        \\return
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const selected_name = flat.test_sigs[0].name;
+    try pruneSabFlatToSelectedTests(std.testing.allocator, &flat, &.{selected_name});
+    try std.testing.expectEqual(@as(usize, 2), flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 2), flat.test_sigs.len);
+}
+
+test "selected SAB prune retains explicit address-taken functions" {
+    const source =
+        \\@address_taken_helper():
+        \\return
+        \\@test "selected address root"():
+        \\callback = @address_taken_helper
+        \\!callback
+        \\return
+        \\@test "unselected sentinel"():
+        \\return
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const selected_name = flat.test_sigs[0].name;
+    try pruneSabFlatToSelectedTests(std.testing.allocator, &flat, &.{selected_name});
+    try std.testing.expectEqual(@as(usize, 2), flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 1), flat.test_sigs.len);
+    var retained_helper = false;
+    for (flat.function_sigs) |sig_item| {
+        if (std.mem.eql(u8, sig_item.name, "address_taken_helper")) retained_helper = true;
+    }
+    try std.testing.expect(retained_helper);
+}
+
+test "selected SAB reachability work queue follows a transitive call chain" {
+    const source =
+        \\@leaf():
+        \\return
+        \\@middle():
+        \\call @leaf()
+        \\return
+        \\@test "queue root"():
+        \\call @middle()
+        \\return
+        \\@unrelated():
+        \\return
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const selected_name = flat.test_sigs[0].name;
+    try pruneSabFlatToSelectedTests(std.testing.allocator, &flat, &.{selected_name});
+    try std.testing.expectEqual(@as(usize, 3), flat.function_sigs.len);
+    for ([_][]const u8{ "leaf", "middle" }) |expected| {
+        var found = false;
+        for (flat.function_sigs) |sig_item| {
+            if (std.mem.eql(u8, sig_item.name, expected)) found = true;
+        }
+        try std.testing.expect(found);
+    }
+    for (flat.function_sigs) |sig_item| try std.testing.expect(!std.mem.eql(u8, sig_item.name, "unrelated"));
+}
+
+test "repeated text compile never replaces Referee annotations with a verdict shell" {
+    incr_verify.clear();
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\@main() -> i32:
+        \\value = alloc 8
+        \\!value
+        \\return 0
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "main.sa", .data = source });
+
+    var first = try compileSource(std.testing.allocator, "main.sa", .{});
+    defer switch (first) {
+        .ok => |*ok| ok.deinit(std.testing.allocator),
+        .trap => {},
+    };
+    const first_ok = switch (first) {
+        .ok => |*ok| ok,
+        .trap => return error.TestUnexpectedResult,
+    };
+    try std.testing.expect(first_ok.verified.annotated[1].delta.changes.len != 0);
+    try std.testing.expect(first_ok.verified.annotated[1].gas_step_cost != 0);
+
+    var second = try compileSource(std.testing.allocator, "main.sa", .{});
+    defer switch (second) {
+        .ok => |*ok| ok.deinit(std.testing.allocator),
+        .trap => {},
+    };
+    const second_ok = switch (second) {
+        .ok => |*ok| ok,
+        .trap => return error.TestUnexpectedResult,
+    };
+
+    try std.testing.expectEqual(first_ok.verified.annotated.len, second_ok.verified.annotated.len);
+    try std.testing.expectEqual(first_ok.verified.annotated[1].gas_step_cost, second_ok.verified.annotated[1].gas_step_cost);
+    const first_changes = first_ok.verified.annotated[1].delta.changes;
+    const second_changes = second_ok.verified.annotated[1].delta.changes;
+    try std.testing.expectEqual(first_changes.len, second_changes.len);
+    for (first_changes, second_changes) |first_change, second_change| {
+        try std.testing.expectEqual(first_change.reg, second_change.reg);
+        try std.testing.expectEqual(first_change.before, second_change.before);
+        try std.testing.expectEqual(first_change.after, second_change.after);
+    }
+    try std.testing.expectEqual(@as(u64, 0), incr_verify.stats().hits);
+}
+
+test "selected SAB compile-only cannot bypass Referee ownership traps" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\@test "probe"():
+        \\value = alloc 8
+        \\^value
+        \\probe = load value+0 as i8
+        \\return
+    ;
+    var flat = try flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), flat.function_sigs.len);
+    try std.testing.expectEqual(@as(usize, 0), flat.function_sigs[0].reg_ids.len);
+    flat.function_sigs[0].reg_ids = try std.testing.allocator.dupe(u32, &.{
+        flat.symbols.findId("value").?,
+        flat.symbols.findId("probe").?,
+    });
+    const bytes = try sab.encodeProgramWithConsts(
+        std.testing.allocator,
+        flat.symbols.names.items,
+        flat.const_decls,
+        flat.function_sigs,
+        flat.instructions,
+    );
+    defer std.testing.allocator.free(bytes);
+    try tmp.dir.writeFile(.{ .sub_path = "invalid.sab", .data = bytes });
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+    const argv = [_][]const u8{
+        "sa",
+        "test",
+        "invalid.sab",
+        "--compile-only",
+        "--filter",
+        "probe",
+        "--no-incremental",
+        "--profile",
+    };
+    const code = try executeWithWriters(
+        std.testing.allocator,
+        argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "UseAfterMove"));
+    try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "trusted=1") == null);
 }

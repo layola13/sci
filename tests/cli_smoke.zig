@@ -68,7 +68,7 @@ fn writeCacheManifest(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, 
     const output_hash = bytesHashHex(output);
     const manifest = try std.fmt.allocPrint(
         std.testing.allocator,
-        "{{\"version\":1,\"kind\":\"{s}\",\"key\":\"{s}\",\"artifact\":{{\"size\":{d},\"sha256\":\"{s}\"}},\"output\":{{\"size\":{d},\"sha256\":\"{s}\"}}}}\n",
+        "{{\"version\":2,\"kind\":\"{s}\",\"key\":\"{s}\",\"dynamic_dependencies\":[],\"artifact\":{{\"size\":{d},\"sha256\":\"{s}\"}},\"output\":{{\"size\":{d},\"sha256\":\"{s}\"}}}}\n",
         .{ kind, key, artifact.len, artifact_hash[0..], output.len, output_hash[0..] },
     );
     defer std.testing.allocator.free(manifest);
@@ -869,6 +869,24 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
 
+    const tampered_metadata = try std.mem.replaceOwned(
+        u8,
+        std.testing.allocator,
+        metadata_bytes,
+        "cached test compile",
+        "tampered test cache",
+    );
+    defer std.testing.allocator.free(tampered_metadata);
+    try writeBytes(tmp.dir, cached_metadata, tampered_metadata);
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const metadata_repair_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), metadata_repair_code);
+    const repaired_metadata = try tmp.dir.readFileAlloc(std.testing.allocator, cached_metadata, 64 * 1024);
+    defer std.testing.allocator.free(repaired_metadata);
+    try std.testing.expect(std.mem.indexOf(u8, repaired_metadata, "cached test compile") != null);
+    try std.testing.expect(std.mem.indexOf(u8, repaired_metadata, "tampered test cache") == null);
+
     try tmp.dir.deleteFile(cached_output);
 
     stdout_buf.clearRetainingCapacity();
@@ -891,6 +909,183 @@ test "sa test compile-only reuses and repairs project test cache" {
     const repaired_manifest = try tmp.dir.readFileAlloc(std.testing.allocator, cached_manifest, 64 * 1024);
     defer std.testing.allocator.free(repaired_manifest);
     try std.testing.expect(std.mem.indexOf(u8, repaired_manifest, cache_key) != null);
+}
+
+test "artifact cache hits revalidate the current package permission request before restore" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\@main() -> i32:
+        \\L_MAIN:
+        \\    return 0
+        \\
+        \\@test "cached permission preflight"():
+        \\L_TEST:
+        \\    return
+    ;
+    const project_manifest =
+        \\permission_set dev {
+        \\  env []
+        \\  read []
+        \\  write []
+        \\  net []
+        \\  run []
+        \\}
+    ;
+    try writeSource(tmp.dir, "scoped.sa", source);
+    try writeSource(tmp.dir, "sa.mod", project_manifest);
+
+    const CommandCase = struct {
+        cache_dir: []const u8,
+        warm_argv: []const []const u8,
+        rejected_argv: []const []const u8,
+        output_path: ?[]const u8,
+        artifact_path: ?[]const u8,
+    };
+    const cases = [_]CommandCase{
+        .{
+            .cache_dir = ".sa_cache/build-exe",
+            .warm_argv = &.{ "sa", "build-exe", "scoped.sa", "-o", "scoped.out", "--permission-set=dev", "--jobs", "1" },
+            .rejected_argv = &.{ "sa", "build-exe", "scoped.sa", "-o", "scoped.out", "--permission-set=missing", "--jobs", "1" },
+            .output_path = "scoped.out",
+            .artifact_path = "scoped.out.sa.bc",
+        },
+        .{
+            .cache_dir = ".sa_cache/build-obj",
+            .warm_argv = &.{ "sa", "build-obj", "scoped.sa", "-o", "scoped.o", "--permission-set=dev", "--jobs", "1" },
+            .rejected_argv = &.{ "sa", "build-obj", "scoped.sa", "-o", "scoped.o", "--permission-set=missing", "--jobs", "1" },
+            .output_path = "scoped.o",
+            .artifact_path = "scoped.o.sa.bc",
+        },
+        .{
+            .cache_dir = ".sa_cache/build-wasm",
+            .warm_argv = &.{ "sa", "build-wasm", "scoped.sa", "-o", "scoped.wasm", "--permission-set=dev", "--jobs", "1" },
+            .rejected_argv = &.{ "sa", "build-wasm", "scoped.sa", "-o", "scoped.wasm", "--permission-set=missing", "--jobs", "1" },
+            .output_path = "scoped.wasm",
+            .artifact_path = "scoped.wasm.sa.bc",
+        },
+        .{
+            .cache_dir = ".sa_cache/test",
+            .warm_argv = &.{ "sa", "test", "scoped.sa", "--compile-only", "--permission-set=dev", "--jobs", "1" },
+            .rejected_argv = &.{ "sa", "test", "scoped.sa", "--compile-only", "--permission-set=missing", "--jobs", "1" },
+            .output_path = null,
+            .artifact_path = null,
+        },
+    };
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    for (cases) |case| {
+        stdout_buf.clearRetainingCapacity();
+        stderr_buf.clearRetainingCapacity();
+        const warm_code = try saasm.cli.executeWithWriters(
+            std.testing.allocator,
+            case.warm_argv,
+            stdout_buf.writer(),
+            stderr_buf.writer(),
+        );
+        try std.testing.expectEqual(@as(u8, 0), warm_code);
+        try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, case.cache_dir));
+
+        if (case.output_path) |path| try tmp.dir.deleteFile(path);
+        if (case.artifact_path) |path| try tmp.dir.deleteFile(path);
+
+        stdout_buf.clearRetainingCapacity();
+        stderr_buf.clearRetainingCapacity();
+        try std.testing.expectError(
+            error.InvalidPermissionSet,
+            saasm.cli.executeWithWriters(
+                std.testing.allocator,
+                case.rejected_argv,
+                stdout_buf.writer(),
+                stderr_buf.writer(),
+            ),
+        );
+        try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+        try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+        try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, case.cache_dir));
+        if (case.output_path) |path| {
+            try std.testing.expectError(error.FileNotFound, tmp.dir.access(path, .{ .mode = .read_only }));
+        }
+        if (case.artifact_path) |path| {
+            try std.testing.expectError(error.FileNotFound, tmp.dir.access(path, .{ .mode = .read_only }));
+        }
+    }
+}
+
+test "warm build artifact cannot bypass current package confirmation" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("app/src");
+    try tmp.dir.makePath("app/sa_vendor/risky/pkg");
+    try writeSource(tmp.dir, "app/src/main.sa",
+        \\@main() -> i32:
+        \\L_MAIN:
+        \\    return 0
+    );
+    try writeSource(tmp.dir, "app/sa_vendor/risky/pkg/index.sa",
+        \\call @sys_net_tx(*BUF, 4)
+        \\
+    );
+    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/risky/pkg");
+    defer std.testing.allocator.free(pkg_root);
+    try writeManifestForPackage(tmp.dir, "app", "risky/pkg", pkg_root, "");
+    try writeProjectSum(tmp.dir, "app");
+
+    var app_dir = try tmp.dir.openDir("app", .{});
+    defer app_dir.close();
+    try app_dir.setAsCwd();
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+    const argv = [_][]const u8{ "sa", "build-exe", "src/main.sa", "-o", "approved.out", "--jobs", "1", "--json" };
+
+    var approval_input = std.io.fixedBufferStream("risky/pkg\n");
+    const warm_code = try saasm.cli.executeWithWritersAndOptions(
+        std.testing.allocator,
+        argv[0..],
+        stdout_buf.writer(),
+        stderr_buf.writer(),
+        .{ .stdin_reader = approval_input.reader().any(), .stdin_is_tty = true },
+    );
+    try std.testing.expectEqual(@as(u8, 0), warm_code);
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(std.fs.cwd(), ".sa_cache/build-exe"));
+    try std.fs.cwd().deleteFile("approved.out");
+    try std.fs.cwd().deleteFile("approved.out.sa.bc");
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    var rejected_input = std.io.fixedBufferStream("");
+    const rejected_code = try saasm.cli.executeWithWritersAndOptions(
+        std.testing.allocator,
+        argv[0..],
+        stdout_buf.writer(),
+        stderr_buf.writer(),
+        .{ .stdin_reader = rejected_input.reader().any(), .stdin_is_tty = false },
+    );
+    try std.testing.expectEqual(@as(u8, 1), rejected_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "\"trap\":\"MissingTtyForConfirmation\""));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("approved.out", .{ .mode = .read_only }));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("approved.out.sa.bc", .{ .mode = .read_only }));
+    try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(std.fs.cwd(), ".sa_cache/build-exe"));
 }
 
 test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
@@ -4863,13 +5058,55 @@ test "agent capability: affected selects impacted tests" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "affected:"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "baseline=no") or std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests"));
 
-    // Second identical run: source-pass-cache or no impacted tests.
+    // Second identical run must not use the unsound whole-source pass cache.
+    // Until the affected namespace and dependency graph are complete, an empty
+    // impacted set falls back to executing the requested tests.
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
     const code2 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], stdout_buffer.writer(), stderr_buffer.writer());
     try std.testing.expectEqual(@as(u8, 0), code2);
-    try std.testing.expect(
-        std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "skipped") or
-            std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests=0"),
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "source-pass-cache") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "no impacted tests; skipped") == null);
+}
+
+test "affected baseline is committed only after tests pass" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const source =
+        \\@test "phase minus one failed baseline sentinel 7f42"():
+        \\L_FAIL:
+        \\    panic(99)
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "affected_failure.sa", .data = source });
+    const tmp_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_root);
+    const source_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "affected_failure.sa" });
+    defer std.testing.allocator.free(source_path);
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+    const argv = [_][]const u8{ "sa", "test", source_path, "--affected", "--jobs", "1" };
+
+    const first_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
     );
+    try std.testing.expect(first_code != 0);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expect(second_code != 0);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "source-pass-cache") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "no impacted tests; skipped") == null);
 }

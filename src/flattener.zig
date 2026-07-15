@@ -44,10 +44,152 @@ fn ensureRepExpansionBudget(count: usize, body_line_count: usize) !void {
     if (count > max_expanded_macro_lines / body_line_count) return error.MacroExpansionBudget;
 }
 
+pub const DynamicDependencyKind = enum {
+    environment,
+    file,
+};
+
+pub const DynamicDependency = struct {
+    kind: DynamicDependencyKind,
+    key: []u8,
+    present: bool,
+    size: u64,
+    sha256: [32]u8,
+
+    fn deinit(self: *DynamicDependency, allocator: std.mem.Allocator) void {
+        allocator.free(self.key);
+        self.* = undefined;
+    }
+};
+
+pub const DynamicDependencyRecorder = struct {
+    allocator: std.mem.Allocator,
+    items: std.ArrayList(DynamicDependency),
+    cacheable: bool = true,
+    import_capture_depth: u16 = 0,
+
+    fn init(allocator: std.mem.Allocator) DynamicDependencyRecorder {
+        return .{
+            .allocator = allocator,
+            .items = std.ArrayList(DynamicDependency).init(allocator),
+        };
+    }
+
+    fn deinit(self: *DynamicDependencyRecorder) void {
+        for (self.items.items) |*item| item.deinit(self.allocator);
+        self.items.deinit();
+        self.* = undefined;
+    }
+
+    fn record(
+        self: *DynamicDependencyRecorder,
+        kind: DynamicDependencyKind,
+        key: []const u8,
+        present: bool,
+        size: u64,
+        sha256: [32]u8,
+    ) !void {
+        for (self.items.items) |existing| {
+            if (existing.kind != kind or !std.mem.eql(u8, existing.key, key)) continue;
+            if (existing.present != present or existing.size != size or !std.mem.eql(u8, existing.sha256[0..], sha256[0..])) {
+                // The dependency changed while this request was compiling.
+                // The produced result is valid for the bytes that were read,
+                // but it must not be published as a reusable artifact.
+                self.cacheable = false;
+            }
+            return;
+        }
+
+        const owned_key = try self.allocator.dupe(u8, key);
+        errdefer self.allocator.free(owned_key);
+        try self.items.append(.{
+            .kind = kind,
+            .key = owned_key,
+            .present = present,
+            .size = size,
+            .sha256 = sha256,
+        });
+    }
+
+    fn recordEnvironment(self: *DynamicDependencyRecorder, key: []const u8, value: ?[]const u8) !void {
+        var digest = [_]u8{0} ** 32;
+        if (value) |bytes| std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+        try self.record(.environment, key, value != null, 0, digest);
+    }
+
+    fn recordFile(self: *DynamicDependencyRecorder, path: []const u8, bytes: []const u8) !void {
+        const canonical_path = std.fs.cwd().realpathAlloc(self.allocator, path) catch |err| {
+            if (err == error.OutOfMemory) return err;
+            self.cacheable = false;
+            return;
+        };
+        defer self.allocator.free(canonical_path);
+        var digest: [32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+        try self.record(.file, canonical_path, true, @intCast(bytes.len), digest);
+    }
+
+    fn recordFileFromDisk(self: *DynamicDependencyRecorder, path: []const u8) !void {
+        const canonical_path = std.fs.cwd().realpathAlloc(self.allocator, path) catch |err| {
+            if (err == error.OutOfMemory) return err;
+            self.cacheable = false;
+            return;
+        };
+        defer self.allocator.free(canonical_path);
+
+        var file = std.fs.cwd().openFile(canonical_path, .{}) catch {
+            self.cacheable = false;
+            return;
+        };
+        defer file.close();
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        var size: u64 = 0;
+        var buffer: [16 * 1024]u8 = undefined;
+        while (true) {
+            const count = file.read(&buffer) catch {
+                self.cacheable = false;
+                return;
+            };
+            if (count == 0) break;
+            hasher.update(buffer[0..count]);
+            size +|= @intCast(count);
+        }
+        var digest: [32]u8 = undefined;
+        hasher.final(&digest);
+        try self.record(.file, canonical_path, true, size, digest);
+    }
+
+    fn beginImportCapture(self: *DynamicDependencyRecorder) void {
+        self.import_capture_depth += 1;
+    }
+
+    fn endImportCapture(self: *DynamicDependencyRecorder) void {
+        std.debug.assert(self.import_capture_depth != 0);
+        self.import_capture_depth -= 1;
+    }
+
+    fn capturesImports(self: *const DynamicDependencyRecorder) bool {
+        return self.import_capture_depth != 0;
+    }
+
+    fn lessThan(_: void, lhs: DynamicDependency, rhs: DynamicDependency) bool {
+        const lhs_kind = @intFromEnum(lhs.kind);
+        const rhs_kind = @intFromEnum(rhs.kind);
+        if (lhs_kind != rhs_kind) return lhs_kind < rhs_kind;
+        return std.mem.lessThan(u8, lhs.key, rhs.key);
+    }
+
+    fn take(self: *DynamicDependencyRecorder) ![]DynamicDependency {
+        std.mem.sort(DynamicDependency, self.items.items, {}, lessThan);
+        return try self.items.toOwnedSlice();
+    }
+};
+
 pub const ResolveContext = struct {
     dependencies: []const pkg_resolver.Dependency = &.{},
     options: pkg_resolver.ResolveOptions = .{},
     package_identity: ?[]const u8 = null,
+    dynamic_dependency_recorder: ?*DynamicDependencyRecorder = null,
 };
 
 pub const LayoutVersion = struct {
@@ -2041,6 +2183,7 @@ fn includeFileAsConst(
     owned_text: *std.ArrayList([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
+    dependency_recorder: ?*DynamicDependencyRecorder,
 ) !void {
     const path_arg = std.mem.trim(u8, args, " \t\r\n");
     if (path_arg.len == 0) return error.InvalidMacroInvocation;
@@ -2060,6 +2203,7 @@ fn includeFileAsConst(
     defer file.close();
     const bytes = try file.readToEndAlloc(allocator, 1 << 20);
     defer allocator.free(bytes);
+    if (dependency_recorder) |recorder| try recorder.recordFile(resolved_path, bytes);
 
     const const_name = try std.fmt.allocPrint(allocator, "__INCLUDE_{d}_{d}", .{ source_line, const_decls.items.len });
     defer allocator.free(const_name);
@@ -2905,6 +3049,7 @@ fn expandEnvMacro(
     owned_text: *std.ArrayList([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
+    dependency_recorder: ?*DynamicDependencyRecorder,
 ) !void {
     const comma = std.mem.indexOfScalar(u8, args_text, ',') orelse return error.InvalidMacroInvocation;
     const out_reg = std.mem.trim(u8, args_text[0..comma], " \t\r\n");
@@ -2917,6 +3062,7 @@ fn expandEnvMacro(
 
     const env_value = std.process.getEnvVarOwned(allocator, key_raw) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => {
+            if (dependency_recorder) |recorder| try recorder.recordEnvironment(key_raw, null);
             if (std.mem.eql(u8, macro_name, "OPTION_ENV!")) {
                 const none_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_NONE as u64", .{out_reg});
                 defer allocator.free(none_tag_line);
@@ -2932,6 +3078,7 @@ fn expandEnvMacro(
         else => return err,
     };
     defer allocator.free(env_value);
+    if (dependency_recorder) |recorder| try recorder.recordEnvironment(key_raw, env_value);
 
     const const_name = try std.fmt.allocPrint(allocator, "__ENV_LIT_{d}_{d}", .{ source_line, const_decls.items.len });
     defer allocator.free(const_name);
@@ -2994,6 +3141,7 @@ fn emitRange(
     depth: u16,
     source_line_override: ?u32,
     source_path: ?[]const u8,
+    resolve_ctx: ?ResolveContext,
     include_stack: *std.ArrayList([]const u8),
     replacements: []const Replacement,
     top_level: bool,
@@ -3095,6 +3243,7 @@ fn emitRange(
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
+                        resolve_ctx,
                         include_stack,
                         combined,
                         false,
@@ -3138,6 +3287,7 @@ fn emitRange(
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
+                        resolve_ctx,
                         include_stack,
                         replacements,
                         false,
@@ -3184,6 +3334,7 @@ fn emitRange(
                         owned_text,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        if (resolve_ctx) |ctx| ctx.dynamic_dependency_recorder else null,
                     );
                 } else if (std.mem.eql(u8, macro_name, "STRINGIFY!")) {
                     try expandStringify(
@@ -3266,14 +3417,27 @@ fn emitRange(
 
                     const source = try std.fs.cwd().readFileAlloc(allocator, resolved_path, 1 << 20);
                     defer allocator.free(source);
+                    const dependency_recorder = if (resolve_ctx) |ctx| ctx.dynamic_dependency_recorder else null;
+                    if (dependency_recorder) |recorder| {
+                        try recorder.recordFile(resolved_path, source);
+                        recorder.beginImportCapture();
+                    }
+                    defer if (dependency_recorder) |recorder| recorder.endImportCapture();
                     try include_stack.append(try allocator.dupe(u8, resolved_path));
                     defer {
                         const popped = include_stack.pop();
                         allocator.free(popped.?);
                     }
 
-                    var expanded = try expandImports(allocator, source, resolved_path, error_ctx, null);
+                    var expanded = try expandImports(allocator, source, resolved_path, error_ctx, resolve_ctx);
                     defer expanded.deinit(allocator);
+                    if (dependency_recorder) |recorder| {
+                        // Expanded-import cache hits can avoid reopening
+                        // transitive files. Re-hash every resolved path once
+                        // so the outer artifact depfile remains complete; a
+                        // mid-request change marks the result non-cacheable.
+                        for (expanded.owned_paths.items) |path| try recorder.recordFileFromDisk(path);
+                    }
                     const included_lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
                     defer allocator.free(included_lines);
                     try collectMacroDefinitions(allocator, included_lines, macros, error_ctx);
@@ -3285,6 +3449,7 @@ fn emitRange(
                         depth + 1,
                         null,
                         resolved_path,
+                        resolve_ctx,
                         include_stack,
                         replacements,
                         false,
@@ -3308,7 +3473,7 @@ fn emitRange(
                         if (std.mem.eql(u8, macro_name, "INCLUDE_STR!")) .str else .bytes,
                         rendered_classified.parts[1],
                         source_line,
-                        line.package_identity,
+                        source_path,
                         dict,
                         symbols,
                         loc_table,
@@ -3319,6 +3484,7 @@ fn emitRange(
                         owned_text,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        if (resolve_ctx) |ctx| ctx.dynamic_dependency_recorder else null,
                     );
                 } else {
                     const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
@@ -3357,6 +3523,7 @@ fn emitRange(
                             depth + 1,
                             source_line_override orelse line.line_no,
                             source_path,
+                            resolve_ctx,
                             include_stack,
                             local_slice,
                             false,
@@ -3404,6 +3571,7 @@ fn emitRange(
                         depth + 1,
                         source_line_override orelse line.line_no,
                         source_path,
+                        resolve_ctx,
                         include_stack,
                         local_slice,
                         false,
@@ -4425,6 +4593,11 @@ fn injectImportedFile(
         ) anyerror!void {
             var injected = try readImportFile(allocator2, base_dir, file_name, resolve_ctx2);
             defer injected.deinit(allocator2);
+            if (resolve_ctx2) |ctx| {
+                if (ctx.dynamic_dependency_recorder) |recorder| {
+                    if (recorder.capturesImports()) try recorder.recordFile(injected.entry_path, injected.source);
+                }
+            }
             if (active_paths2.contains(injected.entry_path) or seen_paths2.contains(injected.entry_path)) {
                 markSeenImportContextDependency(cache_dependency2, owned_paths2.items, injected.entry_path);
                 return;
@@ -4560,6 +4733,16 @@ fn expandImportsInto(
         recordErrorSourceLine(error_ctx, line_no);
         if (parseImportPath(raw_line)) |import_path| {
             var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
+            if (resolve_ctx) |ctx| {
+                if (ctx.dynamic_dependency_recorder) |recorder| {
+                    if (recorder.capturesImports()) {
+                        recorder.recordFile(imported.entry_path, imported.source) catch |err| {
+                            imported.deinit(allocator);
+                            return err;
+                        };
+                    }
+                }
+            }
             if (traceImportsEnabled()) {
                 std.debug.print("\n[IMPORT] resolved '{s}' -> '{s}'\n", .{ import_path, imported.entry_path });
             }
@@ -4905,6 +5088,7 @@ fn flattenInternal(
         0,
         null,
         source_path,
+        resolve_ctx,
         &include_stack,
         empty_replacements[0..],
         true,
@@ -5863,6 +6047,7 @@ test "frontend cache append fragment restores imported macro defs for later expa
         0,
         null,
         null,
+        null,
         &include_stack,
         empty_replacements[0..],
         true,
@@ -6093,6 +6278,70 @@ test "flattenFile expands relative @import files" {
     try std.testing.expectEqual(FunctionKind.external, result.function_sigs[0].kind);
     try std.testing.expectEqualStrings("sa_print_bytes", result.function_sigs[0].name);
     try std.testing.expectEqual(FunctionKind.normal, result.function_sigs[1].kind);
+    try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+}
+
+test "flattenFile resolves INCLUDE_STR relative to the including source" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("nested");
+    try tmp.dir.writeFile(.{ .sub_path = "nested/message.txt", .data = "source-relative" });
+    const source =
+        \\EXPAND INCLUDE_STR! "message.txt"
+        \\@main() -> i32:
+        \\return 0
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "nested/main.sa", .data = source });
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "nested/main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var result = try flattenFile(std.testing.allocator, source_path, source);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), result.const_decls.len);
+    switch (result.const_decls[0].value) {
+        .utf8 => |literal| try std.testing.expectEqualStrings("source-relative", literal.bytes),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "recursive INCLUDE keeps package resolver roots" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("nested");
+    try tmp.dir.makePath("custom_std");
+    try tmp.dir.writeFile(.{
+        .sub_path = "nested/fragment.sa",
+        .data = "@import \"sa_std/support.sa\"\n",
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "custom_std/support.sa",
+        .data = "@included_helper() -> i32:\nreturn 7\n",
+    });
+    const source =
+        \\EXPAND INCLUDE! "fragment.sa"
+        \\@main() -> i32:
+        \\return 0
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "nested/main.sa", .data = source });
+
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "custom_std");
+    defer std.testing.allocator.free(std_root);
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "nested/main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var result = try flattenFileWithPackages(std.testing.allocator, source_path, source, .{
+        .options = .{
+            .project_root = project_root,
+            .std_root = std_root,
+        },
+    });
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 2), result.function_sigs.len);
+    try std.testing.expectEqualStrings("included_helper", result.function_sigs[0].name);
     try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
 }
 

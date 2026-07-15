@@ -10,7 +10,41 @@ var passed_mutex: std.Thread.Mutex = .{};
 var passed_map: ?std.StringHashMap(void) = null;
 
 var fn_mutex: std.Thread.Mutex = .{};
-var fn_hash_map: ?std.StringHashMap([32]u8) = null;
+pub const FunctionHashMap = std.StringHashMap([32]u8);
+
+const FunctionSnapshot = struct {
+    functions: FunctionHashMap,
+
+    fn create(current: *const FunctionHashMap) !*FunctionSnapshot {
+        const allocator = std.heap.page_allocator;
+        const snapshot = try allocator.create(FunctionSnapshot);
+        errdefer allocator.destroy(snapshot);
+        snapshot.* = .{ .functions = FunctionHashMap.init(allocator) };
+        errdefer {
+            var it = snapshot.functions.keyIterator();
+            while (it.next()) |key| allocator.free(key.*);
+            snapshot.functions.deinit();
+        }
+
+        try snapshot.functions.ensureTotalCapacity(@intCast(current.count()));
+        var it = current.iterator();
+        while (it.next()) |entry| {
+            const owned_name = try allocator.dupe(u8, entry.key_ptr.*);
+            snapshot.functions.putAssumeCapacityNoClobber(owned_name, entry.value_ptr.*);
+        }
+        return snapshot;
+    }
+
+    fn destroy(snapshot: *FunctionSnapshot) void {
+        const allocator = std.heap.page_allocator;
+        var it = snapshot.functions.keyIterator();
+        while (it.next()) |key| allocator.free(key.*);
+        snapshot.functions.deinit();
+        allocator.destroy(snapshot);
+    }
+};
+
+var fn_snapshots: ?std.StringHashMap(*FunctionSnapshot) = null;
 
 pub var hits: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
 pub var misses: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
@@ -22,11 +56,11 @@ fn passedMap() *std.StringHashMap(void) {
     return &passed_map.?;
 }
 
-fn fnHashMap() *std.StringHashMap([32]u8) {
-    if (fn_hash_map == null) {
-        fn_hash_map = std.StringHashMap([32]u8).init(std.heap.page_allocator);
+fn fnSnapshotMap() *std.StringHashMap(*FunctionSnapshot) {
+    if (fn_snapshots == null) {
+        fn_snapshots = std.StringHashMap(*FunctionSnapshot).init(std.heap.page_allocator);
     }
-    return &fn_hash_map.?;
+    return &fn_snapshots.?;
 }
 
 pub fn hashInput(source: []const u8, filter: ?[]const u8) [64]u8 {
@@ -80,35 +114,63 @@ pub fn hashFunctionBody(name: []const u8, body_raw_texts: []const []const u8) [3
     return out;
 }
 
-/// Returns true if this function body changed vs the last recorded baseline.
-/// Missing baseline counts as changed (first run establishes baseline later).
-pub fn functionChanged(name: []const u8, digest: [32]u8) bool {
+/// Returns true if this function body changed in the named last-good snapshot.
+/// A missing namespace or function counts as changed.
+pub fn functionChanged(namespace: []const u8, name: []const u8, digest: [32]u8) bool {
     fn_mutex.lock();
     defer fn_mutex.unlock();
-    if (fnHashMap().get(name)) |prev| {
+    const snapshot = fnSnapshotMap().get(namespace) orelse return true;
+    if (snapshot.functions.get(name)) |prev| {
         return !std.mem.eql(u8, &prev, &digest);
     }
     return true;
 }
 
-pub fn recordFunctionHash(name: []const u8, digest: [32]u8) void {
+/// True when the last-good snapshot contains a function that is absent now.
+/// Callers conservatively run the full test selection because the previous
+/// reverse edges for a deleted function are not available in the current IR.
+pub fn baselineHasDeletedFunctions(namespace: []const u8, current: *const FunctionHashMap) bool {
     fn_mutex.lock();
     defer fn_mutex.unlock();
-    const map = fnHashMap();
-    if (map.getPtr(name)) |slot| {
-        slot.* = digest;
-        return;
+    const snapshot = fnSnapshotMap().get(namespace) orelse return false;
+    var it = snapshot.functions.keyIterator();
+    while (it.next()) |name| {
+        if (!current.contains(name.*)) return true;
     }
-    const owned = std.heap.page_allocator.dupe(u8, name) catch return;
-    map.put(owned, digest) catch {
-        std.heap.page_allocator.free(owned);
-    };
+    return false;
 }
 
-pub fn hasFunctionBaseline() bool {
+pub fn hasFunctionBaseline(namespace: []const u8) bool {
     fn_mutex.lock();
     defer fn_mutex.unlock();
-    return if (fn_hash_map) |*m| m.count() > 0 else false;
+    return fnSnapshotMap().contains(namespace);
+}
+
+/// Atomically publishes a complete last-good function snapshot. Allocation is
+/// completed before taking the lock, so an OOM cannot leave a partial baseline.
+pub fn replaceFunctionBaseline(namespace: []const u8, current: *const FunctionHashMap) !void {
+    const allocator = std.heap.page_allocator;
+    const replacement = try FunctionSnapshot.create(current);
+    errdefer FunctionSnapshot.destroy(replacement);
+    const owned_namespace = try allocator.dupe(u8, namespace);
+    errdefer allocator.free(owned_namespace);
+
+    var previous: ?*FunctionSnapshot = null;
+    fn_mutex.lock();
+    const map = fnSnapshotMap();
+    if (map.getPtr(namespace)) |slot| {
+        previous = slot.*;
+        slot.* = replacement;
+        allocator.free(owned_namespace);
+    } else {
+        map.put(owned_namespace, replacement) catch |err| {
+            fn_mutex.unlock();
+            return err;
+        };
+    }
+    fn_mutex.unlock();
+
+    if (previous) |snapshot| FunctionSnapshot.destroy(snapshot);
 }
 
 pub fn clear() void {
@@ -121,9 +183,12 @@ pub fn clear() void {
     }
     fn_mutex.lock();
     defer fn_mutex.unlock();
-    if (fn_hash_map) |*m| {
-        var it = m.keyIterator();
-        while (it.next()) |k| std.heap.page_allocator.free(k.*);
+    if (fn_snapshots) |*m| {
+        var it = m.iterator();
+        while (it.next()) |entry| {
+            std.heap.page_allocator.free(entry.key_ptr.*);
+            FunctionSnapshot.destroy(entry.value_ptr.*);
+        }
         m.clearRetainingCapacity();
     }
     hits.store(0, .monotonic);
@@ -206,10 +271,31 @@ test "function body hash change detection" {
     const h3 = hashFunctionBody("foo", &.{"x = add 1, 3"});
     try std.testing.expect(std.mem.eql(u8, &h1, &h2));
     try std.testing.expect(!std.mem.eql(u8, &h1, &h3));
-    try std.testing.expect(functionChanged("foo", h1));
-    recordFunctionHash("foo", h1);
-    try std.testing.expect(!functionChanged("foo", h2));
-    try std.testing.expect(functionChanged("foo", h3));
+    var baseline = FunctionHashMap.init(std.testing.allocator);
+    defer baseline.deinit();
+    try baseline.put("foo", h1);
+    try std.testing.expect(functionChanged("project-a", "foo", h1));
+    try replaceFunctionBaseline("project-a", &baseline);
+    try std.testing.expect(!functionChanged("project-a", "foo", h2));
+    try std.testing.expect(functionChanged("project-a", "foo", h3));
+    try std.testing.expect(functionChanged("project-b", "foo", h1));
+}
+
+test "function snapshots replace atomically and detect deletions" {
+    clear();
+    const h = hashFunctionBody("foo", &.{"return"});
+    var first = FunctionHashMap.init(std.testing.allocator);
+    defer first.deinit();
+    try first.put("foo", h);
+    try first.put("removed", h);
+    try replaceFunctionBaseline("project", &first);
+
+    var second = FunctionHashMap.init(std.testing.allocator);
+    defer second.deinit();
+    try second.put("foo", h);
+    try std.testing.expect(baselineHasDeletedFunctions("project", &second));
+    try replaceFunctionBaseline("project", &second);
+    try std.testing.expect(!baselineHasDeletedFunctions("project", &second));
 }
 
 test "impactedFunctions closes over callers" {

@@ -2688,24 +2688,23 @@ fn freeAnnotated(allocator: std.mem.Allocator, annotated: *std.ArrayList(Annotat
     annotated.deinit();
 }
 
-fn diffState(allocator: std.mem.Allocator, before: []const u16, after: []const u16) !RegStateDelta {
-    if (before.len != after.len) return error.InvalidOperand;
+fn buildStateDelta(
+    allocator: std.mem.Allocator,
+    before: []const u16,
+    after: []const u16,
+    change_scratch: []RegStateChange,
+) !RegStateDelta {
+    if (before.len != after.len or change_scratch.len < after.len) return error.InvalidOperand;
 
     var change_count: usize = 0;
-    for (before, after) |prev, next| {
-        if (next != prev) change_count += 1;
+    for (before, after, 0..) |prev, next, idx| {
+        if (next == prev) continue;
+        change_scratch[change_count] = .{ .reg = @intCast(idx), .before = prev, .after = next };
+        change_count += 1;
     }
     if (change_count == 0) return emptyRegStateDelta();
 
-    var changes = try allocator.alloc(RegStateChange, change_count);
-    var out_idx: usize = 0;
-    errdefer allocator.free(changes);
-    for (before, after, 0..) |prev, next, idx| {
-        if (next == prev) continue;
-        changes[out_idx] = .{ .reg = @intCast(idx), .before = prev, .after = next };
-        out_idx += 1;
-    }
-    return .{ .changes = changes };
+    return .{ .changes = try allocator.dupe(RegStateChange, change_scratch[0..change_count]) };
 }
 
 fn applyStateDelta(state: []u16, delta: []const RegStateChange) void {
@@ -2723,6 +2722,8 @@ fn resetLabels(allocator: std.mem.Allocator, labels: *std.AutoHashMap(u32, Label
 const VerifierBufferPool = struct {
     allocator: std.mem.Allocator,
     state: []u16 = &.{},
+    state_before: []u16 = &.{},
+    delta_changes: []RegStateChange = &.{},
     flags: []u8 = &.{},
     origins: []?u32 = &.{},
     locks: []u16 = &.{},
@@ -2741,6 +2742,8 @@ const VerifierBufferPool = struct {
     fn deinit(self: *VerifierBufferPool) void {
         const allocator = self.allocator;
         if (self.state.len != 0) self.allocator.free(self.state);
+        if (self.state_before.len != 0) self.allocator.free(self.state_before);
+        if (self.delta_changes.len != 0) self.allocator.free(self.delta_changes);
         if (self.flags.len != 0) self.allocator.free(self.flags);
         if (self.origins.len != 0) self.allocator.free(self.origins);
         if (self.locks.len != 0) self.allocator.free(self.locks);
@@ -2760,6 +2763,8 @@ const VerifierBufferPool = struct {
         var next = VerifierBufferPool.init(self.allocator);
         errdefer next.deinit();
         next.state = try self.allocator.alloc(u16, reg_count);
+        next.state_before = try self.allocator.alloc(u16, reg_count);
+        next.delta_changes = try self.allocator.alloc(RegStateChange, reg_count);
         next.flags = try self.allocator.alloc(u8, reg_count);
         next.origins = try self.allocator.alloc(?u32, reg_count);
         next.locks = try self.allocator.alloc(u16, reg_count);
@@ -3012,8 +3017,8 @@ fn verifyBody(
 
         body_seen = true;
         gas_steps += 1;
-        const snapshot_before = try allocator.dupe(u16, state);
-        defer allocator.free(snapshot_before);
+        const state_before = buffers.state_before[0..state.len];
+        @memcpy(state_before, state);
 
         switch (item.kind) {
             .alloc => {
@@ -3650,7 +3655,7 @@ fn verifyBody(
             else => {},
         }
 
-        const delta = try diffState(allocator, snapshot_before, state);
+        const delta = try buildStateDelta(allocator, state_before, state, buffers.delta_changes[0..state.len]);
         errdefer {
             var owned = delta;
             owned.deinit(allocator);
@@ -5691,42 +5696,25 @@ const VerifySnapshot = union(enum) {
     trap: trap.TrapReport,
 };
 
-fn trapSnapshot(report: trap.TrapReport) struct {
-    trap: trap.Trap,
-    trap_code: u32,
-    line: u32,
-    source_line: u32,
-    message: []const u8,
-    register: []const u8,
-    function: []const u8,
-} {
-    return .{
-        .trap = report.trap,
-        .trap_code = report.trap_code orelse 0,
-        .line = report.line,
-        .source_line = report.source_line,
-        .message = report.message,
-        .register = if (report.register) |text| text else std.mem.sliceTo(&report.register_buf, 0),
-        .function = if (report.function) |text| text else std.mem.sliceTo(&report.function_buf, 0),
-    };
-}
-
 fn expectVerifyResultEqual(lhs: VerifyResult, rhs: VerifyResult) !void {
     switch (lhs) {
         .ok => |l_ok| switch (rhs) {
             .ok => |r_ok| {
                 try std.testing.expectEqual(l_ok.annotated.len, r_ok.annotated.len);
-                try std.testing.expectEqual(l_ok.function_sigs.len, r_ok.function_sigs.len);
+                try std.testing.expectEqualDeep(l_ok.function_sigs, r_ok.function_sigs);
                 try std.testing.expectEqualDeep(l_ok.gas, r_ok.gas);
                 try std.testing.expectEqualDeep(l_ok.symbols.names.items, r_ok.symbols.names.items);
+                for (l_ok.annotated, r_ok.annotated) |l_item, r_item| {
+                    try std.testing.expectEqualDeep(l_item.base, r_item.base);
+                    try std.testing.expectEqual(l_item.gas_step_cost, r_item.gas_step_cost);
+                    try std.testing.expectEqualDeep(l_item.delta.changes, r_item.delta.changes);
+                }
             },
             .trap => return error.TestUnexpectedResult,
         },
         .trap => |l_trap| switch (rhs) {
             .trap => |r_trap| {
-                const lhs_snap = trapSnapshot(l_trap);
-                const rhs_snap = trapSnapshot(r_trap);
-                try std.testing.expectEqualDeep(lhs_snap, rhs_snap);
+                try std.testing.expectEqualDeep(l_trap, r_trap);
             },
             .ok => return error.TestUnexpectedResult,
         },
@@ -5776,7 +5764,7 @@ test "verifyWithOptions serial and parallel traps are identical" {
         \\return missing_value
         \\
         \\@second() -> i32:
-        \\return 0
+        \\return later_missing_value
     ;
 
     var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
@@ -6327,6 +6315,91 @@ test "ffi wrapper allows raw params in branch control flow" {
         },
         .trap => return error.TestUnexpectedResult,
     }
+}
+
+test "state delta builder preserves compact slot order" {
+    const before = [_]u16{ 7, 11, 13, 17, 19 };
+    const after = [_]u16{ 23, 11, 29, 17, 31 };
+    var scratch: [before.len]RegStateChange = undefined;
+
+    var delta = try buildStateDelta(std.testing.allocator, &before, &after, &scratch);
+    defer delta.deinit(std.testing.allocator);
+
+    const expected = [_]RegStateChange{
+        .{ .reg = 0, .before = 7, .after = 23 },
+        .{ .reg = 2, .before = 13, .after = 29 },
+        .{ .reg = 4, .before = 19, .after = 31 },
+    };
+    try std.testing.expectEqualDeep(expected[0..], delta.changes);
+}
+
+test "state delta scratch keeps declaration and label deltas empty" {
+    const source =
+        \\@main() -> i32:
+        \\base = alloc 8
+        \\view = & base
+        \\jmp L_RELEASE
+        \\L_RELEASE:
+        \\!view
+        \\!base
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            var saw_label = false;
+            var saw_multi_change = false;
+            for (owned.annotated) |item| {
+                if (isDecl(item.base.kind) or item.base.kind == .label) {
+                    try std.testing.expectEqual(@as(usize, 0), item.delta.changes.len);
+                    saw_label = saw_label or item.base.kind == .label;
+                }
+                saw_multi_change = saw_multi_change or item.delta.changes.len > 1;
+                if (item.delta.changes.len > 1) {
+                    for (item.delta.changes[1..], item.delta.changes[0 .. item.delta.changes.len - 1]) |next, prev| {
+                        try std.testing.expect(prev.reg < next.reg);
+                    }
+                }
+            }
+            try std.testing.expect(saw_label);
+            try std.testing.expect(saw_multi_change);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "high register verify reuses state delta scratch" {
+    const register_count = 128;
+    var source = std.ArrayList(u8).init(std.testing.allocator);
+    defer source.deinit();
+    try source.appendSlice("@main() -> i32:\n");
+    for (0..register_count) |idx| {
+        try source.writer().print("r{d} = add {d}, 1\n", .{ idx, idx });
+    }
+    try source.appendSlice("return 0\n");
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source.items);
+    defer flat.deinit(std.testing.allocator);
+
+    var counter = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = counter.allocator();
+    const verified = try verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(allocator);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+
+    // A per-instruction state snapshot would add register_count allocations
+    // and push this fixture above three allocations per executable line.
+    try std.testing.expect(counter.allocations < (register_count + 1) * 3);
 }
 
 test "predecoded metadata verifies basic instructions without raw text" {
