@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Vec u64 hash_one macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for Vec<T, A>` implementation under `/home/vscode/projects/rust`.
+- `sa_std/vec.sa`: added `DEFAULT_HASHER_WRITE_VEC_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_VEC_U64`, and `RANDOM_STATE_HASH_ONE_VEC_U64`.
+- The helper surface models Rust's owned-vector forwarding by hashing concrete `Vec<u64>` contents through the existing `u64` slice hash path. It does not claim generic `Hash` trait dispatch, allocator-aware `Vec<T, A>`, Rust drop semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_vec_hash_one_macro_surface.sa` - 1 test (panic ID 10583) covering writer/direct equivalence with `SLICE_HASH_U64`, equal-value vectors, length/order sensitivity, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and value sensitivity after mutation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10584+.
+
 ## Completed: 2026-07-15 StringBuf hash_one macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for String` implementation under `/home/vscode/projects/rust`.
