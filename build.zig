@@ -1,5 +1,113 @@
 const std = @import("std");
 
+const LlvmSettings = struct {
+    include_dir: []const u8,
+    lib_dir: []const u8,
+    lib_name: []const u8,
+};
+
+fn environmentValue(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    return std.process.getEnvVarOwned(allocator, name) catch null;
+}
+
+fn llvmLibraryName(allocator: std.mem.Allocator, filename: []const u8) ?[]const u8 {
+    var name = std.fs.path.basename(filename);
+    if (std.mem.startsWith(u8, name, "lib")) name = name[3..];
+    const suffixes = [_][]const u8{ ".so", ".dylib", ".dll", ".lib", ".a" };
+    for (suffixes) |suffix| {
+        if (std.mem.indexOf(u8, name, suffix)) |index| {
+            name = name[0..index];
+            break;
+        }
+    }
+    if (name.len == 0) return null;
+    return allocator.dupe(u8, name) catch null;
+}
+
+fn queryLlvmConfig(allocator: std.mem.Allocator, executable: []const u8) ?LlvmSettings {
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ executable, "--includedir", "--libdir", "--link-shared", "--libnames" },
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null,
+    }
+
+    var lines = std.mem.tokenizeAny(u8, result.stdout, "\r\n");
+    const include_dir = lines.next() orelse return null;
+    const lib_dir = lines.next() orelse return null;
+    const lib_names = lines.next() orelse return null;
+    var names = std.mem.tokenizeAny(u8, lib_names, " \t");
+    const lib_name = llvmLibraryName(allocator, names.next() orelse return null) orelse return null;
+    return .{
+        .include_dir = allocator.dupe(u8, include_dir) catch return null,
+        .lib_dir = allocator.dupe(u8, lib_dir) catch return null,
+        .lib_name = lib_name,
+    };
+}
+
+fn discoverLlvm(b: *std.Build, target: std.Build.ResolvedTarget) LlvmSettings {
+    const option_include = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.");
+    const option_lib = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.");
+    const option_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.");
+    const env_include = environmentValue(b.allocator, "LLVM_INCLUDE_DIR");
+    const env_lib = environmentValue(b.allocator, "LLVM_LIB_DIR");
+    const env_name = environmentValue(b.allocator, "LLVM_LIB_NAME");
+
+    var detected: ?LlvmSettings = null;
+    if (environmentValue(b.allocator, "LLVM_CONFIG")) |llvm_config| {
+        detected = queryLlvmConfig(b.allocator, llvm_config);
+    } else if (target.result.os.tag == b.graph.host.result.os.tag and
+        target.result.cpu.arch == b.graph.host.result.cpu.arch)
+    {
+        const candidates = [_][]const u8{
+            "llvm-config",
+            "llvm-config-20",
+            "llvm-config-19",
+            "llvm-config-18",
+            "llvm-config-17",
+            "llvm-config-16",
+            "llvm-config-15",
+            "llvm-config-14",
+        };
+        for (candidates) |candidate| {
+            detected = queryLlvmConfig(b.allocator, candidate);
+            if (detected != null) break;
+        }
+    }
+
+    const fallback: LlvmSettings = switch (target.result.os.tag) {
+        .macos => if (target.result.cpu.arch == .aarch64) .{
+            .include_dir = "/opt/homebrew/opt/llvm/include",
+            .lib_dir = "/opt/homebrew/opt/llvm/lib",
+            .lib_name = "LLVM",
+        } else .{
+            .include_dir = "/usr/local/opt/llvm/include",
+            .lib_dir = "/usr/local/opt/llvm/lib",
+            .lib_name = "LLVM",
+        },
+        .windows => .{
+            .include_dir = "C:\\Program Files\\LLVM\\include",
+            .lib_dir = "C:\\Program Files\\LLVM\\lib",
+            .lib_name = "LLVM-C",
+        },
+        else => .{
+            .include_dir = "/usr/lib/llvm-14/include",
+            .lib_dir = "/usr/lib/llvm-14/lib",
+            .lib_name = "LLVM-14",
+        },
+    };
+    return .{
+        .include_dir = option_include orelse env_include orelse if (detected) |settings| settings.include_dir else fallback.include_dir,
+        .lib_dir = option_lib orelse env_lib orelse if (detected) |settings| settings.lib_dir else fallback.lib_dir,
+        .lib_name = option_name orelse env_name orelse if (detected) |settings| settings.lib_name else fallback.lib_name,
+    };
+}
+
 fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
     const argv = [_][]const u8{ "git", "tag", "--sort=-v:refname" };
     const result = std.process.Child.run(.{
@@ -38,19 +146,19 @@ pub fn build(b: *std.Build) void {
     const release_safe = b.option(bool, "release-safe", "Build all artifacts with ReleaseSafe optimization.") orelse false;
     const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
     const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator) orelse "0.0.1";
-    const llvm_include_dir = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.") orelse "/usr/lib/llvm-14/include";
-    const llvm_lib_dir = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.") orelse "/usr/lib/llvm-14/lib";
-    const llvm_lib_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.") orelse "LLVM-14";
+    const llvm = discoverLlvm(b, target);
     var optimize = b.standardOptimizeOption(.{});
     if (release_safe) optimize = .ReleaseSafe;
     if (release_small) optimize = .ReleaseSmall;
     const repo_root = b.pathFromRoot(".");
     const repo_root_lazy = b.path(".");
     const build_options = b.addOptions();
+    const portable_build_options = b.addOptions();
     const test_build_options = b.addOptions();
-    build_options.addOption([]const u8, "sa_std_archive_path", b.pathFromRoot("artifacts/sa_std/libsa_std.a"));
     build_options.addOption([]const u8, "repo_root", repo_root);
     build_options.addOption([]const u8, "version", version);
+    portable_build_options.addOption([]const u8, "repo_root", repo_root);
+    portable_build_options.addOption([]const u8, "version", version);
     test_build_options.addOption([]const u8, "repo_root", repo_root);
 
     const lib_module = b.createModule(.{
@@ -60,7 +168,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addLlvmcShimToModule(b, lib_module);
-    linkLLVMToModule(lib_module, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
+    linkLLVMToModule(lib_module, llvm.include_dir, llvm.lib_dir, llvm.lib_name);
     lib_module.addOptions("build_options", build_options);
     if (target.result.os.tag == .linux) {
         lib_module.linkSystemLibrary("dl", .{});
@@ -79,25 +187,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    addPthreadHostShimToModule(b, sa_std_static_module);
+    addPthreadHostShimToModule(b, sa_std_static_module, target.result.os.tag);
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_static_module,
         .linkage = .static,
     });
+    build_options.addOptionPath("test_sa_std_archive_path", sa_std_static.getEmittedBin());
     const install_sa_std_static = b.addInstallArtifact(sa_std_static, .{});
     b.getInstallStep().dependOn(&install_sa_std_static.step);
-    const sync_sa_std_artifact = b.addUpdateSourceFiles();
-    sync_sa_std_artifact.addCopyFileToSource(sa_std_static.getEmittedBin(), "artifacts/sa_std/libsa_std.a");
-    b.getInstallStep().dependOn(&sync_sa_std_artifact.step);
-
     const sa_std_shared_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_std.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    addPthreadHostShimToModule(b, sa_std_shared_module);
+    addPthreadHostShimToModule(b, sa_std_shared_module, target.result.os.tag);
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_shared_module,
@@ -111,7 +216,6 @@ pub fn build(b: *std.Build) void {
 
     const sa_std_static_step = b.step("sa-std-static", "Build and install the static SA standard runtime library");
     sa_std_static_step.dependOn(&install_sa_std_static.step);
-    sa_std_static_step.dependOn(&sync_sa_std_artifact.step);
     sa_std_static_step.dependOn(&install_sa_std_header.step);
 
     const sa_std_shared_step = b.step("sa-std-shared", "Build and install the shared SA standard runtime library");
@@ -119,6 +223,38 @@ pub fn build(b: *std.Build) void {
     sa_std_shared_step.dependOn(&install_sa_std_header.step);
 
     const test_step = b.step("test", "Run unit tests");
+
+    const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
+    const portable_targets = [_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" };
+    for (portable_targets) |portable_target| {
+        const cli_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "build-exe",
+            "-target",
+            portable_target,
+            "-fno-emit-bin",
+            "-lc",
+            "--dep",
+            "build_options",
+            "-Mroot=src/main.zig",
+        });
+        cli_typecheck.addPrefixedFileArg("-Mbuild_options=", portable_build_options.getOutput());
+        cli_typecheck.setCwd(repo_root_lazy);
+        portable_host_typecheck.dependOn(&cli_typecheck.step);
+
+        for ([_][]const u8{ "src/pkg/fetch.zig", "src/pkg/resolver.zig" }) |root_source| {
+            const package_typecheck = b.addSystemCommand(&.{
+                b.graph.zig_exe,
+                "test",
+                "-target",
+                portable_target,
+                "-fno-emit-bin",
+                root_source,
+            });
+            package_typecheck.setCwd(repo_root_lazy);
+            portable_host_typecheck.dependOn(&package_typecheck.step);
+        }
+    }
 
     const lib_root_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/lib_root_smoke.zig"),
@@ -161,9 +297,7 @@ pub fn build(b: *std.Build) void {
     });
     addLlvmcShimToModule(b, llvmc_test_module);
     llvmc_test_module.addOptions("build_options", build_options);
-    llvmc_test_module.addSystemIncludePath(.{ .cwd_relative = "/usr/lib/llvm-14/include" });
-    llvmc_test_module.addLibraryPath(.{ .cwd_relative = "/usr/lib/llvm-14/lib" });
-    llvmc_test_module.linkSystemLibrary("LLVM-14", .{});
+    linkLLVMToModule(llvmc_test_module, llvm.include_dir, llvm.lib_dir, llvm.lib_name);
     const llvmc_tests = b.addTest(.{
         .root_module = llvmc_test_module,
     });
@@ -225,13 +359,12 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addLlvmcShimToModule(b, cli_module);
-    linkLLVMToModule(cli_module, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
+    linkLLVMToModule(cli_module, llvm.include_dir, llvm.lib_dir, llvm.lib_name);
     cli_module.addOptions("build_options", build_options);
     const exe = b.addExecutable(.{
         .name = "sa",
         .root_module = cli_module,
     });
-    linkLLVMToCompile(exe, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     const install_sa_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_sa_exe.step);
 
@@ -322,7 +455,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_pthread_vtable_smoke = b.addRunArtifact(pthread_vtable_smoke);
     run_pthread_vtable_smoke.setCwd(repo_root_lazy);
-    run_pthread_vtable_smoke.step.dependOn(&sync_sa_std_artifact.step);
     const pthread_vtable_smoke_step = b.step("pthread-vtable-smoke", "Run pthread vtable native codegen regression test");
     pthread_vtable_smoke_step.dependOn(&run_pthread_vtable_smoke.step);
 
@@ -426,7 +558,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_sa_std_runtime = b.addRunArtifact(sa_std_runtime);
     run_sa_std_runtime.setCwd(repo_root_lazy);
-    run_sa_std_runtime.step.dependOn(&sync_sa_std_artifact.step);
     test_step.dependOn(&run_sa_std_runtime.step);
     const sa_std_runtime_step = b.step("sa-std-runtime", "Run SA standard runtime integration tests");
     sa_std_runtime_step.dependOn(&run_sa_std_runtime.step);
@@ -677,18 +808,16 @@ fn addLlvmcShimToModule(b: *std.Build, module: *std.Build.Module) void {
     module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_shim.c"), .flags = &.{} });
 }
 
-fn addPthreadHostShimToModule(b: *std.Build, module: *std.Build.Module) void {
-    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{} });
+fn addPthreadHostShimToModule(b: *std.Build, module: *std.Build.Module, os_tag: std.Target.Os.Tag) void {
+    if (os_tag == .linux) {
+        module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{} });
+    } else if (os_tag == .macos) {
+        module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host_darwin.c"), .flags = &.{} });
+    }
 }
 
 fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
     module.addSystemIncludePath(.{ .cwd_relative = include_dir });
     module.addLibraryPath(.{ .cwd_relative = lib_dir });
     module.linkSystemLibrary(lib_name, .{});
-}
-
-fn linkLLVMToCompile(compile: *std.Build.Step.Compile, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
-    compile.addSystemIncludePath(.{ .cwd_relative = include_dir });
-    compile.addLibraryPath(.{ .cwd_relative = lib_dir });
-    compile.linkSystemLibrary(lib_name);
 }

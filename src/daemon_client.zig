@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // Thin client: if SA_DAEMON_SOCKET is set, forward argv to a running daemon and
 // return its exit code. Returns null when no socket is configured, the request
@@ -9,7 +10,16 @@ const std = @import("std");
 // Request always sends the full argv (including argv[0] = "sa") so the daemon
 // can reuse executeWithWritersAndOptions unchanged.
 
+pub fn transportSupported() bool {
+    return builtin.os.tag != .windows;
+}
+
 pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype) !?u8 {
+    if (builtin.os.tag == .windows) return null;
+    return try tryDaemonClientUnix(allocator, argv, stdout);
+}
+
+fn tryDaemonClientUnix(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype) !?u8 {
     const sock_path = std.process.getEnvVarOwned(allocator, "SA_DAEMON_SOCKET") catch return null;
     defer allocator.free(sock_path);
     if (sock_path.len == 0) return null;
@@ -128,4 +138,8 @@ test "appendJsonString escapes" {
     defer buf.deinit();
     try appendJsonString(&buf, "a\"b\\c");
     try std.testing.expectEqualStrings("\"a\\\"b\\\\c\"", buf.items);
+}
+
+test "daemon transport capability follows the host platform" {
+    try std.testing.expectEqual(builtin.os.tag != .windows, transportSupported());
 }

@@ -30,6 +30,14 @@ pub const Argv = struct {
     }
 };
 
+fn hostRpathArgument(os_tag: std.Target.Os.Tag) ?[]const u8 {
+    return switch (os_tag) {
+        .linux => "-Wl,-rpath,$ORIGIN",
+        .macos => "-Wl,-rpath,@loader_path",
+        else => null,
+    };
+}
+
 pub fn argvForExe(
     allocator: std.mem.Allocator,
     artifact_path: []const u8,
@@ -55,11 +63,7 @@ pub fn argvForExe(
     for (extra_inputs) |input| {
         try argv.items.append(input);
     }
-    switch (builtin.os.tag) {
-        .linux => try argv.items.append("-Wl,-rpath,$ORIGIN"),
-        .macos => try argv.items.append("-Wl,-rpath,@loader_path"),
-        else => {},
-    }
+    if (hostRpathArgument(builtin.os.tag)) |argument| try argv.items.append(argument);
     try argv.items.append("-o");
     try argv.items.append(out_path);
     return argv;
@@ -331,4 +335,10 @@ test "argv helpers choose the requested optimization" {
     var wasm_fast = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
     defer wasm_fast.deinit();
     try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
+}
+
+test "native executable rpath follows host loader semantics" {
+    try std.testing.expectEqualStrings("-Wl,-rpath,$ORIGIN", hostRpathArgument(.linux).?);
+    try std.testing.expectEqualStrings("-Wl,-rpath,@loader_path", hostRpathArgument(.macos).?);
+    try std.testing.expectEqual(@as(?[]const u8, null), hostRpathArgument(.windows));
 }

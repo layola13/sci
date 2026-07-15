@@ -15,7 +15,7 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.proce
 }
 
 fn copyRuntimeArchiveToCwd() !void {
-    var src = try std.fs.openFileAbsolute(build_options.sa_std_archive_path, .{});
+    var src = try std.fs.openFileAbsolute(build_options.test_sa_std_archive_path, .{});
     defer src.close();
     var dst = try std.fs.cwd().createFile("libsa_std.a", .{ .truncate = true });
     defer dst.close();

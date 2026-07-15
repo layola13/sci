@@ -1452,9 +1452,9 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .daemon => {
             try writer.writeAll("usage: sa daemon [--socket path] [--max-workers N] [--per-agent-limit N]\n\n");
-            try writer.writeAll("Run a persistent compile/verify/test server over a Unix socket.\n\n");
+            try writer.writeAll("Run a persistent compile/verify/test server over local IPC.\n\n");
             try writer.writeAll("Options:\n");
-            try writer.writeAll("  --socket <path>                Unix socket path (default /tmp/sa-daemon.sock)\n");
+            try writer.writeAll("  --socket <path>                Unix socket path (default: platform temp directory)\n");
             try writer.writeAll("  --max-workers <N>              Max concurrent request workers (default 8)\n");
             try writer.writeAll("  --per-agent-limit <N>          Max in-flight requests per agent_id (default 4)\n");
         },
@@ -3469,8 +3469,29 @@ fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
     allocator.free(argv);
 }
 
+fn defaultDaemonSocketPath(allocator: std.mem.Allocator) ![]u8 {
+    const env_names = [_][]const u8{ "XDG_RUNTIME_DIR", "TMPDIR", "TEMP", "TMP" };
+    for (env_names) |name| {
+        const root = std.process.getEnvVarOwned(allocator, name) catch continue;
+        defer allocator.free(root);
+        if (root.len == 0) continue;
+        return try std.fs.path.join(allocator, &.{ root, "sa-daemon.sock" });
+    }
+    return try allocator.dupe(u8, "/tmp/sa-daemon.sock");
+}
+
 fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
-    var socket_path: []const u8 = "/tmp/sa-daemon.sock";
+    if (builtin.os.tag == .windows) {
+        try stderr.writeAll("daemon is not supported on Windows; other commands continue to run in-process\n");
+        return 1;
+    }
+    return try daemonCommandUnix(allocator, args, stdout, stderr);
+}
+
+fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    const default_socket_path = try defaultDaemonSocketPath(allocator);
+    defer allocator.free(default_socket_path);
+    var socket_path: []const u8 = default_socket_path;
     var max_workers: usize = 8;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -6720,31 +6741,61 @@ fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, 
     return 1;
 }
 
-fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
-    const archive_name = switch (builtin.os.tag) {
+fn archivePathIfReadable(allocator: std.mem.Allocator, root: []const u8, archive_name: []const u8) !?[]u8 {
+    const archive = try std.fs.path.join(allocator, &.{ root, archive_name });
+    errdefer allocator.free(archive);
+    std.fs.cwd().access(archive, .{ .mode = .read_only }) catch |err| switch (err) {
+        error.FileNotFound => {
+            allocator.free(archive);
+            return null;
+        },
+        else => return err,
+    };
+    return archive;
+}
+
+fn saStdArchiveNameFor(os_tag: std.Target.Os.Tag) []const u8 {
+    return switch (os_tag) {
         .windows => "sa_std.lib",
         else => "libsa_std.a",
     };
+}
+
+fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
+    const archive_name = saStdArchiveNameFor(builtin.os.tag);
     if (builtin.is_test) {
-        return try allocator.dupe(u8, build_options.sa_std_archive_path);
+        return try allocator.dupe(u8, build_options.test_sa_std_archive_path);
     }
     const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => null,
         else => return err,
     };
     if (env_root) |root| {
-        errdefer allocator.free(root);
-        const archive = try std.fs.path.join(allocator, &.{ root, archive_name });
-        if (std.fs.cwd().openFile(archive, .{})) |file| {
-            file.close();
-            allocator.free(root);
-            return archive;
-        } else |_| {
-            allocator.free(archive);
-        }
-        allocator.free(root);
+        defer allocator.free(root);
+        if (try archivePathIfReadable(allocator, root, archive_name)) |archive| return archive;
     }
-    return try allocator.dupe(u8, build_options.sa_std_archive_path);
+
+    if (std.fs.selfExeDirPathAlloc(allocator)) |exe_dir| {
+        defer allocator.free(exe_dir);
+        const sibling_roots = [_][]const u8{ "../std", "../lib" };
+        for (sibling_roots) |sibling| {
+            const root = try std.fs.path.join(allocator, &.{ exe_dir, sibling });
+            defer allocator.free(root);
+            if (try archivePathIfReadable(allocator, root, archive_name)) |archive| return archive;
+        }
+    } else |_| {}
+
+    const source_tree_root = if (builtin.os.tag == .windows) "zig-out/lib" else "artifacts/sa_std";
+    if (try archivePathIfReadable(allocator, source_tree_root, archive_name)) |archive| {
+        return archive;
+    }
+    return error.FileNotFound;
+}
+
+test "runtime archive name matches native Zig library output" {
+    try std.testing.expectEqualStrings("libsa_std.a", saStdArchiveNameFor(.linux));
+    try std.testing.expectEqualStrings("libsa_std.a", saStdArchiveNameFor(.macos));
+    try std.testing.expectEqualStrings("sa_std.lib", saStdArchiveNameFor(.windows));
 }
 
 fn executeRun(
@@ -7743,7 +7794,6 @@ fn collectCallEdges(
         }
     }
 }
-
 
 fn executeTestInner(
     allocator: std.mem.Allocator,

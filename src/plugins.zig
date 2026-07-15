@@ -7,12 +7,16 @@ pub const descriptor_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1";
 pub const descriptor_fn_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1_fn";
 pub const broker_abi_version: u32 = 1;
 
-fn nativeLibraryExtension() []const u8 {
-    return switch (builtin.os.tag) {
+fn nativeLibraryExtensionFor(os_tag: std.Target.Os.Tag) []const u8 {
+    return switch (os_tag) {
         .macos => ".dylib",
         .windows => ".dll",
         else => ".so",
     };
+}
+
+fn nativeLibraryExtension() []const u8 {
+    return nativeLibraryExtensionFor(builtin.os.tag);
 }
 
 fn isNativeLibraryPath(path: []const u8) bool {
@@ -2764,25 +2768,29 @@ fn selectArtifact(value: std.json.Value) !SelectedArtifact {
     return error.PluginTargetUnsupported;
 }
 
-fn currentArtifactTarget() ![]const u8 {
-    return switch (builtin.os.tag) {
-        .linux => switch (builtin.cpu.arch) {
+fn artifactTargetFor(os_tag: std.Target.Os.Tag, cpu_arch: std.Target.Cpu.Arch) ![]const u8 {
+    return switch (os_tag) {
+        .linux => switch (cpu_arch) {
             .x86_64 => "linux-x86_64",
             .aarch64 => "linux-aarch64",
             else => error.PluginTargetUnsupported,
         },
-        .macos => switch (builtin.cpu.arch) {
+        .macos => switch (cpu_arch) {
             .x86_64 => "macos-x86_64",
             .aarch64 => "macos-aarch64",
             else => error.PluginTargetUnsupported,
         },
-        .windows => switch (builtin.cpu.arch) {
+        .windows => switch (cpu_arch) {
             .x86_64 => "windows-x86_64",
             .aarch64 => "windows-aarch64",
             else => error.PluginTargetUnsupported,
         },
         else => error.PluginTargetUnsupported,
     };
+}
+
+fn currentArtifactTarget() ![]const u8 {
+    return artifactTargetFor(builtin.os.tag, builtin.cpu.arch);
 }
 
 fn artifactFromValue(value: std.json.Value) !SelectedArtifact {
@@ -3702,6 +3710,20 @@ test "plugin network permission URLs reject remote http and bare remote IPs" {
     try std.testing.expect(!allowedPermissionUrl("https://192.168.1.10/api"));
     try std.testing.expect(!allowedPermissionUrl("https://[2001:db8::1]/api"));
     try std.testing.expect(!allowedPermissionUrl("http://localhost.evil.example/api"));
+}
+
+test "plugin native artifact mapping is host specific" {
+    try std.testing.expectEqualStrings(".so", nativeLibraryExtensionFor(.linux));
+    try std.testing.expectEqualStrings(".dylib", nativeLibraryExtensionFor(.macos));
+    try std.testing.expectEqualStrings(".dll", nativeLibraryExtensionFor(.windows));
+
+    try std.testing.expectEqualStrings("linux-x86_64", try artifactTargetFor(.linux, .x86_64));
+    try std.testing.expectEqualStrings("linux-aarch64", try artifactTargetFor(.linux, .aarch64));
+    try std.testing.expectEqualStrings("macos-x86_64", try artifactTargetFor(.macos, .x86_64));
+    try std.testing.expectEqualStrings("macos-aarch64", try artifactTargetFor(.macos, .aarch64));
+    try std.testing.expectEqualStrings("windows-x86_64", try artifactTargetFor(.windows, .x86_64));
+    try std.testing.expectEqualStrings("windows-aarch64", try artifactTargetFor(.windows, .aarch64));
+    try std.testing.expectError(error.PluginTargetUnsupported, artifactTargetFor(.windows, .wasm32));
 }
 
 fn pluginDevMode(allocator: std.mem.Allocator) bool {
