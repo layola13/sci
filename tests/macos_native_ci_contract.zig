@@ -135,9 +135,10 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "SA_PLUGINS_HOME",
         "SA_STD_DIR",
         "unset SA_DAEMON_SOCKET",
-        "printf '%s\\n' '@extern sa_ci_staged_probe() -> i32' > \"$staged_std_iface\"",
-        "printf '%s\\n' '@import \"sa_std/ci_staged_only.sai\"' '@main() -> i32:' 'return 0' > \"$staged_std_probe\"",
-        "capture_success \"staged std resolution\" \"$sa\" check \"$staged_std_probe\"",
+        "staged_std_probe_dir=\"$std_root/ci_smoke\"",
+        "staged_std_iface=\"$staged_std_probe_dir/staged_only.sai\"",
+        "printf '%s\\n' '@import \"sa_std/ci_smoke/staged_only.sai\"'",
+        "cat \"$source_demo\"",
         "else\n        status=$?\n    fi\n    printf '%s failed",
         "assert_macho",
         "/usr/bin/file -b",
@@ -164,10 +165,12 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
     };
     for (required) |fragment| try expectContains(smoke, fragment);
     try expectInOrder(smoke, &.{
-        "printf '%s\\n' '@extern sa_ci_staged_probe() -> i32' > \"$staged_std_iface\"",
+        "printf '%s\\n' '// This file exists only in the staged SA_STD_DIR.' > \"$staged_std_iface\"",
+        "printf '%s\\n' '@import \"sa_std/ci_smoke/staged_only.sai\"'",
         "export SA_STD_DIR=\"$std_root\"",
-        "capture_success \"staged std resolution\"",
         "capture_success \"staged sa check\"",
+        "capture_success \"staged sa build-exe\"",
+        "capture_success \"staged sa build-wasm\"",
     });
     try expectInOrder(smoke, &.{
         "capture_success \"offline package install\"",
@@ -188,10 +191,11 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "readarray",
         "DYLD_LIBRARY_PATH",
         "trap cleanup EXIT HUP",
+        "cp \"$source_demo\" \"$temp_demo\"",
     };
     for (forbidden) |fragment| try expectNotContains(smoke, fragment);
 
-    const repo_probe: ?std.fs.File = std.fs.cwd().openFile("sa_std/ci_staged_only.sai", .{}) catch |err| switch (err) {
+    const repo_probe: ?std.fs.File = std.fs.cwd().openFile("sa_std/ci_smoke/staged_only.sai", .{}) catch |err| switch (err) {
         error.FileNotFound => null,
         else => return err,
     };

@@ -142,21 +142,23 @@ package_source_root="$package_project_root/github.com/example/pkg"
 package_source="$package_source_root/index.sa"
 package_main="$package_project_root/main.sa"
 vendor_package="$package_project_root/sa_vendor/github.com/example/pkg/index.sa"
-staged_std_probe="$temp_root/staged std probe.sa"
-staged_std_iface="$std_root/ci_staged_only.sai"
+staged_std_probe_dir="$std_root/ci_smoke"
+staged_std_iface="$staged_std_probe_dir/staged_only.sai"
 
-mkdir -p "$bin_root" "$std_root" "$home_root" "$process_temp_root" "$plugins_root" "$package_source_root"
+mkdir -p "$bin_root" "$std_root" "$home_root" "$process_temp_root" "$plugins_root" "$package_source_root" "$staged_std_probe_dir"
 cp "$source_sa" "$sa"
 chmod +x "$sa"
 cp -R "$source_std_root/." "$std_root/"
 cp "$runtime_archive" "$std_root/libsa_std.a"
 cp "$runtime_header" "$std_root/sa_std.h"
-cp "$source_demo" "$temp_demo"
 
 printf '%s\n' '@pkg_value() -> i32:' 'return 42' > "$package_source"
 printf '%s\n' '@import "github.com/example/pkg"' '@main() -> i32:' 'return 0' > "$package_main"
-printf '%s\n' '@extern sa_ci_staged_probe() -> i32' > "$staged_std_iface"
-printf '%s\n' '@import "sa_std/ci_staged_only.sai"' '@main() -> i32:' 'return 0' > "$staged_std_probe"
+printf '%s\n' '// This file exists only in the staged SA_STD_DIR.' > "$staged_std_iface"
+{
+    printf '%s\n' '@import "sa_std/ci_smoke/staged_only.sai"'
+    cat "$source_demo"
+} > "$temp_demo"
 
 export HOME="$home_root"
 export USERPROFILE="$home_root"
@@ -183,7 +185,6 @@ if ! printf '%s\n' "$captured_output" | grep -Eq 'usage:[[:space:]]+sa'; then
     exit 1
 fi
 
-capture_success "staged std resolution" "$sa" check "$staged_std_probe"
 capture_success "staged sa check" "$sa" check "$temp_demo"
 capture_success "staged sa build-exe" "$sa" build-exe "$temp_demo" -o "$native_output"
 if [ ! -x "$native_output" ]; then
