@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 StringBuf hash_one macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for String` implementation under `/home/vscode/projects/rust`.
+- `sa_std/string.sa`: added `DEFAULT_HASHER_WRITE_STRING_BUF`, `BUILD_HASHER_DEFAULT_HASH_ONE_STRING_BUF`, and `RANDOM_STATE_HASH_ONE_STRING_BUF`.
+- The helper surface models Rust's owned-string forwarding by hashing the concrete `StringBuf` contents through the existing `str` hash path. It does not claim generic `Hash` trait dispatch, allocator-aware `String`, Rust drop semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_string_buf_hash_one_macro_surface.sa` - 1 test (panic ID 10582) covering writer/direct equivalence with `HASH_STR`, equal-value owned strings, string-vs-byte-slice domain separation, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and value sensitivity after mutation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_buf_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10583+.
+
 ## Completed: 2026-07-15 Hash Rc/Arc u64 macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for Rc<T, A>` and `Hash for Arc<T, A>` implementations under `/home/vscode/projects/rust`.

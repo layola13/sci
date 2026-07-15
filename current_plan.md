@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 StringBuf hash_one)
+
+Completed supportable owned string hash macros:
+- `DEFAULT_HASHER_WRITE_STRING_BUF`: concrete Rust `Hash for String` forwarding shape for SA `StringBuf`, by viewing the owned buffer as `str` and writing it through the existing string hash path.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_STRING_BUF` and `RANDOM_STATE_HASH_ONE_STRING_BUF`: concrete `BuildHasher::hash_one` lowerings for owned `StringBuf` values.
+- This follows Rust's `String` `Hash` implementation by hashing `**self`, without exposing generic `Hash` trait dispatch, allocator parameters, Rust `String` drop semantics, or SipHash compatibility.
+- Test file `std_string_buf_hash_one_macro_surface.sa` (panic ID 10582).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_string_buf_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10583+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `String` / `Vec<T>` trait wiring, allocator-aware variants, Rust `String` ownership/drop integration, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash rc arc u64)
 
 Completed supportable reference-counted value hash macros:

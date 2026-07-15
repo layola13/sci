@@ -821,10 +821,30 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     EXPAND STR_HASH %out_hash, %slice_reg
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_STRING_BUF %hasher, %string_reg
+    EXPAND STRING_BUF_AS_STR __string_buf_write_hash_view_%hasher, %string_reg
+    EXPAND DEFAULT_HASHER_WRITE_STR %hasher, __string_buf_write_hash_view_%hasher
+    !__string_buf_write_hash_view_%hasher
+[END_MACRO]
+
 [MACRO] STRING_BUF_HASH %out_hash, %string_reg
     EXPAND STRING_BUF_AS_STR __string_buf_hash_view_%out_hash, %string_reg
     EXPAND STR_HASH %out_hash, __string_buf_hash_view_%out_hash
     !__string_buf_hash_view_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_STRING_BUF %out_hash, %builder, %string_reg
+    __build_hash_one_string_buf_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_string_buf_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_STRING_BUF __build_hash_one_string_buf_hasher_%out_hash, %string_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_string_buf_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_STRING_BUF %out_hash, %state, %string_reg
+    __random_state_hash_one_string_buf_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_string_buf_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_STRING_BUF __random_state_hash_one_string_buf_hasher_%out_hash, %string_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_string_buf_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] STRING_BUF_CMP_STR %out_ordering, %string_reg, %slice_reg
