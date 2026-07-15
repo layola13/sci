@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero count_ones NonZeroU32 macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `count_ones` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_COUNT_ONES_NZ_U32` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface preserves the existing scalar `*_COUNT_ONES` helpers and adds a Rust-shaped destination wrapper result by writing the nonzero count into a `NonZeroU32` layout. It does not claim generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_count_ones_nz_macro_surface.sa` - 1 test (panic ID 10616) expanding all 10 new macros and covering unsigned and signed bit-pattern widths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_count_ones_nz_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10617+.
+
 ## Completed: 2026-07-15 NonZero checked/saturating pow macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `checked_pow` and `saturating_pow` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
