@@ -164,8 +164,8 @@
 [END_MACRO]
 
 [MACRO] JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer
-    %out_ptr = call @sa_json_buffer_data(&%buffer)
-    %out_len = call @sa_json_buffer_len(&%buffer)
+    %out_ptr = call @sa_json_buffer_data(%buffer)
+    %out_len = call @sa_json_buffer_len(%buffer)
 [END_MACRO]
 
 [MACRO] JSON_BUFFER_FREE %buffer

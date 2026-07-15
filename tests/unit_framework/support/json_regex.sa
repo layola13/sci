@@ -285,8 +285,8 @@ L_FAIL_STRINGIFY:
     panic(10407)
 
 L_STRINGIFY_BUFFER:
-    stringify_buffer_ptr = call @sa_json_buffer_data(&stringify_buffer)
-    stringify_buffer_len = call @sa_json_buffer_len(&stringify_buffer)
+    stringify_buffer_ptr = call @sa_json_buffer_data(stringify_buffer)
+    stringify_buffer_len = call @sa_json_buffer_len(stringify_buffer)
     stringify_buffer_len_ok = eq stringify_buffer_len, JSON_DOM_LEN
     stringify_buffer_match = call @support_bytes_eq(&stringify_buffer_ptr, stringify_buffer_len, *JSON_DOM_EXPECTED, JSON_DOM_LEN)
     stringify_buffer_ok = eq stringify_buffer_match, 1
