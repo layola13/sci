@@ -1990,6 +1990,65 @@ L_NUM_U64_POW_DONE_%out_value:
     !__num_pow_idx_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U64_CHECKED_POW %out_ok, %out_value, %base, %exp
+    __num_checked_pow_idx_slot_%out_ok = stack_alloc 8
+    __num_checked_pow_acc_slot_%out_ok = stack_alloc 8
+    store __num_checked_pow_idx_slot_%out_ok+0, 0 as u64
+    store __num_checked_pow_acc_slot_%out_ok+0, 1 as u64
+    jmp L_NUM_U64_CHECKED_POW_HEAD_%out_ok
+
+L_NUM_U64_CHECKED_POW_HEAD_%out_ok:
+    __num_checked_pow_idx_%out_ok = load __num_checked_pow_idx_slot_%out_ok+0 as u64
+    __num_checked_pow_done_%out_ok = eq __num_checked_pow_idx_%out_ok, %exp
+    br __num_checked_pow_done_%out_ok -> L_NUM_U64_CHECKED_POW_DONE_%out_ok, L_NUM_U64_CHECKED_POW_BODY_%out_ok
+
+L_NUM_U64_CHECKED_POW_BODY_%out_ok:
+    __num_checked_pow_acc_%out_ok = load __num_checked_pow_acc_slot_%out_ok+0 as u64
+    EXPAND NUM_U64_CHECKED_MUL __num_checked_pow_mul_ok_%out_ok, __num_checked_pow_mul_value_%out_ok, __num_checked_pow_acc_%out_ok, %base
+    br __num_checked_pow_mul_ok_%out_ok -> L_NUM_U64_CHECKED_POW_STEP_%out_ok, L_NUM_U64_CHECKED_POW_OVERFLOW_%out_ok
+
+L_NUM_U64_CHECKED_POW_STEP_%out_ok:
+    __num_checked_pow_next_idx_%out_ok = add __num_checked_pow_idx_%out_ok, 1
+    store __num_checked_pow_acc_slot_%out_ok+0, __num_checked_pow_mul_value_%out_ok as u64
+    store __num_checked_pow_idx_slot_%out_ok+0, __num_checked_pow_next_idx_%out_ok as u64
+    !__num_checked_pow_next_idx_%out_ok
+    !__num_checked_pow_mul_value_%out_ok
+    !__num_checked_pow_mul_ok_%out_ok
+    !__num_checked_pow_acc_%out_ok
+    !__num_checked_pow_done_%out_ok
+    !__num_checked_pow_idx_%out_ok
+    jmp L_NUM_U64_CHECKED_POW_HEAD_%out_ok
+
+L_NUM_U64_CHECKED_POW_OVERFLOW_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_checked_pow_mul_value_%out_ok
+    !__num_checked_pow_mul_ok_%out_ok
+    !__num_checked_pow_acc_%out_ok
+    !__num_checked_pow_done_%out_ok
+    !__num_checked_pow_idx_%out_ok
+    jmp L_NUM_U64_CHECKED_POW_END_%out_ok
+
+L_NUM_U64_CHECKED_POW_DONE_%out_ok:
+    %out_value = load __num_checked_pow_acc_slot_%out_ok+0 as u64
+    %out_ok = add 0, 1
+    !__num_checked_pow_done_%out_ok
+    !__num_checked_pow_idx_%out_ok
+
+L_NUM_U64_CHECKED_POW_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U64_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_U64_CHECKED_POW __num_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_strict_pow_ok_%out_value -> L_NUM_U64_STRICT_POW_OK_%out_value, L_NUM_U64_STRICT_POW_PANIC_%out_value
+
+L_NUM_U64_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_U64_STRICT_POW_OK_%out_value:
+    !__num_strict_pow_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_LEADING_ZEROS %out_count, %value
     __num_lz_idx_slot_%out_count = stack_alloc 8
     store __num_lz_idx_slot_%out_count+0, 0 as u64
@@ -4233,6 +4292,65 @@ L_NUM_I64_POW_DONE_%out_value:
     !__num_ipow_idx_%out_value
 [END_MACRO]
 
+[MACRO] NUM_I64_CHECKED_POW %out_ok, %out_value, %base, %exp
+    __num_ichecked_pow_idx_slot_%out_ok = stack_alloc 8
+    __num_ichecked_pow_acc_slot_%out_ok = stack_alloc 8
+    store __num_ichecked_pow_idx_slot_%out_ok+0, 0 as u64
+    store __num_ichecked_pow_acc_slot_%out_ok+0, 1 as i64
+    jmp L_NUM_I64_CHECKED_POW_HEAD_%out_ok
+
+L_NUM_I64_CHECKED_POW_HEAD_%out_ok:
+    __num_ichecked_pow_idx_%out_ok = load __num_ichecked_pow_idx_slot_%out_ok+0 as u64
+    __num_ichecked_pow_done_%out_ok = eq __num_ichecked_pow_idx_%out_ok, %exp
+    br __num_ichecked_pow_done_%out_ok -> L_NUM_I64_CHECKED_POW_DONE_%out_ok, L_NUM_I64_CHECKED_POW_BODY_%out_ok
+
+L_NUM_I64_CHECKED_POW_BODY_%out_ok:
+    __num_ichecked_pow_acc_%out_ok = load __num_ichecked_pow_acc_slot_%out_ok+0 as i64
+    EXPAND NUM_I64_CHECKED_MUL __num_ichecked_pow_mul_ok_%out_ok, __num_ichecked_pow_mul_value_%out_ok, __num_ichecked_pow_acc_%out_ok, %base
+    br __num_ichecked_pow_mul_ok_%out_ok -> L_NUM_I64_CHECKED_POW_STEP_%out_ok, L_NUM_I64_CHECKED_POW_OVERFLOW_%out_ok
+
+L_NUM_I64_CHECKED_POW_STEP_%out_ok:
+    __num_ichecked_pow_next_idx_%out_ok = add __num_ichecked_pow_idx_%out_ok, 1
+    store __num_ichecked_pow_acc_slot_%out_ok+0, __num_ichecked_pow_mul_value_%out_ok as i64
+    store __num_ichecked_pow_idx_slot_%out_ok+0, __num_ichecked_pow_next_idx_%out_ok as u64
+    !__num_ichecked_pow_next_idx_%out_ok
+    !__num_ichecked_pow_mul_value_%out_ok
+    !__num_ichecked_pow_mul_ok_%out_ok
+    !__num_ichecked_pow_acc_%out_ok
+    !__num_ichecked_pow_done_%out_ok
+    !__num_ichecked_pow_idx_%out_ok
+    jmp L_NUM_I64_CHECKED_POW_HEAD_%out_ok
+
+L_NUM_I64_CHECKED_POW_OVERFLOW_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_ichecked_pow_mul_value_%out_ok
+    !__num_ichecked_pow_mul_ok_%out_ok
+    !__num_ichecked_pow_acc_%out_ok
+    !__num_ichecked_pow_done_%out_ok
+    !__num_ichecked_pow_idx_%out_ok
+    jmp L_NUM_I64_CHECKED_POW_END_%out_ok
+
+L_NUM_I64_CHECKED_POW_DONE_%out_ok:
+    %out_value = load __num_ichecked_pow_acc_slot_%out_ok+0 as i64
+    %out_ok = add 0, 1
+    !__num_ichecked_pow_done_%out_ok
+    !__num_ichecked_pow_idx_%out_ok
+
+L_NUM_I64_CHECKED_POW_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_I64_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_I64_CHECKED_POW __num_istrict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_istrict_pow_ok_%out_value -> L_NUM_I64_STRICT_POW_OK_%out_value, L_NUM_I64_STRICT_POW_PANIC_%out_value
+
+L_NUM_I64_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_I64_STRICT_POW_OK_%out_value:
+    !__num_istrict_pow_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I8_SIGN_EXTEND %out_value, %value
     __num_i8_se_masked_%out_value = and %value, NUM_U8_MAX
     __num_i8_se_negative_%out_value = uge __num_i8_se_masked_%out_value, 128
@@ -5554,6 +5672,81 @@ L_NUM_I32_CHECKED_ABS_END_%out_ok:
     EXPAND NUM_I64_ISQRT %out_value, %value
 [END_MACRO]
 
+[MACRO] NUM_I8_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_I64_CHECKED_POW __num_i8_pow_ok_%out_ok, __num_i8_pow_value_%out_ok, %base, %exp
+    __num_i8_pow_ge_min_%out_ok = sge __num_i8_pow_value_%out_ok, NUM_I8_MIN
+    __num_i8_pow_le_max_%out_ok = sle __num_i8_pow_value_%out_ok, NUM_I8_MAX
+    __num_i8_pow_in_range_%out_ok = and __num_i8_pow_ge_min_%out_ok, __num_i8_pow_le_max_%out_ok
+    %out_ok = and __num_i8_pow_ok_%out_ok, __num_i8_pow_in_range_%out_ok
+    %out_value = mul %out_ok, __num_i8_pow_value_%out_ok
+    !__num_i8_pow_in_range_%out_ok
+    !__num_i8_pow_le_max_%out_ok
+    !__num_i8_pow_ge_min_%out_ok
+    !__num_i8_pow_value_%out_ok
+    !__num_i8_pow_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_I64_CHECKED_POW __num_i16_pow_ok_%out_ok, __num_i16_pow_value_%out_ok, %base, %exp
+    __num_i16_pow_ge_min_%out_ok = sge __num_i16_pow_value_%out_ok, NUM_I16_MIN
+    __num_i16_pow_le_max_%out_ok = sle __num_i16_pow_value_%out_ok, NUM_I16_MAX
+    __num_i16_pow_in_range_%out_ok = and __num_i16_pow_ge_min_%out_ok, __num_i16_pow_le_max_%out_ok
+    %out_ok = and __num_i16_pow_ok_%out_ok, __num_i16_pow_in_range_%out_ok
+    %out_value = mul %out_ok, __num_i16_pow_value_%out_ok
+    !__num_i16_pow_in_range_%out_ok
+    !__num_i16_pow_le_max_%out_ok
+    !__num_i16_pow_ge_min_%out_ok
+    !__num_i16_pow_value_%out_ok
+    !__num_i16_pow_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_I64_CHECKED_POW __num_i32_pow_ok_%out_ok, __num_i32_pow_value_%out_ok, %base, %exp
+    __num_i32_pow_ge_min_%out_ok = sge __num_i32_pow_value_%out_ok, NUM_I32_MIN
+    __num_i32_pow_le_max_%out_ok = sle __num_i32_pow_value_%out_ok, NUM_I32_MAX
+    __num_i32_pow_in_range_%out_ok = and __num_i32_pow_ge_min_%out_ok, __num_i32_pow_le_max_%out_ok
+    %out_ok = and __num_i32_pow_ok_%out_ok, __num_i32_pow_in_range_%out_ok
+    %out_value = mul %out_ok, __num_i32_pow_value_%out_ok
+    !__num_i32_pow_in_range_%out_ok
+    !__num_i32_pow_le_max_%out_ok
+    !__num_i32_pow_ge_min_%out_ok
+    !__num_i32_pow_value_%out_ok
+    !__num_i32_pow_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I8_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_I8_CHECKED_POW __num_i8_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_i8_strict_pow_ok_%out_value -> L_NUM_I8_STRICT_POW_OK_%out_value, L_NUM_I8_STRICT_POW_PANIC_%out_value
+
+L_NUM_I8_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_I8_STRICT_POW_OK_%out_value:
+    !__num_i8_strict_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_I16_CHECKED_POW __num_i16_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_i16_strict_pow_ok_%out_value -> L_NUM_I16_STRICT_POW_OK_%out_value, L_NUM_I16_STRICT_POW_PANIC_%out_value
+
+L_NUM_I16_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_I16_STRICT_POW_OK_%out_value:
+    !__num_i16_strict_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_I32_CHECKED_POW __num_i32_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_i32_strict_pow_ok_%out_value -> L_NUM_I32_STRICT_POW_OK_%out_value, L_NUM_I32_STRICT_POW_PANIC_%out_value
+
+L_NUM_I32_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_I32_STRICT_POW_OK_%out_value:
+    !__num_i32_strict_pow_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I8_SATURATING_NEG %out_value, %value
     EXPAND NUM_I8_CHECKED_NEG __num_i8_sat_neg_ok_%out_value, __num_i8_sat_neg_value_%out_value, %value
     br __num_i8_sat_neg_ok_%out_value -> L_NUM_I8_SAT_NEG_VALUE_%out_value, L_NUM_I8_SAT_NEG_MAX_%out_value
@@ -6206,12 +6399,85 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__num_u32_pow_value_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_U64_CHECKED_POW __num_u8_pow_ok_%out_ok, __num_u8_pow_value_%out_ok, %base, %exp
+    __num_u8_pow_in_range_%out_ok = ule __num_u8_pow_value_%out_ok, NUM_U8_MAX
+    %out_ok = and __num_u8_pow_ok_%out_ok, __num_u8_pow_in_range_%out_ok
+    __num_u8_pow_masked_%out_ok = and __num_u8_pow_value_%out_ok, NUM_U8_MAX
+    %out_value = mul %out_ok, __num_u8_pow_masked_%out_ok
+    !__num_u8_pow_masked_%out_ok
+    !__num_u8_pow_in_range_%out_ok
+    !__num_u8_pow_value_%out_ok
+    !__num_u8_pow_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_U64_CHECKED_POW __num_u16_pow_ok_%out_ok, __num_u16_pow_value_%out_ok, %base, %exp
+    __num_u16_pow_in_range_%out_ok = ule __num_u16_pow_value_%out_ok, NUM_U16_MAX
+    %out_ok = and __num_u16_pow_ok_%out_ok, __num_u16_pow_in_range_%out_ok
+    __num_u16_pow_masked_%out_ok = and __num_u16_pow_value_%out_ok, NUM_U16_MAX
+    %out_value = mul %out_ok, __num_u16_pow_masked_%out_ok
+    !__num_u16_pow_masked_%out_ok
+    !__num_u16_pow_in_range_%out_ok
+    !__num_u16_pow_value_%out_ok
+    !__num_u16_pow_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_U64_CHECKED_POW __num_u32_pow_ok_%out_ok, __num_u32_pow_value_%out_ok, %base, %exp
+    __num_u32_pow_in_range_%out_ok = ule __num_u32_pow_value_%out_ok, NUM_U32_MAX
+    %out_ok = and __num_u32_pow_ok_%out_ok, __num_u32_pow_in_range_%out_ok
+    __num_u32_pow_masked_%out_ok = and __num_u32_pow_value_%out_ok, NUM_U32_MAX
+    %out_value = mul %out_ok, __num_u32_pow_masked_%out_ok
+    !__num_u32_pow_masked_%out_ok
+    !__num_u32_pow_in_range_%out_ok
+    !__num_u32_pow_value_%out_ok
+    !__num_u32_pow_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_U8_CHECKED_POW __num_u8_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_u8_strict_pow_ok_%out_value -> L_NUM_U8_STRICT_POW_OK_%out_value, L_NUM_U8_STRICT_POW_PANIC_%out_value
+
+L_NUM_U8_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_U8_STRICT_POW_OK_%out_value:
+    !__num_u8_strict_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_U16_CHECKED_POW __num_u16_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_u16_strict_pow_ok_%out_value -> L_NUM_U16_STRICT_POW_OK_%out_value, L_NUM_U16_STRICT_POW_PANIC_%out_value
+
+L_NUM_U16_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_U16_STRICT_POW_OK_%out_value:
+    !__num_u16_strict_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_U32_CHECKED_POW __num_u32_strict_pow_ok_%out_value, %out_value, %base, %exp
+    br __num_u32_strict_pow_ok_%out_value -> L_NUM_U32_STRICT_POW_OK_%out_value, L_NUM_U32_STRICT_POW_PANIC_%out_value
+
+L_NUM_U32_STRICT_POW_PANIC_%out_value:
+    panic(2204)
+
+L_NUM_U32_STRICT_POW_OK_%out_value:
+    !__num_u32_strict_pow_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_USIZE_CHECKED_SUB %out_ok, %out_value, %lhs, %rhs
     EXPAND NUM_U64_CHECKED_SUB %out_ok, %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_USIZE_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs
     EXPAND NUM_U64_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_U64_CHECKED_POW %out_ok, %out_value, %base, %exp
 [END_MACRO]
 
 [MACRO] NUM_USIZE_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
@@ -6280,6 +6546,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NUM_USIZE_POW %out_value, %base, %exp
     EXPAND NUM_U64_POW %out_value, %base, %exp
+[END_MACRO]
+
+[MACRO] NUM_USIZE_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_U64_STRICT_POW %out_value, %base, %exp
 [END_MACRO]
 
 [MACRO] NUM_USIZE_UNCHECKED_ADD %out_value, %lhs, %rhs
@@ -6478,12 +6748,20 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I64_POW %out_value, %base, %exp
 [END_MACRO]
 
+[MACRO] NUM_ISIZE_STRICT_POW %out_value, %base, %exp
+    EXPAND NUM_I64_STRICT_POW %out_value, %base, %exp
+[END_MACRO]
+
 [MACRO] NUM_ISIZE_CHECKED_NEG %out_ok, %out_value, %value
     EXPAND NUM_I64_CHECKED_NEG %out_ok, %out_value, %value
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_CHECKED_ABS %out_ok, %out_value, %value
     EXPAND NUM_I64_CHECKED_ABS %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_CHECKED_POW %out_ok, %out_value, %base, %exp
+    EXPAND NUM_I64_CHECKED_POW %out_ok, %out_value, %base, %exp
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_SATURATING_NEG %out_value, %value

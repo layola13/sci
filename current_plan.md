@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 primitive checked/strict pow)
+
+Completed supportable primitive checked and strict integer exponentiation helpers:
+- `NUM_U8_CHECKED_POW`, `NUM_U16_CHECKED_POW`, `NUM_U32_CHECKED_POW`, `NUM_U64_CHECKED_POW`, and `NUM_USIZE_CHECKED_POW`: concrete Rust unsigned primitive `checked_pow` shape for the existing SA unsigned integer widths.
+- `NUM_I8_CHECKED_POW`, `NUM_I16_CHECKED_POW`, `NUM_I32_CHECKED_POW`, `NUM_I64_CHECKED_POW`, and `NUM_ISIZE_CHECKED_POW`: matching signed primitive `checked_pow` shape for existing signed widths.
+- `NUM_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_STRICT_POW`: Rust primitive `strict_pow` control-flow shape over the checked helpers, trapping with SA `panic(2204)` on overflow.
+- Checked helpers expose explicit `ok/out` results instead of Rust `Option`; arithmetic or declared-width overflow returns `ok=0/out=0`. `usize` / `isize` alias the current 64-bit SA ABI. This batch deliberately does not model Rust panic message/object identity, `u128` / `i128`, feature-gate enforcement, or trait-level dispatch.
+- Test file `std_num_checked_strict_pow_macro_surface.sa` (panic ID 10632 for the ordinary assertion path).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_strict_pow_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10633+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 signed isqrt)
 
 Completed supportable signed direct integer square-root helpers:

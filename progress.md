@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 primitive checked/strict pow macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_pow` and `strict_pow` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_CHECKED_POW`, `NUM_U16_CHECKED_POW`, `NUM_U32_CHECKED_POW`, `NUM_U64_CHECKED_POW`, `NUM_USIZE_CHECKED_POW`, and matching `STRICT_POW` helpers; added `NUM_I8_CHECKED_POW`, `NUM_I16_CHECKED_POW`, `NUM_I32_CHECKED_POW`, `NUM_I64_CHECKED_POW`, `NUM_ISIZE_CHECKED_POW`, and matching `STRICT_POW` helpers.
+- Checked helpers return explicit `ok/out` values instead of Rust `Option<Self>` and report arithmetic or declared-width overflow as `ok=0/out=0`. Strict helpers reuse checked pow and trap via SA `panic(2204)` on overflow, modeling Rust's panic control-flow shape without claiming panic message/object identity, `u128` / `i128`, feature gates, or trait-level integration.
+- Test: `tests/unit_framework/std_num_checked_strict_pow_macro_surface.sa` - 3 tests (panic ID 10632 for the non-panic assertion path) expanding all 20 new public helpers and covering unsigned plus signed strict overflow panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_strict_pow_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10633+.
+
 ## Completed: 2026-07-15 signed isqrt macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `isqrt` implementation under `/home/vscode/projects/rust`.
