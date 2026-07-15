@@ -48,10 +48,10 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
   - macOS x86_64/aarch64 runtime type checks and Mach-O test links, plus the non-Linux terminal-test gate, passed as cross-target checks.
   - `sa-std-abi`: `9/9`; `sa-std-artifact-abi`: `8/8`.
   - Focused lifecycle review found no remaining blocking race, double-close, or normal-path `HANDLE` leak.
-- Completed a read-only macOS Phase 2/MVP audit against `docs/macos_windows_portability_evaluation_cn.md`:
-  - `.github/workflows/release.yml` is the only workflow; its macOS matrix entries and dependency setup remain commented out, so there is no native macOS compiler/runtime evidence.
+- Completed a read-only pre-implementation macOS Phase 2/MVP audit against `docs/macos_windows_portability_evaluation_cn.md`; the findings below describe that starting checkpoint:
+  - `.github/workflows/release.yml` was the only workflow; its macOS matrix entries and dependency setup were commented out, so that checkpoint had no native macOS compiler/runtime evidence.
   - `zig build test`, `std`, and `ci` unconditionally depend on `sa_net_uring`, making the aggregate gates unsuitable for Darwin until portable/Linux/Darwin test groups exist.
-  - `portable-host-typecheck` currently checks only `x86_64-macos`; aarch64 macOS runtime type/link coverage is not represented by that named step.
+  - `portable-host-typecheck` covered only `x86_64-macos`; aarch64 macOS runtime type/link coverage was not represented by that named step.
   - `tests/sa_term_runtime.zig` skips all non-Linux targets; `tests/plugin_host_smoke.zig` assumes `linux-x86_64` and `.so`; no daemon client/server end-to-end smoke is present.
   - Runtime audit found Darwin-sensitive calls/contracts that still need implementation or explicit unsupported behavior: Linux-only `getsockopt`/socket constants, multicast ABI numbers, QUICKACK/DEFER_ACCEPT/keepalive options, abstract Unix addresses, PASSCRED/peer credentials, and terminal winsize.
 - Completed the release/installer artifact-contract batch:
@@ -69,7 +69,13 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
   - The workflow now also pins `llvm-14.0.6.src.tar.xz` at SHA-256 `050922ecaaca5781fdf6631ea92bc715183f202f9d2f15147226f023414f619a`, configures LLVM headers for X86, overlays source `llvm-c` and generated `llvm/Config`, checks the required files, and runs a native Clang shim syntax check before the build.
   - Linux-side evidence after the repair: source-archive checksum passes, the merged source/generated LLVM 14 header closure syntax-checks, the Windows static contract passes `3/3`, YAML parses, formatting passes, and `git diff --check` passes. This is still static/Linux evidence; the Windows workflow remains unexecuted.
   - Stronger Linux cross evidence then built `sa-cli` with that merged header tree and the official `LLVM-C` import library: `5/5` build steps succeeded and the output identifies as a Windows x86_64 PE32+ executable. This validates cross compilation/linking only, not Windows loading or execution.
-- Next macOS implementation order is locked: (1) build-test grouping plus x86_64/aarch64 cross gates, (2) native CI L0/L1 smoke definition, (3) basic runtime, sockets, and terminal native contracts, then (4) `.dylib` plugin and daemon end-to-end smoke.
+- Implemented the first macOS L0/L1 gate-definition batch in `f03fc02`; native execution remains pending:
+  - `build.zig` adds aarch64 macOS host/package and ABI coverage, dual-architecture macOS runtime checks, Darwin pthread shim object builds, `portable-runtime-typecheck`, unified `portability-check`, and `macos-ci-contract`. The workflow uses the reviewed `test-portable` subset and does not enter Linux-only aggregate/runtime gates.
+  - `.github/workflows/macos-native.yml` defines `macos-15-intel` x86_64 and `macos-15` arm64 jobs, pins Zig 0.14.1 and exact LLVM 14.0.6 Homebrew bottle hashes, validates runner/artifact architecture and LLVM linkage, builds isolated `sa-cli` plus the static runtime, and checks checkout cleanliness.
+  - `tools/ci/macos_native_smoke.sh` stages compiler/std/runtime payloads under space/Unicode paths with isolated HOME/temp/plugin/daemon state, proves staged `SA_STD_DIR` resolution, and covers `version`/`help`/`check`, native Hello build/run, Mach-O architecture, wasm magic, offline package resolution, and deterministic `SourceNotFound`.
+  - Linux-side evidence passes: macOS contract `3/3`, workflow YAML/actionlint and shell parsing, and isolated `portability-check` `30/30`, including `portable-host-typecheck` `11/11`, x86_64/aarch64 macOS runtime checks, dual-architecture Darwin pthread Mach-O objects, and aarch64 macOS ABI layout/header compilation.
+  - No GitHub macOS runner has executed this workflow. All evidence above is static or Linux cross-target evidence; cross type/object/link/ABI success is not macOS native runtime evidence and does not establish L2.
+- Next macOS order: execute and diagnose both native L0/L1 jobs, then add named basic/Darwin runtime groups and native fs/process/net/thread/terminal contracts before plugin, installer, and daemon work.
 - Current verification boundary: the host is Linux. No Windows/macOS native run has been performed, so neither platform is claimed as L2-supported yet.
 - Commit discipline: commit each coherent portability batch after its focused Linux/cross/ABI gates; do not treat Linux cross-target checks as native-platform evidence.
 
