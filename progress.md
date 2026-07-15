@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating pow bits macros
+
+- Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `BITS`, `pow`, `saturating_pow`, and unsigned `is_power_of_two` forwarding methods under `/home/vscode/projects/rust`.
+- `sa_std/num.sal`: added `WRAPPING_U64_BITS`, `WRAPPING_U32_BITS`, `WRAPPING_I64_BITS`, `SATURATING_U64_BITS`, and `SATURATING_I64_BITS`.
+- `sa_std/num.sa`: added `POW` helpers for `WrappingU64`, `WrappingU32`, `WrappingI64`, `SaturatingU64`, and `SaturatingI64`, plus unsigned `IS_POWER_OF_TWO` helpers for `WrappingU64`, `WrappingU32`, and `SaturatingU64`.
+- `WrappingU32` preserves the concrete 32-bit mask behavior. `SaturatingU64` pow saturates to `MAX` on overflow; `SaturatingI64` pow follows Rust primitive `saturating_pow` overflow direction, returning `MIN` only for negative bases with odd exponents and `MAX` otherwise.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_pow_bits_macro_surface.sa` - 1 test (panic ID 10622) expanding the new constants/helpers and covering wrapping pow, 32-bit masked power-of-two, unsigned saturation, and signed saturation direction.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_pow_bits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10623+.
+
 ## Completed: 2026-07-15 Saturating operator macros
 
 - Continued Rust `std::num::Saturating` macro-surface parity, referencing Rust's local `Div`, `Rem`, `Not`, `BitAnd`, `BitOr`, and `BitXor` operator implementations under `/home/vscode/projects/rust`.

@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Wrapping/Saturating pow bits)
+
+Completed supportable Wrapping/Saturating pow/BITS helpers:
+- `WRAPPING_U64_BITS`, `WRAPPING_U32_BITS`, `WRAPPING_I64_BITS`, `SATURATING_U64_BITS`, and `SATURATING_I64_BITS`: concrete associated-constant aliases for the existing SA wrapper layouts.
+- `WRAPPING_U64_POW`, `WRAPPING_U32_POW`, and `WRAPPING_I64_POW`: Rust `Wrapping<T>::pow` forwarding shape over the inner primitive, writing destination wrappers. `WrappingU32` preserves 32-bit masked results through the existing primitive helper.
+- `WRAPPING_U64_IS_POWER_OF_TWO`, `WRAPPING_U32_IS_POWER_OF_TWO`, and `SATURATING_U64_IS_POWER_OF_TWO`: unsigned wrapper predicate helpers forwarding to primitive power-of-two checks, with `WrappingU32` masking to the concrete width.
+- `SATURATING_U64_POW` and `SATURATING_I64_POW`: Rust `Saturating<T>::pow` / primitive `saturating_pow` shape, returning unsigned `MAX` on overflow and signed `MIN` only for negative bases with odd exponents.
+- This follows Rust's current `core::num::{Wrapping,Saturating}` inherent method surface for the existing SA wrapper widths. It deliberately does not expose generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, trait-level dispatch, formatting traits, or Rust panic object modeling.
+- Test file `std_num_wrapping_saturating_pow_bits_macro_surface.sa` (panic ID 10622).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_pow_bits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10623+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust panic object behavior for invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Saturating operators)
 
 Completed supportable Saturating operator helpers:

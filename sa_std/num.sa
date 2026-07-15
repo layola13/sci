@@ -8998,6 +8998,20 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     !__wrapping_u64_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] WRAPPING_U64_POW %out_ptr, %src_ptr, %exp
+    EXPAND WRAPPING_U64_GET __wrapping_u64_pow_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_POW __wrapping_u64_pow_result_%out_ptr, __wrapping_u64_pow_value_%out_ptr, %exp
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_pow_result_%out_ptr
+    !__wrapping_u64_pow_result_%out_ptr
+    !__wrapping_u64_pow_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_IS_POWER_OF_TWO %out_bool, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_pow2_value_%out_bool, %src_ptr
+    EXPAND NUM_U64_IS_POWER_OF_TWO %out_bool, __wrapping_u64_pow2_value_%out_bool
+    !__wrapping_u64_pow2_value_%out_bool
+[END_MACRO]
+
 [MACRO] WRAPPING_U64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
     EXPAND WRAPPING_U64_GET __wrapping_u64_rotl_value_%out_ptr, %src_ptr
     EXPAND NUM_U64_ROTATE_LEFT __wrapping_u64_rotl_result_%out_ptr, __wrapping_u64_rotl_value_%out_ptr, %shift
@@ -9237,6 +9251,22 @@ L_WRAPPING_U32_TRAILING_ZEROS_ZERO_%out_count:
 L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
 [END_MACRO]
 
+[MACRO] WRAPPING_U32_POW %out_ptr, %src_ptr, %exp
+    EXPAND WRAPPING_U32_GET __wrapping_u32_pow_value_%out_ptr, %src_ptr
+    EXPAND NUM_U32_POW __wrapping_u32_pow_result_%out_ptr, __wrapping_u32_pow_value_%out_ptr, %exp
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_pow_result_%out_ptr
+    !__wrapping_u32_pow_result_%out_ptr
+    !__wrapping_u32_pow_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_IS_POWER_OF_TWO %out_bool, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_pow2_raw_%out_bool, %src_ptr
+    __wrapping_u32_pow2_value_%out_bool = and __wrapping_u32_pow2_raw_%out_bool, NUM_U32_MAX
+    EXPAND NUM_U32_IS_POWER_OF_TWO %out_bool, __wrapping_u32_pow2_value_%out_bool
+    !__wrapping_u32_pow2_value_%out_bool
+    !__wrapping_u32_pow2_raw_%out_bool
+[END_MACRO]
+
 [MACRO] WRAPPING_U32_ROTATE_LEFT %out_ptr, %src_ptr, %shift
     EXPAND WRAPPING_U32_GET __wrapping_u32_rotl_value_%out_ptr, %src_ptr
     EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __wrapping_u32_rotl_result_%out_ptr, __wrapping_u32_rotl_value_%out_ptr, %shift, NUM_U32_BITS, NUM_U32_MAX
@@ -9381,6 +9411,14 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND WRAPPING_I64_GET __wrapping_i64_tz_value_%out_count, %src_ptr
     EXPAND NUM_I64_TRAILING_ZEROS %out_count, __wrapping_i64_tz_value_%out_count
     !__wrapping_i64_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_POW %out_ptr, %src_ptr, %exp
+    __wrapping_i64_pow_value_%out_ptr = load %src_ptr+WrappingI64_value as i64
+    EXPAND NUM_I64_POW __wrapping_i64_pow_result_%out_ptr, __wrapping_i64_pow_value_%out_ptr, %exp
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_pow_result_%out_ptr
+    !__wrapping_i64_pow_result_%out_ptr
+    !__wrapping_i64_pow_value_%out_ptr
 [END_MACRO]
 
 [MACRO] WRAPPING_I64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
@@ -9533,6 +9571,62 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     !__saturating_u64_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] SATURATING_U64_POW %out_ptr, %src_ptr, %exp
+    EXPAND SATURATING_U64_GET __saturating_u64_pow_base_%out_ptr, %src_ptr
+    __saturating_u64_pow_acc_slot_%out_ptr = stack_alloc 8
+    __saturating_u64_pow_idx_slot_%out_ptr = stack_alloc 8
+    store __saturating_u64_pow_acc_slot_%out_ptr+0, 1 as u64
+    store __saturating_u64_pow_idx_slot_%out_ptr+0, 0 as u64
+    jmp L_SATURATING_U64_POW_HEAD_%out_ptr
+
+L_SATURATING_U64_POW_HEAD_%out_ptr:
+    __saturating_u64_pow_idx_%out_ptr = load __saturating_u64_pow_idx_slot_%out_ptr+0 as u64
+    __saturating_u64_pow_done_%out_ptr = eq __saturating_u64_pow_idx_%out_ptr, %exp
+    br __saturating_u64_pow_done_%out_ptr -> L_SATURATING_U64_POW_DONE_%out_ptr, L_SATURATING_U64_POW_BODY_%out_ptr
+
+L_SATURATING_U64_POW_BODY_%out_ptr:
+    __saturating_u64_pow_acc_%out_ptr = load __saturating_u64_pow_acc_slot_%out_ptr+0 as u64
+    EXPAND NUM_U64_CHECKED_MUL __saturating_u64_pow_mul_ok_%out_ptr, __saturating_u64_pow_mul_value_%out_ptr, __saturating_u64_pow_acc_%out_ptr, __saturating_u64_pow_base_%out_ptr
+    br __saturating_u64_pow_mul_ok_%out_ptr -> L_SATURATING_U64_POW_STEP_OK_%out_ptr, L_SATURATING_U64_POW_OVERFLOW_%out_ptr
+
+L_SATURATING_U64_POW_STEP_OK_%out_ptr:
+    __saturating_u64_pow_next_idx_%out_ptr = add __saturating_u64_pow_idx_%out_ptr, 1
+    store __saturating_u64_pow_acc_slot_%out_ptr+0, __saturating_u64_pow_mul_value_%out_ptr as u64
+    store __saturating_u64_pow_idx_slot_%out_ptr+0, __saturating_u64_pow_next_idx_%out_ptr as u64
+    !__saturating_u64_pow_next_idx_%out_ptr
+    !__saturating_u64_pow_mul_ok_%out_ptr
+    !__saturating_u64_pow_mul_value_%out_ptr
+    !__saturating_u64_pow_acc_%out_ptr
+    !__saturating_u64_pow_done_%out_ptr
+    !__saturating_u64_pow_idx_%out_ptr
+    jmp L_SATURATING_U64_POW_HEAD_%out_ptr
+
+L_SATURATING_U64_POW_OVERFLOW_%out_ptr:
+    EXPAND SATURATING_U64_NEW %out_ptr, NUM_U64_MAX
+    !__saturating_u64_pow_mul_ok_%out_ptr
+    !__saturating_u64_pow_mul_value_%out_ptr
+    !__saturating_u64_pow_acc_%out_ptr
+    !__saturating_u64_pow_done_%out_ptr
+    !__saturating_u64_pow_idx_%out_ptr
+    jmp L_SATURATING_U64_POW_END_%out_ptr
+
+L_SATURATING_U64_POW_DONE_%out_ptr:
+    __saturating_u64_pow_result_%out_ptr = load __saturating_u64_pow_acc_slot_%out_ptr+0 as u64
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_pow_result_%out_ptr
+    !__saturating_u64_pow_result_%out_ptr
+    !__saturating_u64_pow_done_%out_ptr
+    !__saturating_u64_pow_idx_%out_ptr
+
+L_SATURATING_U64_POW_END_%out_ptr:
+    !__saturating_u64_pow_base_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_IS_POWER_OF_TWO %out_bool, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_pow2_value_%out_bool, %src_ptr
+    EXPAND NUM_U64_IS_POWER_OF_TWO %out_bool, __saturating_u64_pow2_value_%out_bool
+    !__saturating_u64_pow2_value_%out_bool
+[END_MACRO]
+
 [MACRO] SATURATING_U64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
     EXPAND SATURATING_U64_GET __saturating_u64_rotl_value_%out_ptr, %src_ptr
     EXPAND NUM_U64_ROTATE_LEFT __saturating_u64_rotl_result_%out_ptr, __saturating_u64_rotl_value_%out_ptr, %shift
@@ -9677,6 +9771,80 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND SATURATING_I64_GET __saturating_i64_tz_value_%out_count, %src_ptr
     EXPAND NUM_I64_TRAILING_ZEROS %out_count, __saturating_i64_tz_value_%out_count
     !__saturating_i64_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_I64_POW %out_ptr, %src_ptr, %exp
+    __saturating_i64_pow_base_%out_ptr = load %src_ptr+SaturatingI64_value as i64
+    __saturating_i64_pow_acc_slot_%out_ptr = stack_alloc 8
+    __saturating_i64_pow_idx_slot_%out_ptr = stack_alloc 8
+    store __saturating_i64_pow_acc_slot_%out_ptr+0, 1 as i64
+    store __saturating_i64_pow_idx_slot_%out_ptr+0, 0 as u64
+    jmp L_SATURATING_I64_POW_HEAD_%out_ptr
+
+L_SATURATING_I64_POW_HEAD_%out_ptr:
+    __saturating_i64_pow_idx_%out_ptr = load __saturating_i64_pow_idx_slot_%out_ptr+0 as u64
+    __saturating_i64_pow_done_%out_ptr = eq __saturating_i64_pow_idx_%out_ptr, %exp
+    br __saturating_i64_pow_done_%out_ptr -> L_SATURATING_I64_POW_DONE_%out_ptr, L_SATURATING_I64_POW_BODY_%out_ptr
+
+L_SATURATING_I64_POW_BODY_%out_ptr:
+    __saturating_i64_pow_acc_%out_ptr = load __saturating_i64_pow_acc_slot_%out_ptr+0 as i64
+    EXPAND NUM_I64_CHECKED_MUL __saturating_i64_pow_mul_ok_%out_ptr, __saturating_i64_pow_mul_value_%out_ptr, __saturating_i64_pow_acc_%out_ptr, __saturating_i64_pow_base_%out_ptr
+    br __saturating_i64_pow_mul_ok_%out_ptr -> L_SATURATING_I64_POW_STEP_OK_%out_ptr, L_SATURATING_I64_POW_OVERFLOW_%out_ptr
+
+L_SATURATING_I64_POW_STEP_OK_%out_ptr:
+    __saturating_i64_pow_next_idx_%out_ptr = add __saturating_i64_pow_idx_%out_ptr, 1
+    store __saturating_i64_pow_acc_slot_%out_ptr+0, __saturating_i64_pow_mul_value_%out_ptr as i64
+    store __saturating_i64_pow_idx_slot_%out_ptr+0, __saturating_i64_pow_next_idx_%out_ptr as u64
+    !__saturating_i64_pow_next_idx_%out_ptr
+    !__saturating_i64_pow_mul_ok_%out_ptr
+    !__saturating_i64_pow_mul_value_%out_ptr
+    !__saturating_i64_pow_acc_%out_ptr
+    !__saturating_i64_pow_done_%out_ptr
+    !__saturating_i64_pow_idx_%out_ptr
+    jmp L_SATURATING_I64_POW_HEAD_%out_ptr
+
+L_SATURATING_I64_POW_OVERFLOW_%out_ptr:
+    __saturating_i64_pow_base_neg_%out_ptr = slt __saturating_i64_pow_base_%out_ptr, 0
+    __saturating_i64_pow_exp_low_%out_ptr = and %exp, 1
+    __saturating_i64_pow_exp_odd_%out_ptr = eq __saturating_i64_pow_exp_low_%out_ptr, 1
+    __saturating_i64_pow_sat_min_%out_ptr = and __saturating_i64_pow_base_neg_%out_ptr, __saturating_i64_pow_exp_odd_%out_ptr
+    br __saturating_i64_pow_sat_min_%out_ptr -> L_SATURATING_I64_POW_MIN_%out_ptr, L_SATURATING_I64_POW_MAX_%out_ptr
+
+L_SATURATING_I64_POW_MIN_%out_ptr:
+    EXPAND SATURATING_I64_NEW %out_ptr, NUM_I64_MIN
+    !__saturating_i64_pow_sat_min_%out_ptr
+    !__saturating_i64_pow_exp_odd_%out_ptr
+    !__saturating_i64_pow_exp_low_%out_ptr
+    !__saturating_i64_pow_base_neg_%out_ptr
+    !__saturating_i64_pow_mul_ok_%out_ptr
+    !__saturating_i64_pow_mul_value_%out_ptr
+    !__saturating_i64_pow_acc_%out_ptr
+    !__saturating_i64_pow_done_%out_ptr
+    !__saturating_i64_pow_idx_%out_ptr
+    jmp L_SATURATING_I64_POW_END_%out_ptr
+
+L_SATURATING_I64_POW_MAX_%out_ptr:
+    EXPAND SATURATING_I64_NEW %out_ptr, NUM_I64_MAX
+    !__saturating_i64_pow_sat_min_%out_ptr
+    !__saturating_i64_pow_exp_odd_%out_ptr
+    !__saturating_i64_pow_exp_low_%out_ptr
+    !__saturating_i64_pow_base_neg_%out_ptr
+    !__saturating_i64_pow_mul_ok_%out_ptr
+    !__saturating_i64_pow_mul_value_%out_ptr
+    !__saturating_i64_pow_acc_%out_ptr
+    !__saturating_i64_pow_done_%out_ptr
+    !__saturating_i64_pow_idx_%out_ptr
+    jmp L_SATURATING_I64_POW_END_%out_ptr
+
+L_SATURATING_I64_POW_DONE_%out_ptr:
+    __saturating_i64_pow_result_%out_ptr = load __saturating_i64_pow_acc_slot_%out_ptr+0 as i64
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_pow_result_%out_ptr
+    !__saturating_i64_pow_result_%out_ptr
+    !__saturating_i64_pow_done_%out_ptr
+    !__saturating_i64_pow_idx_%out_ptr
+
+L_SATURATING_I64_POW_END_%out_ptr:
+    !__saturating_i64_pow_base_%out_ptr
 [END_MACRO]
 
 [MACRO] SATURATING_I64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
