@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero unsigned checked next power)
+
+Completed supportable NonZero unsigned checked-next-power helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE}_CHECKED_NEXT_POWER_OF_TWO`: concrete Rust `NonZero<T>::checked_next_power_of_two` shape for SA's existing unsigned NonZero integer layouts, writing the smallest power of two greater than or equal to the source wrapper into a destination wrapper when representable.
+- The helpers return `ok=1` for representable results and `ok=0` for Rust `None`, including narrow-width overflow such as `NonZeroU8::MAX.checked_next_power_of_two()`.
+- This follows Rust's current unsigned `core::num::NonZero<T>` inherent checked-next-power implementation for the existing SA unsigned integer widths. It deliberately does not expose signed NonZero variants, panic-style `next_power_of_two`, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test file `std_num_nonzero_checked_next_power_macro_surface.sa` (panic ID 10611).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_checked_next_power_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10612+.
+Still blocked without redesign: panic-style integer overflow behavior for `next_power_of_two`, generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero integer isolate one)
 
 Completed supportable NonZero integer isolate-one helpers:

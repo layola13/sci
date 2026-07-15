@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero unsigned checked next power macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `checked_next_power_of_two` method for unsigned `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_CHECKED_NEXT_POWER_OF_TWO` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, and `NonZeroUsize`.
+- The helper surface returns an explicit `ok/out` Option-like result. It writes the next power-of-two value into a destination wrapper when representable, preserves already-power-of-two inputs, and reports `ok=0` when the next power would exceed the concrete unsigned width. It does not claim signed NonZero coverage, panic-style `next_power_of_two`, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_checked_next_power_macro_surface.sa` - 1 test (panic ID 10611) expanding all 5 new macros and covering small next-power results, already-power inputs, max overflow, and 64-bit `1<<62 + 1 -> 1<<63`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_checked_next_power_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10612+.
+
 ## Completed: 2026-07-15 NonZero integer isolate-one macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `isolate_highest_one` and `isolate_lowest_one` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
