@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash tuple6 u64 macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local tuple `Hash` implementation under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `DEFAULT_HASHER_WRITE_TUPLE6_U64`, `HASH_TUPLE6_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE6_U64`, and `RANDOM_STATE_HASH_ONE_TUPLE6_U64`.
+- The helper surface models `(u64, u64, u64, u64, u64, u64)` tuple hashing by writing each field in order through the existing deterministic `u64` writer. It does not claim generic tuple trait dispatch, tuple arities beyond the concrete helpers, non-`u64` elements, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_tuple6_u64_macro_surface.sa` - 1 test (panic ID 10569) covering direct/manual equivalence, order sensitivity, value sensitivity, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_tuple6_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10570+.
+
 ## Completed: 2026-07-15 Hash tuple5 u64 macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local tuple `Hash` implementation under `/home/vscode/projects/rust`.
