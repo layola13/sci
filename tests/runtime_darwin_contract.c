@@ -45,6 +45,8 @@ int main(int argc, char **argv) {
     CHECK(dir_len > 0 && (size_t)dir_len < sizeof(dir_path), 101);
     file_len = snprintf(file_path, sizeof(file_path), "%s/data.txt", dir_path);
     CHECK(file_len > 0 && (size_t)file_len < sizeof(file_path), 102);
+    CHECK(sa_fs_make_dir((const uint8_t *)".zig-cache", sizeof(".zig-cache") - 1) == SA_STD_OK,
+          129);
     (void)sa_fs_remove_dir_all((const uint8_t *)dir_path, (uint64_t)dir_len);
     CHECK(sa_fs_create_dir((const uint8_t *)dir_path, (uint64_t)dir_len) == SA_STD_OK, 103);
     dir_created = 1;

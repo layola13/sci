@@ -128,6 +128,8 @@ jobs:
           zig build macos-ci-contract --summary all
           zig build portability-check -Dtarget="$ZIG_TARGET" --summary all
           zig build test-portable -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
+          zig build test-runtime-basic -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
+          zig build test-runtime-darwin -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
 
       - name: Build isolated native compiler and runtime artifacts
         run: |

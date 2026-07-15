@@ -51,6 +51,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "LLVM_LIB_NAME=LLVM-C",
         "zig build sa-cli -Doptimize=ReleaseSafe",
         "zig build test-portable -Doptimize=ReleaseSafe",
+        "zig build test-runtime-basic -Doptimize=ReleaseSafe",
         "zig build test-runtime-windows -Doptimize=ReleaseSafe",
         "zig build sa-std-static -Doptimize=ReleaseSafe --prefix",
         "zig build sa-std-shared -Doptimize=ReleaseSafe --prefix",
@@ -70,6 +71,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "sa-std-runtime",
         "plugin-host-smoke",
         "sa-net-uring",
+        "test-runtime-darwin",
     };
     for (forbidden) |fragment| try expectNotContains(workflow, fragment);
 }
@@ -82,6 +84,7 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "staged sa.exe version",
         "Invoke-NativeCapture",
         "Copy-Item -LiteralPath $sourceSa -Destination $sa",
+        "Copy-Item -LiteralPath $runtimeArchive -Destination (Join-Path $stdRoot \"sa_std.lib\")",
         "include\\sa_std.h",
         "SetEnvironmentVariable(\"SA_STD_DIR\", $stdRoot, \"Process\")",
         "HOME",
@@ -93,6 +96,8 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "Pop-Location",
         "[char]0x6D4B",
         "sa windows smoke",
+        "@(\"build-exe\", $tempDemo, \"-o\", $nativeOutput)",
+        "generated hello.exe",
         "hello, saasm",
         "build-wasm",
         "--target",
@@ -112,10 +117,18 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
 test "build graph exposes focused Windows CI entry points" {
     const build_source = try readSource("build.zig");
     defer std.testing.allocator.free(build_source);
+    const driver_source = try readSource("src/driver/zigcc.zig");
+    defer std.testing.allocator.free(driver_source);
 
     try expectContains(build_source, "b.step(\"sa-cli\"");
     try expectContains(build_source, "b.step(\"test-portable\"");
+    try expectContains(build_source, "b.step(\"test-runtime-basic\"");
     try expectContains(build_source, "b.step(\"test-runtime-windows\"");
+    try expectContains(build_source, "test-runtime-basic requires a native Linux, macOS, or Windows host and target");
+    try expectContains(build_source, "tests/runtime_basic_contract.c");
+    try expectContains(build_source, "tests/runtime_contract_fixture.c");
+    try expectContains(build_source, "linkSystemLibrary(\"ws2_32\"");
+    try expectContains(driver_source, "if (builtin.os.tag == .windows) try argv.items.append(\"-lws2_32\");");
     try expectContains(build_source, "requires a native Windows x86_64 host and target");
     try expectContains(build_source, "windows process spawn failure leaves no live child handle");
     try expectContains(build_source, "b.step(\"windows-ci-contract\"");

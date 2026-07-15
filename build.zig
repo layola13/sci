@@ -188,6 +188,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addPthreadHostShimToModule(b, sa_std_static_module, target.result.os.tag);
+    if (target.result.os.tag == .windows) sa_std_static_module.linkSystemLibrary("ws2_32", .{});
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_static_module,
@@ -203,6 +204,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addPthreadHostShimToModule(b, sa_std_shared_module, target.result.os.tag);
+    if (target.result.os.tag == .windows) sa_std_shared_module.linkSystemLibrary("ws2_32", .{});
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_shared_module,
@@ -221,6 +223,84 @@ pub fn build(b: *std.Build) void {
     const sa_std_shared_step = b.step("sa-std-shared", "Build and install the shared SA standard runtime library");
     sa_std_shared_step.dependOn(&install_sa_std_shared.step);
     sa_std_shared_step.dependOn(&install_sa_std_header.step);
+
+    const runtime_contract_fixture_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    runtime_contract_fixture_module.addCSourceFile(.{
+        .file = b.path("tests/runtime_contract_fixture.c"),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    const runtime_contract_fixture = b.addLibrary(.{
+        .name = "sa_runtime_contract_fixture",
+        .root_module = runtime_contract_fixture_module,
+        .linkage = .dynamic,
+    });
+
+    const runtime_basic_contract_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    runtime_basic_contract_module.addIncludePath(b.path("src/runtime"));
+    runtime_basic_contract_module.addCSourceFile(.{
+        .file = b.path("tests/runtime_basic_contract.c"),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    runtime_basic_contract_module.linkLibrary(sa_std_static);
+    if (target.result.os.tag == .linux) runtime_basic_contract_module.linkSystemLibrary("dl", .{});
+    if (target.result.os.tag == .windows) runtime_basic_contract_module.linkSystemLibrary("ws2_32", .{});
+    const runtime_basic_contract = b.addExecutable(.{
+        .name = "runtime-basic-contract",
+        .root_module = runtime_basic_contract_module,
+    });
+    const run_runtime_basic_contract = b.addRunArtifact(runtime_basic_contract);
+    run_runtime_basic_contract.addArtifactArg(runtime_contract_fixture);
+    run_runtime_basic_contract.setCwd(repo_root_lazy);
+    run_runtime_basic_contract.expectStdOutEqual("runtime basic contract ok\n");
+    const test_runtime_basic_step = b.step("test-runtime-basic", "Run the native cross-platform basic runtime contract");
+    const runtime_target_is_native = target.result.os.tag == b.graph.host.result.os.tag and
+        target.result.cpu.arch == b.graph.host.result.cpu.arch;
+    const runtime_basic_os_supported = switch (target.result.os.tag) {
+        .linux, .macos, .windows => true,
+        else => false,
+    };
+    if (runtime_target_is_native and runtime_basic_os_supported) {
+        test_runtime_basic_step.dependOn(&run_runtime_basic_contract.step);
+    } else {
+        const fail = b.addFail("test-runtime-basic requires a native Linux, macOS, or Windows host and target");
+        test_runtime_basic_step.dependOn(&fail.step);
+    }
+
+    const runtime_darwin_contract_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    runtime_darwin_contract_module.addIncludePath(b.path("src/runtime"));
+    runtime_darwin_contract_module.addCSourceFile(.{
+        .file = b.path("tests/runtime_darwin_contract.c"),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    runtime_darwin_contract_module.linkLibrary(sa_std_static);
+    const runtime_darwin_contract = b.addExecutable(.{
+        .name = "runtime-darwin-contract",
+        .root_module = runtime_darwin_contract_module,
+    });
+    const run_runtime_darwin_contract = b.addRunArtifact(runtime_darwin_contract);
+    run_runtime_darwin_contract.addArtifactArg(runtime_contract_fixture);
+    run_runtime_darwin_contract.setCwd(repo_root_lazy);
+    run_runtime_darwin_contract.expectStdOutEqual("runtime Darwin contract ok\n");
+    const test_runtime_darwin_step = b.step("test-runtime-darwin", "Run the native Darwin-specific runtime contract");
+    const runtime_darwin_arch_supported = target.result.cpu.arch == .x86_64 or target.result.cpu.arch == .aarch64;
+    if (runtime_target_is_native and target.result.os.tag == .macos and runtime_darwin_arch_supported) {
+        test_runtime_darwin_step.dependOn(&run_runtime_darwin_contract.step);
+    } else {
+        const fail = b.addFail("test-runtime-darwin requires a native macOS x86_64 or aarch64 host and target");
+        test_runtime_darwin_step.dependOn(&fail.step);
+    }
 
     const test_step = b.step("test", "Run unit tests");
 
@@ -454,6 +534,26 @@ pub fn build(b: *std.Build) void {
         });
         runtime_typecheck.setCwd(repo_root_lazy);
         portable_runtime_typecheck.dependOn(&runtime_typecheck.step);
+
+        for ([_][]const u8{ "runtime_basic_contract", "runtime_contract_fixture" }) |contract_source_name| {
+            const contract_typecheck = b.addSystemCommand(&.{
+                b.graph.zig_exe,
+                "cc",
+                "-target",
+                portable_runtime_target,
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Isrc/runtime",
+                "-c",
+            });
+            contract_typecheck.addFileArg(b.path(b.fmt("tests/{s}.c", .{contract_source_name})));
+            contract_typecheck.addArg("-o");
+            _ = contract_typecheck.addOutputFileArg(b.fmt("{s}-{s}.o", .{ contract_source_name, portable_runtime_target }));
+            contract_typecheck.setCwd(repo_root_lazy);
+            portable_runtime_typecheck.dependOn(&contract_typecheck.step);
+        }
     }
     for ([_][]const u8{ "x86_64-macos", "aarch64-macos" }) |darwin_target| {
         const pthread_shim_typecheck = b.addSystemCommand(&.{
@@ -468,6 +568,24 @@ pub fn build(b: *std.Build) void {
         _ = pthread_shim_typecheck.addOutputFileArg(b.fmt("sa_pthread_host_darwin-{s}.o", .{darwin_target}));
         pthread_shim_typecheck.setCwd(repo_root_lazy);
         portable_runtime_typecheck.dependOn(&pthread_shim_typecheck.step);
+
+        const darwin_contract_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "cc",
+            "-target",
+            darwin_target,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Isrc/runtime",
+            "-c",
+        });
+        darwin_contract_typecheck.addFileArg(b.path("tests/runtime_darwin_contract.c"));
+        darwin_contract_typecheck.addArg("-o");
+        _ = darwin_contract_typecheck.addOutputFileArg(b.fmt("runtime_darwin_contract-{s}.o", .{darwin_target}));
+        darwin_contract_typecheck.setCwd(repo_root_lazy);
+        portable_runtime_typecheck.dependOn(&darwin_contract_typecheck.step);
     }
 
     const portability_check_step = b.step("portability-check", "Run cross-platform host, runtime, and ABI type checks");

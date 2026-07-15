@@ -177,6 +177,11 @@ jobs:
 
       - name: Run reviewed Windows runtime subset
         run: |
+          zig build test-runtime-basic -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "test-runtime-basic failed with exit code $exitCode"
+          }
           zig build test-runtime-windows -Doptimize=ReleaseSafe --summary all
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {

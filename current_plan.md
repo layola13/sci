@@ -74,10 +74,11 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
 7. [x] Define the native Windows x86_64 CI gate and reviewed compiler/runtime contract subset:
    - [x] add `.github/workflows/windows-native.yml` on `windows-2025` with pinned Zig/LLVM, isolated static/shared runtime prefixes, portable tests, filtered Windows runtime tests, ABI checks, and worktree cleanliness checks;
    - [x] add staged PowerShell smoke for version/help/check, native Hello, wasm32 magic, isolated HOME/TEMP/plugin state, offline package resolution, and deterministic missing-package failure;
-   - [x] verify the static contract `3/3`, YAML parse, and Linux `portable-host-typecheck` `8/8`;
+   - [x] verify the current static contract `4/4`, YAML/actionlint, and Linux `portable-host-typecheck` `11/11`;
    - [x] repair the audited LLVM provisioning gap: the official win64 installer supplies `LLVM-C.lib`/`LLVM-C.dll` but not the required development headers, so the gate now pins the matching source archive, configures X86 generated headers, merges `llvm-c` plus `llvm/Config`, and syntax-checks the complete shim before building;
    - [x] verify the repaired header/link path from Linux with the merged source/generated headers and official import library: cross `sa-cli` build `5/5`, producing a Windows x86_64 PE32+ executable;
-   - [ ] execute the workflow on a Windows runner; until then this is a gate definition, not native Windows runtime evidence or an L2 claim.
+   - [x] wire the shared `test-runtime-basic` into the Windows workflow, add the installed-static-runtime `ws2_32` host link dependency, and cross-link an x86_64 PE basic-contract executable plus DLL fixture from Linux;
+   - [ ] execute the workflow on a Windows runner, including installed `sa_std.lib` consumption and the shared basic gate; until then this is a gate definition, not native Windows runtime evidence or an L2 claim.
 8. [x] Audit the macOS Phase 2/MVP starting boundary before implementation:
    - record that the starting repository had no native macOS workflow or native-run evidence;
    - identify aggregate build gates that pull in Linux-only io_uring;
@@ -87,13 +88,18 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - keep the native workflow on reviewed portable gates and outside Linux-only aggregate/runtime steps;
    - define x86_64/arm64 jobs with Zig 0.14.1, SHA-pinned LLVM 14 bottles, isolated compiler/static-runtime builds, architecture/linkage validation, and staged compiler/package smoke;
    - validate on Linux with contract `3/3`, YAML/actionlint and shell parsing, `portability-check` `30/30`, `test-portable` `9/9` steps and `49/49` tests, plus x86_64/aarch64 static-runtime builds `4/4` each with matching Mach-O archive members.
-10. [ ] Execute both macOS workflow jobs and record native L0/L1 results; until then the workflow and Linux cross type/object/link/ABI results are neither macOS native evidence nor an L2 claim.
-11. [ ] Implement native Darwin basic contracts for fs/dir/metadata, env/time, process capture/wait, threads, and dynamic libraries, then expose named basic/Darwin runtime gates.
-12. [ ] Platformize Darwin sockets and add TCP/UDP/DNS/pathname-UDS tests plus stable unsupported assertions for Linux-only facilities.
-13. [ ] Implement Darwin winsize and native PTY raw-mode tests.
-14. [ ] Finish native `.dll`/`.dylib` plugin, daemon Unix-socket, PowerShell/macOS installer, archive, and release smoke.
+10. [ ] Execute both macOS workflow jobs and record native L0/L1 plus basic/Darwin runtime results; until then the workflow and Linux cross evidence are neither macOS native evidence nor an L2 claim.
+11. [x] Define and wire the shared basic and Darwin runtime gates:
+   - link the production static runtime and a target-built dynamic-library fixture rather than a mock runtime;
+   - cover handle ownership, fs/dir/metadata, env/time, threads, exact small-output process capture, and dynamic loading in `test-runtime-basic`, with raw timestamps and waitpid-path behavior in `test-runtime-darwin`;
+   - wire macOS to both gates and Windows to the shared basic gate, with explicit native OS/architecture guards that fail rather than skip;
+   - validate Linux native basic `6/6`, `portability-check` `40/40`, `test-portable` `9/9` steps and `49/49` tests, contracts `3/3` and `4/4`, dual-architecture Mach-O links, and an x86_64 PE/DLL cross link without claiming native macOS/Windows execution.
+12. [ ] Harden POSIX process capture: drain both pipes while the child runs to avoid wait-before-drain deadlock, and loop beyond the current one-shot 8192-byte read per stream.
+13. [ ] Platformize Darwin sockets and add TCP/UDP/DNS/pathname-UDS tests plus stable unsupported assertions for Linux-only facilities.
+14. [ ] Implement Darwin winsize and native PTY raw-mode tests.
+15. [ ] Finish native `.dll`/`.dylib` plugin, daemon Unix-socket, PowerShell/macOS installer, archive, and release smoke.
 
-Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support.
+Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture.
 
 Commit rule: commit each coherent, verified portability batch promptly. Do not stage unrelated concurrent worktree changes.
 

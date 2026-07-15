@@ -16,16 +16,6 @@
 
 typedef int32_t (*RuntimeFixtureFn)(void);
 
-static int contains_bytes(const uint8_t *haystack, uint64_t haystack_len, const char *needle) {
-    const size_t needle_len = strlen(needle);
-    if (needle_len == 0) return 1;
-    if (haystack == NULL || haystack_len < needle_len) return 0;
-    for (uint64_t index = 0; index + needle_len <= haystack_len; index += 1) {
-        if (memcmp(haystack + index, needle, needle_len) == 0) return 1;
-    }
-    return 0;
-}
-
 static int32_t thread_worker(uint8_t *arg) {
     int32_t *value = (int32_t *)arg;
     *value = 42;
@@ -75,6 +65,8 @@ int main(int argc, char **argv) {
                            (unsigned)sa_std_process_id());
     CHECK(env_key_len > 0 && (size_t)env_key_len < sizeof(env_key), 103);
 
+    CHECK(sa_fs_make_dir((const uint8_t *)".zig-cache", sizeof(".zig-cache") - 1) == SA_STD_OK,
+          171);
     (void)sa_fs_remove_dir_all((const uint8_t *)dir_path, (uint64_t)dir_len);
     CHECK(sa_fs_create_dir((const uint8_t *)dir_path, (uint64_t)dir_len) == SA_STD_OK, 104);
     dir_created = 1;
@@ -216,11 +208,13 @@ int main(int argc, char **argv) {
                                           &stderr_handle) == SA_STD_OK,
               153);
         CHECK(exit_code == 17, 154);
-        CHECK(contains_bytes(sa_fs_read_buffer_data(stdout_handle),
-                             sa_fs_read_buffer_len(stdout_handle), "runtime-basic-out"),
+        CHECK(sa_fs_read_buffer_len(stdout_handle) == sizeof("runtime-basic-out") - 1 &&
+                  memcmp(sa_fs_read_buffer_data(stdout_handle), "runtime-basic-out",
+                         sizeof("runtime-basic-out") - 1) == 0,
               155);
-        CHECK(contains_bytes(sa_fs_read_buffer_data(stderr_handle),
-                             sa_fs_read_buffer_len(stderr_handle), "runtime-basic-err"),
+        CHECK(sa_fs_read_buffer_len(stderr_handle) == sizeof("runtime-basic-err") - 1 &&
+                  memcmp(sa_fs_read_buffer_data(stderr_handle), "runtime-basic-err",
+                         sizeof("runtime-basic-err") - 1) == 0,
               156);
     }
     CHECK(sa_fs_read_buffer_free(stdout_handle) == SA_STD_OK, 157);
