@@ -210,6 +210,236 @@ L_NONZERO_SIGNED_MAX_DONE_%out_nz:
     !__nonzero_signed_max_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_UNSIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, %field, %max
+    __nonzero_unsigned_checked_pow_base_%out_ok = load %nz+%field as u64
+    __nonzero_unsigned_checked_pow_acc_slot_%out_ok = stack_alloc 8
+    __nonzero_unsigned_checked_pow_idx_slot_%out_ok = stack_alloc 8
+    store __nonzero_unsigned_checked_pow_acc_slot_%out_ok+0, 1 as u64
+    store __nonzero_unsigned_checked_pow_idx_slot_%out_ok+0, 0 as u64
+    jmp L_NONZERO_UNSIGNED_CHECKED_POW_HEAD_%out_ok
+
+L_NONZERO_UNSIGNED_CHECKED_POW_HEAD_%out_ok:
+    __nonzero_unsigned_checked_pow_idx_%out_ok = load __nonzero_unsigned_checked_pow_idx_slot_%out_ok+0 as u64
+    __nonzero_unsigned_checked_pow_done_%out_ok = eq __nonzero_unsigned_checked_pow_idx_%out_ok, %exp
+    br __nonzero_unsigned_checked_pow_done_%out_ok -> L_NONZERO_UNSIGNED_CHECKED_POW_DONE_%out_ok, L_NONZERO_UNSIGNED_CHECKED_POW_BODY_%out_ok
+
+L_NONZERO_UNSIGNED_CHECKED_POW_BODY_%out_ok:
+    __nonzero_unsigned_checked_pow_acc_%out_ok = load __nonzero_unsigned_checked_pow_acc_slot_%out_ok+0 as u64
+    EXPAND NUM_U64_CHECKED_MUL __nonzero_unsigned_checked_pow_mul_ok_%out_ok, __nonzero_unsigned_checked_pow_mul_value_%out_ok, __nonzero_unsigned_checked_pow_acc_%out_ok, __nonzero_unsigned_checked_pow_base_%out_ok
+    __nonzero_unsigned_checked_pow_in_range_%out_ok = ule __nonzero_unsigned_checked_pow_mul_value_%out_ok, %max
+    __nonzero_unsigned_checked_pow_step_ok_%out_ok = and __nonzero_unsigned_checked_pow_mul_ok_%out_ok, __nonzero_unsigned_checked_pow_in_range_%out_ok
+    br __nonzero_unsigned_checked_pow_step_ok_%out_ok -> L_NONZERO_UNSIGNED_CHECKED_POW_STEP_OK_%out_ok, L_NONZERO_UNSIGNED_CHECKED_POW_OVERFLOW_%out_ok
+
+L_NONZERO_UNSIGNED_CHECKED_POW_STEP_OK_%out_ok:
+    __nonzero_unsigned_checked_pow_next_idx_%out_ok = add __nonzero_unsigned_checked_pow_idx_%out_ok, 1
+    store __nonzero_unsigned_checked_pow_acc_slot_%out_ok+0, __nonzero_unsigned_checked_pow_mul_value_%out_ok as u64
+    store __nonzero_unsigned_checked_pow_idx_slot_%out_ok+0, __nonzero_unsigned_checked_pow_next_idx_%out_ok as u64
+    !__nonzero_unsigned_checked_pow_next_idx_%out_ok
+    !__nonzero_unsigned_checked_pow_step_ok_%out_ok
+    !__nonzero_unsigned_checked_pow_in_range_%out_ok
+    !__nonzero_unsigned_checked_pow_mul_value_%out_ok
+    !__nonzero_unsigned_checked_pow_mul_ok_%out_ok
+    !__nonzero_unsigned_checked_pow_acc_%out_ok
+    !__nonzero_unsigned_checked_pow_done_%out_ok
+    !__nonzero_unsigned_checked_pow_idx_%out_ok
+    jmp L_NONZERO_UNSIGNED_CHECKED_POW_HEAD_%out_ok
+
+L_NONZERO_UNSIGNED_CHECKED_POW_OVERFLOW_%out_ok:
+    store %out_nz+%field, 0 as u64
+    %out_ok = add 0, 0
+    !__nonzero_unsigned_checked_pow_step_ok_%out_ok
+    !__nonzero_unsigned_checked_pow_in_range_%out_ok
+    !__nonzero_unsigned_checked_pow_mul_value_%out_ok
+    !__nonzero_unsigned_checked_pow_mul_ok_%out_ok
+    !__nonzero_unsigned_checked_pow_acc_%out_ok
+    !__nonzero_unsigned_checked_pow_done_%out_ok
+    !__nonzero_unsigned_checked_pow_idx_%out_ok
+    jmp L_NONZERO_UNSIGNED_CHECKED_POW_END_%out_ok
+
+L_NONZERO_UNSIGNED_CHECKED_POW_DONE_%out_ok:
+    __nonzero_unsigned_checked_pow_result_%out_ok = load __nonzero_unsigned_checked_pow_acc_slot_%out_ok+0 as u64
+    store %out_nz+%field, __nonzero_unsigned_checked_pow_result_%out_ok as u64
+    %out_ok = add 0, 1
+    !__nonzero_unsigned_checked_pow_result_%out_ok
+    !__nonzero_unsigned_checked_pow_done_%out_ok
+    !__nonzero_unsigned_checked_pow_idx_%out_ok
+
+L_NONZERO_UNSIGNED_CHECKED_POW_END_%out_ok:
+    !__nonzero_unsigned_checked_pow_base_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, %field, %max
+    __nonzero_unsigned_saturating_pow_base_%out_nz = load %nz+%field as u64
+    __nonzero_unsigned_saturating_pow_acc_slot_%out_nz = stack_alloc 8
+    __nonzero_unsigned_saturating_pow_idx_slot_%out_nz = stack_alloc 8
+    store __nonzero_unsigned_saturating_pow_acc_slot_%out_nz+0, 1 as u64
+    store __nonzero_unsigned_saturating_pow_idx_slot_%out_nz+0, 0 as u64
+    jmp L_NONZERO_UNSIGNED_SATURATING_POW_HEAD_%out_nz
+
+L_NONZERO_UNSIGNED_SATURATING_POW_HEAD_%out_nz:
+    __nonzero_unsigned_saturating_pow_idx_%out_nz = load __nonzero_unsigned_saturating_pow_idx_slot_%out_nz+0 as u64
+    __nonzero_unsigned_saturating_pow_done_%out_nz = eq __nonzero_unsigned_saturating_pow_idx_%out_nz, %exp
+    br __nonzero_unsigned_saturating_pow_done_%out_nz -> L_NONZERO_UNSIGNED_SATURATING_POW_DONE_%out_nz, L_NONZERO_UNSIGNED_SATURATING_POW_BODY_%out_nz
+
+L_NONZERO_UNSIGNED_SATURATING_POW_BODY_%out_nz:
+    __nonzero_unsigned_saturating_pow_acc_%out_nz = load __nonzero_unsigned_saturating_pow_acc_slot_%out_nz+0 as u64
+    EXPAND NUM_U64_CHECKED_MUL __nonzero_unsigned_saturating_pow_mul_ok_%out_nz, __nonzero_unsigned_saturating_pow_mul_value_%out_nz, __nonzero_unsigned_saturating_pow_acc_%out_nz, __nonzero_unsigned_saturating_pow_base_%out_nz
+    __nonzero_unsigned_saturating_pow_in_range_%out_nz = ule __nonzero_unsigned_saturating_pow_mul_value_%out_nz, %max
+    __nonzero_unsigned_saturating_pow_step_ok_%out_nz = and __nonzero_unsigned_saturating_pow_mul_ok_%out_nz, __nonzero_unsigned_saturating_pow_in_range_%out_nz
+    br __nonzero_unsigned_saturating_pow_step_ok_%out_nz -> L_NONZERO_UNSIGNED_SATURATING_POW_VALUE_%out_nz, L_NONZERO_UNSIGNED_SATURATING_POW_MAX_%out_nz
+
+L_NONZERO_UNSIGNED_SATURATING_POW_VALUE_%out_nz:
+    __nonzero_unsigned_saturating_pow_next_value_%out_nz = add __nonzero_unsigned_saturating_pow_mul_value_%out_nz, 0
+    jmp L_NONZERO_UNSIGNED_SATURATING_POW_STORE_%out_nz
+
+L_NONZERO_UNSIGNED_SATURATING_POW_MAX_%out_nz:
+    __nonzero_unsigned_saturating_pow_next_value_%out_nz = add 0, %max
+
+L_NONZERO_UNSIGNED_SATURATING_POW_STORE_%out_nz:
+    __nonzero_unsigned_saturating_pow_next_idx_%out_nz = add __nonzero_unsigned_saturating_pow_idx_%out_nz, 1
+    store __nonzero_unsigned_saturating_pow_acc_slot_%out_nz+0, __nonzero_unsigned_saturating_pow_next_value_%out_nz as u64
+    store __nonzero_unsigned_saturating_pow_idx_slot_%out_nz+0, __nonzero_unsigned_saturating_pow_next_idx_%out_nz as u64
+    !__nonzero_unsigned_saturating_pow_next_idx_%out_nz
+    !__nonzero_unsigned_saturating_pow_next_value_%out_nz
+    !__nonzero_unsigned_saturating_pow_step_ok_%out_nz
+    !__nonzero_unsigned_saturating_pow_in_range_%out_nz
+    !__nonzero_unsigned_saturating_pow_mul_value_%out_nz
+    !__nonzero_unsigned_saturating_pow_mul_ok_%out_nz
+    !__nonzero_unsigned_saturating_pow_acc_%out_nz
+    !__nonzero_unsigned_saturating_pow_done_%out_nz
+    !__nonzero_unsigned_saturating_pow_idx_%out_nz
+    jmp L_NONZERO_UNSIGNED_SATURATING_POW_HEAD_%out_nz
+
+L_NONZERO_UNSIGNED_SATURATING_POW_DONE_%out_nz:
+    __nonzero_unsigned_saturating_pow_result_%out_nz = load __nonzero_unsigned_saturating_pow_acc_slot_%out_nz+0 as u64
+    store %out_nz+%field, __nonzero_unsigned_saturating_pow_result_%out_nz as u64
+    !__nonzero_unsigned_saturating_pow_result_%out_nz
+    !__nonzero_unsigned_saturating_pow_done_%out_nz
+    !__nonzero_unsigned_saturating_pow_idx_%out_nz
+    !__nonzero_unsigned_saturating_pow_base_%out_nz
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, %field, %min, %max
+    __nonzero_signed_checked_pow_base_%out_ok = load %nz+%field as i64
+    __nonzero_signed_checked_pow_acc_slot_%out_ok = stack_alloc 8
+    __nonzero_signed_checked_pow_idx_slot_%out_ok = stack_alloc 8
+    store __nonzero_signed_checked_pow_acc_slot_%out_ok+0, 1 as i64
+    store __nonzero_signed_checked_pow_idx_slot_%out_ok+0, 0 as u64
+    jmp L_NONZERO_SIGNED_CHECKED_POW_HEAD_%out_ok
+
+L_NONZERO_SIGNED_CHECKED_POW_HEAD_%out_ok:
+    __nonzero_signed_checked_pow_idx_%out_ok = load __nonzero_signed_checked_pow_idx_slot_%out_ok+0 as u64
+    __nonzero_signed_checked_pow_done_%out_ok = eq __nonzero_signed_checked_pow_idx_%out_ok, %exp
+    br __nonzero_signed_checked_pow_done_%out_ok -> L_NONZERO_SIGNED_CHECKED_POW_DONE_%out_ok, L_NONZERO_SIGNED_CHECKED_POW_BODY_%out_ok
+
+L_NONZERO_SIGNED_CHECKED_POW_BODY_%out_ok:
+    __nonzero_signed_checked_pow_acc_%out_ok = load __nonzero_signed_checked_pow_acc_slot_%out_ok+0 as i64
+    EXPAND NUM_I64_CHECKED_MUL __nonzero_signed_checked_pow_mul_ok_%out_ok, __nonzero_signed_checked_pow_mul_value_%out_ok, __nonzero_signed_checked_pow_acc_%out_ok, __nonzero_signed_checked_pow_base_%out_ok
+    __nonzero_signed_checked_pow_ge_min_%out_ok = sge __nonzero_signed_checked_pow_mul_value_%out_ok, %min
+    __nonzero_signed_checked_pow_le_max_%out_ok = sle __nonzero_signed_checked_pow_mul_value_%out_ok, %max
+    __nonzero_signed_checked_pow_in_range_%out_ok = and __nonzero_signed_checked_pow_ge_min_%out_ok, __nonzero_signed_checked_pow_le_max_%out_ok
+    __nonzero_signed_checked_pow_step_ok_%out_ok = and __nonzero_signed_checked_pow_mul_ok_%out_ok, __nonzero_signed_checked_pow_in_range_%out_ok
+    br __nonzero_signed_checked_pow_step_ok_%out_ok -> L_NONZERO_SIGNED_CHECKED_POW_STEP_OK_%out_ok, L_NONZERO_SIGNED_CHECKED_POW_OVERFLOW_%out_ok
+
+L_NONZERO_SIGNED_CHECKED_POW_STEP_OK_%out_ok:
+    __nonzero_signed_checked_pow_next_idx_%out_ok = add __nonzero_signed_checked_pow_idx_%out_ok, 1
+    store __nonzero_signed_checked_pow_acc_slot_%out_ok+0, __nonzero_signed_checked_pow_mul_value_%out_ok as i64
+    store __nonzero_signed_checked_pow_idx_slot_%out_ok+0, __nonzero_signed_checked_pow_next_idx_%out_ok as u64
+    !__nonzero_signed_checked_pow_next_idx_%out_ok
+    !__nonzero_signed_checked_pow_step_ok_%out_ok
+    !__nonzero_signed_checked_pow_in_range_%out_ok
+    !__nonzero_signed_checked_pow_le_max_%out_ok
+    !__nonzero_signed_checked_pow_ge_min_%out_ok
+    !__nonzero_signed_checked_pow_mul_value_%out_ok
+    !__nonzero_signed_checked_pow_mul_ok_%out_ok
+    !__nonzero_signed_checked_pow_acc_%out_ok
+    !__nonzero_signed_checked_pow_done_%out_ok
+    !__nonzero_signed_checked_pow_idx_%out_ok
+    jmp L_NONZERO_SIGNED_CHECKED_POW_HEAD_%out_ok
+
+L_NONZERO_SIGNED_CHECKED_POW_OVERFLOW_%out_ok:
+    store %out_nz+%field, 0 as i64
+    %out_ok = add 0, 0
+    !__nonzero_signed_checked_pow_step_ok_%out_ok
+    !__nonzero_signed_checked_pow_in_range_%out_ok
+    !__nonzero_signed_checked_pow_le_max_%out_ok
+    !__nonzero_signed_checked_pow_ge_min_%out_ok
+    !__nonzero_signed_checked_pow_mul_value_%out_ok
+    !__nonzero_signed_checked_pow_mul_ok_%out_ok
+    !__nonzero_signed_checked_pow_acc_%out_ok
+    !__nonzero_signed_checked_pow_done_%out_ok
+    !__nonzero_signed_checked_pow_idx_%out_ok
+    jmp L_NONZERO_SIGNED_CHECKED_POW_END_%out_ok
+
+L_NONZERO_SIGNED_CHECKED_POW_DONE_%out_ok:
+    __nonzero_signed_checked_pow_result_%out_ok = load __nonzero_signed_checked_pow_acc_slot_%out_ok+0 as i64
+    store %out_nz+%field, __nonzero_signed_checked_pow_result_%out_ok as i64
+    %out_ok = add 0, 1
+    !__nonzero_signed_checked_pow_result_%out_ok
+    !__nonzero_signed_checked_pow_done_%out_ok
+    !__nonzero_signed_checked_pow_idx_%out_ok
+
+L_NONZERO_SIGNED_CHECKED_POW_END_%out_ok:
+    !__nonzero_signed_checked_pow_base_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, %field, %min, %max
+    __nonzero_signed_saturating_pow_base_%out_nz = load %nz+%field as i64
+    __nonzero_signed_saturating_pow_acc_slot_%out_nz = stack_alloc 8
+    __nonzero_signed_saturating_pow_idx_slot_%out_nz = stack_alloc 8
+    store __nonzero_signed_saturating_pow_acc_slot_%out_nz+0, 1 as i64
+    store __nonzero_signed_saturating_pow_idx_slot_%out_nz+0, 0 as u64
+    jmp L_NONZERO_SIGNED_SATURATING_POW_HEAD_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_HEAD_%out_nz:
+    __nonzero_signed_saturating_pow_idx_%out_nz = load __nonzero_signed_saturating_pow_idx_slot_%out_nz+0 as u64
+    __nonzero_signed_saturating_pow_done_%out_nz = eq __nonzero_signed_saturating_pow_idx_%out_nz, %exp
+    br __nonzero_signed_saturating_pow_done_%out_nz -> L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz, L_NONZERO_SIGNED_SATURATING_POW_BODY_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_BODY_%out_nz:
+    __nonzero_signed_saturating_pow_acc_%out_nz = load __nonzero_signed_saturating_pow_acc_slot_%out_nz+0 as i64
+    EXPAND NUM_I64_SATURATING_MUL __nonzero_signed_saturating_pow_mul_value_%out_nz, __nonzero_signed_saturating_pow_acc_%out_nz, __nonzero_signed_saturating_pow_base_%out_nz
+    __nonzero_signed_saturating_pow_under_%out_nz = slt __nonzero_signed_saturating_pow_mul_value_%out_nz, %min
+    __nonzero_signed_saturating_pow_over_%out_nz = sgt __nonzero_signed_saturating_pow_mul_value_%out_nz, %max
+    br __nonzero_signed_saturating_pow_under_%out_nz -> L_NONZERO_SIGNED_SATURATING_POW_MIN_%out_nz, L_NONZERO_SIGNED_SATURATING_POW_CHECK_MAX_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_CHECK_MAX_%out_nz:
+    br __nonzero_signed_saturating_pow_over_%out_nz -> L_NONZERO_SIGNED_SATURATING_POW_MAX_%out_nz, L_NONZERO_SIGNED_SATURATING_POW_VALUE_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_VALUE_%out_nz:
+    __nonzero_signed_saturating_pow_next_value_%out_nz = add __nonzero_signed_saturating_pow_mul_value_%out_nz, 0
+    jmp L_NONZERO_SIGNED_SATURATING_POW_STORE_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_MAX_%out_nz:
+    __nonzero_signed_saturating_pow_next_value_%out_nz = add 0, %max
+    jmp L_NONZERO_SIGNED_SATURATING_POW_STORE_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_MIN_%out_nz:
+    __nonzero_signed_saturating_pow_next_value_%out_nz = add 0, %min
+
+L_NONZERO_SIGNED_SATURATING_POW_STORE_%out_nz:
+    __nonzero_signed_saturating_pow_next_idx_%out_nz = add __nonzero_signed_saturating_pow_idx_%out_nz, 1
+    store __nonzero_signed_saturating_pow_acc_slot_%out_nz+0, __nonzero_signed_saturating_pow_next_value_%out_nz as i64
+    store __nonzero_signed_saturating_pow_idx_slot_%out_nz+0, __nonzero_signed_saturating_pow_next_idx_%out_nz as u64
+    !__nonzero_signed_saturating_pow_next_idx_%out_nz
+    !__nonzero_signed_saturating_pow_next_value_%out_nz
+    !__nonzero_signed_saturating_pow_over_%out_nz
+    !__nonzero_signed_saturating_pow_under_%out_nz
+    !__nonzero_signed_saturating_pow_mul_value_%out_nz
+    !__nonzero_signed_saturating_pow_acc_%out_nz
+    !__nonzero_signed_saturating_pow_done_%out_nz
+    !__nonzero_signed_saturating_pow_idx_%out_nz
+    jmp L_NONZERO_SIGNED_SATURATING_POW_HEAD_%out_nz
+
+L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
+    __nonzero_signed_saturating_pow_result_%out_nz = load __nonzero_signed_saturating_pow_acc_slot_%out_nz+0 as i64
+    store %out_nz+%field, __nonzero_signed_saturating_pow_result_%out_nz as i64
+    !__nonzero_signed_saturating_pow_result_%out_nz
+    !__nonzero_signed_saturating_pow_done_%out_nz
+    !__nonzero_signed_saturating_pow_idx_%out_nz
+    !__nonzero_signed_saturating_pow_base_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U64_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU64_value
 [END_MACRO]
@@ -5981,6 +6211,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u64_next_pow_value_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U64_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroU64_value, NUM_U64_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_U64_SATURATING_ADD %nz, %value, %rhs
     EXPAND NUM_U64_SATURATING_ADD __nonzero_u64_sat_add_value_%nz, %value, %rhs
     store %nz+NonZeroU64_value, __nonzero_u64_sat_add_value_%nz as u64
@@ -5991,6 +6225,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U64_SATURATING_MUL __nonzero_u64_sat_mul_value_%nz, %value, %rhs
     store %nz+NonZeroU64_value, __nonzero_u64_sat_mul_value_%nz as u64
     !__nonzero_u64_sat_mul_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_U64_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU64_value, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_I64_NEW %out_ok, %nz, %value
@@ -6076,6 +6314,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i64_neg_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I64_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroI64_value, NUM_I64_MIN, NUM_I64_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_I64_SATURATING_ABS %nz, %value
     EXPAND NUM_I64_SATURATING_ABS __nonzero_i64_sat_abs_value_%nz, %value
     store %nz+NonZeroI64_value, __nonzero_i64_sat_abs_value_%nz as i64
@@ -6092,6 +6334,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I64_SATURATING_NEG __nonzero_i64_sat_neg_value_%nz, %value
     store %nz+NonZeroI64_value, __nonzero_i64_sat_neg_value_%nz as i64
     !__nonzero_i64_sat_neg_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI64_value, NUM_I64_MIN, NUM_I64_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_I64_IS_POSITIVE %out_bool, %nz
@@ -6195,6 +6441,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u8_next_pow_value_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U8_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroU8_value, NUM_U8_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_U8_SATURATING_ADD %nz, %value, %rhs
     EXPAND NUM_U8_SATURATING_ADD __nonzero_u8_sat_add_value_%nz, %value, %rhs
     store %nz+NonZeroU8_value, __nonzero_u8_sat_add_value_%nz as u64
@@ -6205,6 +6455,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U8_SATURATING_MUL __nonzero_u8_sat_mul_value_%nz, %value, %rhs
     store %nz+NonZeroU8_value, __nonzero_u8_sat_mul_value_%nz as u64
     !__nonzero_u8_sat_mul_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_U8_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU8_value, NUM_U8_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_U16_NEW %out_ok, %nz, %value
@@ -6296,6 +6550,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u16_next_pow_value_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U16_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroU16_value, NUM_U16_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_U16_SATURATING_ADD %nz, %value, %rhs
     EXPAND NUM_U16_SATURATING_ADD __nonzero_u16_sat_add_value_%nz, %value, %rhs
     store %nz+NonZeroU16_value, __nonzero_u16_sat_add_value_%nz as u64
@@ -6306,6 +6564,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U16_SATURATING_MUL __nonzero_u16_sat_mul_value_%nz, %value, %rhs
     store %nz+NonZeroU16_value, __nonzero_u16_sat_mul_value_%nz as u64
     !__nonzero_u16_sat_mul_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU16_value, NUM_U16_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_U32_NEW %out_ok, %nz, %value
@@ -6397,6 +6659,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u32_next_pow_value_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_U32_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroU32_value, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_U32_SATURATING_ADD %nz, %value, %rhs
     EXPAND NUM_U32_SATURATING_ADD __nonzero_u32_sat_add_value_%nz, %value, %rhs
     store %nz+NonZeroU32_value, __nonzero_u32_sat_add_value_%nz as u64
@@ -6407,6 +6673,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U32_SATURATING_MUL __nonzero_u32_sat_mul_value_%nz, %value, %rhs
     store %nz+NonZeroU32_value, __nonzero_u32_sat_mul_value_%nz as u64
     !__nonzero_u32_sat_mul_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU32_value, NUM_U32_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_USIZE_NEW %out_ok, %nz, %value
@@ -6449,12 +6719,20 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_U64_CHECKED_NEXT_POWER_OF_TWO %out_ok, %out_nz, %nz
 [END_MACRO]
 
+[MACRO] NONZERO_USIZE_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_U64_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+[END_MACRO]
+
 [MACRO] NONZERO_USIZE_SATURATING_ADD %nz, %value, %rhs
     EXPAND NONZERO_U64_SATURATING_ADD %nz, %value, %rhs
 [END_MACRO]
 
 [MACRO] NONZERO_USIZE_SATURATING_MUL %nz, %value, %rhs
     EXPAND NONZERO_U64_SATURATING_MUL %nz, %value, %rhs
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_U64_SATURATING_POW %out_nz, %nz, %exp
 [END_MACRO]
 
 [MACRO] NONZERO_I8_NEW %out_ok, %nz, %value
@@ -6556,6 +6834,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i8_neg_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I8_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroI8_value, NUM_I8_MIN, NUM_I8_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_I8_SATURATING_ABS %nz, %value
     EXPAND NUM_I8_SATURATING_ABS __nonzero_i8_sat_abs_value_%nz, %value
     store %nz+NonZeroI8_value, __nonzero_i8_sat_abs_value_%nz as i64
@@ -6572,6 +6854,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I8_SATURATING_NEG __nonzero_i8_sat_neg_value_%nz, %value
     store %nz+NonZeroI8_value, __nonzero_i8_sat_neg_value_%nz as i64
     !__nonzero_i8_sat_neg_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I8_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI8_value, NUM_I8_MIN, NUM_I8_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_I8_IS_POSITIVE %out_bool, %nz
@@ -6685,6 +6971,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i16_neg_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I16_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroI16_value, NUM_I16_MIN, NUM_I16_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_I16_SATURATING_ABS %nz, %value
     EXPAND NUM_I16_SATURATING_ABS __nonzero_i16_sat_abs_value_%nz, %value
     store %nz+NonZeroI16_value, __nonzero_i16_sat_abs_value_%nz as i64
@@ -6701,6 +6991,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I16_SATURATING_NEG __nonzero_i16_sat_neg_value_%nz, %value
     store %nz+NonZeroI16_value, __nonzero_i16_sat_neg_value_%nz as i64
     !__nonzero_i16_sat_neg_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI16_value, NUM_I16_MIN, NUM_I16_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_I16_IS_POSITIVE %out_bool, %nz
@@ -6814,6 +7108,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i32_neg_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NONZERO_I32_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_CHECKED_POW_FIELD %out_ok, %out_nz, %nz, %exp, NonZeroI32_value, NUM_I32_MIN, NUM_I32_MAX
+[END_MACRO]
+
 [MACRO] NONZERO_I32_SATURATING_ABS %nz, %value
     EXPAND NUM_I32_SATURATING_ABS __nonzero_i32_sat_abs_value_%nz, %value
     store %nz+NonZeroI32_value, __nonzero_i32_sat_abs_value_%nz as i64
@@ -6830,6 +7128,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_I32_SATURATING_NEG __nonzero_i32_sat_neg_value_%nz, %value
     store %nz+NonZeroI32_value, __nonzero_i32_sat_neg_value_%nz as i64
     !__nonzero_i32_sat_neg_value_%nz
+[END_MACRO]
+
+[MACRO] NONZERO_I32_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI32_value, NUM_I32_MIN, NUM_I32_MAX
 [END_MACRO]
 
 [MACRO] NONZERO_I32_IS_POSITIVE %out_bool, %nz
@@ -6884,6 +7186,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_I64_CHECKED_NEG %out_ok, %nz, %value
 [END_MACRO]
 
+[MACRO] NONZERO_ISIZE_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+    EXPAND NONZERO_I64_CHECKED_POW %out_ok, %out_nz, %nz, %exp
+[END_MACRO]
+
 [MACRO] NONZERO_ISIZE_SATURATING_ABS %nz, %value
     EXPAND NONZERO_I64_SATURATING_ABS %nz, %value
 [END_MACRO]
@@ -6894,6 +7200,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_ISIZE_SATURATING_NEG %nz, %value
     EXPAND NONZERO_I64_SATURATING_NEG %nz, %value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_SATURATING_POW %out_nz, %nz, %exp
+    EXPAND NONZERO_I64_SATURATING_POW %out_nz, %nz, %exp
 [END_MACRO]
 
 [MACRO] NONZERO_ISIZE_IS_POSITIVE %out_bool, %nz

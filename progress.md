@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero checked/saturating pow macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `checked_pow` and `saturating_pow` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_CHECKED_POW` and `*_SATURATING_POW` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The checked helper surface returns an explicit `ok/out` Option-like result, reporting `ok=0` on primitive overflow or narrow-width range overflow. The saturating helper surface writes a nonzero wrapper saturated to the concrete signed or unsigned boundary. It does not claim generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_pow_macro_surface.sa` - 1 test (panic ID 10615) expanding all 20 new macros and covering success, unsigned overflow, signed overflow, and saturating signed/unsigned boundary behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_pow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10616+.
+
 ## Completed: 2026-07-15 NonZero unsigned div_ceil macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local unsigned-only `div_ceil` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.

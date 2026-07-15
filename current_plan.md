@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero checked/saturating pow)
+
+Completed supportable NonZero checked/saturating pow helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_CHECKED_POW`: concrete Rust `NonZero<T>::checked_pow` shape for SA's existing NonZero integer layouts, returning `ok/out` for representable nonzero pow results and `ok=0` on overflow.
+- `NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_SATURATING_POW`: concrete Rust `NonZero<T>::saturating_pow` shape for the same wrappers, saturating to the matching unsigned max or signed min/max boundary.
+- This follows Rust's current `core::num::NonZero<T>` inherent pow implementation shape for the existing SA integer widths. It deliberately does not expose generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test file `std_num_nonzero_pow_macro_surface.sa` (panic ID 10615).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_pow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10616+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero unsigned div_ceil)
 
 Completed supportable NonZero unsigned div_ceil helpers:
