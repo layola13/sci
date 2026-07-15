@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash_one pointer macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local raw pointer `Hash` implementations under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `BUILD_HASHER_DEFAULT_HASH_ONE_PTR_VALUE` and `RANDOM_STATE_HASH_ONE_PTR_VALUE`.
+- The helper surface models sized raw pointer hashing by writing the pointer address through the existing concrete pointer writer and then applying unit metadata hashing as a no-op. It does not claim unsized pointer metadata hashing, reference forwarding, generic `Hash` trait dispatch, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_ptr_hash_one_macro_surface.sa` - 1 test (panic ID 10564) covering `BuildHasherDefault` equivalence with direct `HASH_PTR_VALUE`, `RandomState` equivalence with manual `RANDOM_STATE_BUILD + DEFAULT_HASHER_WRITE_PTR`, and seeded-state difference.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_ptr_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10565+.
+
 ## Completed: 2026-07-15 Hash unit macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for ()` implementation under `/home/vscode/projects/rust`.
