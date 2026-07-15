@@ -3418,12 +3418,10 @@ fn verifyBody(
                 if (!parsed.is_indirect) {
                     if (sig_match) |resolved| {
                         if (resolved.params.len != parsed.args.len) {
-                            std.debug.print("DBG cap len callee={s} params={} args={}\n", .{ parsed.callee, resolved.params.len, parsed.args.len });
                             return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                         }
                         for (parsed.args, resolved.params) |arg, param| {
                             if (!callPrefixMatchesParam(param, arg.prefix)) {
-                                std.debug.print("DBG cap prefix callee={s} arg={s} arg_prefix={s} param={s} param_cap={s} param_ty={s}\n", .{ parsed.callee, arg.text, @tagName(arg.prefix), param.name, @tagName(param.cap), @tagName(param.ty) });
                                 return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                             }
                         }
@@ -5198,6 +5196,46 @@ test "verifier rejects call-site capability prefix mismatches" {
     switch (verified) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.capability_mismatch, report.trap),
         .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "verifier preserves by-value ptr fallible extern capability across metadata" {
+    const source =
+        \\@extern free_like(buffer: ptr) -> i32!
+        \\@extern consume_later(^owned: ptr) -> i32
+        \\@helper(value: i32) -> i32:
+        \\return value
+        \\@main() -> i32:
+        \\buffer = alloc 8
+        \\result = call @free_like(buffer)
+        \\!result
+        \\!buffer
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} source={s}\n", .{
+                @tagName(report.trap),
+                report.message,
+                report.source_text orelse "",
+            });
+            return error.TestUnexpectedResult;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            const free_like_sig = for (owned.function_sigs) |item| {
+                if (std.mem.eql(u8, item.name, "free_like")) break item;
+            } else return error.TestUnexpectedResult;
+            try std.testing.expectEqual(@as(usize, 1), free_like_sig.params.len);
+            try std.testing.expectEqual(inst.CapPrefix.by_value, free_like_sig.params[0].cap);
+            try std.testing.expectEqual(sig.PrimType.ptr, free_like_sig.params[0].ty);
+            try std.testing.expect(free_like_sig.return_fallible);
+        },
     }
 }
 
