@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Cow slice u64 hash_one macros
+
+- Continued Rust `std::hash` / `std::borrow::Cow` macro-surface parity, referencing Rust's local `Hash for Cow<'_, B>` implementation under `/home/vscode/projects/rust`.
+- `sa_std/borrow.sa`: added `DEFAULT_HASHER_WRITE_COW_SLICE_U64`, `COW_SLICE_HASH_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_COW_SLICE_U64`, and `RANDOM_STATE_HASH_ONE_COW_SLICE_U64`.
+- The helper surface models Rust's Cow forwarding by hashing concrete `CowSlice<u64>` contents through the existing `u64` slice hash path. It hashes the viewed contents rather than the Cow tag or pointer address, and does not claim generic `Cow<'a, B>`, `ToOwned`, clone-on-write allocation, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_cow_slice_hash_one_macro_surface.sa` - 1 test (panic ID 10584) covering writer/direct equivalence with `SLICE_HASH_U64`, borrowed-vs-owned equal contents, length/value sensitivity, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and borrowed value sensitivity after pointee mutation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_cow_slice_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10585+.
+
 ## Completed: 2026-07-15 Vec u64 hash_one macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for Vec<T, A>` implementation under `/home/vscode/projects/rust`.

@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Cow slice u64 hash_one)
+
+Completed supportable clone-on-write slice hash macros:
+- `DEFAULT_HASHER_WRITE_COW_SLICE_U64`: concrete Rust `Hash for Cow<'_, B>` forwarding shape for SA `CowSlice<u64>`, by viewing the Cow as a slice and writing it through the existing `u64` slice hash path.
+- `COW_SLICE_HASH_U64`: direct one-shot helper for the same concrete subset.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_COW_SLICE_U64` and `RANDOM_STATE_HASH_ONE_COW_SLICE_U64`: concrete `BuildHasher::hash_one` lowerings for `CowSlice<u64>` values.
+- This follows Rust's `Cow` `Hash` implementation by hashing `&**self`, without exposing generic `Cow<'a, B>`, clone-on-write allocation, `ToOwned`, lifetime semantics, or SipHash compatibility.
+- Test file `std_cow_slice_hash_one_macro_surface.sa` (panic ID 10584).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_cow_slice_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10585+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `Cow<'a, B>` / `ToOwned` trait wiring, clone-on-write allocation/cloning, Rust lifetime/borrow integration, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Vec u64 hash_one)
 
 Completed supportable owned vector hash macros:
