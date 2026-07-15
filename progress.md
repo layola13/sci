@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 BTree str hash_one macros
+
+- Continued Rust `std::hash` / `std::collections::{BTreeMap,BTreeSet}` macro-surface parity, referencing Rust's local `Hash for BTreeMap<K, V, A>` and `Hash for BTreeSet<T, A>` implementations under `/home/vscode/projects/rust`.
+- `sa_std/btree_map.sa`: added `DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64`, `BTREE_MAP_HASH_STR_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64`, and `RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64`.
+- `sa_std/btree_set.sa`: added `DEFAULT_HASHER_WRITE_BTREE_SET_STR`, `BTREE_SET_HASH_STR`, `BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_SET_STR`, and `RANDOM_STATE_HASH_ONE_BTREE_SET_STR`.
+- The helper surface models Rust's length-prefixed ordered BTree hashing over concrete SA `BTreeMap<str, u64>` and `BTreeSet<str>` storage. Map hashing writes sorted key/value entries; set hashing writes sorted keys and treats the backing set value as zero-sized/no-op. It does not claim generic `BTreeMap<K, V>`, generic `BTreeSet<T>`, allocator/node internals, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_btree_hash_one_macro_surface.sa` - 1 test (panic ID 10586) covering writer/direct equivalence, insertion-order independence through sorted storage, length/key/value sensitivity, map mutation sensitivity, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and map-vs-set distinction.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10587+.
+
 ## Completed: 2026-07-15 VecDeque u64 hash_one macros
 
 - Continued Rust `std::hash` / `std::collections::VecDeque` macro-surface parity, referencing Rust's local `Hash for VecDeque<T, A>` implementation under `/home/vscode/projects/rust`.

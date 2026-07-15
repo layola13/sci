@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 BTree str hash_one)
+
+Completed supportable ordered BTree hash macros:
+- `DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64` / `BTREE_MAP_HASH_STR_U64`: concrete Rust `Hash for BTreeMap<K, V>` shape for SA `BTreeMap<str, u64>`, by writing the map length prefix and then hashing sorted key/value entries in iteration order.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64` and `RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64`: concrete `BuildHasher::hash_one` lowerings for the same map subset.
+- `DEFAULT_HASHER_WRITE_BTREE_SET_STR` / `BTREE_SET_HASH_STR`: concrete Rust `Hash for BTreeSet<T>` shape for SA `BTreeSet<str>`, by writing the set length prefix and sorted keys in iteration order.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_SET_STR` and `RANDOM_STATE_HASH_ONE_BTREE_SET_STR`: concrete `BuildHasher::hash_one` lowerings for the same set subset.
+- This follows Rust's `BTreeMap` `Hash` implementation by hashing length then ordered iterator entries, and Rust's `BTreeSet` implementation by delegating to its backing map with a zero-sized set value. It does not expose generic `BTreeMap<K, V>` / `BTreeSet<T>`, allocator/node internals, lazy iterators, generic `Ord`, or SipHash compatibility.
+- Test file `std_btree_hash_one_macro_surface.sa` (panic ID 10586).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10587+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `BTreeMap<K, V>` / `BTreeSet<T>` trait wiring, allocator/drop/borrow semantics, Rust iterator trait hierarchy, randomized `RandomState`, SipHash compatibility, generic `Ord`, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 VecDeque u64 hash_one)
 
 Completed supportable deque hash macros:

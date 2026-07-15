@@ -4,6 +4,7 @@
 @import "alloc/vec.sa"
 @import "num.sa"
 @import "btree_map.sal"
+@import "hash.sa"
 
 @btree_map_entry_cmp(&lhs: ptr, &rhs: ptr) -> i32:
 L_ENTRY:
@@ -205,6 +206,50 @@ L_FIND_DONE:
     !out_index
     !out_found
     !entries
+    return
+
+@btree_map_hash_entries_str_u64(&hasher: ptr, entries: ptr, len: u64, idx: u64) -> void:
+L_ENTRY:
+    done = eq idx, len
+    br done -> L_BTREE_MAP_HASH_DONE, L_BTREE_MAP_HASH_BODY
+
+L_BTREE_MAP_HASH_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    value = load entry+BTreeMapEntry_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_STR hasher, entry
+    EXPAND DEFAULT_HASHER_WRITE_U64 hasher, value
+    next_idx = add idx, 1
+    call @btree_map_hash_entries_str_u64(&hasher, entries, len, next_idx)
+    !next_idx
+    !value
+    !entry
+    !entry_off
+    !done
+    !idx
+    !len
+    !entries
+    !hasher
+    return
+
+L_BTREE_MAP_HASH_DONE:
+    !done
+    !idx
+    !len
+    !entries
+    !hasher
+    return
+
+@btree_map_write_hash_str_u64(&hasher: ptr, &map: ptr) -> void:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    entries = load map+BTreeMap_entries as ptr
+    EXPAND DEFAULT_HASHER_WRITE_LENGTH_PREFIX hasher, len
+    call @btree_map_hash_entries_str_u64(&hasher, entries, len, 0)
+    !entries
+    !len
+    !map
+    !hasher
     return
 
 @btree_map_grow(&map: ptr) -> void:
@@ -1398,6 +1443,31 @@ L_BTREE_RANGE_DONE:
 
 [MACRO] BTREE_MAP_CLEAR %map_reg
     call @sa_btree_map_clear(&%map_reg)
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 %hasher, %map_reg
+    call @btree_map_write_hash_str_u64(&%hasher, &%map_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_HASH_STR_U64 %out_hash, %map_reg
+    __btree_map_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __btree_map_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 __btree_map_hash_hasher_%out_hash, %map_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __btree_map_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %builder, %map_reg
+    __build_hash_one_btree_map_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_btree_map_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 __build_hash_one_btree_map_hasher_%out_hash, %map_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_btree_map_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %state, %map_reg
+    __random_state_hash_one_btree_map_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_btree_map_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 __random_state_hash_one_btree_map_hasher_%out_hash, %map_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_btree_map_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] BTREE_MAP_RETAIN %out_len, %map_reg, %pred_fn
