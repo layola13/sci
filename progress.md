@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero unsigned midpoint macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `midpoint` method for unsigned `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_MIDPOINT` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, and `NonZeroUsize`.
+- The helper surface writes the unsigned midpoint of two stored nonzero primitive values into a destination wrapper. It has no `ok` channel because the midpoint of two unsigned nonzero values cannot be zero. It does not claim signed NonZero coverage, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_midpoint_macro_surface.sa` - 1 test (panic ID 10613) expanding all 5 new macros and covering representative midpoint values across all five unsigned wrappers.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_midpoint_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10614+.
+
 ## Completed: 2026-07-15 NonZero unsigned ilog macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `ilog2` and `ilog10` methods for unsigned `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
