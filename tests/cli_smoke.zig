@@ -773,6 +773,63 @@ test "cli build project cache is default and can be disabled" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--mem-report") != null);
 }
 
+test "project cache manifest revalidates INCLUDE_STR dependencies" {
+    const source =
+        \\EXPAND INCLUDE_STR! "payload.txt"
+        \\@main() -> i32:
+        \\return 9
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "dynamic_include.sa", source);
+    try writeBytes(tmp.dir, "payload.txt", "first payload");
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+    const build_argv = [_][]const u8{ "sa", "build-exe", "dynamic_include.sa", "-o", "dynamic_include.out", "--json", "--profile", "--jobs", "1" };
+
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    var first_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer first_json.deinit();
+    const first_cache = try jsonObjectGetValue(try jsonObjectGet(&first_json, "metrics"), "cache");
+    try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+
+    stderr_buf.clearRetainingCapacity();
+    const warm_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), warm_code);
+    var warm_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer warm_json.deinit();
+    const warm_cache = try jsonObjectGetValue(try jsonObjectGet(&warm_json, "metrics"), "cache");
+    try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(warm_cache, "hit")));
+
+    try writeBytes(tmp.dir, "payload.txt", "second payload");
+    stderr_buf.clearRetainingCapacity();
+    const changed_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), changed_code);
+    var changed_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer changed_json.deinit();
+    const changed_cache = try jsonObjectGetValue(try jsonObjectGet(&changed_json, "metrics"), "cache");
+    try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(changed_cache, "hit")));
+
+    const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
+    defer std.testing.allocator.free(cache_key);
+    const manifest_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/build-exe/{s}/manifest.json", .{cache_key});
+    defer std.testing.allocator.free(manifest_path);
+    const manifest_bytes = try tmp.dir.readFileAlloc(std.testing.allocator, manifest_path, 64 * 1024);
+    defer std.testing.allocator.free(manifest_bytes);
+    try std.testing.expect(std.mem.indexOf(u8, manifest_bytes, "dynamic_dependencies") != null);
+    try std.testing.expect(std.mem.indexOf(u8, manifest_bytes, "payload.txt") != null);
+}
+
 test "cli cache clean removes invalid project cache entries" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

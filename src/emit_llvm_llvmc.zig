@@ -696,7 +696,7 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
         switch (decl.value) {
             .vtable => |literal| {
                 for (literal.slots) |slot| {
-                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name);
+                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name, null);
                 }
             },
             else => {},
@@ -742,7 +742,7 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
                     }) : (end += 1) {}
 
                     if (reachable.contains(fsig.name)) {
-                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable, null)) or changed;
+                        changed = (try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable, null, null)) or changed;
                     }
                     idx = end - 1;
                 },
@@ -752,8 +752,62 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
     }
 }
 
-fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), selected_test_names: []const []const u8, reachable: *std.StringHashMap(void)) !bool {
+const FocusedFunctionBodyRange = struct {
+    start: usize = 0,
+    end: usize = 0,
+    declared: bool = false,
+};
+
+fn isFunctionDeclaration(kind: inst.InstKind) bool {
+    return switch (kind) {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        else => false,
+    };
+}
+
+fn buildFocusedFunctionBodyRanges(allocator: std.mem.Allocator, verified: anytype, closure_complete: *bool) ![]FocusedFunctionBodyRange {
+    const ranges = try allocator.alloc(FocusedFunctionBodyRange, verified.function_sigs.len);
+    errdefer allocator.free(ranges);
+    @memset(ranges, .{});
+
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    while (idx < verified.annotated.len) {
+        if (!isFunctionDeclaration(verified.annotated[idx].base.kind)) {
+            idx += 1;
+            continue;
+        }
+        if (sig_index >= ranges.len) {
+            closure_complete.* = false;
+            break;
+        }
+        var end = idx + 1;
+        while (end < verified.annotated.len and !isFunctionDeclaration(verified.annotated[end].base.kind)) : (end += 1) {}
+        ranges[sig_index] = .{ .start = idx + 1, .end = end, .declared = true };
+        sig_index += 1;
+        idx = end;
+    }
+    if (sig_index != ranges.len) closure_complete.* = false;
+    return ranges;
+}
+
+fn collectSelectedTestReachability(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    sig_index_by_name: *const std.StringHashMap(usize),
+    selected_test_names: []const []const u8,
+    reachable: *std.StringHashMap(void),
+    body_scan_count: ?*usize,
+) !bool {
     var closure_complete = true;
+    const ranges = try buildFocusedFunctionBodyRanges(allocator, verified, &closure_complete);
+    defer allocator.free(ranges);
+    var work_queue = std.ArrayList(usize).init(allocator);
+    defer work_queue.deinit();
+    const processed = try allocator.alloc(bool, verified.function_sigs.len);
+    defer allocator.free(processed);
+    @memset(processed, false);
+
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
@@ -762,7 +816,7 @@ fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anyty
                         closure_complete = false;
                         continue;
                     }
-                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name);
+                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name, &work_queue);
                 }
             },
             else => {},
@@ -774,35 +828,30 @@ fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anyty
             closure_complete = false;
             continue;
         }
-        _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, name);
+        _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, name, &work_queue);
     }
 
-    while (true) {
-        const reachable_before = reachable.count();
-        var sig_index: usize = 0;
-        var idx: usize = 0;
-        while (idx < verified.annotated.len) : (idx += 1) {
-            const item = verified.annotated[idx].base;
-            switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                    const fsig = verified.function_sigs[sig_index];
-                    sig_index += 1;
-                    var end = idx + 1;
-                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                        else => true,
-                    }) : (end += 1) {}
-
-                    if (reachable.contains(fsig.name)) {
-                        _ = try collectBodyDirectCallees(allocator, verified, sig_index_by_name, idx + 1, end, reachable, &closure_complete);
-                    }
-                    idx = end - 1;
-                },
-                else => {},
-            }
+    var queue_index: usize = 0;
+    while (queue_index < work_queue.items.len) : (queue_index += 1) {
+        const sig_index = work_queue.items[queue_index];
+        if (sig_index >= ranges.len or processed[sig_index]) continue;
+        processed[sig_index] = true;
+        const range = ranges[sig_index];
+        if (!range.declared) {
+            closure_complete = false;
+            continue;
         }
-        if (reachable.count() == reachable_before) break;
+        if (body_scan_count) |count| count.* += 1;
+        _ = try collectBodyDirectCallees(
+            allocator,
+            verified,
+            sig_index_by_name,
+            range.start,
+            range.end,
+            reachable,
+            &closure_complete,
+            &work_queue,
+        );
     }
     return closure_complete;
 }
@@ -814,7 +863,7 @@ fn collectFocusedTestPruneReachability(
     selected_test_names: []const []const u8,
     reachable: *std.StringHashMap(void),
 ) !bool {
-    const closure_complete = try collectSelectedTestReachability(allocator, verified, sig_index_by_name, selected_test_names, reachable);
+    const closure_complete = try collectSelectedTestReachability(allocator, verified, sig_index_by_name, selected_test_names, reachable, null);
     return closure_complete and reachable.count() != 0;
 }
 
@@ -1440,7 +1489,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             switch (decl.value) {
                 .vtable => |literal| {
                     for (literal.slots) |slot| {
-                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name);
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name, null);
                     }
                 },
                 else => {},
@@ -1464,7 +1513,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1489,7 +1538,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                     }) : (end += 1) {}
 
                     if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1723,7 +1772,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             switch (decl.value) {
                 .vtable => |literal| {
                     for (literal.slots) |slot| {
-                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name);
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name, null);
                     }
                 },
                 else => {},
@@ -1746,7 +1795,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1771,7 +1820,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                     }) : (end += 1) {}
 
                     if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null);
+                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
                     }
                     task_idx += 1;
                     idx = end - 1;
@@ -1948,23 +1997,29 @@ const FocusedReachabilityTestResult = struct {
     prune_enabled: bool,
     selected_reachable: bool,
     helper_reachable: bool,
+    leaf_reachable: bool,
     unrelated_reachable: bool,
+    body_scan_count: usize,
 };
 
 fn runFocusedReachabilityTest(body: inst.Instruction) !FocusedReachabilityTestResult {
     const function_sigs = [_]sig.FunctionSig{
         .{ .id = 0, .name = "selected", .params = &.{}, .kind = .test_func, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
         .{ .id = 1, .name = "helper", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 3, .is_ffi_wrapper = false },
-        .{ .id = 2, .name = "unrelated", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 5, .is_ffi_wrapper = false },
+        .{ .id = 2, .name = "leaf", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 6, .is_ffi_wrapper = false },
+        .{ .id = 3, .name = "unrelated", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 8, .is_ffi_wrapper = false },
     };
     const annotated = [_]FocusedReachabilityTestAnnotated{
         .{ .base = inst.makeInstruction(.test_decl, 1, 0, null, "@test selected():") },
         .{ .base = body },
         .{ .base = inst.makeInstruction(.return_, 3, 2, null, "return") },
         .{ .base = inst.makeInstruction(.func_decl, 4, 3, null, "@helper():") },
-        .{ .base = inst.makeInstruction(.return_, 5, 4, null, "return") },
-        .{ .base = inst.makeInstruction(.func_decl, 6, 5, null, "@unrelated():") },
-        .{ .base = inst.makeInstruction(.return_, 7, 6, null, "return") },
+        .{ .base = inst.makeInstruction(.call, 5, 4, null, "call @leaf()") },
+        .{ .base = inst.makeInstruction(.return_, 6, 5, null, "return") },
+        .{ .base = inst.makeInstruction(.func_decl, 7, 6, null, "@leaf():") },
+        .{ .base = inst.makeInstruction(.return_, 8, 7, null, "return") },
+        .{ .base = inst.makeInstruction(.func_decl, 9, 8, null, "@unrelated():") },
+        .{ .base = inst.makeInstruction(.return_, 10, 9, null, "return") },
     };
     var symbol_names = [_][]const u8{"helper"};
     const verified = .{
@@ -1979,12 +2034,16 @@ fn runFocusedReachabilityTest(body: inst.Instruction) !FocusedReachabilityTestRe
     var reachable = std.StringHashMap(void).init(std.testing.allocator);
     defer reachable.deinit();
 
-    const prune_enabled = try collectFocusedTestPruneReachability(std.testing.allocator, verified, &function_sig_index, &.{"selected"}, &reachable);
+    var body_scan_count: usize = 0;
+    const closure_complete = try collectSelectedTestReachability(std.testing.allocator, verified, &function_sig_index, &.{"selected"}, &reachable, &body_scan_count);
+    const prune_enabled = closure_complete and reachable.count() != 0;
     return .{
         .prune_enabled = prune_enabled,
         .selected_reachable = reachable.contains("selected"),
         .helper_reachable = reachable.contains("helper"),
+        .leaf_reachable = reachable.contains("leaf"),
         .unrelated_reachable = reachable.contains("unrelated"),
+        .body_scan_count = body_scan_count,
     };
 }
 
@@ -2010,7 +2069,9 @@ test "focused test prune keeps a complete direct-call closure" {
     try std.testing.expect(result.prune_enabled);
     try std.testing.expect(result.selected_reachable);
     try std.testing.expect(result.helper_reachable);
+    try std.testing.expect(result.leaf_reachable);
     try std.testing.expect(!result.unrelated_reachable);
+    try std.testing.expectEqual(@as(usize, 3), result.body_scan_count);
 }
 
 test "focused test prune falls back for indirect invalid and unknown calls" {

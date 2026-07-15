@@ -1,0 +1,72 @@
+@import "sa_std/term.sal"
+
+@test "sa_std terminal constants match the runtime ABI"():
+L_ENTRY:
+    ok_status = eq SA_TERM_OK, 0
+    ok_invalid_argument = eq SA_TERM_ERR_INVALID_ARGUMENT, 1
+    ok_invalid_handle = eq SA_TERM_ERR_INVALID_HANDLE, 2
+    ok_no_memory = eq SA_TERM_ERR_NO_MEMORY, 5
+    ok_io = eq SA_TERM_ERR_IO, 6
+    ok_unsupported = eq SA_TERM_ERR_UNSUPPORTED, 8
+    ok_unknown = eq SA_TERM_ERR_UNKNOWN, 127
+
+    ok_ctl_add = eq SA_TERM_EPOLL_CTL_ADD, 1
+    ok_ctl_del = eq SA_TERM_EPOLL_CTL_DEL, 2
+    ok_ctl_mod = eq SA_TERM_EPOLL_CTL_MOD, 3
+    ok_cloexec = eq SA_TERM_EPOLL_CLOEXEC, 524288
+    ok_in = eq SA_TERM_EPOLLIN, 1
+    ok_pri = eq SA_TERM_EPOLLPRI, 2
+    ok_out = eq SA_TERM_EPOLLOUT, 4
+    ok_err = eq SA_TERM_EPOLLERR, 8
+    ok_hup = eq SA_TERM_EPOLLHUP, 16
+    ok_rdhup = eq SA_TERM_EPOLLRDHUP, 8192
+    ok_exclusive = eq SA_TERM_EPOLLEXCLUSIVE, 268435456
+    ok_wakeup = eq SA_TERM_EPOLLWAKEUP, 536870912
+    ok_oneshot = eq SA_TERM_EPOLLONESHOT, 1073741824
+    ok_edge = eq SA_TERM_EPOLLET, 2147483648
+
+    ok_winsize_size = eq SaTermWinsize_SIZE, 8
+    ok_winsize_row = eq SaTermWinsize_row, +0
+    ok_winsize_col = eq SaTermWinsize_col, +2
+    ok_winsize_xpixel = eq SaTermWinsize_xpixel, +4
+    ok_winsize_ypixel = eq SaTermWinsize_ypixel, +6
+    ok_event_size = eq SaTermEpollEvent_SIZE, 16
+    ok_event_events = eq SaTermEpollEvent_events, +0
+    ok_event_data = eq SaTermEpollEvent_data, +8
+
+    c01 = and ok_status, ok_invalid_argument
+    c02 = and c01, ok_invalid_handle
+    c03 = and c02, ok_no_memory
+    c04 = and c03, ok_io
+    c05 = and c04, ok_unsupported
+    c06 = and c05, ok_unknown
+    c07 = and c06, ok_ctl_add
+    c08 = and c07, ok_ctl_del
+    c09 = and c08, ok_ctl_mod
+    c10 = and c09, ok_cloexec
+    c11 = and c10, ok_in
+    c12 = and c11, ok_pri
+    c13 = and c12, ok_out
+    c14 = and c13, ok_err
+    c15 = and c14, ok_hup
+    c16 = and c15, ok_rdhup
+    c17 = and c16, ok_exclusive
+    c18 = and c17, ok_wakeup
+    c19 = and c18, ok_oneshot
+    c20 = and c19, ok_edge
+    c21 = and c20, ok_winsize_size
+    c22 = and c21, ok_winsize_row
+    c23 = and c22, ok_winsize_col
+    c24 = and c23, ok_winsize_xpixel
+    c25 = and c24, ok_winsize_ypixel
+    c26 = and c25, ok_event_size
+    c27 = and c26, ok_event_events
+    ok = and c27, ok_event_data
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    panic(10528)
+
+L_PASS:
+    return 0

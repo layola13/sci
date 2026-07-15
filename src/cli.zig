@@ -4677,10 +4677,12 @@ fn collectSabSelectedReachability(
     while (queue_index < queue.items.len) : (queue_index += 1) {
         const sig_index = queue.items[queue_index];
         const range_index = if (sig_index < range_index_by_sig.len) range_index_by_sig[sig_index] else null;
-        const range = ranges[range_index orelse {
-            closure_complete.* = false;
-            continue;
-        }];
+        const range = ranges[
+            range_index orelse {
+                closure_complete.* = false;
+                continue;
+            }
+        ];
 
         for (flat.instructions[range.start..range.end]) |item| {
             if (item.kind != .call and item.kind != .call_indirect) continue;
@@ -5695,18 +5697,6 @@ fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32
     hasher.update(&digest);
 }
 
-fn sourceMayReadDynamicCompileInput(source: []const u8) bool {
-    // Until manifest v2 carries a request-local depfile, entries whose
-    // expansion can read environment or include files must not enter the
-    // project artifact cache. False positives only reduce reuse; false
-    // negatives could publish a stale executable.
-    return std.mem.indexOf(u8, source, "ENV!") != null or
-        std.mem.indexOf(u8, source, "OPTION_ENV!") != null or
-        std.mem.indexOf(u8, source, "INCLUDE!") != null or
-        std.mem.indexOf(u8, source, "INCLUDE_STR!") != null or
-        std.mem.indexOf(u8, source, "INCLUDE_BYTES!") != null;
-}
-
 fn hashResolvedSourceTreeUncached(
     allocator: std.mem.Allocator,
     hasher: *std.crypto.hash.sha2.Sha256,
@@ -5743,7 +5733,6 @@ fn hashResolvedSourceTreeUncached(
     defer if (owned_source) |source| allocator.free(source);
     const source = resolved_source orelse owned_source.?;
     cacheBytes(hasher, source);
-    if (sourceMayReadDynamicCompileInput(source)) project_cacheable.* = false;
 
     var iter = std.mem.splitScalar(u8, source, '\n');
     while (iter.next()) |line| {
@@ -5819,13 +5808,14 @@ fn computeProjectBuildKey(
     dce: DceMode,
     jobs: ?usize,
     jobs_explicit: bool,
+    semantic_file_inputs: []const []const u8,
 ) !?ProjectCacheKey {
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
 
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var project_cacheable = true;
-    cacheBytes(&hasher, "sa-build-cache-v2");
+    cacheBytes(&hasher, "sa-build-cache-v3");
     cacheBytes(&hasher, cacheCompilerVersion());
     cacheBytes(&hasher, builtin.zig_version_string);
     cacheBytes(&hasher, @tagName(builtin.target.cpu.arch));
@@ -5847,6 +5837,16 @@ fn computeProjectBuildKey(
         cacheBytes(&hasher, target.triple);
         cacheBool(&hasher, target.no_entry);
         cacheU64(&hasher, target.size_bits);
+    }
+    for (semantic_file_inputs) |path| {
+        const canonical_path = try std.fs.cwd().realpathAlloc(allocator, path);
+        defer allocator.free(canonical_path);
+        const stat = try std.fs.cwd().statFile(canonical_path);
+        if (stat.kind != .file) return error.InvalidCacheInput;
+        const digest_hex = try hashFileHex(allocator, canonical_path);
+        cacheBytes(&hasher, canonical_path);
+        cacheU64(&hasher, stat.size);
+        cacheBytes(&hasher, digest_hex[0..]);
     }
 
     const project_manifest = project_context.manifest;
@@ -5956,11 +5956,53 @@ fn jsonIntEquals(value: std.json.Value, expected: u64) bool {
     };
 }
 
-fn jsonArrayIsEmpty(value: std.json.Value) bool {
+fn jsonString(value: std.json.Value) ![]const u8 {
     return switch (value) {
-        .array => |items| items.items.len == 0,
-        else => false,
+        .string => |text| text,
+        else => error.InvalidCacheManifest,
     };
+}
+
+fn projectCacheDynamicDependenciesValid(allocator: std.mem.Allocator, value: std.json.Value) !bool {
+    const dependencies = switch (value) {
+        .array => |items| items.items,
+        else => return error.InvalidCacheManifest,
+    };
+    if (dependencies.len > 4096) return false;
+
+    for (dependencies) |dependency| {
+        const kind = try jsonString(try jsonGetObject(dependency, "kind"));
+        if (std.mem.eql(u8, kind, "environment")) {
+            const key = try jsonString(try jsonGetObject(dependency, "key"));
+            if (key.len == 0 or key.len > 4096) return false;
+            const expected_present = try jsonBool(try jsonGetObject(dependency, "present"));
+            const current_value: ?[]u8 = std.process.getEnvVarOwned(allocator, key) catch |err| switch (err) {
+                error.EnvironmentVariableNotFound => null,
+                else => return err,
+            };
+            defer if (current_value) |bytes| allocator.free(bytes);
+            if (expected_present != (current_value != null)) return false;
+            if (current_value) |bytes| {
+                var digest: [32]u8 = undefined;
+                std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+                const digest_hex = std.fmt.bytesToHex(digest, .lower);
+                if (!jsonStringEquals(try jsonGetObject(dependency, "sha256"), digest_hex[0..])) return false;
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, kind, "file")) {
+            const path = try jsonString(try jsonGetObject(dependency, "path"));
+            if (path.len == 0 or path.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path)) return false;
+            const stat = std.fs.cwd().statFile(path) catch return false;
+            if (stat.kind != .file) return false;
+            if (!jsonIntEquals(try jsonGetObject(dependency, "size"), stat.size)) return false;
+            const digest_hex = try hashFileHex(allocator, path);
+            if (!jsonStringEquals(try jsonGetObject(dependency, "sha256"), digest_hex[0..])) return false;
+            continue;
+        }
+        return false;
+    }
+    return true;
 }
 
 fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) !bool {
@@ -5989,7 +6031,7 @@ fn projectCacheManifestValid(
     if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 2)) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key.slice())) return false;
-    if (!jsonArrayIsEmpty(jsonGetObject(parsed.value, "dynamic_dependencies") catch return false)) return false;
+    if (!(projectCacheDynamicDependenciesValid(allocator, jsonGetObject(parsed.value, "dynamic_dependencies") catch return false) catch return false)) return false;
     if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "artifact") catch return false, artifact_path) catch return false)) return false;
     if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "output") catch return false, out_path) catch return false)) return false;
     if (kind == .test_cache) {
@@ -6012,6 +6054,38 @@ fn writeCacheArtifactManifestEntry(writer: anytype, allocator: std.mem.Allocator
     try writer.writeByte('}');
 }
 
+fn writeProjectCacheDynamicDependencies(writer: anytype, dependencies: []const flattener.DynamicDependency) !void {
+    try writer.writeByte('[');
+    for (dependencies, 0..) |dependency, index| {
+        if (index != 0) try writer.writeByte(',');
+        switch (dependency.kind) {
+            .environment => {
+                try writer.writeAll("{\"kind\":\"environment\",\"key\":");
+                try writeJsonString(writer, dependency.key);
+                try writer.writeAll(",\"present\":");
+                try writer.writeAll(if (dependency.present) "true" else "false");
+                if (dependency.present) {
+                    const digest_hex = std.fmt.bytesToHex(dependency.sha256, .lower);
+                    try writer.writeAll(",\"sha256\":");
+                    try writeJsonString(writer, digest_hex[0..]);
+                }
+                try writer.writeByte('}');
+            },
+            .file => {
+                const digest_hex = std.fmt.bytesToHex(dependency.sha256, .lower);
+                try writer.writeAll("{\"kind\":\"file\",\"path\":");
+                try writeJsonString(writer, dependency.key);
+                try writer.writeAll(",\"size\":");
+                try writer.print("{d}", .{dependency.size});
+                try writer.writeAll(",\"sha256\":");
+                try writeJsonString(writer, digest_hex[0..]);
+                try writer.writeByte('}');
+            },
+        }
+    }
+    try writer.writeByte(']');
+}
+
 fn projectCacheWriteManifest(
     allocator: std.mem.Allocator,
     project_root: []const u8,
@@ -6019,6 +6093,7 @@ fn projectCacheWriteManifest(
     key: ProjectCacheKey,
     cached_artifact: []const u8,
     cached_output: []const u8,
+    dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
     const manifest_path = try projectCacheManifestPath(allocator, project_root, kind, key);
     defer allocator.free(manifest_path);
@@ -6031,10 +6106,8 @@ fn projectCacheWriteManifest(
     try writeJsonString(writer, kind.dirName());
     try writer.writeAll(",\"key\":");
     try writeJsonString(writer, key.slice());
-    // Dynamic-input trees are currently rejected before a key is returned.
-    // Keeping an explicit empty depfile makes that containment auditable and
-    // guarantees old v1 entries miss after upgrade.
-    try writer.writeAll(",\"dynamic_dependencies\":[]");
+    try writer.writeAll(",\"dynamic_dependencies\":");
+    try writeProjectCacheDynamicDependencies(writer, dynamic_dependencies);
     try writer.writeByte(',');
     try writeCacheArtifactManifestEntry(writer, allocator, "artifact", cached_artifact);
     try writer.writeByte(',');
@@ -6132,6 +6205,7 @@ fn projectCacheStore(
     key: ProjectCacheKey,
     artifact_path: []const u8,
     out_path: []const u8,
+    dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
     const cached_artifact = try projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc");
     defer allocator.free(cached_artifact);
@@ -6139,7 +6213,7 @@ fn projectCacheStore(
     defer allocator.free(cached_output);
     try copyFileAlloc(allocator, artifact_path, cached_artifact);
     try copyFileAlloc(allocator, out_path, cached_output);
-    try projectCacheWriteManifest(allocator, project_root, kind, key, cached_artifact, cached_output);
+    try projectCacheWriteManifest(allocator, project_root, kind, key, cached_artifact, cached_output, dynamic_dependencies);
 }
 
 fn projectCacheTestMetadataPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
@@ -6197,6 +6271,7 @@ fn projectCacheStoreTest(
     artifact_path: []const u8,
     out_path: []const u8,
     test_list: test_meta.TestList,
+    dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
     const cached_artifact = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "artifact.sa.bc");
     defer allocator.free(cached_artifact);
@@ -6205,7 +6280,7 @@ fn projectCacheStoreTest(
     try copyFileAlloc(allocator, artifact_path, cached_artifact);
     try copyFileAlloc(allocator, out_path, cached_output);
     try projectCacheWriteTestMetadata(allocator, project_root, key, test_list);
-    try projectCacheWriteManifest(allocator, project_root, .test_cache, key, cached_artifact, cached_output);
+    try projectCacheWriteManifest(allocator, project_root, .test_cache, key, cached_artifact, cached_output, dynamic_dependencies);
 }
 
 fn jsonBool(value: std.json.Value) !bool {
@@ -6341,7 +6416,7 @@ fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir
     if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 2)) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
     if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key_name)) return false;
-    if (!jsonArrayIsEmpty(jsonGetObject(parsed.value, "dynamic_dependencies") catch return false)) return false;
+    if (!(projectCacheDynamicDependenciesValid(std.heap.page_allocator, jsonGetObject(parsed.value, "dynamic_dependencies") catch return false) catch return false)) return false;
     if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "artifact") catch return false, "artifact.sa.bc") catch return false)) return false;
     if (!(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "output") catch return false, "output.bin") catch return false)) return false;
     if (kind == .test_cache and !(cacheEntryArtifactMatchesManifest(entry_dir, jsonGetObject(parsed.value, "test_metadata") catch return false, "test-metadata.json") catch return false)) return false;
@@ -6983,8 +7058,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     defer if (project_root_owned) allocator.free(project_root);
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
+    const std_archive_path = try saStdArchivePath(allocator);
+    defer allocator.free(std_archive_path);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7016,8 +7093,6 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer owned.deinit(allocator);
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            const std_archive_path = try saStdArchivePath(allocator);
-            defer allocator.free(std_archive_path);
 
             const worker_count = blk: {
                 if (compile_options.jobs) |j| {
@@ -7192,7 +7267,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 recordMetricMemoryEnd(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, out_path);
+                if (cache_key) |key| {
+                    if (owned.flat.dynamic_dependencies_cacheable) {
+                        try projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, out_path, owned.flat.dynamic_dependencies);
+                    }
+                }
             }
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
@@ -7211,7 +7290,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7246,7 +7325,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
-                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)) orelse unreachable;
+                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})) orelse unreachable;
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
             } else {
@@ -7258,7 +7337,11 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
             finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_obj, key, artifact_path, out_path);
+            if (cache_key) |key| {
+                if (owned.flat.dynamic_dependencies_cacheable) {
+                    try projectCacheStore(allocator, project_root, .build_obj, key, artifact_path, out_path, owned.flat.dynamic_dependencies);
+                }
+            }
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false };
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
@@ -7274,7 +7357,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7324,7 +7407,11 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
             finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_wasm, key, artifact_path, out_path);
+            if (cache_key) |key| {
+                if (owned.flat.dynamic_dependencies_cacheable) {
+                    try projectCacheStore(allocator, project_root, .build_wasm, key, artifact_path, out_path, owned.flat.dynamic_dependencies);
+                }
+            }
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
@@ -8082,7 +8169,7 @@ fn executeTestInner(
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
     else
         null;
 
@@ -8234,7 +8321,9 @@ fn executeTestInner(
             }
 
             if (cache_key) |key| {
-                if (!has_explicit_test_selection and link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*);
+                if (!has_explicit_test_selection and link_inputs.items.len == 0 and owned.flat.dynamic_dependencies_cacheable) {
+                    try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*, owned.flat.dynamic_dependencies);
+                }
             }
 
             if (test_options.compile_only) {
@@ -8864,7 +8953,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
 }
 
-test "project artifact cache is bypassed for unresolved dynamic compile inputs" {
+test "source tree with dynamic compile inputs remains keyable for manifest depfile validation" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -8893,14 +8982,146 @@ test "project artifact cache is bypassed for unresolved dynamic compile inputs" 
 
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
     const first_cacheable = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "main.sa");
-    try std.testing.expect(!first_cacheable);
+    try std.testing.expect(first_cacheable);
 
-    // Eligibility is part of the in-process source-tree cache entry too; a
-    // warm probe must not accidentally turn an unsafe tree back into a hit.
+    // Dynamic values are deliberately excluded from this preliminary key.
+    // The request-local recorder and manifest prevalidation own that part of
+    // the cache contract, including warm source-tree-cache lookups.
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
     const second_cacheable = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "main.sa");
-    try std.testing.expect(!second_cacheable);
-    try std.testing.expect(sourceMayReadDynamicCompileInput("EXPAND INCLUDE_BYTES! \"payload.bin\""));
+    try std.testing.expect(second_cacheable);
+}
+
+test "project build key tracks runtime archive content" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "libsa_std.a", .data = "runtime-v1" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const archive_path = try tmp.dir.realpathAlloc(std.testing.allocator, "libsa_std.a");
+    defer std.testing.allocator.free(archive_path);
+    const missing_manifest = try std.fs.path.join(std.testing.allocator, &.{ project_root, "missing.sa.mod" });
+    defer std.testing.allocator.free(missing_manifest);
+
+    const project_context = ProjectContext{
+        .root_path = project_root,
+        .member_root_path = project_root,
+        .workspace_manifest_path = missing_manifest,
+        .member_manifest_path = missing_manifest,
+        .manifest = null,
+        .workspace_manifest = null,
+        .member_manifest = null,
+        .lock_file = null,
+        .sum_file = null,
+    };
+    const first = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+
+    // Keep the size stable so the regression proves that archive contents,
+    // rather than path/metadata alone, participate in the artifact key.
+    try tmp.dir.writeFile(.{ .sub_path = "libsa_std.a", .data = "runtime-v2" });
+    const second = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+
+    try std.testing.expect(!std.mem.eql(u8, first.slice(), second.slice()));
+}
+
+test "project cache dynamic dependency validation detects file and environment changes" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "payload.txt", .data = "first" });
+    const payload_path = try tmp.dir.realpathAlloc(std.testing.allocator, "payload.txt");
+    defer std.testing.allocator.free(payload_path);
+    const payload_hash = try hashFileHex(std.testing.allocator, payload_path);
+    var file_json = std.ArrayList(u8).init(std.testing.allocator);
+    defer file_json.deinit();
+    try file_json.writer().writeAll("[{\"kind\":\"file\",\"path\":");
+    try writeJsonString(file_json.writer(), payload_path);
+    try file_json.writer().writeAll(",\"size\":5,\"sha256\":");
+    try writeJsonString(file_json.writer(), payload_hash[0..]);
+    try file_json.writer().writeAll("}]");
+    var parsed_file = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, file_json.items, .{});
+    defer parsed_file.deinit();
+    try std.testing.expect(try projectCacheDynamicDependenciesValid(std.testing.allocator, parsed_file.value));
+    try tmp.dir.writeFile(.{ .sub_path = "payload.txt", .data = "changed" });
+    try std.testing.expect(!try projectCacheDynamicDependenciesValid(std.testing.allocator, parsed_file.value));
+
+    const path_value = std.process.getEnvVarOwned(std.testing.allocator, "PATH") catch return error.SkipZigTest;
+    defer std.testing.allocator.free(path_value);
+    var path_digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(path_value, &path_digest, .{});
+    const path_digest_hex = std.fmt.bytesToHex(path_digest, .lower);
+    const env_json = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "[{{\"kind\":\"environment\",\"key\":\"PATH\",\"present\":true,\"sha256\":\"{s}\"}}]",
+        .{path_digest_hex[0..]},
+    );
+    defer std.testing.allocator.free(env_json);
+    var parsed_env = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, env_json, .{});
+    defer parsed_env.deinit();
+    try std.testing.expect(try projectCacheDynamicDependenciesValid(std.testing.allocator, parsed_env.value));
+
+    var parsed_wrong_presence = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        "[{\"kind\":\"environment\",\"key\":\"PATH\",\"present\":false}]",
+        .{},
+    );
+    defer parsed_wrong_presence.deinit();
+    try std.testing.expect(!try projectCacheDynamicDependenciesValid(std.testing.allocator, parsed_wrong_presence.value));
+
+    var parsed_absent = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        "[{\"kind\":\"environment\",\"key\":\"SA_CACHE_DEPFILE_EXPECTED_ABSENT_7F3A\",\"present\":false}]",
+        .{},
+    );
+    defer parsed_absent.deinit();
+    try std.testing.expect(try projectCacheDynamicDependenciesValid(std.testing.allocator, parsed_absent.value));
 }
 
 test "source tree hash missing import returns PackageNotResolved without ownership errors" {

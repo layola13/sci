@@ -7720,9 +7720,9 @@ pub export fn sa_term_epoll_ctl(epoll_handle: u64, op: u32, target_handle: u64, 
 }
 
 pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollEvent, max_events: u64, timeout_ms: i32, out_count: ?*u64) i32 {
-    const events_ptr = out_events orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     count_ptr.* = 0;
+    const events_ptr = out_events orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
     const event_count = lenAsUsize(max_events) catch |err| return finishErr(err);
     if (event_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -7743,6 +7743,15 @@ pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollE
     }
     count_ptr.* = @as(u64, @intCast(ready));
     return finish(SA_STD_OK);
+}
+
+test "terminal epoll wait clears count before rejecting events output" {
+    var count: u64 = 123;
+    try std.testing.expectEqual(
+        SA_STD_ERR_INVALID_ARGUMENT,
+        sa_term_epoll_wait(0, null, 1, 0, &count),
+    );
+    try std.testing.expectEqual(@as(u64, 0), count);
 }
 
 pub export fn sa_term_epoll_close(handle: u64) i32 {

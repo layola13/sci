@@ -1,5 +1,60 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Active compiler-performance implementation (2026-07-15)
+
+Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of scope. Status below describes the current code, not the eventual roadmap; an unchecked item is not complete even when a containment subset has landed.
+
+### Completed containment and correctness work
+
+- [x] **Phase -1 verification containment**: remove instruction-only verdict/trusted-shell fast returns from compile/check/emit consumers; selected SAB paths execute the full Referee before codegen.
+- [x] **Phase -1 artifact authorization boundary**: cache hits for `build-exe`, `build-obj`, `build-wasm`, and `test` rerun the current request's package/permission preflight before publishing or executing an artifact.
+- [x] **Phase -1 affected-test containment**: remove whole-source/empty-impact success shortcuts; use project/config namespaces and commit last-good snapshots only after a real successful test run. Deletion, global context changes, unknown/indirect/address-taken edges conservatively fall back to the original selection.
+- [x] **Phase -1 daemon containment**: serialize cwd-sensitive requests, enforce the configured worker count as a hard active-request limit, reject overload as busy, and remove inline N+1 execution.
+- [x] **Phase -1 focused-prune containment**: unresolved indirect calls, invalid call syntax, unknown direct callees, unresolved function references, and unsafe address-taken cases disable focused pruning. SAB selected reachability uses a function work queue; LLVM focused paths share conservative closure checks.
+- [x] **Phase -1 backend diagnostics cleanup**: remove unconditional JSON lowering prints and injected `dprintf` debug IR.
+- [x] **P0 containment subset**: artifact manifest schema v2 rejects v1, records artifact/test-metadata size and SHA-256, and publishes the manifest through a synced temporary file plus rename. This is not completion of P0.3's full key/depfile contract.
+- [x] **Flattener include correctness prerequisite**: resolve `INCLUDE_STR!`/`INCLUDE_BYTES!` relative to the actual source file and preserve resolver context through recursive `INCLUDE!`.
+
+### In progress or partial
+
+- [ ] **[FOCUSED VERIFIED] P0.3 dynamic dependency depfile**: request-local recording now covers `ENV!`, `OPTION_ENV!`, `INCLUDE!`, `INCLUDE_STR!`, and `INCLUDE_BYTES!`; manifest v2 persists and prevalidates presence/value or canonical path/size/SHA-256 before a hit, and incomplete/changing captures remain non-cacheable. Focused gates pass: INCLUDE `2/2`, absent `OPTION_ENV!` `1/1`, dependency validator `1/1`, and INCLUDE_STR miss→hit→content-flip miss `1/1`. Absent→present and the combined Debug build remain before full P0.3 completion.
+- [ ] **[FOCUSED VERIFIED] P0.5 LLVM focused reachability queue**: focused pruning now indexes function body ranges once and processes each reachable body at most once while preserving unknown/invalid/indirect/address-taken fallback, including signature/body mismatch fallback. The direct-closure and conservative fallback focused tests pass `3/3`; shared ReachabilityEngine/differential coverage remains.
+- [ ] **[PARTIAL] P1.2 Referee state delta**: `VerifierBufferPool` reuses `state_before` and `RegStateChange` scratch, and `buildStateDelta` emits ordered changes in one scan. Focused/all Referee tests passed; the 128-register fixture reduced verification allocations `434 -> 307` and requested bytes `175,722 -> 143,978`. This is not the planned `StateWriter` mutation journal: it still copies the full state once per executable instruction.
+- [ ] **[PARTIAL] P0.3 artifact key v3**: compiler/Zig and host target identity plus jobs partitioning are present; native `build-exe` and `test` keys now include canonical runtime archive path, size, and SHA-256. A same-path/same-size archive content flip changes the key in the focused unit gate `1/1`. Linker/toolchain, ordered plugin/export/rpath/link-flag, backend/pass-epoch, and target-feature policy digests remain.
+- [ ] **[PARTIAL] P0.4 daemon isolation**: the Phase -1 serialization/hard-limit containment is present; request-local path handling, reliable framing/peer identity, and a bounded queued worker pool remain.
+- [ ] **[PARTIAL] P0.5 ReachabilityEngine**: conservative SAB/LLVM closure fixes and the SAB queue are present; one shared indexed graph/edge-provenance engine used by full, focused, CGU, and affected consumers is not.
+
+### Remaining P0/P1 gaps
+
+- [ ] **P0.1 metrics**: hierarchical inclusive/exclusive phase events, stable cache miss reasons, task/queue timing, allocation/RSS counters, and cache-layer population telemetry.
+- [ ] **P0.2 verify key v2**: canonical `VerificationInputDigest`, semantic namespace, consumer capability, field-flip tests, and complete owned snapshot restore. Verdict-only hits must remain outside codegen until this is complete.
+- [ ] **P0.3 cache contract**: finish and verify the dynamic depfile, complete native/link inputs in the key, harden whole-entry atomic publication/single-flight/cleanup, and finish corruption/relative-path/nested-include/absent-to-present environment tests.
+- [ ] **P0.4 daemon final architecture**: eliminate process-cwd dependence rather than only serializing it; add peer-credential identity and bounded queue behavior.
+- [ ] **P0.5 shared reachability**: complete the indexed work-queue engine and direct/indirect/vtable/function-reference differential coverage for every consumer.
+- [ ] **P0.6 cache explanation**: stable `status/why` or equivalent JSON with auditable miss/corruption reasons.
+- [ ] **P0.7 formal baseline**: provenance-complete corpus, disabled/cold-populate/hit buckets, `jobs=1/auto`, P50/P95/RSS samples, and a new complete 22-step run.
+- [ ] **P0.8 backend profile**: hybrid/manual/builder/O0/direct-object/CGU measurements with pass/spawn/link timing and code-quality equivalence before changing the default backend path.
+- [ ] **P1.1 SAB lightweight index**: select before instruction materialization, decode reachable bodies on demand, validate offsets/checksums, and fall back to full decode for old/invalid formats.
+- [ ] **P1.2 Referee journal completion**: route all recording state writes through `StateWriter`, use dirty epoch/list without a full per-instruction snapshot, dual-check old/new deltas, and preserve non-recording seed/reset/label-restore semantics.
+- [ ] **P1.3 Referee region merge**: worker-owned result regions, one ordered top-level merge, no per-delta deep copy, and proven OOM/Trap/cancel cleanup ownership.
+- [ ] **P1.4 task granularity**: weighted batching, serial thresholds, physical-core awareness, and gates proving `jobs=auto` does not regress a one-physical-core host.
+
+## Active multi-platform portability (2026-07-15)
+
+- [x] Lock the public `sa_std` ABI with source-symbol and built-artifact checks (`129d520`).
+- [x] Implement the Windows TCP/UDP/DNS runtime foundation without narrowing `SOCKET` to a POSIX fd (`c71a744`).
+- [x] Fix the public `SaIoBuffer` ownership/layout contract (`c6bbc91`).
+- [x] Implement Windows environment/path-list support with strict UTF-8/WTF-16 boundaries (`79f8c29`).
+- [x] Add Windows generic thread support and shared thread ABI gates (`544714d`).
+- [x] Harden POSIX pthread ownership, concurrent join/drop claims, detached creation, and failed-output contracts (`38a78df`).
+- [ ] Complete the Windows Console batch: terminal detection, input raw-mode save/restore, visible window size, redirected handle behavior, and explicit epoll `UNSUPPORTED` outputs.
+- [ ] Run the Console batch gates: Linux regression, Windows x86_64/aarch64 type checks, x86_64 PE test link, DLL export/ABI checks, and focused review; then commit the verified batch.
+- [ ] Add native Windows x86_64 CI for compiler/runtime build-and-run smoke. Cross-compilation on Linux is not evidence of Windows L2 support.
+- [ ] Add native macOS x86_64/arm64 CI and close remaining Darwin runtime/link gaps. Cross-compilation on Linux is not evidence of macOS L2 support.
+- [ ] Complete plugin/installer/archive/release smoke for `.dll`, `.dylib`, PowerShell installation, target-specific artifact selection, and clean-machine use.
+
+Verification boundary: the active host is Linux. Linux tests are executable evidence; Windows/macOS results are recorded only as cross type-check, object/link, and ABI evidence until native runners execute them.
+
 ## Active test logging diagnostics (2026-07-09)
 
 - [x] Add a dedicated logged full-test dependency runner: `tools/test_steps_timed.sh`.

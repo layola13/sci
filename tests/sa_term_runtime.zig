@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
@@ -24,6 +25,8 @@ fn expectSuccess(result: std.process.Child.RunResult) !void {
 }
 
 test "sa_term raw mode and winsize are usable from C" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -156,6 +159,8 @@ test "sa_term raw mode and winsize are usable from C" {
 }
 
 test "sa_term epoll and process streaming are usable from C" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });

@@ -2,6 +2,44 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## In progress: 2026-07-15 compiler performance implementation
+
+- Reference: `docs/compiler_performance_optimization_cn.md`; GPU acceleration has been dropped from scope.
+- **Completed — Phase -1/P0 containment boundary:** compile/check/emit no longer consume instruction-only verdict hits or empty-delta trusted SAB shells; artifact hits rerun current-request authorization preflight; affected-test baselines are project/config scoped and commit only after real success; cwd-sensitive daemon requests are serialized with a hard active-worker limit and busy rejection; unsafe focused-prune edges fall back; unconditional backend debug output/IR was removed.
+- **Completed — supporting correctness work:** focused SAB reachability now processes each reachable function body through a queue; include-string/bytes paths use the real source path and recursive includes retain resolver context; manifest v2 rejects v1, validates artifact and test-metadata digests, and publishes its manifest atomically.
+- **Partial — Referee P1.2:** `src/verifier.zig` now reuses the per-function full-state snapshot and delta scratch and builds compact-slot-ordered deltas in one scan. This is an allocation reduction, not the final mutation journal, because each executable instruction still copies the complete state. Focused state-delta, serial/parallel, and all 63 Referee tests passed. On the 128-register allocation fixture, allocations changed `434 -> 307` (`-29.3%`) and requested bytes `175,722 -> 143,978` (`-18.1%`). A broader build was interrupted in an unrelated long-running Flattener macro PBT, so no repository-wide pass is claimed from that run.
+- **Focused verified — P0.3 dynamic dependencies:** `src/flattener.zig`/`src/cli.zig` now record environment presence/value digests and canonical included-file path/size/digests through recursive include, carry the request-local depfile in `FlattenResult`, serialize it in manifest v2, and prevalidate it before publishing a hit. This replaces the blanket source-text bypass while retaining a non-cacheable result if a dependency changes during capture. Focused results: INCLUDE `2/2`, absent `OPTION_ENV!` `1/1`, file/environment validator `1/1`, and INCLUDE_STR cache miss→hit→content-flip miss `1/1`.
+- **Focused verified — P0.5 LLVM reachability:** `src/emit_llvm_llvmc.zig` now builds function body ranges once and scans each queued reachable body at most once. Unknown/invalid/indirect/address-taken edges and signature/body count mismatch still disable pruning. Focused direct-closure and fallback tests pass `3/3`; the shared cross-consumer ReachabilityEngine remains incomplete.
+- **Partial — artifact key/cache contract:** the namespace is now v3 with compiler/Zig, host target, jobs, and semantic file inputs. Native `build-exe`/`test` keys include the canonical `sa_std` archive path, size, and SHA-256, while obj/wasm correctly have no runtime archive input. The isolated same-path/same-size content-flip key test passes `1/1`. Linker/toolchain, ordered plugin/export/rpath/link-flag, backend/pass, target-feature, corruption, and authorization coverage remain.
+- **Pending P0:** unified metrics (P0.1), complete verify key/snapshot contract (P0.2), final depfile/native-link key and cache concurrency contract (P0.3), request-local daemon paths/peer identity/bounded queue (P0.4), one shared reachability index (P0.5), explainable miss tooling (P0.6), provenance-complete baseline and 22-step rerun (P0.7), and backend A/B profiling (P0.8).
+- **Pending P1:** SAB lazy body index/decode (P1.1), complete `StateWriter` dirty-journal migration (remaining P1.2), worker-owned Referee result regions (P1.3), and weighted/physical-core-aware task granularity (P1.4).
+- Verification rule: only the tests named above are evidence. These three slices are focused-verified, not repository-wide verified; the current combined worktree still requires `/opt/zig/zig build -Doptimize=Debug -j1`, remaining absent→present/corruption/authorization regressions, formatting, and diff checks before a broader completion claim.
+
+## In progress: 2026-07-15 multi-platform runtime
+
+- Reference: `docs/macos_windows_portability_evaluation_cn.md`.
+- Completed portability commits on `multiplatform`:
+  - `129d520 test: validate sa_std artifact ABI`
+  - `c71a744 runtime: implement Windows network support`
+  - `c6bbc91 runtime: fix SaIoBuffer ownership ABI`
+  - `79f8c29 runtime: implement Windows environment support`
+  - `544714d step1` (Windows generic threads and shared ABI/build gates among the already-recorded branch changes)
+  - `38a78df runtime: harden pthread ownership`
+- Latest verified pthread batch evidence:
+  - Linux unit tests: `72/72` passed.
+  - Linux `sa-std-runtime`: `13/14`; detached pthread C integration passed. The only failure is the existing container IPv6 multicast membership limitation (`sa_std_net_udp_join_multicast_v6`, demo exit `23`).
+  - `sa-std-abi`: `9/9` passed.
+  - macOS x86_64/arm64 type checks, Mach-O test links, and dylib builds passed from Linux.
+  - Windows x86_64/arm64 type checks, x86_64 PE test link, and ABI/export checks passed from Linux.
+- Current implementation batch: Windows Console support in `src/runtime/sa_std_windows.zig`.
+  - Implement terminal detection for standard and dynamic file handles.
+  - Save/restore console input modes for raw sessions; preserve redirected file/pipe behavior.
+  - Report visible console window rows/columns through `GetConsoleScreenBufferInfo`.
+  - Keep epoll explicitly unsupported on Windows while validating pointers and clearing outputs.
+  - Add focused Windows-native tests for mode-bit mapping, visible-window math, invalid outputs, and redirected files.
+- Current verification boundary: the host is Linux. No Windows/macOS native run has been performed, so neither platform is claimed as L2-supported yet.
+- Commit discipline: each coherent portability batch is committed after its focused Linux/cross/ABI gates. Concurrent CLI/daemon/LLVM worktree edits are not staged into runtime commits.
+
 ## Completed: 2026-07-13 IO_ERROR_KIND + ERROR_CODE + ERROR_REF_IS_* expanded
 
 - `sa_std/io.sal`: 33 new `IO_ERROR_KIND_*` constants covering the full Rust `io::ErrorKind` enum (NotFound, PermissionDenied, ConnectionRefused, ConnectionReset, ConnectionAborted, NotConnected, AddrInUse, AddrNotAvailable, BrokenPipe, AlreadyExists, TimedOut, Unsupported, OutOfMemory, IsADirectory, DirectoryNotEmpty, RecursiveEntry, QuotaExceeded, FileTooLarge, FilesystemLoop, ExecutableFileBusy, CrossedDevices, NotSeekable, ReadOnlyFilesystem, ArgumentListTooLong, ResourceBusy, NameTooLong, TooManyLinks, HostUnreachable, NetworkUnreachable, NetworkDown, StaleNetworkFileHandle, FilesystemQuota, StorageFull, plus existing kinds).

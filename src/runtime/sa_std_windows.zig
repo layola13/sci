@@ -40,11 +40,27 @@ pub fn Fallible(comptime T: type) type {
     return extern struct { status: i32, value: T };
 }
 
+extern "kernel32" fn GetNumberOfConsoleInputEvents(
+    console_input: std.os.windows.HANDLE,
+    event_count: *std.os.windows.DWORD,
+) callconv(.winapi) std.os.windows.BOOL;
+
 const FIRST_DYNAMIC_HANDLE: u64 = 4;
 const DEFAULT_CAPTURE_LIMIT: usize = 8 * 1024 * 1024;
 
 const MetadataHandle = struct {
     stat: std.fs.File.Stat,
+};
+
+const WindowsTerminalSession = struct {
+    handle: std.os.windows.HANDLE,
+    saved_mode: std.os.windows.DWORD,
+
+    fn deinit(self: *WindowsTerminalSession) !void {
+        try setWindowsConsoleMode(self.handle, self.saved_mode);
+        std.os.windows.CloseHandle(self.handle);
+        self.* = undefined;
+    }
 };
 
 const DirEntrySnapshot = struct {
@@ -267,8 +283,9 @@ const Resource = union(enum) {
     tcp_listener: *NetworkSocket,
     udp_socket: *NetworkSocket,
     process: *ProcessHandle,
+    terminal_session: WindowsTerminalSession,
 
-    fn close(self: *Resource) void {
+    fn close(self: *Resource) !void {
         switch (self.*) {
             .file => |file| file.close(),
             .buffer => |bytes| if (bytes.len != 0) std.heap.page_allocator.free(bytes),
@@ -289,6 +306,7 @@ const Resource = union(enum) {
                 process.mutex.unlock();
                 std.heap.page_allocator.destroy(process);
             },
+            .terminal_session => |*session| try session.deinit(),
         }
         self.* = undefined;
     }
@@ -304,6 +322,7 @@ var io_buffers = std.AutoHashMap(usize, IoBufferAllocation).init(std.heap.page_a
 var pthread_registry_mutex: std.Thread.Mutex = .{};
 var pthread_slots = std.ArrayList(?*PthreadHandle).init(std.heap.page_allocator);
 var pthread_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var terminal_session_active = false;
 var monotonic_origin: ?std.time.Instant = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 
@@ -364,6 +383,147 @@ fn takeResourceLocked(handle: u64) ?Resource {
     const resource = registry_slots.items[index] orelse return null;
     registry_slots.items[index] = null;
     return resource;
+}
+
+fn closeTerminalSessionLocked(handle: u64) !void {
+    const index = dynamicIndex(handle) orelse return error.InvalidHandle;
+    if (index >= registry_slots.items.len) return error.InvalidHandle;
+    const resource = if (registry_slots.items[index]) |*item| item else return error.InvalidHandle;
+    switch (resource.*) {
+        .terminal_session => {},
+        else => return error.InvalidHandle,
+    }
+
+    try resource.close();
+    registry_slots.items[index] = null;
+    terminal_session_active = false;
+}
+
+const WINDOWS_ENABLE_PROCESSED_INPUT: std.os.windows.DWORD = 0x0001;
+const WINDOWS_ENABLE_LINE_INPUT: std.os.windows.DWORD = 0x0002;
+const WINDOWS_ENABLE_ECHO_INPUT: std.os.windows.DWORD = 0x0004;
+const WINDOWS_ENABLE_QUICK_EDIT_MODE: std.os.windows.DWORD = 0x0040;
+const WINDOWS_ENABLE_EXTENDED_FLAGS: std.os.windows.DWORD = 0x0080;
+
+fn windowsRawInputMode(mode: std.os.windows.DWORD) std.os.windows.DWORD {
+    const disabled = WINDOWS_ENABLE_PROCESSED_INPUT |
+        WINDOWS_ENABLE_LINE_INPUT |
+        WINDOWS_ENABLE_ECHO_INPUT |
+        WINDOWS_ENABLE_QUICK_EDIT_MODE;
+    return (mode | WINDOWS_ENABLE_EXTENDED_FLAGS) & ~disabled;
+}
+
+fn windowsConsoleError(code: std.os.windows.Win32Error, invalid_is_unsupported: bool) anyerror {
+    return switch (code) {
+        .INVALID_HANDLE => if (invalid_is_unsupported) error.OperationNotSupported else error.InvalidHandle,
+        .INVALID_PARAMETER => error.OperationNotSupported,
+        .FILE_NOT_FOUND, .PATH_NOT_FOUND => error.OperationNotSupported,
+        .ACCESS_DENIED => error.AccessDenied,
+        .NOT_ENOUGH_MEMORY, .OUTOFMEMORY => error.OutOfMemory,
+        else => error.ConsoleIo,
+    };
+}
+
+fn duplicateWindowsHandle(handle: std.os.windows.HANDLE) !std.os.windows.HANDLE {
+    const process = std.os.windows.GetCurrentProcess();
+    var duplicate: std.os.windows.HANDLE = undefined;
+    if (std.os.windows.kernel32.DuplicateHandle(
+        process,
+        handle,
+        process,
+        &duplicate,
+        0,
+        0,
+        std.os.windows.DUPLICATE_SAME_ACCESS,
+    ) == 0) {
+        return windowsConsoleError(std.os.windows.kernel32.GetLastError(), false);
+    }
+    return duplicate;
+}
+
+fn ensureWindowsConsoleInput(handle: std.os.windows.HANDLE) !void {
+    var event_count: std.os.windows.DWORD = 0;
+    if (GetNumberOfConsoleInputEvents(handle, &event_count) == 0) {
+        return windowsConsoleError(std.os.windows.kernel32.GetLastError(), true);
+    }
+}
+
+fn getWindowsConsoleMode(handle: std.os.windows.HANDLE) !std.os.windows.DWORD {
+    var mode: std.os.windows.DWORD = 0;
+    if (std.os.windows.kernel32.GetConsoleMode(handle, &mode) == 0) {
+        return windowsConsoleError(std.os.windows.kernel32.GetLastError(), true);
+    }
+    return mode;
+}
+
+fn setWindowsConsoleMode(handle: std.os.windows.HANDLE, mode: std.os.windows.DWORD) !void {
+    if (std.os.windows.kernel32.SetConsoleMode(handle, mode) == 0) {
+        return windowsConsoleError(std.os.windows.kernel32.GetLastError(), false);
+    }
+}
+
+fn terminalNativeHandleLocked(handle: u64) !?std.os.windows.HANDLE {
+    return switch (handle) {
+        SA_STD_STDIN => std.io.getStdIn().handle,
+        SA_STD_STDOUT => std.io.getStdOut().handle,
+        SA_STD_STDERR => std.io.getStdErr().handle,
+        else => {
+            const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+            return switch (resource.*) {
+                .file => |file| file.handle,
+                .terminal_session => |session| session.handle,
+                .tcp_stream, .tcp_listener, .udp_socket => null,
+                else => error.InvalidHandle,
+            };
+        },
+    };
+}
+
+fn windowsConsoleScreenBufferInfo(handle: std.os.windows.HANDLE) !std.os.windows.CONSOLE_SCREEN_BUFFER_INFO {
+    var info: std.os.windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+    if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(handle, &info) != 0) return info;
+
+    // Console input handles have a mode but no screen buffer. Query the process's
+    // console output handles so stdin can report the same visible window size.
+    _ = try getWindowsConsoleMode(handle);
+    const output_handles = [_]std.os.windows.HANDLE{
+        std.io.getStdOut().handle,
+        std.io.getStdErr().handle,
+    };
+    for (output_handles) |output_handle| {
+        if (output_handle == handle) continue;
+        if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(output_handle, &info) != 0) return info;
+    }
+
+    const conout = std.os.windows.kernel32.CreateFileW(
+        std.unicode.utf8ToUtf16LeStringLiteral("CONOUT$"),
+        std.os.windows.GENERIC_READ,
+        std.os.windows.FILE_SHARE_READ | std.os.windows.FILE_SHARE_WRITE,
+        null,
+        std.os.windows.OPEN_EXISTING,
+        0,
+        null,
+    );
+    if (conout == std.os.windows.INVALID_HANDLE_VALUE) {
+        return windowsConsoleError(std.os.windows.kernel32.GetLastError(), true);
+    }
+    defer std.os.windows.CloseHandle(conout);
+    if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(conout, &info) == 0) {
+        return windowsConsoleError(std.os.windows.kernel32.GetLastError(), true);
+    }
+    return info;
+}
+
+fn windowsConsoleWindowSize(info: std.os.windows.CONSOLE_SCREEN_BUFFER_INFO) !SaTermWinsize {
+    const rows = @as(i32, info.srWindow.Bottom) - @as(i32, info.srWindow.Top) + 1;
+    const columns = @as(i32, info.srWindow.Right) - @as(i32, info.srWindow.Left) + 1;
+    if (rows <= 0 or columns <= 0) return error.ConsoleIo;
+    return .{
+        .row = std.math.cast(u16, rows) orelse return error.ConsoleIo,
+        .col = std.math.cast(u16, columns) orelse return error.ConsoleIo,
+        .xpixel = 0,
+        .ypixel = 0,
+    };
 }
 
 fn pthreadTaskMain(task: *PthreadTask) void {
@@ -2041,12 +2201,25 @@ pub export fn sa_std_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u6
 pub export fn sa_std_close(handle: u64) i32 {
     if (handle < FIRST_DYNAMIC_HANDLE) return finish(SA_STD_ERR_INVALID_HANDLE);
     registry_mutex.lock();
+    if (getResourceLocked(handle)) |resource| {
+        switch (resource.*) {
+            .terminal_session => {
+                closeTerminalSessionLocked(handle) catch |err| {
+                    registry_mutex.unlock();
+                    return finishErr(err);
+                };
+                registry_mutex.unlock();
+                return finish(SA_STD_OK);
+            },
+            else => {},
+        }
+    }
     var resource = takeResourceLocked(handle) orelse {
         registry_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
     };
     registry_mutex.unlock();
-    resource.close();
+    resource.close() catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2485,8 +2658,15 @@ pub export fn sa_std_fd_close_raw(_: i32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_fd_is_terminal(_: u64, _: ?*u8) i32 {
-    return unsupported();
+pub export fn sa_std_fd_is_terminal(handle: u64, out_flag: ?*u8) i32 {
+    const flag = out_flag orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    flag.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const native = terminalNativeHandleLocked(handle) catch |err| return finishErr(err);
+    const file_handle = native orelse return finish(SA_STD_OK);
+    flag.* = if (std.posix.isatty(file_handle)) 1 else 0;
+    return finish(SA_STD_OK);
 }
 
 pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
@@ -2600,27 +2780,66 @@ pub export fn sa_thread_yield_now() i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_term_raw_enter(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_term_raw_enter(handle: u64, out_session: ?*u64) i32 {
+    const session_ptr = out_session orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    session_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    if (terminal_session_active) return finish(SA_STD_ERR_UNSUPPORTED);
+
+    const native = terminalNativeHandleLocked(handle) catch |err| return finishErr(err);
+    const console_handle = native orelse return finish(SA_STD_ERR_UNSUPPORTED);
+    ensureWindowsConsoleInput(console_handle) catch |err| return finishErr(err);
+    const original = getWindowsConsoleMode(console_handle) catch |err| return finishErr(err);
+    const owned_handle = duplicateWindowsHandle(console_handle) catch |err| return finishErr(err);
+    const session = registerResourceLocked(.{ .terminal_session = .{
+        .handle = owned_handle,
+        .saved_mode = original,
+    } }) catch |err| {
+        std.os.windows.CloseHandle(owned_handle);
+        return finishErr(err);
+    };
+    setWindowsConsoleMode(owned_handle, windowsRawInputMode(original)) catch |err| {
+        _ = takeResourceLocked(session);
+        std.os.windows.CloseHandle(owned_handle);
+        return finishErr(err);
+    };
+    terminal_session_active = true;
+    session_ptr.* = session;
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_term_raw_leave(_: u64) i32 {
-    return unsupported();
+pub export fn sa_term_raw_leave(session: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    closeTerminalSessionLocked(session) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_term_winsize(_: u64, _: ?*SaTermWinsize) i32 {
-    return unsupported();
+pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
+    const size = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    size.* = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const native = terminalNativeHandleLocked(handle) catch |err| return finishErr(err);
+    const console_handle = native orelse return finish(SA_STD_ERR_UNSUPPORTED);
+    const info = windowsConsoleScreenBufferInfo(console_handle) catch |err| return finishErr(err);
+    size.* = windowsConsoleWindowSize(info) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_term_epoll_create(_: u32, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_term_epoll_create(_: u32, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
 pub export fn sa_term_epoll_ctl(_: u64, _: u32, _: u64, _: u32, _: u64) i32 {
     return unsupported();
 }
 
-pub export fn sa_term_epoll_wait(_: u64, _: ?[*]SaTermEpollEvent, _: u64, _: i32, _: ?*u64) i32 {
+pub export fn sa_term_epoll_wait(_: u64, out_events: ?[*]SaTermEpollEvent, _: u64, _: i32, out_count: ?*u64) i32 {
+    if (out_count) |count| count.* = 0;
+    if (out_events == null or out_count == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
@@ -5139,7 +5358,7 @@ pub export fn sa_env_buffer_free(handle: u64) i32 {
     }
     var owned = takeResourceLocked(handle).?;
     registry_mutex.unlock();
-    owned.close();
+    owned.close() catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -6183,6 +6402,97 @@ test "windows environment path and JSON outputs use owned strict UTF-8 buffers" 
         try std.testing.expectEqual(@as(u64, 0), call());
         try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_last_error());
     }
+}
+
+test "windows console raw mode only disables input processing flags" {
+    const preserved: std.os.windows.DWORD = 0x0200 | 0x0010;
+    const original = preserved |
+        WINDOWS_ENABLE_PROCESSED_INPUT |
+        WINDOWS_ENABLE_LINE_INPUT |
+        WINDOWS_ENABLE_ECHO_INPUT |
+        WINDOWS_ENABLE_QUICK_EDIT_MODE;
+    const raw = windowsRawInputMode(original);
+    try std.testing.expectEqual(@as(std.os.windows.DWORD, 0), raw & WINDOWS_ENABLE_PROCESSED_INPUT);
+    try std.testing.expectEqual(@as(std.os.windows.DWORD, 0), raw & WINDOWS_ENABLE_LINE_INPUT);
+    try std.testing.expectEqual(@as(std.os.windows.DWORD, 0), raw & WINDOWS_ENABLE_ECHO_INPUT);
+    try std.testing.expectEqual(@as(std.os.windows.DWORD, 0), raw & WINDOWS_ENABLE_QUICK_EDIT_MODE);
+    try std.testing.expectEqual(preserved, raw & preserved);
+    try std.testing.expect(raw & WINDOWS_ENABLE_EXTENDED_FLAGS != 0);
+}
+
+test "windows console window size uses the visible screen rectangle" {
+    var info = std.mem.zeroes(std.os.windows.CONSOLE_SCREEN_BUFFER_INFO);
+    info.dwSize = .{ .X = 200, .Y = 1000 };
+    info.srWindow = .{ .Left = 10, .Top = 20, .Right = 89, .Bottom = 43 };
+    try std.testing.expectEqual(
+        SaTermWinsize{ .row = 24, .col = 80, .xpixel = 0, .ypixel = 0 },
+        try windowsConsoleWindowSize(info),
+    );
+
+    info.srWindow.Right = 9;
+    try std.testing.expectError(error.ConsoleIo, windowsConsoleWindowSize(info));
+}
+
+test "windows terminal APIs clear failed outputs and keep epoll unsupported" {
+    const invalid_handle = std.math.maxInt(u64);
+
+    var flag: u8 = 1;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_fd_is_terminal(invalid_handle, null));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_fd_is_terminal(invalid_handle, &flag));
+    try std.testing.expectEqual(@as(u8, 0), flag);
+
+    var session: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_term_raw_enter(invalid_handle, null));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_term_raw_enter(invalid_handle, &session));
+    try std.testing.expectEqual(@as(u64, 0), session);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_term_raw_leave(invalid_handle));
+
+    var size = SaTermWinsize{ .row = 1, .col = 2, .xpixel = 3, .ypixel = 4 };
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_term_winsize(invalid_handle, null));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_term_winsize(invalid_handle, &size));
+    try std.testing.expectEqual(SaTermWinsize{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 }, size);
+
+    var epoll_handle: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_term_epoll_create(0, null));
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_term_epoll_create(0, &epoll_handle));
+    try std.testing.expectEqual(@as(u64, 0), epoll_handle);
+
+    var events = [_]SaTermEpollEvent{.{ .events = 0, .data = 0 }};
+    var count: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_term_epoll_wait(0, null, 1, 0, &count));
+    try std.testing.expectEqual(@as(u64, 0), count);
+    count = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_term_epoll_wait(0, events[0..].ptr, 1, 0, null));
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_term_epoll_wait(0, events[0..].ptr, 1, 0, &count));
+    try std.testing.expectEqual(@as(u64, 0), count);
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_term_epoll_close(0));
+}
+
+test "windows redirected files are valid non-terminal handles" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile("redirected.txt", .{ .read = true });
+    const handle = try registerResource(.{ .file = file });
+    var handle_live = true;
+    defer if (handle_live) {
+        _ = sa_std_close(handle);
+    };
+
+    var flag: u8 = 1;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_fd_is_terminal(handle, &flag));
+    try std.testing.expectEqual(@as(u8, 0), flag);
+
+    var session: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_term_raw_enter(handle, &session));
+    try std.testing.expectEqual(@as(u64, 0), session);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_term_raw_leave(handle));
+
+    var size = SaTermWinsize{ .row = 1, .col = 2, .xpixel = 3, .ypixel = 4 };
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_term_winsize(handle, &size));
+    try std.testing.expectEqual(SaTermWinsize{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 }, size);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_close(handle));
+    handle_live = false;
 }
 
 test "windows pthread compatibility joins results without consuming invalid calls" {

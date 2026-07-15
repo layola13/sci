@@ -1,6 +1,68 @@
 # Current Plan
 
-Date: 2026-07-09
+Date: 2026-07-15
+
+## Active objective: implement the compiler performance plan
+
+Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is explicitly excluded. Correctness, cache authorization, deterministic diagnostics, and ownership semantics remain hard gates; no trusted/empty-delta verification shortcut may be reintroduced for codegen.
+
+1. [x] Land Phase -1 containment: full Referee for compile/check/emit, affected last-good transactionality, cache-hit authorization preflight, conservative focused-prune fallback, daemon cwd serialization/hard worker limit, and backend debug-output removal.
+2. [ ] **In progress — finish the request-local dynamic depfile (P0.3):**
+   - [x] record environment present/absent state and value digest;
+   - [x] record canonical included-file path, size, and digest through recursive includes;
+   - [x] persist dependencies in manifest v2 and prevalidate them before cache publication;
+   - [x] retain safe bypass/fallback whenever dependency capture is incomplete or changes during capture;
+   - focused verified: INCLUDE `2/2`, absent `OPTION_ENV!` `1/1`, validator `1/1`, INCLUDE_STR cache closure `1/1`;
+   - [ ] add the explicit absent→present environment cache regression and finish the combined gate.
+3. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
+   - [x] index function body ranges once and process every reachable function body at most once;
+   - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;
+   - [x] pass focused direct-closure/function-reference/unknown-call tests `3/3`;
+   - [ ] finish recursion and both LLVM emit-path differential tests before shared-engine completion.
+4. [ ] **Partial — validate and then extend the Referee delta work (P1.2):**
+   - current checkpoint reuses `state_before`/change scratch and performs one ordered diff scan;
+   - first run the combined Debug build and focused allocation/equivalence gates;
+   - then introduce `StateWriter` + dirty epoch/list so executable instructions no longer copy the whole state;
+   - keep seed/reset/label restore non-recording and dual-check old/new deltas during migration.
+5. [ ] Close the remaining artifact-key boundary:
+   - [x] key native `build-exe`/`test` on canonical runtime archive path, size, and SHA-256 under namespace v3;
+   - [x] pass an isolated same-path/same-size archive content-flip key test `1/1`;
+   - [ ] add linker/toolchain, ordered plugin/export/rpath/link flags, backend/pass epoch, target CPU/features policy, corruption, and authorization inputs/tests.
+6. [ ] Run the immediate combined-worktree gate before recording any new completion claim:
+   - `/opt/zig/zig build -Doptimize=Debug -j1`;
+   - focused dynamic-dependency/cache, artifact authorization, affected, SAB/LLVM reachability, include, and Referee tests;
+   - `/opt/zig/zig fmt --check src tests` and `git diff --check`.
+7. [ ] Continue the Phase 0 gaps in dependency order: P0.1 metrics, P0.2 verify key v2, remaining P0.3/P0.4/P0.5, P0.6 explainable cache miss, P0.7 formal baseline, then P0.8 backend profile.
+8. [ ] Continue Phase 1 only behind the Phase 0 gates: P1.1 SAB lazy body decode, finish P1.2 journal, P1.3 result-region merge, and P1.4 weighted physical-core-aware scheduling.
+
+Status boundary: Phase -1/P0 containment is landed, but the full Phase 0 and Phase 1 roadmaps are not complete. Dynamic-depfile, LLVM queue, and runtime archive keying are focused-verified only until the remaining regressions and combined Debug build pass; the current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
+
+## Active objective: macOS / Windows portability
+
+Reference: `docs/macos_windows_portability_evaluation_cn.md`.
+
+1. [x] Establish `sa_std` source/artifact ABI baselines and cross-target build gates.
+2. [x] Land Windows network, environment, and generic-thread runtime foundations.
+3. [x] Harden POSIX pthread ownership and concurrency without regressing Linux.
+4. [ ] Finish the Windows Console batch now in progress:
+   - resolve SA stdio/dynamic file resources to native Windows handles;
+   - detect real consoles while treating redirected files/pipes as non-terminals;
+   - save, apply, and restore console input raw mode;
+   - return visible window dimensions for output and standard console input handles;
+   - leave epoll explicitly unsupported with deterministic output clearing;
+   - add focused contract tests.
+5. [ ] Validate and commit the Console batch:
+   - Linux formatting/diff and regression tests;
+   - Windows x86_64/arm64 type checks;
+   - Windows x86_64 PE test link and DLL export/ABI checks;
+   - focused lifecycle/error-contract review.
+6. [ ] Add native Windows x86_64 CI and run compiler/runtime Hello World plus fs/process/net/env/thread/console contracts.
+7. [ ] Add native macOS x86_64/arm64 CI and close remaining Darwin runtime/link contracts.
+8. [ ] Finish plugin, installer, archive, and release smoke for target-specific `.dll`/`.dylib` artifacts.
+
+Evidence rule: the active host is Linux. Cross type-check/link/ABI success is recorded as such and never promoted to native Windows/macOS runtime success or L2 support.
+
+Commit rule: commit each coherent, verified portability batch promptly. Do not stage unrelated concurrent worktree changes.
 
 
 ## Active std parity batch (2026-07-13 n)

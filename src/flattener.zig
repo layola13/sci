@@ -897,6 +897,8 @@ pub const FlattenResult = struct {
     layout_versions: []LayoutVersion,
     package_identities: std.StringHashMap(void),
     owned_text: [][]const u8,
+    dynamic_dependencies: []DynamicDependency = &.{},
+    dynamic_dependencies_cacheable: bool = true,
     trap: ?Trap = null,
 
     pub fn deinit(self: *FlattenResult, allocator: std.mem.Allocator) void {
@@ -918,6 +920,8 @@ pub const FlattenResult = struct {
         allocator.free(self.const_decls);
         for (self.owned_text) |text| allocator.free(text);
         allocator.free(self.owned_text);
+        for (self.dynamic_dependencies) |*dependency| dependency.deinit(allocator);
+        if (self.dynamic_dependencies.len != 0) allocator.free(self.dynamic_dependencies);
         for (self.function_sigs) |*sig| sig.deinit(allocator);
         allocator.free(self.function_sigs);
         allocator.free(self.test_sigs);
@@ -3334,7 +3338,6 @@ fn emitRange(
                         owned_text,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
-                        if (resolve_ctx) |ctx| ctx.dynamic_dependency_recorder else null,
                     );
                 } else if (std.mem.eql(u8, macro_name, "STRINGIFY!")) {
                     try expandStringify(
@@ -3375,6 +3378,7 @@ fn emitRange(
                         owned_text,
                         effective_package_identity,
                         line.package_source_sha256 orelse current_package_hash,
+                        if (resolve_ctx) |ctx| ctx.dynamic_dependency_recorder else null,
                     );
                 } else if (std.mem.eql(u8, macro_name, "LINE!") or std.mem.eql(u8, macro_name, "FILE!") or std.mem.eql(u8, macro_name, "COLUMN!") or std.mem.eql(u8, macro_name, "MODULE_PATH!")) {
                     try expandSourceLocationMacro(
@@ -4602,10 +4606,7 @@ fn injectImportedFile(
                 markSeenImportContextDependency(cache_dependency2, owned_paths2.items, injected.entry_path);
                 return;
             }
-            owned_paths2.append(injected.entry_path) catch |err| {
-                injected.deinit(allocator2);
-                return err;
-            };
+            try owned_paths2.append(injected.entry_path);
             injected.entry_path_owned = false;
             try seen_paths2.put(injected.entry_path, {});
             try active_paths2.put(injected.entry_path, {});
@@ -5012,7 +5013,12 @@ fn flattenInternal(
     resolve_ctx: ?ResolveContext,
 ) !FlattenResult {
     if (error_ctx) |ctx| ctx.source_line = null;
-    var expanded = try expandImports(allocator, source, source_path, error_ctx, resolve_ctx);
+    var dependency_recorder = DynamicDependencyRecorder.init(allocator);
+    defer dependency_recorder.deinit();
+    var effective_resolve_ctx = resolve_ctx orelse ResolveContext{};
+    effective_resolve_ctx.dynamic_dependency_recorder = &dependency_recorder;
+
+    var expanded = try expandImports(allocator, source, source_path, error_ctx, effective_resolve_ctx);
     defer expanded.deinit(allocator);
 
     if (findFirstForbiddenLine(expanded.source)) |_| {
@@ -5088,7 +5094,7 @@ fn flattenInternal(
         0,
         null,
         source_path,
-        resolve_ctx,
+        effective_resolve_ctx,
         &include_stack,
         empty_replacements[0..],
         true,
@@ -5118,6 +5124,11 @@ fn flattenInternal(
     loc_table.deinit();
 
     const function_sigs_slice = try function_sigs.toOwnedSlice();
+    const dynamic_dependencies = try dependency_recorder.take();
+    errdefer {
+        for (dynamic_dependencies) |*dependency| dependency.deinit(allocator);
+        if (dynamic_dependencies.len != 0) allocator.free(dynamic_dependencies);
+    }
 
     // Filter test functions from function_sigs
     var test_sigs_list = std.ArrayList(FunctionSig).init(allocator);
@@ -5140,6 +5151,8 @@ fn flattenInternal(
         .layout_versions = layout_versions,
         .package_identities = package_identities,
         .owned_text = try owned_text.toOwnedSlice(),
+        .dynamic_dependencies = dynamic_dependencies,
+        .dynamic_dependencies_cacheable = dependency_recorder.cacheable,
         .trap = null,
     };
 }
@@ -6303,6 +6316,11 @@ test "flattenFile resolves INCLUDE_STR relative to the including source" {
         .utf8 => |literal| try std.testing.expectEqualStrings("source-relative", literal.bytes),
         else => return error.TestUnexpectedResult,
     }
+    try std.testing.expect(result.dynamic_dependencies_cacheable);
+    try std.testing.expectEqual(@as(usize, 1), result.dynamic_dependencies.len);
+    try std.testing.expectEqual(DynamicDependencyKind.file, result.dynamic_dependencies[0].kind);
+    try std.testing.expectEqualStrings("message.txt", std.fs.path.basename(result.dynamic_dependencies[0].key));
+    try std.testing.expectEqual(@as(u64, "source-relative".len), result.dynamic_dependencies[0].size);
 }
 
 test "recursive INCLUDE keeps package resolver roots" {
@@ -6343,6 +6361,35 @@ test "recursive INCLUDE keeps package resolver roots" {
     try std.testing.expectEqual(@as(usize, 2), result.function_sigs.len);
     try std.testing.expectEqualStrings("included_helper", result.function_sigs[0].name);
     try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
+    try std.testing.expect(result.dynamic_dependencies_cacheable);
+    try std.testing.expectEqual(@as(usize, 2), result.dynamic_dependencies.len);
+    var saw_fragment = false;
+    var saw_import = false;
+    for (result.dynamic_dependencies) |dependency| {
+        try std.testing.expectEqual(DynamicDependencyKind.file, dependency.kind);
+        if (std.mem.eql(u8, std.fs.path.basename(dependency.key), "fragment.sa")) saw_fragment = true;
+        if (std.mem.eql(u8, std.fs.path.basename(dependency.key), "support.sa")) saw_import = true;
+    }
+    try std.testing.expect(saw_fragment);
+    try std.testing.expect(saw_import);
+}
+
+test "OPTION_ENV records absent state without storing a value" {
+    const source =
+        \\#def Option_tag = 0
+        \\#def Option_value = 8
+        \\#def Option_NONE = 0
+        \\EXPAND OPTION_ENV! out, "SA_FLATTENER_DEPFILE_EXPECTED_ABSENT_7F3A"
+    ;
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expect(result.dynamic_dependencies_cacheable);
+    try std.testing.expectEqual(@as(usize, 1), result.dynamic_dependencies.len);
+    const dependency = result.dynamic_dependencies[0];
+    try std.testing.expectEqual(DynamicDependencyKind.environment, dependency.kind);
+    try std.testing.expectEqualStrings("SA_FLATTENER_DEPFILE_EXPECTED_ABSENT_7F3A", dependency.key);
+    try std.testing.expect(!dependency.present);
 }
 
 test "flattenFile tags imported functions with imported source path" {
