@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 ManuallyDrop comparison macros
+
+- Continued Rust `std::mem::ManuallyDrop` macro-surface parity, referencing Rust's local `core::mem::ManuallyDrop<T>` comparison implementations under `/home/vscode/projects/rust`.
+- `sa_std/mem.sa`: added `MANUALLY_DROP_U64_EQ`, `MANUALLY_DROP_U64_NE`, `MANUALLY_DROP_U64_CMP`, `MANUALLY_DROP_U64_PARTIAL_CMP`, `MANUALLY_DROP_U64_LT`, `MANUALLY_DROP_U64_LE`, `MANUALLY_DROP_U64_GT`, and `MANUALLY_DROP_U64_GE`.
+- The helper surface models Rust's supportable comparison forwarding shape by loading the concrete inner `u64` and applying primitive equality/ordering. It does not claim generic `ManuallyDrop<T>`, `MaybeUninit<T>` comparison, drop-suppression safety semantics, generic trait dispatch, or Rust `Option<Ordering>` object modeling.
+- Test: `tests/unit_framework/std_mem_manually_drop_cmp_macro_surface.sa` - 1 test (panic ID 10599) covering equal/not-equal, less/equal/greater ordering, partial-cmp aliasing, relation helpers, and changed inner-value sensitivity.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_mem_manually_drop_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10600+.
+
 ## Completed: 2026-07-15 ManuallyDrop hash_one macros
 
 - Continued Rust `std::hash` / `std::mem::ManuallyDrop` macro-surface parity, referencing Rust's local `core::mem::ManuallyDrop<T>` `Hash` implementation under `/home/vscode/projects/rust`.

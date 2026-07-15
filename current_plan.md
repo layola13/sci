@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 ManuallyDrop comparison)
+
+Completed supportable `ManuallyDrop` comparison macros:
+- `MANUALLY_DROP_U64_EQ` / `MANUALLY_DROP_U64_NE`: concrete Rust `PartialEq` / `Eq` forwarding shape for SA's existing `ManuallyDropU64` layout, by comparing the inner `u64`.
+- `MANUALLY_DROP_U64_CMP` / `MANUALLY_DROP_U64_PARTIAL_CMP`: concrete Rust `Ord` / `PartialOrd` forwarding shape for the same `ManuallyDropU64` subset.
+- `MANUALLY_DROP_U64_LT`, `MANUALLY_DROP_U64_LE`, `MANUALLY_DROP_U64_GT`, and `MANUALLY_DROP_U64_GE`: relation helpers matching the supportable inner-value ordering shape.
+- This follows Rust's current `core::mem::ManuallyDrop<T>` comparison implementations, which forward to `self.value.as_ref()`. It does not expose generic `ManuallyDrop<T>`, `MaybeUninit<T>` comparison, drop-suppression safety semantics, generic trait dispatch, or Rust `Option<Ordering>` object modeling.
+- Test file `std_mem_manually_drop_cmp_macro_surface.sa` (panic ID 10599).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_mem_manually_drop_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10600+.
+Still blocked without redesign: trait-level `PartialEq` / `Eq` / `PartialOrd` / `Ord` / `Hash` / `Hasher` / `BuildHasher`, generic primitive/container trait impl dispatch, generic `ManuallyDrop<T>`, `MaybeUninit<T>` comparison/hash or initialization validity, Rust drop-suppression safety semantics, generic `Reverse<T>` and comparison trait dispatch, real marker trait solver / auto-trait inference, `PhantomData<T>` drop-check and ownership effects, full pinning semantics, `u128` / `i128`, generic `NonZero<T>`, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 ManuallyDrop hash_one)
 
 Completed supportable `ManuallyDrop` hash macros:
