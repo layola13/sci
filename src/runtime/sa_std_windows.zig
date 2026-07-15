@@ -72,8 +72,15 @@ const NetAddrHandle = struct {
     host: []u8,
 
     fn deinit(self: *NetAddrHandle) void {
-        std.heap.page_allocator.free(self.host);
+        if (self.host.len != 0) std.heap.page_allocator.free(self.host);
         self.* = undefined;
+    }
+
+    fn init(address: std.net.Address) !NetAddrHandle {
+        return .{
+            .address = address,
+            .host = try addressHostText(address),
+        };
     }
 };
 
@@ -129,6 +136,98 @@ const ProcessHandle = struct {
     }
 };
 
+const SocketIoDirection = enum {
+    read,
+    write,
+};
+
+const SocketIoPolicy = struct {
+    closing: bool,
+    logical_nonblocking: bool,
+    timeout_ms: u32,
+};
+
+const NetworkSocket = struct {
+    lifetime_mutex: std.Thread.Mutex = .{},
+    lifetime_condition: std.Thread.Condition = .{},
+    active_operations: usize = 0,
+    poll_waiters: usize = 0,
+    closing: bool = false,
+    logical_nonblocking: bool = false,
+    read_timeout_ms: u32 = 0,
+    write_timeout_ms: u32 = 0,
+    socket: std.posix.socket_t,
+
+    fn closeAndDestroy(self: *NetworkSocket) void {
+        self.lifetime_mutex.lock();
+        self.closing = true;
+        while (self.active_operations != 0) {
+            self.lifetime_condition.wait(&self.lifetime_mutex);
+        }
+        self.lifetime_mutex.unlock();
+
+        (std.net.Stream{ .handle = self.socket }).close();
+        std.heap.page_allocator.destroy(self);
+    }
+
+    fn isClosing(self: *NetworkSocket) bool {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        return self.closing;
+    }
+
+    fn ioPolicy(self: *NetworkSocket, direction: SocketIoDirection) SocketIoPolicy {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        return .{
+            .closing = self.closing,
+            .logical_nonblocking = self.logical_nonblocking,
+            .timeout_ms = switch (direction) {
+                .read => self.read_timeout_ms,
+                .write => self.write_timeout_ms,
+            },
+        };
+    }
+
+    fn setLogicalNonblocking(self: *NetworkSocket, enabled: bool) void {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        self.logical_nonblocking = enabled;
+    }
+
+    fn setTimeoutMs(self: *NetworkSocket, direction: SocketIoDirection, timeout_ms: u32) void {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        switch (direction) {
+            .read => self.read_timeout_ms = timeout_ms,
+            .write => self.write_timeout_ms = timeout_ms,
+        }
+    }
+
+    fn timeoutMs(self: *NetworkSocket, direction: SocketIoDirection) u32 {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        return switch (direction) {
+            .read => self.read_timeout_ms,
+            .write => self.write_timeout_ms,
+        };
+    }
+
+    fn beginPoll(self: *NetworkSocket) !void {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        if (self.closing) return error.InvalidHandle;
+        self.poll_waiters += 1;
+    }
+
+    fn endPoll(self: *NetworkSocket) void {
+        self.lifetime_mutex.lock();
+        defer self.lifetime_mutex.unlock();
+        std.debug.assert(self.poll_waiters != 0);
+        self.poll_waiters -= 1;
+    }
+};
+
 const Resource = union(enum) {
     file: std.fs.File,
     buffer: []u8,
@@ -137,9 +236,9 @@ const Resource = union(enum) {
     dir_entry: DirEntryHandle,
     net_addr: NetAddrHandle,
     dynamic_lib: std.DynLib,
-    tcp_stream: std.net.Stream,
-    tcp_listener: std.net.Server,
-    udp_socket: std.posix.socket_t,
+    tcp_stream: *NetworkSocket,
+    tcp_listener: *NetworkSocket,
+    udp_socket: *NetworkSocket,
     process: *ProcessHandle,
 
     fn close(self: *Resource) void {
@@ -151,9 +250,7 @@ const Resource = union(enum) {
             .dir_entry => |*entry| entry.deinit(),
             .net_addr => |*addr| addr.deinit(),
             .dynamic_lib => |*lib| lib.close(),
-            .tcp_stream => |stream| stream.close(),
-            .tcp_listener => |*server| server.deinit(),
-            .udp_socket => |socket| (std.net.Stream{ .handle = socket }).close(),
+            .tcp_stream, .tcp_listener, .udp_socket => |socket| socket.closeAndDestroy(),
             .process => |process| {
                 process.lifetime_mutex.lock();
                 while (process.active_operations != 0) {
@@ -256,6 +353,399 @@ fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     if (path.len == 0 or std.mem.indexOfScalar(u8, path, 0) != null) return error.InvalidArgument;
     return path;
 }
+
+fn hostBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
+    const host = try constBytes(ptr, len);
+    if (host.len == 0 or std.mem.indexOfScalar(u8, host, 0) != null) return error.InvalidArgument;
+    return host;
+}
+
+fn portFromU32(port: u32) !u16 {
+    return std.math.cast(u16, port) orelse error.InvalidArgument;
+}
+
+fn windowsNetworkBytesConst(ptr: ?[*]const u8, len: u64) ![]const u8 {
+    const bytes = try constBytes(ptr, len);
+    if (bytes.len > std.math.maxInt(u31)) return error.InvalidArgument;
+    return bytes;
+}
+
+fn windowsNetworkBytesMut(ptr: ?[*]u8, len: u64) ![]u8 {
+    const bytes = try mutBytes(ptr, len);
+    if (bytes.len > std.math.maxInt(u31)) return error.InvalidArgument;
+    return bytes;
+}
+
+fn addressHostText(address: std.net.Address) ![]u8 {
+    return switch (address.any.family) {
+        std.posix.AF.INET => blk: {
+            const ip = @as(*const [4]u8, @ptrCast(&address.in.sa.addr)).*;
+            break :blk try std.fmt.allocPrint(std.heap.page_allocator, "{d}.{d}.{d}.{d}", .{ ip[0], ip[1], ip[2], ip[3] });
+        },
+        std.posix.AF.INET6 => blk: {
+            const full = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{address});
+            if (full.len >= 4 and full[0] == '[') {
+                const closing = std.mem.lastIndexOfScalar(u8, full, ']') orelse break :blk full;
+                if (closing + 1 < full.len and full[closing + 1] == ':') {
+                    const host = try std.heap.page_allocator.dupe(u8, full[1..closing]);
+                    std.heap.page_allocator.free(full);
+                    break :blk host;
+                }
+            }
+            break :blk full;
+        },
+        else => error.AddressFamilyNotSupported,
+    };
+}
+
+fn resolveFirstAddress(host: []const u8, port: u16) !std.net.Address {
+    const list = try std.net.getAddressList(std.heap.page_allocator, host, port);
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
+    const address = list.addrs[0];
+    if (address.any.family != std.posix.AF.INET and address.any.family != std.posix.AF.INET6) {
+        return error.AddressFamilyNotSupported;
+    }
+    return address;
+}
+
+fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+    const host = try hostBytes(host_ptr, host_len);
+    return resolveFirstAddress(host, try portFromU32(port));
+}
+
+fn registerNetAddrOutLocked(address: std.net.Address, out_handle: *u64) i32 {
+    var net_addr = NetAddrHandle.init(address) catch |err| return finishNetErr(err);
+    const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+        net_addr.deinit();
+        return finishErr(err);
+    };
+    out_handle.* = handle;
+    return finish(SA_STD_OK);
+}
+
+fn registerNetAddrOut(address: std.net.Address, out_handle: *u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    return registerNetAddrOutLocked(address, out_handle);
+}
+
+const SocketKind = enum {
+    tcp_stream,
+    tcp_listener,
+    udp_socket,
+};
+
+const SocketHandle = struct {
+    socket: std.posix.socket_t,
+    kind: SocketKind,
+    state: *NetworkSocket,
+
+    fn release(self: SocketHandle) void {
+        self.state.lifetime_mutex.lock();
+        std.debug.assert(self.state.active_operations != 0);
+        self.state.active_operations -= 1;
+        if (self.state.active_operations == 0) self.state.lifetime_condition.broadcast();
+        self.state.lifetime_mutex.unlock();
+    }
+};
+
+fn retainNetworkSocket(state: *NetworkSocket, kind: SocketKind) SocketHandle {
+    state.lifetime_mutex.lock();
+    state.active_operations += 1;
+    state.lifetime_mutex.unlock();
+    return .{ .socket = state.socket, .kind = kind, .state = state };
+}
+
+fn ensureSocketHandle(handle: u64) !SocketHandle {
+    registry_mutex.lock();
+    const resource = getResourceLocked(handle) orelse {
+        registry_mutex.unlock();
+        return error.InvalidHandle;
+    };
+    const result: SocketHandle = switch (resource.*) {
+        .tcp_stream => |state| retainNetworkSocket(state, .tcp_stream),
+        .tcp_listener => |state| retainNetworkSocket(state, .tcp_listener),
+        .udp_socket => |state| retainNetworkSocket(state, .udp_socket),
+        else => {
+            registry_mutex.unlock();
+            return error.InvalidHandle;
+        },
+    };
+    registry_mutex.unlock();
+    return result;
+}
+
+fn registerNetworkSocket(socket: std.posix.socket_t, kind: SocketKind) !u64 {
+    try forceWindowsSocketNonblocking(socket);
+    const state = try std.heap.page_allocator.create(NetworkSocket);
+    state.* = .{ .socket = socket };
+    errdefer std.heap.page_allocator.destroy(state);
+    return registerResource(switch (kind) {
+        .tcp_stream => .{ .tcp_stream = state },
+        .tcp_listener => .{ .tcp_listener = state },
+        .udp_socket => .{ .udp_socket = state },
+    });
+}
+
+const SOCKET_POLL_SLICE_MS: i32 = 20;
+
+const SocketDeadline = struct {
+    timer: std.time.Timer,
+    timeout_ns: u64,
+
+    fn init(timeout_ms: u32) !?SocketDeadline {
+        if (timeout_ms == 0) return null;
+        return .{
+            .timer = try std.time.Timer.start(),
+            .timeout_ns = @as(u64, timeout_ms) * std.time.ns_per_ms,
+        };
+    }
+
+    fn pollTimeoutMs(self: *SocketDeadline) !i32 {
+        const elapsed_ns = self.timer.read();
+        if (elapsed_ns >= self.timeout_ns) return error.ConnectionTimedOut;
+        const remaining_ns = self.timeout_ns - elapsed_ns;
+        const remaining_ms = remaining_ns / std.time.ns_per_ms + @intFromBool(remaining_ns % std.time.ns_per_ms != 0);
+        return @intCast(@min(remaining_ms, @as(u64, SOCKET_POLL_SLICE_MS)));
+    }
+
+    fn expired(self: *SocketDeadline) bool {
+        return self.timer.read() >= self.timeout_ns;
+    }
+};
+
+fn socketWaitReady(handle: SocketHandle, direction: SocketIoDirection, deadline: *?SocketDeadline) !void {
+    const requested_events: i16 = switch (direction) {
+        .read => @intCast(std.posix.POLL.IN),
+        .write => @intCast(std.posix.POLL.OUT),
+    };
+    const error_events: i16 = @intCast(std.posix.POLL.ERR | std.posix.POLL.HUP);
+    const invalid_events: i16 = @intCast(std.posix.POLL.NVAL);
+
+    while (true) {
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        const timeout_ms = if (deadline.*) |*value| try value.pollTimeoutMs() else SOCKET_POLL_SLICE_MS;
+        var poll_fds = [_]std.posix.pollfd{.{
+            .fd = handle.socket,
+            .events = requested_events,
+            .revents = 0,
+        }};
+        try handle.state.beginPoll();
+        const ready = std.posix.poll(&poll_fds, timeout_ms) catch |err| {
+            handle.state.endPoll();
+            return err;
+        };
+        handle.state.endPoll();
+
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        if (ready == 0) {
+            if (deadline.*) |*value| {
+                if (value.expired()) return error.ConnectionTimedOut;
+            }
+            continue;
+        }
+        if ((poll_fds[0].revents & invalid_events) != 0) return error.InvalidHandle;
+        if ((poll_fds[0].revents & (requested_events | error_events)) != 0) return;
+    }
+}
+
+fn socketRecv(handle: SocketHandle, buffer: []u8, flags: u32) !usize {
+    const policy = handle.state.ioPolicy(.read);
+    if (policy.closing) return error.InvalidHandle;
+    var deadline = try SocketDeadline.init(policy.timeout_ms);
+    while (true) {
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        const read = std.posix.recv(handle.socket, buffer, flags) catch |err| switch (err) {
+            error.WouldBlock => {
+                if (policy.logical_nonblocking) return error.WouldBlock;
+                try socketWaitReady(handle, .read, &deadline);
+                continue;
+            },
+            else => return err,
+        };
+        return read;
+    }
+}
+
+fn socketSend(handle: SocketHandle, bytes: []const u8, flags: u32) !usize {
+    const policy = handle.state.ioPolicy(.write);
+    if (policy.closing) return error.InvalidHandle;
+    var deadline = try SocketDeadline.init(policy.timeout_ms);
+    while (true) {
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        const written = std.posix.send(handle.socket, bytes, flags) catch |err| switch (err) {
+            error.WouldBlock => {
+                if (policy.logical_nonblocking) return error.WouldBlock;
+                try socketWaitReady(handle, .write, &deadline);
+                continue;
+            },
+            else => return err,
+        };
+        return written;
+    }
+}
+
+fn socketRecvFrom(handle: SocketHandle, buffer: []u8, flags: u32, address: *std.net.Address, address_len: *std.posix.socklen_t) !usize {
+    const policy = handle.state.ioPolicy(.read);
+    if (policy.closing) return error.InvalidHandle;
+    var deadline = try SocketDeadline.init(policy.timeout_ms);
+    while (true) {
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        const read = std.posix.recvfrom(handle.socket, buffer, flags, &address.any, address_len) catch |err| switch (err) {
+            error.WouldBlock => {
+                if (policy.logical_nonblocking) return error.WouldBlock;
+                try socketWaitReady(handle, .read, &deadline);
+                continue;
+            },
+            else => return err,
+        };
+        return read;
+    }
+}
+
+fn socketSendTo(handle: SocketHandle, bytes: []const u8, flags: u32, address: *const std.net.Address) !usize {
+    const policy = handle.state.ioPolicy(.write);
+    if (policy.closing) return error.InvalidHandle;
+    var deadline = try SocketDeadline.init(policy.timeout_ms);
+    while (true) {
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        const written = std.posix.sendto(handle.socket, bytes, flags, &address.any, address.getOsSockLen()) catch |err| switch (err) {
+            error.WouldBlock => {
+                if (policy.logical_nonblocking) return error.WouldBlock;
+                try socketWaitReady(handle, .write, &deadline);
+                continue;
+            },
+            else => return err,
+        };
+        return written;
+    }
+}
+
+fn socketAccept(handle: SocketHandle) !std.posix.socket_t {
+    const policy = handle.state.ioPolicy(.read);
+    if (policy.closing) return error.InvalidHandle;
+    var deadline = try SocketDeadline.init(policy.timeout_ms);
+    while (true) {
+        if (handle.state.isClosing()) return error.InvalidHandle;
+        const socket = std.posix.accept(handle.socket, null, null, std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC) catch |err| switch (err) {
+            error.WouldBlock => {
+                if (policy.logical_nonblocking) return error.WouldBlock;
+                try socketWaitReady(handle, .read, &deadline);
+                continue;
+            },
+            else => return err,
+        };
+        return socket;
+    }
+}
+
+fn mapNetworkError(err: anyerror) i32 {
+    return switch (err) {
+        error.InvalidArgument, error.InvalidIPAddressFormat, error.InvalidCharacter, error.InvalidEnd, error.Incomplete, error.NonCanonical, error.Overflow, error.SocketNotBound => SA_STD_ERR_INVALID_ARGUMENT,
+        error.InvalidHandle, error.FileDescriptorNotASocket, error.NotOpenForReading, error.NotOpenForWriting => SA_STD_ERR_INVALID_HANDLE,
+        error.AccessDenied, error.PermissionDenied, error.BlockedByFirewall => SA_STD_ERR_ACCESS,
+        error.OutOfMemory, error.SystemResources, error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => SA_STD_ERR_NO_MEMORY,
+        error.MessageTooBig => SA_STD_ERR_TRUNCATED,
+        error.AddressFamilyNotSupported, error.ProtocolFamilyNotAvailable, error.ProtocolNotSupported, error.SocketTypeNotSupported, error.OperationNotSupported => SA_STD_ERR_UNSUPPORTED,
+        error.WouldBlock, error.BlockingOperationInProgress => SA_STD_ERR_IO,
+        error.AddressInUse, error.AddressNotAvailable, error.ConnectionAborted, error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkSubsystemFailed, error.NetworkUnreachable, error.SocketNotConnected, error.BrokenPipe, error.AlreadyConnected, error.UnknownHostName, error.HostLacksNetworkAddresses, error.TemporaryNameServerFailure, error.NameServerFailure, error.ServiceUnavailable => SA_STD_ERR_NET,
+        else => mapError(err),
+    };
+}
+
+fn finishNetErr(err: anyerror) i32 {
+    return finish(mapNetworkError(err));
+}
+
+fn mapWinsockError(err: std.os.windows.ws2_32.WinsockError) i32 {
+    return switch (err) {
+        .WSAEBADF, .WSAENOTSOCK => SA_STD_ERR_INVALID_HANDLE,
+        .WSAEFAULT, .WSAEINVAL, .WSAEDESTADDRREQ => SA_STD_ERR_INVALID_ARGUMENT,
+        .WSAEACCES => SA_STD_ERR_ACCESS,
+        .WSAEMFILE, .WSAENOBUFS, .WSA_NOT_ENOUGH_MEMORY => SA_STD_ERR_NO_MEMORY,
+        .WSAEMSGSIZE => SA_STD_ERR_TRUNCATED,
+        .WSAENOPROTOOPT, .WSAEPROTONOSUPPORT, .WSAESOCKTNOSUPPORT, .WSAEOPNOTSUPP, .WSAEPFNOSUPPORT, .WSAEAFNOSUPPORT => SA_STD_ERR_UNSUPPORTED,
+        .WSAEWOULDBLOCK, .WSAEINPROGRESS, .WSAEALREADY => SA_STD_ERR_IO,
+        .WSAEADDRINUSE, .WSAEADDRNOTAVAIL, .WSAENETDOWN, .WSAENETUNREACH, .WSAENETRESET, .WSAECONNABORTED, .WSAECONNRESET, .WSAEISCONN, .WSAENOTCONN, .WSAESHUTDOWN, .WSAETIMEDOUT, .WSAECONNREFUSED, .WSAEHOSTDOWN, .WSAEHOSTUNREACH, .WSAEDISCON, .WSAHOST_NOT_FOUND, .WSATRY_AGAIN, .WSANO_RECOVERY, .WSANO_DATA => SA_STD_ERR_NET,
+        else => SA_STD_ERR_IO,
+    };
+}
+
+fn winsockFailureStatus() i32 {
+    return mapWinsockError(std.os.windows.ws2_32.WSAGetLastError());
+}
+
+fn setWindowsSocketOption(socket: std.posix.socket_t, level: i32, option: i32, value: []const u8) i32 {
+    const value_len = std.math.cast(i32, value.len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const ptr: ?[*]const u8 = if (value.len == 0) null else value.ptr;
+    if (std.os.windows.ws2_32.setsockopt(socket, level, option, ptr, value_len) == std.os.windows.ws2_32.SOCKET_ERROR) {
+        return winsockFailureStatus();
+    }
+    return SA_STD_OK;
+}
+
+fn getWindowsSocketOption(socket: std.posix.socket_t, level: i32, option: i32, value: []u8) i32 {
+    var value_len = std.math.cast(i32, value.len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    if (std.os.windows.ws2_32.getsockopt(socket, level, option, value.ptr, &value_len) == std.os.windows.ws2_32.SOCKET_ERROR) {
+        return winsockFailureStatus();
+    }
+    if (value_len != value.len) return SA_STD_ERR_IO;
+    return SA_STD_OK;
+}
+
+fn setWindowsSocketInt(socket: std.posix.socket_t, level: i32, option: i32, value: i32) i32 {
+    var mutable = value;
+    return setWindowsSocketOption(socket, level, option, std.mem.asBytes(&mutable));
+}
+
+fn getWindowsSocketInt(socket: std.posix.socket_t, level: i32, option: i32, out: *i32) i32 {
+    out.* = 0;
+    return getWindowsSocketOption(socket, level, option, std.mem.asBytes(out));
+}
+
+fn timeoutMsFromNs(timeout_ns: u64) !u32 {
+    if (timeout_ns == 0) return 0;
+    const rounded = std.math.add(u64, timeout_ns, std.time.ns_per_ms - 1) catch return error.InvalidArgument;
+    return std.math.cast(u32, rounded / std.time.ns_per_ms) orelse error.InvalidArgument;
+}
+
+fn forceWindowsSocketNonblocking(socket: std.posix.socket_t) !void {
+    var mode: u32 = 1;
+    if (std.os.windows.ws2_32.ioctlsocket(socket, std.os.windows.ws2_32.FIONBIO, &mode) == std.os.windows.ws2_32.SOCKET_ERROR) {
+        return switch (std.os.windows.ws2_32.WSAGetLastError()) {
+            .WSAENETDOWN => error.NetworkSubsystemFailed,
+            .WSAENOTSOCK => error.FileDescriptorNotASocket,
+            .WSAEFAULT, .WSAEINVAL => error.InvalidArgument,
+            else => |err| std.os.windows.unexpectedWSAError(err),
+        };
+    }
+}
+
+fn socketAddressFamily(socket: std.posix.socket_t) !u16 {
+    var address: std.net.Address = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    try std.posix.getsockname(socket, &address.any, &address_len);
+    return address.any.family;
+}
+
+fn ipTtlSocketOption(socket: std.posix.socket_t) !struct { level: i32, option: i32 } {
+    return switch (try socketAddressFamily(socket)) {
+        std.posix.AF.INET => .{ .level = std.posix.IPPROTO.IP, .option = std.os.windows.ws2_32.IP_TTL },
+        std.posix.AF.INET6 => .{ .level = 41, .option = std.os.windows.ws2_32.IPV6_UNICAST_HOPS },
+        else => error.AddressFamilyNotSupported,
+    };
+}
+
+const WindowsIpMreq = extern struct {
+    multicast: u32,
+    interface: u32,
+};
+
+const WindowsIpv6Mreq = extern struct {
+    multicast: [16]u8,
+    interface_index: u32,
+};
 
 fn registerOwnedBytes(bytes: []u8) !u64 {
     errdefer if (bytes.len != 0) std.heap.page_allocator.free(bytes);
@@ -906,6 +1396,18 @@ fn unsupportedFallible(comptime T: type) Fallible(T) {
     return .{ .status = SA_STD_ERR_UNSUPPORTED, .value = 0 };
 }
 
+fn unsupportedHandleOut(out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    return unsupported();
+}
+
+fn unsupportedI32Out(out_value: ?*i32) i32 {
+    const out = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    return unsupported();
+}
+
 pub export fn sa_http_client_resp_body_slice(_: ?*anyopaque, _: ?*?[*]const u8, _: ?*u64) u32 {
     return unsupportedU32();
 }
@@ -1384,20 +1886,34 @@ pub export fn sa_time_sleep_ms(ms: u64) i32 {
 }
 
 pub export fn sa_std_write(handle: u64, data_ptr: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    const data = constBytes(data_ptr, len) catch |err| return finishErr(err);
     if (out_written) |written| written.* = 0;
+    const data = constBytes(data_ptr, len) catch |err| return finishErr(err);
     const count = switch (handle) {
         SA_STD_STDOUT => std.io.getStdOut().write(data) catch |err| return finishErr(err),
         SA_STD_STDERR => std.io.getStdErr().write(data) catch |err| return finishErr(err),
-        else => blk: {
+        else => dynamic: {
             registry_mutex.lock();
-            defer registry_mutex.unlock();
-            const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-            break :blk switch (resource.*) {
-                .file => |file| file.write(data) catch |err| return finishErr(err),
-                .tcp_stream => |stream| stream.write(data) catch |err| return finishErr(err),
-                else => return finish(SA_STD_ERR_INVALID_HANDLE),
+            const resource = getResourceLocked(handle) orelse {
+                registry_mutex.unlock();
+                return finish(SA_STD_ERR_INVALID_HANDLE);
             };
+            switch (resource.*) {
+                .file => |file| {
+                    defer registry_mutex.unlock();
+                    break :dynamic file.write(data) catch |err| return finishErr(err);
+                },
+                .tcp_stream => |state| {
+                    const socket = retainNetworkSocket(state, .tcp_stream);
+                    registry_mutex.unlock();
+                    defer socket.release();
+                    if (data.len > std.math.maxInt(u31)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+                    break :dynamic socketSend(socket, data, 0) catch |err| return finishNetErr(err);
+                },
+                else => {
+                    registry_mutex.unlock();
+                    return finish(SA_STD_ERR_INVALID_HANDLE);
+                },
+            }
         },
     };
     if (out_written) |written| written.* = @intCast(count);
@@ -1405,19 +1921,33 @@ pub export fn sa_std_write(handle: u64, data_ptr: ?[*]const u8, len: u64, out_wr
 }
 
 pub export fn sa_std_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
-    const target = mutBytes(out, out_cap) catch |err| return finishErr(err);
     if (out_read) |read| read.* = 0;
+    const target = mutBytes(out, out_cap) catch |err| return finishErr(err);
     const count = switch (handle) {
         SA_STD_STDIN => std.io.getStdIn().read(target) catch |err| return finishErr(err),
-        else => blk: {
+        else => dynamic: {
             registry_mutex.lock();
-            defer registry_mutex.unlock();
-            const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-            break :blk switch (resource.*) {
-                .file => |file| file.read(target) catch |err| return finishErr(err),
-                .tcp_stream => |stream| stream.read(target) catch |err| return finishErr(err),
-                else => return finish(SA_STD_ERR_INVALID_HANDLE),
+            const resource = getResourceLocked(handle) orelse {
+                registry_mutex.unlock();
+                return finish(SA_STD_ERR_INVALID_HANDLE);
             };
+            switch (resource.*) {
+                .file => |file| {
+                    defer registry_mutex.unlock();
+                    break :dynamic file.read(target) catch |err| return finishErr(err);
+                },
+                .tcp_stream => |state| {
+                    const socket = retainNetworkSocket(state, .tcp_stream);
+                    registry_mutex.unlock();
+                    defer socket.release();
+                    if (target.len > std.math.maxInt(u31)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+                    break :dynamic socketRecv(socket, target, 0) catch |err| return finishNetErr(err);
+                },
+                else => {
+                    registry_mutex.unlock();
+                    return finish(SA_STD_ERR_INVALID_HANDLE);
+                },
+            }
         },
     };
     if (out_read) |read| read.* = @intCast(count);
@@ -2808,115 +3338,227 @@ pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_han
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_connect(_: ?[*]const u8, _: u64, _: u32) Fallible(u64) {
-    return unsupportedFallible(u64);
+pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) Fallible(u64) {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
+    if (status != SA_STD_OK) return .{ .status = status, .value = 0 };
+    return .{ .status = SA_STD_OK, .value = handle };
 }
 
-pub export fn sa_std_net_to_socket_addr_first(_: ?[*]const u8, _: u64, _: u32, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishNetErr(err);
+    return registerNetAddrOut(address, out);
 }
 
-pub export fn sa_std_net_tcp_stream_read(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    const buffer = windowsNetworkBytesMut(out, cap) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const read = socketRecv(handle, buffer, 0) catch |err| return finishNetErr(err);
+    read_ptr.* = @intCast(read);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_stream_read(_: u64, _: ?[*]u8, _: u64) Fallible(u64) {
-    return unsupportedFallible(u64);
+pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) {
+    var read: u64 = 0;
+    const status = sa_std_net_tcp_stream_read(stream, out, cap, &read);
+    return .{ .status = status, .value = if (status == SA_STD_OK) read else 0 };
 }
 
-pub export fn sa_std_net_tcp_stream_peek(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    const buffer = windowsNetworkBytesMut(out, cap) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const read = socketRecv(handle, buffer, std.os.windows.ws2_32.MSG.PEEK) catch |err| return finishNetErr(err);
+    read_ptr.* = @intCast(read);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_stream_peek(_: u64, _: ?[*]u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, read) orelse return finish(SA_STD_ERR_TRUNCATED));
 }
 
-pub export fn sa_std_net_tcp_stream_write(_: u64, _: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_write(stream: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    const bytes = windowsNetworkBytesConst(buf, len) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const written = socketSend(handle, bytes, 0) catch |err| return finishNetErr(err);
+    written_ptr.* = @intCast(written);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_stream_write(_: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_write(stream: u64, buf: ?[*]const u8, len: u64) i32 {
+    var written: u64 = 0;
+    const status = sa_std_net_tcp_stream_write(stream, buf, len, &written);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, written) orelse return finish(SA_STD_ERR_TRUNCATED));
 }
 
-pub export fn sa_net_tcp_stream_write_all(_: u64, _: ?[*]const u8, _: u64) Fallible(i32) {
-    return unsupportedFallible(i32);
+pub export fn sa_net_tcp_stream_write_all(stream: u64, buf: ?[*]const u8, len: u64) Fallible(i32) {
+    const bytes = windowsNetworkBytesConst(buf, len) catch |err| {
+        const status = finishNetErr(err);
+        return .{ .status = status, .value = 0 };
+    };
+    const handle = ensureSocketHandle(stream) catch |err| {
+        const status = finishNetErr(err);
+        return .{ .status = status, .value = 0 };
+    };
+    defer handle.release();
+    if (handle.kind != .tcp_stream) {
+        const status = finish(SA_STD_ERR_INVALID_HANDLE);
+        return .{ .status = status, .value = 0 };
+    }
+    var written: usize = 0;
+    while (written < bytes.len) {
+        const amount = socketSend(handle, bytes[written..], 0) catch |err| {
+            const status = finishNetErr(err);
+            return .{ .status = status, .value = 0 };
+        };
+        if (amount == 0) {
+            const status = finish(SA_STD_ERR_IO);
+            return .{ .status = status, .value = 0 };
+        }
+        written += amount;
+    }
+    return .{ .status = finish(SA_STD_OK), .value = 0 };
 }
 
-pub export fn sa_net_tcp_stream_flush(_: u64) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_tcp_stream_peer_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+fn tcpStreamAddress(stream: u64, peer: bool, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    if (peer) {
+        std.posix.getpeername(handle.socket, &address.any, &address_len) catch |err| return finishNetErr(err);
+    } else {
+        std.posix.getsockname(handle.socket, &address.any, &address_len) catch |err| return finishNetErr(err);
+    }
+    return registerNetAddrOut(address, out);
 }
 
-pub export fn sa_std_net_tcp_stream_local_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
+    return tcpStreamAddress(stream, true, out_handle);
 }
 
-pub export fn sa_net_tcp_stream_peer_addr(_: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
+    return tcpStreamAddress(stream, false, out_handle);
 }
 
-pub export fn sa_net_tcp_stream_shutdown(_: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_stream_peer_addr(stream, &handle);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, handle) orelse return finish(SA_STD_ERR_IO));
 }
 
-pub export fn sa_net_tcp_stream_set_read_timeout(_: u64, _: u64) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const shutdown_how: std.posix.ShutdownHow = switch (how) {
+        0 => .recv,
+        1 => .send,
+        2 => .both,
+        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+    };
+    std.posix.shutdown(handle.socket, shutdown_how) catch |err| return finishNetErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_stream_set_write_timeout(_: u64, _: u64) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    return sa_std_net_tcp_stream_set_read_timeout(stream, timeout_ns);
 }
 
-pub export fn sa_net_tcp_stream_set_nonblocking(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    return sa_std_net_tcp_stream_set_write_timeout(stream, timeout_ns);
 }
 
-pub export fn sa_net_tcp_stream_set_nodelay(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    return sa_std_net_tcp_stream_set_nonblocking(stream, enabled);
 }
 
-pub export fn sa_net_tcp_stream_set_ttl(_: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    return sa_std_net_tcp_stream_set_nodelay(stream, enabled);
 }
 
-pub export fn sa_net_tcp_stream_close(_: u64) Fallible(i32) {
-    return unsupportedFallible(i32);
+pub export fn sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    return sa_std_net_tcp_stream_set_ttl(stream, ttl);
 }
 
-pub export fn sa_net_tcp_listener_bind(_: ?[*]const u8, _: u64, _: u16) Fallible(u64) {
-    return unsupportedFallible(u64);
+pub export fn sa_net_tcp_stream_close(stream: u64) Fallible(i32) {
+    const status = sa_std_close(stream);
+    return .{ .status = status, .value = 0 };
 }
 
-pub export fn sa_net_tcp_listener_accept(_: u64) Fallible(u64) {
-    return unsupportedFallible(u64);
+pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) Fallible(u64) {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_listen(host_ptr, host_len, port, &handle, null);
+    return .{ .status = status, .value = if (status == SA_STD_OK) handle else 0 };
 }
 
-pub export fn sa_net_tcp_listener_local_addr(_: u64) Fallible(u64) {
-    return unsupportedFallible(u64);
+pub export fn sa_net_tcp_listener_accept(listener: u64) Fallible(u64) {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_accept(listener, &handle);
+    return .{ .status = status, .value = if (status == SA_STD_OK) handle else 0 };
 }
 
-pub export fn sa_net_tcp_listener_close(_: u64) Fallible(i32) {
-    return unsupportedFallible(i32);
+pub export fn sa_net_tcp_listener_local_addr(listener: u64) Fallible(u64) {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_listener_local_addr(listener, &handle);
+    return .{ .status = status, .value = if (status == SA_STD_OK) handle else 0 };
 }
 
-pub export fn sa_std_net_tcp_stream_set_nonblocking(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {
+    const status = sa_std_close(listener);
+    return .{ .status = status, .value = 0 };
 }
 
-pub export fn sa_std_net_tcp_stream_set_nodelay(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    handle.state.setLogicalNonblocking(enabled != 0);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(setWindowsSocketInt(handle.socket, std.posix.IPPROTO.TCP, std.os.windows.ws2_32.TCP.NODELAY, if (enabled != 0) 1 else 0));
 }
 
 pub export fn sa_std_net_tcp_stream_set_quickack(_: u64, _: i32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_stream_quickack(_: u64, _: ?*i32) i32 {
+pub export fn sa_std_net_tcp_stream_quickack(_: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     return unsupported();
 }
 
@@ -2924,332 +3566,877 @@ pub export fn sa_std_net_tcp_stream_set_deferaccept(_: u64, _: u32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_stream_deferaccept(_: u64, _: ?*u32) i32 {
+pub export fn sa_std_net_tcp_stream_deferaccept(_: u64, out_seconds: ?*u32) i32 {
+    const out = out_seconds orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_stream_set_keepalive(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(setWindowsSocketInt(handle.socket, std.os.windows.ws2_32.SOL.SOCKET, std.os.windows.ws2_32.SO.KEEPALIVE, if (enabled != 0) 1 else 0));
 }
 
 pub export fn sa_std_net_tcp_stream_set_keepalive_params(_: u64, _: u32, _: u32, _: u32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_listener_set_reuseaddr(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(setWindowsSocketInt(handle.socket, std.os.windows.ws2_32.SOL.SOCKET, std.os.windows.ws2_32.SO.REUSEADDR, if (enabled != 0) 1 else 0));
 }
 
 pub export fn sa_std_net_tcp_listener_set_reuseport(_: u64, _: i32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_stream_set_read_timeout(_: u64, _: u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_set_write_timeout(_: u64, _: u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_set_ttl(_: u64, _: u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_read_timeout(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_write_timeout(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_nodelay(_: u64, _: ?*i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_ttl(_: u64, _: ?*u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_stream_take_error(_: u64, _: ?*i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_listener_set_nonblocking(_: u64, _: i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_listener_set_ttl(_: u64, _: u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_listener_ttl(_: u64, _: ?*u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_tcp_listener_take_error(_: u64, _: ?*i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_udp_bind(_: ?[*]const u8, _: u64, _: u32, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_udp_from_raw_fd(_: i32, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_udp_local_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_udp_peer_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_udp_connect(_: u64, _: ?[*]const u8, _: u64, _: u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_read_timeout(_: u64, _: u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_write_timeout(_: u64, _: u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_nonblocking(_: u64, _: i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_broadcast(_: u64, _: i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_ttl(_: u64, _: u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_multicast_loop_v4(_: u64, _: i32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_set_multicast_ttl_v4(_: u64, _: u32) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_join_multicast_v4(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_net_udp_leave_multicast_v4(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const timeout_ms = timeoutMsFromNs(timeout_ns) catch |err| return finishNetErr(err);
+    handle.state.setTimeoutMs(.read, timeout_ms);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const timeout_ms = timeoutMsFromNs(timeout_ns) catch |err| return finishNetErr(err);
+    handle.state.setTimeoutMs(.write, timeout_ms);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = std.math.cast(i32, ttl) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const option = ipTtlSocketOption(handle.socket) catch |err| return finishNetErr(err);
+    return finish(setWindowsSocketInt(handle.socket, option.level, option.option, value));
+}
+
+pub export fn sa_std_net_tcp_stream_read_timeout(stream: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = @as(u64, handle.state.timeoutMs(.read)) * std.time.ns_per_ms;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_write_timeout(stream: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = @as(u64, handle.state.timeoutMs(.write)) * std.time.ns_per_ms;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_nodelay(stream: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const status = getWindowsSocketInt(handle.socket, std.posix.IPPROTO.TCP, std.os.windows.ws2_32.TCP.NODELAY, out);
+    if (status == SA_STD_OK) out.* = if (out.* != 0) 1 else 0;
+    return finish(status);
+}
+
+pub export fn sa_std_net_tcp_stream_ttl(stream: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const option = ipTtlSocketOption(handle.socket) catch |err| return finishNetErr(err);
+    var value: i32 = 0;
+    const status = getWindowsSocketInt(handle.socket, option.level, option.option, &value);
+    if (status != SA_STD_OK) return finish(status);
+    if (value < 0) return finish(SA_STD_ERR_IO);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
+}
+
+fn socketTakeError(handle: SocketHandle, expected_kind: SocketKind, out_error: ?*i32) i32 {
+    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    if (handle.kind != expected_kind) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(getWindowsSocketInt(handle.socket, std.os.windows.ws2_32.SOL.SOCKET, std.os.windows.ws2_32.SO.ERROR, out));
+}
+
+pub export fn sa_std_net_tcp_stream_take_error(stream: u64, out_error: ?*i32) i32 {
+    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishNetErr(err);
+    defer handle.release();
+    return socketTakeError(handle, .tcp_stream, out);
+}
+
+pub export fn sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    handle.state.setLogicalNonblocking(enabled != 0);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) i32 {
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = std.math.cast(i32, ttl) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const option = ipTtlSocketOption(handle.socket) catch |err| return finishNetErr(err);
+    return finish(setWindowsSocketInt(handle.socket, option.level, option.option, value));
 }
 
-pub export fn sa_net_udp_join_multicast_v6(_: u64, _: ?[*]const u8, _: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_listener_ttl(listener: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const option = ipTtlSocketOption(handle.socket) catch |err| return finishNetErr(err);
+    var value: i32 = 0;
+    const status = getWindowsSocketInt(handle.socket, option.level, option.option, &value);
+    if (status != SA_STD_OK) return finish(status);
+    if (value < 0) return finish(SA_STD_ERR_IO);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_udp_leave_multicast_v6(_: u64, _: ?[*]const u8, _: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_std_net_tcp_listener_take_error(listener: u64, out_error: ?*i32) i32 {
+    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    return socketTakeError(handle, .tcp_listener, out);
 }
 
-pub export fn sa_std_net_udp_set_nonblocking(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishNetErr(err);
+    const socket = std.posix.socket(address.any.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC | std.posix.SOCK.NONBLOCK, std.posix.IPPROTO.UDP) catch |err| return finishNetErr(err);
+    errdefer (std.net.Stream{ .handle = socket }).close();
+    std.posix.bind(socket, &address.any, address.getOsSockLen()) catch |err| return finishNetErr(err);
+    out.* = registerNetworkSocket(socket, .udp_socket) catch |err| return finishNetErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_udp_set_broadcast(_: u64, _: i32) i32 {
+pub export fn sa_std_net_udp_from_raw_fd(_: i32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     return unsupported();
 }
 
-pub export fn sa_std_net_udp_set_ttl(_: u64, _: u32) i32 {
-    return unsupported();
+fn udpSocketAddress(socket_handle: u64, peer: bool, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket_handle) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    if (peer) {
+        std.posix.getpeername(handle.socket, &address.any, &address_len) catch |err| return finishNetErr(err);
+    } else {
+        std.posix.getsockname(handle.socket, &address.any, &address_len) catch |err| return finishNetErr(err);
+    }
+    return registerNetAddrOut(address, out);
 }
 
-pub export fn sa_std_net_udp_set_read_timeout(_: u64, _: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
+    return udpSocketAddress(socket, false, out_handle);
 }
 
-pub export fn sa_std_net_udp_set_write_timeout(_: u64, _: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
+    return udpSocketAddress(socket, true, out_handle);
 }
 
-pub export fn sa_std_net_udp_read_timeout(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_connect(socket_handle: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
+    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(socket_handle) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    std.posix.connect(handle.socket, &address.any, address.getOsSockLen()) catch |err| return finishNetErr(err);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_udp_write_timeout(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    return sa_std_net_udp_set_read_timeout(socket, timeout_ns);
 }
 
-pub export fn sa_std_net_udp_broadcast(_: u64, _: ?*i32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    return sa_std_net_udp_set_write_timeout(socket, timeout_ns);
 }
 
-pub export fn sa_std_net_udp_set_multicast_loop_v4(_: u64, _: i32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    return sa_std_net_udp_set_nonblocking(socket, enabled);
 }
 
-pub export fn sa_std_net_udp_set_multicast_ttl_v4(_: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    return sa_std_net_udp_set_broadcast(socket, enabled);
 }
 
-pub export fn sa_std_net_udp_multicast_loop_v4(_: u64, _: ?*i32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    return sa_std_net_udp_set_ttl(socket, ttl);
 }
 
-pub export fn sa_std_net_udp_multicast_ttl_v4(_: u64, _: ?*u32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    return sa_std_net_udp_set_multicast_loop_v4(socket, enabled);
 }
 
-pub export fn sa_std_net_udp_join_multicast_v4(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    return sa_std_net_udp_set_multicast_ttl_v4(socket, ttl);
 }
 
-pub export fn sa_std_net_udp_leave_multicast_v4(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    return sa_std_net_udp_join_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
 }
 
-pub export fn sa_std_net_udp_join_multicast_v6(_: u64, _: ?[*]const u8, _: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    return sa_std_net_udp_leave_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
 }
 
-pub export fn sa_std_net_udp_leave_multicast_v6(_: u64, _: ?[*]const u8, _: u64, _: u32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    return sa_std_net_udp_join_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
 }
 
-pub export fn sa_std_net_udp_ttl(_: u64, _: ?*u32) i32 {
-    return unsupported();
+pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    return sa_std_net_udp_leave_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
 }
 
-pub export fn sa_std_net_udp_take_error(_: u64, _: ?*i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    handle.state.setLogicalNonblocking(enabled != 0);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_udp_send(_: u64, _: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(setWindowsSocketInt(handle.socket, std.os.windows.ws2_32.SOL.SOCKET, std.os.windows.ws2_32.SO.BROADCAST, if (enabled != 0) 1 else 0));
 }
 
-pub export fn sa_std_net_udp_recv(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = std.math.cast(i32, ttl) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const option = ipTtlSocketOption(handle.socket) catch |err| return finishNetErr(err);
+    return finish(setWindowsSocketInt(handle.socket, option.level, option.option, value));
 }
 
-pub export fn sa_std_net_udp_peek(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const timeout_ms = timeoutMsFromNs(timeout_ns) catch |err| return finishNetErr(err);
+    handle.state.setTimeoutMs(.read, timeout_ms);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_udp_send_to(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64, _: u32, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const timeout_ms = timeoutMsFromNs(timeout_ns) catch |err| return finishNetErr(err);
+    handle.state.setTimeoutMs(.write, timeout_ms);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_udp_recv_from(_: u64, _: ?[*]u8, _: u64, _: ?*u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_read_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = @as(u64, handle.state.timeoutMs(.read)) * std.time.ns_per_ms;
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_udp_peek_from(_: u64, _: ?[*]u8, _: u64, _: ?*u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_write_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = @as(u64, handle.state.timeoutMs(.write)) * std.time.ns_per_ms;
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_udp_bind(_: ?[*]const u8, _: u64, _: u16) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const status = getWindowsSocketInt(handle.socket, std.os.windows.ws2_32.SOL.SOCKET, std.os.windows.ws2_32.SO.BROADCAST, out);
+    if (status == SA_STD_OK) out.* = if (out.* != 0) 1 else 0;
+    return finish(status);
 }
 
-pub export fn sa_net_udp_connect(_: u64, _: ?[*]const u8, _: u64, _: u16) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(setWindowsSocketInt(handle.socket, std.os.windows.ws2_32.IPPROTO.IP, std.os.windows.ws2_32.IP_MULTICAST_LOOP, if (enabled != 0) 1 else 0));
 }
 
-pub export fn sa_net_udp_local_addr(_: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    if (ttl > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    return finish(setWindowsSocketInt(handle.socket, std.os.windows.ws2_32.IPPROTO.IP, std.os.windows.ws2_32.IP_MULTICAST_TTL, @intCast(ttl)));
 }
 
-pub export fn sa_net_udp_send(_: u64, _: ?[*]const u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const status = getWindowsSocketInt(handle.socket, std.os.windows.ws2_32.IPPROTO.IP, std.os.windows.ws2_32.IP_MULTICAST_LOOP, out);
+    if (status == SA_STD_OK) out.* = if (out.* != 0) 1 else 0;
+    return finish(status);
 }
 
-pub export fn sa_net_udp_recv(_: u64, _: ?[*]u8, _: u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    var value: i32 = 0;
+    const status = getWindowsSocketInt(handle.socket, std.os.windows.ws2_32.IPPROTO.IP, std.os.windows.ws2_32.IP_MULTICAST_TTL, &value);
+    if (status != SA_STD_OK) return finish(status);
+    if (value < 0) return finish(SA_STD_ERR_IO);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_udp_peek(_: u64, _: ?[*]u8, _: u64) i32 {
-    return unsupported();
+fn parseMulticastAddress(host_ptr: ?[*]const u8, host_len: u64, ipv6: bool) !std.net.Address {
+    const host = try hostBytes(host_ptr, host_len);
+    return if (ipv6) try std.net.Address.parseIp6(host, 0) else try std.net.Address.parseIp4(host, 0);
 }
 
-pub export fn sa_net_udp_send_to(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64, _: u16) i32 {
-    return unsupported();
+fn updateMulticastV4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64, join: bool) i32 {
+    const multicast = parseMulticastAddress(multi_host_ptr, multi_host_len, false) catch |err| return finishNetErr(err);
+    const interface = parseMulticastAddress(interface_host_ptr, interface_host_len, false) catch |err| return finishNetErr(err);
+    var membership = WindowsIpMreq{
+        .multicast = multicast.in.sa.addr,
+        .interface = interface.in.sa.addr,
+    };
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const option: i32 = if (join) std.os.windows.ws2_32.IP_ADD_MEMBERSHIP else std.os.windows.ws2_32.IP_DROP_MEMBERSHIP;
+    return finish(setWindowsSocketOption(handle.socket, std.os.windows.ws2_32.IPPROTO.IP, option, std.mem.asBytes(&membership)));
 }
 
-pub export fn sa_net_udp_recv_from(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    return updateMulticastV4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len, true);
 }
 
-pub export fn sa_net_udp_peek_from(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    return updateMulticastV4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len, false);
 }
 
-pub export fn sa_net_udp_close(_: u64) i32 {
-    return unsupported();
+fn updateMulticastV6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32, join: bool) i32 {
+    const multicast = parseMulticastAddress(multi_host_ptr, multi_host_len, true) catch |err| return finishNetErr(err);
+    var membership = WindowsIpv6Mreq{
+        .multicast = multicast.in6.sa.addr,
+        .interface_index = interface_index,
+    };
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const option: i32 = if (join) std.os.windows.ws2_32.IPV6_ADD_MEMBERSHIP else std.os.windows.ws2_32.IPV6_DROP_MEMBERSHIP;
+    return finish(setWindowsSocketOption(handle.socket, 41, option, std.mem.asBytes(&membership)));
 }
 
-pub export fn sa_net_addr_host(_: u64) ?[*]u8 {
-    return null;
+pub export fn sa_std_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    return updateMulticastV6(socket, multi_host_ptr, multi_host_len, interface_index, true);
 }
 
-pub export fn sa_net_addr_host_len(_: u64) u64 {
-    return unsupportedU64();
+pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    return updateMulticastV6(socket, multi_host_ptr, multi_host_len, interface_index, false);
 }
 
-pub export fn sa_net_addr_port(_: u64) u32 {
-    return unsupportedU32();
+pub export fn sa_std_net_udp_ttl(socket: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const option = ipTtlSocketOption(handle.socket) catch |err| return finishNetErr(err);
+    var value: i32 = 0;
+    const status = getWindowsSocketInt(handle.socket, option.level, option.option, &value);
+    if (status != SA_STD_OK) return finish(status);
+    if (value < 0) return finish(SA_STD_ERR_IO);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_addr_family(_: u64) u32 {
-    return unsupportedU32();
+pub export fn sa_std_net_udp_take_error(socket: u64, out_error: ?*i32) i32 {
+    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    return socketTakeError(handle, .udp_socket, out);
 }
 
-pub export fn sa_net_addr_scope_id(_: u64) u64 {
-    return unsupportedU64();
+pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const bytes = windowsNetworkBytesConst(buf, len) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const written = socketSend(handle, bytes, 0) catch |err| return finishNetErr(err);
+    out.* = @intCast(written);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_addr_format(_: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+fn udpRecv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, flags: u32) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    const buffer = windowsNetworkBytesMut(out, cap) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const read = socketRecv(handle, buffer, flags) catch |err| return finishNetErr(err);
+    read_ptr.* = @intCast(read);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_addr_free(_: u64) Fallible(i32) {
-    return unsupportedFallible(i32);
+pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    return udpRecv(socket, out, cap, out_read, 0);
 }
 
-pub export fn sa_net_ipv4_parse_ascii(_: ?[*]const u8, _: u64, _: ?[*]u8) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    return udpRecv(socket, out, cap, out_read, std.os.windows.ws2_32.MSG.PEEK);
 }
 
-pub export fn sa_net_socket_addr_v4_parse_ascii(_: ?[*]const u8, _: u64, _: ?[*]u8) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const bytes = windowsNetworkBytesConst(buf, len) catch |err| return finishNetErr(err);
+    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const written = socketSendTo(handle, bytes, 0, &address) catch |err| return finishNetErr(err);
+    out.* = @intCast(written);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_ipv6_parse_ascii(_: ?[*]const u8, _: u64, _: ?[*]u8) i32 {
-    return unsupported();
+fn udpRecvFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64, flags: u32) i32 {
+    const read_ptr = out_read orelse {
+        if (out_addr) |address| address.* = 0;
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    read_ptr.* = 0;
+    if (out_addr) |address| address.* = 0;
+    const buffer = windowsNetworkBytesMut(out, cap) catch |err| return finishNetErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    const read = socketRecvFrom(handle, buffer, flags, &address, &address_len) catch |err| return finishNetErr(err);
+    if (out_addr) |address_out| {
+        const status = registerNetAddrOut(address, address_out);
+        if (status != SA_STD_OK) return status;
+    }
+    read_ptr.* = @intCast(read);
+    return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_socket_addr_v6_parse_ascii(_: ?[*]const u8, _: u64, _: ?[*]u8) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    return udpRecvFrom(socket, out, cap, out_read, out_addr, 0);
 }
 
-pub export fn sa_net_ipv4_format_ascii(_: ?[*]const u8, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    return udpRecvFrom(socket, out, cap, out_read, out_addr, std.os.windows.ws2_32.MSG.PEEK);
 }
 
-pub export fn sa_net_ipv6_format_ascii(_: ?[*]const u8, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_udp_bind(host_ptr, host_len, port, &handle);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, handle) orelse return finish(SA_STD_ERR_IO));
 }
 
-pub export fn sa_net_socket_addr_v4_format_ascii(_: ?[*]const u8, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    return sa_std_net_udp_connect(socket, host_ptr, host_len, port);
 }
 
-pub export fn sa_net_socket_addr_v6_format_ascii(_: ?[*]const u8, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_net_udp_local_addr(socket: u64) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_udp_local_addr(socket, &handle);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, handle) orelse return finish(SA_STD_ERR_IO));
+}
+
+pub export fn sa_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64) i32 {
+    var written: u64 = 0;
+    const status = sa_std_net_udp_send(socket, buf, len, &written);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, written) orelse return finish(SA_STD_ERR_TRUNCATED));
+}
+
+pub export fn sa_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_udp_recv(socket, out, cap, &read);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, read) orelse return finish(SA_STD_ERR_TRUNCATED));
+}
+
+pub export fn sa_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_udp_peek(socket, out, cap, &read);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, read) orelse return finish(SA_STD_ERR_TRUNCATED));
+}
+
+pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    var written: u64 = 0;
+    const status = sa_std_net_udp_send_to(socket, buf, len, host_ptr, host_len, port, &written);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, written) orelse return finish(SA_STD_ERR_TRUNCATED));
+}
+
+pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_udp_recv_from(socket, out, cap, &read, out_addr);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, read) orelse return finish(SA_STD_ERR_TRUNCATED));
+}
+
+pub export fn sa_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_udp_peek_from(socket, out, cap, &read, out_addr);
+    if (status != SA_STD_OK) return status;
+    return finish(std.math.cast(i32, read) orelse return finish(SA_STD_ERR_TRUNCATED));
+}
+
+pub export fn sa_net_udp_close(socket: u64) i32 {
+    return sa_std_close(socket);
+}
+
+pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return null;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| blk: {
+            _ = finish(SA_STD_OK);
+            break :blk net_addr.host.ptr;
+        },
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return null;
+        },
+    };
+}
+
+pub export fn sa_net_addr_host_len(addr: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| blk: {
+            _ = finish(SA_STD_OK);
+            break :blk @intCast(net_addr.host.len);
+        },
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+
+pub export fn sa_net_addr_port(addr: u64) u32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| blk: {
+            _ = finish(SA_STD_OK);
+            break :blk net_addr.address.getPort();
+        },
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+
+pub export fn sa_net_addr_family(addr: u64) u32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| switch (net_addr.address.any.family) {
+            std.posix.AF.INET => blk: {
+                _ = finish(SA_STD_OK);
+                break :blk 2;
+            },
+            std.posix.AF.INET6 => blk: {
+                _ = finish(SA_STD_OK);
+                break :blk 10;
+            },
+            else => blk: {
+                _ = finish(SA_STD_ERR_UNSUPPORTED);
+                break :blk 0;
+            },
+        },
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+
+pub export fn sa_net_addr_scope_id(addr: u64) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse {
+        _ = finish(SA_STD_ERR_INVALID_HANDLE);
+        return 0;
+    };
+    return switch (resource.*) {
+        .net_addr => |net_addr| blk: {
+            _ = finish(SA_STD_OK);
+            break :blk switch (net_addr.address.any.family) {
+                std.posix.AF.INET6 => net_addr.address.in6.sa.scope_id,
+                else => 0,
+            };
+        },
+        else => {
+            _ = finish(SA_STD_ERR_INVALID_HANDLE);
+            return 0;
+        },
+    };
+}
+
+pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_ptr.* = 0;
+    const buffer = mutBytes(out, out_cap) catch |err| return finishNetErr(err);
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(addr) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const address = switch (resource.*) {
+        .net_addr => |net_addr| net_addr.address,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const text = std.fmt.bufPrint(buffer, "{}", .{address}) catch |err| {
+        return finish(if (err == error.NoSpaceLeft) SA_STD_ERR_TRUNCATED else mapNetworkError(err));
+    };
+    len_ptr.* = @intCast(text.len);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_net_addr_free(addr: u64) Fallible(i32) {
+    const status = sa_std_close(addr);
+    return .{ .status = status, .value = 0 };
+}
+
+fn parseIpv4Ascii(text: []const u8) ?[4]u8 {
+    var parts: [4]u8 = undefined;
+    var index: usize = 0;
+    for (0..4) |part_index| {
+        if (index >= text.len) return null;
+        var value: u32 = 0;
+        var digits: usize = 0;
+        while (index < text.len and text[index] != '.') : (index += 1) {
+            const byte = text[index];
+            if (byte < '0' or byte > '9') return null;
+            value = value * 10 + byte - '0';
+            if (value > std.math.maxInt(u8)) return null;
+            digits += 1;
+        }
+        if (digits == 0) return null;
+        parts[part_index] = @intCast(value);
+        if (part_index < 3) {
+            if (index >= text.len or text[index] != '.') return null;
+            index += 1;
+        }
+    }
+    if (index != text.len) return null;
+    return parts;
+}
+
+fn parsePortAscii(text: []const u8) ?u16 {
+    if (text.len == 0) return null;
+    var value: u32 = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return null;
+        value = value * 10 + byte - '0';
+        if (value > std.math.maxInt(u16)) return null;
+    }
+    return @intCast(value);
+}
+
+pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
+    const out = out_addr orelse return 0;
+    @memset(out[0..4], 0);
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const parts = parseIpv4Ascii(text) orelse return 0;
+    @memcpy(out[0..4], &parts);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
+    const out = out_socket_addr orelse return 0;
+    @memset(out[0..8], 0);
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return 0;
+    const ip = parseIpv4Ascii(text[0..colon]) orelse return 0;
+    const port = parsePortAscii(text[colon + 1 ..]) orelse return 0;
+    @memcpy(out[0..4], &ip);
+    std.mem.writeInt(u16, out[4..6], port, .little);
+    return 1;
+}
+
+fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
+    for (0..8) |index| {
+        const segment = std.mem.readInt(u16, octets[index * 2 ..][0..2], .big);
+        std.mem.writeInt(u16, out[index * 2 ..][0..2], segment, .little);
+    }
+}
+
+fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
+    const parsed = std.net.Ip6Address.parse(text, 0) catch return null;
+    return .{ .octets = parsed.sa.addr, .scope_id = parsed.sa.scope_id };
+}
+
+fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: u16, scope_id: u32 } {
+    if (text.len < 4 or text[0] != '[') return null;
+    const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return null;
+    if (close == 0 or close + 1 >= text.len or text[close + 1] != ':') return null;
+    const parsed = parseIpv6Ascii(text[1..close]) orelse return null;
+    return .{
+        .octets = parsed.octets,
+        .port = parsePortAscii(text[close + 2 ..]) orelse return null,
+        .scope_id = parsed.scope_id,
+    };
+}
+
+pub export fn sa_net_ipv6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
+    const out = out_addr orelse return 0;
+    @memset(out[0..16], 0);
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const parsed = parseIpv6Ascii(text) orelse return 0;
+    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
+    const out = out_socket_addr orelse return 0;
+    @memset(out[0..32], 0);
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const parsed = parseSocketAddrV6Ascii(text) orelse return 0;
+    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
+    std.mem.writeInt(u16, out[16..18], parsed.port, .little);
+    std.mem.writeInt(u32, out[24..28], parsed.scope_id, .little);
+    return 1;
+}
+
+fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
+    var segments: [8]u16 = undefined;
+    for (0..8) |index| {
+        segments[index] = std.mem.readInt(u16, raw[index * 2 ..][0..2], .little);
+    }
+    return segments;
+}
+
+fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
+    return std.fmt.bufPrint(buffer, "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}", .{
+        segments[0], segments[1], segments[2], segments[3], segments[4], segments[5], segments[6], segments[7],
+    });
+}
+
+pub export fn sa_net_ipv4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}", .{ addr[0], addr[1], addr[2], addr[3] }) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+pub export fn sa_net_ipv6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    var raw: [16]u8 = undefined;
+    @memcpy(&raw, addr[0..16]);
+    const segments = readIpv6SegmentsNative(&raw);
+    const text = formatIpv6Segments(buffer, &segments) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    const port = std.mem.readInt(u16, addr[4..6], .little);
+    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}:{d}", .{ addr[0], addr[1], addr[2], addr[3], port }) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    var raw: [16]u8 = undefined;
+    @memcpy(&raw, addr[0..16]);
+    const segments = readIpv6SegmentsNative(&raw);
+    const port = std.mem.readInt(u16, addr[16..18], .little);
+    const scope_id = std.mem.readInt(u32, addr[24..28], .little);
+    var ip_buffer: [64]u8 = undefined;
+    const ip = formatIpv6Segments(&ip_buffer, &segments) catch return 0;
+    const text = if (scope_id == 0)
+        std.fmt.bufPrint(buffer, "[{s}]:{d}", .{ ip, port }) catch return 0
+    else
+        std.fmt.bufPrint(buffer, "[{s}%{d}]:{d}", .{ ip, scope_id, port }) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
 }
 
 pub export fn sa_fmt_i64(_: i64, _: u32) u64 {
@@ -3448,115 +4635,167 @@ pub export fn sa_fmt_buffer_free(_: u64) i32 {
 
 pub export fn sa_print_bytes(_: ?[*]const u8, _: u64) void {}
 
-pub export fn sa_std_net_tcp_listen(_: ?[*]const u8, _: u64, _: u32, _: ?*u64, _: ?*u32) i32 {
+pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64, out_bound_port: ?*u32) i32 {
+    const out = out_handle orelse {
+        if (out_bound_port) |bound_port| bound_port.* = 0;
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    out.* = 0;
+    if (out_bound_port) |bound_port| bound_port.* = 0;
+    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishNetErr(err);
+    var server = address.listen(.{ .reuse_address = true, .force_nonblocking = true }) catch |err| return finishNetErr(err);
+    errdefer server.deinit();
+    const handle = registerNetworkSocket(server.stream.handle, .tcp_listener) catch |err| return finishNetErr(err);
+    out.* = handle;
+    if (out_bound_port) |bound_port| bound_port.* = server.listen_address.getPort();
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_accept(listener: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const accepted_socket = socketAccept(handle) catch |err| return finishNetErr(err);
+    errdefer (std.net.Stream{ .handle = accepted_socket }).close();
+    out.* = registerNetworkSocket(accepted_socket, .tcp_stream) catch |err| return finishNetErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listener_local_addr(listener: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(listener) catch |err| return finishNetErr(err);
+    defer handle.release();
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    std.posix.getsockname(handle.socket, &address.any, &address_len) catch |err| return finishNetErr(err);
+    return registerNetAddrOut(address, out);
+}
+
+pub export fn sa_std_net_tcp_listener_from_raw_fd(_: i32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_accept(_: u64, _: ?*u64) i32 {
+pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const host = hostBytes(host_ptr, host_len) catch |err| return finishNetErr(err);
+    const port16 = portFromU32(port) catch |err| return finishNetErr(err);
+    const stream = std.net.tcpConnectToHost(std.heap.page_allocator, host, port16) catch |err| return finishNetErr(err);
+    errdefer stream.close();
+    out.* = registerNetworkSocket(stream.handle, .tcp_stream) catch |err| return finishNetErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_from_raw_fd(_: i32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_listener_local_addr(_: u64, _: ?*u64) i32 {
+pub export fn sa_std_net_unix_listen(_: ?[*]const u8, _: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
+}
+
+pub export fn sa_std_net_unix_addr_from_abstract_name(_: ?[*]const u8, _: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
+}
+
+pub export fn sa_std_net_unix_addr_from_pathname(_: ?[*]const u8, _: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
+}
+
+pub export fn sa_std_net_unix_listen_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
+}
+
+pub export fn sa_std_net_unix_accept(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
+}
+
+pub export fn sa_std_net_unix_accept_addr(_: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    if (out_stream) |out| out.* = 0;
+    if (out_addr) |out| out.* = 0;
+    if (out_stream == null or out_addr == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_listener_from_raw_fd(_: i32, _: ?*u64) i32 {
+pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    if (out_left) |out| out.* = 0;
+    if (out_right) |out| out.* = 0;
+    if (out_left == null or out_right == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
-pub export fn sa_std_net_tcp_connect(_: ?[*]const u8, _: u64, _: u32, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_listener_local_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_tcp_stream_from_raw_fd(_: i32, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_listener_try_clone(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_listen(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_listener_from_raw_fd(_: i32, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_addr_from_abstract_name(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_stream_local_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_addr_from_pathname(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_stream_try_clone(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_listen_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_stream_from_raw_fd(_: i32, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_accept(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_accept_addr(_: u64, _: ?*u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_pair(_: ?*u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_listener_local_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_listener_try_clone(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_listener_from_raw_fd(_: i32, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_stream_local_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_stream_try_clone(_: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_stream_from_raw_fd(_: i32, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_stream_peer_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_stream_peer_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
 pub export fn sa_std_net_unix_stream_set_passcred(_: u64, _: i32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_stream_passcred(_: u64, _: ?*i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_stream_passcred(_: u64, out_enabled: ?*i32) i32 {
+    return unsupportedI32Out(out_enabled);
 }
 
 pub export fn sa_std_net_unix_stream_set_mark(_: u64, _: u32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_stream_peer_cred(_: u64, _: ?*i32, _: ?*u32, _: ?*u32) i32 {
+pub export fn sa_std_net_unix_stream_peer_cred(_: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
+    if (out_pid) |out| out.* = 0;
+    if (out_uid) |out| out.* = 0;
+    if (out_gid) |out| out.* = 0;
+    if (out_pid == null or out_uid == null or out_gid == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_datagram_unbound(_: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_bind(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_bind(_: ?[*]const u8, _: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_bind_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_bind_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_pair(_: ?*u64, _: ?*u64) i32 {
+pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    if (out_left) |out| out.* = 0;
+    if (out_right) |out| out.* = 0;
+    if (out_left == null or out_right == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
@@ -3568,28 +4807,28 @@ pub export fn sa_std_net_unix_datagram_connect_addr(_: u64, _: u64) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_datagram_try_clone(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_try_clone(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_from_raw_fd(_: i32, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_from_raw_fd(_: i32, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_local_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_local_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_peer_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_peer_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
 pub export fn sa_std_net_unix_datagram_set_passcred(_: u64, _: i32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_datagram_passcred(_: u64, _: ?*i32) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_datagram_passcred(_: u64, out_enabled: ?*i32) i32 {
+    return unsupportedI32Out(out_enabled);
 }
 
 pub export fn sa_std_net_unix_datagram_set_mark(_: u64, _: u32) i32 {
@@ -3600,28 +4839,34 @@ pub export fn sa_std_net_unix_datagram_shutdown(_: u64, _: u32) i32 {
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_datagram_send_to(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64, _: ?*u64) i32 {
+pub export fn sa_std_net_unix_datagram_send_to(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64, out_written: ?*u64) i32 {
+    return unsupportedHandleOut(out_written);
+}
+
+pub export fn sa_std_net_unix_datagram_send_to_addr(_: u64, _: ?[*]const u8, _: u64, _: u64, out_written: ?*u64) i32 {
+    return unsupportedHandleOut(out_written);
+}
+
+pub export fn sa_std_net_unix_datagram_recv_from(_: u64, _: ?[*]u8, _: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (out_read) |out| out.* = 0;
+    if (out_addr) |out| out.* = 0;
+    if (out_read == null or out_addr == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_datagram_send_to_addr(_: u64, _: ?[*]const u8, _: u64, _: u64, _: ?*u64) i32 {
+pub export fn sa_std_net_unix_datagram_peek_from(_: u64, _: ?[*]u8, _: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (out_read) |out| out.* = 0;
+    if (out_addr) |out| out.* = 0;
+    if (out_read == null or out_addr == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return unsupported();
 }
 
-pub export fn sa_std_net_unix_datagram_recv_from(_: u64, _: ?[*]u8, _: u64, _: ?*u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_connect(_: ?[*]const u8, _: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
-pub export fn sa_std_net_unix_datagram_peek_from(_: u64, _: ?[*]u8, _: u64, _: ?*u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_connect(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
-}
-
-pub export fn sa_std_net_unix_connect_addr(_: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_unix_connect_addr(_: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
 pub export fn sa_net_unix_addr_kind(_: u64) u32 {
@@ -3633,6 +4878,7 @@ pub export fn sa_net_unix_addr_is_unnamed(_: u64) u8 {
 }
 
 pub export fn sa_net_unix_addr_path_ptr(_: u64) ?[*]u8 {
+    _ = unsupportedStatus();
     return null;
 }
 
@@ -3641,6 +4887,7 @@ pub export fn sa_net_unix_addr_path_len(_: u64) u64 {
 }
 
 pub export fn sa_net_unix_addr_abstract_ptr(_: u64) ?[*]u8 {
+    _ = unsupportedStatus();
     return null;
 }
 
@@ -3652,16 +4899,326 @@ pub export fn sa_net_unix_addr_free(_: u64) Fallible(i32) {
     return unsupportedFallible(i32);
 }
 
-pub export fn sa_std_net_ja3_hash(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_ja3_hash(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, out_len: ?*u64) i32 {
+    return unsupportedHandleOut(out_len);
 }
 
-pub export fn sa_std_net_sha256_hex(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_sha256_hex(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, out_len: ?*u64) i32 {
+    return unsupportedHandleOut(out_len);
 }
 
-pub export fn sa_std_net_ja4_hash12(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_std_net_ja4_hash12(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, out_len: ?*u64) i32 {
+    return unsupportedHandleOut(out_len);
+}
+
+const NetworkAcceptCloseTestContext = struct {
+    listener: u64,
+    status: i32 = SA_STD_OK,
+    accepted: u64 = 0,
+};
+
+fn networkAcceptUntilClosed(context: *NetworkAcceptCloseTestContext) void {
+    context.status = sa_std_net_tcp_accept(context.listener, &context.accepted);
+    if (context.accepted != 0) _ = sa_std_close(context.accepted);
+}
+
+const NetworkUdpRecvCloseTestContext = struct {
+    socket: u64,
+    status: i32 = SA_STD_OK,
+    read: u64 = 0,
+};
+
+fn networkUdpRecvUntilClosed(context: *NetworkUdpRecvCloseTestContext) void {
+    var buffer: [32]u8 = undefined;
+    context.status = sa_std_net_udp_recv(context.socket, &buffer, buffer.len, &context.read);
+}
+
+fn waitForNetworkPoll(state: *NetworkSocket) bool {
+    for (0..1000) |_| {
+        state.lifetime_mutex.lock();
+        const waiting = state.poll_waiters != 0;
+        state.lifetime_mutex.unlock();
+        if (waiting) return true;
+        std.Thread.sleep(std.time.ns_per_ms);
+    }
+    return false;
+}
+
+test "windows network failures clear outputs" {
+    var handle: u64 = 123;
+    var bound_port: u32 = 456;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_listen(null, 0, 0, &handle, &bound_port));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+    try std.testing.expectEqual(@as(u32, 0), bound_port);
+
+    handle = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_accept(0, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+    handle = 123;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_net_tcp_stream_from_raw_fd(0, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+    handle = 123;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_net_udp_from_raw_fd(0, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+
+    var count: u64 = 123;
+    var address: u64 = 456;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_recv_from(0, null, 0, &count, &address));
+    try std.testing.expectEqual(@as(u64, 0), count);
+    try std.testing.expectEqual(@as(u64, 0), address);
+
+    count = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_read(0, null, 1, &count));
+    try std.testing.expectEqual(@as(u64, 0), count);
+    count = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_write(0, null, 1, &count));
+    try std.testing.expectEqual(@as(u64, 0), count);
+
+    var enabled: i32 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_net_tcp_stream_quickack(0, &enabled));
+    try std.testing.expectEqual(@as(i32, 0), enabled);
+    var seconds: u32 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_net_tcp_stream_deferaccept(0, &seconds));
+    try std.testing.expectEqual(@as(u32, 0), seconds);
+
+    var left: u64 = 123;
+    var right: u64 = 456;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_std_net_unix_pair(&left, &right));
+    try std.testing.expectEqual(@as(u64, 0), left);
+    try std.testing.expectEqual(@as(u64, 0), right);
+}
+
+test "windows closing a listener cancels a cooperative accept" {
+    const host = "127.0.0.1";
+    var listener: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, null));
+
+    registry_mutex.lock();
+    const state = switch ((getResourceLocked(listener) orelse unreachable).*) {
+        .tcp_listener => |socket| socket,
+        else => unreachable,
+    };
+    registry_mutex.unlock();
+
+    var context = NetworkAcceptCloseTestContext{ .listener = listener };
+    const thread = try std.Thread.spawn(.{}, networkAcceptUntilClosed, .{&context});
+    if (!waitForNetworkPoll(state)) {
+        _ = sa_std_close(listener);
+        thread.join();
+        return error.TestUnexpectedResult;
+    }
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_close(listener));
+    thread.join();
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, context.status);
+    try std.testing.expectEqual(@as(u64, 0), context.accepted);
+}
+
+test "windows closing a UDP socket cancels a cooperative receive" {
+    const host = "127.0.0.1";
+    var socket: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &socket));
+
+    registry_mutex.lock();
+    const state = switch ((getResourceLocked(socket) orelse unreachable).*) {
+        .udp_socket => |network_socket| network_socket,
+        else => unreachable,
+    };
+    registry_mutex.unlock();
+
+    var context = NetworkUdpRecvCloseTestContext{ .socket = socket };
+    const thread = try std.Thread.spawn(.{}, networkUdpRecvUntilClosed, .{&context});
+    if (!waitForNetworkPoll(state)) {
+        _ = sa_std_close(socket);
+        thread.join();
+        return error.TestUnexpectedResult;
+    }
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_close(socket));
+    thread.join();
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, context.status);
+    try std.testing.expectEqual(@as(u64, 0), context.read);
+}
+
+test "windows logical nonblocking skips readiness polling" {
+    const host = "127.0.0.1";
+    var socket: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &socket));
+    defer _ = sa_std_close(socket);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_nonblocking(socket, 1));
+
+    var buffer: [8]u8 = undefined;
+    var read: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_IO, sa_std_net_udp_recv(socket, &buffer, buffer.len, &read));
+    try std.testing.expectEqual(@as(u64, 0), read);
+
+    registry_mutex.lock();
+    const state = switch ((getResourceLocked(socket) orelse unreachable).*) {
+        .udp_socket => |network_socket| network_socket,
+        else => unreachable,
+    };
+    state.lifetime_mutex.lock();
+    const poll_waiters = state.poll_waiters;
+    state.lifetime_mutex.unlock();
+    registry_mutex.unlock();
+    try std.testing.expectEqual(@as(usize, 0), poll_waiters);
+}
+
+test "windows socket read timeout uses a cooperative deadline" {
+    const host = "127.0.0.1";
+    const timeout_ns = 50 * std.time.ns_per_ms;
+    var socket: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &socket));
+    defer _ = sa_std_close(socket);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(socket, timeout_ns));
+
+    var configured_timeout_ns: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_read_timeout(socket, &configured_timeout_ns));
+    try std.testing.expectEqual(@as(u64, timeout_ns), configured_timeout_ns);
+
+    var timer = try std.time.Timer.start();
+    var buffer: [8]u8 = undefined;
+    var read: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_NET, sa_std_net_udp_recv(socket, &buffer, buffer.len, &read));
+    const elapsed_ns = timer.read();
+    try std.testing.expect(elapsed_ns >= 40 * std.time.ns_per_ms);
+    try std.testing.expect(elapsed_ns < 2 * std.time.ns_per_s);
+    try std.testing.expectEqual(@as(u64, 0), read);
+}
+
+test "windows network address ABI stays platform independent" {
+    var ipv4: [4]u8 = undefined;
+    try std.testing.expectEqual(@as(i32, 1), sa_net_ipv4_parse_ascii("192.0.2.7".ptr, "192.0.2.7".len, &ipv4));
+    try std.testing.expectEqualSlices(u8, &.{ 192, 0, 2, 7 }, &ipv4);
+    var text_buffer: [128]u8 = undefined;
+    var text_len: u64 = 0;
+    try std.testing.expectEqual(@as(i32, 1), sa_net_ipv4_format_ascii(&ipv4, &text_buffer, text_buffer.len, &text_len));
+    try std.testing.expectEqualStrings("192.0.2.7", text_buffer[0..@intCast(text_len)]);
+
+    var socket_v4: [8]u8 = undefined;
+    try std.testing.expectEqual(@as(i32, 1), sa_net_socket_addr_v4_parse_ascii("127.0.0.1:8080".ptr, "127.0.0.1:8080".len, &socket_v4));
+    try std.testing.expectEqual(@as(u16, 8080), std.mem.readInt(u16, socket_v4[4..6], .little));
+    try std.testing.expectEqual(@as(i32, 1), sa_net_socket_addr_v4_format_ascii(&socket_v4, &text_buffer, text_buffer.len, &text_len));
+    try std.testing.expectEqualStrings("127.0.0.1:8080", text_buffer[0..@intCast(text_len)]);
+
+    var socket_v6: [32]u8 = undefined;
+    try std.testing.expectEqual(@as(i32, 1), sa_net_socket_addr_v6_parse_ascii("[2001:db8::1%9]:443".ptr, "[2001:db8::1%9]:443".len, &socket_v6));
+    try std.testing.expectEqual(@as(u16, 443), std.mem.readInt(u16, socket_v6[16..18], .little));
+    try std.testing.expectEqual(@as(u32, 9), std.mem.readInt(u32, socket_v6[24..28], .little));
+    try std.testing.expectEqual(@as(i32, 1), sa_net_socket_addr_v6_format_ascii(&socket_v6, &text_buffer, text_buffer.len, &text_len));
+    try std.testing.expectEqualStrings("[2001:db8:0:0:0:0:0:1%9]:443", text_buffer[0..@intCast(text_len)]);
+
+    var net_addr = try NetAddrHandle.init(try std.net.Address.parseIp6("::1", 80));
+    const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
+        net_addr.deinit();
+        return err;
+    };
+    defer _ = sa_std_close(handle);
+    try std.testing.expectEqual(@as(u32, 10), sa_net_addr_family(handle));
+    try std.testing.expectEqual(@as(u32, 80), sa_net_addr_port(handle));
+}
+
+test "windows TCP loopback supports canonical and generic IO" {
+    const host = "127.0.0.1";
+    var listener: u64 = 0;
+    var bound_port: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &bound_port));
+    defer _ = sa_std_close(listener);
+    try std.testing.expect(bound_port != 0);
+
+    var listener_addr: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listener_local_addr(listener, &listener_addr));
+    defer _ = sa_std_close(listener_addr);
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(listener_addr));
+    try std.testing.expectEqual(bound_port, sa_net_addr_port(listener_addr));
+
+    var client: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client));
+    defer _ = sa_std_close(client);
+    var accepted: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &accepted));
+    defer _ = sa_std_close(accepted);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(client, 1));
+    var enabled: i32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_nodelay(client, &enabled));
+    try std.testing.expectEqual(@as(i32, 1), enabled);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(accepted, 1));
+    var timeout_ns: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_read_timeout(accepted, &timeout_ns));
+    try std.testing.expectEqual(@as(u64, std.time.ns_per_ms), timeout_ns);
+
+    const payload = "windows tcp";
+    var written: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_write(client, payload.ptr, payload.len, &written));
+    try std.testing.expectEqual(@as(u64, payload.len), written);
+    var buffer: [32]u8 = undefined;
+    var read: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_peek(accepted, &buffer, buffer.len, &read));
+    try std.testing.expectEqualStrings(payload, buffer[0..@intCast(read)]);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_read(accepted, &buffer, buffer.len, &read));
+    try std.testing.expectEqualStrings(payload, buffer[0..@intCast(read)]);
+
+    var peer_addr: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_peer_addr(accepted, &peer_addr));
+    defer _ = sa_std_close(peer_addr);
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(peer_addr));
+    try std.testing.expectEqual(SA_STD_OK, sa_net_tcp_stream_shutdown(client, 1));
+}
+
+test "windows UDP loopback supports addressing and datagrams" {
+    const host = "127.0.0.1";
+    var receiver: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &receiver));
+    defer _ = sa_std_close(receiver);
+    var sender: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &sender));
+    defer _ = sa_std_close(sender);
+
+    var receiver_addr: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(receiver, &receiver_addr));
+    defer _ = sa_std_close(receiver_addr);
+    const receiver_port = sa_net_addr_port(receiver_addr);
+    try std.testing.expect(receiver_port != 0);
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(receiver_addr));
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_broadcast(sender, 1));
+    var enabled: i32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_broadcast(sender, &enabled));
+    try std.testing.expectEqual(@as(i32, 1), enabled);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_multicast_loop_v4(sender, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_multicast_loop_v4(sender, &enabled));
+    try std.testing.expectEqual(@as(i32, 1), enabled);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_multicast_ttl_v4(sender, 8));
+    var ttl: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_multicast_ttl_v4(sender, &ttl));
+    try std.testing.expectEqual(@as(u32, 8), ttl);
+
+    const first = "windows udp";
+    var written: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_send_to(sender, first.ptr, first.len, host.ptr, host.len, receiver_port, &written));
+    try std.testing.expectEqual(@as(u64, first.len), written);
+    var buffer: [32]u8 = undefined;
+    var read: u64 = 0;
+    var source_addr: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_peek_from(receiver, &buffer, buffer.len, &read, &source_addr));
+    try std.testing.expectEqualStrings(first, buffer[0..@intCast(read)]);
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(source_addr));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_close(source_addr));
+    source_addr = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_recv_from(receiver, &buffer, buffer.len, &read, &source_addr));
+    defer _ = sa_std_close(source_addr);
+    try std.testing.expectEqualStrings(first, buffer[0..@intCast(read)]);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect(sender, host.ptr, host.len, receiver_port));
+    var peer_addr: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_peer_addr(sender, &peer_addr));
+    defer _ = sa_std_close(peer_addr);
+    try std.testing.expectEqual(receiver_port, sa_net_addr_port(peer_addr));
+    const second = "connected udp";
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_send(sender, second.ptr, second.len, &written));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_recv(receiver, &buffer, buffer.len, &read));
+    try std.testing.expectEqualStrings(second, buffer[0..@intCast(read)]);
 }
 
 test "windows fs path APIs reject invalid paths and clear failure output" {
