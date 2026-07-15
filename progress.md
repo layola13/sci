@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero unsigned bit_width macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local unsigned `bit_width` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_BIT_WIDTH_NZ_U32` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, and `NonZeroUsize`.
+- The helper surface writes `BITS - leading_zeros()` into a `NonZeroU32` output layout, matching Rust's unsigned `NonZero<T>::bit_width -> NonZero<u32>` return shape for the concrete unsigned widths. It does not claim signed NonZero coverage, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_bit_width_macro_surface.sa` - 1 test (panic ID 10624) expanding all 5 new macros and covering low, ordinary, 64-bit high-bit, and `usize` values.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_bit_width_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10625+.
+
 ## Completed: 2026-07-15 Wrapping unsigned next_power_of_two macros
 
 - Continued Rust `std::num::Wrapping` macro-surface parity, referencing Rust's local unsigned `next_power_of_two` wrapper method and primitive `wrapping_next_power_of_two` behavior under `/home/vscode/projects/rust`.

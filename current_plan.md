@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero unsigned bit_width)
+
+Completed supportable NonZero unsigned bit-width helpers:
+- `NONZERO_U8_BIT_WIDTH_NZ_U32`, `NONZERO_U16_BIT_WIDTH_NZ_U32`, `NONZERO_U32_BIT_WIDTH_NZ_U32`, `NONZERO_U64_BIT_WIDTH_NZ_U32`, and `NONZERO_USIZE_BIT_WIDTH_NZ_U32`: concrete Rust `NonZero<unsigned>::bit_width -> NonZero<u32>` shape for the existing SA unsigned NonZero layouts.
+- Narrow unsigned widths compute `BITS - leading_zeros()` with declared Rust primitive widths. `NonZeroU64` delegates to the existing primitive `NUM_U64_BIT_WIDTH`, and `NonZeroUsize` aliases the 64-bit `NonZeroU64` ABI.
+- This follows Rust's current `core::num::NonZero` unsigned `bit_width` method for the existing concrete unsigned widths. It deliberately does not expose signed NonZero bit-width helpers, generic `NonZero<T>`, `u128`, Rust feature-gate modeling, niche optimization, or trait-level dispatch.
+- Test file `std_num_nonzero_bit_width_macro_surface.sa` (panic ID 10624).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_bit_width_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10625+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic object behavior for invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping next power)
 
 Completed supportable Wrapping unsigned next-power helpers:

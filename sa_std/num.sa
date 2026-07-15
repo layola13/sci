@@ -7258,6 +7258,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u64_count_ones_nz_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U64_BIT_WIDTH_NZ_U32 %out_nz, %nz
+    __nonzero_u64_bit_width_value_%out_nz = load %nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_BIT_WIDTH __nonzero_u64_bit_width_%out_nz, __nonzero_u64_bit_width_value_%out_nz
+    store %out_nz+NonZeroU32_value, __nonzero_u64_bit_width_%out_nz as u64
+    !__nonzero_u64_bit_width_%out_nz
+    !__nonzero_u64_bit_width_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U64_COUNT_ZEROS %out_count, %nz
     __nonzero_u64_cz_value_%out_count = load %nz+NonZeroU64_value as u64
     EXPAND NUM_U64_COUNT_ZEROS %out_count, __nonzero_u64_cz_value_%out_count
@@ -7444,6 +7452,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u8_count_ones_nz_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U8_BIT_WIDTH_NZ_U32 %out_nz, %nz
+    EXPAND NONZERO_U8_LEADING_ZEROS __nonzero_u8_bit_width_lz_%out_nz, %nz
+    __nonzero_u8_bit_width_%out_nz = sub NUM_U8_BITS, __nonzero_u8_bit_width_lz_%out_nz
+    store %out_nz+NonZeroU32_value, __nonzero_u8_bit_width_%out_nz as u64
+    !__nonzero_u8_bit_width_%out_nz
+    !__nonzero_u8_bit_width_lz_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U8_COUNT_ZEROS %out_count, %nz
     __nonzero_u8_cz_value_%out_count = load %nz+NonZeroU8_value as u64
     EXPAND NONZERO_UNSIGNED_WIDTH_COUNT_ZEROS %out_count, __nonzero_u8_cz_value_%out_count, NUM_U8_BITS, NUM_U8_MAX
@@ -7544,6 +7560,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_U16_COUNT_ONES __nonzero_u16_count_ones_nz_%out_nz, %nz
     EXPAND NONZERO_COUNT_ONES_NZ_U32_FROM_COUNT %out_nz, __nonzero_u16_count_ones_nz_%out_nz
     !__nonzero_u16_count_ones_nz_%out_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_BIT_WIDTH_NZ_U32 %out_nz, %nz
+    EXPAND NONZERO_U16_LEADING_ZEROS __nonzero_u16_bit_width_lz_%out_nz, %nz
+    __nonzero_u16_bit_width_%out_nz = sub NUM_U16_BITS, __nonzero_u16_bit_width_lz_%out_nz
+    store %out_nz+NonZeroU32_value, __nonzero_u16_bit_width_%out_nz as u64
+    !__nonzero_u16_bit_width_%out_nz
+    !__nonzero_u16_bit_width_lz_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_U16_COUNT_ZEROS %out_count, %nz
@@ -7648,6 +7672,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u32_count_ones_nz_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U32_BIT_WIDTH_NZ_U32 %out_nz, %nz
+    EXPAND NONZERO_U32_LEADING_ZEROS __nonzero_u32_bit_width_lz_%out_nz, %nz
+    __nonzero_u32_bit_width_%out_nz = sub NUM_U32_BITS, __nonzero_u32_bit_width_lz_%out_nz
+    store %out_nz+NonZeroU32_value, __nonzero_u32_bit_width_%out_nz as u64
+    !__nonzero_u32_bit_width_%out_nz
+    !__nonzero_u32_bit_width_lz_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U32_COUNT_ZEROS %out_count, %nz
     __nonzero_u32_cz_value_%out_count = load %nz+NonZeroU32_value as u64
     EXPAND NONZERO_UNSIGNED_WIDTH_COUNT_ZEROS %out_count, __nonzero_u32_cz_value_%out_count, NUM_U32_BITS, NUM_U32_MAX
@@ -7744,6 +7776,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_USIZE_COUNT_ONES_NZ_U32 %out_nz, %nz
     EXPAND NONZERO_U64_COUNT_ONES_NZ_U32 %out_nz, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_BIT_WIDTH_NZ_U32 %out_nz, %nz
+    EXPAND NONZERO_U64_BIT_WIDTH_NZ_U32 %out_nz, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_USIZE_COUNT_ZEROS %out_count, %nz
