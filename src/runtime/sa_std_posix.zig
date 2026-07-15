@@ -1107,8 +1107,82 @@ var compatibility_dlopen_cookie: [1]u8 = .{0};
 var compatibility_dlsym_cookie: [1]u8 = .{0};
 var compatibility_dl_error: [:0]const u8 = "unsupported";
 
+// Direct binding would resolve to this runtime's compatibility dlopen/dlsym/dlclose exports.
+const DarwinDlopenFn = *const fn (?[*:0]const u8, c_int) callconv(.c) ?*anyopaque;
+const DarwinDlsymFn = *const fn (*anyopaque, [*:0]const u8) callconv(.c) ?*anyopaque;
+const DarwinDlcloseFn = *const fn (*anyopaque) callconv(.c) c_int;
+const DarwinImageHeaderFn = *const fn (*const anyopaque) callconv(.c) ?*const anyopaque;
+const DarwinLookupSymbolFn = *const fn (*const anyopaque, [*:0]const u8, u32) callconv(.c) ?*anyopaque;
+const DarwinSymbolAddressFn = *const fn (*anyopaque) callconv(.c) ?*anyopaque;
+
+const darwin_image_header = @extern(DarwinImageHeaderFn, .{ .name = "_dyld_get_image_header_containing_address" });
+const darwin_lookup_symbol = @extern(DarwinLookupSymbolFn, .{ .name = "NSLookupSymbolInImage" });
+const darwin_symbol_address = @extern(DarwinSymbolAddressFn, .{ .name = "NSAddressOfSymbol" });
+
+const DarwinDlApi = struct {
+    open: DarwinDlopenFn,
+    sym: DarwinDlsymFn,
+    close: DarwinDlcloseFn,
+};
+
+var darwin_dl_api_mutex: std.Thread.Mutex = .{};
+var darwin_dl_api: ?DarwinDlApi = null;
+
+fn darwinSystemSymbol(comptime T: type, name: [*:0]const u8) ?T {
+    if (builtin.os.tag != .macos) return null;
+    const image = darwin_image_header(@ptrCast(darwin_lookup_symbol)) orelse return null;
+    const symbol = darwin_lookup_symbol(image, name, 0x4) orelse return null;
+    const address = darwin_symbol_address(symbol) orelse return null;
+    return @ptrCast(@alignCast(address));
+}
+
+fn darwinDlApi() ?DarwinDlApi {
+    if (builtin.os.tag != .macos) return null;
+    darwin_dl_api_mutex.lock();
+    defer darwin_dl_api_mutex.unlock();
+    if (darwin_dl_api) |api| return api;
+    const api: DarwinDlApi = .{
+        .open = darwinSystemSymbol(DarwinDlopenFn, "_dlopen") orelse return null,
+        .sym = darwinSystemSymbol(DarwinDlsymFn, "_dlsym") orelse return null,
+        .close = darwinSystemSymbol(DarwinDlcloseFn, "_dlclose") orelse return null,
+    };
+    darwin_dl_api = api;
+    return api;
+}
+
+const DarwinDynLib = struct {
+    handle: *anyopaque,
+    sym_fn: DarwinDlsymFn,
+    close_fn: DarwinDlcloseFn,
+
+    fn openZ(path: [*:0]const u8) !DarwinDynLib {
+        const api = darwinDlApi() orelse return error.SystemResources;
+        return .{
+            .handle = api.open(path, 0x1) orelse return error.FileNotFound,
+            .sym_fn = api.sym,
+            .close_fn = api.close,
+        };
+    }
+
+    fn close(self: *DarwinDynLib) void {
+        _ = self.close_fn(self.handle);
+        self.* = undefined;
+    }
+
+    fn lookup(self: *DarwinDynLib, comptime T: type, name: [:0]const u8) ?T {
+        const symbol = self.sym_fn(self.handle, name.ptr) orelse return null;
+        return @ptrCast(@alignCast(symbol));
+    }
+};
+
+const RuntimeDynLib = if (builtin.os.tag == .macos) DarwinDynLib else std.DynLib;
+
+fn openRuntimeDynLib(path: [*:0]const u8) anyerror!RuntimeDynLib {
+    return RuntimeDynLib.openZ(path);
+}
+
 const DynamicLibHandle = struct {
-    lib: std.DynLib,
+    lib: RuntimeDynLib,
 
     fn deinit(self: *DynamicLibHandle) void {
         self.lib.close();
@@ -6150,13 +6224,13 @@ pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
 pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (builtin.os.tag != .linux and builtin.os.tag != .macos) return finish(SA_STD_ERR_UNSUPPORTED);
 
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     const path_z = std.heap.page_allocator.dupeZ(u8, path) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(path_z);
 
-    const lib = std.DynLib.openZ(path_z) catch |err| switch (err) {
+    const lib = openRuntimeDynLib(path_z.ptr) catch |err| switch (err) {
         error.FileNotFound, error.NotElfFile, error.NotDynamicLibrary => {
             compatibility_dl_error = "not_found";
             return finish(SA_STD_ERR_NOT_FOUND);
@@ -6185,7 +6259,7 @@ pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u6
 pub export fn sa_dl_sym(handle: u64, symbol_ptr: ?[*]const u8, symbol_len: u64, out_ptr: ?*?*anyopaque) i32 {
     const result_ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result_ptr.* = null;
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (builtin.os.tag != .linux and builtin.os.tag != .macos) return finish(SA_STD_ERR_UNSUPPORTED);
 
     const symbol = pathBytes(symbol_ptr, symbol_len) catch |err| return finishErr(err);
     const symbol_z = std.heap.page_allocator.dupeZ(u8, symbol) catch |err| return finishErr(err);
@@ -6211,6 +6285,30 @@ pub export fn sa_dl_close(handle: u64) i32 {
 
 pub export fn sa_dl_error() ?[*:0]const u8 {
     return compatibility_dl_error.ptr;
+}
+
+test "dynamic loading failures clear outputs" {
+    const missing_path = "/__sa_std_missing_dynamic_library_contract_test__";
+    var handle: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_NOT_FOUND, sa_dl_open(missing_path.ptr, missing_path.len, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+
+    const missing_symbol = "__sa_std_missing_symbol_contract_test__";
+    var symbol: ?*anyopaque = @ptrFromInt(1);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_dl_sym(std.math.maxInt(u64), missing_symbol.ptr, missing_symbol.len, &symbol));
+    try std.testing.expectEqual(@as(?*anyopaque, null), symbol);
+
+    const system_library = switch (builtin.os.tag) {
+        .linux => "libc.so.6",
+        .macos => "/usr/lib/libSystem.B.dylib",
+        else => return,
+    };
+    try std.testing.expectEqual(SA_STD_OK, sa_dl_open(system_library.ptr, system_library.len, &handle));
+    try std.testing.expect(handle != 0);
+    symbol = @ptrFromInt(1);
+    try std.testing.expectEqual(SA_STD_ERR_NOT_FOUND, sa_dl_sym(handle, missing_symbol.ptr, missing_symbol.len, &symbol));
+    try std.testing.expectEqual(@as(?*anyopaque, null), symbol);
+    try std.testing.expectEqual(SA_STD_OK, sa_dl_close(handle));
 }
 
 pub fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) callconv(.c) i32 {
