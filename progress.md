@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 ManuallyDrop default/copy/clone macros
+
+- Continued Rust `std::mem::ManuallyDrop` macro-surface parity, referencing Rust's local `#[derive(Copy, Clone, Debug, Default)]` declaration for `core::mem::ManuallyDrop<T>` under `/home/vscode/projects/rust`.
+- `sa_std/mem.sa`: added `MANUALLY_DROP_U64_DEFAULT`, `MANUALLY_DROP_U64_COPY`, `MANUALLY_DROP_U64_CLONE`, and `MANUALLY_DROP_U64_CLONE_FROM`.
+- The helper surface models the supportable derived shape for SA's existing concrete layout: default writes zero and copy/clone operations copy the inner `u64` into independent destination storage. It does not claim generic `ManuallyDrop<T>`, `MaybeUninit<T>` initialization validity, Rust drop-suppression safety semantics, generic trait dispatch, or `Debug` formatting.
+- Test: `tests/unit_framework/std_mem_manually_drop_clone_default_macro_surface.sa` - 1 test (panic ID 10600) covering default zero initialization, copy/clone destination overwrite, and independence after the source value changes.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_mem_manually_drop_clone_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10601+.
+
 ## Completed: 2026-07-15 ManuallyDrop comparison macros
 
 - Continued Rust `std::mem::ManuallyDrop` macro-surface parity, referencing Rust's local `core::mem::ManuallyDrop<T>` comparison implementations under `/home/vscode/projects/rust`.

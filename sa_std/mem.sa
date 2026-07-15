@@ -203,6 +203,24 @@
     store %slot_ptr+ManuallyDropU64_value, %value as u64
 [END_MACRO]
 
+[MACRO] MANUALLY_DROP_U64_DEFAULT %slot_ptr
+    store %slot_ptr+ManuallyDropU64_value, 0 as u64
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
+    __manually_drop_u64_copy_value_%dst_slot = load %src_slot+ManuallyDropU64_value as u64
+    store %dst_slot+ManuallyDropU64_value, __manually_drop_u64_copy_value_%dst_slot as u64
+    !__manually_drop_u64_copy_value_%dst_slot
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_CLONE %dst_slot, %src_slot
+    EXPAND MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
+[END_MACRO]
+
+[MACRO] MANUALLY_DROP_U64_CLONE_FROM %dst_slot, %src_slot
+    EXPAND MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_INTO_INNER %out_value, %slot_ptr
     %out_value = load %slot_ptr+ManuallyDropU64_value as u64
 [END_MACRO]
