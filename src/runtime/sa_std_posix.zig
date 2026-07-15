@@ -1093,7 +1093,15 @@ const ProcessHandle = struct {
 
     fn deinit(self: *ProcessHandle) void {
         if (!self.exited) {
-            _ = waitProcessIgnoringMissing(self.pid);
+            while (true) {
+                drainProcessOutput(self) catch {};
+                const raw_status = waitProcessStatusOnce(self, true) catch break;
+                if (raw_status) |status| {
+                    finalizeProcessExit(self, status) catch {};
+                    break;
+                }
+                std.Thread.sleep(std.time.ns_per_ms);
+            }
             self.exited = true;
         }
         if (self.pidfd) |fd| std.posix.close(fd);
@@ -2418,6 +2426,72 @@ fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
     return try list.toOwnedSlice();
 }
 
+fn setFdNonblocking(fd: std.posix.fd_t, enabled: bool) !void {
+    const flags = try std.posix.fcntl(fd, std.posix.F.GETFL, 0);
+    const nonblock = @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    const new_flags = if (enabled) flags | nonblock else flags & ~nonblock;
+    _ = try std.posix.fcntl(fd, std.posix.F.SETFL, new_flags);
+}
+
+fn appendCapturedBytes(target: *[]u8, bytes: []const u8) !void {
+    if (bytes.len == 0) return;
+    const old_len = target.len;
+    if (old_len == 0) {
+        const owned = try std.heap.page_allocator.alloc(u8, bytes.len);
+        @memcpy(owned, bytes);
+        target.* = owned;
+        return;
+    }
+    const resized = try std.heap.page_allocator.realloc(target.*, old_len + bytes.len);
+    @memcpy(resized[old_len..], bytes);
+    target.* = resized;
+}
+
+fn drainCapturedFd(fd: std.posix.fd_t, target: *[]u8) !bool {
+    var buf: [8192]u8 = undefined;
+    while (true) {
+        const n = std.posix.read(fd, &buf) catch |err| switch (err) {
+            error.WouldBlock => return false,
+            else => return err,
+        };
+        if (n == 0) return true;
+        try appendCapturedBytes(target, buf[0..n]);
+    }
+}
+
+fn drainProcessOutput(proc: *ProcessHandle) !void {
+    if (!proc.capture_output) return;
+    if (proc.stdout_fd) |fd| {
+        if (try drainCapturedFd(fd, &proc.stdout_buf)) {
+            std.posix.close(fd);
+            proc.stdout_fd = null;
+        }
+    }
+    if (proc.stderr_fd) |fd| {
+        if (try drainCapturedFd(fd, &proc.stderr_buf)) {
+            std.posix.close(fd);
+            proc.stderr_fd = null;
+        }
+    }
+}
+
+fn takeCapturedProcessOutput(handle: u64, out_stdout: *[]u8, out_stderr: *[]u8) !void {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+    const proc = switch (resource.*) {
+        .process => |*process| process,
+        else => return error.InvalidHandle,
+    };
+    if (!proc.capture_output or !proc.exited) return error.InvalidHandle;
+    out_stdout.* = proc.stdout_buf;
+    out_stderr.* = proc.stderr_buf;
+    proc.stdout_buf = &.{};
+    proc.stderr_buf = &.{};
+    proc.stdout_pos = 0;
+    proc.stderr_pos = 0;
+}
+
 const ProcessSpawnMode = enum {
     inherit,
     capture,
@@ -2601,15 +2675,12 @@ fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.raw_status = status;
     proc.exited = true;
     if (proc.capture_output) {
+        try drainProcessOutput(proc);
         if (proc.stdout_fd) |fd| {
-            const captured = try capture_fd_to_owned(std.heap.page_allocator, fd);
-            proc.stdout_buf = captured;
             std.posix.close(fd);
             proc.stdout_fd = null;
         }
         if (proc.stderr_fd) |fd| {
-            const captured = try capture_fd_to_owned(std.heap.page_allocator, fd);
-            proc.stderr_buf = captured;
             std.posix.close(fd);
             proc.stderr_fd = null;
         }
@@ -2618,7 +2689,7 @@ fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.stderr_pos = 0;
 }
 
-fn waitProcessStatus(proc: *ProcessHandle, nohang: bool) !?u32 {
+fn waitProcessStatusOnce(proc: *ProcessHandle, nohang: bool) !?u32 {
     if (builtin.os.tag == .linux) {
         if (proc.pidfd) |fd| {
             const options: u32 = @as(u32, std.posix.W.EXITED) | if (nohang) @as(u32, std.posix.W.NOHANG) else 0;
@@ -2628,6 +2699,22 @@ fn waitProcessStatus(proc: *ProcessHandle, nohang: bool) !?u32 {
     const waited = std.posix.waitpid(proc.pid, if (nohang) std.posix.W.NOHANG else 0);
     if (nohang and waited.pid == 0) return null;
     return waited.status;
+}
+
+fn waitProcessStatus(proc: *ProcessHandle, nohang: bool) !?u32 {
+    if (!proc.capture_output) return waitProcessStatusOnce(proc, nohang);
+    try drainProcessOutput(proc);
+    if (nohang) {
+        const status = try waitProcessStatusOnce(proc, true);
+        try drainProcessOutput(proc);
+        return status;
+    }
+    while (true) {
+        const status = try waitProcessStatusOnce(proc, true);
+        try drainProcessOutput(proc);
+        if (status) |raw| return raw;
+        std.Thread.sleep(std.time.ns_per_ms);
+    }
 }
 
 fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
@@ -2759,6 +2846,8 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
             return result;
         },
         .capture => {
+            try setFdNonblocking(stdout_pipe[0], true);
+            try setFdNonblocking(stderr_pipe[0], true);
             result.process = registerResource(.{ .process = .{
                 .pid = pid,
                 .process_group = effective_process_group,
@@ -7559,24 +7648,17 @@ pub export fn sa_std_process_exec_capture(argv_ptr: ?[*]const SaProcessArgv, arg
     run_status = sa_std_process_wait(process, code_ptr);
     if (run_status != SA_STD_OK) return run_status;
 
-    var stdout_buf: [8192]u8 = undefined;
-    var stdout_len: u64 = 0;
-    run_status = sa_std_process_read_stdout(process, &stdout_buf, stdout_buf.len, &stdout_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    var stderr_buf: [8192]u8 = undefined;
-    var stderr_len: u64 = 0;
-    run_status = sa_std_process_read_stderr(process, &stderr_buf, stderr_buf.len, &stderr_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    const stdout_owned = std.heap.page_allocator.dupe(u8, stdout_buf[0..@as(usize, @intCast(stdout_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stdout_owned);
-    const stderr_owned = std.heap.page_allocator.dupe(u8, stderr_buf[0..@as(usize, @intCast(stderr_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stderr_owned);
+    var stdout_owned: []u8 = &.{};
+    var stderr_owned: []u8 = &.{};
+    takeCapturedProcessOutput(process, &stdout_owned, &stderr_owned) catch |err| return finishErr(err);
+    errdefer if (stdout_owned.len != 0) std.heap.page_allocator.free(stdout_owned);
+    errdefer if (stderr_owned.len != 0) std.heap.page_allocator.free(stderr_owned);
 
     stdout_ptr.* = openOwnedByteBuffer(stdout_owned) catch |err| return finishErr(err);
+    stdout_owned = &.{};
     errdefer _ = sa_std_close(stdout_ptr.*);
     stderr_ptr.* = openOwnedByteBuffer(stderr_owned) catch |err| return finishErr(err);
+    stderr_owned = &.{};
     _ = sa_std_process_close(process);
     return finish(SA_STD_OK);
 }
@@ -7597,24 +7679,17 @@ pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv,
     run_status = sa_std_process_wait(process, code_ptr);
     if (run_status != SA_STD_OK) return run_status;
 
-    var stdout_buf: [8192]u8 = undefined;
-    var stdout_len: u64 = 0;
-    run_status = sa_std_process_read_stdout(process, &stdout_buf, stdout_buf.len, &stdout_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    var stderr_buf: [8192]u8 = undefined;
-    var stderr_len: u64 = 0;
-    run_status = sa_std_process_read_stderr(process, &stderr_buf, stderr_buf.len, &stderr_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    const stdout_owned = std.heap.page_allocator.dupe(u8, stdout_buf[0..@as(usize, @intCast(stdout_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stdout_owned);
-    const stderr_owned = std.heap.page_allocator.dupe(u8, stderr_buf[0..@as(usize, @intCast(stderr_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stderr_owned);
+    var stdout_owned: []u8 = &.{};
+    var stderr_owned: []u8 = &.{};
+    takeCapturedProcessOutput(process, &stdout_owned, &stderr_owned) catch |err| return finishErr(err);
+    errdefer if (stdout_owned.len != 0) std.heap.page_allocator.free(stdout_owned);
+    errdefer if (stderr_owned.len != 0) std.heap.page_allocator.free(stderr_owned);
 
     stdout_ptr.* = openOwnedByteBuffer(stdout_owned) catch |err| return finishErr(err);
+    stdout_owned = &.{};
     errdefer _ = sa_std_close(stdout_ptr.*);
     stderr_ptr.* = openOwnedByteBuffer(stderr_owned) catch |err| return finishErr(err);
+    stderr_owned = &.{};
     _ = sa_std_process_close(process);
     return finish(SA_STD_OK);
 }

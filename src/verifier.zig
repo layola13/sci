@@ -861,14 +861,14 @@ fn mergeJoinMask(left: u16, right: u16) ?u16 {
     // This fixes SLA PhiStateConflict in while loops and if-without-else patterns
     const active_mask = maskOf(.active);
     if ((left == 0 and right == active_mask) or (right == 0 and left == active_mask)) {
-        return 0;  // Merge to Uninitialized (safe: uninit is the conservative state)
+        return 0; // Merge to Uninitialized (safe: uninit is the conservative state)
     }
 
     // PATCH 2: Allow Active ↔ Untracked merging for primitive types
     // Untracked is used for non-affine types (int, float, bool)
     const untracked_mask = maskOf(.untracked);
     if ((left == active_mask and right == untracked_mask) or (right == active_mask and left == untracked_mask)) {
-        return untracked_mask;  // Merge to Untracked (safe: untracked types don't need tracking)
+        return untracked_mask; // Merge to Untracked (safe: untracked types don't need tracking)
     }
 
     // PATCH 3: Allow Untracked ↔ Uninitialized merging for primitive types
@@ -991,9 +991,9 @@ fn snapshotMaskAt(snapshot: *const LabelSnapshot, reg: u32) u16 {
 }
 
 fn snapshotStatesCompatible(snapshot: *const LabelSnapshot, state: []const u16) bool {
-    const active_mask: u16 = 0x01;      // maskOf(.active)
-    const untracked_mask: u16 = 0x40;   // maskOf(.untracked)
-    const consumed_mask: u16 = 0x08;    // maskOf(.consumed)
+    const active_mask: u16 = 0x01; // maskOf(.active)
+    const untracked_mask: u16 = 0x40; // maskOf(.untracked)
+    const consumed_mask: u16 = 0x08; // maskOf(.consumed)
 
     for (state, 0..) |mask, idx| {
         const snap_mask = snapshotMaskAt(snapshot, @intCast(idx));
@@ -1957,7 +1957,7 @@ fn buildFunctionRegScope(
 
         switch (item.kind) {
             .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
-            if (parseInstructionCallForVerifier(allocator, &symbols, item)) |parsed0| {
+                if (parseInstructionCallForVerifier(allocator, &symbols, item)) |parsed0| {
                     var parsed = parsed0;
                     defer parsed.deinit(allocator);
                     if (parsed.dest) |dest| {
@@ -4226,6 +4226,41 @@ test "metadata atomic ordering failure keeps atomic trap code" {
         },
         .ok => return error.TestUnexpectedResult,
     }
+}
+
+test "verdict-only cache does not record traps" {
+    incr_verify.clear();
+    const source =
+        \\@main():
+        \\leaked = alloc 8
+        \\return
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const input = VerificationInput{
+        .instructions = flat.instructions,
+        .const_decls = flat.const_decls,
+        .package_grants = &.{},
+        .sax_component_name = null,
+        .metadata = .{ .rebuild = {} },
+        .check_exit_leaks = true,
+    };
+    const first = try verifyVerdictOnly(std.testing.allocator, input, .{ .jobs = 1 });
+    switch (first) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(u64, 0), incr_verify.stats().hits);
+    try std.testing.expectEqual(@as(u64, 1), incr_verify.stats().misses);
+
+    const second = try verifyVerdictOnly(std.testing.allocator, input, .{ .jobs = 1 });
+    switch (second) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(u64, 0), incr_verify.stats().hits);
+    try std.testing.expectEqual(@as(u64, 2), incr_verify.stats().misses);
 }
 
 test "verifier precomputes consumed registers once per function body" {

@@ -57,6 +57,20 @@ const CompileResult = union(enum) {
     trap: trap.TrapReport,
 };
 
+const CheckOk = struct {
+    metrics: CompileMetrics,
+
+    fn deinit(self: *CheckOk, allocator: std.mem.Allocator) void {
+        _ = allocator;
+        self.* = undefined;
+    }
+};
+
+const CheckCompileResult = union(enum) {
+    ok: CheckOk,
+    trap: trap.TrapReport,
+};
+
 const GraphNodeKind = enum {
     source_file,
     function,
@@ -235,6 +249,16 @@ fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const 
         .instruction_count = @as(u64, verified.annotated.len),
         .phases = phases,
         .memory = memory,
+    };
+}
+
+fn computeCheckMetrics(flat: *const flattener.FlattenResult, verdict: referee.VerdictOnlyOk, phases: ?CompilePhaseMetrics, memory: ?CompileMemoryMetrics) CompileMetrics {
+    return .{
+        .compile_tokens = @as(u64, flat.instructions.len) * 2 + @as(u64, flat.const_decls.len) + @as(u64, flat.function_sigs.len) + @as(u64, flat.test_sigs.len),
+        .instruction_count = @as(u64, flat.instructions.len),
+        .phases = phases,
+        .memory = memory,
+        .cache = .{ .kind = "verify-verdict-v2", .hit = verdict.cache_hit },
     };
 }
 
@@ -8747,21 +8771,59 @@ fn executeCheck(
     }
 }
 
-/// Check-oriented compile: flatten + full verification.
-fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
+/// Check-oriented compile: flatten + verdict-only verification.
+fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CheckCompileResult {
     var memory_metrics: ?CompileMemoryMetrics = if (options.mem_report) .{} else null;
     if (memory_metrics) |*memory| memory.recordStart();
     const total_start = if (options.profile) std.time.Instant.now() catch null else null;
 
     if (std.mem.endsWith(u8, source_path, ".sab")) {
-        // Reuse the normal SAB path (already records verdict on success).
-        return try compileSource(allocator, source_path, options);
+        const load_flat_start = if (options.profile) std.time.Instant.now() catch null else null;
+        var flat = try loadSabFlat(allocator, source_path);
+        defer flat.deinit(allocator);
+        const load_flat_ns = if (load_flat_start) |start| elapsedNs(start) else 0;
+        if (memory_metrics) |*memory| memory.recordAfterLoad();
+
+        const prune_start = if (options.profile) std.time.Instant.now() catch null else null;
+        try pruneSabFlatToSelectedTests(allocator, &flat, options.sab_selected_test_names);
+        const prune_ns = if (prune_start) |start| elapsedNs(start) else 0;
+        if (memory_metrics) |*memory| memory.recordAfterFlatten();
+
+        const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+        const verdict = try referee.verifyVerdictOnly(allocator, .{
+            .instructions = flat.instructions,
+            .const_decls = flat.const_decls,
+            .package_grants = &.{},
+            .sax_component_name = null,
+            .metadata = .{ .predecoded = .{
+                .symbol_names = flat.symbols.names.items,
+                .function_sigs = flat.function_sigs,
+            } },
+            .check_exit_leaks = options.sab_selected_test_names.len == 0,
+        }, .{
+            .jobs = options.jobs,
+            .stage_reporter = null,
+        });
+        const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
+        if (memory_metrics) |*memory| {
+            memory.recordAfterVerify();
+            memory.recordEnd();
+        }
+        return switch (verdict) {
+            .ok => |ok| .{ .ok = .{ .metrics = computeCheckMetrics(&flat, ok, if (options.profile) .{ .load_ns = load_flat_ns, .setup_ns = 0, .flatten_ns = prune_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
+            .trap => |report| {
+                var r = report;
+                if (r.file == null) setFile(&r, source_path);
+                return .{ .trap = r };
+            },
+        };
     }
 
     const load_start = if (options.profile) std.time.Instant.now() catch null else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
     const load_ns = if (load_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| memory.recordAfterLoad();
 
     const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
     var resolution = if (options.project_root) |project_root|
@@ -8801,27 +8863,38 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
         },
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| memory.recordAfterSetup();
 
     const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
         return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
-    errdefer flat.deinit(allocator);
+    defer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
+    if (memory_metrics) |*memory| memory.recordAfterFlatten();
 
     const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
-    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
-        .jobs = options.jobs,
+    const verdict = try referee.verifyVerdictOnly(allocator, .{
+        .instructions = flat.instructions,
+        .const_decls = flat.const_decls,
         .package_grants = package_grants,
+        .sax_component_name = null,
+        .metadata = .{ .rebuild = {} },
+        .check_exit_leaks = true,
+    }, .{
+        .jobs = options.jobs,
         .stage_reporter = null,
     });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
-    return switch (verified) {
-        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
+    if (memory_metrics) |*memory| {
+        memory.recordAfterVerify();
+        memory.recordEnd();
+    }
+    return switch (verdict) {
+        .ok => |ok| .{ .ok = .{ .metrics = computeCheckMetrics(&flat, ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
         .trap => |report| {
             var r = report;
             if (r.file == null) setFile(&r, source_path);
-            flat.deinit(allocator);
             return .{ .trap = r };
         },
     };
@@ -10937,6 +11010,73 @@ test "selected SAB compileSource runs Referee and preserves annotation deltas" {
         },
         .trap => return error.TestUnexpectedResult,
     }
+}
+
+test "SAB check uses predecoded verdict cache without building a VerifyOk shell" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const reg_ids = [_]u32{1};
+    const fsig = @import("common/signature.zig").FunctionSig{
+        .id = 0,
+        .name = "main",
+        .params = &.{},
+        .kind = .normal,
+        .return_cap = null,
+        .return_ty = .i32,
+        .entry_inst_idx = 0,
+        .is_ffi_wrapper = false,
+        .reg_ids = reg_ids[0..],
+    };
+    var decl = @import("common/instruction.zig").makeInstruction(.func_decl, 1, 0, null, "");
+    decl.operands[0] = .{ .symbol = 0 };
+    decl.operands[1] = .{ .func = 0 };
+    var assign = @import("common/instruction.zig").makeInstruction(.assign, 2, 1, null, "");
+    assign.operands[0] = .{ .reg = 1 };
+    assign.operands[1] = .{ .imm_i64 = 7 };
+    var ret = @import("common/instruction.zig").makeInstruction(.return_, 3, 2, null, "");
+    ret.operands[0] = .{ .reg = 1 };
+
+    const bytes = try sab.encodeProgram(std.testing.allocator, &.{ "main", "value" }, &.{fsig}, &.{ decl, assign, ret });
+    defer std.testing.allocator.free(bytes);
+    try tmp.dir.writeFile(.{ .sub_path = "main.sab", .data = bytes });
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+    const check_argv = [_][]const u8{ "sa", "check", "main.sab", "--json" };
+
+    incr_verify.clear();
+    const first_code = try executeWithWriters(std.testing.allocator, check_argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    var first_json = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, stdout_buffer.items, .{});
+    defer first_json.deinit();
+    try std.testing.expect(jsonStringEquals(try jsonGetObject(first_json.value, "status"), "ok"));
+    const first_metrics = try jsonGetObject(first_json.value, "metrics");
+    const first_cache = try jsonGetObject(first_metrics, "cache");
+    try std.testing.expect(jsonStringEquals(try jsonGetObject(first_cache, "kind"), "verify-verdict-v2"));
+    try std.testing.expectEqual(false, try jsonBool(try jsonGetObject(first_cache, "hit")));
+    try std.testing.expect((try jsonPositiveU64(try jsonGetObject(first_metrics, "instruction_count"))) > 0);
+    try std.testing.expectEqual(@as(u64, 0), incr_verify.stats().hits);
+    try std.testing.expectEqual(@as(u64, 1), incr_verify.stats().misses);
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const second_code = try executeWithWriters(std.testing.allocator, check_argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    var second_json = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, stdout_buffer.items, .{});
+    defer second_json.deinit();
+    const second_metrics = try jsonGetObject(second_json.value, "metrics");
+    const second_cache = try jsonGetObject(second_metrics, "cache");
+    try std.testing.expect(jsonStringEquals(try jsonGetObject(second_cache, "kind"), "verify-verdict-v2"));
+    try std.testing.expectEqual(true, try jsonBool(try jsonGetObject(second_cache, "hit")));
+    try std.testing.expectEqual(@as(u64, 1), incr_verify.stats().hits);
+    try std.testing.expectEqual(@as(u64, 1), incr_verify.stats().misses);
 }
 
 test "selected SAB prune keeps the full module for unresolved indirect calls" {

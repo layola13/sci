@@ -284,6 +284,11 @@ test "verification input v2 is canonical and includes expanded instruction struc
     zero_package.package_identity = "\x00";
     try expectDigestDifferent(try compute(std.testing.allocator, emptyInput(&.{absent_package})), try compute(std.testing.allocator, emptyInput(&.{zero_package})));
 
+    absent_package = inst.makeInstruction(.return_, 1, 1, null, "return 0");
+    zero_package = absent_package;
+    zero_package.package_source_sha256 = [_]u8{0} ** 32;
+    try expectDigestDifferent(try compute(std.testing.allocator, emptyInput(&.{absent_package})), try compute(std.testing.allocator, emptyInput(&.{zero_package})));
+
     absent_package.atomic_value_ty = null;
     zero_package = absent_package;
     zero_package.atomic_value_ty = 0;
@@ -316,6 +321,30 @@ test "verification input v2 changes for const policy and metadata fields" {
     changed.const_decls = &.{decl_b};
     try expectDigestDifferent(try compute(std.testing.allocator, base), try compute(std.testing.allocator, changed));
 
+    var slots_a = [_]const_decl.VTableSlot{.{ .name = @constCast("run"), .func_name = @constCast("main") }};
+    var slots_b = [_]const_decl.VTableSlot{.{ .name = @constCast("run"), .func_name = @constCast("other") }};
+    const vtable_a = const_decl.ConstDecl{
+        .source_line = 1,
+        .expanded_line = 1,
+        .raw_text = @constCast("@const VT = vtable { run = @main }"),
+        .name = @constCast("VT"),
+        .literal_text = @constCast("vtable { run = @main }"),
+        .value = .{ .vtable = .{ .slots = slots_a[0..] } },
+    };
+    const vtable_b = const_decl.ConstDecl{
+        .source_line = 1,
+        .expanded_line = 1,
+        .raw_text = @constCast("@const VT = vtable { run = @other }"),
+        .name = @constCast("VT"),
+        .literal_text = @constCast("vtable { run = @other }"),
+        .value = .{ .vtable = .{ .slots = slots_b[0..] } },
+    };
+    var vtable_input = emptyInput(&.{instruction});
+    vtable_input.const_decls = &.{vtable_a};
+    var vtable_changed = vtable_input;
+    vtable_changed.const_decls = &.{vtable_b};
+    try expectDigestDifferent(try compute(std.testing.allocator, vtable_input), try compute(std.testing.allocator, vtable_changed));
+
     changed = base;
     changed.sax_component_name = "Other";
     try expectDigestDifferent(try compute(std.testing.allocator, base), try compute(std.testing.allocator, changed));
@@ -337,6 +366,10 @@ test "verification input v2 changes for const policy and metadata fields" {
     changed = base;
     changed.metadata = .{ .predecoded = .{ .symbol_names = &.{"main"}, .function_sigs = &.{function_sig} } };
     try expectDigestDifferent(try compute(std.testing.allocator, base), try compute(std.testing.allocator, changed));
+
+    var changed_symbols = changed;
+    changed_symbols.metadata = .{ .predecoded = .{ .symbol_names = &.{"other"}, .function_sigs = &.{function_sig} } };
+    try expectDigestDifferent(try compute(std.testing.allocator, changed), try compute(std.testing.allocator, changed_symbols));
 
     var changed_sig = function_sig;
     changed_sig.return_ty = .i64;

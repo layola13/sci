@@ -16,6 +16,21 @@
 
 typedef int32_t (*RuntimeFixtureFn)(void);
 
+static int repeated_byte_matches(const uint8_t *data, uint64_t len, uint8_t value) {
+    if (data == NULL) return 0;
+    for (uint64_t i = 0; i < len; i += 1) {
+        if (data[i] != value) return 0;
+    }
+    return 1;
+}
+
+static int write_repeated(FILE *stream, char value, uint64_t len) {
+    for (uint64_t i = 0; i < len; i += 1) {
+        if (fputc(value, stream) == EOF) return 0;
+    }
+    return 1;
+}
+
 static int32_t thread_worker(uint8_t *arg) {
     int32_t *value = (int32_t *)arg;
     *value = 42;
@@ -24,8 +39,11 @@ static int32_t thread_worker(uint8_t *arg) {
 
 int main(int argc, char **argv) {
     const uint8_t child_arg[] = "--runtime-basic-child";
+    const uint8_t large_child_arg[] = "--runtime-basic-large-child";
     const uint8_t payload[] = "runtime-basic-payload";
     const uint8_t env_value[] = "runtime-basic-env";
+    const uint64_t large_stdout_len = 20000;
+    const uint64_t large_stderr_len = 17000;
     char dir_path[160] = {0};
     char file_path[224] = {0};
     char env_key[96] = {0};
@@ -50,6 +68,11 @@ int main(int argc, char **argv) {
         fputs("runtime-basic-out", stdout);
         fputs("runtime-basic-err", stderr);
         return 17;
+    }
+    if (argc == 2 && strcmp(argv[1], (const char *)large_child_arg) == 0) {
+        if (!write_repeated(stdout, 'O', large_stdout_len)) return 125;
+        if (!write_repeated(stderr, 'E', large_stderr_len)) return 126;
+        return 19;
     }
     if (argc != 2) {
         fputs("runtime basic contract requires a fixture library path\n", stderr);
@@ -221,6 +244,33 @@ int main(int argc, char **argv) {
     stdout_handle = 0;
     CHECK(sa_fs_read_buffer_free(stderr_handle) == SA_STD_OK, 158);
     stderr_handle = 0;
+
+    {
+        const uint8_t *exe_path = sa_env_buffer_data(exe_handle);
+        const uint64_t exe_path_len = sa_env_buffer_len(exe_handle);
+        SaProcessArgv process_argv[2] = {
+            {exe_path, exe_path_len},
+            {large_child_arg, sizeof(large_child_arg) - 1},
+        };
+        uint32_t exit_code = 0;
+        CHECK(sa_std_process_exec_capture(process_argv, 2, &exit_code, &stdout_handle,
+                                          &stderr_handle) == SA_STD_OK,
+              172);
+        CHECK(exit_code == 19, 173);
+        CHECK(sa_fs_read_buffer_len(stdout_handle) == large_stdout_len &&
+                  repeated_byte_matches(sa_fs_read_buffer_data(stdout_handle),
+                                        large_stdout_len, 'O'),
+              174);
+        CHECK(sa_fs_read_buffer_len(stderr_handle) == large_stderr_len &&
+                  repeated_byte_matches(sa_fs_read_buffer_data(stderr_handle),
+                                        large_stderr_len, 'E'),
+              175);
+    }
+    CHECK(sa_fs_read_buffer_free(stdout_handle) == SA_STD_OK, 176);
+    stdout_handle = 0;
+    CHECK(sa_fs_read_buffer_free(stderr_handle) == SA_STD_OK, 177);
+    stderr_handle = 0;
+
     CHECK(sa_env_buffer_free(exe_handle) == SA_STD_OK, 159);
     exe_handle = 0;
 

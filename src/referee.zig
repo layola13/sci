@@ -11,8 +11,15 @@ pub const VerifyOk = verifier.VerifyOk;
 pub const VerifyResult = verifier.VerifyResult;
 pub const VerifyOptions = verifier.VerifyOptions;
 pub const VerifyStageReporter = verifier.VerifyStageReporter;
+pub const VerificationInput = verifier.VerificationInput;
+pub const VerificationMetadata = verifier.VerificationMetadata;
+pub const VerifyExecutionOptions = verifier.VerifyExecutionOptions;
+pub const VerdictOnlyOk = verifier.VerdictOnlyOk;
+pub const VerdictOnlyResult = verifier.VerdictOnlyResult;
 pub const SaxValidationContext = verifier.SaxValidationContext;
 pub const verify = verifier.verify;
+pub const verifyInput = verifier.verifyInput;
+pub const verifyVerdictOnly = verifier.verifyVerdictOnly;
 pub const verifyWithOptions = verifier.verifyWithOptions;
 
 test "referee exports real modules" {

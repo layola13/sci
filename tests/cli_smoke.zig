@@ -6083,7 +6083,7 @@ test "llvmc backend compilation and verification on rosetta demos" {
     try assertBuildExeStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
 }
 
-test "agent capability: check uses full verification during cache containment" {
+test "agent capability: check uses verdict-only v2 cache and keeps compile containment" {
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -6099,20 +6099,45 @@ test "agent capability: check uses full verification during cache containment" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    // Repeated checks must not consume the instruction-only verdict cache until
-    // VerificationInputDigest v2 and a verdict-only result API are available.
-    const check1 = [_][]const u8{ "sa", "check", "tests/agent_fixtures/check_ok.sa", "--json" };
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{
+        .sub_path = "check_v2_unique.sa",
+        .data =
+        \\@const CHECK_V2_SENTINEL_9B2D = utf8:"verdict-v2-cli-smoke-9b2d"
+        \\@main() -> i32:
+        \\return 0
+        ,
+    });
+    const tmp_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(tmp_root);
+    const check_source_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_root, "check_v2_unique.sa" });
+    defer std.testing.allocator.free(check_source_path);
+
+    const check1 = [_][]const u8{ "sa", "check", check_source_path, "--json" };
     const c1 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
     try std.testing.expectEqual(@as(u8, 0), c1);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
-    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "\"cache\":") == null);
+    var first_json = try parseJsonValue(std.testing.allocator, stdout_buffer.items);
+    defer first_json.deinit();
+    try std.testing.expectEqualStrings("ok", try jsonStringValue(try jsonObjectGet(&first_json, "status")));
+    const first_metrics = try jsonObjectGet(&first_json, "metrics");
+    const first_cache = try jsonObjectGetValue(first_metrics, "cache");
+    try std.testing.expectEqualStrings("verify-verdict-v2", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+    try std.testing.expect((try jsonPositiveU64Value(try jsonObjectGetValue(first_metrics, "instruction_count"))) > 0);
+    try std.testing.expect((try jsonPositiveU64Value(try jsonObjectGetValue(first_metrics, "compile_tokens"))) > 0);
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
     const c2 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
     try std.testing.expectEqual(@as(u8, 0), c2);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
-    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "\"cache\":") == null);
+    var second_json = try parseJsonValue(std.testing.allocator, stdout_buffer.items);
+    defer second_json.deinit();
+    try std.testing.expectEqualStrings("ok", try jsonStringValue(try jsonObjectGet(&second_json, "status")));
+    const second_metrics = try jsonObjectGet(&second_json, "metrics");
+    const second_cache = try jsonObjectGetValue(second_metrics, "cache");
+    try std.testing.expectEqualStrings("verify-verdict-v2", try jsonStringValue(try jsonObjectGetValue(second_cache, "kind")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
