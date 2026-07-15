@@ -7047,6 +7047,24 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     store %dst_ptr+WrappingU64_value, %value as u64
 [END_MACRO]
 
+[MACRO] WRAPPING_U64_DEFAULT %out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, 0
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_COPY %dst_ptr, %src_ptr
+    __wrapping_u64_copy_value_%dst_ptr = load %src_ptr+WrappingU64_value as u64
+    store %dst_ptr+WrappingU64_value, __wrapping_u64_copy_value_%dst_ptr as u64
+    !__wrapping_u64_copy_value_%dst_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_CLONE %dst_ptr, %src_ptr
+    EXPAND WRAPPING_U64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_CLONE_FROM %dst_ptr, %src_ptr
+    EXPAND WRAPPING_U64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
 [MACRO] WRAPPING_U32_NEW %out_ptr, %value
     store %out_ptr+WrappingU32_value, %value as u64
 [END_MACRO]
@@ -7055,12 +7073,48 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     %out_value = load %src_ptr+WrappingU32_value as u64
 [END_MACRO]
 
+[MACRO] WRAPPING_U32_DEFAULT %out_ptr
+    EXPAND WRAPPING_U32_NEW %out_ptr, 0
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_COPY %dst_ptr, %src_ptr
+    __wrapping_u32_copy_value_%dst_ptr = load %src_ptr+WrappingU32_value as u64
+    store %dst_ptr+WrappingU32_value, __wrapping_u32_copy_value_%dst_ptr as u64
+    !__wrapping_u32_copy_value_%dst_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_CLONE %dst_ptr, %src_ptr
+    EXPAND WRAPPING_U32_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_CLONE_FROM %dst_ptr, %src_ptr
+    EXPAND WRAPPING_U32_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
 [MACRO] WRAPPING_I64_NEW %out_ptr, %value
     store %out_ptr+WrappingI64_value, %value as u64
 [END_MACRO]
 
 [MACRO] WRAPPING_I64_GET %out_value, %src_ptr
     %out_value = load %src_ptr+WrappingI64_value as u64
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_DEFAULT %out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, 0
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_COPY %dst_ptr, %src_ptr
+    __wrapping_i64_copy_value_%dst_ptr = load %src_ptr+WrappingI64_value as u64
+    store %dst_ptr+WrappingI64_value, __wrapping_i64_copy_value_%dst_ptr as u64
+    !__wrapping_i64_copy_value_%dst_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_CLONE %dst_ptr, %src_ptr
+    EXPAND WRAPPING_I64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_CLONE_FROM %dst_ptr, %src_ptr
+    EXPAND WRAPPING_I64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
 [MACRO] SATURATING_U64_NEW %out_ptr, %value
@@ -7075,12 +7129,48 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     store %dst_ptr+SaturatingU64_value, %value as u64
 [END_MACRO]
 
+[MACRO] SATURATING_U64_DEFAULT %out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, 0
+[END_MACRO]
+
+[MACRO] SATURATING_U64_COPY %dst_ptr, %src_ptr
+    __saturating_u64_copy_value_%dst_ptr = load %src_ptr+SaturatingU64_value as u64
+    store %dst_ptr+SaturatingU64_value, __saturating_u64_copy_value_%dst_ptr as u64
+    !__saturating_u64_copy_value_%dst_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_CLONE %dst_ptr, %src_ptr
+    EXPAND SATURATING_U64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_CLONE_FROM %dst_ptr, %src_ptr
+    EXPAND SATURATING_U64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
 [MACRO] SATURATING_I64_NEW %out_ptr, %value
     store %out_ptr+SaturatingI64_value, %value as u64
 [END_MACRO]
 
 [MACRO] SATURATING_I64_GET %out_value, %src_ptr
     %out_value = load %src_ptr+SaturatingI64_value as u64
+[END_MACRO]
+
+[MACRO] SATURATING_I64_DEFAULT %out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, 0
+[END_MACRO]
+
+[MACRO] SATURATING_I64_COPY %dst_ptr, %src_ptr
+    __saturating_i64_copy_value_%dst_ptr = load %src_ptr+SaturatingI64_value as u64
+    store %dst_ptr+SaturatingI64_value, __saturating_i64_copy_value_%dst_ptr as u64
+    !__saturating_i64_copy_value_%dst_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_CLONE %dst_ptr, %src_ptr
+    EXPAND SATURATING_I64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_CLONE_FROM %dst_ptr, %src_ptr
+    EXPAND SATURATING_I64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
 [MACRO] WRAPPING_U64_ADD %out_ptr, %lhs_ptr, %rhs_ptr

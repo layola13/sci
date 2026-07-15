@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating default/copy/clone macros
+
+- Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing both transparent tuple structs' derived `Clone`, `Copy`, and `Default` implementations under `/home/vscode/projects/rust`.
+- `sa_std/default.sa`: added `DEFAULT_WRAPPING_U32`, `DEFAULT_WRAPPING_I64`, and `DEFAULT_SATURATING_I64`, completing scalar zero defaults for all five existing wrapper layouts.
+- `sa_std/num.sa`: added `*_DEFAULT`, `*_COPY`, `*_CLONE`, and `*_CLONE_FROM` helpers for `WrappingU64`, `WrappingU32`, `WrappingI64`, `SaturatingU64`, and `SaturatingI64`.
+- The helper surface writes or copies each concrete wrapper's inner primitive into independent destination storage. It does not claim generic `Wrapping<T>` / `Saturating<T>`, wrapper widths absent from SA layouts, generic trait dispatch, or `Debug` formatting.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_clone_default_macro_surface.sa` - 1 test (panic ID 10602) expanding all 23 new macros and covering zero defaults, destination overwrite, and independence after source mutation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_clone_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10603+.
+
 ## Completed: 2026-07-15 Reverse default/clone macros
 
 - Continued Rust `std::cmp::Reverse` macro-surface parity, referencing Rust's local `core::cmp::Reverse<T>` declaration and explicit `Clone` implementation under `/home/vscode/projects/rust`.

@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Wrapping/Saturating default/copy/clone)
+
+Completed supportable numeric-wrapper derived helpers:
+- `DEFAULT_WRAPPING_U32`, `DEFAULT_WRAPPING_I64`, and `DEFAULT_SATURATING_I64` complete the scalar zero-default aliases for all five existing wrapper layouts.
+- `WRAPPING_U64_*`, `WRAPPING_U32_*`, `WRAPPING_I64_*`, `SATURATING_U64_*`, and `SATURATING_I64_*` now expose concrete `DEFAULT`, `COPY`, `CLONE`, and `CLONE_FROM` helpers.
+- Default writes the inner primitive zero value; copy/clone helpers load the existing concrete wrapper field and store it into independent destination storage.
+- This follows Rust's current `core::num::Wrapping<T>` and `core::num::Saturating<T>` `#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Hash)]` declarations only for existing SA wrapper widths. It does not expose generic wrappers, generic trait dispatch, absent widths, or `Debug` formatting.
+- Test file `std_num_wrapping_saturating_clone_default_macro_surface.sa` (panic ID 10602).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_clone_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10603+.
+Still blocked without redesign: trait-level `Default` / `Copy` / `Clone`, generic primitive/container trait impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, additional wrapper widths not present in current SA layouts, `u128` / `i128`, generic `NonZero<T>`, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Reverse default/clone)
 
 Completed supportable `cmp::Reverse` derived helpers:
