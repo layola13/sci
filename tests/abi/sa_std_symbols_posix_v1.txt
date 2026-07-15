@@ -1,7 +1,8 @@
 # Additional managed exports emitted by the POSIX artifact. Combine this file
 # with sa_std_symbols_v1.txt when checking Linux or macOS artifacts.
 #
-# Non-sa_* names below are the complete reviewed compatibility allowlist.
+# Non-sa_* names below are the POSIX-only compatibility allowlist; shared
+# thread compatibility names live in sa_std_symbols_thread_v1.txt.
 dlclose
 dlopen
 dlsym
@@ -10,10 +11,6 @@ fd_open
 fd_read
 mmap
 munmap
-pthread_drop
-pthread_join
-pthread_spawn
-pthread_spawn_detached
 sa_netx_broadcast
 sa_netx_close_slot
 sa_netx_init
@@ -72,9 +69,6 @@ sa_std_ws_frame_build
 sa_std_ws_frame_build_unmasked
 sa_std_ws_frame_parse
 sa_std_ws_unmask
-sa_thread_as_pthread_t
-sa_thread_into_pthread_t
-sa_thread_raw_pthread_join
 signal
 sqlite3_finalize
 sqlite3_prepare

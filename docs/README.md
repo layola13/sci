@@ -31,6 +31,8 @@
   PAL 与跨平台 Reactor 的长期概念设计。
 - 🧭 **[macOS / Windows Portability Evaluation (可移植性评估与最小改动方案)](./macos_windows_portability_evaluation_cn.md)**
   基于当前代码和交叉目标诊断，给出 ABI 保持、typed resource、宿主/runtime 双边界、原生 CI 与分阶段交付方案。
+- 🚄 **[Compiler Performance Optimization (编译器性能优化方案)](./compiler_performance_optimization_cn.md)**
+  基于当前 Flattener、SAB、Referee、LLVM-C、缓存、测试与 daemon 实现，给出正确性前置、热点优化、统一 key/预算、路线图和验收门禁。
 
 ## 🧾 2.1 SA 文件后缀与清单速查
 

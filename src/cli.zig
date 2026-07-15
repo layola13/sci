@@ -583,7 +583,6 @@ const CompileOptions = struct {
     stdin_is_tty: ?bool = null,
     diagnostic_writer: ?std.io.AnyWriter = null,
     sab_selected_test_names: []const []const u8 = &.{},
-    sab_skip_verify: bool = false,
 };
 
 const TestCommandOptions = struct {
@@ -1415,7 +1414,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         .check => {
             try writer.writeAll("usage: sa check <file> [options]\n\n");
             try writer.writeAll("Flatten and verify a .sa/.sab file without codegen or linking.\n");
-            try writer.writeAll("Uses the process/daemon-scoped verdict cache so unchanged streams skip re-verify.\n\n");
+            try writer.writeAll("Runs the full Referee verifier. Verdict-only reuse remains disabled until key v2 and a result API that does not construct VerifyOk are available; compile/emit reuse additionally requires a complete owned snapshot.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --json                         Emit JSON report\n");
             try writeCompileOptionsHelp(writer);
@@ -4808,43 +4807,6 @@ fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionS
     };
 }
 
-fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
-    var annotated = std.ArrayList(referee.AnnotatedInstruction).init(allocator);
-    errdefer annotated.deinit();
-    var fatal_terminated = false;
-    for (flat.instructions) |item| {
-        if (fatal_terminated and item.kind != .label and !isSabFunctionDecl(item.kind)) continue;
-        if (item.kind == .label or isSabFunctionDecl(item.kind)) fatal_terminated = false;
-        try annotated.append(.{
-            .base = item,
-            .delta = .{ .changes = &.{} },
-            .gas_step_cost = 0,
-        });
-        if (item.kind == .panic or item.kind == .panic_msg) fatal_terminated = true;
-    }
-    const annotated_slice = try annotated.toOwnedSlice();
-    errdefer allocator.free(annotated_slice);
-
-    const function_sigs = flat.function_sigs;
-    flat.function_sigs = &.{};
-
-    const symbols = flat.symbols;
-    flat.symbols = flattener.SymbolTable.init(allocator);
-
-    return .{
-        .annotated = annotated_slice,
-        .function_sigs = function_sigs,
-        .symbols = symbols,
-        .const_decls = flat.const_decls,
-        .gas = .{
-            .max_alloc_bytes = 0,
-            .max_instruction_steps = .{ .bounded = 0 },
-            .call_depth = 0,
-            .has_unbounded_loop = false,
-        },
-    };
-}
-
 var test_source_tree_load_count: usize = 0;
 
 fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
@@ -5155,23 +5117,6 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         try pruneSabFlatToSelectedTests(allocator, &flat, options.sab_selected_test_names);
         const prune_ns = if (prune_start) |start| elapsedNs(start) else null;
         const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
-        if (options.sab_skip_verify and options.sab_selected_test_names.len != 0) {
-            const trusted = try trustedSabVerifyOk(allocator, &flat);
-            const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
-            if (options.profile) {
-                var null_writer = std.io.null_writer;
-                const writer = options.diagnostic_writer orelse null_writer.any();
-                try writer.print(
-                    "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms trusted=1\n",
-                    .{
-                        @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
-                    },
-                );
-            }
-            return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_flat_ns orelse 0, .setup_ns = 0, .flatten_ns = prune_ns orelse 0, .verify_ns = verify_ns orelse 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
-        }
         const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
             .jobs = options.jobs,
             .stage_reporter = null,
@@ -5193,11 +5138,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             );
         }
         return switch (verified) {
-            .ok => |ok| blk: {
-                const digest = incr_verify.hashInstructions(flat.instructions);
-                incr_verify.recordVerified(digest);
-                break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
-            },
+            .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_flat_ns orelse 0, .setup_ns = 0, .flatten_ns = prune_ns orelse 0, .verify_ns = verify_ns orelse 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
             .trap => |report| {
                 var r = report;
                 if (r.file == null) setFile(&r, source_path);
@@ -5292,21 +5233,6 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         null;
 
     const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
-    const content_hash = incr_verify.hashInstructions(flat.instructions);
-    // Phase B-B hybrid: on verdict hit rebuild a trusted annotated shell from the
-    // current FlattenResult (no dangling VerifyOk reuse). Misses run the referee.
-    if (incr_verify.isVerified(content_hash)) {
-        const trusted = try trustedSabVerifyOk(allocator, &flat);
-        const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
-        if (memory_metrics) |*memory| {
-            memory.recordAfterVerify();
-            try writeMemoryStageSampleForOptions(options, "after_verify", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
-            memory.recordEnd();
-        }
-        var metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
-        metrics.cache = .{ .kind = "verdict", .hit = true };
-        return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = metrics } };
-    }
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants, .stage_reporter = verifier_stage_reporter });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
     if (memory_metrics) |*memory| {
@@ -5318,13 +5244,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 
     return switch (verified) {
         .ok => |ok| blk: {
-            incr_verify.recordVerified(content_hash);
-            var names = std.ArrayList([]const u8).init(allocator);
-            defer names.deinit();
-            for (ok.function_sigs) |fs| names.append(fs.name) catch {};
-            incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
-            var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
-            metrics.cache = .{ .kind = "verdict", .hit = false };
+            const metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
             break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
         },
         .trap => |report| {
@@ -7269,8 +7189,7 @@ fn executeCheck(
     configureCompileDiagnostics(&compile_options, json_mode);
 
     const total_start = std.time.Instant.now() catch null;
-    // Flatten via compileSource front half by reusing compileSource then discarding codegen.
-    // Fast path: if we already verified this instruction stream, skip verify.
+    // Flatten and run the full Referee verifier, then discard codegen state.
     const compiled = try compileSourceForCheck(allocator, source_path, compile_options);
     const wall_ns = if (total_start) |start| elapsedNs(start) else 0;
     switch (compiled) {
@@ -7287,11 +7206,10 @@ fn executeCheck(
                 try stdout.print(",\"wall_ms\":{d}", .{wall_ns / 1_000_000});
                 try stdout.writeAll("}\n");
             } else {
-                const cache_hit = if (owned.metrics.cache) |c| c.hit else false;
                 try stdout.print("check ok: instructions={d} compile_tokens={d} verdict_cache={s}\n", .{
                     owned.metrics.instruction_count,
                     owned.metrics.compile_tokens,
-                    if (cache_hit) "hit" else "miss",
+                    if (owned.metrics.cache) |cache| (if (cache.hit) "hit" else "miss") else "disabled",
                 });
             }
             return 0;
@@ -7299,7 +7217,7 @@ fn executeCheck(
     }
 }
 
-/// Check-oriented compile: flatten + verify, with verdict-cache short circuit.
+/// Check-oriented compile: flatten + full verification.
 fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
     var memory_metrics: ?CompileMemoryMetrics = if (options.mem_report) .{} else null;
     if (memory_metrics) |*memory| memory.recordStart();
@@ -7361,17 +7279,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     errdefer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
 
-    const content_hash = incr_verify.hashInstructions(flat.instructions);
     const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
-    if (incr_verify.isVerified(content_hash)) {
-        // Verdict hit: build a trusted shell without re-running the referee.
-        const trusted = try trustedSabVerifyOk(allocator, &flat);
-        const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
-        var metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
-        metrics.cache = .{ .kind = "verdict", .hit = true };
-        return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = metrics } };
-    }
-
     const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
         .jobs = options.jobs,
         .package_grants = package_grants,
@@ -7379,16 +7287,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
     return switch (verified) {
-        .ok => |ok| blk: {
-            incr_verify.recordVerified(content_hash);
-            var names = std.ArrayList([]const u8).init(allocator);
-            defer names.deinit();
-            for (ok.function_sigs) |fs| names.append(fs.name) catch {};
-            incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
-            var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
-            metrics.cache = .{ .kind = "verdict", .hit = false };
-            break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
-        },
+        .ok => |ok| .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } },
         .trap => |report| {
             var r = report;
             if (r.file == null) setFile(&r, source_path);
@@ -7897,7 +7796,6 @@ fn executeTestInner(
         sab_selected_test_list = try collectSabTestListFast(allocator, source_path);
         selected_test_names = try selectedTestNamesFromList(allocator, sab_selected_test_list.?, test_options.selection);
         effective_compile_options.sab_selected_test_names = selected_test_names;
-        effective_compile_options.sab_skip_verify = test_options.compile_only;
     }
 
     const compile_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
@@ -8738,7 +8636,7 @@ test "duplicate definition trap gets a repair hint" {
     try std.testing.expectEqualStrings("high", report.repair_confidence.?);
 }
 
-test "compileSource accepts true SAB without text flattener" {
+test "selected SAB compileSource runs Referee and preserves annotation deltas" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -8771,11 +8669,13 @@ test "compileSource accepts true SAB without text flattener" {
     defer std.testing.allocator.free(bytes);
     try tmp.dir.writeFile(.{ .sub_path = "main.sab", .data = bytes });
 
-    var compiled = try compileSource(std.testing.allocator, "main.sab", .{});
+    var compiled = try compileSource(std.testing.allocator, "main.sab", .{ .sab_selected_test_names = &.{"main"} });
     switch (compiled) {
         .ok => |*ok| {
             defer ok.deinit(std.testing.allocator);
             try std.testing.expectEqual(@as(usize, 3), ok.verified.annotated.len);
+            try std.testing.expect(ok.verified.annotated[1].delta.changes.len != 0);
+            try std.testing.expect(ok.verified.annotated[1].gas_step_cost != 0);
         },
         .trap => return error.TestUnexpectedResult,
     }

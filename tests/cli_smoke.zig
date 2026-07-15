@@ -4811,8 +4811,7 @@ test "llvmc backend compilation and verification on rosetta demos" {
     try assertBuildExeStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
 }
 
-
-test "agent capability: check verdict cache and affected help" {
+test "agent capability: check uses full verification during cache containment" {
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
@@ -4828,17 +4827,20 @@ test "agent capability: check verdict cache and affected help" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    // In-process check hit: same process reuses verdict cache.
+    // Repeated checks must not consume the instruction-only verdict cache until
+    // VerificationInputDigest v2 and a verdict-only result API are available.
     const check1 = [_][]const u8{ "sa", "check", "tests/agent_fixtures/check_ok.sa", "--json" };
     const c1 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
     try std.testing.expectEqual(@as(u8, 0), c1);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"hit\":false") or std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "\"cache\":") == null);
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
     const c2 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
     try std.testing.expectEqual(@as(u8, 0), c2);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"hit\":true"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "\"cache\":") == null);
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();

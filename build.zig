@@ -353,22 +353,26 @@ pub fn build(b: *std.Build) void {
     });
 
     const abi_common_baseline = b.path("tests/abi/sa_std_symbols_v1.txt");
+    const abi_thread_baseline = b.path("tests/abi/sa_std_symbols_thread_v1.txt");
     const abi_posix_baseline = b.path("tests/abi/sa_std_symbols_posix_v1.txt");
     const check_linux_static = b.addRunArtifact(abi_checker);
     check_linux_static.addArgs(&.{ abi_nm, "archive" });
     check_linux_static.addFileArg(abi_linux_static.getEmittedBin());
     check_linux_static.addFileArg(abi_common_baseline);
+    check_linux_static.addFileArg(abi_thread_baseline);
     check_linux_static.addFileArg(abi_posix_baseline);
     const check_linux_shared = b.addRunArtifact(abi_checker);
     check_linux_shared.addArgs(&.{ abi_nm, "elf-shared" });
     check_linux_shared.addFileArg(abi_linux_shared.getEmittedBin());
     check_linux_shared.addFileArg(abi_common_baseline);
+    check_linux_shared.addFileArg(abi_thread_baseline);
     check_linux_shared.addFileArg(abi_posix_baseline);
     const check_windows_shared = b.addRunArtifact(abi_checker);
     check_windows_shared.addArgs(&.{ abi_nm, "coff-archive" });
     _ = abi_windows_shared.getEmittedBin();
     check_windows_shared.addFileArg(abi_windows_shared.getEmittedImplib());
     check_windows_shared.addFileArg(abi_common_baseline);
+    check_windows_shared.addFileArg(abi_thread_baseline);
 
     const sa_std_artifact_abi_step = b.step("sa-std-artifact-abi", "Check Linux ELF/archive and Windows COFF sa_std exports");
     sa_std_artifact_abi_step.dependOn(&check_linux_static.step);

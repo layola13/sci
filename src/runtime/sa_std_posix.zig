@@ -1221,6 +1221,11 @@ extern fn sa_host_pthread_create(thread: *std.c.pthread_t, attr: ?*const std.c.p
 extern fn sa_host_pthread_join(thread: std.c.pthread_t, retval: ?*?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_detach(thread: std.c.pthread_t) callconv(.c) c_int;
 
+fn callHostPthreadJoin(thread: std.c.pthread_t, retval: ?*?*anyopaque) c_int {
+    if (builtin.is_test) return @intCast(@intFromEnum(std.c.pthread_join(thread, retval)));
+    return sa_host_pthread_join(thread, retval);
+}
+
 const PthreadTask = struct {
     entry: PthreadEntryFn,
     arg: ?[*]u8,
@@ -1295,7 +1300,7 @@ fn spawnPthread(task: *PthreadTask) !std.c.pthread_t {
 }
 
 fn joinPthreadHandle(thread: std.c.pthread_t) !void {
-    return switch (@as(std.c.E, @enumFromInt(sa_host_pthread_join(thread, null)))) {
+    return switch (@as(std.c.E, @enumFromInt(callHostPthreadJoin(thread, null)))) {
         .SUCCESS => {},
         .INVAL, .SRCH, .DEADLK => error.InvalidHandle,
         else => error.Io,
@@ -1331,7 +1336,8 @@ fn freePthreadHandle(handle: i32) !*PthreadHandle {
     defer pthread_registry_mutex.unlock();
     if (idx >= pthread_slots.items.len) return error.InvalidHandle;
     const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
-    try pthread_free_slots.append(idx);
+    try pthread_free_slots.ensureUnusedCapacity(1);
+    pthread_free_slots.appendAssumeCapacity(idx);
     pthread_slots.items[idx] = null;
     return slot;
 }
@@ -1370,30 +1376,73 @@ fn removeRawPthreadOwner(raw: u64) ?*PthreadTask {
     return null;
 }
 
-test "pthread handle registry reuses freed slots without a linear scan" {
+fn resetPthreadRegistryForTest() void {
     pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
     pthread_slots.clearRetainingCapacity();
     pthread_free_slots.clearRetainingCapacity();
     raw_pthread_owners.clearRetainingCapacity();
-    pthread_registry_mutex.unlock();
+}
 
-    var first: PthreadHandle = undefined;
-    var second: PthreadHandle = undefined;
-    const first_handle = try allocPthreadHandle(&first);
-    const second_handle = try allocPthreadHandle(&second);
-    try std.testing.expectEqual(@as(i32, 1), first_handle);
-    try std.testing.expectEqual(@as(i32, 2), second_handle);
+fn pthreadTestEntry(arg: ?[*]u8) callconv(.c) i32 {
+    _ = arg;
+    return SA_STD_OK;
+}
 
-    try std.testing.expectEqual(@as(*PthreadHandle, &first), try freePthreadHandle(first_handle));
-    var replacement: PthreadHandle = undefined;
-    const replacement_handle = try allocPthreadHandle(&replacement);
-    try std.testing.expectEqual(first_handle, replacement_handle);
+const PthreadTestHandle = struct {
+    id: i32,
+    ptr: *PthreadHandle,
+};
 
-    pthread_registry_mutex.lock();
-    pthread_slots.clearRetainingCapacity();
-    pthread_free_slots.clearRetainingCapacity();
-    raw_pthread_owners.clearRetainingCapacity();
-    pthread_registry_mutex.unlock();
+fn registerPthreadTestHandle() !PthreadTestHandle {
+    const task = try std.heap.page_allocator.create(PthreadTask);
+    errdefer std.heap.page_allocator.destroy(task);
+    task.* = .{ .entry = pthreadTestEntry, .arg = null };
+
+    const handle = try std.heap.page_allocator.create(PthreadHandle);
+    errdefer std.heap.page_allocator.destroy(handle);
+    handle.* = .{ .thread = std.c.pthread_self(), .task = task };
+    return .{ .id = try allocPthreadHandle(handle), .ptr = handle };
+}
+
+test "pthread join rejects null output without consuming its handle" {
+    resetPthreadRegistryForTest();
+    defer resetPthreadRegistryForTest();
+
+    const registered = try registerPthreadTestHandle();
+    var registered_live = true;
+    defer if (registered_live) pthread_drop(registered.id);
+
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, pthread_join(registered.id, null));
+    try std.testing.expectEqual(registered.ptr, try takePthreadHandle(registered.id));
+
+    pthread_drop(registered.id);
+    registered_live = false;
+}
+
+test "pthread drop rejects double use and makes its slot reusable" {
+    resetPthreadRegistryForTest();
+    defer resetPthreadRegistryForTest();
+
+    const first = try registerPthreadTestHandle();
+    var first_live = true;
+    defer if (first_live) pthread_drop(first.id);
+
+    pthread_drop(first.id);
+    first_live = false;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_last_error());
+    try std.testing.expectError(error.InvalidHandle, takePthreadHandle(first.id));
+
+    pthread_drop(first.id);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_last_error());
+
+    const replacement = try registerPthreadTestHandle();
+    var replacement_live = true;
+    defer if (replacement_live) pthread_drop(replacement.id);
+    try std.testing.expectEqual(first.id, replacement.id);
+
+    pthread_drop(replacement.id);
+    replacement_live = false;
 }
 
 fn finish(status: i32) i32 {
@@ -6184,8 +6233,8 @@ pub fn pthread_spawn_detached(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.
 }
 
 pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
+    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const handle_ptr = freePthreadHandle(handle) catch |err| return finish(mapError(err));
-    const out_ptr = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
     joinPthreadHandle(handle_ptr.thread) catch |err| {
         std.heap.page_allocator.destroy(handle_ptr.task);
         std.heap.page_allocator.destroy(handle_ptr);
@@ -6227,28 +6276,13 @@ pub fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) callconv(.c) i32 {
 }
 
 pub fn pthread_drop(handle: i32) callconv(.c) void {
-    if (handle <= 0) {
-        last_error = SA_STD_ERR_INVALID_HANDLE;
+    const handle_ptr = freePthreadHandle(handle) catch |err| {
+        last_error = mapError(err);
         return;
-    }
-    const idx: usize = @intCast(handle - 1);
-    var handle_ptr: ?*PthreadHandle = null;
-    pthread_registry_mutex.lock();
-    if (idx >= pthread_slots.items.len) {
-        pthread_registry_mutex.unlock();
-        last_error = SA_STD_ERR_INVALID_HANDLE;
-        return;
-    }
-    if (pthread_slots.items[idx]) |slot| {
-        pthread_slots.items[idx] = null;
-        handle_ptr = slot;
-    }
-    pthread_registry_mutex.unlock();
-    if (handle_ptr) |slot| {
-        joinPthreadHandle(slot.thread) catch {};
-        std.heap.page_allocator.destroy(slot.task);
-        std.heap.page_allocator.destroy(slot);
-    }
+    };
+    joinPthreadHandle(handle_ptr.thread) catch {};
+    std.heap.page_allocator.destroy(handle_ptr.task);
+    std.heap.page_allocator.destroy(handle_ptr);
     last_error = SA_STD_OK;
 }
 

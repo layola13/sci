@@ -1,0 +1,9 @@
+# Managed thread compatibility exports shared by POSIX and Windows artifacts.
+# Combine this file with sa_std_symbols_v1.txt for every native sa_std target.
+pthread_drop
+pthread_join
+pthread_spawn
+pthread_spawn_detached
+sa_thread_as_pthread_t
+sa_thread_into_pthread_t
+sa_thread_raw_pthread_join
