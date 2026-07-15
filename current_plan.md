@@ -44,18 +44,18 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
 1. [x] Establish `sa_std` source/artifact ABI baselines and cross-target build gates.
 2. [x] Land Windows network, environment, and generic-thread runtime foundations.
 3. [x] Harden POSIX pthread ownership and concurrency without regressing Linux.
-4. [ ] Finish the Windows Console batch now in progress:
+4. [x] Finish the Windows Console batch recorded in `8021c3d`:
    - resolve SA stdio/dynamic file resources to native Windows handles;
    - detect real consoles while treating redirected files/pipes as non-terminals;
-   - save, apply, and restore console input raw mode;
-   - return visible window dimensions for output and standard console input handles;
+   - own raw-session handles through `DuplicateHandle`, enforce one active session, and retain failed restores for retry;
+   - distinguish input from output consoles and return visible dimensions with a `CONOUT$` fallback;
    - leave epoll explicitly unsupported with deterministic output clearing;
-   - add focused contract tests.
-5. [ ] Validate and commit the Console batch:
-   - Linux formatting/diff and regression tests;
-   - Windows x86_64/arm64 type checks;
-   - Windows x86_64 PE test link and DLL export/ABI checks;
-   - focused lifecycle/error-contract review.
+   - align SA terminal constants and failed-output contracts across Windows/POSIX.
+5. [x] Validate the Console batch on the Linux host:
+   - Linux runtime `73/73`, terminal C integration `2/2`, and focused SA constants `1/1`;
+   - Windows x86_64/aarch64 type checks and x86_64 PE test link;
+   - source ABI `9/9`, artifact ABI `8/8`, and focused lifecycle/error-contract review;
+   - retain the known environment-only `sa-std-runtime` result of `13/14` (IPv6 multicast join exit `23`).
 6. [ ] Add native Windows x86_64 CI and run compiler/runtime Hello World plus fs/process/net/env/thread/console contracts.
 7. [ ] Add native macOS x86_64/arm64 CI and close remaining Darwin runtime/link contracts.
 8. [ ] Finish plugin, installer, archive, and release smoke for target-specific `.dll`/`.dylib` artifacts.

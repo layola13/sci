@@ -1,6 +1,6 @@
 # SCI Progress
 
-Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
+Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
 ## In progress: 2026-07-15 compiler performance implementation
 
@@ -25,20 +25,29 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
   - `79f8c29 runtime: implement Windows environment support`
   - `544714d step1` (Windows generic threads and shared ABI/build gates among the already-recorded branch changes)
   - `38a78df runtime: harden pthread ownership`
+  - `8021c3d step3` (Windows Console implementation and lifecycle/terminal-contract hardening in a combined checkpoint)
 - Latest verified pthread batch evidence:
   - Linux unit tests: `72/72` passed.
   - Linux `sa-std-runtime`: `13/14`; detached pthread C integration passed. The only failure is the existing container IPv6 multicast membership limitation (`sa_std_net_udp_join_multicast_v6`, demo exit `23`).
   - `sa-std-abi`: `9/9` passed.
   - macOS x86_64/arm64 type checks, Mach-O test links, and dylib builds passed from Linux.
   - Windows x86_64/arm64 type checks, x86_64 PE test link, and ABI/export checks passed from Linux.
-- Current implementation batch: Windows Console support in `src/runtime/sa_std_windows.zig`.
-  - Implement terminal detection for standard and dynamic file handles.
-  - Save/restore console input modes for raw sessions; preserve redirected file/pipe behavior.
-  - Report visible console window rows/columns through `GetConsoleScreenBufferInfo`.
-  - Keep epoll explicitly unsupported on Windows while validating pointers and clearing outputs.
-  - Add focused Windows-native tests for mode-bit mapping, visible-window math, invalid outputs, and redirected files.
+- Completed implementation batch: Windows Console support and terminal-contract hardening.
+  - Raw sessions own a duplicated input-console `HANDLE`; only one process-wide raw session may be active.
+  - Mode restoration runs while the registry entry remains owned. A restoration failure preserves the session for retry, and `raw_leave` rejects non-session resources without closing them.
+  - `GetNumberOfConsoleInputEvents` distinguishes input consoles from output handles; redirected files and pipes remain valid non-terminals.
+  - Winsize lookup reports the visible screen rectangle and falls back to `CONOUT$` when stdout and stderr are redirected.
+  - Windows epoll remains explicitly unsupported with deterministic failed outputs; POSIX now clears `out_count` before rejecting a missing events output.
+  - `sa_std/term.sal` status and epoll constants match the runtime ABI. The focused SA contract passes `1/1`, and Linux terminal C integration passes `2/2`, including `EPOLL_CLOEXEC` creation.
+- Console verification evidence on the Linux host:
+  - Linux runtime unit tests: `73/73` passed; `sa-term-runtime`: `2/2` passed.
+  - Linux `sa-std-runtime`: `13/14`; the sole failure is the existing container IPv6 multicast membership limitation (`sa_std_net_udp_join_multicast_v6`, demo exit `23`).
+  - Windows x86_64/aarch64 runtime type checks, x86_64 terminal-test type check, and x86_64 PE test link passed as cross-target checks.
+  - macOS x86_64/aarch64 runtime type checks and Mach-O test links, plus the non-Linux terminal-test gate, passed as cross-target checks.
+  - `sa-std-abi`: `9/9`; `sa-std-artifact-abi`: `8/8`.
+  - Focused lifecycle review found no remaining blocking race, double-close, or normal-path `HANDLE` leak.
 - Current verification boundary: the host is Linux. No Windows/macOS native run has been performed, so neither platform is claimed as L2-supported yet.
-- Commit discipline: each coherent portability batch is committed after its focused Linux/cross/ABI gates. Concurrent CLI/daemon/LLVM worktree edits are not staged into runtime commits.
+- Commit discipline: commit each coherent portability batch after its focused Linux/cross/ABI gates; do not treat Linux cross-target checks as native-platform evidence.
 
 ## Completed: 2026-07-13 IO_ERROR_KIND + ERROR_CODE + ERROR_REF_IS_* expanded
 

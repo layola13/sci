@@ -47,8 +47,8 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of sc
 - [x] Implement Windows environment/path-list support with strict UTF-8/WTF-16 boundaries (`79f8c29`).
 - [x] Add Windows generic thread support and shared thread ABI gates (`544714d`).
 - [x] Harden POSIX pthread ownership, concurrent join/drop claims, detached creation, and failed-output contracts (`38a78df`).
-- [ ] Complete the Windows Console batch: terminal detection, input raw-mode save/restore, visible window size, redirected handle behavior, and explicit epoll `UNSUPPORTED` outputs.
-- [ ] Run the Console batch gates: Linux regression, Windows x86_64/aarch64 type checks, x86_64 PE test link, DLL export/ABI checks, and focused review; then commit the verified batch.
+- [x] Complete the Windows Console batch: terminal detection, owned raw-session handles, single active raw session, retryable restore-before-release, input/output Console classification, `CONOUT$` winsize fallback, deterministic epoll outputs, and SA terminal constant contracts (`8021c3d`).
+- [x] Run the Console batch gates: Linux runtime `73/73`, terminal C integration `2/2`, Windows x86_64/aarch64 type checks, x86_64 PE test link, source ABI `9/9`, artifact ABI `8/8`, and focused lifecycle/error-contract review. Linux `sa-std-runtime` remains `13/14` only because this container rejects the existing IPv6 multicast join test.
 - [ ] Add native Windows x86_64 CI for compiler/runtime build-and-run smoke. Cross-compilation on Linux is not evidence of Windows L2 support.
 - [ ] Add native macOS x86_64/arm64 CI and close remaining Darwin runtime/link gaps. Cross-compilation on Linux is not evidence of macOS L2 support.
 - [ ] Complete plugin/installer/archive/release smoke for `.dll`, `.dylib`, PowerShell installation, target-specific artifact selection, and clean-machine use.

@@ -204,7 +204,7 @@ test "sa_term epoll and process streaming are usable from C" {
         \\    argv[1].len = 6;
         \\    if (sa_std_process_spawn_stream(argv, 2, &process, &stdout_handle, &stderr_handle) != SA_STD_OK) return 2;
         \\    if (process == 0 || stdout_handle == 0 || stderr_handle == 0) return 3;
-        \\    if (sa_term_epoll_create(0, &epoll_handle) != SA_STD_OK) return 4;
+        \\    if (sa_term_epoll_create(EPOLL_CLOEXEC, &epoll_handle) != SA_STD_OK) return 4;
         \\    if (sa_term_epoll_ctl(epoll_handle, EPOLL_CTL_ADD, stdout_handle, EPOLLIN, stdout_handle) != SA_STD_OK) return 5;
         \\    if (sa_term_epoll_wait(epoll_handle, events, 4, 2000, &event_count) != SA_STD_OK) return 6;
         \\    if (event_count == 0) return 7;
