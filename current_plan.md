@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash mut ptr)
+
+Completed supportable mutable raw pointer hash macros:
+- `DEFAULT_HASHER_WRITE_MUT_PTR`: concrete Rust `Hash for *mut T` sized-pointer lowering alias over the existing pointer-address writer.
+- `HASH_MUT_PTR_VALUE`: direct one-shot helper for a sized mutable raw pointer value.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_MUT_PTR_VALUE` and `RANDOM_STATE_HASH_ONE_MUT_PTR_VALUE`: concrete `BuildHasher::hash_one` lowerings for the same mutable raw pointer subset.
+- This mirrors Rust's `*mut T` raw-pointer `Hash` shape for sized pointees by hashing the address and applying the same unit metadata no-op used by the existing pointer hash-one helper. It does not expose unsized pointer metadata hashing, provenance/lifetime semantics, or generic raw-pointer trait dispatch.
+- Test file `std_hash_mut_ptr_macro_surface.sa` (panic ID 10577).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_mut_ptr_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10578+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic reference forwarding beyond concrete `u64` pointers, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash ref u64)
 
 Completed supportable reference forwarding hash macros:
