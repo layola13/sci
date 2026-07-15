@@ -1,5 +1,5 @@
-# Direct backend `pub export` surface only. Native artifact gates must also
-# validate imported protocol and compatibility exports.
+# Common direct backend `pub export` surface. POSIX artifact checks combine
+# this with sa_std_symbols_posix_v1.txt for protocol and compatibility exports.
 sa_assert_eq_i64
 sa_assert_eq_i64_at
 sa_deno_args_json

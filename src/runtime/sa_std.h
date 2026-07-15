@@ -424,6 +424,8 @@ int32_t sa_std_net_tcp_stream_set_read_timeout(uint64_t stream_handle, uint64_t 
 int32_t sa_std_net_tcp_stream_set_write_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nonblocking(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_set_nodelay(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_keepalive(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_keepalive_params(uint64_t stream_handle, uint32_t idle_secs, uint32_t interval_secs, uint32_t count);
 int32_t sa_std_net_tcp_stream_set_quickack(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_quickack(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_tcp_stream_set_deferaccept(uint64_t stream_handle, uint32_t seconds);
@@ -536,7 +538,7 @@ uint32_t sa_net_addr_port(uint64_t addr_handle);
 uint32_t sa_net_addr_family(uint64_t addr_handle);
 uint64_t sa_net_addr_scope_id(uint64_t addr_handle);
 int32_t sa_std_net_addr_format(uint64_t addr_handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
-int32_t sa_net_addr_free(uint64_t addr_handle);
+sa_std_fallible_i32 sa_net_addr_free(uint64_t addr_handle);
 uint32_t sa_net_unix_addr_kind(uint64_t addr_handle);
 uint8_t sa_net_unix_addr_is_unnamed(uint64_t addr_handle);
 uint8_t *sa_net_unix_addr_path_ptr(uint64_t addr_handle);

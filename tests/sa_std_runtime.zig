@@ -189,8 +189,8 @@ test "sa_std udp loopback and address accessors are usable from C" {
         \\    if (memcmp(buffer, payload, sizeof(payload) - 1) != 0) return 12;
         \\    if (addr_port == 0) return 13;
         \\    if (addr_family != 2 && addr_family != 10) return 14;
-        \\    if (sa_net_addr_free(recv_addr_handle) != SA_STD_OK) return 15;
-        \\    if (sa_net_addr_free(local_addr_handle) != SA_STD_OK) return 16;
+        \\    if (sa_net_addr_free(recv_addr_handle).status != SA_STD_OK) return 15;
+        \\    if (sa_net_addr_free(local_addr_handle).status != SA_STD_OK) return 16;
         \\    if (sa_net_udp_close(socket_handle) != SA_STD_OK) return 17;
         \\    puts("sa_std udp ok");
         \\    return 0;
@@ -282,9 +282,9 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
         \\    if (sa_net_addr_scope_id(local_addr_handle_v6) != 0) return 22;
         \\    if (sa_std_net_udp_join_multicast_v6(socket_handle_v6, group_host_v6, 9, 0) != SA_STD_OK) return 23;
         \\    if (sa_std_net_udp_leave_multicast_v6(socket_handle_v6, group_host_v6, 9, 0) != SA_STD_OK) return 24;
-        \\    if (sa_net_addr_free(local_addr_handle_v6) != SA_STD_OK) return 25;
+        \\    if (sa_net_addr_free(local_addr_handle_v6).status != SA_STD_OK) return 25;
         \\    if (sa_net_udp_close(socket_handle_v6) != SA_STD_OK) return 26;
-        \\    if (sa_net_addr_free(local_addr_handle) != SA_STD_OK) return 27;
+        \\    if (sa_net_addr_free(local_addr_handle).status != SA_STD_OK) return 27;
         \\    if (sa_net_udp_close(socket_handle) != SA_STD_OK) return 28;
         \\    puts("sa_std udp multicast ok");
         \\    return 0;
@@ -383,8 +383,8 @@ test "sa_std udp connected send and recv are usable from C" {
         \\    if (sa_std_net_udp_recv(socket_a, buffer, sizeof(buffer), &read_count) != SA_STD_OK) return 21;
         \\    if (read_count != sizeof(payload_b) - 1) return 22;
         \\    if (memcmp(buffer, payload_b, sizeof(payload_b) - 1) != 0) return 23;
-        \\    if (sa_net_addr_free(addr_b) != SA_STD_OK) return 24;
-        \\    if (sa_net_addr_free(addr_a) != SA_STD_OK) return 25;
+        \\    if (sa_net_addr_free(addr_b).status != SA_STD_OK) return 24;
+        \\    if (sa_net_addr_free(addr_a).status != SA_STD_OK) return 25;
         \\    if (sa_net_udp_close(socket_b) != SA_STD_OK) return 26;
         \\    if (sa_net_udp_close(socket_a) != SA_STD_OK) return 27;
         \\    puts("sa_std udp connect ok");

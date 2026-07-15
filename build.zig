@@ -231,8 +231,149 @@ pub fn build(b: *std.Build) void {
     });
     sa_std_abi_contract.setCwd(repo_root_lazy);
     test_step.dependOn(&sa_std_abi_contract.step);
-    const sa_std_abi_step = b.step("sa-std-abi", "Check the direct SA runtime v1 export surface");
+    const sa_std_abi_layout = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "-I",
+        "src/runtime",
+        "-lc",
+        "tests/sa_std_abi_layout.zig",
+    });
+    sa_std_abi_layout.setCwd(repo_root_lazy);
+    test_step.dependOn(&sa_std_abi_layout.step);
+    const sa_std_artifact_abi_unit = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/sa_std_artifact_abi.zig",
+    });
+    sa_std_artifact_abi_unit.setCwd(repo_root_lazy);
+    test_step.dependOn(&sa_std_artifact_abi_unit.step);
+
+    const sa_std_abi_step = b.step("sa-std-abi", "Check SA runtime source and data-layout ABI contracts");
     sa_std_abi_step.dependOn(&sa_std_abi_contract.step);
+    sa_std_abi_step.dependOn(&sa_std_abi_layout.step);
+    sa_std_abi_step.dependOn(&sa_std_artifact_abi_unit.step);
+
+    for ([_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" }) |abi_target| {
+        const abi_layout_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "test",
+            "-target",
+            abi_target,
+            "-I",
+            "src/runtime",
+            "-lc",
+            "-fno-emit-bin",
+            "tests/sa_std_abi_layout.zig",
+        });
+        abi_layout_typecheck.setCwd(repo_root_lazy);
+        sa_std_abi_step.dependOn(&abi_layout_typecheck.step);
+        test_step.dependOn(&abi_layout_typecheck.step);
+    }
+
+    for ([_][]const u8{ "x86_64-linux-gnu", "x86_64-macos", "x86_64-windows-gnu" }) |abi_target| {
+        const abi_header_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "cc",
+            "-target",
+            abi_target,
+            "-I",
+            "src/runtime",
+            "-std=c11",
+            "-c",
+        });
+        abi_header_typecheck.addFileArg(b.path("tests/abi/sa_std_header_smoke.c"));
+        abi_header_typecheck.addArg("-o");
+        _ = abi_header_typecheck.addOutputFileArg(b.fmt("sa_std_header_smoke-{s}.o", .{abi_target}));
+        abi_header_typecheck.setCwd(repo_root_lazy);
+        sa_std_abi_step.dependOn(&abi_header_typecheck.step);
+        test_step.dependOn(&abi_header_typecheck.step);
+    }
+
+    const abi_nm = b.option([]const u8, "abi-nm", "nm-compatible symbol reader for the sa_std artifact ABI gate") orelse
+        environmentValue(b.allocator, "LLVM_NM") orelse
+        environmentValue(b.allocator, "NM") orelse
+        "nm";
+    const abi_checker_module = b.createModule(.{
+        .root_source_file = b.path("tests/sa_std_artifact_abi.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
+    const abi_checker = b.addExecutable(.{
+        .name = "sa_std_artifact_abi_check",
+        .root_module = abi_checker_module,
+    });
+
+    const abi_linux_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .gnu,
+    });
+    const abi_linux_static_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = abi_linux_target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    addPthreadHostShimToModule(b, abi_linux_static_module, .linux);
+    const abi_linux_static = b.addLibrary(.{
+        .name = "sa_std_abi_linux",
+        .root_module = abi_linux_static_module,
+        .linkage = .static,
+    });
+
+    const abi_linux_shared_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = abi_linux_target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    addPthreadHostShimToModule(b, abi_linux_shared_module, .linux);
+    const abi_linux_shared = b.addLibrary(.{
+        .name = "sa_std_abi_linux",
+        .root_module = abi_linux_shared_module,
+        .linkage = .dynamic,
+    });
+
+    const abi_windows_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+        .abi = .gnu,
+    });
+    const abi_windows_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_std.zig"),
+        .target = abi_windows_target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const abi_windows_shared = b.addLibrary(.{
+        .name = "sa_std_abi_windows",
+        .root_module = abi_windows_module,
+        .linkage = .dynamic,
+    });
+
+    const abi_common_baseline = b.path("tests/abi/sa_std_symbols_v1.txt");
+    const abi_posix_baseline = b.path("tests/abi/sa_std_symbols_posix_v1.txt");
+    const check_linux_static = b.addRunArtifact(abi_checker);
+    check_linux_static.addArgs(&.{ abi_nm, "archive" });
+    check_linux_static.addFileArg(abi_linux_static.getEmittedBin());
+    check_linux_static.addFileArg(abi_common_baseline);
+    check_linux_static.addFileArg(abi_posix_baseline);
+    const check_linux_shared = b.addRunArtifact(abi_checker);
+    check_linux_shared.addArgs(&.{ abi_nm, "elf-shared" });
+    check_linux_shared.addFileArg(abi_linux_shared.getEmittedBin());
+    check_linux_shared.addFileArg(abi_common_baseline);
+    check_linux_shared.addFileArg(abi_posix_baseline);
+    const check_windows_shared = b.addRunArtifact(abi_checker);
+    check_windows_shared.addArgs(&.{ abi_nm, "coff-archive" });
+    _ = abi_windows_shared.getEmittedBin();
+    check_windows_shared.addFileArg(abi_windows_shared.getEmittedImplib());
+    check_windows_shared.addFileArg(abi_common_baseline);
+
+    const sa_std_artifact_abi_step = b.step("sa-std-artifact-abi", "Check Linux ELF/archive and Windows COFF sa_std exports");
+    sa_std_artifact_abi_step.dependOn(&check_linux_static.step);
+    sa_std_artifact_abi_step.dependOn(&check_linux_shared.step);
+    sa_std_artifact_abi_step.dependOn(&check_windows_shared.step);
 
     const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
     const portable_targets = [_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" };
