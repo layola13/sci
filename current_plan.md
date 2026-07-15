@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash tuple2 u64)
+
+Completed supportable tuple hash macros:
+- `DEFAULT_HASHER_WRITE_TUPLE2_U64`: concrete `(u64, u64)` tuple `Hash` lowering that writes the two fields in order through the existing `write_u64` path.
+- `HASH_TUPLE2_U64`: direct one-shot helper for a concrete two-`u64` tuple.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE2_U64` and `RANDOM_STATE_HASH_ONE_TUPLE2_U64`: concrete `BuildHasher::hash_one` lowerings for the same tuple subset.
+- This mirrors Rust tuple `Hash` field-order dispatch for one supportable concrete shape, without exposing generic tuple trait impls, tuple arities beyond two, or non-`u64` elements.
+- Test file `std_hash_tuple2_u64_macro_surface.sa` (panic ID 10565).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_tuple2_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10566+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic tuple `Hash` up to twelve elements, unsized pointer metadata hashing, reference forwarding, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash_one pointer)
 
 Completed supportable pointer `hash_one` macros:
