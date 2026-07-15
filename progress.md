@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash ref u64 macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local reference `Hash` forwarding implementations under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `DEFAULT_HASHER_WRITE_REF_U64`, `DEFAULT_HASHER_WRITE_REF_MUT_U64`, `HASH_REF_U64`, `HASH_REF_MUT_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_REF_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_REF_MUT_U64`, `RANDOM_STATE_HASH_ONE_REF_U64`, and `RANDOM_STATE_HASH_ONE_REF_MUT_U64`.
+- The helper surface models `Hash for &u64` and `Hash for &mut u64` by loading the pointee and forwarding to the existing deterministic `u64` writer. It does not claim generic reference trait dispatch, Rust borrow/lifetime semantics, unsized pointee metadata, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_ref_u64_macro_surface.sa` - 1 test (panic ID 10576) covering direct/manual equivalence, shared and mutable reference forwarding, pointer-hash distinction, value sensitivity after pointee mutation, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_ref_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10577+.
+
 ## Completed: 2026-07-15 Hash tuple12 u64 macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local tuple `Hash` implementation under `/home/vscode/projects/rust`.

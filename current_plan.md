@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash ref u64)
+
+Completed supportable reference forwarding hash macros:
+- `DEFAULT_HASHER_WRITE_REF_U64` and `DEFAULT_HASHER_WRITE_REF_MUT_U64`: concrete Rust `Hash for &T` / `Hash for &mut T` forwarding shape for a `u64` pointee, by loading the referenced value and writing it through the existing `u64` path.
+- `HASH_REF_U64` and `HASH_REF_MUT_U64`: direct one-shot helpers for concrete `u64` references.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_REF_U64` / `REF_MUT_U64` and `RANDOM_STATE_HASH_ONE_REF_U64` / `REF_MUT_U64`: concrete `BuildHasher::hash_one` lowerings for the same reference subset.
+- This follows Rust's reference `Hash` forwarding implementation for one supportable concrete pointee shape, without exposing generic reference trait dispatch, borrow/lifetime semantics, or unsized pointee metadata.
+- Test file `std_hash_ref_u64_macro_surface.sa` (panic ID 10576).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_ref_u64_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10577+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic reference forwarding beyond concrete `u64` pointers, unsized pointer metadata hashing, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash tuple12 u64)
 
 Completed supportable tuple hash macros:
