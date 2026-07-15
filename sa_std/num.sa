@@ -9012,6 +9012,14 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     !__wrapping_u64_pow2_value_%out_bool
 [END_MACRO]
 
+[MACRO] WRAPPING_U64_NEXT_POWER_OF_TWO %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_next_pow_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_NEXT_POWER_OF_TWO __wrapping_u64_next_pow_result_%out_ptr, __wrapping_u64_next_pow_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_next_pow_result_%out_ptr
+    !__wrapping_u64_next_pow_result_%out_ptr
+    !__wrapping_u64_next_pow_value_%out_ptr
+[END_MACRO]
+
 [MACRO] WRAPPING_U64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
     EXPAND WRAPPING_U64_GET __wrapping_u64_rotl_value_%out_ptr, %src_ptr
     EXPAND NUM_U64_ROTATE_LEFT __wrapping_u64_rotl_result_%out_ptr, __wrapping_u64_rotl_value_%out_ptr, %shift
@@ -9265,6 +9273,30 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND NUM_U32_IS_POWER_OF_TWO %out_bool, __wrapping_u32_pow2_value_%out_bool
     !__wrapping_u32_pow2_value_%out_bool
     !__wrapping_u32_pow2_raw_%out_bool
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_NEXT_POWER_OF_TWO %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_next_pow_raw_%out_ptr, %src_ptr
+    __wrapping_u32_next_pow_value_%out_ptr = and __wrapping_u32_next_pow_raw_%out_ptr, NUM_U32_MAX
+    EXPAND NUM_U64_CHECKED_NEXT_POWER_OF_TWO __wrapping_u32_next_pow_ok_%out_ptr, __wrapping_u32_next_pow_candidate_%out_ptr, __wrapping_u32_next_pow_value_%out_ptr
+    __wrapping_u32_next_pow_in_range_%out_ptr = ule __wrapping_u32_next_pow_candidate_%out_ptr, NUM_U32_MAX
+    __wrapping_u32_next_pow_keep_%out_ptr = and __wrapping_u32_next_pow_ok_%out_ptr, __wrapping_u32_next_pow_in_range_%out_ptr
+    br __wrapping_u32_next_pow_keep_%out_ptr -> L_WRAPPING_U32_NEXT_POWER_VALUE_%out_ptr, L_WRAPPING_U32_NEXT_POWER_ZERO_%out_ptr
+
+L_WRAPPING_U32_NEXT_POWER_VALUE_%out_ptr:
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_next_pow_candidate_%out_ptr
+    jmp L_WRAPPING_U32_NEXT_POWER_END_%out_ptr
+
+L_WRAPPING_U32_NEXT_POWER_ZERO_%out_ptr:
+    EXPAND WRAPPING_U32_NEW %out_ptr, 0
+
+L_WRAPPING_U32_NEXT_POWER_END_%out_ptr:
+    !__wrapping_u32_next_pow_keep_%out_ptr
+    !__wrapping_u32_next_pow_in_range_%out_ptr
+    !__wrapping_u32_next_pow_candidate_%out_ptr
+    !__wrapping_u32_next_pow_ok_%out_ptr
+    !__wrapping_u32_next_pow_value_%out_ptr
+    !__wrapping_u32_next_pow_raw_%out_ptr
 [END_MACRO]
 
 [MACRO] WRAPPING_U32_ROTATE_LEFT %out_ptr, %src_ptr, %shift

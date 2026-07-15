@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping unsigned next_power_of_two macros
+
+- Continued Rust `std::num::Wrapping` macro-surface parity, referencing Rust's local unsigned `next_power_of_two` wrapper method and primitive `wrapping_next_power_of_two` behavior under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `WRAPPING_U64_NEXT_POWER_OF_TWO` and `WRAPPING_U32_NEXT_POWER_OF_TWO`.
+- `WrappingU64` delegates to the existing primitive next-power helper, which returns 0 on overflow. `WrappingU32` masks the stored value to the concrete 32-bit width first, then writes 0 when the next power would exceed `u32::MAX`.
+- Test: `tests/unit_framework/std_num_wrapping_next_power_macro_surface.sa` - 1 test (panic ID 10623) expanding both new macros and covering zero, ordinary rounding, top power preservation, U64 overflow, U32 masking, and U32 overflow-to-zero behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_next_power_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10624+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating pow bits macros
 
 - Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `BITS`, `pow`, `saturating_pow`, and unsigned `is_power_of_two` forwarding methods under `/home/vscode/projects/rust`.
