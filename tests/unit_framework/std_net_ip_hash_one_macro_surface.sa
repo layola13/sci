@@ -101,3 +101,105 @@ L_FAIL:
 L_PASS:
     !ok
     return 0
+
+@test "sa_std net socketaddrv4 hash_one macro surface"():
+L_ENTRY:
+    EXPAND BUILD_HASHER_DEFAULT_NEW builder
+
+    ip = stack_alloc NetIpv4Addr_SIZE
+    ip_same = stack_alloc NetIpv4Addr_SIZE
+    ip_diff = stack_alloc NetIpv4Addr_SIZE
+    sock = stack_alloc NetSocketAddrV4_SIZE
+    same_sock = stack_alloc NetSocketAddrV4_SIZE
+    diff_port_sock = stack_alloc NetSocketAddrV4_SIZE
+    diff_ip_sock = stack_alloc NetSocketAddrV4_SIZE
+
+    EXPAND NET_IPV4_NEW ip, 127, 0, 0, 1
+    EXPAND NET_IPV4_NEW ip_same, 127, 0, 0, 1
+    EXPAND NET_IPV4_NEW ip_diff, 127, 0, 0, 2
+    EXPAND NET_SOCKET_ADDR_V4_NEW sock, ip, 8080
+    EXPAND NET_SOCKET_ADDR_V4_NEW same_sock, ip_same, 8080
+    EXPAND NET_SOCKET_ADDR_V4_NEW diff_port_sock, ip_same, 8081
+    EXPAND NET_SOCKET_ADDR_V4_NEW diff_ip_sock, ip_diff, 8080
+
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR sock_ip, sock
+    EXPAND NET_SOCKET_ADDR_V4_PORT sock_port, sock
+
+    manual_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW manual_hasher
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 manual_hasher, sock_ip
+    EXPAND DEFAULT_HASHER_WRITE_U16 manual_hasher, sock_port
+    EXPAND DEFAULT_HASHER_FINISH manual_hash, manual_hasher
+
+    writer_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW writer_hasher
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V4 writer_hasher, sock
+    EXPAND DEFAULT_HASHER_FINISH writer_hash, writer_hasher
+
+    EXPAND NET_SOCKET_ADDR_V4_HASH direct_hash, sock
+    EXPAND NET_SOCKET_ADDR_V4_HASH same_hash, same_sock
+    EXPAND NET_SOCKET_ADDR_V4_HASH diff_port_hash, diff_port_sock
+    EXPAND NET_SOCKET_ADDR_V4_HASH diff_ip_hash, diff_ip_sock
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_NET_SOCKET_ADDR_V4 build_hash, builder, sock
+
+    state = stack_alloc RandomState_SIZE
+    state_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_WITH_SEEDS state, 222, 333
+    EXPAND RANDOM_STATE_HASH_ONE_NET_SOCKET_ADDR_V4 state_hash, state, sock
+    EXPAND RANDOM_STATE_BUILD state_hasher, state
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V4 state_hasher, sock
+    EXPAND DEFAULT_HASHER_FINISH manual_state_hash, state_hasher
+
+    manual_matches_writer = eq manual_hash, writer_hash
+    writer_matches_direct = eq writer_hash, direct_hash
+    same_contents_match = eq same_hash, direct_hash
+    port_matters = ne diff_port_hash, direct_hash
+    ip_matters = ne diff_ip_hash, direct_hash
+    build_matches = eq build_hash, direct_hash
+    state_matches_manual = eq state_hash, manual_state_hash
+    seeded_differs_default = ne state_hash, direct_hash
+
+    c01 = and manual_matches_writer, writer_matches_direct
+    c02 = and c01, same_contents_match
+    c03 = and c02, port_matters
+    c04 = and c03, ip_matters
+    c05 = and c04, build_matches
+    c06 = and c05, state_matches_manual
+    ok = and c06, seeded_differs_default
+
+    !sock_ip
+    !sock_port
+    !manual_hash
+    !writer_hash
+    !direct_hash
+    !same_hash
+    !diff_port_hash
+    !diff_ip_hash
+    !build_hash
+    !state_hash
+    !manual_state_hash
+    !manual_matches_writer
+    !writer_matches_direct
+    !same_contents_match
+    !port_matters
+    !ip_matters
+    !build_matches
+    !state_matches_manual
+    !seeded_differs_default
+    !c01
+    !c02
+    !c03
+    !c04
+    !c05
+    !c06
+    !builder
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10590)
+
+L_PASS:
+    !ok
+    return 0
