@@ -69,6 +69,13 @@ fn jsonStringValue(value: std.json.Value) ![]const u8 {
     };
 }
 
+fn jsonPositiveU64Value(value: std.json.Value) !u64 {
+    return switch (value) {
+        .integer => |number| if (number > 0) @intCast(number) else error.TestUnexpectedResult,
+        else => error.TestUnexpectedResult,
+    };
+}
+
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
@@ -174,6 +181,85 @@ fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.fs.Dir, rel_path:
         found = try allocator.dupe(u8, entry.name);
     }
     return found orelse error.FileNotFound;
+}
+
+fn expectIncrementalManifestV2(
+    allocator: std.mem.Allocator,
+    dir: std.fs.Dir,
+    expected_function_count: usize,
+) ![]u8 {
+    const cache_root_path = ".sa_cache/build-obj-incremental";
+    const cache_key = try singleCacheEntryName(allocator, dir, cache_root_path);
+    defer allocator.free(cache_key);
+
+    const entry_path = try std.fs.path.join(allocator, &.{ cache_root_path, cache_key });
+    defer allocator.free(entry_path);
+    const manifest_path = try std.fs.path.join(allocator, &.{ entry_path, "manifest.json" });
+    defer allocator.free(manifest_path);
+    const manifest_bytes = try dir.readFileAlloc(allocator, manifest_path, 16 * 1024 * 1024);
+    defer allocator.free(manifest_bytes);
+    var parsed = try parseJsonValue(allocator, manifest_bytes);
+    defer parsed.deinit();
+
+    try std.testing.expectEqual(@as(u64, 2), try jsonPositiveU64Value(try jsonObjectGet(&parsed, "version")));
+    try std.testing.expectEqualStrings("build-obj-incremental", try jsonStringValue(try jsonObjectGet(&parsed, "kind")));
+    try std.testing.expectEqualStrings(cache_key, try jsonStringValue(try jsonObjectGet(&parsed, "key")));
+
+    const functions = switch (try jsonObjectGet(&parsed, "functions")) {
+        .array => |array| array.items,
+        else => return error.TestUnexpectedResult,
+    };
+    try std.testing.expectEqual(expected_function_count, functions.len);
+
+    var entry_dir = try dir.openDir(entry_path, .{});
+    defer entry_dir.close();
+    var seen_keys = std.StringHashMap(void).init(allocator);
+    defer seen_keys.deinit();
+    var selected_object_path: ?[]u8 = null;
+    errdefer if (selected_object_path) |path| allocator.free(path);
+
+    for (functions) |function_value| {
+        const function_key = try jsonStringValue(try jsonObjectGetValue(function_value, "key"));
+        try std.testing.expect(isProjectCacheEntryName(function_key));
+        const seen = try seen_keys.getOrPut(function_key);
+        try std.testing.expect(!seen.found_existing);
+
+        const relative_path = try jsonStringValue(try jsonObjectGetValue(function_value, "path"));
+        try std.testing.expect(!std.fs.path.isAbsolute(relative_path));
+        const expected_path = try std.fmt.allocPrint(allocator, "functions/{s}.o", .{function_key});
+        defer allocator.free(expected_path);
+        try std.testing.expectEqualStrings(expected_path, relative_path);
+
+        const declared_size = try jsonPositiveU64Value(try jsonObjectGetValue(function_value, "size"));
+        const declared_sha256 = try jsonStringValue(try jsonObjectGetValue(function_value, "sha256"));
+        try std.testing.expect(isProjectCacheEntryName(declared_sha256));
+
+        const stat = try entry_dir.statFile(relative_path);
+        try std.testing.expect(stat.kind == .file);
+        try std.testing.expect(stat.size > 0);
+        try std.testing.expectEqual(declared_size, stat.size);
+        const object_bytes = try entry_dir.readFileAlloc(allocator, relative_path, 64 * 1024 * 1024);
+        defer allocator.free(object_bytes);
+        try std.testing.expectEqual(declared_size, @as(u64, @intCast(object_bytes.len)));
+        const actual_sha256 = bytesHashHex(object_bytes);
+        try std.testing.expectEqualStrings(declared_sha256, actual_sha256[0..]);
+
+        if (selected_object_path == null) {
+            selected_object_path = try std.fs.path.join(allocator, &.{ entry_path, relative_path });
+        }
+    }
+
+    return selected_object_path orelse error.TestUnexpectedResult;
+}
+
+fn expectNoIncrementalTempFiles(allocator: std.mem.Allocator, dir: std.fs.Dir) !void {
+    var cache_root = try dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
+    defer cache_root.close();
+    var walker = try cache_root.walk(allocator);
+    defer walker.deinit();
+    while (try walker.next()) |entry| {
+        try std.testing.expect(std.mem.indexOf(u8, entry.basename, ".tmp.") == null);
+    }
 }
 
 fn cacheEntryCount(dir: std.fs.Dir, rel_path: []const u8) !usize {
@@ -668,8 +754,16 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
 
 test "cli build-obj incremental reuses local cache layout" {
     const source =
+        \\@const VTABLE = vtable { helper = @helper, spare = @vtable_only }
         \\@helper(value: i32) -> i32:
-        \\return value + 1
+        \\next = add value, 1
+        \\!value
+        \\return next
+        \\
+        \\@vtable_only(value: i32) -> i32:
+        \\next = add value, 3
+        \\!value
+        \\return next
         \\
         \\@main() -> i32:
         \\value = call @helper(6)
@@ -686,7 +780,7 @@ test "cli build-obj incremental reuses local cache layout" {
 
     try writeSource(tmp.dir, "incremental.sa", source);
 
-    const build_argv = [_][]const u8{ "sa", "build-obj", "incremental.sa", "--incremental", "-o", "incremental.o" };
+    const build_argv = [_][]const u8{ "sa", "build-obj", "incremental.sa", "--incremental", "--no-incremental", "-o", "incremental.o" };
     const first_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), first_code);
     const second_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
@@ -694,11 +788,32 @@ test "cli build-obj incremental reuses local cache layout" {
 
     var before_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
     defer freeStringMtimeMap(std.testing.allocator, &before_mtimes);
-    try std.testing.expectEqual(@as(u32, 2), before_mtimes.count());
+    try std.testing.expectEqual(@as(u32, 3), before_mtimes.count());
+
+    const scheduling_argv = [_][]const u8{ "sa", "build-obj", "incremental.sa", "--incremental", "--no-incremental", "--jobs", "2", "--dce", "full", "-o", "incremental.o" };
+    const scheduling_code = try saasm.cli.execute(std.testing.allocator, scheduling_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), scheduling_code);
+    var scheduling_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &scheduling_mtimes);
+    try std.testing.expectEqual(before_mtimes.count(), scheduling_mtimes.count());
+    var scheduling_iter = before_mtimes.iterator();
+    while (scheduling_iter.next()) |entry| {
+        try std.testing.expectEqual(entry.value_ptr.*, scheduling_mtimes.get(entry.key_ptr.*) orelse return error.TestUnexpectedResult);
+    }
+    const scheduling_cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-obj-incremental");
+    defer std.testing.allocator.free(scheduling_cache_key);
 
     const modified_source =
+        \\@const VTABLE = vtable { helper = @helper, spare = @vtable_only }
         \\@helper(value: i32) -> i32:
-        \\return value + 2
+        \\next = add value, 2
+        \\!value
+        \\return next
+        \\
+        \\@vtable_only(value: i32) -> i32:
+        \\next = add value, 3
+        \\!value
+        \\return next
         \\
         \\@main() -> i32:
         \\value = call @helper(6)
@@ -710,7 +825,7 @@ test "cli build-obj incremental reuses local cache layout" {
 
     var after_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
     defer freeStringMtimeMap(std.testing.allocator, &after_mtimes);
-    try std.testing.expect(after_mtimes.count() >= 3);
+    try std.testing.expectEqual(@as(u32, 3), after_mtimes.count());
 
     var reused_count: usize = 0;
     var before_iter = before_mtimes.iterator();
@@ -719,13 +834,59 @@ test "cli build-obj incremental reuses local cache layout" {
             if (mtime == entry.value_ptr.*) reused_count += 1;
         }
     }
-    try std.testing.expect(reused_count >= 1);
+    try std.testing.expectEqual(@as(usize, 2), reused_count);
+
+    const corrupt_object_path = try expectIncrementalManifestV2(std.testing.allocator, tmp.dir, 3);
+    defer std.testing.allocator.free(corrupt_object_path);
+    const pristine_object = try tmp.dir.readFileAlloc(std.testing.allocator, corrupt_object_path, 64 * 1024 * 1024);
+    defer std.testing.allocator.free(pristine_object);
+    try std.testing.expect(pristine_object.len > 0);
+    const zeroed_object = try std.testing.allocator.alloc(u8, pristine_object.len);
+    defer std.testing.allocator.free(zeroed_object);
+    @memset(zeroed_object, 0);
+    try std.testing.expect(!std.mem.eql(u8, pristine_object, zeroed_object));
+    try writeBytes(tmp.dir, corrupt_object_path, zeroed_object);
+
+    const repaired_code = try saasm.cli.execute(std.testing.allocator, build_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), repaired_code);
+    const repaired_object_path = try expectIncrementalManifestV2(std.testing.allocator, tmp.dir, 3);
+    defer std.testing.allocator.free(repaired_object_path);
+    try std.testing.expectEqualStrings(corrupt_object_path, repaired_object_path);
+    const repaired_object = try tmp.dir.readFileAlloc(std.testing.allocator, repaired_object_path, 64 * 1024 * 1024);
+    defer std.testing.allocator.free(repaired_object);
+    try std.testing.expectEqualSlices(u8, pristine_object, repaired_object);
+    try expectNoIncrementalTempFiles(std.testing.allocator, tmp.dir);
 
     const obj_file = try tmp.dir.openFile("incremental.o", .{});
     defer obj_file.close();
     const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
     try std.testing.expect(obj_bytes.len > 0);
+
+    const linked_name = if (builtin.os.tag == .windows) "incremental-linked.exe" else "incremental-linked.out";
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "incremental.o", "-o", linked_name });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("incremental object link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const linked_run_path = if (builtin.os.tag == .windows) ".\\incremental-linked.exe" else "./incremental-linked.out";
+    const linked_result = try runCommandAnyExit(std.testing.allocator, &.{linked_run_path});
+    defer std.testing.allocator.free(linked_result.stdout);
+    defer std.testing.allocator.free(linked_result.stderr);
+    switch (linked_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 8), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), linked_result.stdout.len);
+    try std.testing.expectEqual(@as(usize, 0), linked_result.stderr.len);
 
     const bc_file = try tmp.dir.openFile("incremental.o.sa.bc", .{});
     defer bc_file.close();
@@ -737,7 +898,7 @@ test "cli build-obj incremental reuses local cache layout" {
     defer cache_dir.close();
     var cache_iter = cache_dir.iterate();
     try std.testing.expect((try cache_iter.next()) != null);
-    try std.testing.expect(try cachedFunctionManifestCount(tmp.dir) >= 1);
+    try std.testing.expectEqual(@as(usize, 1), try cachedFunctionManifestCount(tmp.dir));
 
     var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
@@ -747,6 +908,58 @@ test "cli build-obj incremental reuses local cache layout" {
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--incremental") != null);
+}
+
+test "cli build-obj incremental without main owns process globals" {
+    const source =
+        \\@ffi_wrapper probe() -> i32:
+        \\L_ENTRY:
+        \\argc = call @sys_argc()
+        \\return argc
+    ;
+    const driver_source =
+        \\#include <stdint.h>
+        \\extern int32_t probe(void);
+        \\int main(void) {
+        \\    return probe() == 0 ? 0 : 1;
+        \\}
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "library.sa", source);
+    try writeSource(tmp.dir, "driver.c", driver_source);
+    const build_argv = [_][]const u8{ "sa", "build-obj", "library.sa", "--incremental", "--no-incremental", "-o", "library.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, build_argv[0..]));
+
+    const linked_name = if (builtin.os.tag == .windows) "library-linked.exe" else "library-linked.out";
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "driver.c", "library.o", "-o", linked_name });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("incremental library link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const linked_run_path = if (builtin.os.tag == .windows) ".\\library-linked.exe" else "./library-linked.out";
+    const run_result = try runCommandAnyExit(std.testing.allocator, &.{linked_run_path});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), run_result.stdout.len);
+    try std.testing.expectEqual(@as(usize, 0), run_result.stderr.len);
 }
 
 test "cli build project cache is default and can be disabled" {

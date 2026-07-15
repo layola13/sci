@@ -76,6 +76,7 @@ typedef struct {
     unsigned char test_mode;
     unsigned char debug;
     unsigned char is_cgu;
+    unsigned char owns_process_globals;
     const char *source_file;
     const char *source_dir;
     const SaConst *consts;
@@ -94,6 +95,7 @@ typedef struct {
     LLVMBuilderRef builder;
     unsigned short size_bits;
     unsigned char is_cgu;
+    unsigned char owns_process_globals;
     unsigned char wasm_compat;
     LLVMTypeRef i8_ty;
     LLVMTypeRef i32_ty;
@@ -1386,16 +1388,9 @@ static int declare_runtime(EmitCtx *e) {
     LLVMTypeRef ftell_params[1] = { e->ptr_ty };
     e->ftell_fn = LLVMAddFunction(e->module, "ftell", LLVMFunctionType(sz_ty, ftell_params, 1, 0));
     e->rewind_fn = LLVMAddFunction(e->module, "rewind", LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), ftell_params, 1, 0));
-    unsigned char has_main_wrapper = 0;
-    for (size_t i = 0; i < e->function_count; i++) {
-        if (e->functions[i].emit_main_wrapper) {
-            has_main_wrapper = 1;
-            break;
-        }
-    }
     e->saasm_argc_global = LLVMAddGlobal(e->module, e->i32_ty, "saasm_argc");
     e->saasm_argv_global = LLVMAddGlobal(e->module, e->ptr_ty, "saasm_argv");
-    if (e->is_cgu && !has_main_wrapper) {
+    if (e->is_cgu && !e->owns_process_globals) {
         LLVMSetLinkage(e->saasm_argc_global, LLVMExternalLinkage);
         LLVMSetLinkage(e->saasm_argv_global, LLVMExternalLinkage);
     } else {
@@ -1826,6 +1821,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     }
     e->size_bits = m->size_bits;
     e->is_cgu = m->is_cgu;
+    e->owns_process_globals = m->owns_process_globals;
     e->wasm_compat = m->wasm_compat;
     if (m->function_count > UINT_MAX) {
         dispose_emit_ctx(e);

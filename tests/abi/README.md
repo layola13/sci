@@ -33,8 +33,9 @@ zig build sa-std-artifact-abi -Dabi-nm=/usr/lib/llvm-14/bin/llvm-nm
 This builds and checks a Linux x86_64 static archive, a Linux x86_64 shared
 object, and the COFF import library generated with the Windows x86_64 DLL.
 The common gate remains part of `zig build test`; it also compiles the public C
-header smoke for all three targets. The binary gate is separate because it
-requires an external symbol reader and three runtime builds.
+header smoke for Linux x86_64, macOS x86_64/aarch64, and Windows x86_64. The
+binary gate is separate because it requires an external symbol reader and three
+runtime builds.
 
 ## Updating The Contract
 
@@ -49,8 +50,9 @@ checker before comparison, but keeping them alphabetized makes review easier.
 - The Windows artifact currently exposes only the 535 common symbols. The 77
   POSIX additions are recorded separately, so this gate preserves the current
   platform surfaces but does not claim full Windows/POSIX export parity.
-- Mach-O artifacts are not yet inspected. The layout gate does cross-check the
-  C header on x86_64 macOS and Windows in addition to the native Linux run.
+- Mach-O artifacts are not yet inspected. The layout gate cross-checks the C
+  header on x86_64 and aarch64 macOS plus x86_64 Windows in addition to the
+  native Linux run.
 - A symbol gate proves presence, not function signatures or runtime behavior.
   The layout test freezes all public 64-bit C struct sizes, alignments, and
   offsets against an independent Zig ABI mirror, plus selected header function

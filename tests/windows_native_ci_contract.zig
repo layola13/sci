@@ -121,3 +121,14 @@ test "build graph exposes focused Windows CI entry points" {
     try expectContains(build_source, "b.step(\"windows-ci-contract\"");
     try expectContains(build_source, "tests/windows_native_ci_contract.zig");
 }
+
+test "cache cleanup avoids the Zig 0.14.1 Windows File.tryLock type error" {
+    const cli_source = try readSource("src/cli.zig");
+    defer std.testing.allocator.free(cli_source);
+
+    try expectContains(cli_source, "fn tryLockProjectCacheFileExclusive");
+    try expectContains(cli_source, "windows.LockFile(");
+    try expectContains(cli_source, "error.WouldBlock => return false");
+    try expectContains(cli_source, "try tryLockProjectCacheFileExclusive(file)");
+    try expectNotContains(cli_source, "try file.tryLock(.exclusive)");
+}

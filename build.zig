@@ -254,7 +254,7 @@ pub fn build(b: *std.Build) void {
     sa_std_abi_step.dependOn(&sa_std_abi_layout.step);
     sa_std_abi_step.dependOn(&sa_std_artifact_abi_unit.step);
 
-    for ([_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" }) |abi_target| {
+    for ([_][]const u8{ "x86_64-macos", "aarch64-macos", "x86_64-windows-gnu" }) |abi_target| {
         const abi_layout_typecheck = b.addSystemCommand(&.{
             b.graph.zig_exe,
             "test",
@@ -271,7 +271,7 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&abi_layout_typecheck.step);
     }
 
-    for ([_][]const u8{ "x86_64-linux-gnu", "x86_64-macos", "x86_64-windows-gnu" }) |abi_target| {
+    for ([_][]const u8{ "x86_64-linux-gnu", "x86_64-macos", "aarch64-macos", "x86_64-windows-gnu" }) |abi_target| {
         const abi_header_typecheck = b.addSystemCommand(&.{
             b.graph.zig_exe,
             "cc",
@@ -399,8 +399,18 @@ pub fn build(b: *std.Build) void {
     const windows_ci_contract_step = b.step("windows-ci-contract", "Check the Windows native CI and compiler smoke contracts");
     windows_ci_contract_step.dependOn(&windows_ci_contract_tests.step);
 
+    const macos_ci_contract_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/macos_native_ci_contract.zig",
+    });
+    macos_ci_contract_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&macos_ci_contract_tests.step);
+    const macos_ci_contract_step = b.step("macos-ci-contract", "Check the macOS native CI and compiler smoke contracts");
+    macos_ci_contract_step.dependOn(&macos_ci_contract_tests.step);
+
     const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
-    const portable_targets = [_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" };
+    const portable_targets = [_][]const u8{ "x86_64-macos", "aarch64-macos", "x86_64-windows-gnu" };
     for (portable_targets) |portable_target| {
         const cli_typecheck = b.addSystemCommand(&.{
             b.graph.zig_exe,
@@ -430,6 +440,40 @@ pub fn build(b: *std.Build) void {
             portable_host_typecheck.dependOn(&package_typecheck.step);
         }
     }
+
+    const portable_runtime_typecheck = b.step("portable-runtime-typecheck", "Type-check runtime code for macOS and Windows architectures");
+    for ([_][]const u8{ "x86_64-macos", "aarch64-macos", "x86_64-windows-gnu", "aarch64-windows-gnu" }) |portable_runtime_target| {
+        const runtime_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "test",
+            "-target",
+            portable_runtime_target,
+            "-fno-emit-bin",
+            "-lc",
+            "src/runtime/sa_std.zig",
+        });
+        runtime_typecheck.setCwd(repo_root_lazy);
+        portable_runtime_typecheck.dependOn(&runtime_typecheck.step);
+    }
+    for ([_][]const u8{ "x86_64-macos", "aarch64-macos" }) |darwin_target| {
+        const pthread_shim_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "cc",
+            "-target",
+            darwin_target,
+            "-c",
+        });
+        pthread_shim_typecheck.addFileArg(b.path("src/runtime/sa_pthread_host_darwin.c"));
+        pthread_shim_typecheck.addArg("-o");
+        _ = pthread_shim_typecheck.addOutputFileArg(b.fmt("sa_pthread_host_darwin-{s}.o", .{darwin_target}));
+        pthread_shim_typecheck.setCwd(repo_root_lazy);
+        portable_runtime_typecheck.dependOn(&pthread_shim_typecheck.step);
+    }
+
+    const portability_check_step = b.step("portability-check", "Run cross-platform host, runtime, and ABI type checks");
+    portability_check_step.dependOn(portable_host_typecheck);
+    portability_check_step.dependOn(portable_runtime_typecheck);
+    portability_check_step.dependOn(sa_std_abi_step);
 
     const lib_root_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/lib_root_smoke.zig"),

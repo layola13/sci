@@ -6123,13 +6123,39 @@ fn acquireProjectCacheBuildLock(
     }) };
 }
 
+fn tryLockProjectCacheFileExclusive(file: std.fs.File) !bool {
+    if (builtin.os.tag == .windows) {
+        const windows = std.os.windows;
+        const range_off: windows.LARGE_INTEGER = 0;
+        const range_len: windows.LARGE_INTEGER = 1;
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+        windows.LockFile(
+            file.handle,
+            null,
+            null,
+            null,
+            &io_status_block,
+            &range_off,
+            &range_len,
+            null,
+            windows.TRUE,
+            windows.TRUE,
+        ) catch |err| switch (err) {
+            error.WouldBlock => return false,
+            else => |lock_err| return lock_err,
+        };
+        return true;
+    }
+    return file.tryLock(.exclusive);
+}
+
 fn tryAcquireProjectCacheEntryLockInKindDir(kind_dir: std.fs.Dir, key_name: []const u8) !?ProjectCacheEntryLock {
     try kind_dir.makePath(".locks");
     var lock_name_buf: [96]u8 = undefined;
     const lock_name = try std.fmt.bufPrint(&lock_name_buf, ".locks/{s}.lock", .{key_name});
     var file = try kind_dir.createFile(lock_name, .{ .read = true, .truncate = false });
     errdefer file.close();
-    if (!try file.tryLock(.exclusive)) {
+    if (!try tryLockProjectCacheFileExclusive(file)) {
         file.close();
         return null;
     }
@@ -6360,12 +6386,12 @@ fn writeCacheManifestBytesAtomically(allocator: std.mem.Allocator, manifest_path
     const suffix = std.fmt.bytesToHex(random, .lower);
     const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ manifest_path, suffix[0..] });
     defer allocator.free(tmp_path);
-    var file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
+    var file = try std.fs.cwd().createFile(tmp_path, .{ .exclusive = true });
     var file_open = true;
-    errdefer if (file_open) file.close();
     errdefer std.fs.cwd().deleteFile(tmp_path) catch |err| {
         _ = @errorName(err);
     };
+    errdefer if (file_open) file.close();
     try file.writeAll(contents);
     try file.sync();
     file.close();
@@ -7083,6 +7109,11 @@ fn projectFunctionCacheManifestPath(allocator: std.mem.Allocator, project_root: 
     return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "manifest.json" });
 }
 
+const IncrementalFunctionObjectMetadata = struct {
+    size: u64,
+    sha256: [64]u8,
+};
+
 const IncrementalFunctionManifestEntry = struct {
     relative_path: []const u8,
     size: u64,
@@ -7103,9 +7134,12 @@ const IncrementalObjectManifest = struct {
         self.* = undefined;
     }
 
-    fn objectValid(self: *const IncrementalObjectManifest, function_key: []const u8) bool {
-        const entry = self.functions.get(function_key) orelse return false;
-        return entry.valid;
+    fn objectMetadata(self: *const IncrementalObjectManifest, function_key: []const u8) ?IncrementalFunctionObjectMetadata {
+        const entry = self.functions.get(function_key) orelse return null;
+        if (!entry.valid) return null;
+        var sha256: [64]u8 = undefined;
+        @memcpy(sha256[0..], entry.sha256);
+        return .{ .size = entry.size, .sha256 = sha256 };
     }
 
     fn complete(self: *const IncrementalObjectManifest) bool {
@@ -7158,8 +7192,9 @@ fn parseOwnedIncrementalObjectManifest(
         const expected_path = try std.fmt.bufPrint(&expected_path_buf, "functions/{s}.o", .{function_key});
         if (!std.mem.eql(u8, relative_path, expected_path)) return error.InvalidCacheManifest;
         const size = try jsonPositiveU64(try jsonGetObject(item, "size"));
-        const sha256 = try jsonString(try jsonGetObject(item, "sha256"));
-        if (!try jsonSha256(.{ .string = sha256 })) return error.InvalidCacheManifest;
+        const sha256_value = try jsonGetObject(item, "sha256");
+        const sha256 = try jsonString(sha256_value);
+        if (!try jsonSha256(sha256_value)) return error.InvalidCacheManifest;
         try functions.put(function_key, .{
             .relative_path = relative_path,
             .size = size,
@@ -7216,8 +7251,51 @@ fn readIncrementalObjectManifest(
     return manifest_value;
 }
 
-fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) void {
-    cacheBytes(hasher, sig_item.name);
+fn loadIncrementalObjectManifestAtPath(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    cache_key: ProjectCacheKey,
+    expected_source: []const u8,
+) ?IncrementalObjectManifest {
+    const entry_path = projectCacheDir(allocator, project_root, .build_obj_incremental, cache_key) catch return null;
+    defer allocator.free(entry_path);
+    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true, .no_follow = true }) catch return null;
+    defer entry_dir.close();
+    return readIncrementalObjectManifest(allocator, entry_dir, cache_key.slice(), expected_source) catch null;
+}
+
+fn cacheFunctionKeyBytes(hasher: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+    cacheU64(hasher, bytes.len);
+    hasher.update(bytes);
+}
+
+fn cacheFunctionKeyOptionalBytes(hasher: *std.crypto.hash.sha2.Sha256, bytes: ?[]const u8) void {
+    cacheBool(hasher, bytes != null);
+    if (bytes) |value| cacheFunctionKeyBytes(hasher, value);
+}
+
+fn cacheFunctionKeyUpstreamLoc(hasher: *std.crypto.hash.sha2.Sha256, loc: ?common_upstream.UpstreamLoc) void {
+    cacheBool(hasher, loc != null);
+    if (loc) |value| {
+        cacheFunctionKeyBytes(hasher, value.file);
+        cacheU64(hasher, value.line);
+        cacheU64(hasher, value.col);
+    }
+}
+
+fn cacheFunctionKeySymbolId(hasher: *std.crypto.hash.sha2.Sha256, symbols: *const flattener.SymbolTable, id: u32) void {
+    cacheU64(hasher, id);
+    cacheFunctionKeyOptionalBytes(hasher, symbols.lookupName(id));
+}
+
+fn cacheFunctionSig(
+    hasher: *std.crypto.hash.sha2.Sha256,
+    sig_item: anytype,
+    symbols: *const flattener.SymbolTable,
+    debug: bool,
+) void {
+    cacheU64(hasher, sig_item.id);
+    cacheFunctionKeyBytes(hasher, sig_item.name);
     cacheU64(hasher, @intFromEnum(sig_item.kind));
     cacheBool(hasher, sig_item.return_fallible);
     cacheBool(hasher, sig_item.is_ffi_wrapper);
@@ -7230,34 +7308,404 @@ fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) voi
     } else {
         cacheBool(hasher, false);
     }
-    if (sig_item.llvm_name) |name| cacheBytes(hasher, name) else cacheBytes(hasher, "");
+    cacheFunctionKeyOptionalBytes(hasher, sig_item.llvm_name);
+    cacheU64(hasher, sig_item.params.len);
     for (sig_item.params) |param| {
-        cacheBytes(hasher, param.name);
+        cacheFunctionKeyBytes(hasher, param.name);
         cacheU64(hasher, @intFromEnum(param.ty));
         cacheU64(hasher, @intFromEnum(param.cap));
     }
+    cacheU64(hasher, sig_item.param_ids.len);
+    for (sig_item.param_ids) |id| cacheFunctionKeySymbolId(hasher, symbols, id);
+    cacheU64(hasher, sig_item.reg_ids.len);
+    for (sig_item.reg_ids) |id| cacheFunctionKeySymbolId(hasher, symbols, id);
+    cacheFunctionKeyOptionalBytes(hasher, sig_item.upstream_file);
+    if (debug) {
+        cacheU64(hasher, sig_item.entry_inst_idx);
+        cacheFunctionKeyUpstreamLoc(hasher, sig_item.upstream_loc);
+    }
 }
 
-fn computeFunctionObjectKey(allocator: std.mem.Allocator, source_path: []const u8, verified: *const referee.VerifyOk, sig_index: usize, start_idx: usize, end_idx: usize) ![]const u8 {
+fn cacheFunctionConstValue(hasher: *std.crypto.hash.sha2.Sha256, value: anytype) void {
+    cacheU64(hasher, @intFromEnum(std.meta.activeTag(value)));
+    switch (value) {
+        .hex, .utf8, .repeat => |literal| {
+            cacheU64(hasher, @intFromEnum(literal.kind));
+            cacheFunctionKeyBytes(hasher, literal.bytes);
+            cacheBool(hasher, literal.repeat_count != null);
+            if (literal.repeat_count) |count| cacheU64(hasher, count);
+            cacheBool(hasher, literal.repeat_byte != null);
+            if (literal.repeat_byte) |byte| cacheU64(hasher, byte);
+        },
+        .struct_ => |literal| {
+            cacheU64(hasher, literal.fields.len);
+            for (literal.fields) |field| {
+                cacheFunctionKeyBytes(hasher, field.name);
+                cacheU64(hasher, field.size);
+                cacheFunctionConstValue(hasher, field.value);
+            }
+        },
+        .vtable => |literal| {
+            cacheU64(hasher, literal.slots.len);
+            for (literal.slots) |slot| {
+                cacheFunctionKeyBytes(hasher, slot.name);
+                cacheFunctionKeyBytes(hasher, slot.func_name);
+            }
+        },
+    }
+}
+
+fn cacheFunctionOperand(hasher: *std.crypto.hash.sha2.Sha256, symbols: *const flattener.SymbolTable, operand: anytype) void {
+    cacheU64(hasher, @intFromEnum(std.meta.activeTag(operand)));
+    switch (operand) {
+        .none => {},
+        .reg, .symbol, .label, .func => |id| cacheFunctionKeySymbolId(hasher, symbols, id),
+        .imm_i64, .imm_int => |value| cacheU64(hasher, @bitCast(value)),
+        .imm_u64 => |value| cacheU64(hasher, value),
+        .imm_float => |value| cacheU64(hasher, @bitCast(value)),
+        .op_code => |value| cacheU64(hasher, @intFromEnum(value)),
+        .cap_prefix => |value| cacheU64(hasher, @intFromEnum(value)),
+        .offset, .ty => |value| cacheU64(hasher, value),
+        .text, .native_text => |value| cacheFunctionKeyBytes(hasher, value),
+    }
+}
+
+fn cacheFunctionInstruction(
+    hasher: *std.crypto.hash.sha2.Sha256,
+    symbols: *const flattener.SymbolTable,
+    item: referee.AnnotatedInstruction,
+    loc: ?common_upstream.UpstreamLoc,
+    debug: bool,
+) void {
+    const base = item.base;
+    cacheU64(hasher, @intFromEnum(base.kind));
+    cacheFunctionKeyBytes(hasher, base.raw_text);
+    cacheFunctionKeyOptionalBytes(hasher, base.package_identity);
+    cacheBool(hasher, base.package_source_sha256 != null);
+    if (base.package_source_sha256) |digest| hasher.update(&digest);
+    cacheBool(hasher, base.op_kind != null);
+    if (base.op_kind) |kind| cacheU64(hasher, @intFromEnum(kind));
+    for (base.operands) |operand| cacheFunctionOperand(hasher, symbols, operand);
+    cacheBool(hasher, base.atomic_value_ty != null);
+    if (base.atomic_value_ty) |ty| cacheU64(hasher, ty);
+    cacheBool(hasher, base.atomic_ordering != null);
+    if (base.atomic_ordering) |ordering| cacheU64(hasher, @intFromEnum(ordering));
+    cacheBool(hasher, base.atomic_second_ordering != null);
+    if (base.atomic_second_ordering) |ordering| cacheU64(hasher, @intFromEnum(ordering));
+    cacheBool(hasher, base.atomic_rmw_op != null);
+    if (base.atomic_rmw_op) |op| cacheU64(hasher, @intFromEnum(op));
+    cacheFunctionKeyOptionalBytes(hasher, base.atomic_expected_text);
+    cacheFunctionKeyOptionalBytes(hasher, base.atomic_new_text);
+    cacheU64(hasher, base.native_reg_names.len);
+    for (base.native_reg_names) |name| cacheFunctionKeyBytes(hasher, name);
+    cacheU64(hasher, item.delta.changes.len);
+    for (item.delta.changes) |change| {
+        cacheFunctionKeySymbolId(hasher, symbols, change.reg);
+        cacheU64(hasher, change.before);
+        cacheU64(hasher, change.after);
+    }
+    if (debug) {
+        cacheU64(hasher, base.source_line);
+        cacheU64(hasher, base.expanded_line);
+        cacheFunctionKeyUpstreamLoc(hasher, base.upstream_loc);
+        cacheFunctionKeyUpstreamLoc(hasher, loc);
+    }
+}
+
+fn cacheFunctionAnonymousStringContext(
+    allocator: std.mem.Allocator,
+    hasher: *std.crypto.hash.sha2.Sha256,
+    verified: *const referee.VerifyOk,
+) !void {
+    var strings = std.StringHashMap(void).init(allocator);
+    defer {
+        var iter = strings.keyIterator();
+        while (iter.next()) |value| allocator.free(value.*);
+        strings.deinit();
+    }
+    for (verified.annotated) |item| {
+        switch (item.base.kind) {
+            .call, .call_indirect, .panic, .panic_msg => {},
+            else => continue,
+        }
+        var parsed = referee_call.parseInstructionCall(allocator, item.base, &verified.symbols) catch |err| switch (err) {
+            error.InvalidCallSyntax => continue,
+            else => return err,
+        };
+        defer parsed.deinit(allocator);
+        for (parsed.args) |arg| {
+            if (arg.prefix != .raw or arg.text.len < 2 or arg.text[0] != '"' or arg.text[arg.text.len - 1] != '"') continue;
+            if (strings.contains(arg.text)) continue;
+            const owned = try allocator.dupe(u8, arg.text);
+            errdefer allocator.free(owned);
+            try strings.put(owned, {});
+            cacheFunctionKeyBytes(hasher, owned);
+        }
+    }
+    cacheU64(hasher, strings.count());
+}
+
+fn computeFunctionObjectKeyBase(
+    allocator: std.mem.Allocator,
+    cache_key: ProjectCacheKey,
+    source_path: []const u8,
+    compiled: *const CompileOk,
+    debug: bool,
+) !std.crypto.hash.sha2.Sha256 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBytes(&hasher, "sa-build-obj-function-cache");
-    cacheBytes(&hasher, cacheCompilerVersion());
-    cacheBytes(&hasher, source_path);
-    for (verified.function_sigs) |sig_item| {
-        cacheFunctionSig(&hasher, sig_item);
+    cacheFunctionKeyBytes(&hasher, "sa-build-obj-function-cache/v3");
+    cacheFunctionKeyBytes(&hasher, "llvmc-function-object/v3");
+    cacheFunctionKeyBytes(&hasher, cacheCompilerVersion());
+    cacheFunctionKeyBytes(&hasher, cache_key.slice());
+    cacheFunctionKeyBytes(&hasher, source_path);
+    cacheBool(&hasher, debug);
+    for (compiled.verified.function_sigs) |sig_item| {
+        cacheFunctionSig(&hasher, sig_item, &compiled.verified.symbols, debug);
     }
-    for (verified.const_decls) |decl| {
-        cacheBytes(&hasher, decl.raw_text);
+    for (compiled.verified.const_decls) |decl| {
+        cacheFunctionKeyBytes(&hasher, decl.name);
+        cacheFunctionKeyBytes(&hasher, decl.literal_text);
+        cacheFunctionConstValue(&hasher, decl.value);
+        if (debug) cacheFunctionKeyUpstreamLoc(&hasher, decl.upstream_loc);
     }
+    try cacheFunctionAnonymousStringContext(allocator, &hasher, &compiled.verified);
+    return hasher;
+}
+
+fn computeFunctionObjectKey(
+    allocator: std.mem.Allocator,
+    base_hasher: std.crypto.hash.sha2.Sha256,
+    compiled: *const CompileOk,
+    sig_index: usize,
+    task_index: usize,
+    start_idx: usize,
+    end_idx: usize,
+    debug: bool,
+) ![]const u8 {
+    var hasher = base_hasher;
     cacheU64(&hasher, sig_index);
-    cacheFunctionSig(&hasher, verified.function_sigs[sig_index]);
-    for (verified.annotated[start_idx..end_idx]) |item| {
-        cacheBytes(&hasher, item.base.raw_text);
+    cacheU64(&hasher, task_index);
+    cacheU64(&hasher, end_idx - start_idx);
+    for (compiled.verified.annotated[start_idx..end_idx], start_idx..) |item, annotated_idx| {
+        const loc = if (annotated_idx < compiled.flat.loc_table.len) compiled.flat.loc_table[annotated_idx] else null;
+        cacheFunctionInstruction(&hasher, &compiled.verified.symbols, item, loc, debug);
     }
     var out: [32]u8 = undefined;
     hasher.final(&out);
     const hex = std.fmt.bytesToHex(out, .lower);
     return try allocator.dupe(u8, hex[0..]);
+}
+
+const IncrementalFunctionObjectRecord = struct {
+    function_key: []const u8,
+    object_path: []const u8,
+    metadata: IncrementalFunctionObjectMetadata,
+    transient: bool,
+};
+
+const IncrementalFunctionObjectEmission = struct {
+    transient_path: ?[]u8,
+    metadata: IncrementalFunctionObjectMetadata,
+};
+
+fn cachePathIsRegularFile(path: []const u8) bool {
+    const parent = std.fs.path.dirname(path) orelse ".";
+    const basename = std.fs.path.basename(path);
+    var dir = std.fs.cwd().openDir(parent, .{ .iterate = true, .no_follow = true }) catch return false;
+    defer dir.close();
+    var iter = dir.iterate();
+    while (iter.next() catch return false) |entry| {
+        if (std.mem.eql(u8, entry.name, basename)) return entry.kind == .file;
+    }
+    return false;
+}
+
+fn createIncrementalObjectStagingPath(allocator: std.mem.Allocator, object_path: []const u8) ![]u8 {
+    try ensureParentDir(object_path);
+    for (0..8) |_| {
+        var random: [8]u8 = undefined;
+        std.crypto.random.bytes(&random);
+        const suffix = std.fmt.bytesToHex(random, .lower);
+        const staging_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ object_path, suffix[0..] });
+        var file = std.fs.cwd().createFile(staging_path, .{ .exclusive = true }) catch |err| switch (err) {
+            error.PathAlreadyExists => {
+                allocator.free(staging_path);
+                continue;
+            },
+            else => {
+                allocator.free(staging_path);
+                return err;
+            },
+        };
+        file.close();
+        return staging_path;
+    }
+    return error.CacheStagingCollision;
+}
+
+fn incrementalObjectMatches(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    expected_size: u64,
+    expected_sha256: []const u8,
+) bool {
+    if (!cachePathIsRegularFile(path)) return false;
+    const stat = std.fs.cwd().statFile(path) catch return false;
+    if (stat.kind != .file or stat.size != expected_size) return false;
+    const hash_hex = hashFileHex(allocator, path) catch return false;
+    return std.mem.eql(u8, expected_sha256, hash_hex[0..]);
+}
+
+fn emitIncrementalFunctionObjectAtomically(
+    allocator: std.mem.Allocator,
+    compiled: *const CompileOk,
+    source_path: []const u8,
+    object_path: []const u8,
+    debug: bool,
+    opt_level: u8,
+    task_index: usize,
+    compile_options: CompileOptions,
+    emit_std_root: []const u8,
+    publish: bool,
+) !IncrementalFunctionObjectEmission {
+    const staging_path = try createIncrementalObjectStagingPath(allocator, object_path);
+    var staging_owned = true;
+    errdefer if (staging_owned) {
+        std.fs.cwd().deleteFile(staging_path) catch |err| {
+            _ = @errorName(err);
+        };
+        allocator.free(staging_path);
+    };
+
+    try emit_llvm_llvmc.emitLlvmcToObject(
+        allocator,
+        compiled.verified,
+        &compiled.flat.def_dict,
+        compiled.flat.loc_table,
+        source_path,
+        nativeSizeBits(),
+        .{
+            .debug = debug,
+            .jobs = 1,
+            .opt_level = opt_level,
+            .function_task_index = task_index,
+            .dce = compile_options.dce,
+            .std_root = emit_std_root,
+        },
+        staging_path,
+        opt_level,
+    );
+    const stat = try std.fs.cwd().statFile(staging_path);
+    if (stat.kind != .file or stat.size == 0) return error.InvalidCacheArtifact;
+    try syncCacheFile(staging_path);
+    const hash_hex = try hashFileHex(allocator, staging_path);
+    const metadata = IncrementalFunctionObjectMetadata{ .size = stat.size, .sha256 = hash_hex };
+
+    if (!publish) {
+        staging_owned = false;
+        return .{ .transient_path = staging_path, .metadata = metadata };
+    }
+
+    renameCachePath(staging_path, object_path) catch {
+        if (incrementalObjectMatches(allocator, object_path, stat.size, hash_hex[0..])) {
+            std.fs.cwd().deleteFile(staging_path) catch |err| {
+                _ = @errorName(err);
+            };
+            allocator.free(staging_path);
+            staging_owned = false;
+            return .{ .transient_path = null, .metadata = metadata };
+        }
+        staging_owned = false;
+        return .{ .transient_path = staging_path, .metadata = metadata };
+    };
+    allocator.free(staging_path);
+    staging_owned = false;
+    return .{ .transient_path = null, .metadata = metadata };
+}
+
+fn writeIncrementalObjectManifest(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    cache_key: ProjectCacheKey,
+    source_path: []const u8,
+    records: []const IncrementalFunctionObjectRecord,
+) !void {
+    if (records.len == 0 or records.len > 65_536) return error.InvalidCacheManifest;
+    var contents = std.ArrayList(u8).init(allocator);
+    defer contents.deinit();
+    const writer = contents.writer();
+    try writer.writeAll("{\"version\":2,\"kind\":\"build-obj-incremental\",\"key\":");
+    try writeJsonString(writer, cache_key.slice());
+    try writer.writeAll(",\"source\":");
+    try writeJsonString(writer, source_path);
+    try writer.writeAll(",\"functions\":[");
+    for (records, 0..) |record, index| {
+        if (record.transient or record.metadata.size == 0) return error.InvalidCacheArtifact;
+        if (index != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"key\":");
+        try writeJsonString(writer, record.function_key);
+        try writer.writeAll(",\"path\":");
+        var relative_path_buf: [96]u8 = undefined;
+        const relative_path = try std.fmt.bufPrint(&relative_path_buf, "functions/{s}.o", .{record.function_key});
+        try writeJsonString(writer, relative_path);
+        try writer.writeAll(",\"size\":");
+        try writer.print("{d}", .{record.metadata.size});
+        try writer.writeAll(",\"sha256\":");
+        try writeJsonString(writer, record.metadata.sha256[0..]);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+
+    const manifest_path = try projectFunctionCacheManifestPath(allocator, project_root, cache_key);
+    defer allocator.free(manifest_path);
+    try writeCacheManifestBytesAtomically(allocator, manifest_path, contents.items);
+}
+
+fn deleteIncrementalCacheChild(dir: std.fs.Dir, entry: std.fs.Dir.Entry) void {
+    if (entry.kind == .directory) {
+        dir.deleteTree(entry.name) catch |err| {
+            _ = @errorName(err);
+        };
+    } else {
+        dir.deleteFile(entry.name) catch |err| {
+            _ = @errorName(err);
+        };
+    }
+}
+
+fn cleanupIncrementalObjectEntry(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    cache_key: ProjectCacheKey,
+    records: []const IncrementalFunctionObjectRecord,
+) void {
+    var keep = std.StringHashMap(void).init(allocator);
+    defer keep.deinit();
+    for (records) |record| keep.put(record.function_key, {}) catch return;
+
+    const entry_path = projectCacheDir(allocator, project_root, .build_obj_incremental, cache_key) catch return;
+    defer allocator.free(entry_path);
+    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true, .no_follow = true }) catch return;
+    defer entry_dir.close();
+
+    if (entry_dir.openDir("functions", .{ .iterate = true, .no_follow = true })) |functions_dir_value| {
+        var functions_dir = functions_dir_value;
+        defer functions_dir.close();
+        var iter = functions_dir.iterate();
+        while (iter.next() catch return) |entry| {
+            const keep_entry = entry.kind == .file and
+                entry.name.len == 66 and
+                std.mem.endsWith(u8, entry.name, ".o") and
+                isHexCacheKey(entry.name[0..64]) and
+                keep.contains(entry.name[0..64]);
+            if (!keep_entry) deleteIncrementalCacheChild(functions_dir, entry);
+        }
+    } else |_| {}
+
+    var entry_iter = entry_dir.iterate();
+    while (entry_iter.next() catch return) |entry| {
+        if (std.mem.startsWith(u8, entry.name, "manifest.json.tmp.")) deleteIncrementalCacheChild(entry_dir, entry);
+    }
 }
 
 fn buildIncrementalObject(
@@ -7274,19 +7722,27 @@ fn buildIncrementalObject(
 ) !void {
     var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, .build_obj_incremental, cache_key, .exclusive);
     defer entry_lock.deinit();
+    const cacheable = compiled.flat.dynamic_dependencies_cacheable;
+    var existing_manifest = if (cacheable) loadIncrementalObjectManifestAtPath(allocator, project_root, cache_key, source_path) else null;
+    defer if (existing_manifest) |*manifest_value| manifest_value.deinit(allocator);
     const opt_level = emitOptLevel(debug, optimization);
     const emit_std_root = try stdRootFromEnv(allocator);
     defer allocator.free(emit_std_root);
-    var object_paths = std.ArrayList([]const u8).init(allocator);
+    var records = std.ArrayList(IncrementalFunctionObjectRecord).init(allocator);
     defer {
-        for (object_paths.items) |path| allocator.free(path);
-        object_paths.deinit();
+        for (records.items) |record| {
+            if (record.transient) {
+                std.fs.cwd().deleteFile(record.object_path) catch |err| {
+                    _ = @errorName(err);
+                };
+            }
+            allocator.free(record.function_key);
+            allocator.free(record.object_path);
+        }
+        records.deinit();
     }
-    var function_keys = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (function_keys.items) |key| allocator.free(key);
-        function_keys.deinit();
-    }
+    var cache_publication_ready = cacheable;
+    const function_key_base = try computeFunctionObjectKeyBase(allocator, cache_key, source_path, compiled, debug);
 
     var sig_index: usize = 0;
     var idx: usize = 0;
@@ -7306,37 +7762,39 @@ fn buildIncrementalObject(
                 }) : (end += 1) {}
 
                 if (item.kind != .extern_decl) {
-                    const function_key = try computeFunctionObjectKey(allocator, source_path, &compiled.verified, current_sig_index, idx, end);
+                    const function_key = try computeFunctionObjectKey(allocator, function_key_base, compiled, current_sig_index, task_idx, idx, end, debug);
                     var function_key_owned = true;
                     errdefer if (function_key_owned) allocator.free(function_key);
-                    const object_path = try projectFunctionCachePath(allocator, project_root, cache_key, function_key);
-                    var object_path_owned = true;
-                    errdefer if (object_path_owned) allocator.free(object_path);
-                    if (!projectPathExists(object_path)) {
-                        try ensureParentDir(object_path);
-                        try emit_llvm_llvmc.emitLlvmcToObject(
-                            allocator,
-                            compiled.verified,
-                            &compiled.flat.def_dict,
-                            compiled.flat.loc_table,
-                            source_path,
-                            nativeSizeBits(),
-                            .{
-                                .debug = debug,
-                                .jobs = 1,
-                                .opt_level = opt_level,
-                                .function_task_index = task_idx,
-                                .dce = compile_options.dce,
-                                .std_root = emit_std_root,
-                            },
-                            object_path,
-                            opt_level,
-                        );
+                    var record_owned = true;
+                    var object_path = try projectFunctionCachePath(allocator, project_root, cache_key, function_key);
+                    var transient = false;
+                    errdefer if (record_owned) {
+                        if (transient) {
+                            std.fs.cwd().deleteFile(object_path) catch |err| {
+                                _ = @errorName(err);
+                            };
+                        }
+                        allocator.free(object_path);
+                    };
+                    var metadata = if (existing_manifest) |*manifest_value| manifest_value.objectMetadata(function_key) else null;
+                    if (metadata == null) {
+                        const emission = try emitIncrementalFunctionObjectAtomically(allocator, compiled, source_path, object_path, debug, opt_level, task_idx, compile_options, emit_std_root, cache_publication_ready);
+                        metadata = emission.metadata;
+                        if (emission.transient_path) |transient_path| {
+                            allocator.free(object_path);
+                            object_path = transient_path;
+                            transient = true;
+                            cache_publication_ready = false;
+                        }
                     }
-                    try function_keys.append(function_key);
+                    try records.append(.{
+                        .function_key = function_key,
+                        .object_path = object_path,
+                        .metadata = metadata.?,
+                        .transient = transient,
+                    });
+                    record_owned = false;
                     function_key_owned = false;
-                    try object_paths.append(object_path);
-                    object_path_owned = false;
                 }
 
                 task_idx += 1;
@@ -7346,36 +7804,21 @@ fn buildIncrementalObject(
         }
     }
 
-    if (object_paths.items.len == 0) {
-        return error.UnknownFunction;
-    }
+    if (records.items.len == 0) return error.UnknownFunction;
+
+    const object_paths = try allocator.alloc([]const u8, records.items.len);
+    defer allocator.free(object_paths);
+    for (records.items, 0..) |record, index| object_paths[index] = record.object_path;
 
     try ensureParentDir(out_path);
-    driver.compileRelocatableObj(allocator, object_paths.items, out_path, stderr) catch |err| switch (err) {
+    driver.compileRelocatableObj(allocator, object_paths, out_path, stderr) catch |err| switch (err) {
         error.ChildProcessFailed => return error.ChildProcessFailed,
         else => return err,
     };
 
-    const manifest_path = try projectFunctionCacheManifestPath(allocator, project_root, cache_key);
-    defer allocator.free(manifest_path);
-    try ensureParentDir(manifest_path);
-    var manifest_file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
-    defer manifest_file.close();
-    const writer = manifest_file.writer();
-    try writer.writeAll("{\"version\":1,\"kind\":\"build-obj-incremental\",\"source\":");
-    try writeJsonString(writer, source_path);
-    try writer.writeAll(",\"cache_key\":");
-    try writeJsonString(writer, cache_key.slice());
-    try writer.writeAll(",\"functions\":[");
-    for (function_keys.items, object_paths.items, 0..) |function_key, object_path, i| {
-        if (i != 0) try writer.writeByte(',');
-        try writer.writeAll("{\"key\":");
-        try writeJsonString(writer, function_key);
-        try writer.writeAll(",\"object\":");
-        try writeJsonString(writer, object_path);
-        try writer.writeByte('}');
-    }
-    try writer.writeAll("]}\n");
+    if (!cache_publication_ready) return;
+    writeIncrementalObjectManifest(allocator, project_root, cache_key, source_path, records.items) catch return;
+    cleanupIncrementalObjectEntry(allocator, project_root, cache_key, records.items);
 }
 
 fn ensureNewFile(path: []const u8, bytes: []const u8) !void {
@@ -8017,7 +8460,9 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (incremental) {
-                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})) orelse unreachable;
+                // Function tasks always emit serially and do not run module DCE, so those
+                // scheduling choices must not partition the reusable object namespace.
+                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, .no, null, false, &.{})) orelse unreachable;
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, output_stage.output_path, debug, optimization, compile_options, stderr);
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path);
             } else {
@@ -10587,6 +11032,87 @@ test "repeated text compile never replaces Referee annotations with a verdict sh
         try std.testing.expectEqual(first_change.after, second_change.after);
     }
     try std.testing.expectEqual(@as(u64, 0), incr_verify.stats().hits);
+}
+
+test "non-cacheable dynamic dependencies do not reuse or publish incremental objects" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source =
+        \\@main() -> i32:
+        \\return 0
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "main.sa", .data = source });
+
+    var compile_result = try compileSource(std.testing.allocator, "main.sa", .{});
+    defer switch (compile_result) {
+        .ok => |*ok| ok.deinit(std.testing.allocator),
+        .trap => {},
+    };
+    const compiled = switch (compile_result) {
+        .ok => |*ok| ok,
+        .trap => return error.TestUnexpectedResult,
+    };
+
+    const cache_key = ProjectCacheKey{ .hex = [_]u8{'a'} ** 64 };
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+    try buildIncrementalObject(std.testing.allocator, ".", cache_key, compiled, "main.sa", "first.o", false, .release_fast, .{}, stderr_buffer.writer());
+
+    const entry_path = try projectCacheDir(std.testing.allocator, ".", .build_obj_incremental, cache_key);
+    defer std.testing.allocator.free(entry_path);
+    const manifest_path = try pathJoinAlloc(std.testing.allocator, &.{ entry_path, "manifest.json" });
+    defer std.testing.allocator.free(manifest_path);
+    const manifest_before = try std.fs.cwd().readFileAlloc(std.testing.allocator, manifest_path, project_cache_manifest_max_bytes);
+    defer std.testing.allocator.free(manifest_before);
+
+    const object_name = object_name: {
+        const functions_path = try pathJoinAlloc(std.testing.allocator, &.{ entry_path, "functions" });
+        defer std.testing.allocator.free(functions_path);
+        var functions_dir = try std.fs.cwd().openDir(functions_path, .{ .iterate = true });
+        defer functions_dir.close();
+        var iter = functions_dir.iterate();
+        while (try iter.next()) |entry| {
+            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".o")) {
+                break :object_name try std.testing.allocator.dupe(u8, entry.name);
+            }
+        }
+        return error.TestUnexpectedResult;
+    };
+    defer std.testing.allocator.free(object_name);
+    const object_path = try pathJoinAlloc(std.testing.allocator, &.{ entry_path, "functions", object_name });
+    defer std.testing.allocator.free(object_path);
+    const pristine_object = try std.fs.cwd().readFileAlloc(std.testing.allocator, object_path, 64 * 1024 * 1024);
+    defer std.testing.allocator.free(pristine_object);
+    try std.testing.expect(pristine_object.len > 0);
+    const zeroed_object = try std.testing.allocator.alloc(u8, pristine_object.len);
+    defer std.testing.allocator.free(zeroed_object);
+    @memset(zeroed_object, 0);
+    try std.fs.cwd().writeFile(.{ .sub_path = object_path, .data = zeroed_object });
+
+    compiled.flat.dynamic_dependencies_cacheable = false;
+    stderr_buffer.clearRetainingCapacity();
+    try buildIncrementalObject(std.testing.allocator, ".", cache_key, compiled, "main.sa", "second.o", false, .release_fast, .{}, stderr_buffer.writer());
+
+    const manifest_after = try std.fs.cwd().readFileAlloc(std.testing.allocator, manifest_path, project_cache_manifest_max_bytes);
+    defer std.testing.allocator.free(manifest_after);
+    try std.testing.expectEqualSlices(u8, manifest_before, manifest_after);
+    const cached_after = try std.fs.cwd().readFileAlloc(std.testing.allocator, object_path, 64 * 1024 * 1024);
+    defer std.testing.allocator.free(cached_after);
+    try std.testing.expectEqualSlices(u8, zeroed_object, cached_after);
+    const second_stat = try std.fs.cwd().statFile("second.o");
+    try std.testing.expect(second_stat.kind == .file and second_stat.size > 0);
+
+    const functions_path = try pathJoinAlloc(std.testing.allocator, &.{ entry_path, "functions" });
+    defer std.testing.allocator.free(functions_path);
+    var functions_dir = try std.fs.cwd().openDir(functions_path, .{ .iterate = true });
+    defer functions_dir.close();
+    var iter = functions_dir.iterate();
+    while (try iter.next()) |entry| try std.testing.expect(std.mem.indexOf(u8, entry.name, ".tmp.") == null);
 }
 
 test "selected SAB compile-only cannot bypass Referee ownership traps" {

@@ -81,6 +81,7 @@ const CModule = extern struct {
     test_mode: bool,
     debug: bool,
     is_cgu: bool,
+    owns_process_globals: bool,
     source_file: ?[*:0]const u8,
     source_dir: ?[*:0]const u8,
     consts: [*]const CConst,
@@ -584,6 +585,24 @@ fn markReachableFunctionByName(
     return true;
 }
 
+fn collectVtableFunctionReferences(
+    const_decls: []const const_decl.ConstDecl,
+    function_sigs: []const sig.FunctionSig,
+    sig_index: *const std.StringHashMap(usize),
+    reachable: *std.StringHashMap(void),
+) !void {
+    for (const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                for (literal.slots) |slot| {
+                    _ = try markReachableFunctionByName(reachable, function_sigs, sig_index, slot.func_name, null);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 fn isFunctionReferenceDelimiter(byte: u8) bool {
     return std.ascii.isWhitespace(byte) or switch (byte) {
         '(', ')', '[', ']', '{', '}', ',', ':', ';', '=', '+', '*', '/', '&', '^', '<', '>', '!', '"', '\'' => true,
@@ -692,16 +711,7 @@ fn collectBodyDirectCallees(
 }
 
 fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytype, sig_index_by_name: *const std.StringHashMap(usize), reachable: *std.StringHashMap(void)) !void {
-    for (verified.const_decls) |decl| {
-        switch (decl.value) {
-            .vtable => |literal| {
-                for (literal.slots) |slot| {
-                    _ = try markReachableFunctionByName(reachable, verified.function_sigs, sig_index_by_name, slot.func_name, null);
-                }
-            },
-            else => {},
-        }
-    }
+    try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, sig_index_by_name, reachable);
 
     var sig_index: usize = 0;
     var idx: usize = 0;
@@ -929,6 +939,29 @@ fn shouldPruneUnreachableFunction(options: EmitOptions, fsig: sig.FunctionSig, s
         .full => true,
         .std => functionHasStdOrigin(fsig, source_path, options.std_root),
     };
+}
+
+fn usesSplitModuleSemantics(options: EmitOptions) bool {
+    return options.codegen_unit_count > 1 or options.codegen_unit_index != null or options.function_task_index != null;
+}
+
+fn ownsProcessGlobals(options: EmitOptions, annotated: anytype) bool {
+    if (options.function_task_index) |wanted_task_idx| {
+        var task_idx: usize = 0;
+        for (annotated) |item| {
+            const kind = item.base.kind;
+            switch (kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (kind != .extern_decl) return task_idx == wanted_task_idx;
+                    task_idx += 1;
+                },
+                else => {},
+            }
+        }
+        return false;
+    }
+    if (options.codegen_unit_index) |cgu_idx| return cgu_idx == 0;
+    return true;
 }
 
 fn functionSigShapeEqual(lhs: sig.FunctionSig, rhs: sig.FunctionSig) bool {
@@ -1484,17 +1517,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
-        // Collect functions referenced in Trait vtables
-        for (verified.const_decls) |decl| {
-            switch (decl.value) {
-                .vtable => |literal| {
-                    for (literal.slots) |slot| {
-                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name, null);
-                    }
-                },
-                else => {},
-            }
-        }
+        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
 
         // Collect functions called by functions in this CGU
         var sig_index: usize = 0;
@@ -1522,6 +1545,8 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             }
         }
     } else if (options.function_task_index) |wanted_task_idx| {
+        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
+
         var sig_index: usize = 0;
         var idx: usize = 0;
         var task_idx: usize = 0;
@@ -1676,7 +1701,8 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .wasm_compat = options.wasm_compat,
         .test_mode = options.test_mode,
         .debug = options.debug,
-        .is_cgu = options.codegen_unit_count > 1,
+        .is_cgu = usesSplitModuleSemantics(options),
+        .owns_process_globals = ownsProcessGlobals(options, verified.annotated),
         .source_file = if (options.debug) module_source_file.ptr else null,
         .source_dir = if (options.debug) module_source_dir.ptr else null,
         .consts = c_consts.items.ptr,
@@ -1768,16 +1794,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
         prune_unreachable = referenced_functions.count() != 0;
     } else if (options.codegen_unit_index) |cgu_idx| {
-        for (verified.const_decls) |decl| {
-            switch (decl.value) {
-                .vtable => |literal| {
-                    for (literal.slots) |slot| {
-                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name, null);
-                    }
-                },
-                else => {},
-            }
-        }
+        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
 
         var sig_index: usize = 0;
         var idx: usize = 0;
@@ -1804,6 +1821,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             }
         }
     } else if (options.function_task_index) |wanted_task_idx| {
+        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
+
         var sig_index: usize = 0;
         var idx: usize = 0;
         var task_idx: usize = 0;
@@ -1948,7 +1967,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .wasm_compat = options.wasm_compat,
         .test_mode = options.test_mode,
         .debug = options.debug,
-        .is_cgu = options.codegen_unit_count > 1,
+        .is_cgu = usesSplitModuleSemantics(options),
+        .owns_process_globals = ownsProcessGlobals(options, verified.annotated),
         .source_file = if (options.debug) module_source_file.ptr else null,
         .source_dir = if (options.debug) module_source_dir.ptr else null,
         .consts = c_consts.items.ptr,
@@ -2060,6 +2080,34 @@ test "function signature index preserves linear alias precedence" {
     try std.testing.expectEqual(@as(usize, 0), index.get("shared").?);
     try std.testing.expectEqual(@as(usize, 2), index.get("main").?);
     try std.testing.expectEqual(@as(usize, 2), index.get("saasm_main").?);
+}
+
+test "function tasks use split module semantics" {
+    try std.testing.expect(!usesSplitModuleSemantics(.{}));
+    try std.testing.expect(usesSplitModuleSemantics(.{ .codegen_unit_index = 0 }));
+    try std.testing.expect(usesSplitModuleSemantics(.{ .codegen_unit_count = 2 }));
+    try std.testing.expect(usesSplitModuleSemantics(.{ .function_task_index = 0 }));
+}
+
+test "split module reachability includes every vtable slot function" {
+    const function_sigs = [_]sig.FunctionSig{
+        .{ .id = 0, .name = "draw", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 1, .name = "drop", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 2, .name = "unrelated", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+    };
+    var vtable = try const_decl.parseConstDecl(std.testing.allocator, "@const SHAPE_VT = vtable { draw = @draw, drop = @drop }", 1, 1, null);
+    defer vtable.deinit(std.testing.allocator);
+
+    var index = try buildFunctionSigIndex(std.testing.allocator, function_sigs[0..]);
+    defer index.deinit();
+    var reachable = std.StringHashMap(void).init(std.testing.allocator);
+    defer reachable.deinit();
+
+    try collectVtableFunctionReferences(&.{vtable}, function_sigs[0..], &index, &reachable);
+
+    try std.testing.expect(reachable.contains("draw"));
+    try std.testing.expect(reachable.contains("drop"));
+    try std.testing.expect(!reachable.contains("unrelated"));
 }
 
 test "focused test prune keeps a complete direct-call closure" {

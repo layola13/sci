@@ -1,0 +1,182 @@
+name: macOS Native L0-L1
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-native:
+    name: macOS ${{ matrix.expected_arch }} native L0/L1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            expected_arch: x86_64
+            zig_target: x86_64-macos
+            bottle_tag: sonoma
+            bottle_sha256: 88ef0c0f3a9876fe2831f1b7f38aee95b43fadd816b6622b76583461d685bbae
+          - runner: macos-15
+            expected_arch: arm64
+            zig_target: aarch64-macos
+            bottle_tag: arm64_sonoma
+            bottle_sha256: 1b081d8bd775b69b5c95e98df2689844a3c44a77509bfd9adc1f169e9502c6a7
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      EXPECTED_ARCH: ${{ matrix.expected_arch }}
+      ZIG_TARGET: ${{ matrix.zig_target }}
+      BOTTLE_TAG: ${{ matrix.bottle_tag }}
+      BOTTLE_SHA256: ${{ matrix.bottle_sha256 }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check clean checkout and runner architecture
+        run: |
+          set -euo pipefail
+          status=$(git status --porcelain=v1 --untracked-files=all)
+          if [ -n "$status" ]; then
+            printf 'The checkout is not clean before the native gate:\n%s\n' "$status" >&2
+            exit 1
+          fi
+          git diff --exit-code -- artifacts/sa_std
+          actual_arch=$(uname -m)
+          if [ "$actual_arch" != "$EXPECTED_ARCH" ]; then
+            printf 'Runner architecture mismatch: expected %s, got %s\n' "$EXPECTED_ARCH" "$actual_arch" >&2
+            exit 1
+          fi
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install LLVM 14
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          set -euo pipefail
+          formula_json=$(brew info --json=v2 llvm@14)
+          declared_bottle_sha=$(BOTTLE_TAG="$BOTTLE_TAG" python3 -c 'import json, os, sys; data = json.load(sys.stdin); print(data["formulae"][0]["bottle"]["stable"]["files"][os.environ["BOTTLE_TAG"]]["sha256"])' <<< "$formula_json")
+          if [ "$declared_bottle_sha" != "$BOTTLE_SHA256" ]; then
+            printf 'LLVM bottle SHA-256 mismatch for %s: expected %s, got %s\n' "$BOTTLE_TAG" "$BOTTLE_SHA256" "$declared_bottle_sha" >&2
+            exit 1
+          fi
+          brew install --force-bottle llvm@14
+          llvm_prefix=$(brew --prefix llvm@14)
+          llvm_config="$llvm_prefix/bin/llvm-config"
+          if [ ! -x "$llvm_config" ]; then
+            printf 'llvm-config is missing: %s\n' "$llvm_config" >&2
+            exit 1
+          fi
+          llvm_version=$("$llvm_config" --version)
+          if [ "$llvm_version" != "14.0.6" ]; then
+            printf 'Expected LLVM 14.0.6, got %s\n' "$llvm_version" >&2
+            exit 1
+          fi
+          shared_mode=$("$llvm_config" --shared-mode)
+          if [ "$shared_mode" != "shared" ]; then
+            printf 'Expected shared LLVM linkage, got %s\n' "$shared_mode" >&2
+            exit 1
+          fi
+          include_dir=$("$llvm_config" --includedir)
+          if [ ! -f "$include_dir/llvm-c/Core.h" ]; then
+            printf 'LLVM C API header is missing under %s\n' "$include_dir" >&2
+            exit 1
+          fi
+          library_files=$("$llvm_config" --link-shared --libfiles)
+          if [ -z "$library_files" ]; then
+            printf 'llvm-config returned no shared library files\n' >&2
+            exit 1
+          fi
+          for library_file in $library_files; do
+            if [ ! -f "$library_file" ]; then
+              printf 'LLVM shared library is missing: %s\n' "$library_file" >&2
+              exit 1
+            fi
+          done
+          printf 'LLVM_CONFIG=%s\n' "$llvm_config" >> "$GITHUB_ENV"
+          printf 'LLVM_PREFIX=%s\n' "$llvm_prefix" >> "$GITHUB_ENV"
+          printf '%s\n' "$llvm_prefix/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/Library/Caches/zig
+          key: macos-native-${{ matrix.expected_arch }}-zig-0.14.1-llvm14-${{ github.sha }}
+          restore-keys: |
+            macos-native-${{ matrix.expected_arch }}-zig-0.14.1-llvm14-
+
+      - name: Run portability contracts
+        run: |
+          set -euo pipefail
+          zig build macos-ci-contract --summary all
+          zig build portability-check -Dtarget="$ZIG_TARGET" --summary all
+          zig build test-portable -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
+
+      - name: Build isolated native compiler and runtime artifacts
+        run: |
+          set -euo pipefail
+          compiler_root="$RUNNER_TEMP/sa-compiler-$EXPECTED_ARCH"
+          static_root="$RUNNER_TEMP/sa-runtime-static-$EXPECTED_ARCH"
+          for root in "$compiler_root" "$static_root"; do
+            rm -rf "$root"
+            mkdir -p "$root"
+          done
+
+          zig build sa-cli -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --prefix "$compiler_root" --summary all
+          zig build sa-std-static -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --prefix "$static_root" --summary all
+
+          compiler="$compiler_root/bin/sa"
+          static_library="$static_root/lib/libsa_std.a"
+          static_header="$static_root/include/sa_std.h"
+          for required_path in "$compiler" "$static_library" "$static_header"; do
+            if [ ! -s "$required_path" ]; then
+              printf 'Native build is missing %s\n' "$required_path" >&2
+              exit 1
+            fi
+          done
+          for native_artifact in "$compiler" "$static_library"; do
+            artifact_arch=$(/usr/bin/lipo -archs "$native_artifact")
+            if [ "$artifact_arch" != "$EXPECTED_ARCH" ]; then
+              printf 'Artifact architecture mismatch for %s: expected %s, got %s\n' "$native_artifact" "$EXPECTED_ARCH" "$artifact_arch" >&2
+              exit 1
+            fi
+          done
+          /usr/bin/file "$compiler" "$static_library"
+          compiler_links=$(/usr/bin/otool -L "$compiler")
+          printf '%s\n' "$compiler_links"
+          if ! printf '%s\n' "$compiler_links" | grep -F "$LLVM_PREFIX/lib/libLLVM" >/dev/null; then
+            printf 'Compiler does not load LLVM from the pinned Homebrew prefix %s\n' "$LLVM_PREFIX" >&2
+            exit 1
+          fi
+          printf 'SA_COMPILER_ROOT=%s\n' "$compiler_root" >> "$GITHUB_ENV"
+          printf 'SA_STATIC_ROOT=%s\n' "$static_root" >> "$GITHUB_ENV"
+
+      - name: Run compiler and release-layout smoke
+        run: /bin/bash tools/ci/macos_native_smoke.sh --sa-path "$SA_COMPILER_ROOT/bin/sa" --runtime-root "$SA_STATIC_ROOT"
+
+      - name: Check source artifact cleanliness
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- artifacts/sa_std
+          status=$(git status --porcelain=v1 --untracked-files=all)
+          if [ -n "$status" ]; then
+            printf 'The macOS native gate left the checkout dirty:\n%s\n' "$status" >&2
+            exit 1
+          fi

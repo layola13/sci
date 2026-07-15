@@ -20,7 +20,8 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] split entry locks from blocking build-owner locks and pass direct failed-owner handoff plus OOM no-partial-entry gates `1/1` each;
    - [x] compile/restore build outputs in private sibling stages and make build/test cache claim/store failures best-effort;
    - [x] serialize final publication for different keys sharing one `-o` through `.sa-output-locks/<basename>` and pass the forced-interleaving pair test `1/1`;
-   - [ ] atomically publish/validate incremental function objects, repair failed artifact/output publication, unify manifest size limits, account for persistent locks, and add broader corruption recovery.
+   - [ ] finish incremental function-object integrity: the current worktree implements manifest v2, digest-authorized reuse, atomic sibling-temp emission, manifest-last commit, post-commit stale/temp cleanup, and function-key v2 coverage of lowering inputs; the same-size corruption focused gate is running before this becomes a verified checkpoint;
+   - [ ] repair failed artifact/output publication, account for persistent locks, and add broader corruption recovery.
 3. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
    - [x] index function body ranges once and process every reachable function body at most once;
    - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;
