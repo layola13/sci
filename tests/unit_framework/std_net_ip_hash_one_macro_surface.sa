@@ -1,0 +1,103 @@
+@import "sa_std/net.sa"
+@import "sa_std/hash.sa"
+
+@test "sa_std net ipv4 hash_one macro surface"():
+L_ENTRY:
+    EXPAND BUILD_HASHER_DEFAULT_NEW builder
+
+    addr = stack_alloc NetIpv4Addr_SIZE
+    same_addr = stack_alloc NetIpv4Addr_SIZE
+    diff_addr = stack_alloc NetIpv4Addr_SIZE
+    reversed_addr = stack_alloc NetIpv4Addr_SIZE
+
+    EXPAND NET_IPV4_NEW addr, 18, 52, 86, 120
+    EXPAND NET_IPV4_NEW same_addr, 18, 52, 86, 120
+    EXPAND NET_IPV4_NEW diff_addr, 18, 52, 86, 121
+    EXPAND NET_IPV4_NEW reversed_addr, 120, 86, 52, 18
+
+    native_bits = load addr+NetIpv4Addr_a as u32
+    EXPAND NET_IPV4_TO_BITS network_bits, addr
+    EXPAND HASH_U32 native_hash, native_bits
+    EXPAND HASH_U32 network_hash, network_bits
+
+    writer_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW writer_hasher
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 writer_hasher, addr
+    EXPAND DEFAULT_HASHER_FINISH writer_hash, writer_hasher
+
+    EXPAND NET_IPV4_HASH direct_hash, addr
+    EXPAND NET_IPV4_HASH same_hash, same_addr
+    EXPAND NET_IPV4_HASH diff_hash, diff_addr
+    EXPAND NET_IPV4_HASH reversed_hash, reversed_addr
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_NET_IPV4 build_hash, builder, addr
+
+    state = stack_alloc RandomState_SIZE
+    state_hasher = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_WITH_SEEDS state, 123, 456
+    EXPAND RANDOM_STATE_HASH_ONE_NET_IPV4 state_hash, state, addr
+    EXPAND RANDOM_STATE_BUILD state_hasher, state
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 state_hasher, addr
+    EXPAND DEFAULT_HASHER_FINISH manual_state_hash, state_hasher
+
+    writer_matches = eq writer_hash, direct_hash
+    direct_matches_native = eq direct_hash, native_hash
+    same_contents_match = eq same_hash, direct_hash
+    last_octet_matters = ne diff_hash, direct_hash
+    octet_order_matters = ne reversed_hash, direct_hash
+    native_differs_network_bits = ne native_bits, network_bits
+    native_differs_network_hash = ne direct_hash, network_hash
+    build_matches = eq build_hash, direct_hash
+    state_matches_manual = eq state_hash, manual_state_hash
+    seeded_differs_default = ne state_hash, direct_hash
+
+    c01 = and writer_matches, direct_matches_native
+    c02 = and c01, same_contents_match
+    c03 = and c02, last_octet_matters
+    c04 = and c03, octet_order_matters
+    c05 = and c04, native_differs_network_bits
+    c06 = and c05, native_differs_network_hash
+    c07 = and c06, build_matches
+    c08 = and c07, state_matches_manual
+    ok = and c08, seeded_differs_default
+
+    !native_bits
+    !network_bits
+    !native_hash
+    !network_hash
+    !writer_hash
+    !direct_hash
+    !same_hash
+    !diff_hash
+    !reversed_hash
+    !build_hash
+    !state_hash
+    !manual_state_hash
+    !writer_matches
+    !direct_matches_native
+    !same_contents_match
+    !last_octet_matters
+    !octet_order_matters
+    !native_differs_network_bits
+    !native_differs_network_hash
+    !build_matches
+    !state_matches_manual
+    !seeded_differs_default
+    !c01
+    !c02
+    !c03
+    !c04
+    !c05
+    !c06
+    !c07
+    !c08
+    !builder
+
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10589)
+
+L_PASS:
+    !ok
+    return 0

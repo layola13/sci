@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Ipv4Addr hash_one macros
+
+- Continued Rust `std::hash` / `std::net::Ipv4Addr` macro-surface parity, referencing Rust's local `Hash for Ipv4Addr` implementation under `/home/vscode/projects/rust`.
+- `sa_std/net.sa`: added `DEFAULT_HASHER_WRITE_NET_IPV4`, `NET_IPV4_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_NET_IPV4`, and `RANDOM_STATE_HASH_ONE_NET_IPV4`.
+- The helper surface models Rust's IPv4 hashing shape by hashing `u32::from_ne_bytes(self.octets)` through the existing deterministic `u32` writer. This is intentionally distinct from SA's network-order `NET_IPV4_TO_BITS` / `from_bits` helpers. It does not claim generic `Hash` trait dispatch, `IpAddr` enum hashing, `Ipv6Addr` `u128` hashing, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_net_ip_hash_one_macro_surface.sa` - 1 test (panic ID 10589) covering writer/direct equivalence, native-endian `u32` hash parity, distinction from network-order bits, equal-value stability across separate address storage, octet value/order sensitivity, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_ip_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10590+.
+
 ## Completed: 2026-07-15 Path hash_one macros
 
 - Continued Rust `std::hash` / `std::path::{Path,PathBuf}` macro-surface parity, referencing Rust's local `Hash for Path` and `Hash for PathBuf` implementations under `/home/vscode/projects/rust`.

@@ -1,5 +1,6 @@
 @import "net.sal"
 @import "net.sai"
+@import "hash.sa"
 @import "os/fd.sa"
 
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
@@ -1115,6 +1116,33 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
     !__net_ipv4_bits_c_%out_bits
     !__net_ipv4_bits_b_%out_bits
     !__net_ipv4_bits_a_%out_bits
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NET_IPV4 %hasher, %addr
+    __net_ipv4_hash_bits_%hasher = load %addr+NetIpv4Addr_a as u32
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __net_ipv4_hash_bits_%hasher
+    !__net_ipv4_hash_bits_%hasher
+[END_MACRO]
+
+[MACRO] NET_IPV4_HASH %out_hash, %addr
+    __net_ipv4_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_ipv4_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 __net_ipv4_hash_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_ipv4_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_IPV4 %out_hash, %builder, %addr
+    __build_hash_one_ipv4_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ipv4_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 __build_hash_one_ipv4_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ipv4_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_IPV4 %out_hash, %state, %addr
+    __random_state_hash_one_ipv4_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ipv4_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 __random_state_hash_one_ipv4_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ipv4_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] NET_IPV4_FROM_BITS %addr, %bits

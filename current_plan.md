@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Ipv4Addr hash_one)
+
+Completed supportable IPv4 address hash macros:
+- `DEFAULT_HASHER_WRITE_NET_IPV4` / `NET_IPV4_HASH`: concrete Rust `Hash for Ipv4Addr` shape for SA `NetIpv4Addr`, by loading the four octets as a native-endian `u32` and writing it through the existing `u32` hasher path.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_NET_IPV4` and `RANDOM_STATE_HASH_ONE_NET_IPV4`: concrete `BuildHasher::hash_one` lowerings for the same IPv4 address subset.
+- This follows Rust's `Ipv4Addr` hash implementation for the current supportable target shape: `u32::from_ne_bytes(self.octets).hash(state)`. It intentionally differs from SA's network-order `NET_IPV4_TO_BITS` / `from_bits` helpers and does not expose generic trait dispatch, randomized `RandomState`, SipHash compatibility, `IpAddr` enum hashing, or IPv6 `u128` hashing.
+- Test file `std_net_ip_hash_one_macro_surface.sa` (panic ID 10589).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_ip_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10590+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, `Ipv6Addr` `u128::from_ne_bytes` hashing, `IpAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Path hash_one)
 
 Completed supportable POSIX Path hash macros:
