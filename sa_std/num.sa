@@ -6820,6 +6820,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u64_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] NONZERO_U64_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_U64_LEADING_ZEROS __nonzero_u64_high_lz_%out_index, %nz
+    %out_index = sub 63, __nonzero_u64_high_lz_%out_index
+    !__nonzero_u64_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_U64_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_U64_TRAILING_ZEROS %out_index, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_U64_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
     __nonzero_u64_write_be_value_%out_ok = load %nz+NonZeroU64_value as u64
     EXPAND NUM_U64_WRITE_BE_BYTES %out_ok, %dst_ptr, %dst_len, __nonzero_u64_write_be_value_%out_ok
@@ -6874,6 +6884,16 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     __nonzero_i64_tz_value_%out_count = load %nz+NonZeroI64_value as i64
     EXPAND NUM_U64_TRAILING_ZEROS %out_count, __nonzero_i64_tz_value_%out_count
     !__nonzero_i64_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] NONZERO_I64_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_I64_LEADING_ZEROS __nonzero_i64_high_lz_%out_index, %nz
+    %out_index = sub 63, __nonzero_i64_high_lz_%out_index
+    !__nonzero_i64_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_I64_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_I64_TRAILING_ZEROS %out_index, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_I64_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
@@ -6932,6 +6952,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u8_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] NONZERO_U8_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_U8_LEADING_ZEROS __nonzero_u8_high_lz_%out_index, %nz
+    __nonzero_u8_high_last_%out_index = sub NUM_U8_BITS, 1
+    %out_index = sub __nonzero_u8_high_last_%out_index, __nonzero_u8_high_lz_%out_index
+    !__nonzero_u8_high_last_%out_index
+    !__nonzero_u8_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_U8_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_U8_TRAILING_ZEROS %out_index, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_U8_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
     __nonzero_u8_write_be_value_%out_ok = load %nz+NonZeroU8_value as u64
     EXPAND NUM_U8_WRITE_BE_BYTES %out_ok, %dst_ptr, %dst_len, __nonzero_u8_write_be_value_%out_ok
@@ -6986,6 +7018,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     __nonzero_u16_tz_value_%out_count = load %nz+NonZeroU16_value as u64
     EXPAND NONZERO_UNSIGNED_WIDTH_TRAILING_ZEROS %out_count, __nonzero_u16_tz_value_%out_count, NUM_U16_MAX
     !__nonzero_u16_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] NONZERO_U16_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_U16_LEADING_ZEROS __nonzero_u16_high_lz_%out_index, %nz
+    __nonzero_u16_high_last_%out_index = sub NUM_U16_BITS, 1
+    %out_index = sub __nonzero_u16_high_last_%out_index, __nonzero_u16_high_lz_%out_index
+    !__nonzero_u16_high_last_%out_index
+    !__nonzero_u16_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_U16_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_U16_TRAILING_ZEROS %out_index, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_U16_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
@@ -7044,6 +7088,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_u32_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] NONZERO_U32_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_U32_LEADING_ZEROS __nonzero_u32_high_lz_%out_index, %nz
+    __nonzero_u32_high_last_%out_index = sub NUM_U32_BITS, 1
+    %out_index = sub __nonzero_u32_high_last_%out_index, __nonzero_u32_high_lz_%out_index
+    !__nonzero_u32_high_last_%out_index
+    !__nonzero_u32_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_U32_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_U32_TRAILING_ZEROS %out_index, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_U32_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
     __nonzero_u32_write_be_value_%out_ok = load %nz+NonZeroU32_value as u64
     EXPAND NUM_U32_WRITE_BE_BYTES %out_ok, %dst_ptr, %dst_len, __nonzero_u32_write_be_value_%out_ok
@@ -7092,6 +7148,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_U64_TRAILING_ZEROS %out_count, %nz
 [END_MACRO]
 
+[MACRO] NONZERO_USIZE_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_U64_HIGHEST_ONE %out_index, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_U64_LOWEST_ONE %out_index, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_USIZE_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
     EXPAND NONZERO_U64_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
 [END_MACRO]
@@ -7138,6 +7202,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     __nonzero_i8_tz_value_%out_count = load %nz+NonZeroI8_value as i64
     EXPAND NONZERO_UNSIGNED_WIDTH_TRAILING_ZEROS %out_count, __nonzero_i8_tz_value_%out_count, NUM_U8_MAX
     !__nonzero_i8_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] NONZERO_I8_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_I8_LEADING_ZEROS __nonzero_i8_high_lz_%out_index, %nz
+    __nonzero_i8_high_last_%out_index = sub NUM_I8_BITS, 1
+    %out_index = sub __nonzero_i8_high_last_%out_index, __nonzero_i8_high_lz_%out_index
+    !__nonzero_i8_high_last_%out_index
+    !__nonzero_i8_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_I8_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_I8_TRAILING_ZEROS %out_index, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_I8_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
@@ -7196,6 +7272,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i16_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] NONZERO_I16_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_I16_LEADING_ZEROS __nonzero_i16_high_lz_%out_index, %nz
+    __nonzero_i16_high_last_%out_index = sub NUM_I16_BITS, 1
+    %out_index = sub __nonzero_i16_high_last_%out_index, __nonzero_i16_high_lz_%out_index
+    !__nonzero_i16_high_last_%out_index
+    !__nonzero_i16_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_I16_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_I16_TRAILING_ZEROS %out_index, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_I16_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
     __nonzero_i16_write_be_value_%out_ok = load %nz+NonZeroI16_value as i64
     EXPAND NUM_I16_WRITE_BE_BYTES %out_ok, %dst_ptr, %dst_len, __nonzero_i16_write_be_value_%out_ok
@@ -7252,6 +7340,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_i32_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] NONZERO_I32_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_I32_LEADING_ZEROS __nonzero_i32_high_lz_%out_index, %nz
+    __nonzero_i32_high_last_%out_index = sub NUM_I32_BITS, 1
+    %out_index = sub __nonzero_i32_high_last_%out_index, __nonzero_i32_high_lz_%out_index
+    !__nonzero_i32_high_last_%out_index
+    !__nonzero_i32_high_lz_%out_index
+[END_MACRO]
+
+[MACRO] NONZERO_I32_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_I32_TRAILING_ZEROS %out_index, %nz
+[END_MACRO]
+
 [MACRO] NONZERO_I32_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len
     __nonzero_i32_write_be_value_%out_ok = load %nz+NonZeroI32_value as i64
     EXPAND NUM_I32_WRITE_BE_BYTES %out_ok, %dst_ptr, %dst_len, __nonzero_i32_write_be_value_%out_ok
@@ -7298,6 +7398,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_ISIZE_TRAILING_ZEROS %out_count, %nz
     EXPAND NONZERO_I64_TRAILING_ZEROS %out_count, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_HIGHEST_ONE %out_index, %nz
+    EXPAND NONZERO_I64_HIGHEST_ONE %out_index, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_LOWEST_ONE %out_index, %nz
+    EXPAND NONZERO_I64_LOWEST_ONE %out_index, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_ISIZE_WRITE_BE_BYTES %out_ok, %nz, %dst_ptr, %dst_len

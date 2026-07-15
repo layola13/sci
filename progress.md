@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer bit-position macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `highest_one` and `lowest_one` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_HIGHEST_ONE` and `*_LOWEST_ONE` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface returns concrete bit indexes for each wrapper's stored nonzero primitive. `highest_one` lowers to `BITS - 1 - leading_zeros()`, and `lowest_one` lowers to `trailing_zeros()`, matching Rust's current implementation shape for nonzero integers. It does not claim generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_bit_position_macro_surface.sa` - 1 test (panic ID 10607) expanding all 20 new macros across the ten concrete widths and covering unsigned values plus signed negative bit patterns.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_bit_position_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10608+.
+
 ## Completed: 2026-07-15 NonZero integer min/max macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `min` and `max` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
