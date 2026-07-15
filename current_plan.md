@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Wrapping/Saturating comparisons)
+
+Completed supportable Wrapping/Saturating comparison helpers:
+- `WRAPPING_{U64,U32,I64}_EQ`, `*_NE`, `*_CMP`, `*_PARTIAL_CMP`, `*_LT`, `*_LE`, `*_GT`, and `*_GE`: concrete Rust derived `PartialEq` / `Eq` / `PartialOrd` / `Ord` shape for SA's existing wrapper layouts, comparing the inner primitive values and returning direct bool/ordering scalars.
+- `SATURATING_{U64,I64}_EQ`, `*_NE`, `*_CMP`, `*_PARTIAL_CMP`, `*_LT`, `*_LE`, `*_GT`, and `*_GE`: matching Rust derived comparison shape for the existing saturating wrapper layouts.
+- `WrappingU32` masks both stored values to the concrete 32-bit width before equality/order comparisons. Signed `i64` wrappers use signed ordering, while `u64` / `u32` wrappers use unsigned ordering.
+- This follows Rust's current `core::num::{Wrapping,Saturating}` derived comparison behavior for the existing SA wrapper widths. It deliberately does not expose generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, Rust `Option<Ordering>` object modeling, or generic trait/type-level integration.
+- Test file `std_num_wrapping_saturating_cmp_macro_surface.sa` (panic ID 10619).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10620+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping/Saturating bit transforms)
 
 Completed supportable Wrapping/Saturating bit-transform helpers:

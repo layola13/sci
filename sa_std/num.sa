@@ -8942,6 +8942,38 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     EXPAND WRAPPING_U64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
+[MACRO] WRAPPING_U64_EQ %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_NE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_PARTIAL_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND WRAPPING_U64_CMP %out_ordering, %left_ptr, %right_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_LT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_LE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_GT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_GE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_ptr, %right_ptr, WrappingU64_value
+[END_MACRO]
+
 [MACRO] WRAPPING_U64_COUNT_ONES %out_count, %src_ptr
     EXPAND WRAPPING_U64_GET __wrapping_u64_count_value_%out_count, %src_ptr
     EXPAND NUM_U64_COUNT_ONES %out_count, __wrapping_u64_count_value_%out_count
@@ -9054,6 +9086,109 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
 
 [MACRO] WRAPPING_U32_CLONE_FROM %dst_ptr, %src_ptr
     EXPAND WRAPPING_U32_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_EQ %out_bool, %left_ptr, %right_ptr
+    __wrapping_u32_eq_left_%out_bool = load %left_ptr+WrappingU32_value as u64
+    __wrapping_u32_eq_right_%out_bool = load %right_ptr+WrappingU32_value as u64
+    __wrapping_u32_eq_left_masked_%out_bool = and __wrapping_u32_eq_left_%out_bool, NUM_U32_MAX
+    __wrapping_u32_eq_right_masked_%out_bool = and __wrapping_u32_eq_right_%out_bool, NUM_U32_MAX
+    %out_bool = eq __wrapping_u32_eq_left_masked_%out_bool, __wrapping_u32_eq_right_masked_%out_bool
+    !__wrapping_u32_eq_right_masked_%out_bool
+    !__wrapping_u32_eq_left_masked_%out_bool
+    !__wrapping_u32_eq_right_%out_bool
+    !__wrapping_u32_eq_left_%out_bool
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_NE %out_bool, %left_ptr, %right_ptr
+    EXPAND WRAPPING_U32_EQ __wrapping_u32_ne_eq_%out_bool, %left_ptr, %right_ptr
+    %out_bool = eq __wrapping_u32_ne_eq_%out_bool, 0
+    !__wrapping_u32_ne_eq_%out_bool
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_CMP %out_ordering, %left_ptr, %right_ptr
+    __wrapping_u32_cmp_left_raw_%out_ordering = load %left_ptr+WrappingU32_value as u64
+    __wrapping_u32_cmp_right_raw_%out_ordering = load %right_ptr+WrappingU32_value as u64
+    __wrapping_u32_cmp_left_%out_ordering = and __wrapping_u32_cmp_left_raw_%out_ordering, NUM_U32_MAX
+    __wrapping_u32_cmp_right_%out_ordering = and __wrapping_u32_cmp_right_raw_%out_ordering, NUM_U32_MAX
+    __wrapping_u32_cmp_lt_%out_ordering = ult __wrapping_u32_cmp_left_%out_ordering, __wrapping_u32_cmp_right_%out_ordering
+    br __wrapping_u32_cmp_lt_%out_ordering -> L_WRAPPING_U32_CMP_LESS_%out_ordering, L_WRAPPING_U32_CMP_CHECK_GT_%out_ordering
+
+L_WRAPPING_U32_CMP_LESS_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_LESS
+    jmp L_WRAPPING_U32_CMP_DONE_%out_ordering
+
+L_WRAPPING_U32_CMP_CHECK_GT_%out_ordering:
+    __wrapping_u32_cmp_gt_%out_ordering = ugt __wrapping_u32_cmp_left_%out_ordering, __wrapping_u32_cmp_right_%out_ordering
+    br __wrapping_u32_cmp_gt_%out_ordering -> L_WRAPPING_U32_CMP_GREATER_%out_ordering, L_WRAPPING_U32_CMP_EQUAL_%out_ordering
+
+L_WRAPPING_U32_CMP_GREATER_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_GREATER
+    !__wrapping_u32_cmp_gt_%out_ordering
+    jmp L_WRAPPING_U32_CMP_DONE_%out_ordering
+
+L_WRAPPING_U32_CMP_EQUAL_%out_ordering:
+    %out_ordering = add 0, CMP_ORDERING_EQUAL
+    !__wrapping_u32_cmp_gt_%out_ordering
+
+L_WRAPPING_U32_CMP_DONE_%out_ordering:
+    !__wrapping_u32_cmp_lt_%out_ordering
+    !__wrapping_u32_cmp_right_%out_ordering
+    !__wrapping_u32_cmp_left_%out_ordering
+    !__wrapping_u32_cmp_right_raw_%out_ordering
+    !__wrapping_u32_cmp_left_raw_%out_ordering
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_PARTIAL_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND WRAPPING_U32_CMP %out_ordering, %left_ptr, %right_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_LT %out_bool, %left_ptr, %right_ptr
+    __wrapping_u32_lt_left_raw_%out_bool = load %left_ptr+WrappingU32_value as u64
+    __wrapping_u32_lt_right_raw_%out_bool = load %right_ptr+WrappingU32_value as u64
+    __wrapping_u32_lt_left_%out_bool = and __wrapping_u32_lt_left_raw_%out_bool, NUM_U32_MAX
+    __wrapping_u32_lt_right_%out_bool = and __wrapping_u32_lt_right_raw_%out_bool, NUM_U32_MAX
+    %out_bool = ult __wrapping_u32_lt_left_%out_bool, __wrapping_u32_lt_right_%out_bool
+    !__wrapping_u32_lt_right_%out_bool
+    !__wrapping_u32_lt_left_%out_bool
+    !__wrapping_u32_lt_right_raw_%out_bool
+    !__wrapping_u32_lt_left_raw_%out_bool
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_LE %out_bool, %left_ptr, %right_ptr
+    __wrapping_u32_le_left_raw_%out_bool = load %left_ptr+WrappingU32_value as u64
+    __wrapping_u32_le_right_raw_%out_bool = load %right_ptr+WrappingU32_value as u64
+    __wrapping_u32_le_left_%out_bool = and __wrapping_u32_le_left_raw_%out_bool, NUM_U32_MAX
+    __wrapping_u32_le_right_%out_bool = and __wrapping_u32_le_right_raw_%out_bool, NUM_U32_MAX
+    %out_bool = ule __wrapping_u32_le_left_%out_bool, __wrapping_u32_le_right_%out_bool
+    !__wrapping_u32_le_right_%out_bool
+    !__wrapping_u32_le_left_%out_bool
+    !__wrapping_u32_le_right_raw_%out_bool
+    !__wrapping_u32_le_left_raw_%out_bool
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_GT %out_bool, %left_ptr, %right_ptr
+    __wrapping_u32_gt_left_raw_%out_bool = load %left_ptr+WrappingU32_value as u64
+    __wrapping_u32_gt_right_raw_%out_bool = load %right_ptr+WrappingU32_value as u64
+    __wrapping_u32_gt_left_%out_bool = and __wrapping_u32_gt_left_raw_%out_bool, NUM_U32_MAX
+    __wrapping_u32_gt_right_%out_bool = and __wrapping_u32_gt_right_raw_%out_bool, NUM_U32_MAX
+    %out_bool = ugt __wrapping_u32_gt_left_%out_bool, __wrapping_u32_gt_right_%out_bool
+    !__wrapping_u32_gt_right_%out_bool
+    !__wrapping_u32_gt_left_%out_bool
+    !__wrapping_u32_gt_right_raw_%out_bool
+    !__wrapping_u32_gt_left_raw_%out_bool
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_GE %out_bool, %left_ptr, %right_ptr
+    __wrapping_u32_ge_left_raw_%out_bool = load %left_ptr+WrappingU32_value as u64
+    __wrapping_u32_ge_right_raw_%out_bool = load %right_ptr+WrappingU32_value as u64
+    __wrapping_u32_ge_left_%out_bool = and __wrapping_u32_ge_left_raw_%out_bool, NUM_U32_MAX
+    __wrapping_u32_ge_right_%out_bool = and __wrapping_u32_ge_right_raw_%out_bool, NUM_U32_MAX
+    %out_bool = uge __wrapping_u32_ge_left_%out_bool, __wrapping_u32_ge_right_%out_bool
+    !__wrapping_u32_ge_right_%out_bool
+    !__wrapping_u32_ge_left_%out_bool
+    !__wrapping_u32_ge_right_raw_%out_bool
+    !__wrapping_u32_ge_left_raw_%out_bool
 [END_MACRO]
 
 [MACRO] WRAPPING_U32_COUNT_ONES %out_count, %src_ptr
@@ -9192,6 +9327,38 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND WRAPPING_I64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
+[MACRO] WRAPPING_I64_EQ %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_NE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_PARTIAL_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND WRAPPING_I64_CMP %out_ordering, %left_ptr, %right_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_LT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_LE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_GT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_GE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_ptr, %right_ptr, WrappingI64_value
+[END_MACRO]
+
 [MACRO] WRAPPING_I64_COUNT_ONES %out_count, %src_ptr
     EXPAND WRAPPING_I64_GET __wrapping_i64_count_value_%out_count, %src_ptr
     EXPAND NUM_I64_COUNT_ONES %out_count, __wrapping_i64_count_value_%out_count
@@ -9310,6 +9477,38 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND SATURATING_U64_COPY %dst_ptr, %src_ptr
 [END_MACRO]
 
+[MACRO] SATURATING_U64_EQ %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
+[MACRO] SATURATING_U64_NE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_NE_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
+[MACRO] SATURATING_U64_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_CMP_FIELD %out_ordering, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
+[MACRO] SATURATING_U64_PARTIAL_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND SATURATING_U64_CMP %out_ordering, %left_ptr, %right_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_LT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_LT_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
+[MACRO] SATURATING_U64_LE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_LE_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
+[MACRO] SATURATING_U64_GT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_GT_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
+[MACRO] SATURATING_U64_GE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_UNSIGNED_GE_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingU64_value
+[END_MACRO]
+
 [MACRO] SATURATING_U64_COUNT_ONES %out_count, %src_ptr
     EXPAND SATURATING_U64_GET __saturating_u64_count_value_%out_count, %src_ptr
     EXPAND NUM_U64_COUNT_ONES %out_count, __saturating_u64_count_value_%out_count
@@ -9422,6 +9621,38 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
 
 [MACRO] SATURATING_I64_CLONE_FROM %dst_ptr, %src_ptr
     EXPAND SATURATING_I64_COPY %dst_ptr, %src_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_EQ %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingI64_value
+[END_MACRO]
+
+[MACRO] SATURATING_I64_NE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_NE_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingI64_value
+[END_MACRO]
+
+[MACRO] SATURATING_I64_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_CMP_FIELD %out_ordering, %left_ptr, %right_ptr, SaturatingI64_value
+[END_MACRO]
+
+[MACRO] SATURATING_I64_PARTIAL_CMP %out_ordering, %left_ptr, %right_ptr
+    EXPAND SATURATING_I64_CMP %out_ordering, %left_ptr, %right_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_LT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_LT_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingI64_value
+[END_MACRO]
+
+[MACRO] SATURATING_I64_LE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_LE_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingI64_value
+[END_MACRO]
+
+[MACRO] SATURATING_I64_GT %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_GT_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingI64_value
+[END_MACRO]
+
+[MACRO] SATURATING_I64_GE %out_bool, %left_ptr, %right_ptr
+    EXPAND NONZERO_SIGNED_GE_FIELD %out_bool, %left_ptr, %right_ptr, SaturatingI64_value
 [END_MACRO]
 
 [MACRO] SATURATING_I64_COUNT_ONES %out_count, %src_ptr

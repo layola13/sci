@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating comparison macros
+
+- Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local derived `PartialEq`, `Eq`, `PartialOrd`, and `Ord` behavior under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_EQ`, `*_NE`, `*_CMP`, `*_PARTIAL_CMP`, `*_LT`, `*_LE`, `*_GT`, and `*_GE` helpers for `WrappingU64`, `WrappingU32`, `WrappingI64`, `SaturatingU64`, and `SaturatingI64`.
+- The helper surface returns direct bool/ordering scalars. `WrappingU32` masks both operands to the concrete 32-bit width before comparing; signed `i64` wrappers use signed ordering, and unsigned wrappers use unsigned ordering. It does not claim generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, Rust `Option<Ordering>` object modeling, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_cmp_macro_surface.sa` - 1 test (panic ID 10619) expanding all 40 new macros and covering equality, inequality, total ordering, partial-cmp aliasing, relation helpers, signed ordering, and 32-bit masking behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_cmp_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10620+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating bit-transform macros
 
 - Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `rotate_left`, `rotate_right`, `reverse_bits`, `swap_bytes`, `to_be`, `from_be`, `to_le`, and `from_le` forwarding methods under `/home/vscode/projects/rust`.
