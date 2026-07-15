@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating hash_one macros
+
+- Continued Rust `std::hash` / `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `core::num` transparent tuple structs with derived `Hash` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `DEFAULT_HASHER_WRITE_WRAPPING_U64`, `WRAPPING_U64_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_WRAPPING_U64`, `RANDOM_STATE_HASH_ONE_WRAPPING_U64`, matching `WrappingU32` and `WrappingI64` helpers, plus `DEFAULT_HASHER_WRITE_SATURATING_U64`, `SATURATING_U64_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_SATURATING_U64`, `RANDOM_STATE_HASH_ONE_SATURATING_U64`, and matching `SaturatingI64` helpers.
+- The helper surface models Rust's supportable derived single-field hashing shape by loading each concrete wrapper's inner primitive value and hashing it through the matching deterministic primitive hash path. It does not claim generic `Wrapping<T>` / `Saturating<T>`, wrapper widths absent from SA layouts, generic `Hash` trait dispatch, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_hash_one_macro_surface.sa` - 1 test (panic ID 10595) covering all five existing wrapper layouts, writer/direct equivalence, primitive hash parity, value sensitivity, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10596+.
+
 ## Completed: 2026-07-15 CStr/CString hash_one macros
 
 - Continued Rust `std::hash` / `std::ffi::{CStr,CString}` macro-surface parity, referencing Rust's local `core::ffi::CStr` and `alloc::ffi::CString` derived `Hash` storage shapes under `/home/vscode/projects/rust`.

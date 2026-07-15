@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Wrapping/Saturating hash_one)
+
+Completed supportable `Wrapping` / `Saturating` hash macros:
+- `DEFAULT_HASHER_WRITE_WRAPPING_U64`, `DEFAULT_HASHER_WRITE_WRAPPING_U32`, and `DEFAULT_HASHER_WRITE_WRAPPING_I64` plus matching `WRAPPING_*_HASH`: concrete Rust derived single-field `Hash` shape for SA's existing transparent `Wrapping*` layouts, by loading the inner primitive and hashing through the matching primitive writer.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_WRAPPING_*` and `RANDOM_STATE_HASH_ONE_WRAPPING_*`: concrete `BuildHasher::hash_one` lowerings for the same `WrappingU64` / `WrappingU32` / `WrappingI64` subset.
+- `DEFAULT_HASHER_WRITE_SATURATING_U64` and `DEFAULT_HASHER_WRITE_SATURATING_I64` plus matching `SATURATING_*_HASH`: concrete Rust derived single-field `Hash` shape for SA's existing transparent `Saturating*` layouts.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_SATURATING_*` and `RANDOM_STATE_HASH_ONE_SATURATING_*`: concrete `BuildHasher::hash_one` lowerings for the same `SaturatingU64` / `SaturatingI64` subset.
+- This follows Rust's current `core::num::{Wrapping,Saturating}` transparent tuple structs, both deriving `Hash` over their single field. It does not expose generic `Wrapping<T>` / `Saturating<T>`, non-existing SA wrapper widths, generic trait dispatch, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_num_wrapping_saturating_hash_one_macro_surface.sa` (panic ID 10595).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10596+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, additional wrapper widths not present in the current SA layouts, `u128` / `i128`, generic `NonZero<T>`, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 CStr/CString hash_one)
 
 Completed supportable `CStr` / `CString` hash macros:

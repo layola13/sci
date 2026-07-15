@@ -271,6 +271,141 @@
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_isize_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_WRAPPING_U64 %hasher, %wrapping
+    __wrapping_u64_hash_value_%hasher = load %wrapping+WrappingU64_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __wrapping_u64_hash_value_%hasher
+    !__wrapping_u64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_HASH %out_hash, %wrapping
+    __wrapping_u64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __wrapping_u64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_U64 __wrapping_u64_hash_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __wrapping_u64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_WRAPPING_U64 %out_hash, %builder, %wrapping
+    __build_hash_one_wrapping_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_wrapping_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_U64 __build_hash_one_wrapping_u64_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_wrapping_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_WRAPPING_U64 %out_hash, %state, %wrapping
+    __random_state_hash_one_wrapping_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_wrapping_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_U64 __random_state_hash_one_wrapping_u64_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_wrapping_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_WRAPPING_U32 %hasher, %wrapping
+    __wrapping_u32_hash_value_%hasher = load %wrapping+WrappingU32_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __wrapping_u32_hash_value_%hasher
+    !__wrapping_u32_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_HASH %out_hash, %wrapping
+    __wrapping_u32_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __wrapping_u32_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_U32 __wrapping_u32_hash_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __wrapping_u32_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_WRAPPING_U32 %out_hash, %builder, %wrapping
+    __build_hash_one_wrapping_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_wrapping_u32_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_U32 __build_hash_one_wrapping_u32_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_wrapping_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_WRAPPING_U32 %out_hash, %state, %wrapping
+    __random_state_hash_one_wrapping_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_wrapping_u32_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_U32 __random_state_hash_one_wrapping_u32_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_wrapping_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_WRAPPING_I64 %hasher, %wrapping
+    __wrapping_i64_hash_value_%hasher = load %wrapping+WrappingI64_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I64 %hasher, __wrapping_i64_hash_value_%hasher
+    !__wrapping_i64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_HASH %out_hash, %wrapping
+    __wrapping_i64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __wrapping_i64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_I64 __wrapping_i64_hash_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __wrapping_i64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_WRAPPING_I64 %out_hash, %builder, %wrapping
+    __build_hash_one_wrapping_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_wrapping_i64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_I64 __build_hash_one_wrapping_i64_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_wrapping_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_WRAPPING_I64 %out_hash, %state, %wrapping
+    __random_state_hash_one_wrapping_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_wrapping_i64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_WRAPPING_I64 __random_state_hash_one_wrapping_i64_hasher_%out_hash, %wrapping
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_wrapping_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_SATURATING_U64 %hasher, %saturating
+    __saturating_u64_hash_value_%hasher = load %saturating+SaturatingU64_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __saturating_u64_hash_value_%hasher
+    !__saturating_u64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] SATURATING_U64_HASH %out_hash, %saturating
+    __saturating_u64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __saturating_u64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_SATURATING_U64 __saturating_u64_hash_hasher_%out_hash, %saturating
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __saturating_u64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_SATURATING_U64 %out_hash, %builder, %saturating
+    __build_hash_one_saturating_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_saturating_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_SATURATING_U64 __build_hash_one_saturating_u64_hasher_%out_hash, %saturating
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_saturating_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SATURATING_U64 %out_hash, %state, %saturating
+    __random_state_hash_one_saturating_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_saturating_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SATURATING_U64 __random_state_hash_one_saturating_u64_hasher_%out_hash, %saturating
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_saturating_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_SATURATING_I64 %hasher, %saturating
+    __saturating_i64_hash_value_%hasher = load %saturating+SaturatingI64_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I64 %hasher, __saturating_i64_hash_value_%hasher
+    !__saturating_i64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] SATURATING_I64_HASH %out_hash, %saturating
+    __saturating_i64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __saturating_i64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_SATURATING_I64 __saturating_i64_hash_hasher_%out_hash, %saturating
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __saturating_i64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_SATURATING_I64 %out_hash, %builder, %saturating
+    __build_hash_one_saturating_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_saturating_i64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_SATURATING_I64 __build_hash_one_saturating_i64_hasher_%out_hash, %saturating
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_saturating_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SATURATING_I64 %out_hash, %state, %saturating
+    __random_state_hash_one_saturating_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_saturating_i64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SATURATING_I64 __random_state_hash_one_saturating_i64_hasher_%out_hash, %saturating
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_saturating_i64_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] NUM_U64_CHECKED_ADD %out_ok, %out_value, %lhs, %rhs
     __num_add_sum_%out_ok = add %lhs, %rhs
     __num_add_overflow_%out_ok = ult __num_add_sum_%out_ok, %lhs
