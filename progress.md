@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 OsStr/OsString hash_one macros
+
+- Continued Rust `std::hash` / `std::ffi::{OsStr,OsString}` macro-surface parity, referencing Rust's local `Hash for OsStr` and `Hash for OsString` implementations under `/home/vscode/projects/rust`.
+- `sa_std/os/unix_ffi.sa`: added `DEFAULT_HASHER_WRITE_OS_STR`, `OS_STR_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_OS_STR`, `RANDOM_STATE_HASH_ONE_OS_STR`, `DEFAULT_HASHER_WRITE_OS_STRING`, `OS_STRING_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_OS_STRING`, and `RANDOM_STATE_HASH_ONE_OS_STRING`.
+- The helper surface models Rust's Unix-supportable platform-string hashing by hashing `OsStr` encoded bytes through the existing length-prefixed `u8` slice hash path and making `OsString` forward through its `OsStr` view. It preserves non-UTF-8 bytes and does not claim Windows WTF-8, generic trait dispatch, allocator/drop semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_os_unix_ffi_hash_one_macro_surface.sa` - 1 test (panic ID 10587) covering writer/direct equivalence, equality with `HASH_SLICE_U8`, distinction from `str` hashing, equal-byte stability across separate buffers, length/value sensitivity, `OsString` forwarding, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and mutation sensitivity after pushing a byte.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_unix_ffi_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10588+.
+
 ## Completed: 2026-07-15 BTree str hash_one macros
 
 - Continued Rust `std::hash` / `std::collections::{BTreeMap,BTreeSet}` macro-surface parity, referencing Rust's local `Hash for BTreeMap<K, V, A>` and `Hash for BTreeSet<T, A>` implementations under `/home/vscode/projects/rust`.

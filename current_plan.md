@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 OsStr/OsString hash_one)
+
+Completed supportable Unix platform-string hash macros:
+- `DEFAULT_HASHER_WRITE_OS_STR` / `OS_STR_HASH`: concrete Rust `Hash for OsStr` shape for SA Unix `OsStr`, by hashing the encoded bytes through the existing `u8` slice hash path.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_OS_STR` and `RANDOM_STATE_HASH_ONE_OS_STR`: concrete `BuildHasher::hash_one` lowerings for the same borrowed platform-string subset.
+- `DEFAULT_HASHER_WRITE_OS_STRING` / `OS_STRING_HASH`: concrete Rust `Hash for OsString` forwarding shape for SA Unix `OsString`, by viewing the owned bytes as `OsStr`.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_OS_STRING` and `RANDOM_STATE_HASH_ONE_OS_STRING`: concrete `BuildHasher::hash_one` lowerings for the same owned platform-string subset.
+- This follows Rust's `OsStr` implementation by hashing `as_encoded_bytes()` and Rust's `OsString` implementation by forwarding to `OsStr`. It preserves non-UTF-8 bytes in the Unix byte facade and does not expose Windows WTF-8, generic trait dispatch, allocator/drop semantics, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_os_unix_ffi_hash_one_macro_surface.sa` (panic ID 10587).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_unix_ffi_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10588+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, Windows WTF-8 platform strings, Rust platform encoding objects, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 BTree str hash_one)
 
 Completed supportable ordered BTree hash macros:
