@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 primitive strict sign cast macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local nightly `integer_cast_extras` `strict_cast_signed` / `strict_cast_unsigned` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_STRICT_CAST_SIGNED` for `U8`, `U16`, `U32`, `U64`, and `USIZE`; added `*_STRICT_CAST_UNSIGNED` for `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Strict helpers reuse the checked conversion predicates and trap via SA `panic(2201)` for unsigned-to-signed overflow and `panic(2202)` for negative signed-to-unsigned input. This models Rust's panic control-flow shape, not Rust panic message/object identity, feature-gate enforcement, `u128` / `i128`, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_strict_sign_cast_macro_surface.sa` - 3 tests (panic ID 10630 for the non-panic assertion path) expanding all 10 public helpers and covering unsigned overflow plus negative signed panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_strict_sign_cast_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10631+.
+
 ## Completed: 2026-07-15 primitive checked/saturating sign cast macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local nightly `integer_cast_extras` implementations under `/home/vscode/projects/rust`.
