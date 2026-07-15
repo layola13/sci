@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Reverse default/clone)
+
+Completed supportable `cmp::Reverse` derived helpers:
+- `CMP_REVERSE_U64_DEFAULT` / `CMP_REVERSE_I64_DEFAULT`: concrete Rust derived `Default` shape for SA's existing `Reverse<u64>` and `Reverse<i64>` layouts.
+- `CMP_REVERSE_U64_CLONE` / `CMP_REVERSE_I64_CLONE`: copy each inner primitive into independent destination storage, following Rust's explicit `Clone::clone` forwarding.
+- `CMP_REVERSE_U64_CLONE_FROM` / `CMP_REVERSE_I64_CLONE_FROM`: overwrite existing destinations through the existing concrete `COPY` helpers, following Rust's explicit `clone_from` forwarding.
+- This follows Rust's current `core::cmp::Reverse<T>` `#[derive(Copy, Debug, Hash)]`, `#[derive_const(PartialEq, Eq, Default)]`, and explicit `Clone` implementation only for the existing concrete primitive wrappers. It does not expose generic `Reverse<T>`, generic trait dispatch, or `Debug` formatting.
+- Test file `std_cmp_reverse_clone_default_macro_surface.sa` (panic ID 10601).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_cmp_reverse_clone_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10602+.
+Still blocked without redesign: trait-level `Default` / `Copy` / `Clone` / `Debug`, generic primitive/container trait impl dispatch, generic `Reverse<T>`, real marker trait solver / auto-trait inference, `PhantomData<T>` drop-check and ownership effects, full pinning semantics, `u128` / `i128`, generic `NonZero<T>`, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 ManuallyDrop default/copy/clone)
 
 Completed supportable `ManuallyDrop` derived helpers:
@@ -57,7 +73,7 @@ Completed supportable `cmp::Reverse` hash macros:
 - `BUILD_HASHER_DEFAULT_HASH_ONE_CMP_REVERSE_U64` and `RANDOM_STATE_HASH_ONE_CMP_REVERSE_U64`: concrete `BuildHasher::hash_one` lowerings for the same `Reverse<u64>` subset.
 - `DEFAULT_HASHER_WRITE_CMP_REVERSE_I64` / `CMP_REVERSE_I64_HASH`: concrete Rust derived single-field `Hash` shape for SA's existing `Reverse<i64>` transparent layout.
 - `BUILD_HASHER_DEFAULT_HASH_ONE_CMP_REVERSE_I64` and `RANDOM_STATE_HASH_ONE_CMP_REVERSE_I64`: concrete `BuildHasher::hash_one` lowerings for the same `Reverse<i64>` subset.
-- This follows Rust's current `core::cmp::Reverse<T>` `#[derive(Hash)]` and `#[repr(transparent)]` single-field wrapper shape. It does not expose generic `Reverse<T>`, generic trait dispatch, derived Debug/Clone beyond existing helpers, randomized `RandomState`, or SipHash compatibility.
+- This follows Rust's current `core::cmp::Reverse<T>` `#[derive(Hash)]` and `#[repr(transparent)]` single-field wrapper shape. It does not expose generic `Reverse<T>`, generic trait dispatch, derived `Debug` formatting, randomized `RandomState`, or SipHash compatibility.
 - Test file `std_cmp_reverse_hash_one_macro_surface.sa` (panic ID 10597).
 
 Focused validation only:

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Reverse default/clone macros
+
+- Continued Rust `std::cmp::Reverse` macro-surface parity, referencing Rust's local `core::cmp::Reverse<T>` declaration and explicit `Clone` implementation under `/home/vscode/projects/rust`.
+- `sa_std/cmp.sa`: added `CMP_REVERSE_U64_DEFAULT`, `CMP_REVERSE_U64_CLONE`, `CMP_REVERSE_U64_CLONE_FROM`, `CMP_REVERSE_I64_DEFAULT`, `CMP_REVERSE_I64_CLONE`, and `CMP_REVERSE_I64_CLONE_FROM`.
+- The helper surface models Rust's supportable single-field behavior for SA's existing concrete layouts: default writes the primitive zero value, while clone operations copy the inner primitive into independent destination storage. It does not claim generic `Reverse<T>`, generic trait dispatch, or `Debug` formatting.
+- Test: `tests/unit_framework/std_cmp_reverse_clone_default_macro_surface.sa` - 1 test (panic ID 10601) covering `u64`/`i64` defaults, clone destination overwrite, `clone_from`, and independence after source mutation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_cmp_reverse_clone_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10602+.
+
 ## Completed: 2026-07-15 ManuallyDrop default/copy/clone macros
 
 - Continued Rust `std::mem::ManuallyDrop` macro-surface parity, referencing Rust's local `#[derive(Copy, Clone, Debug, Default)]` declaration for `core::mem::ManuallyDrop<T>` under `/home/vscode/projects/rust`.

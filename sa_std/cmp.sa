@@ -321,6 +321,18 @@ L_CMP_TRY_CLAMP_I64_END_%out_ok:
     !__cmp_reverse_u64_copy_value_%dst_reverse
 [END_MACRO]
 
+[MACRO] CMP_REVERSE_U64_DEFAULT %reverse_ptr
+    EXPAND CMP_REVERSE_U64_NEW %reverse_ptr, 0
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_U64_CLONE %dst_reverse, %src_reverse
+    EXPAND CMP_REVERSE_U64_COPY %dst_reverse, %src_reverse
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_U64_CLONE_FROM %dst_reverse, %src_reverse
+    EXPAND CMP_REVERSE_U64_COPY %dst_reverse, %src_reverse
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_CMP_REVERSE_U64 %hasher, %reverse_ptr
     __cmp_reverse_u64_hash_value_%hasher = load %reverse_ptr+CmpReverseU64_value as u64
     EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __cmp_reverse_u64_hash_value_%hasher
@@ -402,6 +414,18 @@ L_CMP_REVERSE_U64_MAX_DONE_%out_value:
     __cmp_reverse_i64_copy_value_%dst_reverse = load %src_reverse+CmpReverseI64_value as i64
     store %dst_reverse+CmpReverseI64_value, __cmp_reverse_i64_copy_value_%dst_reverse as i64
     !__cmp_reverse_i64_copy_value_%dst_reverse
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_I64_DEFAULT %reverse_ptr
+    EXPAND CMP_REVERSE_I64_NEW %reverse_ptr, 0
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_I64_CLONE %dst_reverse, %src_reverse
+    EXPAND CMP_REVERSE_I64_COPY %dst_reverse, %src_reverse
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_I64_CLONE_FROM %dst_reverse, %src_reverse
+    EXPAND CMP_REVERSE_I64_COPY %dst_reverse, %src_reverse
 [END_MACRO]
 
 [MACRO] DEFAULT_HASHER_WRITE_CMP_REVERSE_I64 %hasher, %reverse_ptr
