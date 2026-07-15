@@ -1220,17 +1220,27 @@ const PthreadEntryFn = *const fn (?[*]u8) callconv(.c) i32;
 extern fn sa_host_pthread_create(thread: *std.c.pthread_t, attr: ?*const std.c.pthread_attr_t, start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, arg: ?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_join(thread: std.c.pthread_t, retval: ?*?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_detach(thread: std.c.pthread_t) callconv(.c) c_int;
+extern fn pthread_attr_setdetachstate(attr: *std.c.pthread_attr_t, detachstate: c_int) callconv(.c) c_int;
+extern fn pthread_equal(left: std.c.pthread_t, right: std.c.pthread_t) callconv(.c) c_int;
 
 fn callHostPthreadJoin(thread: std.c.pthread_t, retval: ?*?*anyopaque) c_int {
     if (builtin.is_test) return @intCast(@intFromEnum(std.c.pthread_join(thread, retval)));
     return sa_host_pthread_join(thread, retval);
 }
 
+const PthreadTaskCompletion = enum(u8) {
+    joinable,
+    detached,
+    completed,
+};
+
+const pthread_create_detached: c_int = if (builtin.os.tag == .macos) 2 else 1;
+
 const PthreadTask = struct {
     entry: PthreadEntryFn,
     arg: ?[*]u8,
     result: i32 = SA_STD_OK,
-    destroy_on_finish: bool = false,
+    completion: std.atomic.Value(PthreadTaskCompletion) = std.atomic.Value(PthreadTaskCompletion).init(.joinable),
 };
 
 const PthreadHandle = struct {
@@ -1239,9 +1249,15 @@ const PthreadHandle = struct {
     joined: bool = false,
 };
 
+const ClaimedPthreadHandle = struct {
+    index: usize,
+    owned: *PthreadHandle,
+};
+
 const RawPthreadOwner = struct {
     raw: u64,
     task: *PthreadTask,
+    claimed: bool = false,
 };
 
 const RawPthreadTransfer = struct {
@@ -1267,8 +1283,10 @@ fn rawToPthread(raw: u64) std.c.pthread_t {
 
 fn pthreadTaskMain(task: *PthreadTask) void {
     task.result = task.entry(task.arg);
-    if (task.destroy_on_finish) {
-        std.heap.page_allocator.destroy(task);
+    switch (task.completion.swap(.completed, .seq_cst)) {
+        .joinable => {},
+        .detached => std.heap.page_allocator.destroy(task),
+        .completed => unreachable,
     }
 }
 
@@ -1286,12 +1304,13 @@ fn mapPthreadCreateError(err: std.c.E) anyerror {
     };
 }
 
-fn spawnPthread(task: *PthreadTask) !std.c.pthread_t {
+fn spawnPthread(task: *PthreadTask, detached: bool) !std.c.pthread_t {
     var attr: std.c.pthread_attr_t = undefined;
     if (std.c.pthread_attr_init(&attr) != .SUCCESS) return error.SystemResources;
     defer _ = std.c.pthread_attr_destroy(&attr);
     if (std.c.pthread_attr_setstacksize(&attr, 2 * 1024 * 1024) != .SUCCESS) return error.InvalidArgument;
     if (std.c.pthread_attr_setguardsize(&attr, std.heap.pageSize()) != .SUCCESS) return error.InvalidArgument;
+    if (detached and pthread_attr_setdetachstate(&attr, pthread_create_detached) != 0) return error.InvalidArgument;
 
     var thread: std.c.pthread_t = undefined;
     const rc = sa_host_pthread_create(&thread, &attr, pthreadTaskMainC, @ptrCast(task));
@@ -1307,6 +1326,34 @@ fn joinPthreadHandle(thread: std.c.pthread_t) !void {
     };
 }
 
+fn detachPthreadHandle(thread: std.c.pthread_t) !void {
+    return switch (@as(std.c.E, @enumFromInt(sa_host_pthread_detach(thread)))) {
+        .SUCCESS => {},
+        .INVAL, .SRCH => error.InvalidHandle,
+        else => error.Io,
+    };
+}
+
+fn transferTaskToDetached(task: *PthreadTask) void {
+    switch (task.completion.swap(.detached, .seq_cst)) {
+        .joinable => {},
+        .completed => std.heap.page_allocator.destroy(task),
+        .detached => unreachable,
+    }
+}
+
+fn cleanupUnregisteredPthread(thread: std.c.pthread_t, task: *PthreadTask) void {
+    joinPthreadHandle(thread) catch {
+        detachPthreadHandle(thread) catch {
+            transferTaskToDetached(task);
+            return;
+        };
+        transferTaskToDetached(task);
+        return;
+    };
+    std.heap.page_allocator.destroy(task);
+}
+
 fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
     pthread_registry_mutex.lock();
     defer pthread_registry_mutex.unlock();
@@ -1316,7 +1363,11 @@ fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
         pthread_slots.items[idx] = handle;
         return @intCast(idx + 1);
     }
-    try pthread_slots.append(handle);
+
+    if (pthread_slots.items.len >= std.math.maxInt(i32)) return error.SystemResources;
+    try pthread_slots.ensureUnusedCapacity(1);
+    try pthread_free_slots.ensureTotalCapacity(pthread_slots.items.len + 1);
+    pthread_slots.appendAssumeCapacity(handle);
     return @intCast(pthread_slots.items.len);
 }
 
@@ -1329,17 +1380,40 @@ fn takePthreadHandle(handle: i32) !*PthreadHandle {
     return pthread_slots.items[idx] orelse return error.InvalidHandle;
 }
 
-fn freePthreadHandle(handle: i32) !*PthreadHandle {
+fn pthreadRawHandle(handle: i32) !u64 {
     if (handle <= 0) return error.InvalidHandle;
     const idx: usize = @intCast(handle - 1);
     pthread_registry_mutex.lock();
     defer pthread_registry_mutex.unlock();
     if (idx >= pthread_slots.items.len) return error.InvalidHandle;
     const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
-    try pthread_free_slots.ensureUnusedCapacity(1);
-    pthread_free_slots.appendAssumeCapacity(idx);
+    return pthreadToRaw(slot.thread);
+}
+
+fn claimPthreadHandle(handle: i32) !ClaimedPthreadHandle {
+    if (handle <= 0) return error.InvalidHandle;
+    const idx: usize = @intCast(handle - 1);
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
+    const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
+    if (pthread_equal(slot.thread, std.c.pthread_self()) != 0) return error.InvalidHandle;
     pthread_slots.items[idx] = null;
-    return slot;
+    return .{ .index = idx, .owned = slot };
+}
+
+fn releasePthreadSlot(index: usize) void {
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    std.debug.assert(index < pthread_slots.items.len and pthread_slots.items[index] == null);
+    pthread_free_slots.appendAssumeCapacity(index);
+}
+
+fn restorePthreadHandle(claimed: ClaimedPthreadHandle) void {
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    std.debug.assert(claimed.index < pthread_slots.items.len and pthread_slots.items[claimed.index] == null);
+    pthread_slots.items[claimed.index] = claimed.owned;
 }
 
 fn transferPthreadHandleToRaw(handle: i32) !RawPthreadTransfer {
@@ -1358,22 +1432,39 @@ fn transferPthreadHandleToRaw(handle: i32) !RawPthreadTransfer {
     return .{ .raw = owner.raw, .handle = slot };
 }
 
-fn findRawPthreadTask(raw: u64) ?*PthreadTask {
+fn claimRawPthreadOwner(raw: u64) !RawPthreadOwner {
     pthread_registry_mutex.lock();
     defer pthread_registry_mutex.unlock();
-    for (raw_pthread_owners.items) |owner| {
-        if (owner.raw == raw) return owner.task;
+    for (raw_pthread_owners.items) |*owner| {
+        if (owner.raw != raw) continue;
+        if (owner.claimed) return error.InvalidHandle;
+        owner.claimed = true;
+        return owner.*;
     }
-    return null;
+    return error.InvalidHandle;
 }
 
-fn removeRawPthreadOwner(raw: u64) ?*PthreadTask {
+fn restoreRawPthreadOwner(raw: u64) void {
+    pthread_registry_mutex.lock();
+    defer pthread_registry_mutex.unlock();
+    for (raw_pthread_owners.items) |*owner| {
+        if (owner.raw != raw) continue;
+        std.debug.assert(owner.claimed);
+        owner.claimed = false;
+        return;
+    }
+    unreachable;
+}
+
+fn completeRawPthreadOwner(raw: u64) *PthreadTask {
     pthread_registry_mutex.lock();
     defer pthread_registry_mutex.unlock();
     for (raw_pthread_owners.items, 0..) |owner, i| {
-        if (owner.raw == raw) return raw_pthread_owners.swapRemove(i).task;
+        if (owner.raw != raw) continue;
+        std.debug.assert(owner.claimed);
+        return raw_pthread_owners.swapRemove(i).task;
     }
-    return null;
+    unreachable;
 }
 
 fn resetPthreadRegistryForTest() void {
@@ -1396,13 +1487,25 @@ const PthreadTestHandle = struct {
 
 fn registerPthreadTestHandle() !PthreadTestHandle {
     const task = try std.heap.page_allocator.create(PthreadTask);
-    errdefer std.heap.page_allocator.destroy(task);
     task.* = .{ .entry = pthreadTestEntry, .arg = null };
 
-    const handle = try std.heap.page_allocator.create(PthreadHandle);
-    errdefer std.heap.page_allocator.destroy(handle);
-    handle.* = .{ .thread = std.c.pthread_self(), .task = task };
-    return .{ .id = try allocPthreadHandle(handle), .ptr = handle };
+    const thread = std.Thread.spawn(.{}, pthreadTaskMain, .{task}) catch |err| {
+        std.heap.page_allocator.destroy(task);
+        return err;
+    };
+    const handle = std.heap.page_allocator.create(PthreadHandle) catch |err| {
+        thread.join();
+        std.heap.page_allocator.destroy(task);
+        return err;
+    };
+    handle.* = .{ .thread = thread.getHandle(), .task = task };
+    const id = allocPthreadHandle(handle) catch |err| {
+        thread.join();
+        std.heap.page_allocator.destroy(task);
+        std.heap.page_allocator.destroy(handle);
+        return err;
+    };
+    return .{ .id = id, .ptr = handle };
 }
 
 test "pthread join rejects null output without consuming its handle" {
@@ -1443,6 +1546,84 @@ test "pthread drop rejects double use and makes its slot reusable" {
 
     pthread_drop(replacement.id);
     replacement_live = false;
+}
+
+test "pthread slot allocation reserves every delayed release" {
+    resetPthreadRegistryForTest();
+    pthread_registry_mutex.lock();
+    pthread_slots.clearAndFree();
+    pthread_free_slots.clearAndFree();
+    pthread_registry_mutex.unlock();
+    defer resetPthreadRegistryForTest();
+
+    var task = PthreadTask{ .entry = pthreadTestEntry, .arg = null };
+    var handles: [4]PthreadHandle = undefined;
+    var ids: [handles.len]i32 = undefined;
+    for (&handles, 0..) |*handle, i| {
+        handle.* = .{ .thread = std.c.pthread_self(), .task = &task };
+        ids[i] = try allocPthreadHandle(handle);
+    }
+
+    pthread_registry_mutex.lock();
+    for (ids) |id| pthread_slots.items[@intCast(id - 1)] = null;
+    const release_capacity = pthread_free_slots.capacity;
+    pthread_registry_mutex.unlock();
+
+    try std.testing.expect(release_capacity >= ids.len);
+    for (ids) |id| releasePthreadSlot(@intCast(id - 1));
+    try std.testing.expectEqual(ids.len, pthread_free_slots.items.len);
+}
+
+test "pthread self join and drop preserve the live handle" {
+    resetPthreadRegistryForTest();
+    defer resetPthreadRegistryForTest();
+
+    var task = PthreadTask{ .entry = pthreadTestEntry, .arg = null };
+    var owned = PthreadHandle{ .thread = std.c.pthread_self(), .task = &task };
+    const handle = try allocPthreadHandle(&owned);
+
+    var result: i32 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, pthread_join(handle, @ptrCast(&result)));
+    try std.testing.expectEqual(@as(i32, 0), result);
+    try std.testing.expectEqual(@as(*PthreadHandle, &owned), try takePthreadHandle(handle));
+
+    pthread_drop(handle);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_last_error());
+    try std.testing.expectEqual(@as(*PthreadHandle, &owned), try takePthreadHandle(handle));
+}
+
+test "raw pthread ownership has a single join claimant" {
+    resetPthreadRegistryForTest();
+    defer resetPthreadRegistryForTest();
+
+    var task = PthreadTask{ .entry = pthreadTestEntry, .arg = null };
+    {
+        pthread_registry_mutex.lock();
+        defer pthread_registry_mutex.unlock();
+        try raw_pthread_owners.append(.{ .raw = 123, .task = &task });
+    }
+
+    const first = try claimRawPthreadOwner(123);
+    try std.testing.expectEqual(@as(*PthreadTask, &task), first.task);
+    try std.testing.expectError(error.InvalidHandle, claimRawPthreadOwner(123));
+
+    restoreRawPthreadOwner(123);
+    _ = try claimRawPthreadOwner(123);
+    try std.testing.expectEqual(@as(*PthreadTask, &task), completeRawPthreadOwner(123));
+    try std.testing.expectError(error.InvalidHandle, claimRawPthreadOwner(123));
+}
+
+test "pthread adapters clear failed outputs and successful identity clears last error" {
+    var raw: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_thread_as_pthread_t(-1, &raw));
+    try std.testing.expectEqual(@as(u64, 0), raw);
+
+    var result: i32 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_thread_raw_pthread_join(123, @ptrCast(&result)));
+    try std.testing.expectEqual(@as(i32, 0), result);
+
+    try std.testing.expect(sa_thread_current_id() != 0);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_last_error());
 }
 
 fn finish(status: i32) i32 {
@@ -6195,19 +6376,17 @@ pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
     const entry_fn: PthreadEntryFn = @ptrCast(@alignCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
     const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
     task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg)) };
-    const thread = spawnPthread(task) catch |err| {
+    const thread = spawnPthread(task, false) catch |err| {
         std.heap.page_allocator.destroy(task);
         return finish(mapError(err));
     };
     const handle = std.heap.page_allocator.create(PthreadHandle) catch |err| {
-        joinPthreadHandle(thread) catch {};
-        std.heap.page_allocator.destroy(task);
+        cleanupUnregisteredPthread(thread, task);
         return finish(mapError(err));
     };
     handle.* = .{ .thread = thread, .task = task };
     const id = allocPthreadHandle(handle) catch |err| {
-        joinPthreadHandle(thread) catch {};
-        std.heap.page_allocator.destroy(task);
+        cleanupUnregisteredPthread(thread, task);
         std.heap.page_allocator.destroy(handle);
         return finish(mapError(err));
     };
@@ -6221,69 +6400,77 @@ pub fn pthread_spawn_detached(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.
     task.* = .{
         .entry = entry_fn,
         .arg = @ptrCast(@constCast(arg)),
-        .destroy_on_finish = true,
+        .completion = std.atomic.Value(PthreadTaskCompletion).init(.detached),
     };
-    const thread = spawnPthread(task) catch |err| {
+    _ = spawnPthread(task, true) catch |err| {
         std.heap.page_allocator.destroy(task);
         return finish(mapError(err));
     };
-    _ = sa_host_pthread_detach(thread);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    return finish(SA_STD_OK);
 }
 
 pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
     const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const handle_ptr = freePthreadHandle(handle) catch |err| return finish(mapError(err));
+    @memset(out_ptr[0..@sizeOf(i32)], 0);
+    const claimed = claimPthreadHandle(handle) catch |err| return finish(mapError(err));
+    const handle_ptr = claimed.owned;
     joinPthreadHandle(handle_ptr.thread) catch |err| {
-        std.heap.page_allocator.destroy(handle_ptr.task);
-        std.heap.page_allocator.destroy(handle_ptr);
+        restorePthreadHandle(claimed);
         return finishErr(err);
     };
-    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&handle_ptr.task.result));
+    std.mem.copyForwards(u8, out_ptr[0..@sizeOf(i32)], std.mem.asBytes(&handle_ptr.task.result));
     std.heap.page_allocator.destroy(handle_ptr.task);
     std.heap.page_allocator.destroy(handle_ptr);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    releasePthreadSlot(claimed.index);
+    return finish(SA_STD_OK);
 }
 
 pub fn sa_thread_as_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
     const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const handle_ptr = takePthreadHandle(handle) catch |err| return finish(mapError(err));
-    out.* = pthreadToRaw(handle_ptr.thread);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    out.* = 0;
+    out.* = pthreadRawHandle(handle) catch |err| return finish(mapError(err));
+    return finish(SA_STD_OK);
 }
 
 pub fn sa_thread_into_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
     const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     const transfer = transferPthreadHandleToRaw(handle) catch |err| return finish(mapError(err));
     out.* = transfer.raw;
     std.heap.page_allocator.destroy(transfer.handle);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    return finish(SA_STD_OK);
 }
 
 pub fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) callconv(.c) i32 {
     const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const task = findRawPthreadTask(raw) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    joinPthreadHandle(rawToPthread(raw)) catch |err| return finishErr(err);
-    const removed_task = removeRawPthreadOwner(raw) orelse task;
-    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&removed_task.result));
-    std.heap.page_allocator.destroy(removed_task);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
+    @memset(out_ptr[0..@sizeOf(i32)], 0);
+    const owner = claimRawPthreadOwner(raw) catch |err| return finishErr(err);
+    joinPthreadHandle(rawToPthread(raw)) catch |err| {
+        restoreRawPthreadOwner(raw);
+        return finishErr(err);
+    };
+    const task = completeRawPthreadOwner(raw);
+    std.debug.assert(task == owner.task);
+    std.mem.copyForwards(u8, out_ptr[0..@sizeOf(i32)], std.mem.asBytes(&task.result));
+    std.heap.page_allocator.destroy(task);
+    return finish(SA_STD_OK);
 }
 
 pub fn pthread_drop(handle: i32) callconv(.c) void {
-    const handle_ptr = freePthreadHandle(handle) catch |err| {
-        last_error = mapError(err);
+    const claimed = claimPthreadHandle(handle) catch |err| {
+        _ = finishErr(err);
         return;
     };
-    joinPthreadHandle(handle_ptr.thread) catch {};
+    const handle_ptr = claimed.owned;
+    joinPthreadHandle(handle_ptr.thread) catch |err| {
+        restorePthreadHandle(claimed);
+        _ = finishErr(err);
+        return;
+    };
     std.heap.page_allocator.destroy(handle_ptr.task);
     std.heap.page_allocator.destroy(handle_ptr);
-    last_error = SA_STD_OK;
+    releasePthreadSlot(claimed.index);
+    _ = finish(SA_STD_OK);
 }
 
 pub fn dlopen(path_ptr: ?[*]const u8, flags: i32) callconv(.c) ?[*]u8 {
@@ -7432,7 +7619,9 @@ pub export fn sa_std_fd_is_terminal(handle: u64, out_flag: ?*u8) i32 {
 }
 
 pub export fn sa_thread_current_id() u64 {
-    return @as(u64, @intCast(std.Thread.getCurrentId()));
+    const id = @as(u64, @intCast(std.Thread.getCurrentId()));
+    _ = finish(SA_STD_OK);
+    return id;
 }
 
 pub export fn sa_thread_yield_now() i32 {
