@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero integer hash_one)
+
+Completed supportable NonZero integer hash macros:
+- `DEFAULT_HASHER_WRITE_NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}` and matching `NONZERO_*_HASH`: concrete Rust `Hash for NonZero<T>` forwarding shape for SA's existing concrete NonZero integer layouts, by hashing `get()` through the matching primitive integer hash writer.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_*` and `RANDOM_STATE_HASH_ONE_NONZERO_*`: concrete `BuildHasher::hash_one` lowerings for the same NonZero integer subset.
+- This follows Rust's generic `impl<T: Hash> Hash for NonZero<T>` implementation shape (`self.get().hash(state)`) for the concrete SA integer widths. It does not expose Rust's generic `NonZero<T>`, `u128` / `i128` nonzero integers, niche optimization semantics, generic trait dispatch, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_num_nonzero_hash_one_macro_surface.sa` (panic ID 10591).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10592+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 SocketAddrV4 hash_one)
 
 Completed supportable IPv4 socket-address hash macros:

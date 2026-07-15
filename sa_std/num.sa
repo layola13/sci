@@ -1,4 +1,275 @@
 @import "num.sal"
+@import "hash.sa"
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_U64 %hasher, %nz
+    __nonzero_u64_hash_value_%hasher = load %nz+NonZeroU64_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __nonzero_u64_hash_value_%hasher
+    !__nonzero_u64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_U64_HASH %out_hash, %nz
+    __nonzero_u64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_u64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U64 __nonzero_u64_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_u64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_U64 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U64 __build_hash_one_nonzero_u64_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_U64 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U64 __random_state_hash_one_nonzero_u64_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_U32 %hasher, %nz
+    __nonzero_u32_hash_value_%hasher = load %nz+NonZeroU32_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __nonzero_u32_hash_value_%hasher
+    !__nonzero_u32_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_U32_HASH %out_hash, %nz
+    __nonzero_u32_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_u32_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U32 __nonzero_u32_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_u32_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_U32 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_u32_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U32 __build_hash_one_nonzero_u32_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_U32 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_u32_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U32 __random_state_hash_one_nonzero_u32_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_U16 %hasher, %nz
+    __nonzero_u16_hash_value_%hasher = load %nz+NonZeroU16_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __nonzero_u16_hash_value_%hasher
+    !__nonzero_u16_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_U16_HASH %out_hash, %nz
+    __nonzero_u16_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_u16_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U16 __nonzero_u16_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_u16_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_U16 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_u16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_u16_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U16 __build_hash_one_nonzero_u16_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_u16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_U16 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_u16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_u16_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U16 __random_state_hash_one_nonzero_u16_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_u16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_U8 %hasher, %nz
+    __nonzero_u8_hash_value_%hasher = load %nz+NonZeroU8_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U8 %hasher, __nonzero_u8_hash_value_%hasher
+    !__nonzero_u8_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_U8_HASH %out_hash, %nz
+    __nonzero_u8_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_u8_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U8 __nonzero_u8_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_u8_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_U8 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_u8_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U8 __build_hash_one_nonzero_u8_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_U8 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_u8_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_U8 __random_state_hash_one_nonzero_u8_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_USIZE %hasher, %nz
+    __nonzero_usize_hash_value_%hasher = load %nz+NonZeroUsize_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_USIZE %hasher, __nonzero_usize_hash_value_%hasher
+    !__nonzero_usize_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_HASH %out_hash, %nz
+    __nonzero_usize_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_usize_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_USIZE __nonzero_usize_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_usize_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_USIZE %out_hash, %builder, %nz
+    __build_hash_one_nonzero_usize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_usize_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_USIZE __build_hash_one_nonzero_usize_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_usize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_USIZE %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_usize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_usize_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_USIZE __random_state_hash_one_nonzero_usize_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_usize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_I64 %hasher, %nz
+    __nonzero_i64_hash_value_%hasher = load %nz+NonZeroI64_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I64 %hasher, __nonzero_i64_hash_value_%hasher
+    !__nonzero_i64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_I64_HASH %out_hash, %nz
+    __nonzero_i64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_i64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I64 __nonzero_i64_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_i64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_I64 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_i64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I64 __build_hash_one_nonzero_i64_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_I64 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_i64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I64 __random_state_hash_one_nonzero_i64_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_I32 %hasher, %nz
+    __nonzero_i32_hash_value_%hasher = load %nz+NonZeroI32_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I32 %hasher, __nonzero_i32_hash_value_%hasher
+    !__nonzero_i32_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_I32_HASH %out_hash, %nz
+    __nonzero_i32_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_i32_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I32 __nonzero_i32_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_i32_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_I32 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_i32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_i32_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I32 __build_hash_one_nonzero_i32_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_i32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_I32 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_i32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_i32_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I32 __random_state_hash_one_nonzero_i32_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_i32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_I16 %hasher, %nz
+    __nonzero_i16_hash_value_%hasher = load %nz+NonZeroI16_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I16 %hasher, __nonzero_i16_hash_value_%hasher
+    !__nonzero_i16_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_I16_HASH %out_hash, %nz
+    __nonzero_i16_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_i16_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I16 __nonzero_i16_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_i16_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_I16 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_i16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_i16_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I16 __build_hash_one_nonzero_i16_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_i16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_I16 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_i16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_i16_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I16 __random_state_hash_one_nonzero_i16_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_i16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_I8 %hasher, %nz
+    __nonzero_i8_hash_value_%hasher = load %nz+NonZeroI8_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I8 %hasher, __nonzero_i8_hash_value_%hasher
+    !__nonzero_i8_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_I8_HASH %out_hash, %nz
+    __nonzero_i8_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_i8_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I8 __nonzero_i8_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_i8_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_I8 %out_hash, %builder, %nz
+    __build_hash_one_nonzero_i8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_i8_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I8 __build_hash_one_nonzero_i8_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_i8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_I8 %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_i8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_i8_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_I8 __random_state_hash_one_nonzero_i8_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_i8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NONZERO_ISIZE %hasher, %nz
+    __nonzero_isize_hash_value_%hasher = load %nz+NonZeroIsize_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_ISIZE %hasher, __nonzero_isize_hash_value_%hasher
+    !__nonzero_isize_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_HASH %out_hash, %nz
+    __nonzero_isize_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __nonzero_isize_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_ISIZE __nonzero_isize_hash_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __nonzero_isize_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_ISIZE %out_hash, %builder, %nz
+    __build_hash_one_nonzero_isize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_nonzero_isize_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_ISIZE __build_hash_one_nonzero_isize_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_nonzero_isize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NONZERO_ISIZE %out_hash, %state, %nz
+    __random_state_hash_one_nonzero_isize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_nonzero_isize_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NONZERO_ISIZE __random_state_hash_one_nonzero_isize_hasher_%out_hash, %nz
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_nonzero_isize_hasher_%out_hash
+[END_MACRO]
 
 [MACRO] NUM_U64_CHECKED_ADD %out_ok, %out_value, %lhs, %rhs
     __num_add_sum_%out_ok = add %lhs, %rhs

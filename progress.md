@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer hash_one macros
+
+- Continued Rust `std::hash` / `std::num::NonZero*` macro-surface parity, referencing Rust's local `Hash for NonZero<T>` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `DEFAULT_HASHER_WRITE_NONZERO_*`, `NONZERO_*_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_NONZERO_*`, and `RANDOM_STATE_HASH_ONE_NONZERO_*` for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- The helper surface models Rust's `NonZero<T>` hashing shape by hashing each concrete wrapper's `get()` value through the matching primitive integer hash writer. It does not claim generic `NonZero<T>`, `u128` / `i128` nonzero integers, niche optimization behavior, generic `Hash` trait dispatch, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_num_nonzero_hash_one_macro_surface.sa` - 1 test (panic ID 10591) covering all ten concrete NonZero widths, direct hash parity with primitive `HASH_*`, value sensitivity, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10592+.
+
 ## Completed: 2026-07-15 SocketAddrV4 hash_one macros
 
 - Continued Rust `std::hash` / `std::net::SocketAddrV4` macro-surface parity, referencing Rust's local derived `Hash for SocketAddrV4` under `/home/vscode/projects/rust`.
