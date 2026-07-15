@@ -50,4 +50,5 @@
 @extern sa_json_writer_write_null(writer: ptr) -> i32
 @extern sa_json_writer_write_node(writer: ptr, node: ptr) -> i32
 @extern sa_json_writer_finish(writer: ptr, &out_handle: ptr) -> i32
+@extern sa_json_writer_finish_buffer(writer: ptr) -> ptr
 @extern sa_json_writer_free(^writer: ptr) -> i32

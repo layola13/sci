@@ -238,6 +238,7 @@ int32_t sa_json_writer_write_string(uint64_t writer, const uint8_t *data, uint64
 int32_t sa_json_writer_write_null(uint64_t writer);
 int32_t sa_json_writer_write_node(uint64_t writer, uint64_t node);
 int32_t sa_json_writer_finish(uint64_t writer, uint64_t *out_handle);
+uint64_t sa_json_writer_finish_buffer(uint64_t writer);
 int32_t sa_json_writer_free(uint64_t writer);
 
 #define SA_REGEX_EXTENDED 1

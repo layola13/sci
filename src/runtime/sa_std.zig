@@ -5732,6 +5732,13 @@ pub export fn sa_json_writer_finish(writer: u64, out_handle: ?*u64) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_json_writer_finish_buffer(writer: u64) u64 {
+    var handle: u64 = 0;
+    const status = sa_json_writer_finish(writer, &handle);
+    if (status != SA_STD_OK) return 0;
+    return handle;
+}
+
 pub export fn sa_regex_compile(pattern: ?[*]const u8, pattern_len: u64, cflags: i32) u64 {
     const input = constBytes(pattern, pattern_len) catch return 0;
     const handle = RegexHandle.init(std.heap.page_allocator, input, cflags) catch return 0;
