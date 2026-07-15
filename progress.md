@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash_one bool/char macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `BuildHasher::hash_one`, `Hash for bool`, and `Hash for char` implementations under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `BUILD_HASHER_DEFAULT_HASH_ONE_BOOL`, `BUILD_HASHER_DEFAULT_HASH_ONE_CHAR`, `RANDOM_STATE_HASH_ONE_BOOL`, and `RANDOM_STATE_HASH_ONE_CHAR`.
+- The helper surface builds a fresh hasher, writes exactly one concrete bool/char value through the matching existing writer, and finishes it. It preserves the current bool normalization and frontend-valid char scalar contract without claiming generic `Hash` trait dispatch or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_bool_char_hash_one_macro_surface.sa` - 1 test (panic ID 10562) covering `BuildHasherDefault` equivalence with direct `HASH_BOOL` / `HASH_CHAR`, `RandomState` equivalence with manual `RANDOM_STATE_BUILD + DEFAULT_HASHER_WRITE_*`, bool normalization, and true/false distinction.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_bool_char_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10563+.
+
 ## Completed: 2026-07-15 Hash_one integer primitive macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `BuildHasher::hash_one` default implementation under `/home/vscode/projects/rust`.

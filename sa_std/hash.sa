@@ -386,6 +386,20 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_isize_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BOOL %out_hash, %builder, %value
+    __build_hash_one_bool_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_bool_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_BOOL __build_hash_one_bool_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_bool_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CHAR %out_hash, %builder, %code
+    __build_hash_one_char_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_char_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CHAR __build_hash_one_char_hasher_%out_hash, %code
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_char_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_STR %out_hash, %builder, %slice_reg
     __build_hash_one_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_str_hasher_%out_hash, %builder
@@ -507,6 +521,20 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_isize_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_ISIZE __random_state_hash_one_isize_hasher_%out_hash, %value
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_isize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_BOOL %out_hash, %state, %value
+    __random_state_hash_one_bool_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_bool_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_BOOL __random_state_hash_one_bool_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_bool_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CHAR %out_hash, %state, %code
+    __random_state_hash_one_char_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_char_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CHAR __random_state_hash_one_char_hasher_%out_hash, %code
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_char_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] RANDOM_STATE_HASH_ONE_STR %out_hash, %state, %slice_reg

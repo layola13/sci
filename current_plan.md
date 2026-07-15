@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash_one bool/char)
+
+Completed supportable bool/char `hash_one` macros:
+- `BUILD_HASHER_DEFAULT_HASH_ONE_BOOL` and `BUILD_HASHER_DEFAULT_HASH_ONE_CHAR`: concrete Rust `BuildHasher::hash_one` lowering over the deterministic `BuildHasherDefault<DefaultHasher>` facade.
+- `RANDOM_STATE_HASH_ONE_BOOL` and `RANDOM_STATE_HASH_ONE_CHAR`: concrete Rust `RandomState::hash_one` lowering over the existing seeded deterministic `RandomState` facade.
+- `BOOL` preserves the existing nonzero-to-true normalization for frontend-lowered booleans, and `CHAR` forwards a frontend-provided scalar through the existing `write_char` / `write_u32` path.
+- Test file `std_hash_bool_char_hash_one_macro_surface.sa` (panic ID 10562).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_bool_char_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10563+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash_one integer primitives)
 
 Completed supportable integer primitive `hash_one` macros:
