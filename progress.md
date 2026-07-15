@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Saturating operator macros
+
+- Continued Rust `std::num::Saturating` macro-surface parity, referencing Rust's local `Div`, `Rem`, `Not`, `BitAnd`, `BitOr`, and `BitXor` operator implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `DIV`, `REM`, `NOT`, `BITAND`, `BITOR`, and `BITXOR` helpers for `SaturatingU64` and `SaturatingI64`.
+- `SaturatingI64` division implements Rust's saturating `MIN / -1 -> MAX` branch. Division/remainder by zero are intentionally not surfaced as Rust panic objects; the helpers preserve the primitive trap/panic boundary and the focused test avoids zero divisors.
+- Test: `tests/unit_framework/std_num_saturating_operator_macro_surface.sa` - 1 test (panic ID 10621) expanding all 12 new macros and covering unsigned, signed, bitwise, remainder, and signed saturating division overflow behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_saturating_operator_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10622+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating operator macros
 
 - Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local operator implementations and signed inherent helpers under `/home/vscode/projects/rust`.

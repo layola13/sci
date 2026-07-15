@@ -10128,3 +10128,139 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND NUM_I64_IS_NEGATIVE %out_bool, __sat_i64_neg_value_%out_bool
     !__sat_i64_neg_value_%out_bool
 [END_MACRO]
+
+[MACRO] SATURATING_U64_DIV %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_div_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_div_rhs_%out_ptr, %rhs_ptr
+    __sat_u64_div_result_%out_ptr = udiv __sat_u64_div_lhs_%out_ptr, __sat_u64_div_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_u64_div_result_%out_ptr
+    !__sat_u64_div_result_%out_ptr
+    !__sat_u64_div_rhs_%out_ptr
+    !__sat_u64_div_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_REM %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_rem_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_rem_rhs_%out_ptr, %rhs_ptr
+    __sat_u64_rem_result_%out_ptr = urem __sat_u64_rem_lhs_%out_ptr, __sat_u64_rem_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_u64_rem_result_%out_ptr
+    !__sat_u64_rem_result_%out_ptr
+    !__sat_u64_rem_rhs_%out_ptr
+    !__sat_u64_rem_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_NOT %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_not_value_%out_ptr, %src_ptr
+    __sat_u64_not_result_%out_ptr = xor __sat_u64_not_value_%out_ptr, NUM_U64_MAX
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_u64_not_result_%out_ptr
+    !__sat_u64_not_result_%out_ptr
+    !__sat_u64_not_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_BITAND %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_bitand_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_bitand_rhs_%out_ptr, %rhs_ptr
+    __sat_u64_bitand_result_%out_ptr = and __sat_u64_bitand_lhs_%out_ptr, __sat_u64_bitand_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_u64_bitand_result_%out_ptr
+    !__sat_u64_bitand_result_%out_ptr
+    !__sat_u64_bitand_rhs_%out_ptr
+    !__sat_u64_bitand_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_BITOR %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_bitor_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_bitor_rhs_%out_ptr, %rhs_ptr
+    __sat_u64_bitor_result_%out_ptr = or __sat_u64_bitor_lhs_%out_ptr, __sat_u64_bitor_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_u64_bitor_result_%out_ptr
+    !__sat_u64_bitor_result_%out_ptr
+    !__sat_u64_bitor_rhs_%out_ptr
+    !__sat_u64_bitor_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_BITXOR %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_bitxor_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_U64_GET __sat_u64_bitxor_rhs_%out_ptr, %rhs_ptr
+    __sat_u64_bitxor_result_%out_ptr = xor __sat_u64_bitxor_lhs_%out_ptr, __sat_u64_bitxor_rhs_%out_ptr
+    EXPAND SATURATING_U64_SET %out_ptr, __sat_u64_bitxor_result_%out_ptr
+    !__sat_u64_bitxor_result_%out_ptr
+    !__sat_u64_bitxor_rhs_%out_ptr
+    !__sat_u64_bitxor_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_DIV %out_ptr, %lhs_ptr, %rhs_ptr
+    __sat_i64_div_lhs_%out_ptr = load %lhs_ptr+SaturatingI64_value as i64
+    __sat_i64_div_rhs_%out_ptr = load %rhs_ptr+SaturatingI64_value as i64
+    __sat_i64_div_lhs_min_%out_ptr = eq __sat_i64_div_lhs_%out_ptr, NUM_I64_MIN
+    __sat_i64_div_rhs_neg_one_%out_ptr = eq __sat_i64_div_rhs_%out_ptr, -1
+    __sat_i64_div_over_%out_ptr = and __sat_i64_div_lhs_min_%out_ptr, __sat_i64_div_rhs_neg_one_%out_ptr
+    br __sat_i64_div_over_%out_ptr -> L_SATURATING_I64_DIV_MAX_%out_ptr, L_SATURATING_I64_DIV_NORMAL_%out_ptr
+
+L_SATURATING_I64_DIV_NORMAL_%out_ptr:
+    __sat_i64_div_result_%out_ptr = sdiv __sat_i64_div_lhs_%out_ptr, __sat_i64_div_rhs_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __sat_i64_div_result_%out_ptr
+    !__sat_i64_div_result_%out_ptr
+    !__sat_i64_div_over_%out_ptr
+    !__sat_i64_div_rhs_neg_one_%out_ptr
+    !__sat_i64_div_lhs_min_%out_ptr
+    !__sat_i64_div_rhs_%out_ptr
+    !__sat_i64_div_lhs_%out_ptr
+    jmp L_SATURATING_I64_DIV_DONE_%out_ptr
+
+L_SATURATING_I64_DIV_MAX_%out_ptr:
+    EXPAND SATURATING_I64_NEW %out_ptr, NUM_I64_MAX
+    !__sat_i64_div_over_%out_ptr
+    !__sat_i64_div_rhs_neg_one_%out_ptr
+    !__sat_i64_div_lhs_min_%out_ptr
+    !__sat_i64_div_rhs_%out_ptr
+    !__sat_i64_div_lhs_%out_ptr
+
+L_SATURATING_I64_DIV_DONE_%out_ptr:
+[END_MACRO]
+
+[MACRO] SATURATING_I64_REM %out_ptr, %lhs_ptr, %rhs_ptr
+    __sat_i64_rem_lhs_%out_ptr = load %lhs_ptr+SaturatingI64_value as i64
+    __sat_i64_rem_rhs_%out_ptr = load %rhs_ptr+SaturatingI64_value as i64
+    __sat_i64_rem_result_%out_ptr = srem __sat_i64_rem_lhs_%out_ptr, __sat_i64_rem_rhs_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __sat_i64_rem_result_%out_ptr
+    !__sat_i64_rem_result_%out_ptr
+    !__sat_i64_rem_rhs_%out_ptr
+    !__sat_i64_rem_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_NOT %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_not_value_%out_ptr, %src_ptr
+    __sat_i64_not_result_%out_ptr = xor __sat_i64_not_value_%out_ptr, NUM_U64_MAX
+    EXPAND SATURATING_I64_NEW %out_ptr, __sat_i64_not_result_%out_ptr
+    !__sat_i64_not_result_%out_ptr
+    !__sat_i64_not_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_BITAND %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_bitand_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_bitand_rhs_%out_ptr, %rhs_ptr
+    __sat_i64_bitand_result_%out_ptr = and __sat_i64_bitand_lhs_%out_ptr, __sat_i64_bitand_rhs_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __sat_i64_bitand_result_%out_ptr
+    !__sat_i64_bitand_result_%out_ptr
+    !__sat_i64_bitand_rhs_%out_ptr
+    !__sat_i64_bitand_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_BITOR %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_bitor_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_bitor_rhs_%out_ptr, %rhs_ptr
+    __sat_i64_bitor_result_%out_ptr = or __sat_i64_bitor_lhs_%out_ptr, __sat_i64_bitor_rhs_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __sat_i64_bitor_result_%out_ptr
+    !__sat_i64_bitor_result_%out_ptr
+    !__sat_i64_bitor_rhs_%out_ptr
+    !__sat_i64_bitor_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_BITXOR %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_bitxor_lhs_%out_ptr, %lhs_ptr
+    EXPAND SATURATING_I64_GET __sat_i64_bitxor_rhs_%out_ptr, %rhs_ptr
+    __sat_i64_bitxor_result_%out_ptr = xor __sat_i64_bitxor_lhs_%out_ptr, __sat_i64_bitxor_rhs_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __sat_i64_bitxor_result_%out_ptr
+    !__sat_i64_bitxor_result_%out_ptr
+    !__sat_i64_bitxor_rhs_%out_ptr
+    !__sat_i64_bitxor_lhs_%out_ptr
+[END_MACRO]

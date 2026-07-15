@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Saturating operators)
+
+Completed supportable Saturating operator helpers:
+- `SATURATING_U64_DIV`, `SATURATING_U64_REM`, `SATURATING_U64_NOT`, `SATURATING_U64_BITAND`, `SATURATING_U64_BITOR`, and `SATURATING_U64_BITXOR`: concrete Rust `Saturating<u64>` operator-forwarding shape for SA's existing layout, writing destination wrappers.
+- `SATURATING_I64_DIV`, `SATURATING_I64_REM`, `SATURATING_I64_NOT`, `SATURATING_I64_BITAND`, `SATURATING_I64_BITOR`, and `SATURATING_I64_BITXOR`: matching concrete Rust `Saturating<i64>` operator-forwarding shape, including the `MIN / -1 -> MAX` saturating division branch.
+- This follows Rust's current `core::num::Saturating` operator impls for the existing SA wrapper widths. It deliberately does not expose generic `Saturating<T>`, `u128` / `i128`, missing wrapper widths, assignment operator traits, formatting traits, or Rust zero-divisor panic objects.
+- Test file `std_num_saturating_operator_macro_surface.sa` (panic ID 10621).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_saturating_operator_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10622+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust panic object behavior for zero divisors and invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping/Saturating operators)
 
 Completed supportable Wrapping/Saturating operator helpers:

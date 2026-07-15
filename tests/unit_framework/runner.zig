@@ -698,6 +698,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_num_wrapping_saturating_bit_transform_macro_surface.sa",
         "tests/unit_framework/std_num_wrapping_saturating_cmp_macro_surface.sa",
         "tests/unit_framework/std_num_wrapping_saturating_ops_macro_surface.sa",
+        "tests/unit_framework/std_num_saturating_operator_macro_surface.sa",
         "tests/unit_framework/std_ops_range_macro_surface.sa",
         "tests/unit_framework/std_ops_range_usize_macro_surface.sa",
         "tests/unit_framework/std_ops_range_inclusive_inner_macro_surface.sa",
