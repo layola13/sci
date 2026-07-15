@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash usize macro
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local primitive `Hash` implementations under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `HASH_USIZE`.
+- The helper surface uses the existing concrete `DEFAULT_HASHER_WRITE_USIZE` path, which maps to the current deterministic register-sized `u64` hasher write. It does not claim generic `Hash` trait dispatch, endian-exact byte serialization, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_usize_macro_surface.sa` - 1 test (panic ID 10559) covering equivalence with `WRITE_USIZE`, consistency with the current `u64` helper on this SA target, distinct values, and direct one-shot hashing.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_usize_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10560+.
+
 ## Completed: 2026-07-14 Hash bool macro
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `impl Hash for bool` under `/home/vscode/projects/rust`.
