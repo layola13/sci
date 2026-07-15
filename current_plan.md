@@ -86,7 +86,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - add dual-architecture macOS host/package, runtime, Darwin pthread shim, and ABI checks through `portable-host-typecheck`, `portable-runtime-typecheck`, and `portability-check`;
    - keep the native workflow on reviewed portable gates and outside Linux-only aggregate/runtime steps;
    - define x86_64/arm64 jobs with Zig 0.14.1, SHA-pinned LLVM 14 bottles, isolated compiler/static-runtime builds, architecture/linkage validation, and staged compiler/package smoke;
-   - validate on Linux with contract `3/3`, YAML/actionlint and shell parsing, and `portability-check` `30/30`, including host `11/11`, dual-architecture runtime/shim, and ABI cross checks.
+   - validate on Linux with contract `3/3`, YAML/actionlint and shell parsing, `portability-check` `30/30`, `test-portable` `9/9` steps and `49/49` tests, plus x86_64/aarch64 static-runtime builds `4/4` each with matching Mach-O archive members.
 10. [ ] Execute both macOS workflow jobs and record native L0/L1 results; until then the workflow and Linux cross type/object/link/ABI results are neither macOS native evidence nor an L2 claim.
 11. [ ] Implement native Darwin basic contracts for fs/dir/metadata, env/time, process capture/wait, threads, and dynamic libraries, then expose named basic/Darwin runtime gates.
 12. [ ] Platformize Darwin sockets and add TCP/UDP/DNS/pathname-UDS tests plus stable unsupported assertions for Linux-only facilities.
