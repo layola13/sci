@@ -6231,6 +6231,12 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU64_value, NUM_U64_MAX
 [END_MACRO]
 
+[MACRO] NONZERO_U64_CAST_SIGNED %out_nz, %nz
+    __nonzero_u64_cast_signed_value_%out_nz = load %nz+NonZeroU64_value as u64
+    store %out_nz+NonZeroI64_value, __nonzero_u64_cast_signed_value_%out_nz as i64
+    !__nonzero_u64_cast_signed_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_I64_NEW %out_ok, %nz, %value
     %out_ok = ne %value, 0
     store %nz+NonZeroI64_value, %value as i64
@@ -6338,6 +6344,12 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_I64_SATURATING_POW %out_nz, %nz, %exp
     EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI64_value, NUM_I64_MIN, NUM_I64_MAX
+[END_MACRO]
+
+[MACRO] NONZERO_I64_CAST_UNSIGNED %out_nz, %nz
+    __nonzero_i64_cast_unsigned_value_%out_nz = load %nz+NonZeroI64_value as i64
+    store %out_nz+NonZeroU64_value, __nonzero_i64_cast_unsigned_value_%out_nz as u64
+    !__nonzero_i64_cast_unsigned_value_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_I64_IS_POSITIVE %out_bool, %nz
@@ -6461,6 +6473,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU8_value, NUM_U8_MAX
 [END_MACRO]
 
+[MACRO] NONZERO_U8_CAST_SIGNED %out_nz, %nz
+    __nonzero_u8_cast_signed_value_%out_nz = load %nz+NonZeroU8_value as u64
+    EXPAND NUM_I8_SIGN_EXTEND __nonzero_u8_cast_signed_result_%out_nz, __nonzero_u8_cast_signed_value_%out_nz
+    store %out_nz+NonZeroI8_value, __nonzero_u8_cast_signed_result_%out_nz as i64
+    !__nonzero_u8_cast_signed_result_%out_nz
+    !__nonzero_u8_cast_signed_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U16_NEW %out_ok, %nz, %value
     __nonzero_u16_new_in_range_%out_ok = ule %value, NUM_U16_MAX
     __nonzero_u16_new_nonzero_%out_ok = ne %value, 0
@@ -6568,6 +6588,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_U16_SATURATING_POW %out_nz, %nz, %exp
     EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU16_value, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NONZERO_U16_CAST_SIGNED %out_nz, %nz
+    __nonzero_u16_cast_signed_value_%out_nz = load %nz+NonZeroU16_value as u64
+    EXPAND NUM_I16_SIGN_EXTEND __nonzero_u16_cast_signed_result_%out_nz, __nonzero_u16_cast_signed_value_%out_nz
+    store %out_nz+NonZeroI16_value, __nonzero_u16_cast_signed_result_%out_nz as i64
+    !__nonzero_u16_cast_signed_result_%out_nz
+    !__nonzero_u16_cast_signed_value_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_U32_NEW %out_ok, %nz, %value
@@ -6679,6 +6707,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_UNSIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroU32_value, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NONZERO_U32_CAST_SIGNED %out_nz, %nz
+    __nonzero_u32_cast_signed_value_%out_nz = load %nz+NonZeroU32_value as u64
+    EXPAND NUM_I32_SIGN_EXTEND __nonzero_u32_cast_signed_result_%out_nz, __nonzero_u32_cast_signed_value_%out_nz
+    store %out_nz+NonZeroI32_value, __nonzero_u32_cast_signed_result_%out_nz as i64
+    !__nonzero_u32_cast_signed_result_%out_nz
+    !__nonzero_u32_cast_signed_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_USIZE_NEW %out_ok, %nz, %value
     EXPAND NONZERO_U64_NEW %out_ok, %nz, %value
 [END_MACRO]
@@ -6733,6 +6769,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_USIZE_SATURATING_POW %out_nz, %nz, %exp
     EXPAND NONZERO_U64_SATURATING_POW %out_nz, %nz, %exp
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_CAST_SIGNED %out_nz, %nz
+    EXPAND NONZERO_U64_CAST_SIGNED %out_nz, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_I8_NEW %out_ok, %nz, %value
@@ -6858,6 +6898,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_I8_SATURATING_POW %out_nz, %nz, %exp
     EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI8_value, NUM_I8_MIN, NUM_I8_MAX
+[END_MACRO]
+
+[MACRO] NONZERO_I8_CAST_UNSIGNED %out_nz, %nz
+    __nonzero_i8_cast_unsigned_value_%out_nz = load %nz+NonZeroI8_value as i64
+    __nonzero_i8_cast_unsigned_result_%out_nz = and __nonzero_i8_cast_unsigned_value_%out_nz, NUM_U8_MAX
+    store %out_nz+NonZeroU8_value, __nonzero_i8_cast_unsigned_result_%out_nz as u64
+    !__nonzero_i8_cast_unsigned_result_%out_nz
+    !__nonzero_i8_cast_unsigned_value_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_I8_IS_POSITIVE %out_bool, %nz
@@ -6997,6 +7045,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI16_value, NUM_I16_MIN, NUM_I16_MAX
 [END_MACRO]
 
+[MACRO] NONZERO_I16_CAST_UNSIGNED %out_nz, %nz
+    __nonzero_i16_cast_unsigned_value_%out_nz = load %nz+NonZeroI16_value as i64
+    __nonzero_i16_cast_unsigned_result_%out_nz = and __nonzero_i16_cast_unsigned_value_%out_nz, NUM_U16_MAX
+    store %out_nz+NonZeroU16_value, __nonzero_i16_cast_unsigned_result_%out_nz as u64
+    !__nonzero_i16_cast_unsigned_result_%out_nz
+    !__nonzero_i16_cast_unsigned_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_I16_IS_POSITIVE %out_bool, %nz
     __nonzero_i16_pos_value_%out_bool = load %nz+NonZeroI16_value as i64
     EXPAND NUM_I16_IS_POSITIVE %out_bool, __nonzero_i16_pos_value_%out_bool
@@ -7134,6 +7190,14 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NONZERO_SIGNED_SATURATING_POW_FIELD %out_nz, %nz, %exp, NonZeroI32_value, NUM_I32_MIN, NUM_I32_MAX
 [END_MACRO]
 
+[MACRO] NONZERO_I32_CAST_UNSIGNED %out_nz, %nz
+    __nonzero_i32_cast_unsigned_value_%out_nz = load %nz+NonZeroI32_value as i64
+    __nonzero_i32_cast_unsigned_result_%out_nz = and __nonzero_i32_cast_unsigned_value_%out_nz, NUM_U32_MAX
+    store %out_nz+NonZeroU32_value, __nonzero_i32_cast_unsigned_result_%out_nz as u64
+    !__nonzero_i32_cast_unsigned_result_%out_nz
+    !__nonzero_i32_cast_unsigned_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_I32_IS_POSITIVE %out_bool, %nz
     __nonzero_i32_pos_value_%out_bool = load %nz+NonZeroI32_value as i64
     EXPAND NUM_I32_IS_POSITIVE %out_bool, __nonzero_i32_pos_value_%out_bool
@@ -7204,6 +7268,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_ISIZE_SATURATING_POW %out_nz, %nz, %exp
     EXPAND NONZERO_I64_SATURATING_POW %out_nz, %nz, %exp
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_CAST_UNSIGNED %out_nz, %nz
+    EXPAND NONZERO_I64_CAST_UNSIGNED %out_nz, %nz
 [END_MACRO]
 
 [MACRO] NONZERO_ISIZE_IS_POSITIVE %out_bool, %nz

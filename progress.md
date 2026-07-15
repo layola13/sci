@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero same-width sign cast macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `cast_signed` / `cast_unsigned` same-width bit-pattern methods under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_CAST_SIGNED` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, and `NonZeroUsize`; added `*_CAST_UNSIGNED` helpers for `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface preserves the underlying bit pattern while writing the same-width target signed or unsigned NonZero layout. Narrow unsigned-to-signed casts sign-extend to SA's signed register shape, and narrow signed-to-unsigned casts mask to the declared Rust width. It does not claim generic `NonZero<T>`, cross-width conversions, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_sign_cast_macro_surface.sa` - 1 test (panic ID 10625) expanding all 10 new macros and covering negative reinterpretation, max unsigned values, and signed-min `isize` bit-pattern preservation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_sign_cast_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10626+.
+
 ## Completed: 2026-07-15 NonZero unsigned bit_width macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local unsigned `bit_width` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.

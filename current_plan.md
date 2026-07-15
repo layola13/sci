@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero sign casts)
+
+Completed supportable NonZero same-width sign-cast helpers:
+- `NONZERO_U8_CAST_SIGNED`, `NONZERO_U16_CAST_SIGNED`, `NONZERO_U32_CAST_SIGNED`, `NONZERO_U64_CAST_SIGNED`, and `NONZERO_USIZE_CAST_SIGNED`: concrete Rust `NonZero<unsigned>::cast_signed` bit-pattern shape for the existing SA unsigned NonZero layouts.
+- `NONZERO_I8_CAST_UNSIGNED`, `NONZERO_I16_CAST_UNSIGNED`, `NONZERO_I32_CAST_UNSIGNED`, `NONZERO_I64_CAST_UNSIGNED`, and `NONZERO_ISIZE_CAST_UNSIGNED`: matching Rust `NonZero<signed>::cast_unsigned` same-width shape for existing signed NonZero layouts.
+- Narrow unsigned-to-signed casts sign-extend into SA's signed register shape; narrow signed-to-unsigned casts mask to the declared Rust width. `usize` / `isize` alias the current 64-bit SA ABI.
+- This follows Rust's current `core::num::NonZero` `integer_sign_cast` methods for the existing concrete widths. It deliberately does not expose generic `NonZero<T>`, cross-width integer conversions, `u128` / `i128`, Rust niche optimization, or trait-level dispatch.
+- Test file `std_num_nonzero_sign_cast_macro_surface.sa` (panic ID 10625).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_sign_cast_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10626+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic object behavior for invalid arithmetic, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero unsigned bit_width)
 
 Completed supportable NonZero unsigned bit-width helpers:
