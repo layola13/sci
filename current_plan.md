@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Duration hash_one)
+
+Completed supportable `Duration` hash macros:
+- `DEFAULT_HASHER_WRITE_DURATION` / `TIME_DURATION_HASH`: concrete Rust `Hash for Duration` derived-field shape for SA's existing nanosecond scalar `Duration` representation, by splitting `duration_ns` into `secs = ns / 1_000_000_000` and `nanos = ns % 1_000_000_000`, then hashing `secs` through `u64` and `nanos` through `u32`.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_DURATION` and `RANDOM_STATE_HASH_ONE_DURATION`: concrete `BuildHasher::hash_one` lowerings for the same Duration subset.
+- This follows Rust's current `core::time::Duration` derived `Hash` storage shape (`secs: u64`, `nanos: Nanoseconds(u32)`) for SA's concrete nanosecond value. It does not expose Rust's typed two-field `Duration` object, `Nanoseconds` niche type, `u128` duration constructors, generic trait dispatch, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_time_duration_hash_one_macro_surface.sa` (panic ID 10592).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_time_duration_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10593+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, Rust typed two-field `Duration` storage and `Nanoseconds` niche type, `u128` / float / signed duration conversions, platform-specific `Instant` / `SystemTime` hash storage, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero integer hash_one)
 
 Completed supportable NonZero integer hash macros:

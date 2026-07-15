@@ -1,5 +1,6 @@
 @import "time.sal"
 @import "time.sai"
+@import "hash.sa"
 
 [MACRO] TIME_NOW_NS %out_ns
     %out_ns = call @sa_time_instant_ns()
@@ -259,6 +260,36 @@ L_TIME_CHECKED_NEW_END_%out_ok:
 
 [MACRO] TIME_DURATION_AS_NANOS %out_ns, %duration_ns
     EXPAND TIME_DURATION_AS_NS %out_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_DURATION %hasher, %duration_ns
+    __time_duration_hash_secs_%hasher = udiv %duration_ns, Time_NS_PER_S
+    __time_duration_hash_nanos_%hasher = urem %duration_ns, Time_NS_PER_S
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __time_duration_hash_secs_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __time_duration_hash_nanos_%hasher
+    !__time_duration_hash_nanos_%hasher
+    !__time_duration_hash_secs_%hasher
+[END_MACRO]
+
+[MACRO] TIME_DURATION_HASH %out_hash, %duration_ns
+    __time_duration_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __time_duration_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_DURATION __time_duration_hash_hasher_%out_hash, %duration_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __time_duration_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_DURATION %out_hash, %builder, %duration_ns
+    __build_hash_one_duration_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_duration_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_DURATION __build_hash_one_duration_hasher_%out_hash, %duration_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_duration_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_DURATION %out_hash, %state, %duration_ns
+    __random_state_hash_one_duration_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_duration_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_DURATION __random_state_hash_one_duration_hasher_%out_hash, %duration_ns
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_duration_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] TIME_DURATION_DIV_DURATION_FLOOR %out_ok, %out_ratio, %duration_ns, %rhs_ns
@@ -675,4 +706,3 @@ L_TIME_ABS_DIFF_END_%out_ns:
 [MACRO] TIME_SYSTEM_TIME_DEFAULT %out_system_ns
     EXPAND TIME_SYSTEM_TIME_UNIX_EPOCH %out_system_ns
 [END_MACRO]
-

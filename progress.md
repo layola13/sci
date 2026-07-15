@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Duration hash_one macros
+
+- Continued Rust `std::hash` / `std::time::Duration` macro-surface parity, referencing Rust's local `core::time::Duration` derived `Hash` shape under `/home/vscode/projects/rust`.
+- `sa_std/time.sa`: added `DEFAULT_HASHER_WRITE_DURATION`, `TIME_DURATION_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_DURATION`, and `RANDOM_STATE_HASH_ONE_DURATION`.
+- The helper surface models Rust's derived `Duration { secs, nanos }` hashing shape for SA's concrete nanosecond scalar by hashing `duration_ns / 1_000_000_000` as `u64` followed by `duration_ns % 1_000_000_000` as `u32`. It does not claim Rust's typed two-field `Duration` storage, `Nanoseconds` niche type, `u128` duration constructors, generic `Hash` trait dispatch, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_time_duration_hash_one_macro_surface.sa` - 1 test (panic ID 10592) covering writer/direct/manual field-order equivalence, same-value stability, seconds and nanoseconds sensitivity, second-boundary distinction, `BuildHasherDefault::hash_one`, and `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_time_duration_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10593+.
+
 ## Completed: 2026-07-15 NonZero integer hash_one macros
 
 - Continued Rust `std::hash` / `std::num::NonZero*` macro-surface parity, referencing Rust's local `Hash for NonZero<T>` implementation under `/home/vscode/projects/rust`.

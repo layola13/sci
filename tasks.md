@@ -1,5 +1,7 @@
 # 架构设计参考 (Technical Design Reference)
 
+- [x] `std::time::Duration` hash/hash_one 宏表面批次已完成：新增 `DEFAULT_HASHER_WRITE_DURATION` / `TIME_DURATION_HASH` / `BUILD_HASHER_DEFAULT_HASH_ONE_DURATION` / `RANDOM_STATE_HASH_ONE_DURATION`，按 Rust `core::time::Duration` 派生 `Hash` 的 `secs: u64` + `nanos: u32` 字段顺序从 SA `u64` 纳秒值拆分后写入 hasher；新增 focused 单测并同步 `progress/current_plan/std_missing`。不主张 Rust typed two-field Duration 存储、`Nanoseconds` niche 类型、`u128`/float/signed duration 转换、随机 `RandomState` 或 SipHash 兼容。
+
 ## Active test logging diagnostics (2026-07-09)
 
 - [x] Add a dedicated logged full-test dependency runner: `tools/test_steps_timed.sh`.
