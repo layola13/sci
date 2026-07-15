@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Path hash_one macros
+
+- Continued Rust `std::hash` / `std::path::{Path,PathBuf}` macro-surface parity, referencing Rust's local `Hash for Path` and `Hash for PathBuf` implementations under `/home/vscode/projects/rust`.
+- `sa_std/path.sa`: added `DEFAULT_HASHER_WRITE_PATH`, `PATH_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_PATH`, `RANDOM_STATE_HASH_ONE_PATH`, `DEFAULT_HASHER_WRITE_PATH_BUF`, `PATH_BUF_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_PATH_BUF`, and `RANDOM_STATE_HASH_ONE_PATH_BUF`.
+- The helper surface models Rust's supportable POSIX path hashing shape by hashing normalized non-empty path components with raw byte writes and a final `chunk_bits` value; repeated `/`, ordinary `.` components, and trailing separators normalize away, while `chunk_bits` separates component-boundary shapes such as `foo/bar` and `foobar`. `PathBuf` hashes through its `Path` view. It does not claim Windows prefix/verbatim behavior, true component iterator objects, generic trait dispatch, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_path_hash_one_macro_surface.sa` - 1 test (panic ID 10588) covering writer/direct equivalence, component normalization, trailing separator normalization, component length/value sensitivity, `chunk_bits` shape separation, distinction from `str`/slice hashing, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, `PathBuf` forwarding, and mutation sensitivity after pushing a child component.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_path_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10589+.
+
 ## Completed: 2026-07-15 OsStr/OsString hash_one macros
 
 - Continued Rust `std::hash` / `std::ffi::{OsStr,OsString}` macro-surface parity, referencing Rust's local `Hash for OsStr` and `Hash for OsString` implementations under `/home/vscode/projects/rust`.

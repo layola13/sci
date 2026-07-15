@@ -5,6 +5,7 @@
 @import "fs.sa"
 @import "string.sa"
 @import "os/unix_ffi.sa"
+@import "num.sa"
 
 @const PATH_SEPARATOR = utf8:"/"
 
@@ -1233,6 +1234,200 @@ L_PATH_TO_STR_END_%out_ok:
     !__path_to_str_ptr_%out_ok
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_PATH %hasher, %path_slice
+    __path_hash_ptr_%hasher = load %path_slice+Slice_ptr as ptr
+    __path_hash_len_%hasher = load %path_slice+Slice_len as u64
+    __path_hash_idx_slot_%hasher = stack_alloc 8
+    __path_hash_start_slot_%hasher = stack_alloc 8
+    __path_hash_chunk_slot_%hasher = stack_alloc 8
+    __path_hash_write_ptr_slot_%hasher = stack_alloc 8
+    __path_hash_write_len_slot_%hasher = stack_alloc 8
+    __path_hash_write_idx_slot_%hasher = stack_alloc 8
+    __path_hash_return_slot_%hasher = stack_alloc 8
+    store __path_hash_idx_slot_%hasher+0, 0 as u64
+    store __path_hash_start_slot_%hasher+0, 0 as u64
+    store __path_hash_chunk_slot_%hasher+0, 0 as u64
+    jmp L_PATH_HASH_HEAD_%hasher
+
+L_PATH_HASH_HEAD_%hasher:
+    __path_hash_idx_%hasher = load __path_hash_idx_slot_%hasher+0 as u64
+    __path_hash_done_%hasher = eq __path_hash_idx_%hasher, __path_hash_len_%hasher
+    br __path_hash_done_%hasher -> L_PATH_HASH_EOF_%hasher, L_PATH_HASH_BODY_%hasher
+
+L_PATH_HASH_BODY_%hasher:
+    __path_hash_ch_ptr_%hasher = ptr_add __path_hash_ptr_%hasher, __path_hash_idx_%hasher
+    __path_hash_ch_%hasher = load __path_hash_ch_ptr_%hasher+0 as u8
+    __path_hash_is_sep_%hasher = eq __path_hash_ch_%hasher, 47
+    br __path_hash_is_sep_%hasher -> L_PATH_HASH_SEPARATOR_%hasher, L_PATH_HASH_NEXT_%hasher
+
+L_PATH_HASH_SEPARATOR_%hasher:
+    __path_hash_start_%hasher = load __path_hash_start_slot_%hasher+0 as u64
+    __path_hash_has_component_%hasher = ult __path_hash_start_%hasher, __path_hash_idx_%hasher
+    br __path_hash_has_component_%hasher -> L_PATH_HASH_WRITE_COMPONENT_%hasher, L_PATH_HASH_AFTER_COMPONENT_%hasher
+
+L_PATH_HASH_WRITE_COMPONENT_%hasher:
+    __path_hash_component_len_%hasher = sub __path_hash_idx_%hasher, __path_hash_start_%hasher
+    __path_hash_component_ptr_%hasher = ptr_add __path_hash_ptr_%hasher, __path_hash_start_%hasher
+    __path_hash_chunk_%hasher = load __path_hash_chunk_slot_%hasher+0 as u64
+    __path_hash_chunk_sum_%hasher = add __path_hash_chunk_%hasher, __path_hash_component_len_%hasher
+    EXPAND NUM_U64_ROTATE_RIGHT __path_hash_chunk_next_%hasher, __path_hash_chunk_sum_%hasher, 2
+    store __path_hash_chunk_slot_%hasher+0, __path_hash_chunk_next_%hasher as u64
+    store __path_hash_write_ptr_slot_%hasher+0, __path_hash_component_ptr_%hasher as ptr
+    store __path_hash_write_len_slot_%hasher+0, __path_hash_component_len_%hasher as u64
+    store __path_hash_return_slot_%hasher+0, 1 as u64
+    !__path_hash_chunk_next_%hasher
+    !__path_hash_chunk_sum_%hasher
+    !__path_hash_chunk_%hasher
+    !__path_hash_component_ptr_%hasher
+    !__path_hash_component_len_%hasher
+    jmp L_PATH_HASH_WRITE_BYTES_INIT_%hasher
+
+L_PATH_HASH_AFTER_COMPONENT_%hasher:
+    __path_hash_next_start_%hasher = add __path_hash_idx_%hasher, 1
+    store __path_hash_start_slot_%hasher+0, __path_hash_next_start_%hasher as u64
+    __path_hash_tail_empty_%hasher = eq __path_hash_next_start_%hasher, __path_hash_len_%hasher
+    br __path_hash_tail_empty_%hasher -> L_PATH_HASH_AFTER_DOT_CHECK_%hasher, L_PATH_HASH_CHECK_DOT_%hasher
+
+L_PATH_HASH_CHECK_DOT_%hasher:
+    __path_hash_tail_ptr_%hasher = ptr_add __path_hash_ptr_%hasher, __path_hash_next_start_%hasher
+    __path_hash_tail_first_%hasher = load __path_hash_tail_ptr_%hasher+0 as u8
+    __path_hash_tail_is_dot_%hasher = eq __path_hash_tail_first_%hasher, 46
+    br __path_hash_tail_is_dot_%hasher -> L_PATH_HASH_CHECK_DOT_END_%hasher, L_PATH_HASH_NO_DOT_SKIP_%hasher
+
+L_PATH_HASH_CHECK_DOT_END_%hasher:
+    __path_hash_after_dot_%hasher = add __path_hash_next_start_%hasher, 1
+    __path_hash_dot_at_end_%hasher = eq __path_hash_after_dot_%hasher, __path_hash_len_%hasher
+    br __path_hash_dot_at_end_%hasher -> L_PATH_HASH_SKIP_DOT_%hasher, L_PATH_HASH_CHECK_DOT_SEP_%hasher
+
+L_PATH_HASH_CHECK_DOT_SEP_%hasher:
+    __path_hash_after_dot_ptr_%hasher = ptr_add __path_hash_ptr_%hasher, __path_hash_after_dot_%hasher
+    __path_hash_after_dot_ch_%hasher = load __path_hash_after_dot_ptr_%hasher+0 as u8
+    __path_hash_dot_then_sep_%hasher = eq __path_hash_after_dot_ch_%hasher, 47
+    br __path_hash_dot_then_sep_%hasher -> L_PATH_HASH_SKIP_DOT_%hasher, L_PATH_HASH_NO_DOT_SKIP_AFTER_DOT_%hasher
+
+L_PATH_HASH_SKIP_DOT_%hasher:
+    store __path_hash_start_slot_%hasher+0, __path_hash_after_dot_%hasher as u64
+    !__path_hash_after_dot_%hasher
+    jmp L_PATH_HASH_AFTER_DOT_CHECK_%hasher
+
+L_PATH_HASH_NO_DOT_SKIP_AFTER_DOT_%hasher:
+    !__path_hash_dot_then_sep_%hasher
+    !__path_hash_after_dot_ch_%hasher
+    !__path_hash_after_dot_ptr_%hasher
+    !__path_hash_dot_at_end_%hasher
+    !__path_hash_after_dot_%hasher
+    jmp L_PATH_HASH_AFTER_DOT_CHECK_%hasher
+
+L_PATH_HASH_NO_DOT_SKIP_%hasher:
+    !__path_hash_tail_is_dot_%hasher
+    !__path_hash_tail_first_%hasher
+    !__path_hash_tail_ptr_%hasher
+    jmp L_PATH_HASH_AFTER_DOT_CHECK_%hasher
+
+L_PATH_HASH_AFTER_DOT_CHECK_%hasher:
+    !__path_hash_tail_empty_%hasher
+    !__path_hash_next_start_%hasher
+    !__path_hash_has_component_%hasher
+    !__path_hash_start_%hasher
+    jmp L_PATH_HASH_NEXT_%hasher
+
+L_PATH_HASH_NEXT_%hasher:
+    __path_hash_next_idx_%hasher = add __path_hash_idx_%hasher, 1
+    store __path_hash_idx_slot_%hasher+0, __path_hash_next_idx_%hasher as u64
+    !__path_hash_next_idx_%hasher
+    !__path_hash_is_sep_%hasher
+    !__path_hash_ch_%hasher
+    !__path_hash_ch_ptr_%hasher
+    !__path_hash_done_%hasher
+    !__path_hash_idx_%hasher
+    jmp L_PATH_HASH_HEAD_%hasher
+
+L_PATH_HASH_EOF_%hasher:
+    __path_hash_final_start_%hasher = load __path_hash_start_slot_%hasher+0 as u64
+    __path_hash_has_tail_%hasher = ult __path_hash_final_start_%hasher, __path_hash_len_%hasher
+    br __path_hash_has_tail_%hasher -> L_PATH_HASH_WRITE_TAIL_%hasher, L_PATH_HASH_FINISH_%hasher
+
+L_PATH_HASH_WRITE_TAIL_%hasher:
+    __path_hash_tail_len_%hasher = sub __path_hash_len_%hasher, __path_hash_final_start_%hasher
+    __path_hash_tail_ptr_%hasher = ptr_add __path_hash_ptr_%hasher, __path_hash_final_start_%hasher
+    __path_hash_tail_chunk_%hasher = load __path_hash_chunk_slot_%hasher+0 as u64
+    __path_hash_tail_sum_%hasher = add __path_hash_tail_chunk_%hasher, __path_hash_tail_len_%hasher
+    EXPAND NUM_U64_ROTATE_RIGHT __path_hash_tail_chunk_next_%hasher, __path_hash_tail_sum_%hasher, 2
+    store __path_hash_chunk_slot_%hasher+0, __path_hash_tail_chunk_next_%hasher as u64
+    store __path_hash_write_ptr_slot_%hasher+0, __path_hash_tail_ptr_%hasher as ptr
+    store __path_hash_write_len_slot_%hasher+0, __path_hash_tail_len_%hasher as u64
+    store __path_hash_return_slot_%hasher+0, 2 as u64
+    !__path_hash_tail_chunk_next_%hasher
+    !__path_hash_tail_sum_%hasher
+    !__path_hash_tail_chunk_%hasher
+    !__path_hash_tail_ptr_%hasher
+    !__path_hash_tail_len_%hasher
+    jmp L_PATH_HASH_WRITE_BYTES_INIT_%hasher
+
+L_PATH_HASH_WRITE_BYTES_INIT_%hasher:
+    store __path_hash_write_idx_slot_%hasher+0, 0 as u64
+    jmp L_PATH_HASH_WRITE_BYTES_HEAD_%hasher
+
+L_PATH_HASH_WRITE_BYTES_HEAD_%hasher:
+    __path_hash_write_idx_%hasher = load __path_hash_write_idx_slot_%hasher+0 as u64
+    __path_hash_write_len_%hasher = load __path_hash_write_len_slot_%hasher+0 as u64
+    __path_hash_write_done_%hasher = eq __path_hash_write_idx_%hasher, __path_hash_write_len_%hasher
+    br __path_hash_write_done_%hasher -> L_PATH_HASH_WRITE_BYTES_DONE_%hasher, L_PATH_HASH_WRITE_BYTES_BODY_%hasher
+
+L_PATH_HASH_WRITE_BYTES_BODY_%hasher:
+    __path_hash_write_ptr_%hasher = load __path_hash_write_ptr_slot_%hasher+0 as ptr
+    __path_hash_write_item_%hasher = ptr_add __path_hash_write_ptr_%hasher, __path_hash_write_idx_%hasher
+    __path_hash_write_value_%hasher = load __path_hash_write_item_%hasher+0 as u8
+    EXPAND DEFAULT_HASHER_WRITE_U8 %hasher, __path_hash_write_value_%hasher
+    __path_hash_write_next_%hasher = add __path_hash_write_idx_%hasher, 1
+    store __path_hash_write_idx_slot_%hasher+0, __path_hash_write_next_%hasher as u64
+    !__path_hash_write_next_%hasher
+    !__path_hash_write_value_%hasher
+    !__path_hash_write_item_%hasher
+    !__path_hash_write_ptr_%hasher
+    !__path_hash_write_done_%hasher
+    !__path_hash_write_len_%hasher
+    !__path_hash_write_idx_%hasher
+    jmp L_PATH_HASH_WRITE_BYTES_HEAD_%hasher
+
+L_PATH_HASH_WRITE_BYTES_DONE_%hasher:
+    __path_hash_return_%hasher = load __path_hash_return_slot_%hasher+0 as u64
+    __path_hash_return_component_%hasher = eq __path_hash_return_%hasher, 1
+    br __path_hash_return_component_%hasher -> L_PATH_HASH_AFTER_COMPONENT_%hasher, L_PATH_HASH_FINISH_%hasher
+
+L_PATH_HASH_FINISH_%hasher:
+    __path_hash_chunk_final_%hasher = load __path_hash_chunk_slot_%hasher+0 as u64
+    EXPAND DEFAULT_HASHER_WRITE_USIZE %hasher, __path_hash_chunk_final_%hasher
+    !__path_hash_chunk_final_%hasher
+    !__path_hash_has_tail_%hasher
+    !__path_hash_final_start_%hasher
+    !__path_hash_done_%hasher
+    !__path_hash_idx_%hasher
+    !__path_hash_len_%hasher
+    !__path_hash_ptr_%hasher
+[END_MACRO]
+
+[MACRO] PATH_HASH %out_hash, %path_slice
+    __path_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __path_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_PATH __path_hash_hasher_%out_hash, %path_slice
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __path_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_PATH %out_hash, %builder, %path_slice
+    __build_hash_one_path_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_path_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_PATH __build_hash_one_path_hasher_%out_hash, %path_slice
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_path_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_PATH %out_hash, %state, %path_slice
+    __random_state_hash_one_path_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_path_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_PATH __random_state_hash_one_path_hasher_%out_hash, %path_slice
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_path_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] PATH_EXISTS %out_flag, %path_slice
     __path_exists_ptr_%out_flag = load %path_slice+Slice_ptr as ptr
     __path_exists_len_%out_flag = load %path_slice+Slice_len as u64
@@ -2054,6 +2249,32 @@ L_PATH_ANCESTOR_END_%out_ok:
 
 [MACRO] PATH_BUF_AS_STR %out_slice, %path_buf
     EXPAND PATH_BUF_AS_PATH %out_slice, %path_buf
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_PATH_BUF %hasher, %path_buf
+    EXPAND PATH_BUF_AS_PATH __path_buf_hash_view_%hasher, %path_buf
+    EXPAND DEFAULT_HASHER_WRITE_PATH %hasher, __path_buf_hash_view_%hasher
+    !__path_buf_hash_view_%hasher
+[END_MACRO]
+
+[MACRO] PATH_BUF_HASH %out_hash, %path_buf
+    EXPAND PATH_BUF_AS_PATH __path_buf_hash_view_%out_hash, %path_buf
+    EXPAND PATH_HASH %out_hash, __path_buf_hash_view_%out_hash
+    !__path_buf_hash_view_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_PATH_BUF %out_hash, %builder, %path_buf
+    __build_hash_one_path_buf_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_path_buf_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_PATH_BUF __build_hash_one_path_buf_hasher_%out_hash, %path_buf
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_path_buf_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_PATH_BUF %out_hash, %state, %path_buf
+    __random_state_hash_one_path_buf_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_path_buf_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_PATH_BUF __random_state_hash_one_path_buf_hasher_%out_hash, %path_buf
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_path_buf_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] PATH_BUF_PUSH %path_buf, %child_slice

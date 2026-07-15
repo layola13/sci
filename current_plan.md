@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Path hash_one)
+
+Completed supportable POSIX Path hash macros:
+- `DEFAULT_HASHER_WRITE_PATH` / `PATH_HASH`: concrete Rust `Hash for Path` shape for SA POSIX `Path` byte slices, by hashing normalized non-empty components with raw byte writes and a final `chunk_bits` `usize`.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_PATH` and `RANDOM_STATE_HASH_ONE_PATH`: concrete `BuildHasher::hash_one` lowerings for the same borrowed path subset.
+- `DEFAULT_HASHER_WRITE_PATH_BUF` / `PATH_BUF_HASH`: concrete Rust `Hash for PathBuf` forwarding shape for SA `PathBuf`, by viewing the owned buffer as `Path`.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_PATH_BUF` and `RANDOM_STATE_HASH_ONE_PATH_BUF`: concrete `BuildHasher::hash_one` lowerings for the same owned path subset.
+- This follows Rust's `Path` hash implementation for the supportable POSIX subset: repeated separators and ordinary `.` components are normalized away, component bytes are written without per-component length prefixes, and `chunk_bits` separates shapes such as `["foo", "bar"]` from `["foobar"]`. It does not expose Windows prefixes/verbatim paths, true component iterator objects, generic trait dispatch, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_path_hash_one_macro_surface.sa` (panic ID 10588).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_path_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10589+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 OsStr/OsString hash_one)
 
 Completed supportable Unix platform-string hash macros:
