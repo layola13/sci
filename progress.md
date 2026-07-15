@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 ManuallyDrop hash_one macros
+
+- Continued Rust `std::hash` / `std::mem::ManuallyDrop` macro-surface parity, referencing Rust's local `core::mem::ManuallyDrop<T>` `Hash` implementation under `/home/vscode/projects/rust`.
+- `sa_std/mem.sa`: added `DEFAULT_HASHER_WRITE_MANUALLY_DROP_U64`, `MANUALLY_DROP_U64_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_MANUALLY_DROP_U64`, and `RANDOM_STATE_HASH_ONE_MANUALLY_DROP_U64`.
+- The helper surface models Rust's supportable forwarding shape by loading the concrete inner `u64` and hashing it through the deterministic primitive path. It does not claim generic `ManuallyDrop<T>`, `MaybeUninit<T>` hashing, drop-suppression safety semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_mem_manually_drop_hash_one_macro_surface.sa` - 1 test (panic ID 10598) covering writer/direct equivalence, primitive hash parity, equal-value stability, value sensitivity, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and changed inner-value sensitivity.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_mem_manually_drop_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10599+.
+
 ## Completed: 2026-07-15 Reverse hash_one macros
 
 - Continued Rust `std::hash` / `std::cmp::Reverse` macro-surface parity, referencing Rust's local `core::cmp::Reverse<T>` `#[derive(Hash)]` transparent wrapper under `/home/vscode/projects/rust`.
