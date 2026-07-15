@@ -91,7 +91,7 @@ detect_platform() {
 
     case "$OS_NAME" in
         Linux)  OS="linux"  ;;
-        Darwin) OS="darwin" ;;
+        Darwin) OS="macos" ;;
         *) error "Unsupported OS: $OS_NAME (supported: Linux, macOS)" ;;
     esac
 
@@ -145,19 +145,23 @@ resolve_latest_tag() {
 verify_checksum() {
     _file="$1"; _sums_file="$2"; _target_name="$3"
 
-    EXPECTED_SHA="$(grep "$_target_name" "$_sums_file" | awk '{print $1}')"
+    EXPECTED_SHA="$(awk -v target="$_target_name" '$2 == target || $2 == "*" target { print $1; exit }' "$_sums_file")"
     if [ -z "$EXPECTED_SHA" ]; then
-        warn "No checksum entry for $_target_name — skipping."
-        return 0
+        error "Required checksum entry missing for $_target_name; refusing to install an unverified release."
     fi
+    if [ "${#EXPECTED_SHA}" -ne 64 ]; then
+        error "Invalid SHA-256 digest for $_target_name in $_sums_file."
+    fi
+    case "$EXPECTED_SHA" in
+        *[!0-9a-fA-F]*) error "Invalid SHA-256 digest for $_target_name in $_sums_file." ;;
+    esac
 
     if command -v sha256sum >/dev/null 2>&1; then
         ACTUAL_SHA="$(sha256sum "$_file" | awk '{print $1}')"
     elif command -v shasum >/dev/null 2>&1; then
         ACTUAL_SHA="$(shasum -a 256 "$_file" | awk '{print $1}')"
     else
-        warn "No SHA-256 tool available — skipping."
-        return 0
+        error "No SHA-256 tool available; refusing to install an unverified release."
     fi
 
     if [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ]; then
@@ -165,6 +169,23 @@ verify_checksum() {
     else
         error "Checksum mismatch for $_target_name!\n  expected: $EXPECTED_SHA\n  actual:   $ACTUAL_SHA"
     fi
+}
+
+verify_compiler_payload() {
+    _payload_root="$1"
+
+    for _payload_path in \
+        "bin/sa" \
+        "std/libsa_std.a" \
+        "std/sa_std.h" \
+        "std/io/print.sai" \
+        "std/core/sa_core.sa" \
+        "std/core/result.sa" \
+        "std/core/option.sa"
+    do
+        [ -f "$_payload_root/$_payload_path" ] || \
+            error "Release archive payload is incomplete: missing $_payload_path."
+    done
 }
 
 # ── Interactive Menu ────────────────────────────────────────────────────────
@@ -261,31 +282,23 @@ install_sa_compiler() {
     if download "$CHECKSUM_URL" "$TMP_DIR/sha256sums.txt" 2>/dev/null; then
         verify_checksum "$TMP_DIR/$TARBALL_NAME" "$TMP_DIR/sha256sums.txt" "$TARBALL_NAME"
     else
-        warn "sha256sums.txt not available — skipping verification."
+        error "Required checksum manifest not available at $CHECKSUM_URL; refusing to install an unverified release."
     fi
 
     # Extract
     step "Extracting..."
     tar -xzf "$TMP_DIR/$TARBALL_NAME" -C "$TMP_DIR"
 
-    # Find and install binary
-    if [ -f "$TMP_DIR/bin/sa" ]; then
-        cp -f "$TMP_DIR/bin/sa" "$_bin_dir/sa"
-    elif [ -f "$TMP_DIR/sa" ]; then
-        cp -f "$TMP_DIR/sa" "$_bin_dir/sa"
-    else
-        FOUND="$(find "$TMP_DIR" -name "sa" -type f | head -1)"
-        [ -n "$FOUND" ] && cp -f "$FOUND" "$_bin_dir/sa" || \
-            error "Could not locate 'sa' binary in archive."
-    fi
+    EXTRACTED_ROOT="$TMP_DIR/sa-${OS}-${ARCH}"
+    [ -d "$EXTRACTED_ROOT" ] || error "Release archive root is missing: sa-${OS}-${ARCH}/."
+    verify_compiler_payload "$EXTRACTED_ROOT"
+
+    # Install compiler and standard library from the deterministic archive root.
+    cp -f "$EXTRACTED_ROOT/bin/sa" "$_bin_dir/sa"
     chmod +x "$_bin_dir/sa"
 
-    # Std library
-    STD_SRC="$(find "$TMP_DIR" -type d -name "sa_std" | head -1)"
-    if [ -n "$STD_SRC" ]; then
-        mkdir -p "$_install_dir/std"
-        cp -rf "$STD_SRC"/* "$_install_dir/std/"
-    fi
+    mkdir -p "$_install_dir/std"
+    cp -rf "$EXTRACTED_ROOT/std/"* "$_install_dir/std/"
 
     rm -rf "$TMP_DIR"
     trap - EXIT

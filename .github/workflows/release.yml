@@ -82,6 +82,11 @@ jobs:
         with:
           version: 0.14.1
 
+      - name: Set tag release version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: printf 'SA_VERSION=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+
       - name: Cache Zig build artifacts
         uses: actions/cache@v4
         with:
@@ -120,8 +125,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
+          if-no-files-found: error
           path: |
             dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.sha256
             dist/sha256sums.txt
 
   release:
@@ -135,16 +142,65 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-          name: linux-x86_64
 
-      - name: Generate combined checksums
+      - name: Verify sidecars and generate combined checksums
+        shell: bash
         run: |
+          set -euo pipefail
           cd dist
-          sha256sum sa-* > sha256sums.txt
+          shopt -s nullglob
+
+          archives=(sa-*.tar.gz sa-*.zip)
+          sidecars=(sa-*.tar.gz.sha256 sa-*.zip.sha256)
+          if (( ${#archives[@]} == 0 )); then
+            echo "No release archives were downloaded" >&2
+            exit 1
+          fi
+
+          for archive in "${archives[@]}"; do
+            sidecar="${archive}.sha256"
+            if [[ ! -f "$sidecar" ]]; then
+              echo "Missing checksum sidecar: $sidecar" >&2
+              exit 1
+            fi
+
+            mapfile -t checksum_lines < "$sidecar"
+            if (( ${#checksum_lines[@]} != 1 )); then
+              echo "Checksum sidecar must contain exactly one line: $sidecar" >&2
+              exit 1
+            fi
+
+            checksum_hash=""
+            checksum_name=""
+            checksum_extra=""
+            read -r checksum_hash checksum_name checksum_extra <<< "${checksum_lines[0]}"
+            if [[ ! "$checksum_hash" =~ ^[[:xdigit:]]{64}$ ]] ||
+               [[ "$checksum_name" != "$archive" ]] ||
+               [[ -n "$checksum_extra" ]]; then
+              echo "Invalid checksum sidecar entry: $sidecar" >&2
+              exit 1
+            fi
+
+            sha256sum --check --strict "$sidecar"
+          done
+
+          for sidecar in "${sidecars[@]}"; do
+            archive="${sidecar%.sha256}"
+            if [[ ! -f "$archive" ]]; then
+              echo "Checksum sidecar has no matching archive: $sidecar" >&2
+              exit 1
+            fi
+          done
+
+          sha256sum -- "${archives[@]}" | LC_ALL=C sort -k2 > sha256sums.txt
+          sha256sum --check --strict sha256sums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/sa-*.tar.gz
+            dist/sa-*.tar.gz.sha256
+            dist/sa-*.zip
+            dist/sa-*.zip.sha256
             dist/sha256sums.txt

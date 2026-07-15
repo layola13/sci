@@ -142,14 +142,19 @@ verify_checksum() {
     FILE="$1"
     EXPECTED_SHA="$2"
 
+    [ -n "$EXPECTED_SHA" ] || error "Checksum sidecar did not contain a SHA-256 digest."
+    [ "${#EXPECTED_SHA}" -eq 64 ] || error "Checksum sidecar contains an invalid SHA-256 digest: $EXPECTED_SHA"
+    case "$EXPECTED_SHA" in
+        *[!0-9a-fA-F]*) error "Checksum sidecar contains an invalid SHA-256 digest: $EXPECTED_SHA" ;;
+    esac
+
     # Try sha256sum (Linux), then shasum -a 256 (macOS)
     if command -v sha256sum >/dev/null 2>&1; then
         ACTUAL_SHA="$(sha256sum "$FILE" | awk '{print $1}')"
     elif command -v shasum >/dev/null 2>&1; then
         ACTUAL_SHA="$(shasum -a 256 "$FILE" | awk '{print $1}')"
     else
-        warn "No SHA-256 utility found (sha256sum / shasum). Skipping checksum verification."
-        return 0
+        error "No SHA-256 utility found (sha256sum / shasum); refusing to install an unverified release."
     fi
 
     if [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ]; then
@@ -318,7 +323,7 @@ main() {
     run_or_echo mkdir -p "$SA_STD_DIR"
 
     # ── Release URL ───────────────────────────────────────────────────────
-    DEFAULT_BASE_URL="https://github.com/sci/sa/releases"
+    DEFAULT_BASE_URL="https://github.com/layola13/sci/releases"
     if [ -n "$RELEASE_TAG" ]; then
         RELEASE_URL="${SA_RELEASE_URL:-$DEFAULT_BASE_URL/download/$RELEASE_TAG}"
         info "Pinned release: ${BOLD}$RELEASE_TAG${RESET}"
@@ -404,13 +409,14 @@ main() {
         else
             success "Download complete."
 
-            # Optional checksum verification (best-effort)
+            # Release archives must have a valid checksum sidecar.
             step "Verifying checksum"
             if download_file "$CHECKSUM_URL" "$TEMP_DIR/${TARBALL_NAME}.sha256" 2>/dev/null; then
                 EXPECTED_SHA="$(cat "$TEMP_DIR/${TARBALL_NAME}.sha256" | awk '{print $1}')"
                 verify_checksum "$TEMP_DIR/$TARBALL_NAME" "$EXPECTED_SHA"
             else
-                warn "No checksum file found at $CHECKSUM_URL — skipping verification."
+                rm -rf "$TEMP_DIR"
+                error "Checksum file is required at $CHECKSUM_URL; refusing to install an unverified release."
             fi
 
             # Extract
@@ -418,10 +424,11 @@ main() {
             tar -xzf "$TEMP_DIR/$TARBALL_NAME" -C "$TEMP_DIR"
             success "Extraction complete."
 
-            # Locate extracted root
-            EXTRACTED_DIR="$(find "$TEMP_DIR" -maxdepth 1 -type d | grep -v "^$TEMP_DIR$" | head -n 1)"
-            if [ -z "$EXTRACTED_DIR" ]; then
-                EXTRACTED_DIR="$TEMP_DIR"
+            # Release archives have one deterministic target root.
+            EXTRACTED_DIR="$TEMP_DIR/sa-${OS}-${ARCH}"
+            if [ ! -d "$EXTRACTED_DIR" ]; then
+                rm -rf "$TEMP_DIR"
+                error "Archive structure invalid: 'sa-${OS}-${ARCH}/' root not found."
             fi
 
             if [ -f "$EXTRACTED_DIR/bin/sa" ]; then

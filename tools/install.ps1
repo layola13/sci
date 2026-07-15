@@ -129,7 +129,7 @@ Invoke-OrEcho "Create $saBinDir" { New-Item -ItemType Directory -Force -Path $sa
 Invoke-OrEcho "Create $saStdDir" { New-Item -ItemType Directory -Force -Path $saStdDir | Out-Null }
 
 # Release URL
-$defaultBase = "https://github.com/sci/sa/releases"
+$defaultBase = "https://github.com/layola13/sci/releases"
 $releaseUrl  = if ($env:SA_RELEASE_URL) {
     $env:SA_RELEASE_URL
 } elseif ($Version -ne "") {
@@ -151,24 +151,29 @@ if ($DryRun) {
     Write-Step "Would extract to: $saBinDir and $saStdDir"
 } else {
     Write-Step "Downloading SA package archive"
+    $releaseArchiveDownloaded = $false
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing
+        $releaseArchiveDownloaded = $true
         Write-Ok "Download complete."
 
-        # Checksum verification (best-effort)
+        # Release archives must have a valid checksum sidecar.
         Write-Step "Verifying checksum"
         try {
             $checksumContent = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing).Content.Trim()
             $expectedHash = ($checksumContent -split '\s+')[0].ToUpper()
+            if ($expectedHash -notmatch '^[0-9A-F]{64}$') {
+                throw "Checksum sidecar contains an invalid SHA-256 digest."
+            }
             $actualHash   = (Get-FileHash -Path $tempZip -Algorithm SHA256).Hash.ToUpper()
             if ($actualHash -eq $expectedHash) {
                 Write-Ok "Checksum verified."
             } else {
-                Write-Err "Checksum mismatch!`n  expected: $expectedHash`n  got:      $actualHash"
+                throw "Checksum mismatch!`n  expected: $expectedHash`n  got:      $actualHash"
             }
         } catch {
-            Write-Warn "No checksum file found at $checksumUrl — skipping verification."
+            throw "Required release checksum verification failed for $checksumUrl`: $_"
         }
 
         Write-Step "Extracting toolchain files"
@@ -201,6 +206,9 @@ if ($DryRun) {
         Remove-Item -Force $tempZip
 
     } catch {
+        if ($releaseArchiveDownloaded) {
+            Write-Err "Downloaded release verification or installation failed: $_"
+        }
         Write-Warn "Failed to fetch precompiled release: $_"
 
         if (Get-Command "zig" -ErrorAction SilentlyContinue) {

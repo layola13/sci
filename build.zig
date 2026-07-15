@@ -379,6 +379,16 @@ pub fn build(b: *std.Build) void {
     sa_std_artifact_abi_step.dependOn(&check_linux_shared.step);
     sa_std_artifact_abi_step.dependOn(&check_windows_shared.step);
 
+    const release_contract_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/release_contract.zig",
+    });
+    release_contract_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&release_contract_tests.step);
+    const release_contract_step = b.step("release-contract", "Check release archive, checksum, workflow, and installer contracts");
+    release_contract_step.dependOn(&release_contract_tests.step);
+
     const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
     const portable_targets = [_][]const u8{ "x86_64-macos", "x86_64-windows-gnu" };
     for (portable_targets) |portable_target| {
@@ -522,6 +532,10 @@ pub fn build(b: *std.Build) void {
     });
     const install_sa_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_sa_exe.step);
+    const release_artifacts_step = b.step("release-artifacts", "Build and install the compiler and static runtime release payload");
+    release_artifacts_step.dependOn(&install_sa_exe.step);
+    release_artifacts_step.dependOn(&install_sa_std_static.step);
+    release_artifacts_step.dependOn(&install_sa_std_header.step);
 
     const wasm_matrix_module = b.createModule(.{
         .root_source_file = b.path("tests/wasm_matrix_smoke.zig"),
@@ -927,6 +941,7 @@ pub fn build(b: *std.Build) void {
     ci_step.dependOn(&run_plugin_host_smoke.step);
     ci_step.dependOn(&referee_loc_lint.step);
     ci_step.dependOn(&run_wasm_matrix.step);
+    ci_step.dependOn(&release_contract_tests.step);
 
     const pre_push_step = b.step("pre-push", "Run the pre-push gate");
     pre_push_step.dependOn(ci_step);
