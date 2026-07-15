@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash_one integer primitive macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `BuildHasher::hash_one` default implementation under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added integer primitive `hash_one` variants for both deterministic `BuildHasherDefault` and `RandomState`: `U8`, `U16`, `U32`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- The helper surface builds a fresh hasher, writes exactly one concrete primitive value through the matching existing writer, and finishes it. It does not claim generic `Hash` trait dispatch, `u128` / `i128`, OS-random `RandomState`, collection integration, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_hash_builder_integer_hash_one_macro_surface.sa` - 1 test (panic ID 10561) covering `BuildHasherDefault` equivalence with direct `HASH_*` helpers and `RandomState` equivalence with manual `RANDOM_STATE_BUILD + DEFAULT_HASHER_WRITE_*`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_builder_integer_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10562+.
+
 ## Completed: 2026-07-15 Hash integer primitive macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local primitive `impl_write!` `Hash` implementations under `/home/vscode/projects/rust`.

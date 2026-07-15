@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash_one integer primitives)
+
+Completed supportable integer primitive `hash_one` macros:
+- `BUILD_HASHER_DEFAULT_HASH_ONE_U8`, `U16`, `U32`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`: concrete Rust `BuildHasher::hash_one` lowering over the deterministic `BuildHasherDefault<DefaultHasher>` facade.
+- `RANDOM_STATE_HASH_ONE_U8`, `U16`, `U32`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`: concrete Rust `RandomState::hash_one` lowering over the existing seeded deterministic `RandomState` facade.
+- This extends the existing `hash_one` surface from `u64` / `str` / slices to the supportable integer primitive writers, without exposing generic `Hash`, `u128` / `i128`, OS-random `RandomState`, collection integration, or SipHash-compatible output.
+- Test file `std_hash_builder_integer_hash_one_macro_surface.sa` (panic ID 10561).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_builder_integer_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10562+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash integer primitives)
 
 Completed supportable integer primitive hash macros:
