@@ -16,11 +16,11 @@
 @extern sa_json_string_ptr(node: ptr) -> &ptr
 @extern sa_json_string_len(node: ptr) -> u64
 @extern sa_json_value_count(node: ptr, &out_count: ptr) -> i32
-@extern sa_json_free(^node: ptr) -> i32!
+@extern sa_json_free(node: ptr) -> i32!
 @extern sa_json_stringify(node: ptr, &out_handle: ptr) -> i32
 @extern sa_json_buffer_data(buffer: ptr) -> &ptr
 @extern sa_json_buffer_len(buffer: ptr) -> u64
-@extern sa_json_buffer_free(^buffer: ptr) -> i32!
+@extern sa_json_buffer_free(buffer: ptr) -> i32!
 @extern sa_json_scanner_new(&out_handle: ptr) -> i32
 @extern sa_json_scanner_feed(scanner: ptr, &input: ptr, len: u64) -> i32
 @extern sa_json_scanner_end_input(scanner: ptr) -> i32
@@ -30,7 +30,7 @@
 @extern sa_json_stream_next(stream: ptr) -> u32
 @extern sa_json_stream_get_slice_ptr(stream: ptr) -> &ptr
 @extern sa_json_stream_get_slice_len(stream: ptr) -> u64
-@extern sa_json_stream_free(^stream: ptr) -> i32!
+@extern sa_json_stream_free(stream: ptr) -> i32!
 @extern sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, &out_handle: ptr) -> i32
 @extern sa_json_writer_begin_object(writer: ptr) -> i32
 @extern sa_json_writer_end_object(writer: ptr) -> i32
