@@ -57,8 +57,19 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - source ABI `9/9`, artifact ABI `8/8`, and focused lifecycle/error-contract review;
    - retain the known environment-only `sa-std-runtime` result of `13/14` (IPv6 multicast join exit `23`).
 6. [ ] Add native Windows x86_64 CI and run compiler/runtime Hello World plus fs/process/net/env/thread/console contracts.
-7. [ ] Add native macOS x86_64/arm64 CI and close remaining Darwin runtime/link contracts.
-8. [ ] Finish plugin, installer, archive, and release smoke for target-specific `.dll`/`.dylib` artifacts.
+7. [x] Audit the macOS Phase 2/MVP boundary before implementation:
+   - confirm the repository has no native macOS workflow and no native-run evidence;
+   - identify aggregate build gates that pull in Linux-only io_uring;
+   - inventory missing aarch64 cross coverage, Darwin terminal tests, `.dylib` plugin smoke, daemon smoke, and Linux-specific socket contracts.
+8. [ ] Implement the first macOS gate batch:
+   - define portable/basic/Linux/Darwin test groups in `build.zig`, keeping io_uring Linux-only;
+   - extend macOS cross runtime/ABI type and link checks to x86_64 and aarch64;
+   - add a native x86_64/arm64 GitHub Actions workflow using Zig 0.14.1 and LLVM;
+   - run build, `version`/`help`/`check`, Hello native build/run, Hello wasm build, and `git diff --exit-code` on each native runner.
+9. [ ] Implement native Darwin basic contracts for fs/dir/metadata, env/time, process capture/wait, threads, and dynamic libraries.
+10. [ ] Platformize Darwin sockets and add TCP/UDP/DNS/pathname-UDS tests plus stable unsupported assertions for Linux-only facilities.
+11. [ ] Implement Darwin winsize and native PTY raw-mode tests.
+12. [ ] Finish `.dylib` plugin, daemon Unix-socket, installer, archive, and release smoke.
 
 Evidence rule: the active host is Linux. Cross type-check/link/ABI success is recorded as such and never promoted to native Windows/macOS runtime success or L2 support.
 

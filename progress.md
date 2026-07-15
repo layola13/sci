@@ -46,6 +46,13 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
   - macOS x86_64/aarch64 runtime type checks and Mach-O test links, plus the non-Linux terminal-test gate, passed as cross-target checks.
   - `sa-std-abi`: `9/9`; `sa-std-artifact-abi`: `8/8`.
   - Focused lifecycle review found no remaining blocking race, double-close, or normal-path `HANDLE` leak.
+- Completed a read-only macOS Phase 2/MVP audit against `docs/macos_windows_portability_evaluation_cn.md`:
+  - `.github/workflows/release.yml` is the only workflow; its macOS matrix entries and dependency setup remain commented out, so there is no native macOS compiler/runtime evidence.
+  - `zig build test`, `std`, and `ci` unconditionally depend on `sa_net_uring`, making the aggregate gates unsuitable for Darwin until portable/Linux/Darwin test groups exist.
+  - `portable-host-typecheck` currently checks only `x86_64-macos`; aarch64 macOS runtime type/link coverage is not represented by that named step.
+  - `tests/sa_term_runtime.zig` skips all non-Linux targets; `tests/plugin_host_smoke.zig` assumes `linux-x86_64` and `.so`; no daemon client/server end-to-end smoke is present.
+  - Runtime audit found Darwin-sensitive calls/contracts that still need implementation or explicit unsupported behavior: Linux-only `getsockopt`/socket constants, multicast ABI numbers, QUICKACK/DEFER_ACCEPT/keepalive options, abstract Unix addresses, PASSCRED/peer credentials, and terminal winsize.
+- Next macOS implementation order is locked: (1) build-test grouping plus x86_64/aarch64 cross gates, (2) native CI L0/L1 smoke definition, (3) basic runtime, sockets, and terminal native contracts, then (4) `.dylib` plugin and daemon end-to-end smoke.
 - Current verification boundary: the host is Linux. No Windows/macOS native run has been performed, so neither platform is claimed as L2-supported yet.
 - Commit discipline: commit each coherent portability batch after its focused Linux/cross/ABI gates; do not treat Linux cross-target checks as native-platform evidence.
 

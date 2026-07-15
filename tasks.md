@@ -49,9 +49,15 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of sc
 - [x] Harden POSIX pthread ownership, concurrent join/drop claims, detached creation, and failed-output contracts (`38a78df`).
 - [x] Complete the Windows Console batch: terminal detection, owned raw-session handles, single active raw session, retryable restore-before-release, input/output Console classification, `CONOUT$` winsize fallback, deterministic epoll outputs, and SA terminal constant contracts (`8021c3d`).
 - [x] Run the Console batch gates: Linux runtime `73/73`, terminal C integration `2/2`, Windows x86_64/aarch64 type checks, x86_64 PE test link, source ABI `9/9`, artifact ABI `8/8`, and focused lifecycle/error-contract review. Linux `sa-std-runtime` remains `13/14` only because this container rejects the existing IPv6 multicast join test.
+- [x] Audit macOS Phase 2 and the ten-item MVP acceptance boundary against the current tree. Confirmed: there is no native macOS workflow; aggregate `test`/`std`/`ci` gates unconditionally run Linux io_uring; the cross gate covers only x86_64 host/package type checks; terminal tests skip macOS; plugin smoke assumes `linux-x86_64`/`.so`; and no daemon client/server smoke exists.
 - [ ] Add native Windows x86_64 CI for compiler/runtime build-and-run smoke. Cross-compilation on Linux is not evidence of Windows L2 support.
-- [ ] Add native macOS x86_64/arm64 CI and close remaining Darwin runtime/link gaps. Cross-compilation on Linux is not evidence of macOS L2 support.
+- [ ] Add explicit portable/basic/Linux/Darwin build-test groups so native macOS CI never enters Linux-only io_uring gates; extend macOS cross type/link coverage to both x86_64 and aarch64.
+- [ ] Add native macOS x86_64/arm64 CI with Zig 0.14.1 and LLVM, covering build, `version`/`help`/`check`, Hello `build-exe` plus execution, `build-wasm`, and worktree cleanliness. A workflow definition is not native passing evidence until GitHub runners execute it.
+- [ ] Close Darwin basic runtime contracts for fs/dir/metadata, env/time, process capture/wait, generic threads, and dynamic loading with native tests.
+- [ ] Platformize Darwin socket getters/options and test TCP/UDP/DNS/pathname UDS; assert stable unsupported results for abstract UDS, epoll, pidfd, netx, peer credentials, and Linux-only socket options.
+- [ ] Implement Darwin terminal winsize and native PTY raw-enter/raw-leave/winsize tests.
 - [ ] Complete plugin/installer/archive/release smoke for `.dll`, `.dylib`, PowerShell installation, target-specific artifact selection, and clean-machine use.
+- [ ] Add a daemon client/server Unix-socket end-to-end smoke after the portable compiler/runtime gate is stable.
 
 Verification boundary: the active host is Linux. Linux tests are executable evidence; Windows/macOS results are recorded only as cross type-check, object/link, and ABI evidence until native runners execute them.
 
