@@ -190,6 +190,18 @@ pub const SaJsonStringifyOptions = extern struct {
     emit_nonportable_numbers_as_strings: u8 = 0,
 };
 
+pub const SaIoBuffer = extern struct {
+    ptr: ?[*]u8,
+    len: u64,
+    cap: u64,
+};
+
+const IoBufferAllocation = struct {
+    allocator: std.mem.Allocator,
+    buffer: *SaIoBuffer,
+    bytes: []u8,
+};
+
 const FIRST_DYNAMIC_HANDLE: u64 = 4;
 const DEFAULT_CAPTURE_LIMIT: usize = 50 * 1024;
 
@@ -1108,6 +1120,8 @@ const Resource = union(enum) {
 var registry_mutex: std.Thread.Mutex = .{};
 var time_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
+var io_buffer_mutex: std.Thread.Mutex = .{};
+var io_buffers = std.AutoHashMap(usize, IoBufferAllocation).init(std.heap.page_allocator);
 var pthread_registry_mutex: std.Thread.Mutex = .{};
 var pthread_slots = std.ArrayList(?*PthreadHandle).init(std.heap.page_allocator);
 var pthread_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
@@ -6039,6 +6053,28 @@ pub export fn sa_std_close(handle: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+fn createIoBuffer(bytes: []u8) !*SaIoBuffer {
+    const allocator = std.heap.page_allocator;
+    errdefer if (bytes.len != 0) allocator.free(bytes);
+    const buffer = try allocator.create(SaIoBuffer);
+    errdefer allocator.destroy(buffer);
+    buffer.* = .{
+        .ptr = if (bytes.len == 0) null else bytes.ptr,
+        .len = @intCast(bytes.len),
+        .cap = @intCast(bytes.len),
+    };
+
+    io_buffer_mutex.lock();
+    defer io_buffer_mutex.unlock();
+    std.debug.assert(!io_buffers.contains(@intFromPtr(buffer)));
+    try io_buffers.put(@intFromPtr(buffer), .{
+        .allocator = allocator,
+        .buffer = buffer,
+        .bytes = bytes,
+    });
+    return buffer;
+}
+
 pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -6062,13 +6098,8 @@ pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i3
     }
 
     const bytes = list.toOwnedSlice() catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(bytes);
-    const resource = Resource{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } };
-    const buf_handle = registerResourceLocked(resource) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return finishErr(err);
-    };
-    handle_ptr.* = buf_handle;
+    const buffer = createIoBuffer(bytes) catch |err| return finishErr(err);
+    handle_ptr.* = @intFromPtr(buffer);
     return finish(SA_STD_OK);
 }
 
@@ -7538,17 +7569,109 @@ pub export fn sa_io_close(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
-pub export fn sa_io_buffer_data(buffer: ?*const BufferHandle) ?[*]u8 {
-    return if (buffer) |buf| buf.bytes.ptr else null;
+pub export fn sa_io_buffer_data(buffer: ?*const SaIoBuffer) ?[*]u8 {
+    const value = buffer orelse return null;
+    io_buffer_mutex.lock();
+    defer io_buffer_mutex.unlock();
+    const allocation = io_buffers.get(@intFromPtr(value)) orelse return null;
+    return if (allocation.bytes.len == 0) null else allocation.bytes.ptr;
 }
 
-pub export fn sa_io_buffer_len(buffer: ?*const BufferHandle) u64 {
-    return if (buffer) |buf| @as(u64, @intCast(buf.bytes.len)) else 0;
+pub export fn sa_io_buffer_len(buffer: ?*const SaIoBuffer) u64 {
+    const value = buffer orelse return 0;
+    io_buffer_mutex.lock();
+    defer io_buffer_mutex.unlock();
+    const allocation = io_buffers.get(@intFromPtr(value)) orelse return 0;
+    return @intCast(allocation.bytes.len);
 }
 
-pub export fn sa_io_buffer_free(buffer: ?*BufferHandle) i32 {
-    _ = buffer;
+pub export fn sa_io_buffer_free(buffer: ?*SaIoBuffer) i32 {
+    const value = buffer orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    io_buffer_mutex.lock();
+    const removed = io_buffers.fetchRemove(@intFromPtr(value)) orelse {
+        io_buffer_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    io_buffer_mutex.unlock();
+
+    if (removed.value.bytes.len != 0) removed.value.allocator.free(removed.value.bytes);
+    removed.value.buffer.* = undefined;
+    removed.value.allocator.destroy(removed.value.buffer);
     return finish(SA_STD_OK);
+}
+
+comptime {
+    if (@sizeOf(SaIoBuffer) != 24 or @alignOf(SaIoBuffer) != 8 or
+        @offsetOf(SaIoBuffer, "ptr") != 0 or @offsetOf(SaIoBuffer, "len") != 8 or
+        @offsetOf(SaIoBuffer, "cap") != 16)
+    {
+        @compileError("SaIoBuffer v1 ABI layout changed");
+    }
+
+    const DataFn = *const fn (?*const SaIoBuffer) callconv(.c) ?[*]u8;
+    const LenFn = *const fn (?*const SaIoBuffer) callconv(.c) u64;
+    const FreeFn = *const fn (?*SaIoBuffer) callconv(.c) i32;
+    const ReadLineFn = *const fn (u64, u64, ?*u64) callconv(.c) i32;
+    if (@TypeOf(&sa_io_read_line) != ReadLineFn or
+        @TypeOf(&sa_io_buffer_data) != DataFn or
+        @TypeOf(&sa_io_buffer_len) != LenFn or
+        @TypeOf(&sa_io_buffer_free) != FreeFn)
+    {
+        @compileError("SaIoBuffer v1 accessor signature changed");
+    }
+}
+
+test "io read line returns an owned public ABI buffer" {
+    try std.testing.expectEqual(@as(usize, 24), @sizeOf(SaIoBuffer));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(SaIoBuffer));
+    try std.testing.expectEqual(@as(usize, 0), @offsetOf(SaIoBuffer, "ptr"));
+    try std.testing.expectEqual(@as(usize, 8), @offsetOf(SaIoBuffer, "len"));
+    try std.testing.expectEqual(@as(usize, 16), @offsetOf(SaIoBuffer, "cap"));
+
+    try std.testing.expectEqual(@as(?[*]u8, null), sa_io_buffer_data(null));
+    try std.testing.expectEqual(@as(u64, 0), sa_io_buffer_len(null));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_io_buffer_free(null));
+
+    var foreign_buffer: SaIoBuffer = .{ .ptr = null, .len = 0, .cap = 0 };
+    try std.testing.expectEqual(@as(?[*]u8, null), sa_io_buffer_data(&foreign_buffer));
+    try std.testing.expectEqual(@as(u64, 0), sa_io_buffer_len(&foreign_buffer));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_io_buffer_free(&foreign_buffer));
+
+    var invalid_result: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_io_read_line(0, 64, &invalid_result));
+    try std.testing.expectEqual(@as(u64, 0), invalid_result);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var file = try tmp.dir.createFile("line.txt", .{ .read = true });
+    try file.writeAll("first line\r\nsecond line\n");
+    try file.seekTo(0);
+
+    const file_handle = try registerResource(.{ .file = file });
+    defer _ = sa_std_close(file_handle);
+
+    var raw_buffer: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_io_read_line(file_handle, 64, &raw_buffer));
+    try std.testing.expect(raw_buffer != 0);
+
+    var owned_buffer: ?*SaIoBuffer = @ptrFromInt(raw_buffer);
+    defer {
+        if (owned_buffer) |remaining| _ = sa_io_buffer_free(remaining);
+    }
+    const buffer = owned_buffer.?;
+
+    try std.testing.expectEqual(@as(u64, 10), buffer.len);
+    try std.testing.expectEqual(buffer.len, buffer.cap);
+    try std.testing.expectEqual(buffer.ptr, sa_io_buffer_data(buffer));
+    try std.testing.expectEqual(buffer.len, sa_io_buffer_len(buffer));
+    const data = sa_io_buffer_data(buffer).?;
+    try std.testing.expectEqualStrings("first line", data[0..@intCast(buffer.len)]);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_io_buffer_free(buffer));
+    owned_buffer = null;
+    try std.testing.expectEqual(@as(?[*]u8, null), sa_io_buffer_data(buffer));
+    try std.testing.expectEqual(@as(u64, 0), sa_io_buffer_len(buffer));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_io_buffer_free(buffer));
 }
 
 const sa_fs_open_accmode_mask: u32 = 0x3;

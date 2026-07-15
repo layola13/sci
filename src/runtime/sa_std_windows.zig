@@ -25,8 +25,14 @@ pub const SaProcessArgv = extern struct { data: [*]const u8, len: u64 };
 pub const SaTermWinsize = extern struct { row: u16, col: u16, xpixel: u16, ypixel: u16 };
 pub const SaTermEpollEvent = extern struct { events: u32, data: u64 };
 pub const TimeDate = extern struct { unix_ms: i64, unix_ns: i64, year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8, millisecond: u16 };
-const BufferHandle = struct {
+pub const SaIoBuffer = extern struct {
+    ptr: ?[*]u8,
+    len: u64,
+    cap: u64,
+};
+const IoBufferAllocation = struct {
     allocator: std.mem.Allocator,
+    buffer: *SaIoBuffer,
     bytes: []u8,
 };
 pub fn Fallible(comptime T: type) type {
@@ -270,6 +276,8 @@ const Resource = union(enum) {
 var registry_mutex: std.Thread.Mutex = .{};
 var time_mutex: std.Thread.Mutex = .{};
 var registry_slots = std.ArrayList(?Resource).init(std.heap.page_allocator);
+var io_buffer_mutex: std.Thread.Mutex = .{};
+var io_buffers = std.AutoHashMap(usize, IoBufferAllocation).init(std.heap.page_allocator);
 var monotonic_origin: ?std.time.Instant = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 
@@ -1966,8 +1974,8 @@ pub export fn sa_std_close(handle: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_io_read_line(_: u64, _: u64, _: ?*u64) i32 {
-    return unsupported();
+pub export fn sa_io_read_line(_: u64, _: u64, out_handle: ?*u64) i32 {
+    return unsupportedHandleOut(out_handle);
 }
 
 pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
@@ -2506,19 +2514,56 @@ pub export fn sa_io_close(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
-pub export fn sa_io_buffer_data(buffer: ?*const BufferHandle) ?[*]u8 {
-    return if (buffer) |value| value.bytes.ptr else null;
+pub export fn sa_io_buffer_data(buffer: ?*const SaIoBuffer) ?[*]u8 {
+    const value = buffer orelse return null;
+    io_buffer_mutex.lock();
+    defer io_buffer_mutex.unlock();
+    const allocation = io_buffers.get(@intFromPtr(value)) orelse return null;
+    return if (allocation.bytes.len == 0) null else allocation.bytes.ptr;
 }
 
-pub export fn sa_io_buffer_len(buffer: ?*const BufferHandle) u64 {
-    return if (buffer) |value| @intCast(value.bytes.len) else 0;
+pub export fn sa_io_buffer_len(buffer: ?*const SaIoBuffer) u64 {
+    const value = buffer orelse return 0;
+    io_buffer_mutex.lock();
+    defer io_buffer_mutex.unlock();
+    const allocation = io_buffers.get(@intFromPtr(value)) orelse return 0;
+    return @intCast(allocation.bytes.len);
 }
 
-pub export fn sa_io_buffer_free(buffer: ?*BufferHandle) i32 {
+pub export fn sa_io_buffer_free(buffer: ?*SaIoBuffer) i32 {
     const value = buffer orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (value.bytes.len != 0) value.allocator.free(value.bytes);
-    value.bytes = &.{};
+    io_buffer_mutex.lock();
+    const removed = io_buffers.fetchRemove(@intFromPtr(value)) orelse {
+        io_buffer_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    io_buffer_mutex.unlock();
+
+    if (removed.value.bytes.len != 0) removed.value.allocator.free(removed.value.bytes);
+    removed.value.buffer.* = undefined;
+    removed.value.allocator.destroy(removed.value.buffer);
     return finish(SA_STD_OK);
+}
+
+comptime {
+    if (@sizeOf(SaIoBuffer) != 24 or @alignOf(SaIoBuffer) != 8 or
+        @offsetOf(SaIoBuffer, "ptr") != 0 or @offsetOf(SaIoBuffer, "len") != 8 or
+        @offsetOf(SaIoBuffer, "cap") != 16)
+    {
+        @compileError("SaIoBuffer v1 ABI layout changed");
+    }
+
+    const DataFn = *const fn (?*const SaIoBuffer) callconv(.c) ?[*]u8;
+    const LenFn = *const fn (?*const SaIoBuffer) callconv(.c) u64;
+    const FreeFn = *const fn (?*SaIoBuffer) callconv(.c) i32;
+    const ReadLineFn = *const fn (u64, u64, ?*u64) callconv(.c) i32;
+    if (@TypeOf(&sa_io_read_line) != ReadLineFn or
+        @TypeOf(&sa_io_buffer_data) != DataFn or
+        @TypeOf(&sa_io_buffer_len) != LenFn or
+        @TypeOf(&sa_io_buffer_free) != FreeFn)
+    {
+        @compileError("SaIoBuffer v1 accessor signature changed");
+    }
 }
 
 pub export fn sa_fs_file_open(path_ptr: ?[*]const u8, path_len: u64, flags: u32) i32 {
@@ -4909,6 +4954,18 @@ pub export fn sa_std_net_sha256_hex(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, 
 
 pub export fn sa_std_net_ja4_hash12(_: ?[*]const u8, _: u64, _: ?[*]u8, _: u64, out_len: ?*u64) i32 {
     return unsupportedHandleOut(out_len);
+}
+
+test "windows unsupported io buffer producer clears its output" {
+    var raw_buffer: u64 = 123;
+    try std.testing.expectEqual(SA_STD_ERR_UNSUPPORTED, sa_io_read_line(0, 64, &raw_buffer));
+    try std.testing.expectEqual(@as(u64, 0), raw_buffer);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_io_read_line(0, 64, null));
+
+    var foreign_buffer: SaIoBuffer = .{ .ptr = null, .len = 0, .cap = 0 };
+    try std.testing.expectEqual(@as(?[*]u8, null), sa_io_buffer_data(&foreign_buffer));
+    try std.testing.expectEqual(@as(u64, 0), sa_io_buffer_len(&foreign_buffer));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_io_buffer_free(&foreign_buffer));
 }
 
 const NetworkAcceptCloseTestContext = struct {
