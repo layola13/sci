@@ -75,6 +75,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - [x] add staged PowerShell smoke for version/help/check, native Hello, wasm32 magic, isolated HOME/TEMP/plugin state, offline package resolution, and deterministic missing-package failure;
    - [x] verify the static contract `3/3`, YAML parse, and Linux `portable-host-typecheck` `8/8`;
    - [x] repair the audited LLVM provisioning gap: the official win64 installer supplies `LLVM-C.lib`/`LLVM-C.dll` but not the required development headers, so the gate now pins the matching source archive, configures X86 generated headers, merges `llvm-c` plus `llvm/Config`, and syntax-checks the complete shim before building;
+   - [x] verify the repaired header/link path from Linux with the merged source/generated headers and official import library: cross `sa-cli` build `5/5`, producing a Windows x86_64 PE32+ executable;
    - [ ] execute the workflow on a Windows runner; until then this is a gate definition, not native Windows runtime evidence or an L2 claim.
 8. [x] Audit the macOS Phase 2/MVP boundary before implementation:
    - confirm the repository has no native macOS workflow and no native-run evidence;
