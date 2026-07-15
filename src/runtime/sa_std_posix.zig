@@ -2242,6 +2242,7 @@ fn applyRawMode(term: *std.posix.termios) void {
     term.lflag.ISIG = false;
     term.lflag.ICANON = false;
     term.lflag.ECHO = false;
+    term.lflag.ECHONL = false;
     term.lflag.IEXTEN = false;
     term.cc[@intFromEnum(std.posix.V.MIN)] = 1;
     term.cc[@intFromEnum(std.posix.V.TIME)] = 0;
@@ -7756,12 +7757,11 @@ pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
 
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
     const fd = handleToFd(handle) catch |err| return finishErr(err);
     var wsz: std.posix.winsize = undefined;
     while (true) {
-        const rc = std.os.linux.ioctl(fd, std.os.linux.T.IOCGWINSZ, @intFromPtr(&wsz));
-        switch (std.os.linux.E.init(rc)) {
+        const rc = std.posix.system.ioctl(fd, std.posix.T.IOCGWINSZ, @intFromPtr(&wsz));
+        switch (std.posix.errno(rc)) {
             .SUCCESS => {
                 size_ptr.* = .{
                     .row = wsz.row,

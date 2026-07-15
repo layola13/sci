@@ -806,9 +806,11 @@ test "cli build-obj incremental reuses local cache layout" {
     const modified_source =
         \\@const VTABLE = vtable { helper = @helper, spare = @vtable_only }
         \\@helper(value: i32) -> i32:
-        \\next = add value, 2
+        \\intermediate = add value, 1
+        \\renamed = add intermediate, 1
         \\!value
-        \\return next
+        \\!intermediate
+        \\return renamed
         \\
         \\@vtable_only(value: i32) -> i32:
         \\next = add value, 3
@@ -908,6 +910,344 @@ test "cli build-obj incremental reuses local cache layout" {
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--incremental") != null);
+}
+
+test "cli incremental raw quoted strings are function local" {
+    const source =
+        \\@extern sa_test_observe_anon(*text: ptr, tag: i32) -> i32
+        \\@const __sa_anon_str_1 = utf8:"BAD!"
+        \\@ffi_wrapper left_probe() -> i32:
+        \\result = call @sa_test_observe_anon(*"left", 1)
+        \\return result
+        \\@ffi_wrapper right_probe() -> i32:
+        \\result = call @sa_test_observe_anon(*"right", 2)
+        \\return result
+        \\@ffi_wrapper spare_probe() -> i32:
+        \\result = call @sa_test_observe_anon(*"spare", 3)
+        \\return result
+    ;
+    const modified_source =
+        \\@extern sa_test_observe_anon(*text: ptr, tag: i32) -> i32
+        \\@const __sa_anon_str_1 = utf8:"BAD!"
+        \\@ffi_wrapper left_probe() -> i32:
+        \\result = call @sa_test_observe_anon(*"LEFT", 1)
+        \\return result
+        \\@ffi_wrapper right_probe() -> i32:
+        \\result = call @sa_test_observe_anon(*"right", 2)
+        \\return result
+        \\@ffi_wrapper spare_probe() -> i32:
+        \\result = call @sa_test_observe_anon(*"spare", 3)
+        \\return result
+    ;
+    const driver_source =
+        \\#include <stdint.h>
+        \\static int matches(const char *actual, const char *expected, int length) {
+        \\    for (int i = 0; i < length; ++i) {
+        \\        if (actual[i] != expected[i]) return 0;
+        \\    }
+        \\    return 1;
+        \\}
+        \\int32_t sa_test_observe_anon(const char *text, int32_t tag) {
+        \\    if (tag == 1) return matches(text, "LEFT", 4) ? 0 : 1;
+        \\    if (tag == 2) return matches(text, "right", 5) ? 0 : 2;
+        \\    if (tag == 3) return matches(text, "spare", 5) ? 0 : 4;
+        \\    return 8;
+        \\}
+        \\extern int32_t left_probe(void);
+        \\extern int32_t right_probe(void);
+        \\extern int32_t spare_probe(void);
+        \\int main(void) {
+        \\    return left_probe() | right_probe() | spare_probe();
+        \\}
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "anon.sa", source);
+    try writeSource(tmp.dir, "driver.c", driver_source);
+
+    const incremental_argv = [_][]const u8{ "sa", "build-obj", "anon.sa", "--incremental", "--no-incremental", "-o", "anon-incremental.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, incremental_argv[0..]));
+    var before_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &before_mtimes);
+    try std.testing.expectEqual(@as(u32, 3), before_mtimes.count());
+
+    try writeSource(tmp.dir, "anon.sa", modified_source);
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, incremental_argv[0..]));
+    var after_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &after_mtimes);
+    try std.testing.expectEqual(@as(u32, 3), after_mtimes.count());
+
+    var reused_count: usize = 0;
+    var before_iter = before_mtimes.iterator();
+    while (before_iter.next()) |entry| {
+        if (after_mtimes.get(entry.key_ptr.*)) |mtime| {
+            if (mtime == entry.value_ptr.*) reused_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), reused_count);
+
+    const plain_argv = [_][]const u8{ "sa", "build-obj", "anon.sa", "--no-incremental", "-o", "anon-plain.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, plain_argv[0..]));
+
+    const incremental_exe = if (builtin.os.tag == .windows) "anon-incremental.exe" else "anon-incremental.out";
+    const plain_exe = if (builtin.os.tag == .windows) "anon-plain.exe" else "anon-plain.out";
+    for ([_]struct { object: []const u8, exe: []const u8 }{
+        .{ .object = "anon-incremental.o", .exe = incremental_exe },
+        .{ .object = "anon-plain.o", .exe = plain_exe },
+    }) |artifact| {
+        const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "driver.c", artifact.object, "-o", artifact.exe });
+        defer std.testing.allocator.free(link_result.stdout);
+        defer std.testing.allocator.free(link_result.stderr);
+        switch (link_result.term) {
+            .Exited => |code| {
+                if (code != 0) std.debug.print("anonymous-string object link failed for {s}:\nstdout:\n{s}\nstderr:\n{s}\n", .{ artifact.object, link_result.stdout, link_result.stderr });
+                try std.testing.expectEqual(@as(u8, 0), code);
+            },
+            else => return error.TestUnexpectedResult,
+        }
+
+        const run_path = if (builtin.os.tag == .windows)
+            try std.fmt.allocPrint(std.testing.allocator, ".\\{s}", .{artifact.exe})
+        else
+            try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{artifact.exe});
+        defer std.testing.allocator.free(run_path);
+        const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+        defer std.testing.allocator.free(run_result.stdout);
+        defer std.testing.allocator.free(run_result.stderr);
+        switch (run_result.term) {
+            .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+            else => return error.TestUnexpectedResult,
+        }
+        try std.testing.expectEqual(@as(usize, 0), run_result.stdout.len);
+        try std.testing.expectEqual(@as(usize, 0), run_result.stderr.len);
+    }
+}
+
+test "cli incremental local register slots ignore unrelated global symbol ids" {
+    const source =
+        \\@prefix() -> i32:
+        \\changed = add 1, 1
+        \\return changed
+        \\@ffi_wrapper stable_probe() -> i32:
+        \\a = add 1, 1
+        \\b = add a, 1
+        \\!a
+        \\return b
+    ;
+    const modified_source =
+        \\@prefix() -> i32:
+        \\renamed = add 1, 1
+        \\return renamed
+        \\@ffi_wrapper stable_probe() -> i32:
+        \\a = add 1, 1
+        \\b = add a, 1
+        \\!a
+        \\return b
+    ;
+    const driver_source =
+        \\#include <stdint.h>
+        \\extern int32_t stable_probe(void);
+        \\int main(void) { return stable_probe() == 3 ? 0 : 1; }
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "slots.sa", source);
+    try writeSource(tmp.dir, "driver.c", driver_source);
+
+    const build_argv = [_][]const u8{ "sa", "build-obj", "slots.sa", "--incremental", "--no-incremental", "--dce", "no", "-o", "slots.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, build_argv[0..]));
+    var before_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &before_mtimes);
+    try std.testing.expectEqual(@as(u32, 2), before_mtimes.count());
+
+    try writeSource(tmp.dir, "slots.sa", modified_source);
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, build_argv[0..]));
+    var after_mtimes = try cachedFunctionObjectMtimes(std.testing.allocator, tmp.dir);
+    defer freeStringMtimeMap(std.testing.allocator, &after_mtimes);
+    try std.testing.expectEqual(@as(u32, 2), after_mtimes.count());
+
+    var reused_count: usize = 0;
+    var before_iter = before_mtimes.iterator();
+    while (before_iter.next()) |entry| {
+        if (after_mtimes.get(entry.key_ptr.*)) |mtime| {
+            if (mtime == entry.value_ptr.*) reused_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), reused_count);
+
+    const linked_name = if (builtin.os.tag == .windows) "slots.exe" else "slots.out";
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "driver.c", "slots.o", "-o", linked_name });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("local-slot object link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const run_path = if (builtin.os.tag == .windows) ".\\slots.exe" else "./slots.out";
+    const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "cli incremental owned call release reaches free" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const source =
+        \\@extern sa_test_touch(&value: ptr) -> void
+        \\@const MAKER_VTABLE = vtable { make = @make_owned }
+        \\#def MakerVTable_make = +0
+        \\@make_owned() -> ^ptr:
+        \\value = alloc 8
+        \\return value
+        \\@ffi_wrapper release_probe() -> i32:
+        \\owned = call @make_owned()
+        \\call @sa_test_touch(&owned)
+        \\!owned
+        \\return 0
+        \\@ffi_wrapper indirect_release_probe() -> i32:
+        \\vtable = &MAKER_VTABLE
+        \\function = load vtable+MakerVTable_make as ptr
+        \\owned = call_indirect function()
+        \\!function
+        \\!vtable
+        \\call @sa_test_touch(&owned)
+        \\!owned
+        \\return 0
+    ;
+    const driver_source =
+        \\#include <stdint.h>
+        \\static int free_count = 0;
+        \\static volatile uintptr_t touched = 0;
+        \\void sa_test_touch(void *ptr) { touched = (uintptr_t)ptr; }
+        \\void __wrap_free(void *ptr) {
+        \\    (void)ptr;
+        \\    ++free_count;
+        \\}
+        \\extern int32_t release_probe(void);
+        \\extern int32_t indirect_release_probe(void);
+        \\int main(void) {
+        \\    if (release_probe() != 0) return 1;
+        \\    if (indirect_release_probe() != 0) return 2;
+        \\    return free_count == 2 ? 0 : 3;
+        \\}
+    ;
+    const borrow_source =
+        \\@extern sa_test_touch(&value: ptr) -> void
+        \\@const BORROW_VTABLE = vtable { borrow = @borrowed_view }
+        \\#def BorrowVTable_borrow = +0
+        \\@borrowed_view(&owner: ptr) -> &ptr:
+        \\return owner
+        \\@ffi_wrapper borrowed_release_probe() -> i32:
+        \\owner = alloc 8
+        \\call @sa_test_touch(&owner)
+        \\vtable = &BORROW_VTABLE
+        \\function = load vtable+BorrowVTable_borrow as ptr
+        \\view = call_indirect function(&owner)
+        \\!function
+        \\!vtable
+        \\!view
+        \\!owner
+        \\return 0
+    ;
+    const borrow_driver_source =
+        \\#include <stdint.h>
+        \\static int free_count = 0;
+        \\static volatile uintptr_t touched = 0;
+        \\void sa_test_touch(void *ptr) { touched = (uintptr_t)ptr; }
+        \\void __wrap_free(void *ptr) {
+        \\    (void)ptr;
+        \\    ++free_count;
+        \\}
+        \\extern int32_t borrowed_release_probe(void);
+        \\int main(void) {
+        \\    if (borrowed_release_probe() != 0) return 1;
+        \\    return free_count == 1 ? 0 : 2;
+        \\}
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "release.sa", source);
+    try writeSource(tmp.dir, "driver.c", driver_source);
+    try writeSource(tmp.dir, "borrow.sa", borrow_source);
+    try writeSource(tmp.dir, "borrow-driver.c", borrow_driver_source);
+
+    const plain_argv = [_][]const u8{ "sa", "build-obj", "release.sa", "--no-incremental", "-o", "release-plain.o" };
+    const incremental_argv = [_][]const u8{ "sa", "build-obj", "release.sa", "--incremental", "--no-incremental", "-o", "release-incremental.o" };
+    const borrow_argv = [_][]const u8{ "sa", "build-obj", "borrow.sa", "--incremental", "--no-incremental", "-o", "borrow-incremental.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, plain_argv[0..]));
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, incremental_argv[0..]));
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, borrow_argv[0..]));
+
+    for ([_]struct { object: []const u8, exe: []const u8 }{
+        .{ .object = "release-plain.o", .exe = "release-plain.out" },
+        .{ .object = "release-incremental.o", .exe = "release-incremental.out" },
+    }) |artifact| {
+        const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "cc", "driver.c", artifact.object, "-Wl,--wrap=free", "-o", artifact.exe });
+        defer std.testing.allocator.free(link_result.stdout);
+        defer std.testing.allocator.free(link_result.stderr);
+        switch (link_result.term) {
+            .Exited => |code| {
+                if (code != 0) std.debug.print("owned-release object link failed for {s}:\nstdout:\n{s}\nstderr:\n{s}\n", .{ artifact.object, link_result.stdout, link_result.stderr });
+                try std.testing.expectEqual(@as(u8, 0), code);
+            },
+            else => return error.TestUnexpectedResult,
+        }
+
+        const run_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{artifact.exe});
+        defer std.testing.allocator.free(run_path);
+        const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+        defer std.testing.allocator.free(run_result.stdout);
+        defer std.testing.allocator.free(run_result.stderr);
+        switch (run_result.term) {
+            .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+            else => return error.TestUnexpectedResult,
+        }
+    }
+
+    const borrow_link_result = try runCommandAnyExit(std.testing.allocator, &.{ "cc", "borrow-driver.c", "borrow-incremental.o", "-Wl,--wrap=free", "-o", "borrow-incremental.out" });
+    defer std.testing.allocator.free(borrow_link_result.stdout);
+    defer std.testing.allocator.free(borrow_link_result.stderr);
+    switch (borrow_link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("borrowed-release object link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ borrow_link_result.stdout, borrow_link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const borrow_run_result = try runCommandAnyExit(std.testing.allocator, &.{"./borrow-incremental.out"});
+    defer std.testing.allocator.free(borrow_run_result.stdout);
+    defer std.testing.allocator.free(borrow_run_result.stderr);
+    switch (borrow_run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "cli build-obj incremental without main owns process globals" {
@@ -1089,6 +1429,135 @@ test "cli incremental objects isolate same-named private functions across module
 
     const run_path = if (builtin.os.tag == .windows) ".\\private-collision.exe" else "./private-collision.out";
     const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "cli incremental internal namespace changes with same-path global context" {
+    const old_source =
+        \\@helper(value: i32) -> i32:
+        \\next = add value, 1
+        \\!value
+        \\return next
+        \\
+        \\@ffi_wrapper old_probe() -> i32:
+        \\value = call @helper(20)
+        \\return value
+    ;
+    const new_source =
+        \\@helper(value: i32) -> i32:
+        \\next = add value, 2
+        \\!value
+        \\return next
+        \\
+        \\@ffi_wrapper new_probe() -> i32:
+        \\value = call @helper(20)
+        \\return value
+    ;
+    const driver_source =
+        \\#include <stdint.h>
+        \\extern int32_t old_probe(void);
+        \\extern int32_t new_probe(void);
+        \\int main(void) {
+        \\    return old_probe() == 21 && new_probe() == 22 ? 0 : 1;
+        \\}
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "versioned.sa", old_source);
+    const old_argv = [_][]const u8{ "sa", "build-obj", "versioned.sa", "--incremental", "--no-incremental", "-o", "old.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, old_argv[0..]));
+
+    try writeSource(tmp.dir, "versioned.sa", new_source);
+    const new_argv = [_][]const u8{ "sa", "build-obj", "versioned.sa", "--incremental", "--no-incremental", "-o", "new.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, new_argv[0..]));
+    try writeSource(tmp.dir, "driver.c", driver_source);
+
+    const linked_name = if (builtin.os.tag == .windows) "versioned-context.exe" else "versioned-context.out";
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "driver.c", "old.o", "new.o", "-o", linked_name });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("same-path versioned object link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const run_path = if (builtin.os.tag == .windows) ".\\versioned-context.exe" else "./versioned-context.out";
+    const run_result = try runCommandAnyExit(std.testing.allocator, &.{run_path});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "cli incremental ELF output localizes same-path body-only private revisions" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const old_source =
+        \\@helper(value: i32) -> i32:
+        \\next = add value, 1
+        \\!value
+        \\return next
+    ;
+    const new_source =
+        \\@helper(value: i32) -> i32:
+        \\next = add value, 2
+        \\!value
+        \\return next
+    ;
+    const driver_source =
+        \\int main(void) { return 0; }
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "private.sa", old_source);
+    const old_argv = [_][]const u8{ "sa", "build-obj", "private.sa", "--incremental", "--no-incremental", "-o", "old.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, old_argv[0..]));
+
+    try writeSource(tmp.dir, "private.sa", new_source);
+    const new_argv = [_][]const u8{ "sa", "build-obj", "private.sa", "--incremental", "--no-incremental", "-o", "new.o" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, new_argv[0..]));
+    try writeSource(tmp.dir, "driver.c", driver_source);
+
+    for ([_][]const u8{ "old.o", "new.o" }) |object_path| {
+        const global_symbols = try runCommand(std.testing.allocator, &.{ "nm", "-g", "--defined-only", object_path });
+        defer std.testing.allocator.free(global_symbols);
+        try std.testing.expect(std.mem.indexOf(u8, global_symbols, "__sa_internal_") == null);
+    }
+
+    const link_result = try runCommandAnyExit(std.testing.allocator, &.{ "zig", "cc", "driver.c", "old.o", "new.o", "-o", "body-only.out" });
+    defer std.testing.allocator.free(link_result.stdout);
+    defer std.testing.allocator.free(link_result.stderr);
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("body-only private revision link failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const run_result = try runCommandAnyExit(std.testing.allocator, &.{"./body-only.out"});
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     switch (run_result.term) {

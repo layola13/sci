@@ -79,6 +79,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build test-runtime-basic -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
+        "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build sa-cli -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe --prefix \"$compiler_root\"",
         "zig build sa-std-static -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe --prefix \"$static_root\"",
         "lib/libsa_std.a",
@@ -97,6 +98,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build test-runtime-basic -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\"",
+        "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\"",
     });
 
     const forbidden = [_][]const u8{
@@ -222,12 +224,19 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(build_source, "b.step(\"test-runtime-basic\"");
     try expectContains(build_source, "b.step(\"test-runtime-darwin\"");
     try expectContains(build_source, "b.step(\"test-runtime-darwin-socket\"");
+    try expectContains(build_source, "b.step(\"runtime-darwin-pty-link\"");
+    try expectContains(build_source, "b.step(\"test-runtime-darwin-pty\"");
     try expectContains(build_source, "tests/runtime_basic_contract.c");
     try expectContains(build_source, "tests/runtime_darwin_contract.c");
     try expectContains(build_source, "tests/runtime_darwin_socket_contract.c");
+    try expectContains(build_source, "tests/runtime_darwin_pty_contract.c");
     try expectContains(build_source, "tests/runtime_contract_fixture.c");
     try expectContains(build_source, "test-runtime-darwin requires a native macOS x86_64 or aarch64 host and target");
     try expectContains(build_source, "test-runtime-darwin-socket requires a native macOS x86_64 or aarch64 host and target");
+    try expectContains(build_source, "runtime-darwin-pty-link requires a macOS x86_64 or aarch64 target");
+    try expectContains(build_source, "test-runtime-darwin-pty requires a native macOS x86_64 or aarch64 host and target");
+    try expectContains(build_source, "runtime_darwin_pty_contract_module.linkLibrary(sa_std_static);");
+    try expectContains(build_source, "runtime_darwin_pty_contract-{s}.o");
     try expectContains(build_source, "\"x86_64-macos\", \"aarch64-macos\"");
     try expectContains(build_source, "src/runtime/sa_pthread_host_darwin.c");
     try expectContains(build_source, "const portable_targets = [_][]const u8{ \"x86_64-macos\", \"aarch64-macos\", \"x86_64-windows-gnu\" };");

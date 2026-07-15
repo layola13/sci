@@ -162,6 +162,62 @@ fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !std.p
     return try child.wait();
 }
 
+fn localizeElfHiddenSymbols(allocator: std.mem.Allocator, object_path: []const u8, stderr: anytype) !void {
+    if (builtin.os.tag != .linux) return;
+
+    var random: [8]u8 = undefined;
+    std.crypto.random.bytes(&random);
+    const suffix = std.fmt.bytesToHex(random, .lower);
+    const staging_path = try std.fmt.allocPrint(allocator, "{s}.localized.{s}", .{ object_path, suffix[0..] });
+    defer allocator.free(staging_path);
+    defer std.fs.cwd().deleteFile(staging_path) catch {};
+
+    const candidates = [_][]const u8{
+        "llvm-objcopy",
+        "llvm-objcopy-20",
+        "llvm-objcopy-19",
+        "llvm-objcopy-18",
+        "llvm-objcopy-17",
+        "llvm-objcopy-16",
+        "llvm-objcopy-15",
+        "llvm-objcopy-14",
+        "objcopy",
+    };
+    var found_tool = false;
+    for (candidates) |candidate| {
+        std.fs.cwd().deleteFile(staging_path) catch {};
+        const result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &.{ candidate, "--localize-hidden", object_path, staging_path },
+        }) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => return err,
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+        found_tool = true;
+        const succeeded = switch (result.term) {
+            .Exited => |code| code == 0,
+            else => false,
+        };
+        if (!succeeded) continue;
+
+        var localized = try std.fs.cwd().openFile(staging_path, .{});
+        defer localized.close();
+        const stat = try localized.stat();
+        if (stat.kind != .file or stat.size == 0) continue;
+        try localized.sync();
+        try std.fs.cwd().rename(staging_path, object_path);
+        return;
+    }
+
+    try stderr.print(
+        "error[ExternalCompiler]: {s} while localizing hidden symbols in {s}\n",
+        .{ if (found_tool) "all objcopy candidates failed" else "no objcopy candidate was found", object_path },
+    );
+    return CompileError.ChildProcessFailed;
+}
+
 fn printCommandLine(writer: anytype, argv: []const []const u8) !void {
     try writer.writeAll("  command:");
     for (argv) |arg| {
@@ -286,6 +342,7 @@ pub fn compileRelocatableObj(
         try printCompilerFailure(stderr, argv_slice, "linking relocatable object", input_objects[0], out_path, result);
         return CompileError.ChildProcessFailed;
     }
+    try localizeElfHiddenSymbols(allocator, out_path, stderr);
 }
 
 pub fn compileWasm(

@@ -7212,6 +7212,25 @@ fn parseOwnedIncrementalObjectManifest(
     };
 }
 
+fn markIncrementalManifestFile(manifest_value: *IncrementalObjectManifest, functions_dir: std.fs.Dir, entry: std.fs.Dir.Entry) void {
+    if (entry.name.len != 66 or !std.mem.endsWith(u8, entry.name, ".o") or !isHexCacheKey(entry.name[0..64])) {
+        manifest_value.unexpected_entries = true;
+        return;
+    }
+    const manifest_entry = manifest_value.functions.getPtr(entry.name[0..64]) orelse {
+        manifest_value.unexpected_entries = true;
+        return;
+    };
+    if (!cacheDirEntryIsRegularFile(functions_dir, entry)) {
+        manifest_value.unexpected_entries = true;
+        return;
+    }
+    const stat = functions_dir.statFile(entry.name) catch return;
+    if (stat.kind != .file or stat.size != manifest_entry.size) return;
+    const hash_hex = hashDirFileHex(functions_dir, entry.name) catch return;
+    manifest_entry.valid = std.mem.eql(u8, manifest_entry.sha256, hash_hex[0..]);
+}
+
 fn markIncrementalManifestFiles(manifest_value: *IncrementalObjectManifest, entry_dir: std.fs.Dir) void {
     var functions_dir = entry_dir.openDir("functions", .{ .iterate = true, .no_follow = true }) catch {
         manifest_value.unexpected_entries = true;
@@ -7222,24 +7241,7 @@ fn markIncrementalManifestFiles(manifest_value: *IncrementalObjectManifest, entr
     while (iter.next() catch {
         manifest_value.unexpected_entries = true;
         return;
-    }) |entry| {
-        if (entry.name.len != 66 or !std.mem.endsWith(u8, entry.name, ".o") or !isHexCacheKey(entry.name[0..64])) {
-            manifest_value.unexpected_entries = true;
-            continue;
-        }
-        const manifest_entry = manifest_value.functions.getPtr(entry.name[0..64]) orelse {
-            manifest_value.unexpected_entries = true;
-            continue;
-        };
-        if (entry.kind != .file) {
-            manifest_value.unexpected_entries = true;
-            continue;
-        }
-        const stat = functions_dir.statFile(entry.name) catch continue;
-        if (stat.kind != .file or stat.size != manifest_entry.size) continue;
-        const hash_hex = hashDirFileHex(functions_dir, entry.name) catch continue;
-        manifest_entry.valid = std.mem.eql(u8, manifest_entry.sha256, hash_hex[0..]);
-    }
+    }) |entry| markIncrementalManifestFile(manifest_value, functions_dir, entry);
 }
 
 fn readIncrementalObjectManifest(
@@ -7287,17 +7289,16 @@ fn cacheFunctionKeyUpstreamLoc(hasher: *std.crypto.hash.sha2.Sha256, loc: ?commo
 }
 
 fn cacheFunctionKeySymbolId(hasher: *std.crypto.hash.sha2.Sha256, symbols: *const flattener.SymbolTable, id: u32) void {
-    cacheU64(hasher, id);
-    cacheFunctionKeyOptionalBytes(hasher, symbols.lookupName(id));
+    if (symbols.lookupName(id)) |name| {
+        cacheBool(hasher, true);
+        cacheFunctionKeyBytes(hasher, name);
+    } else {
+        cacheBool(hasher, false);
+        cacheU64(hasher, id);
+    }
 }
 
-fn cacheFunctionSig(
-    hasher: *std.crypto.hash.sha2.Sha256,
-    sig_item: anytype,
-    symbols: *const flattener.SymbolTable,
-    debug: bool,
-) void {
-    cacheU64(hasher, sig_item.id);
+fn cacheFunctionSigGlobal(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) void {
     cacheFunctionKeyBytes(hasher, sig_item.name);
     cacheU64(hasher, @intFromEnum(sig_item.kind));
     cacheBool(hasher, sig_item.return_fallible);
@@ -7314,10 +7315,19 @@ fn cacheFunctionSig(
     cacheFunctionKeyOptionalBytes(hasher, sig_item.llvm_name);
     cacheU64(hasher, sig_item.params.len);
     for (sig_item.params) |param| {
-        cacheFunctionKeyBytes(hasher, param.name);
         cacheU64(hasher, @intFromEnum(param.ty));
         cacheU64(hasher, @intFromEnum(param.cap));
     }
+}
+
+fn cacheFunctionSigLocal(
+    hasher: *std.crypto.hash.sha2.Sha256,
+    sig_item: anytype,
+    symbols: *const flattener.SymbolTable,
+    debug: bool,
+) void {
+    cacheU64(hasher, sig_item.params.len);
+    for (sig_item.params) |param| cacheFunctionKeyBytes(hasher, param.name);
     cacheU64(hasher, sig_item.param_ids.len);
     for (sig_item.param_ids) |id| cacheFunctionKeySymbolId(hasher, symbols, id);
     cacheU64(hasher, sig_item.reg_ids.len);
@@ -7362,7 +7372,8 @@ fn cacheFunctionOperand(hasher: *std.crypto.hash.sha2.Sha256, symbols: *const fl
     cacheU64(hasher, @intFromEnum(std.meta.activeTag(operand)));
     switch (operand) {
         .none => {},
-        .reg, .symbol, .label, .func => |id| cacheFunctionKeySymbolId(hasher, symbols, id),
+        .reg => |slot| cacheU64(hasher, slot),
+        .symbol, .label, .func => |id| cacheFunctionKeySymbolId(hasher, symbols, id),
         .imm_i64, .imm_int => |value| cacheU64(hasher, @bitCast(value)),
         .imm_u64 => |value| cacheU64(hasher, value),
         .imm_float => |value| cacheU64(hasher, @bitCast(value)),
@@ -7403,7 +7414,7 @@ fn cacheFunctionInstruction(
     for (base.native_reg_names) |name| cacheFunctionKeyBytes(hasher, name);
     cacheU64(hasher, item.delta.changes.len);
     for (item.delta.changes) |change| {
-        cacheFunctionKeySymbolId(hasher, symbols, change.reg);
+        cacheU64(hasher, change.reg);
         cacheU64(hasher, change.before);
         cacheU64(hasher, change.after);
     }
@@ -7415,39 +7426,6 @@ fn cacheFunctionInstruction(
     }
 }
 
-fn cacheFunctionAnonymousStringContext(
-    allocator: std.mem.Allocator,
-    hasher: *std.crypto.hash.sha2.Sha256,
-    verified: *const referee.VerifyOk,
-) !void {
-    var strings = std.StringHashMap(void).init(allocator);
-    defer {
-        var iter = strings.keyIterator();
-        while (iter.next()) |value| allocator.free(value.*);
-        strings.deinit();
-    }
-    for (verified.annotated) |item| {
-        switch (item.base.kind) {
-            .call, .call_indirect, .panic, .panic_msg => {},
-            else => continue,
-        }
-        var parsed = referee_call.parseInstructionCall(allocator, item.base, &verified.symbols) catch |err| switch (err) {
-            error.InvalidCallSyntax => continue,
-            else => return err,
-        };
-        defer parsed.deinit(allocator);
-        for (parsed.args) |arg| {
-            if (arg.prefix != .raw or arg.text.len < 2 or arg.text[0] != '"' or arg.text[arg.text.len - 1] != '"') continue;
-            if (strings.contains(arg.text)) continue;
-            const owned = try allocator.dupe(u8, arg.text);
-            errdefer allocator.free(owned);
-            try strings.put(owned, {});
-            cacheFunctionKeyBytes(hasher, owned);
-        }
-    }
-    cacheU64(hasher, strings.count());
-}
-
 fn computeFunctionObjectKeyBase(
     allocator: std.mem.Allocator,
     cache_key: ProjectCacheKey,
@@ -7456,8 +7434,8 @@ fn computeFunctionObjectKeyBase(
     debug: bool,
 ) !std.crypto.hash.sha2.Sha256 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheFunctionKeyBytes(&hasher, "sa-build-obj-function-cache/v5");
-    cacheFunctionKeyBytes(&hasher, "llvmc-function-object/v5-global-context-namespace");
+    cacheFunctionKeyBytes(&hasher, "sa-build-obj-function-cache/v8");
+    cacheFunctionKeyBytes(&hasher, "llvmc-function-object/v8-local-register-slots");
     cacheFunctionKeyBytes(&hasher, cacheCompilerVersion());
     const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
     defer allocator.free(backend_identity);
@@ -7465,8 +7443,9 @@ fn computeFunctionObjectKeyBase(
     cacheFunctionKeyBytes(&hasher, cache_key.slice());
     cacheFunctionKeyBytes(&hasher, source_path);
     cacheBool(&hasher, debug);
+    cacheU64(&hasher, compiled.verified.function_sigs.len);
     for (compiled.verified.function_sigs) |sig_item| {
-        cacheFunctionSig(&hasher, sig_item, &compiled.verified.symbols, debug);
+        cacheFunctionSigGlobal(&hasher, sig_item);
     }
     for (compiled.verified.const_decls) |decl| {
         cacheFunctionKeyBytes(&hasher, decl.name);
@@ -7474,7 +7453,6 @@ fn computeFunctionObjectKeyBase(
         cacheFunctionConstValue(&hasher, decl.value);
         if (debug) cacheFunctionKeyUpstreamLoc(&hasher, decl.upstream_loc);
     }
-    try cacheFunctionAnonymousStringContext(allocator, &hasher, &compiled.verified);
     return hasher;
 }
 
@@ -7498,6 +7476,8 @@ fn computeFunctionObjectKey(
     owns_process_globals: bool,
 ) ![]const u8 {
     var hasher = base_hasher;
+    if (sig_index >= compiled.verified.function_sigs.len) return error.UnknownFunction;
+    cacheFunctionSigLocal(&hasher, compiled.verified.function_sigs[sig_index], &compiled.verified.symbols, debug);
     cacheU64(&hasher, sig_index);
     cacheU64(&hasher, task_index);
     cacheBool(&hasher, owns_process_globals);
@@ -7524,6 +7504,24 @@ const IncrementalFunctionObjectEmission = struct {
     metadata: IncrementalFunctionObjectMetadata,
 };
 
+fn cacheDirEntryIsRegularFile(dir: std.fs.Dir, entry: std.fs.Dir.Entry) bool {
+    return switch (entry.kind) {
+        .file => true,
+        .unknown => blk: {
+            var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+            _ = dir.readLink(entry.name, &link_buf) catch |err| switch (err) {
+                error.NotLink => {
+                    const stat = dir.statFile(entry.name) catch break :blk false;
+                    break :blk stat.kind == .file;
+                },
+                else => break :blk false,
+            };
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 fn cachePathIsRegularFile(path: []const u8) bool {
     const parent = std.fs.path.dirname(path) orelse ".";
     const basename = std.fs.path.basename(path);
@@ -7531,7 +7529,7 @@ fn cachePathIsRegularFile(path: []const u8) bool {
     defer dir.close();
     var iter = dir.iterate();
     while (iter.next() catch return false) |entry| {
-        if (std.mem.eql(u8, entry.name, basename)) return entry.kind == .file;
+        if (std.mem.eql(u8, entry.name, basename)) return cacheDirEntryIsRegularFile(dir, entry);
     }
     return false;
 }
@@ -7713,7 +7711,7 @@ fn cleanupIncrementalObjectEntry(
         defer functions_dir.close();
         var iter = functions_dir.iterate();
         while (iter.next() catch return) |entry| {
-            const keep_entry = entry.kind == .file and
+            const keep_entry = cacheDirEntryIsRegularFile(functions_dir, entry) and
                 entry.name.len == 66 and
                 std.mem.endsWith(u8, entry.name, ".o") and
                 isHexCacheKey(entry.name[0..64]) and
@@ -11084,6 +11082,45 @@ test "repeated text compile never replaces Referee annotations with a verdict sh
         try std.testing.expectEqual(first_change.after, second_change.after);
     }
     try std.testing.expectEqual(@as(u64, 0), incr_verify.stats().hits);
+}
+
+test "incremental cache regular-file fallback handles unknown dirent kinds without following links" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "object.o", .data = "object" });
+
+    const unknown_file = std.fs.Dir.Entry{ .name = "object.o", .kind = .unknown };
+    try std.testing.expect(cacheDirEntryIsRegularFile(tmp.dir, unknown_file));
+
+    if (builtin.os.tag != .windows) {
+        try tmp.dir.symLink("object.o", "object-link.o", .{});
+        const unknown_link = std.fs.Dir.Entry{ .name = "object-link.o", .kind = .unknown };
+        try std.testing.expect(!cacheDirEntryIsRegularFile(tmp.dir, unknown_link));
+    }
+
+    try tmp.dir.makeDir("functions");
+    var functions_dir = try tmp.dir.openDir("functions", .{});
+    defer functions_dir.close();
+    const function_key = [_]u8{'a'} ** 64;
+    const cache_key = [_]u8{'b'} ** 64;
+    const object_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.o", .{function_key[0..]});
+    defer std.testing.allocator.free(object_name);
+    try functions_dir.writeFile(.{ .sub_path = object_name, .data = "object" });
+    var object_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    object_hasher.update("object");
+    var object_digest: [32]u8 = undefined;
+    object_hasher.final(&object_digest);
+    const object_sha256 = std.fmt.bytesToHex(object_digest, .lower);
+    const manifest_bytes = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{{\"version\":2,\"kind\":\"build-obj-incremental\",\"key\":\"{s}\",\"source\":\"main.sa\",\"functions\":[{{\"key\":\"{s}\",\"path\":\"functions/{s}.o\",\"size\":6,\"sha256\":\"{s}\"}}]}}\n",
+        .{ cache_key[0..], function_key[0..], function_key[0..], object_sha256[0..] },
+    );
+    var manifest_value = try parseOwnedIncrementalObjectManifest(std.testing.allocator, manifest_bytes, cache_key[0..], "main.sa");
+    defer manifest_value.deinit(std.testing.allocator);
+    markIncrementalManifestFile(&manifest_value, functions_dir, .{ .name = object_name, .kind = .unknown });
+    try std.testing.expect(!manifest_value.unexpected_entries);
+    try std.testing.expect(manifest_value.objectMetadata(function_key[0..]) != null);
 }
 
 test "non-cacheable dynamic dependencies do not reuse or publish incremental objects" {

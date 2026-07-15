@@ -339,6 +339,43 @@ pub fn build(b: *std.Build) void {
         test_runtime_darwin_socket_step.dependOn(&fail.step);
     }
 
+    const runtime_darwin_pty_contract_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    runtime_darwin_pty_contract_module.addIncludePath(b.path("src/runtime"));
+    runtime_darwin_pty_contract_module.addCSourceFile(.{
+        .file = b.path("tests/runtime_darwin_pty_contract.c"),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    runtime_darwin_pty_contract_module.linkLibrary(sa_std_static);
+    const runtime_darwin_pty_contract = b.addExecutable(.{
+        .name = "runtime-darwin-pty-contract",
+        .root_module = runtime_darwin_pty_contract_module,
+    });
+    const runtime_darwin_pty_link_step = b.step("runtime-darwin-pty-link", "Link the Darwin PTY runtime contract");
+    if (target.result.os.tag == .macos and runtime_darwin_arch_supported) {
+        runtime_darwin_pty_link_step.dependOn(&runtime_darwin_pty_contract.step);
+    } else {
+        const fail = b.addFail("runtime-darwin-pty-link requires a macOS x86_64 or aarch64 target");
+        runtime_darwin_pty_link_step.dependOn(&fail.step);
+    }
+    const run_runtime_darwin_pty_contract = b.addRunArtifact(runtime_darwin_pty_contract);
+    run_runtime_darwin_pty_contract.setCwd(repo_root_lazy);
+    run_runtime_darwin_pty_contract.expectStdOutEqual("runtime Darwin PTY contract ok\n");
+    const test_runtime_darwin_pty_step = b.step("test-runtime-darwin-pty", "Run the native Darwin PTY runtime contract");
+    const runtime_darwin_pty_is_native = runtime_target_is_native and
+        b.graph.host.result.os.tag == .macos and
+        target.result.os.tag == .macos and
+        runtime_darwin_arch_supported;
+    if (runtime_darwin_pty_is_native) {
+        test_runtime_darwin_pty_step.dependOn(&run_runtime_darwin_pty_contract.step);
+    } else {
+        const fail = b.addFail("test-runtime-darwin-pty requires a native macOS x86_64 or aarch64 host and target");
+        test_runtime_darwin_pty_step.dependOn(&fail.step);
+    }
+
     const test_step = b.step("test", "Run unit tests");
 
     const sa_std_abi_contract = b.addSystemCommand(&.{
@@ -641,6 +678,24 @@ pub fn build(b: *std.Build) void {
         _ = darwin_socket_contract_typecheck.addOutputFileArg(b.fmt("runtime_darwin_socket_contract-{s}.o", .{darwin_target}));
         darwin_socket_contract_typecheck.setCwd(repo_root_lazy);
         portable_runtime_typecheck.dependOn(&darwin_socket_contract_typecheck.step);
+
+        const darwin_pty_contract_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "cc",
+            "-target",
+            darwin_target,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Isrc/runtime",
+            "-c",
+        });
+        darwin_pty_contract_typecheck.addFileArg(b.path("tests/runtime_darwin_pty_contract.c"));
+        darwin_pty_contract_typecheck.addArg("-o");
+        _ = darwin_pty_contract_typecheck.addOutputFileArg(b.fmt("runtime_darwin_pty_contract-{s}.o", .{darwin_target}));
+        darwin_pty_contract_typecheck.setCwd(repo_root_lazy);
+        portable_runtime_typecheck.dependOn(&darwin_pty_contract_typecheck.step);
     }
 
     const portability_check_step = b.step("portability-check", "Run cross-platform host, runtime, and ABI type checks");

@@ -13,6 +13,8 @@ const trap = @import("common/trap.zig");
 const upstream = @import("common/upstream_loc.zig");
 const classifier = @import("flattener/line_classifier.zig");
 const symbol = @import("flattener/symbol.zig");
+const verification_input = @import("verification_input.zig");
+const incr_verify = @import("incr_verify.zig");
 
 pub const RegStateChange = struct {
     reg: u32,
@@ -85,6 +87,23 @@ pub const VerifyOptions = struct {
     predecoded_symbol_names: []const []const u8 = &.{},
     predecoded_function_sigs: []const sig.FunctionSig = &.{},
     check_exit_leaks: bool = true,
+};
+
+pub const VerificationInput = verification_input.Input;
+pub const VerificationMetadata = verification_input.Metadata;
+
+pub const VerifyExecutionOptions = struct {
+    jobs: ?usize = null,
+    stage_reporter: ?VerifyStageReporter = null,
+};
+
+pub const VerdictOnlyOk = struct {
+    cache_hit: bool,
+};
+
+pub const VerdictOnlyResult = union(enum) {
+    ok: VerdictOnlyOk,
+    trap: trap.TrapReport,
 };
 
 pub const VerifyStageReporter = struct {
@@ -3950,7 +3969,7 @@ fn verifyParallel(
     } };
 }
 
-pub fn verifyWithOptions(
+fn verifyWithOptionsImpl(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
     const_decls: []const const_decl.ConstDecl,
@@ -4039,6 +4058,84 @@ pub fn verifyWithOptions(
             } };
         },
     }
+}
+
+pub fn verifyInput(
+    allocator: std.mem.Allocator,
+    input: VerificationInput,
+    execution: VerifyExecutionOptions,
+) !VerifyResult {
+    const sax_context: ?SaxValidationContext = if (input.sax_component_name) |component_name|
+        .{ .component_name = component_name }
+    else
+        null;
+    const predecoded_symbol_names: []const []const u8 = switch (input.metadata) {
+        .rebuild => &.{},
+        .predecoded => |metadata| metadata.symbol_names,
+    };
+    const predecoded_function_sigs: []const sig.FunctionSig = switch (input.metadata) {
+        .rebuild => &.{},
+        .predecoded => |metadata| metadata.function_sigs,
+    };
+    return verifyWithOptionsImpl(allocator, input.instructions, input.const_decls, .{
+        .jobs = execution.jobs,
+        .package_grants = input.package_grants,
+        .sax_context = sax_context,
+        .stage_reporter = execution.stage_reporter,
+        .predecoded_symbol_names = predecoded_symbol_names,
+        .predecoded_function_sigs = predecoded_function_sigs,
+        .check_exit_leaks = input.check_exit_leaks,
+    });
+}
+
+pub fn verifyVerdictOnly(
+    allocator: std.mem.Allocator,
+    input: VerificationInput,
+    execution: VerifyExecutionOptions,
+) !VerdictOnlyResult {
+    const digest = try verification_input.compute(allocator, input);
+    switch (incr_verify.lookupVerdict(digest, .verdict_only)) {
+        .hit => return .{ .ok = .{ .cache_hit = true } },
+        .unsupported_consumer => unreachable,
+        .miss => {},
+    }
+
+    const result = try verifyInput(allocator, input, execution);
+    return switch (result) {
+        .ok => |ok| blk: {
+            var owned = ok;
+            owned.deinit(allocator);
+            incr_verify.recordVerifiedAfterRefereeSuccess(digest);
+            break :blk .{ .ok = .{ .cache_hit = false } };
+        },
+        .trap => |report| .{ .trap = report },
+    };
+}
+
+pub fn verifyWithOptions(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    options: VerifyOptions,
+) !VerifyResult {
+    const metadata: VerificationMetadata = if (options.predecoded_symbol_names.len != 0 or options.predecoded_function_sigs.len != 0)
+        .{ .predecoded = .{
+            .symbol_names = options.predecoded_symbol_names,
+            .function_sigs = options.predecoded_function_sigs,
+        } }
+    else
+        .{ .rebuild = {} };
+    return verifyInput(allocator, .{
+        .instructions = instructions,
+        .const_decls = const_decls,
+        .package_grants = options.package_grants,
+        .sax_component_name = if (options.sax_context) |context| context.component_name else null,
+        .metadata = metadata,
+        .check_exit_leaks = options.check_exit_leaks,
+    }, .{
+        .jobs = options.jobs,
+        .stage_reporter = options.stage_reporter,
+    });
 }
 
 pub fn verify(

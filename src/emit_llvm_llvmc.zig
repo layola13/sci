@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const call = @import("referee/call.zig");
 const referee = @import("referee.zig");
@@ -63,6 +64,7 @@ const CFunction = extern struct {
     kind: CFuncKind,
     ret_ty: CType,
     return_fallible: bool,
+    return_owned: bool,
     params: [*]const CParam,
     param_count: usize,
     instructions: [*]const CInstruction,
@@ -221,10 +223,14 @@ fn isInternalFunctionSig(fsig: sig.FunctionSig) bool {
 pub fn backendCacheIdentity(allocator: std.mem.Allocator) ![]u8 {
     const triple_ptr = sa_llvmc_backend_target_triple() orelse return error.Failed;
     defer sa_llvmc_free(triple_ptr);
+    const partial_link_policy = if (builtin.os.tag == .linux)
+        "elf-objcopy-localize-hidden-v1"
+    else
+        "namespaced-hidden-strong-v1";
     return try std.fmt.allocPrint(
         allocator,
-        "llvmc-object-cache-abi/v6;llvm={s};triple={s};cpu=generic-v1;features=none;reloc=default;code-model=default;pipeline=legacy-pmb-v1",
-        .{ std.mem.span(sa_llvmc_backend_version()), std.mem.span(triple_ptr) },
+        "llvmc-object-cache-abi/v11;llvm={s};triple={s};cpu=generic-v1;features=none;reloc=default;code-model=default;pipeline=legacy-pmb-v1;partial-link={s};function-anon-strings=local-collision-safe-v2;lowering-reg-delta=local-slots-v1;release-type=tracked-register-v1;indirect-return-ownership=signature-v1",
+        .{ std.mem.span(sa_llvmc_backend_version()), std.mem.span(triple_ptr), partial_link_policy },
     );
 }
 
@@ -325,11 +331,30 @@ fn fillConstBytes(out: []u8, value: const_decl.ConstValue) !void {
     }
 }
 
+fn allocateAnonStringName(
+    allocator: std.mem.Allocator,
+    occupied_global_names: *std.StringHashMap(void),
+    anon_idx: *usize,
+) ![:0]u8 {
+    while (true) {
+        const candidate = try std.fmt.allocPrintZ(allocator, ".sa.anon.{d}", .{anon_idx.*});
+        anon_idx.* += 1;
+        if (occupied_global_names.contains(candidate)) {
+            allocator.free(candidate);
+            continue;
+        }
+        errdefer allocator.free(candidate);
+        try occupied_global_names.put(candidate, {});
+        return candidate;
+    }
+}
+
 fn collectAnonStringConsts(
     allocator: std.mem.Allocator,
     symbols: anytype,
     annotated: []const referee.AnnotatedInstruction,
     anon_string_names: *std.StringHashMap([*:0]const u8),
+    occupied_global_names: *std.StringHashMap(void),
     c_consts: *std.ArrayList(CConst),
 ) !void {
     var anon_idx: usize = c_consts.items.len;
@@ -355,14 +380,44 @@ fn collectAnonStringConsts(
 
             const raw_key = try allocator.dupe(u8, arg.text);
             errdefer allocator.free(raw_key);
-            const name = try std.fmt.allocPrintZ(allocator, "__sa_anon_str_{d}", .{anon_idx});
+            const name = try allocateAnonStringName(allocator, occupied_global_names, &anon_idx);
             const data = try allocator.dupe(u8, bytes);
 
             try c_consts.append(.{ .name = name.ptr, .data = data.ptr, .len = data.len });
             try anon_string_names.put(raw_key, name.ptr);
-            anon_idx += 1;
         }
     }
+}
+
+fn collectAnonStringConstsForOptions(
+    allocator: std.mem.Allocator,
+    symbols: anytype,
+    annotated: []const referee.AnnotatedInstruction,
+    options: EmitOptions,
+    anon_string_names: *std.StringHashMap([*:0]const u8),
+    occupied_global_names: *std.StringHashMap(void),
+    c_consts: *std.ArrayList(CConst),
+) !void {
+    const wanted_task_index = options.function_task_index orelse {
+        return try collectAnonStringConsts(allocator, symbols, annotated, anon_string_names, occupied_global_names, c_consts);
+    };
+
+    var task_index: usize = 0;
+    var index: usize = 0;
+    while (index < annotated.len) {
+        if (!isFunctionDeclaration(annotated[index].base.kind)) {
+            index += 1;
+            continue;
+        }
+        var end = index + 1;
+        while (end < annotated.len and !isFunctionDeclaration(annotated[end].base.kind)) : (end += 1) {}
+        if (task_index == wanted_task_index) {
+            return try collectAnonStringConsts(allocator, symbols, annotated[index + 1 .. end], anon_string_names, occupied_global_names, c_consts);
+        }
+        task_index += 1;
+        index = end;
+    }
+    return error.UnknownFunction;
 }
 
 const BuildState = struct {
@@ -1264,6 +1319,15 @@ fn assignOperand(state: *BuildState, base: inst.Instruction) !COperand {
     };
 }
 
+fn deltaMarksMalloc(changes: anytype, local_slot: u32) bool {
+    const non_malloc_state_mask: u16 = 0x10 | 0x20 | 0x40 | 0x0200;
+    for (changes) |change| {
+        if (change.reg != local_slot) continue;
+        return (change.after & non_malloc_state_mask) == 0;
+    }
+    return false;
+}
+
 fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item: referee.AnnotatedInstruction) !?CInstruction {
     const base = body_item.base;
     const none = COperand{ .kind = .none, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .void, .name = null };
@@ -1329,19 +1393,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
                 const id = state.symbols.findId(dest) orelse return error.InvalidOperand;
                 break :blk2 state.fsig.slotOf(id) orelse return error.InvalidOperand;
             } else 0;
-            var is_malloc_val = false;
-            if (parsed.dest) |dest_name| {
-                if (state.symbols.findId(dest_name)) |dst_id| {
-                    for (body_item.delta.changes) |change| {
-                        if (change.reg == dst_id) {
-                            if ((change.after & (0x10 | 0x20 | 0x40 | 0x0200)) == 0) {
-                                is_malloc_val = true;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
+            const is_malloc_val = parsed.dest != null and deltaMarksMalloc(body_item.delta.changes, dst);
             if (parsed.is_indirect) {
                 const callee_op = try state.textOperand(parsed.callee);
                 break :blk .{ .op = .call_indirect, .dst = dst, .operand0 = callee_op, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
@@ -1359,19 +1411,9 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
             const value = try assignOperand(state, base);
             const assign_ty = assignTy(base.kind, value);
             const is_ptr = (assign_ty == .ptr);
-            var is_malloc_val = false;
-            const dst_global_id = try state.regGlobalId(base.operands[0].reg);
-            if (is_ptr) {
-                for (body_item.delta.changes) |change| {
-                    if (change.reg == dst_global_id) {
-                        if ((change.after & (0x10 | 0x20 | 0x40 | 0x0200)) == 0) {
-                            is_malloc_val = true;
-                        }
-                        break;
-                    }
-                }
-            }
-            break :blk .{ .op = .assign, .dst = try state.regSlot(base.operands[0].reg), .operand0 = value, .operand1 = none, .operand2 = none, .ty = assignTy(base.kind, value), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
+            const dst = try state.regSlot(base.operands[0].reg);
+            const is_malloc_val = is_ptr and deltaMarksMalloc(body_item.delta.changes, dst);
+            break :blk .{ .op = .assign, .dst = dst, .operand0 = value, .operand1 = none, .operand2 = none, .ty = assign_ty, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
         },
         .return_ => .{ .op = .ret, .dst = 0, .operand0 = if (base.operands[0] == .none) none else try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = base.operands[0] != .none, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .move_ => null,
@@ -1536,6 +1578,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             .kind = task.kind,
             .ret_ty = ret_ty,
             .return_fallible = fsig.return_fallible,
+            .return_owned = fsig.return_cap == .move,
             .params = params.ptr,
             .param_count = params.len,
             .instructions = insts.items.ptr,
@@ -1569,6 +1612,9 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     var c_consts = std.ArrayList(CConst).init(a);
     var c_vtables = std.ArrayList(CVTable).init(a);
     var anon_string_names = std.StringHashMap([*:0]const u8).init(a);
+    var occupied_global_names = std.StringHashMap(void).init(a);
+    for (function_names) |name| try occupied_global_names.put(std.mem.span(name), {});
+    for (verified.const_decls) |decl| try occupied_global_names.put(decl.name, {});
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
@@ -1589,7 +1635,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             },
         }
     }
-    try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
+    try collectAnonStringConstsForOptions(a, &verified.symbols, verified.annotated, options, &anon_string_names, &occupied_global_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
     const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
@@ -1847,6 +1893,9 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     var c_consts = std.ArrayList(CConst).init(a);
     var c_vtables = std.ArrayList(CVTable).init(a);
     var anon_string_names = std.StringHashMap([*:0]const u8).init(a);
+    var occupied_global_names = std.StringHashMap(void).init(a);
+    for (function_names) |name| try occupied_global_names.put(std.mem.span(name), {});
+    for (verified.const_decls) |decl| try occupied_global_names.put(decl.name, {});
     for (verified.const_decls) |decl| {
         switch (decl.value) {
             .vtable => |literal| {
@@ -1867,7 +1916,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             },
         }
     }
-    try collectAnonStringConsts(a, &verified.symbols, verified.annotated, &anon_string_names, &c_consts);
+    try collectAnonStringConstsForOptions(a, &verified.symbols, verified.annotated, options, &anon_string_names, &occupied_global_names, &c_consts);
 
     var referenced_functions = std.StringHashMap(void).init(a);
     const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
@@ -2258,6 +2307,36 @@ test "dce modes prune std and user functions at distinct levels" {
     try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .std, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
     try std.testing.expect(shouldPruneUnreachableFunction(.{ .dce = .full, .std_root = "/tmp/app/sa_std" }, user_func, source_path));
     try std.testing.expect(!shouldPruneUnreachableFunction(.{ .dce = .no, .std_root = "/tmp/app/sa_std" }, std_func, source_path));
+}
+
+test "owned pointer deltas are matched by localized register slot" {
+    const TestChange = struct { reg: u32, before: u16, after: u16 };
+    const changes = [_]TestChange{
+        .{ .reg = 7, .before = 0, .after = 1 },
+        .{ .reg = 1, .before = 0, .after = 0x20 },
+        .{ .reg = 2, .before = 0, .after = 1 },
+    };
+
+    try std.testing.expect(!deltaMarksMalloc(changes[0..], 1));
+    try std.testing.expect(deltaMarksMalloc(changes[0..], 2));
+    try std.testing.expect(deltaMarksMalloc(changes[0..], 7));
+    try std.testing.expect(!deltaMarksMalloc(changes[0..], 3));
+}
+
+test "anonymous string names avoid occupied module symbols" {
+    var occupied = std.StringHashMap(void).init(std.testing.allocator);
+    defer occupied.deinit();
+    try occupied.put(".sa.anon.1", {});
+
+    var next_index: usize = 1;
+    const name = try allocateAnonStringName(std.testing.allocator, &occupied, &next_index);
+    defer {
+        _ = occupied.remove(name);
+        std.testing.allocator.free(name);
+    }
+
+    try std.testing.expectEqualStrings(".sa.anon.2", name);
+    try std.testing.expectEqual(@as(usize, 3), next_index);
 }
 
 test "assignOperand resolves localized const vtable slots without raw text" {

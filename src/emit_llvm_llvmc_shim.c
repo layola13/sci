@@ -57,6 +57,7 @@ typedef struct {
     SaFuncKind kind;
     SaType ret_ty;
     unsigned char return_fallible;
+    unsigned char return_owned;
     const SaParam *params;
     size_t param_count;
     const SaInstruction *instructions;
@@ -1261,7 +1262,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 if (target_sig == NULL) { free(arg_tys); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "indirect callee missing signature provenance"); }
 
                 LLVMTypeRef fn_ty = indirect_fn_type_for(e, target_sig, in);
-                if (fn_ty == NULL) { free(regs); free(labels); return fail_body(e, f, in, i, "indirect function type failed"); }
+                if (fn_ty == NULL) { free(arg_tys); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "indirect function type failed"); }
                 for (size_t a = 0; a < in->arg_count; a++) {
                     SaType param_ty = a < target_sig->param_count ? target_sig->params[a].ty : arg_tys[a];
                     if (a < in->indirect_param_count) param_ty = in->indirect_param_tys[a];
@@ -1273,7 +1274,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call_indirect" : "");
                 if (in->has_dst) {
                     if (reg_store(e, regs, reg_count, in->dst, callv, target_sig->ret_ty, target_sig->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
-                    regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
+                    regs[in->dst].is_malloc = (target_sig->ret_ty == SA_T_PTR && target_sig->return_owned) ? in->is_malloc : 0;
                 }
                 free(args);
                 break;
@@ -1352,7 +1353,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 break;
             }
             case SA_OP_RELEASE: {
-                if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count && in->ty == SA_T_PTR) {
+                if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count && regs[in->operand0.reg].ty == SA_T_PTR) {
                     if (regs[in->operand0.reg].is_malloc) {
                         if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                         v0 = coerce(e, v0, t0, SA_T_PTR);
