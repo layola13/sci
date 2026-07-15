@@ -1584,6 +1584,39 @@ L_NUM_U64_MUL_ZERO_%out_ok:
 L_NUM_U64_MUL_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_U64_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_ADD __num_u64_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u64_strict_add_ok_%out_value -> L_NUM_U64_STRICT_ADD_OK_%out_value, L_NUM_U64_STRICT_ADD_PANIC_%out_value
+
+L_NUM_U64_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_U64_STRICT_ADD_OK_%out_value:
+    !__num_u64_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_SUB __num_u64_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u64_strict_sub_ok_%out_value -> L_NUM_U64_STRICT_SUB_OK_%out_value, L_NUM_U64_STRICT_SUB_PANIC_%out_value
+
+L_NUM_U64_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_U64_STRICT_SUB_OK_%out_value:
+    !__num_u64_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_MUL __num_u64_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u64_strict_mul_ok_%out_value -> L_NUM_U64_STRICT_MUL_OK_%out_value, L_NUM_U64_STRICT_MUL_PANIC_%out_value
+
+L_NUM_U64_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_U64_STRICT_MUL_OK_%out_value:
+    !__num_u64_strict_mul_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
     __num_div_zero_%out_ok = eq %rhs, 0
     br __num_div_zero_%out_ok -> L_NUM_U64_DIV_ZERO_%out_ok, L_NUM_U64_DIV_OK_%out_ok
@@ -3618,6 +3651,39 @@ L_NUM_I64_MUL_ZERO_%out_ok:
 L_NUM_I64_MUL_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_I64_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_I64_CHECKED_ADD __num_i64_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i64_strict_add_ok_%out_value -> L_NUM_I64_STRICT_ADD_OK_%out_value, L_NUM_I64_STRICT_ADD_PANIC_%out_value
+
+L_NUM_I64_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_I64_STRICT_ADD_OK_%out_value:
+    !__num_i64_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I64_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_I64_CHECKED_SUB __num_i64_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i64_strict_sub_ok_%out_value -> L_NUM_I64_STRICT_SUB_OK_%out_value, L_NUM_I64_STRICT_SUB_PANIC_%out_value
+
+L_NUM_I64_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_I64_STRICT_SUB_OK_%out_value:
+    !__num_i64_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I64_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_I64_CHECKED_MUL __num_i64_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i64_strict_mul_ok_%out_value -> L_NUM_I64_STRICT_MUL_OK_%out_value, L_NUM_I64_STRICT_MUL_PANIC_%out_value
+
+L_NUM_I64_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_I64_STRICT_MUL_OK_%out_value:
+    !__num_i64_strict_mul_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I64_CHECKED_SHL %out_ok, %out_value, %value, %shift
     __num_ishl_ok_%out_ok = ult %shift, NUM_I64_BITS
     br __num_ishl_ok_%out_ok -> L_NUM_I64_SHL_OK_%out_ok, L_NUM_I64_SHL_OVER_%out_ok
@@ -4841,6 +4907,105 @@ L_NUM_SIGNED_STRICT_CAST_OK_%out_value:
     !__num_i32_mul_product_%out_ok
 [END_MACRO]
 
+[MACRO] NUM_I8_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_ADD __num_i8_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i8_strict_add_ok_%out_value -> L_NUM_I8_STRICT_ADD_OK_%out_value, L_NUM_I8_STRICT_ADD_PANIC_%out_value
+
+L_NUM_I8_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_I8_STRICT_ADD_OK_%out_value:
+    !__num_i8_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_ADD __num_i16_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i16_strict_add_ok_%out_value -> L_NUM_I16_STRICT_ADD_OK_%out_value, L_NUM_I16_STRICT_ADD_PANIC_%out_value
+
+L_NUM_I16_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_I16_STRICT_ADD_OK_%out_value:
+    !__num_i16_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_ADD __num_i32_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i32_strict_add_ok_%out_value -> L_NUM_I32_STRICT_ADD_OK_%out_value, L_NUM_I32_STRICT_ADD_PANIC_%out_value
+
+L_NUM_I32_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_I32_STRICT_ADD_OK_%out_value:
+    !__num_i32_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_SUB __num_i8_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i8_strict_sub_ok_%out_value -> L_NUM_I8_STRICT_SUB_OK_%out_value, L_NUM_I8_STRICT_SUB_PANIC_%out_value
+
+L_NUM_I8_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_I8_STRICT_SUB_OK_%out_value:
+    !__num_i8_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_SUB __num_i16_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i16_strict_sub_ok_%out_value -> L_NUM_I16_STRICT_SUB_OK_%out_value, L_NUM_I16_STRICT_SUB_PANIC_%out_value
+
+L_NUM_I16_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_I16_STRICT_SUB_OK_%out_value:
+    !__num_i16_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_SUB __num_i32_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i32_strict_sub_ok_%out_value -> L_NUM_I32_STRICT_SUB_OK_%out_value, L_NUM_I32_STRICT_SUB_PANIC_%out_value
+
+L_NUM_I32_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_I32_STRICT_SUB_OK_%out_value:
+    !__num_i32_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_MUL __num_i8_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i8_strict_mul_ok_%out_value -> L_NUM_I8_STRICT_MUL_OK_%out_value, L_NUM_I8_STRICT_MUL_PANIC_%out_value
+
+L_NUM_I8_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_I8_STRICT_MUL_OK_%out_value:
+    !__num_i8_strict_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_MUL __num_i16_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i16_strict_mul_ok_%out_value -> L_NUM_I16_STRICT_MUL_OK_%out_value, L_NUM_I16_STRICT_MUL_PANIC_%out_value
+
+L_NUM_I16_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_I16_STRICT_MUL_OK_%out_value:
+    !__num_i16_strict_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_MUL __num_i32_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_i32_strict_mul_ok_%out_value -> L_NUM_I32_STRICT_MUL_OK_%out_value, L_NUM_I32_STRICT_MUL_PANIC_%out_value
+
+L_NUM_I32_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_I32_STRICT_MUL_OK_%out_value:
+    !__num_i32_strict_mul_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I8_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
     __num_i8_div_zero_%out_ok = eq %rhs, 0
     br __num_i8_div_zero_%out_ok -> L_NUM_I8_DIV_FAIL_%out_ok, L_NUM_I8_DIV_MIN_CHECK_%out_ok
@@ -5919,6 +6084,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U64_CHECKED_ADD %out_ok, %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_USIZE_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_U64_STRICT_ADD %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_U8_CHECKED_ADD %out_ok, %out_value, %lhs, %rhs
     __num_u8_add_sum_%out_ok = add %lhs, %rhs
     %out_ok = ule __num_u8_add_sum_%out_ok, NUM_U8_MAX
@@ -5998,6 +6167,105 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     %out_value = mul %out_ok, __num_u32_mul_masked_%out_ok
     !__num_u32_mul_masked_%out_ok
     !__num_u32_mul_product_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_ADD __num_u8_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u8_strict_add_ok_%out_value -> L_NUM_U8_STRICT_ADD_OK_%out_value, L_NUM_U8_STRICT_ADD_PANIC_%out_value
+
+L_NUM_U8_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_U8_STRICT_ADD_OK_%out_value:
+    !__num_u8_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_ADD __num_u16_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u16_strict_add_ok_%out_value -> L_NUM_U16_STRICT_ADD_OK_%out_value, L_NUM_U16_STRICT_ADD_PANIC_%out_value
+
+L_NUM_U16_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_U16_STRICT_ADD_OK_%out_value:
+    !__num_u16_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_ADD __num_u32_strict_add_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u32_strict_add_ok_%out_value -> L_NUM_U32_STRICT_ADD_OK_%out_value, L_NUM_U32_STRICT_ADD_PANIC_%out_value
+
+L_NUM_U32_STRICT_ADD_PANIC_%out_value:
+    panic(2205)
+
+L_NUM_U32_STRICT_ADD_OK_%out_value:
+    !__num_u32_strict_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_SUB __num_u8_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u8_strict_sub_ok_%out_value -> L_NUM_U8_STRICT_SUB_OK_%out_value, L_NUM_U8_STRICT_SUB_PANIC_%out_value
+
+L_NUM_U8_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_U8_STRICT_SUB_OK_%out_value:
+    !__num_u8_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_SUB __num_u16_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u16_strict_sub_ok_%out_value -> L_NUM_U16_STRICT_SUB_OK_%out_value, L_NUM_U16_STRICT_SUB_PANIC_%out_value
+
+L_NUM_U16_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_U16_STRICT_SUB_OK_%out_value:
+    !__num_u16_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_SUB __num_u32_strict_sub_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u32_strict_sub_ok_%out_value -> L_NUM_U32_STRICT_SUB_OK_%out_value, L_NUM_U32_STRICT_SUB_PANIC_%out_value
+
+L_NUM_U32_STRICT_SUB_PANIC_%out_value:
+    panic(2206)
+
+L_NUM_U32_STRICT_SUB_OK_%out_value:
+    !__num_u32_strict_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_MUL __num_u8_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u8_strict_mul_ok_%out_value -> L_NUM_U8_STRICT_MUL_OK_%out_value, L_NUM_U8_STRICT_MUL_PANIC_%out_value
+
+L_NUM_U8_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_U8_STRICT_MUL_OK_%out_value:
+    !__num_u8_strict_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_MUL __num_u16_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u16_strict_mul_ok_%out_value -> L_NUM_U16_STRICT_MUL_OK_%out_value, L_NUM_U16_STRICT_MUL_PANIC_%out_value
+
+L_NUM_U16_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_U16_STRICT_MUL_OK_%out_value:
+    !__num_u16_strict_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_MUL __num_u32_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
+    br __num_u32_strict_mul_ok_%out_value -> L_NUM_U32_STRICT_MUL_OK_%out_value, L_NUM_U32_STRICT_MUL_PANIC_%out_value
+
+L_NUM_U32_STRICT_MUL_PANIC_%out_value:
+    panic(2207)
+
+L_NUM_U32_STRICT_MUL_OK_%out_value:
+    !__num_u32_strict_mul_ok_%out_value
 [END_MACRO]
 
 [MACRO] NUM_U8_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
@@ -6472,8 +6740,16 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
     EXPAND NUM_U64_CHECKED_SUB %out_ok, %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_USIZE_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_U64_STRICT_SUB %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_USIZE_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs
     EXPAND NUM_U64_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_U64_STRICT_MUL %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_USIZE_CHECKED_POW %out_ok, %out_value, %base, %exp
@@ -6666,6 +6942,18 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_ISIZE_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs
     EXPAND NUM_I64_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_STRICT_ADD %out_value, %lhs, %rhs
+    EXPAND NUM_I64_STRICT_ADD %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_STRICT_SUB %out_value, %lhs, %rhs
+    EXPAND NUM_I64_STRICT_SUB %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_STRICT_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_I64_STRICT_MUL %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_CHECKED_DIV %out_ok, %out_value, %lhs, %rhs
