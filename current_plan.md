@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 hash unit)
+
+Completed supportable unit hash macros:
+- `DEFAULT_HASHER_WRITE_UNIT`: concrete no-op writer for Rust `Hash for ()`, taking an ignored placeholder unit value to fit SA macro invocation syntax.
+- `HASH_UNIT`: direct one-shot hash helper for unit, finishing a fresh deterministic `DefaultHasher` without changing state.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_UNIT` and `RANDOM_STATE_HASH_ONE_UNIT`: concrete Rust `BuildHasher::hash_one(())` lowering over the existing deterministic builder surfaces.
+- Test file `std_hash_unit_macro_surface.sa` (panic ID 10563).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_unit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10564+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, tuple `Hash`, `u128` / `i128` hasher write support, generic `RandomState` collection integration, real randomized SipHash keys, Rust `HashMap` trait wiring, real Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 hash_one bool/char)
 
 Completed supportable bool/char `hash_one` macros:

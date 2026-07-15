@@ -89,6 +89,11 @@
     !__hasher_ptr_bits_%hasher
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_UNIT %hasher, %unit
+    __hasher_unit_noop_%hasher = add %unit, 0
+    !__hasher_unit_noop_%hasher
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_LENGTH_PREFIX %hasher, %len
     EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %len
 [END_MACRO]
@@ -260,6 +265,13 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_ptr_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] HASH_UNIT %out_hash, %unit
+    __hash_unit_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_unit_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __hash_unit_hasher_%out_hash, %unit
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_unit_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] HASH_STR %out_hash, %slice_reg
     __hash_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND DEFAULT_HASHER_NEW __hash_str_hasher_%out_hash
@@ -400,6 +412,13 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_char_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_UNIT %out_hash, %builder, %unit
+    __build_hash_one_unit_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_unit_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __build_hash_one_unit_hasher_%out_hash, %unit
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_unit_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_STR %out_hash, %builder, %slice_reg
     __build_hash_one_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_str_hasher_%out_hash, %builder
@@ -535,6 +554,13 @@ L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_char_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_CHAR __random_state_hash_one_char_hasher_%out_hash, %code
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_char_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_UNIT %out_hash, %state, %unit
+    __random_state_hash_one_unit_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_unit_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_unit_hasher_%out_hash, %unit
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_unit_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] RANDOM_STATE_HASH_ONE_STR %out_hash, %state, %slice_reg

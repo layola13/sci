@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Hash unit macros
+
+- Continued Rust `std::hash` macro-surface parity, referencing Rust's local `Hash for ()` implementation under `/home/vscode/projects/rust`.
+- `sa_std/hash.sa`: added `DEFAULT_HASHER_WRITE_UNIT`, `HASH_UNIT`, `BUILD_HASHER_DEFAULT_HASH_ONE_UNIT`, and `RANDOM_STATE_HASH_ONE_UNIT`.
+- The helper surface models Rust unit hashing as a no-op on the current hasher. The macros take an ignored placeholder unit value because SA macro invocations require concrete argument syntax; that value is not mixed into the hasher state.
+- Test: `tests/unit_framework/std_hash_unit_macro_surface.sa` - 1 test (panic ID 10563) covering default unit hash, direct one-shot hash, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and no-op behavior after a prior write.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_unit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10564+.
+
 ## Completed: 2026-07-15 Hash_one bool/char macros
 
 - Continued Rust `std::hash` macro-surface parity, referencing Rust's local `BuildHasher::hash_one`, `Hash for bool`, and `Hash for char` implementations under `/home/vscode/projects/rust`.
