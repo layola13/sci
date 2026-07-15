@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Phantom marker hash_one)
+
+Completed supportable `PhantomData` / `PhantomPinned` hash macros:
+- `DEFAULT_HASHER_WRITE_PHANTOM_DATA` / `PHANTOM_DATA_HASH`: concrete Rust `Hash for PhantomData<T>` no-op shape for SA's existing zero-sized phantom token surface.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_PHANTOM_DATA` and `RANDOM_STATE_HASH_ONE_PHANTOM_DATA`: concrete `BuildHasher::hash_one` lowerings for the same no-op marker subset.
+- `DEFAULT_HASHER_WRITE_PHANTOM_PINNED` / `PHANTOM_PINNED_HASH`: concrete Rust derived zero-field `Hash` shape for SA's existing `PhantomPinned` token surface.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_PHANTOM_PINNED` and `RANDOM_STATE_HASH_ONE_PHANTOM_PINNED`: concrete `BuildHasher::hash_one` lowerings for the same zero-sized marker subset.
+- This follows Rust's current `core::marker::PhantomData<T>` explicit empty `Hash::hash` implementation and `PhantomPinned` zero-field derived `Hash`. It does not expose generic marker trait dispatch, drop-check/lifetime semantics, full pinning semantics, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_marker_hash_one_macro_surface.sa` (panic ID 10596).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_marker_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10597+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, real marker trait solver / auto-trait inference, `PhantomData<T>` drop-check and ownership effects, full pinning semantics, `u128` / `i128`, generic `NonZero<T>`, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping/Saturating hash_one)
 
 Completed supportable `Wrapping` / `Saturating` hash macros:

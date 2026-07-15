@@ -1,4 +1,5 @@
 @import "marker.sal"
+@import "hash.sa"
 
 [MACRO] MARKER_ZST_SIZE %out_size
     %out_size = add 0, 0
@@ -26,6 +27,31 @@
 
 [MACRO] PHANTOM_DATA_CMP %out_ordering, %left_token, %right_token
     %out_ordering = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_PHANTOM_DATA %hasher, %phantom_token
+    EXPAND DEFAULT_HASHER_WRITE_UNIT %hasher, %phantom_token
+[END_MACRO]
+
+[MACRO] PHANTOM_DATA_HASH %out_hash, %phantom_token
+    __phantom_data_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __phantom_data_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_PHANTOM_DATA __phantom_data_hash_hasher_%out_hash, %phantom_token
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __phantom_data_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_PHANTOM_DATA %out_hash, %builder, %phantom_token
+    __build_hash_one_phantom_data_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_phantom_data_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_PHANTOM_DATA __build_hash_one_phantom_data_hasher_%out_hash, %phantom_token
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_phantom_data_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_PHANTOM_DATA %out_hash, %state, %phantom_token
+    __random_state_hash_one_phantom_data_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_phantom_data_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_PHANTOM_DATA __random_state_hash_one_phantom_data_hasher_%out_hash, %phantom_token
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_phantom_data_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] PHANTOM_DATA_IS_COPY %out_bool
@@ -58,6 +84,31 @@
 
 [MACRO] PHANTOM_PINNED_CMP %out_ordering, %left_token, %right_token
     %out_ordering = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_PHANTOM_PINNED %hasher, %pinned_token
+    EXPAND DEFAULT_HASHER_WRITE_UNIT %hasher, %pinned_token
+[END_MACRO]
+
+[MACRO] PHANTOM_PINNED_HASH %out_hash, %pinned_token
+    __phantom_pinned_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __phantom_pinned_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_PHANTOM_PINNED __phantom_pinned_hash_hasher_%out_hash, %pinned_token
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __phantom_pinned_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_PHANTOM_PINNED %out_hash, %builder, %pinned_token
+    __build_hash_one_phantom_pinned_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_phantom_pinned_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_PHANTOM_PINNED __build_hash_one_phantom_pinned_hasher_%out_hash, %pinned_token
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_phantom_pinned_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_PHANTOM_PINNED %out_hash, %state, %pinned_token
+    __random_state_hash_one_phantom_pinned_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_phantom_pinned_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_PHANTOM_PINNED __random_state_hash_one_phantom_pinned_hasher_%out_hash, %pinned_token
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_phantom_pinned_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] PHANTOM_PINNED_IS_COPY %out_bool

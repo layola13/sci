@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Phantom marker hash_one macros
+
+- Continued Rust `std::hash` / `std::marker::{PhantomData,PhantomPinned}` macro-surface parity, referencing Rust's local `core::marker` implementation under `/home/vscode/projects/rust`.
+- `sa_std/marker.sa`: added `DEFAULT_HASHER_WRITE_PHANTOM_DATA`, `PHANTOM_DATA_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_PHANTOM_DATA`, `RANDOM_STATE_HASH_ONE_PHANTOM_DATA`, `DEFAULT_HASHER_WRITE_PHANTOM_PINNED`, `PHANTOM_PINNED_HASH`, `BUILD_HASHER_DEFAULT_HASH_ONE_PHANTOM_PINNED`, and `RANDOM_STATE_HASH_ONE_PHANTOM_PINNED`.
+- The helper surface models Rust's supportable zero-sized/no-op hashing shape for SA marker tokens. `PhantomData<T>` hashing does not write to the hasher, and `PhantomPinned` hashes as a zero-field derived `Hash`. It does not claim generic marker trait dispatch, drop-check/lifetime effects, full pinning semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_marker_hash_one_macro_surface.sa` - 1 test (panic ID 10596) covering writer/direct equivalence, unit/no-op parity, ignored marker token values, `BuildHasherDefault::hash_one`, and deterministic `RandomState::hash_one`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_marker_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10597+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating hash_one macros
 
 - Continued Rust `std::hash` / `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `core::num` transparent tuple structs with derived `Hash` under `/home/vscode/projects/rust`.
