@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero unsigned div_ceil)
+
+Completed supportable NonZero unsigned div_ceil helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE}_DIV_CEIL`: concrete Rust `NonZero<T>::div_ceil` shape for SA's existing unsigned NonZero integer layouts, writing the primitive unsigned ceil-division result of two nonzero wrappers into a destination wrapper.
+- This follows Rust's current unsigned-only `core::num::NonZero<T>` inherent `div_ceil` implementation for the existing SA unsigned integer widths. It deliberately does not expose signed NonZero variants, generic `NonZero<T>`, `u128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test file `std_num_nonzero_div_ceil_macro_surface.sa` (panic ID 10614).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_div_ceil_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10615+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero unsigned midpoint)
 
 Completed supportable NonZero unsigned midpoint helpers:

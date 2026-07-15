@@ -260,6 +260,16 @@ L_NONZERO_SIGNED_MAX_DONE_%out_nz:
     !__nonzero_u64_mid_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U64_DIV_CEIL %out_nz, %left_nz, %right_nz
+    __nonzero_u64_div_ceil_left_%out_nz = load %left_nz+NonZeroU64_value as u64
+    __nonzero_u64_div_ceil_right_%out_nz = load %right_nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_DIV_CEIL __nonzero_u64_div_ceil_value_%out_nz, __nonzero_u64_div_ceil_left_%out_nz, __nonzero_u64_div_ceil_right_%out_nz
+    store %out_nz+NonZeroU64_value, __nonzero_u64_div_ceil_value_%out_nz as u64
+    !__nonzero_u64_div_ceil_value_%out_nz
+    !__nonzero_u64_div_ceil_right_%out_nz
+    !__nonzero_u64_div_ceil_left_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U32_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU32_value
 [END_MACRO]
@@ -308,6 +318,16 @@ L_NONZERO_SIGNED_MAX_DONE_%out_nz:
     !__nonzero_u32_mid_value_%out_nz
     !__nonzero_u32_mid_right_%out_nz
     !__nonzero_u32_mid_left_%out_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_DIV_CEIL %out_nz, %left_nz, %right_nz
+    __nonzero_u32_div_ceil_left_%out_nz = load %left_nz+NonZeroU32_value as u64
+    __nonzero_u32_div_ceil_right_%out_nz = load %right_nz+NonZeroU32_value as u64
+    EXPAND NUM_U64_DIV_CEIL __nonzero_u32_div_ceil_value_%out_nz, __nonzero_u32_div_ceil_left_%out_nz, __nonzero_u32_div_ceil_right_%out_nz
+    store %out_nz+NonZeroU32_value, __nonzero_u32_div_ceil_value_%out_nz as u64
+    !__nonzero_u32_div_ceil_value_%out_nz
+    !__nonzero_u32_div_ceil_right_%out_nz
+    !__nonzero_u32_div_ceil_left_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_U16_EQ %out_bool, %left_nz, %right_nz
@@ -360,6 +380,16 @@ L_NONZERO_SIGNED_MAX_DONE_%out_nz:
     !__nonzero_u16_mid_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U16_DIV_CEIL %out_nz, %left_nz, %right_nz
+    __nonzero_u16_div_ceil_left_%out_nz = load %left_nz+NonZeroU16_value as u64
+    __nonzero_u16_div_ceil_right_%out_nz = load %right_nz+NonZeroU16_value as u64
+    EXPAND NUM_U64_DIV_CEIL __nonzero_u16_div_ceil_value_%out_nz, __nonzero_u16_div_ceil_left_%out_nz, __nonzero_u16_div_ceil_right_%out_nz
+    store %out_nz+NonZeroU16_value, __nonzero_u16_div_ceil_value_%out_nz as u64
+    !__nonzero_u16_div_ceil_value_%out_nz
+    !__nonzero_u16_div_ceil_right_%out_nz
+    !__nonzero_u16_div_ceil_left_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_U8_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroU8_value
 [END_MACRO]
@@ -410,6 +440,16 @@ L_NONZERO_SIGNED_MAX_DONE_%out_nz:
     !__nonzero_u8_mid_left_%out_nz
 [END_MACRO]
 
+[MACRO] NONZERO_U8_DIV_CEIL %out_nz, %left_nz, %right_nz
+    __nonzero_u8_div_ceil_left_%out_nz = load %left_nz+NonZeroU8_value as u64
+    __nonzero_u8_div_ceil_right_%out_nz = load %right_nz+NonZeroU8_value as u64
+    EXPAND NUM_U64_DIV_CEIL __nonzero_u8_div_ceil_value_%out_nz, __nonzero_u8_div_ceil_left_%out_nz, __nonzero_u8_div_ceil_right_%out_nz
+    store %out_nz+NonZeroU8_value, __nonzero_u8_div_ceil_value_%out_nz as u64
+    !__nonzero_u8_div_ceil_value_%out_nz
+    !__nonzero_u8_div_ceil_right_%out_nz
+    !__nonzero_u8_div_ceil_left_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_USIZE_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_UNSIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroUsize_value
 [END_MACRO]
@@ -452,6 +492,10 @@ L_NONZERO_SIGNED_MAX_DONE_%out_nz:
 
 [MACRO] NONZERO_USIZE_MIDPOINT %out_nz, %left_nz, %right_nz
     EXPAND NONZERO_U64_MIDPOINT %out_nz, %left_nz, %right_nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_DIV_CEIL %out_nz, %left_nz, %right_nz
+    EXPAND NONZERO_U64_DIV_CEIL %out_nz, %left_nz, %right_nz
 [END_MACRO]
 
 [MACRO] NONZERO_I64_EQ %out_bool, %left_nz, %right_nz
