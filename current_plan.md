@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Reverse hash_one)
+
+Completed supportable `cmp::Reverse` hash macros:
+- `DEFAULT_HASHER_WRITE_CMP_REVERSE_U64` / `CMP_REVERSE_U64_HASH`: concrete Rust derived single-field `Hash` shape for SA's existing `Reverse<u64>` transparent layout, by loading the inner value and hashing it through the `u64` writer.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_CMP_REVERSE_U64` and `RANDOM_STATE_HASH_ONE_CMP_REVERSE_U64`: concrete `BuildHasher::hash_one` lowerings for the same `Reverse<u64>` subset.
+- `DEFAULT_HASHER_WRITE_CMP_REVERSE_I64` / `CMP_REVERSE_I64_HASH`: concrete Rust derived single-field `Hash` shape for SA's existing `Reverse<i64>` transparent layout.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_CMP_REVERSE_I64` and `RANDOM_STATE_HASH_ONE_CMP_REVERSE_I64`: concrete `BuildHasher::hash_one` lowerings for the same `Reverse<i64>` subset.
+- This follows Rust's current `core::cmp::Reverse<T>` `#[derive(Hash)]` and `#[repr(transparent)]` single-field wrapper shape. It does not expose generic `Reverse<T>`, generic trait dispatch, derived Debug/Clone beyond existing helpers, randomized `RandomState`, or SipHash compatibility.
+- Test file `std_cmp_reverse_hash_one_macro_surface.sa` (panic ID 10597).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_cmp_reverse_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10598+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `Reverse<T>` and comparison trait dispatch, real marker trait solver / auto-trait inference, `PhantomData<T>` drop-check and ownership effects, full pinning semantics, `u128` / `i128`, generic `NonZero<T>`, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Windows path prefixes/verbatim semantics, Rust platform encoding objects, true component iterator objects, Rust iterator trait hierarchy, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Phantom marker hash_one)
 
 Completed supportable `PhantomData` / `PhantomPinned` hash macros:

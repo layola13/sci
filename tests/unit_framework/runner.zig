@@ -614,6 +614,7 @@ test "native unit framework covers sa_std macro surface suites" {
     const macro_surface_suites = [_][]const u8{
         "tests/unit_framework/std_ascii_macro_surface.sa",
         "tests/unit_framework/std_cmp_macro_surface.sa",
+        "tests/unit_framework/std_cmp_reverse_hash_one_macro_surface.sa",
         "tests/unit_framework/std_default_convert_macro_surface.sa",
         "tests/unit_framework/std_from_into_default_macro_surface.sa",
         "tests/unit_framework/std_into_naming_macro_surface.sa",

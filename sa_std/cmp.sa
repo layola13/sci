@@ -1,4 +1,5 @@
 @import "cmp.sal"
+@import "hash.sa"
 
 [MACRO] CMP_ORDERING_IS_LT %out_bool, %ordering
     %out_bool = eq %ordering, CMP_ORDERING_LESS
@@ -320,6 +321,33 @@ L_CMP_TRY_CLAMP_I64_END_%out_ok:
     !__cmp_reverse_u64_copy_value_%dst_reverse
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_CMP_REVERSE_U64 %hasher, %reverse_ptr
+    __cmp_reverse_u64_hash_value_%hasher = load %reverse_ptr+CmpReverseU64_value as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __cmp_reverse_u64_hash_value_%hasher
+    !__cmp_reverse_u64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_U64_HASH %out_hash, %reverse_ptr
+    __cmp_reverse_u64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __cmp_reverse_u64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CMP_REVERSE_U64 __cmp_reverse_u64_hash_hasher_%out_hash, %reverse_ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __cmp_reverse_u64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CMP_REVERSE_U64 %out_hash, %builder, %reverse_ptr
+    __build_hash_one_cmp_reverse_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_cmp_reverse_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CMP_REVERSE_U64 __build_hash_one_cmp_reverse_u64_hasher_%out_hash, %reverse_ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_cmp_reverse_u64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CMP_REVERSE_U64 %out_hash, %state, %reverse_ptr
+    __random_state_hash_one_cmp_reverse_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_cmp_reverse_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CMP_REVERSE_U64 __random_state_hash_one_cmp_reverse_u64_hasher_%out_hash, %reverse_ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_cmp_reverse_u64_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] CMP_REVERSE_U64_COMPARE %out_ordering, %lhs_reverse, %rhs_reverse
     __cmp_reverse_u64_lhs_%out_ordering = load %lhs_reverse+CmpReverseU64_value as u64
     __cmp_reverse_u64_rhs_%out_ordering = load %rhs_reverse+CmpReverseU64_value as u64
@@ -374,6 +402,33 @@ L_CMP_REVERSE_U64_MAX_DONE_%out_value:
     __cmp_reverse_i64_copy_value_%dst_reverse = load %src_reverse+CmpReverseI64_value as i64
     store %dst_reverse+CmpReverseI64_value, __cmp_reverse_i64_copy_value_%dst_reverse as i64
     !__cmp_reverse_i64_copy_value_%dst_reverse
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_CMP_REVERSE_I64 %hasher, %reverse_ptr
+    __cmp_reverse_i64_hash_value_%hasher = load %reverse_ptr+CmpReverseI64_value as i64
+    EXPAND DEFAULT_HASHER_WRITE_I64 %hasher, __cmp_reverse_i64_hash_value_%hasher
+    !__cmp_reverse_i64_hash_value_%hasher
+[END_MACRO]
+
+[MACRO] CMP_REVERSE_I64_HASH %out_hash, %reverse_ptr
+    __cmp_reverse_i64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __cmp_reverse_i64_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CMP_REVERSE_I64 __cmp_reverse_i64_hash_hasher_%out_hash, %reverse_ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __cmp_reverse_i64_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CMP_REVERSE_I64 %out_hash, %builder, %reverse_ptr
+    __build_hash_one_cmp_reverse_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_cmp_reverse_i64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CMP_REVERSE_I64 __build_hash_one_cmp_reverse_i64_hasher_%out_hash, %reverse_ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_cmp_reverse_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CMP_REVERSE_I64 %out_hash, %state, %reverse_ptr
+    __random_state_hash_one_cmp_reverse_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_cmp_reverse_i64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CMP_REVERSE_I64 __random_state_hash_one_cmp_reverse_i64_hasher_%out_hash, %reverse_ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_cmp_reverse_i64_hasher_%out_hash
 [END_MACRO]
 
 [MACRO] CMP_REVERSE_I64_COMPARE %out_ordering, %lhs_reverse, %rhs_reverse
