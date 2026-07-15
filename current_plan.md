@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 Wrapping/Saturating bit transforms)
+
+Completed supportable Wrapping/Saturating bit-transform helpers:
+- `WRAPPING_{U64,U32,I64}_ROTATE_LEFT`, `*_ROTATE_RIGHT`, `*_REVERSE_BITS`, `*_SWAP_BYTES`, `*_TO_BE`, `*_FROM_BE`, `*_TO_LE`, and `*_FROM_LE`: concrete Rust `Wrapping<T>` inherent bit-transform/endian forwarding shape for SA's existing wrapper layouts, writing transformed inner primitive values into destination wrappers.
+- `SATURATING_{U64,I64}_ROTATE_LEFT`, `*_ROTATE_RIGHT`, `*_REVERSE_BITS`, `*_SWAP_BYTES`, `*_TO_BE`, `*_FROM_BE`, `*_TO_LE`, and `*_FROM_LE`: matching Rust `Saturating<T>` inherent bit-transform/endian forwarding shape for the existing saturating wrapper layouts.
+- `WrappingU32` masks and rotates/reverses within the concrete 32-bit storage width. Signed `i64` wrappers preserve Rust's two's-complement bit-pattern behavior through the existing primitive helper surface.
+- This follows Rust's current `core::num::{Wrapping,Saturating}` forwarding methods for the existing SA wrapper widths. It deliberately does not expose generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, nightly feature-gate modeling, or generic trait/type-level integration.
+- Test file `std_num_wrapping_saturating_bit_transform_macro_surface.sa` (panic ID 10618).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_bit_transform_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10619+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Wrapping/Saturating bit counts)
 
 Completed supportable Wrapping/Saturating bit-count helpers:

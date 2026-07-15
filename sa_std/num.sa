@@ -8966,6 +8966,70 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     !__wrapping_u64_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] WRAPPING_U64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
+    EXPAND WRAPPING_U64_GET __wrapping_u64_rotl_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_LEFT __wrapping_u64_rotl_result_%out_ptr, __wrapping_u64_rotl_value_%out_ptr, %shift
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_rotl_result_%out_ptr
+    !__wrapping_u64_rotl_result_%out_ptr
+    !__wrapping_u64_rotl_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_ROTATE_RIGHT %out_ptr, %src_ptr, %shift
+    EXPAND WRAPPING_U64_GET __wrapping_u64_rotr_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_RIGHT __wrapping_u64_rotr_result_%out_ptr, __wrapping_u64_rotr_value_%out_ptr, %shift
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_rotr_result_%out_ptr
+    !__wrapping_u64_rotr_result_%out_ptr
+    !__wrapping_u64_rotr_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_REVERSE_BITS %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_rev_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_REVERSE_BITS __wrapping_u64_rev_result_%out_ptr, __wrapping_u64_rev_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_rev_result_%out_ptr
+    !__wrapping_u64_rev_result_%out_ptr
+    !__wrapping_u64_rev_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_SWAP_BYTES %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_swap_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_SWAP_BYTES __wrapping_u64_swap_result_%out_ptr, __wrapping_u64_swap_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_swap_result_%out_ptr
+    !__wrapping_u64_swap_result_%out_ptr
+    !__wrapping_u64_swap_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_TO_BE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_to_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_TO_BE __wrapping_u64_to_be_result_%out_ptr, __wrapping_u64_to_be_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_to_be_result_%out_ptr
+    !__wrapping_u64_to_be_result_%out_ptr
+    !__wrapping_u64_to_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_FROM_BE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_from_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_FROM_BE __wrapping_u64_from_be_result_%out_ptr, __wrapping_u64_from_be_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_from_be_result_%out_ptr
+    !__wrapping_u64_from_be_result_%out_ptr
+    !__wrapping_u64_from_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_TO_LE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_to_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_TO_LE __wrapping_u64_to_le_result_%out_ptr, __wrapping_u64_to_le_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_to_le_result_%out_ptr
+    !__wrapping_u64_to_le_result_%out_ptr
+    !__wrapping_u64_to_le_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U64_FROM_LE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U64_GET __wrapping_u64_from_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_FROM_LE __wrapping_u64_from_le_result_%out_ptr, __wrapping_u64_from_le_value_%out_ptr
+    EXPAND WRAPPING_U64_NEW %out_ptr, __wrapping_u64_from_le_result_%out_ptr
+    !__wrapping_u64_from_le_result_%out_ptr
+    !__wrapping_u64_from_le_value_%out_ptr
+[END_MACRO]
+
 [MACRO] WRAPPING_U32_NEW %out_ptr, %value
     store %out_ptr+WrappingU32_value, %value as u64
 [END_MACRO]
@@ -9038,6 +9102,70 @@ L_WRAPPING_U32_TRAILING_ZEROS_ZERO_%out_count:
 L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
 [END_MACRO]
 
+[MACRO] WRAPPING_U32_ROTATE_LEFT %out_ptr, %src_ptr, %shift
+    EXPAND WRAPPING_U32_GET __wrapping_u32_rotl_value_%out_ptr, %src_ptr
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __wrapping_u32_rotl_result_%out_ptr, __wrapping_u32_rotl_value_%out_ptr, %shift, NUM_U32_BITS, NUM_U32_MAX
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_rotl_result_%out_ptr
+    !__wrapping_u32_rotl_result_%out_ptr
+    !__wrapping_u32_rotl_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_ROTATE_RIGHT %out_ptr, %src_ptr, %shift
+    EXPAND WRAPPING_U32_GET __wrapping_u32_rotr_value_%out_ptr, %src_ptr
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __wrapping_u32_rotr_result_%out_ptr, __wrapping_u32_rotr_value_%out_ptr, %shift, NUM_U32_BITS, NUM_U32_MAX
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_rotr_result_%out_ptr
+    !__wrapping_u32_rotr_result_%out_ptr
+    !__wrapping_u32_rotr_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_REVERSE_BITS %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_rev_value_%out_ptr, %src_ptr
+    EXPAND NONZERO_UNSIGNED_WIDTH_REVERSE_BITS __wrapping_u32_rev_result_%out_ptr, __wrapping_u32_rev_value_%out_ptr, NUM_U32_BITS, NUM_U32_MAX
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_rev_result_%out_ptr
+    !__wrapping_u32_rev_result_%out_ptr
+    !__wrapping_u32_rev_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_SWAP_BYTES %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_swap_value_%out_ptr, %src_ptr
+    EXPAND NUM_U32_SWAP_BYTES __wrapping_u32_swap_result_%out_ptr, __wrapping_u32_swap_value_%out_ptr
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_swap_result_%out_ptr
+    !__wrapping_u32_swap_result_%out_ptr
+    !__wrapping_u32_swap_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_TO_BE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_to_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_U32_TO_BE __wrapping_u32_to_be_result_%out_ptr, __wrapping_u32_to_be_value_%out_ptr
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_to_be_result_%out_ptr
+    !__wrapping_u32_to_be_result_%out_ptr
+    !__wrapping_u32_to_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_FROM_BE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_from_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_U32_FROM_BE __wrapping_u32_from_be_result_%out_ptr, __wrapping_u32_from_be_value_%out_ptr
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_from_be_result_%out_ptr
+    !__wrapping_u32_from_be_result_%out_ptr
+    !__wrapping_u32_from_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_TO_LE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_to_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_U32_TO_LE __wrapping_u32_to_le_result_%out_ptr, __wrapping_u32_to_le_value_%out_ptr
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_to_le_result_%out_ptr
+    !__wrapping_u32_to_le_result_%out_ptr
+    !__wrapping_u32_to_le_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_FROM_LE %out_ptr, %src_ptr
+    EXPAND WRAPPING_U32_GET __wrapping_u32_from_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_U32_FROM_LE __wrapping_u32_from_le_result_%out_ptr, __wrapping_u32_from_le_value_%out_ptr
+    EXPAND WRAPPING_U32_NEW %out_ptr, __wrapping_u32_from_le_result_%out_ptr
+    !__wrapping_u32_from_le_result_%out_ptr
+    !__wrapping_u32_from_le_value_%out_ptr
+[END_MACRO]
+
 [MACRO] WRAPPING_I64_NEW %out_ptr, %value
     store %out_ptr+WrappingI64_value, %value as u64
 [END_MACRO]
@@ -9086,6 +9214,70 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND WRAPPING_I64_GET __wrapping_i64_tz_value_%out_count, %src_ptr
     EXPAND NUM_I64_TRAILING_ZEROS %out_count, __wrapping_i64_tz_value_%out_count
     !__wrapping_i64_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
+    EXPAND WRAPPING_I64_GET __wrapping_i64_rotl_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_LEFT __wrapping_i64_rotl_result_%out_ptr, __wrapping_i64_rotl_value_%out_ptr, %shift
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_rotl_result_%out_ptr
+    !__wrapping_i64_rotl_result_%out_ptr
+    !__wrapping_i64_rotl_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_ROTATE_RIGHT %out_ptr, %src_ptr, %shift
+    EXPAND WRAPPING_I64_GET __wrapping_i64_rotr_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_RIGHT __wrapping_i64_rotr_result_%out_ptr, __wrapping_i64_rotr_value_%out_ptr, %shift
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_rotr_result_%out_ptr
+    !__wrapping_i64_rotr_result_%out_ptr
+    !__wrapping_i64_rotr_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_REVERSE_BITS %out_ptr, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_rev_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_REVERSE_BITS __wrapping_i64_rev_result_%out_ptr, __wrapping_i64_rev_value_%out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_rev_result_%out_ptr
+    !__wrapping_i64_rev_result_%out_ptr
+    !__wrapping_i64_rev_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_SWAP_BYTES %out_ptr, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_swap_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_SWAP_BYTES __wrapping_i64_swap_result_%out_ptr, __wrapping_i64_swap_value_%out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_swap_result_%out_ptr
+    !__wrapping_i64_swap_result_%out_ptr
+    !__wrapping_i64_swap_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_TO_BE %out_ptr, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_to_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_TO_BE __wrapping_i64_to_be_result_%out_ptr, __wrapping_i64_to_be_value_%out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_to_be_result_%out_ptr
+    !__wrapping_i64_to_be_result_%out_ptr
+    !__wrapping_i64_to_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_FROM_BE %out_ptr, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_from_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_FROM_BE __wrapping_i64_from_be_result_%out_ptr, __wrapping_i64_from_be_value_%out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_from_be_result_%out_ptr
+    !__wrapping_i64_from_be_result_%out_ptr
+    !__wrapping_i64_from_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_TO_LE %out_ptr, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_to_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_TO_LE __wrapping_i64_to_le_result_%out_ptr, __wrapping_i64_to_le_value_%out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_to_le_result_%out_ptr
+    !__wrapping_i64_to_le_result_%out_ptr
+    !__wrapping_i64_to_le_value_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_FROM_LE %out_ptr, %src_ptr
+    EXPAND WRAPPING_I64_GET __wrapping_i64_from_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_FROM_LE __wrapping_i64_from_le_result_%out_ptr, __wrapping_i64_from_le_value_%out_ptr
+    EXPAND WRAPPING_I64_NEW %out_ptr, __wrapping_i64_from_le_result_%out_ptr
+    !__wrapping_i64_from_le_result_%out_ptr
+    !__wrapping_i64_from_le_value_%out_ptr
 [END_MACRO]
 
 [MACRO] SATURATING_U64_NEW %out_ptr, %value
@@ -9142,6 +9334,70 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     !__saturating_u64_tz_value_%out_count
 [END_MACRO]
 
+[MACRO] SATURATING_U64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
+    EXPAND SATURATING_U64_GET __saturating_u64_rotl_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_LEFT __saturating_u64_rotl_result_%out_ptr, __saturating_u64_rotl_value_%out_ptr, %shift
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_rotl_result_%out_ptr
+    !__saturating_u64_rotl_result_%out_ptr
+    !__saturating_u64_rotl_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_ROTATE_RIGHT %out_ptr, %src_ptr, %shift
+    EXPAND SATURATING_U64_GET __saturating_u64_rotr_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_RIGHT __saturating_u64_rotr_result_%out_ptr, __saturating_u64_rotr_value_%out_ptr, %shift
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_rotr_result_%out_ptr
+    !__saturating_u64_rotr_result_%out_ptr
+    !__saturating_u64_rotr_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_REVERSE_BITS %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_rev_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_REVERSE_BITS __saturating_u64_rev_result_%out_ptr, __saturating_u64_rev_value_%out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_rev_result_%out_ptr
+    !__saturating_u64_rev_result_%out_ptr
+    !__saturating_u64_rev_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_SWAP_BYTES %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_swap_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_SWAP_BYTES __saturating_u64_swap_result_%out_ptr, __saturating_u64_swap_value_%out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_swap_result_%out_ptr
+    !__saturating_u64_swap_result_%out_ptr
+    !__saturating_u64_swap_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_TO_BE %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_to_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_TO_BE __saturating_u64_to_be_result_%out_ptr, __saturating_u64_to_be_value_%out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_to_be_result_%out_ptr
+    !__saturating_u64_to_be_result_%out_ptr
+    !__saturating_u64_to_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_FROM_BE %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_from_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_FROM_BE __saturating_u64_from_be_result_%out_ptr, __saturating_u64_from_be_value_%out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_from_be_result_%out_ptr
+    !__saturating_u64_from_be_result_%out_ptr
+    !__saturating_u64_from_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_TO_LE %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_to_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_TO_LE __saturating_u64_to_le_result_%out_ptr, __saturating_u64_to_le_value_%out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_to_le_result_%out_ptr
+    !__saturating_u64_to_le_result_%out_ptr
+    !__saturating_u64_to_le_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_U64_FROM_LE %out_ptr, %src_ptr
+    EXPAND SATURATING_U64_GET __saturating_u64_from_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_FROM_LE __saturating_u64_from_le_result_%out_ptr, __saturating_u64_from_le_value_%out_ptr
+    EXPAND SATURATING_U64_NEW %out_ptr, __saturating_u64_from_le_result_%out_ptr
+    !__saturating_u64_from_le_result_%out_ptr
+    !__saturating_u64_from_le_value_%out_ptr
+[END_MACRO]
+
 [MACRO] SATURATING_I64_NEW %out_ptr, %value
     store %out_ptr+SaturatingI64_value, %value as u64
 [END_MACRO]
@@ -9190,6 +9446,70 @@ L_WRAPPING_U32_TRAILING_ZEROS_END_%out_count:
     EXPAND SATURATING_I64_GET __saturating_i64_tz_value_%out_count, %src_ptr
     EXPAND NUM_I64_TRAILING_ZEROS %out_count, __saturating_i64_tz_value_%out_count
     !__saturating_i64_tz_value_%out_count
+[END_MACRO]
+
+[MACRO] SATURATING_I64_ROTATE_LEFT %out_ptr, %src_ptr, %shift
+    EXPAND SATURATING_I64_GET __saturating_i64_rotl_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_LEFT __saturating_i64_rotl_result_%out_ptr, __saturating_i64_rotl_value_%out_ptr, %shift
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_rotl_result_%out_ptr
+    !__saturating_i64_rotl_result_%out_ptr
+    !__saturating_i64_rotl_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_ROTATE_RIGHT %out_ptr, %src_ptr, %shift
+    EXPAND SATURATING_I64_GET __saturating_i64_rotr_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_ROTATE_RIGHT __saturating_i64_rotr_result_%out_ptr, __saturating_i64_rotr_value_%out_ptr, %shift
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_rotr_result_%out_ptr
+    !__saturating_i64_rotr_result_%out_ptr
+    !__saturating_i64_rotr_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_REVERSE_BITS %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_rev_value_%out_ptr, %src_ptr
+    EXPAND NUM_U64_REVERSE_BITS __saturating_i64_rev_result_%out_ptr, __saturating_i64_rev_value_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_rev_result_%out_ptr
+    !__saturating_i64_rev_result_%out_ptr
+    !__saturating_i64_rev_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_SWAP_BYTES %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_swap_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_SWAP_BYTES __saturating_i64_swap_result_%out_ptr, __saturating_i64_swap_value_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_swap_result_%out_ptr
+    !__saturating_i64_swap_result_%out_ptr
+    !__saturating_i64_swap_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_TO_BE %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_to_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_TO_BE __saturating_i64_to_be_result_%out_ptr, __saturating_i64_to_be_value_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_to_be_result_%out_ptr
+    !__saturating_i64_to_be_result_%out_ptr
+    !__saturating_i64_to_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_FROM_BE %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_from_be_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_FROM_BE __saturating_i64_from_be_result_%out_ptr, __saturating_i64_from_be_value_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_from_be_result_%out_ptr
+    !__saturating_i64_from_be_result_%out_ptr
+    !__saturating_i64_from_be_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_TO_LE %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_to_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_TO_LE __saturating_i64_to_le_result_%out_ptr, __saturating_i64_to_le_value_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_to_le_result_%out_ptr
+    !__saturating_i64_to_le_result_%out_ptr
+    !__saturating_i64_to_le_value_%out_ptr
+[END_MACRO]
+
+[MACRO] SATURATING_I64_FROM_LE %out_ptr, %src_ptr
+    EXPAND SATURATING_I64_GET __saturating_i64_from_le_value_%out_ptr, %src_ptr
+    EXPAND NUM_I64_FROM_LE __saturating_i64_from_le_result_%out_ptr, __saturating_i64_from_le_value_%out_ptr
+    EXPAND SATURATING_I64_NEW %out_ptr, __saturating_i64_from_le_result_%out_ptr
+    !__saturating_i64_from_le_result_%out_ptr
+    !__saturating_i64_from_le_value_%out_ptr
 [END_MACRO]
 
 [MACRO] WRAPPING_U64_ADD %out_ptr, %lhs_ptr, %rhs_ptr

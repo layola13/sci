@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 Wrapping/Saturating bit-transform macros
+
+- Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `rotate_left`, `rotate_right`, `reverse_bits`, `swap_bytes`, `to_be`, `from_be`, `to_le`, and `from_le` forwarding methods under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added the bit-transform/endian helper set for `WrappingU64`, `WrappingU32`, `WrappingI64`, `SaturatingU64`, and `SaturatingI64`.
+- The helper surface writes transformed inner primitive values into destination wrappers. `WrappingU32` rotates/reverses within the concrete 32-bit width, and signed `i64` wrappers preserve the current two's-complement bit-pattern behavior through existing primitive helpers. It does not claim generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing wrapper widths, feature-gate modeling, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_wrapping_saturating_bit_transform_macro_surface.sa` - 1 test (panic ID 10618) expanding all 40 new macros and covering rotate, reverse, byte-swap, and endian conversion behavior across all five existing wrapper layouts.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_saturating_bit_transform_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10619+.
+
 ## Completed: 2026-07-15 Wrapping/Saturating bit-count macros
 
 - Continued Rust `std::num::{Wrapping,Saturating}` macro-surface parity, referencing Rust's local `count_ones`, `count_zeros`, `leading_zeros`, and `trailing_zeros` forwarding methods under `/home/vscode/projects/rust`.
