@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero integer rotate)
+
+Completed supportable NonZero integer rotate helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_ROTATE_LEFT` and matching `*_ROTATE_RIGHT`: concrete Rust `NonZero<T>::rotate_left/right` shape for SA's existing NonZero integer layouts, rotating the stored primitive bit-pattern by `shift % BITS` and writing the result into a destination wrapper.
+- Narrow unsigned wrappers rotate only their declared primitive width. Narrow signed wrappers rotate the declared bit width and sign-extend the result back to `i8` / `i16` / `i32` before reconstruction.
+- This follows Rust's current `core::num::NonZero<T>` inherent rotate implementation shape for the existing SA integer widths. It deliberately does not model Rust nightly feature-gate handling, generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test file `std_num_nonzero_rotate_macro_surface.sa` (panic ID 10609).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_rotate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10610+.
+Still blocked without redesign: Rust nightly feature-gate modeling, generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 NonZero integer reverse_bits)
 
 Completed supportable NonZero integer reverse_bits helpers:

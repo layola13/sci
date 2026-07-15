@@ -7658,6 +7658,60 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__nonzero_rev_masked_%out_value
 [END_MACRO]
 
+[MACRO] NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT %out_value, %value, %shift, %bits, %mask
+    __nonzero_rotl_value_%out_value = and %value, %mask
+    __nonzero_rotl_shift_%out_value = urem %shift, %bits
+    __nonzero_rotl_zero_%out_value = eq __nonzero_rotl_shift_%out_value, 0
+    br __nonzero_rotl_zero_%out_value -> L_NONZERO_UNSIGNED_WIDTH_ROTL_ZERO_%out_value, L_NONZERO_UNSIGNED_WIDTH_ROTL_BODY_%out_value
+L_NONZERO_UNSIGNED_WIDTH_ROTL_BODY_%out_value:
+    __nonzero_rotl_right_shift_%out_value = sub %bits, __nonzero_rotl_shift_%out_value
+    __nonzero_rotl_left_raw_%out_value = shl __nonzero_rotl_value_%out_value, __nonzero_rotl_shift_%out_value
+    __nonzero_rotl_left_%out_value = and __nonzero_rotl_left_raw_%out_value, %mask
+    __nonzero_rotl_right_%out_value = lshr __nonzero_rotl_value_%out_value, __nonzero_rotl_right_shift_%out_value
+    %out_value = or __nonzero_rotl_left_%out_value, __nonzero_rotl_right_%out_value
+    !__nonzero_rotl_right_%out_value
+    !__nonzero_rotl_left_%out_value
+    !__nonzero_rotl_left_raw_%out_value
+    !__nonzero_rotl_right_shift_%out_value
+    !__nonzero_rotl_zero_%out_value
+    !__nonzero_rotl_shift_%out_value
+    !__nonzero_rotl_value_%out_value
+    jmp L_NONZERO_UNSIGNED_WIDTH_ROTL_DONE_%out_value
+L_NONZERO_UNSIGNED_WIDTH_ROTL_ZERO_%out_value:
+    %out_value = add __nonzero_rotl_value_%out_value, 0
+    !__nonzero_rotl_zero_%out_value
+    !__nonzero_rotl_shift_%out_value
+    !__nonzero_rotl_value_%out_value
+L_NONZERO_UNSIGNED_WIDTH_ROTL_DONE_%out_value:
+[END_MACRO]
+
+[MACRO] NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT %out_value, %value, %shift, %bits, %mask
+    __nonzero_rotr_value_%out_value = and %value, %mask
+    __nonzero_rotr_shift_%out_value = urem %shift, %bits
+    __nonzero_rotr_zero_%out_value = eq __nonzero_rotr_shift_%out_value, 0
+    br __nonzero_rotr_zero_%out_value -> L_NONZERO_UNSIGNED_WIDTH_ROTR_ZERO_%out_value, L_NONZERO_UNSIGNED_WIDTH_ROTR_BODY_%out_value
+L_NONZERO_UNSIGNED_WIDTH_ROTR_BODY_%out_value:
+    __nonzero_rotr_left_shift_%out_value = sub %bits, __nonzero_rotr_shift_%out_value
+    __nonzero_rotr_right_%out_value = lshr __nonzero_rotr_value_%out_value, __nonzero_rotr_shift_%out_value
+    __nonzero_rotr_left_raw_%out_value = shl __nonzero_rotr_value_%out_value, __nonzero_rotr_left_shift_%out_value
+    __nonzero_rotr_left_%out_value = and __nonzero_rotr_left_raw_%out_value, %mask
+    %out_value = or __nonzero_rotr_left_%out_value, __nonzero_rotr_right_%out_value
+    !__nonzero_rotr_left_%out_value
+    !__nonzero_rotr_left_raw_%out_value
+    !__nonzero_rotr_right_%out_value
+    !__nonzero_rotr_left_shift_%out_value
+    !__nonzero_rotr_zero_%out_value
+    !__nonzero_rotr_shift_%out_value
+    !__nonzero_rotr_value_%out_value
+    jmp L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value
+L_NONZERO_UNSIGNED_WIDTH_ROTR_ZERO_%out_value:
+    %out_value = add __nonzero_rotr_value_%out_value, 0
+    !__nonzero_rotr_zero_%out_value
+    !__nonzero_rotr_shift_%out_value
+    !__nonzero_rotr_value_%out_value
+L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
+[END_MACRO]
+
 [MACRO] NONZERO_U64_REVERSE_BITS %out_ok, %out_nz, %nz
     __nonzero_u64_rev_value_%out_ok = load %nz+NonZeroU64_value as u64
     EXPAND NUM_U64_REVERSE_BITS __nonzero_u64_rev_result_%out_ok, __nonzero_u64_rev_value_%out_ok
@@ -7734,6 +7788,162 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
 
 [MACRO] NONZERO_ISIZE_REVERSE_BITS %out_ok, %out_nz, %nz
     EXPAND NONZERO_I64_REVERSE_BITS %out_ok, %out_nz, %nz
+[END_MACRO]
+
+[MACRO] NONZERO_U64_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u64_rotl_value_%out_ok = load %nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_ROTATE_LEFT __nonzero_u64_rotl_result_%out_ok, __nonzero_u64_rotl_value_%out_ok, %shift
+    EXPAND NONZERO_U64_NEW %out_ok, %out_nz, __nonzero_u64_rotl_result_%out_ok
+    !__nonzero_u64_rotl_result_%out_ok
+    !__nonzero_u64_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U64_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u64_rotr_value_%out_ok = load %nz+NonZeroU64_value as u64
+    EXPAND NUM_U64_ROTATE_RIGHT __nonzero_u64_rotr_result_%out_ok, __nonzero_u64_rotr_value_%out_ok, %shift
+    EXPAND NONZERO_U64_NEW %out_ok, %out_nz, __nonzero_u64_rotr_result_%out_ok
+    !__nonzero_u64_rotr_result_%out_ok
+    !__nonzero_u64_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I64_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i64_rotl_value_%out_ok = load %nz+NonZeroI64_value as i64
+    EXPAND NUM_U64_ROTATE_LEFT __nonzero_i64_rotl_result_%out_ok, __nonzero_i64_rotl_value_%out_ok, %shift
+    EXPAND NONZERO_I64_NEW %out_ok, %out_nz, __nonzero_i64_rotl_result_%out_ok
+    !__nonzero_i64_rotl_result_%out_ok
+    !__nonzero_i64_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I64_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i64_rotr_value_%out_ok = load %nz+NonZeroI64_value as i64
+    EXPAND NUM_U64_ROTATE_RIGHT __nonzero_i64_rotr_result_%out_ok, __nonzero_i64_rotr_value_%out_ok, %shift
+    EXPAND NONZERO_I64_NEW %out_ok, %out_nz, __nonzero_i64_rotr_result_%out_ok
+    !__nonzero_i64_rotr_result_%out_ok
+    !__nonzero_i64_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U8_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u8_rotl_value_%out_ok = load %nz+NonZeroU8_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __nonzero_u8_rotl_result_%out_ok, __nonzero_u8_rotl_value_%out_ok, %shift, NUM_U8_BITS, NUM_U8_MAX
+    EXPAND NONZERO_U8_NEW %out_ok, %out_nz, __nonzero_u8_rotl_result_%out_ok
+    !__nonzero_u8_rotl_result_%out_ok
+    !__nonzero_u8_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U8_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u8_rotr_value_%out_ok = load %nz+NonZeroU8_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __nonzero_u8_rotr_result_%out_ok, __nonzero_u8_rotr_value_%out_ok, %shift, NUM_U8_BITS, NUM_U8_MAX
+    EXPAND NONZERO_U8_NEW %out_ok, %out_nz, __nonzero_u8_rotr_result_%out_ok
+    !__nonzero_u8_rotr_result_%out_ok
+    !__nonzero_u8_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U16_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u16_rotl_value_%out_ok = load %nz+NonZeroU16_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __nonzero_u16_rotl_result_%out_ok, __nonzero_u16_rotl_value_%out_ok, %shift, NUM_U16_BITS, NUM_U16_MAX
+    EXPAND NONZERO_U16_NEW %out_ok, %out_nz, __nonzero_u16_rotl_result_%out_ok
+    !__nonzero_u16_rotl_result_%out_ok
+    !__nonzero_u16_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U16_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u16_rotr_value_%out_ok = load %nz+NonZeroU16_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __nonzero_u16_rotr_result_%out_ok, __nonzero_u16_rotr_value_%out_ok, %shift, NUM_U16_BITS, NUM_U16_MAX
+    EXPAND NONZERO_U16_NEW %out_ok, %out_nz, __nonzero_u16_rotr_result_%out_ok
+    !__nonzero_u16_rotr_result_%out_ok
+    !__nonzero_u16_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U32_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u32_rotl_value_%out_ok = load %nz+NonZeroU32_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __nonzero_u32_rotl_result_%out_ok, __nonzero_u32_rotl_value_%out_ok, %shift, NUM_U32_BITS, NUM_U32_MAX
+    EXPAND NONZERO_U32_NEW %out_ok, %out_nz, __nonzero_u32_rotl_result_%out_ok
+    !__nonzero_u32_rotl_result_%out_ok
+    !__nonzero_u32_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_U32_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_u32_rotr_value_%out_ok = load %nz+NonZeroU32_value as u64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __nonzero_u32_rotr_result_%out_ok, __nonzero_u32_rotr_value_%out_ok, %shift, NUM_U32_BITS, NUM_U32_MAX
+    EXPAND NONZERO_U32_NEW %out_ok, %out_nz, __nonzero_u32_rotr_result_%out_ok
+    !__nonzero_u32_rotr_result_%out_ok
+    !__nonzero_u32_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I8_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i8_rotl_value_%out_ok = load %nz+NonZeroI8_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __nonzero_i8_rotl_raw_%out_ok, __nonzero_i8_rotl_value_%out_ok, %shift, NUM_I8_BITS, NUM_U8_MAX
+    EXPAND NUM_I8_SIGN_EXTEND __nonzero_i8_rotl_result_%out_ok, __nonzero_i8_rotl_raw_%out_ok
+    EXPAND NONZERO_I8_NEW %out_ok, %out_nz, __nonzero_i8_rotl_result_%out_ok
+    !__nonzero_i8_rotl_result_%out_ok
+    !__nonzero_i8_rotl_raw_%out_ok
+    !__nonzero_i8_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I8_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i8_rotr_value_%out_ok = load %nz+NonZeroI8_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __nonzero_i8_rotr_raw_%out_ok, __nonzero_i8_rotr_value_%out_ok, %shift, NUM_I8_BITS, NUM_U8_MAX
+    EXPAND NUM_I8_SIGN_EXTEND __nonzero_i8_rotr_result_%out_ok, __nonzero_i8_rotr_raw_%out_ok
+    EXPAND NONZERO_I8_NEW %out_ok, %out_nz, __nonzero_i8_rotr_result_%out_ok
+    !__nonzero_i8_rotr_result_%out_ok
+    !__nonzero_i8_rotr_raw_%out_ok
+    !__nonzero_i8_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I16_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i16_rotl_value_%out_ok = load %nz+NonZeroI16_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __nonzero_i16_rotl_raw_%out_ok, __nonzero_i16_rotl_value_%out_ok, %shift, NUM_I16_BITS, NUM_U16_MAX
+    EXPAND NUM_I16_SIGN_EXTEND __nonzero_i16_rotl_result_%out_ok, __nonzero_i16_rotl_raw_%out_ok
+    EXPAND NONZERO_I16_NEW %out_ok, %out_nz, __nonzero_i16_rotl_result_%out_ok
+    !__nonzero_i16_rotl_result_%out_ok
+    !__nonzero_i16_rotl_raw_%out_ok
+    !__nonzero_i16_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I16_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i16_rotr_value_%out_ok = load %nz+NonZeroI16_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __nonzero_i16_rotr_raw_%out_ok, __nonzero_i16_rotr_value_%out_ok, %shift, NUM_I16_BITS, NUM_U16_MAX
+    EXPAND NUM_I16_SIGN_EXTEND __nonzero_i16_rotr_result_%out_ok, __nonzero_i16_rotr_raw_%out_ok
+    EXPAND NONZERO_I16_NEW %out_ok, %out_nz, __nonzero_i16_rotr_result_%out_ok
+    !__nonzero_i16_rotr_result_%out_ok
+    !__nonzero_i16_rotr_raw_%out_ok
+    !__nonzero_i16_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I32_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i32_rotl_value_%out_ok = load %nz+NonZeroI32_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_LEFT __nonzero_i32_rotl_raw_%out_ok, __nonzero_i32_rotl_value_%out_ok, %shift, NUM_I32_BITS, NUM_U32_MAX
+    EXPAND NUM_I32_SIGN_EXTEND __nonzero_i32_rotl_result_%out_ok, __nonzero_i32_rotl_raw_%out_ok
+    EXPAND NONZERO_I32_NEW %out_ok, %out_nz, __nonzero_i32_rotl_result_%out_ok
+    !__nonzero_i32_rotl_result_%out_ok
+    !__nonzero_i32_rotl_raw_%out_ok
+    !__nonzero_i32_rotl_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_I32_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    __nonzero_i32_rotr_value_%out_ok = load %nz+NonZeroI32_value as i64
+    EXPAND NONZERO_UNSIGNED_WIDTH_ROTATE_RIGHT __nonzero_i32_rotr_raw_%out_ok, __nonzero_i32_rotr_value_%out_ok, %shift, NUM_I32_BITS, NUM_U32_MAX
+    EXPAND NUM_I32_SIGN_EXTEND __nonzero_i32_rotr_result_%out_ok, __nonzero_i32_rotr_raw_%out_ok
+    EXPAND NONZERO_I32_NEW %out_ok, %out_nz, __nonzero_i32_rotr_result_%out_ok
+    !__nonzero_i32_rotr_result_%out_ok
+    !__nonzero_i32_rotr_raw_%out_ok
+    !__nonzero_i32_rotr_value_%out_ok
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    EXPAND NONZERO_U64_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    EXPAND NONZERO_U64_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+    EXPAND NONZERO_I64_ROTATE_LEFT %out_ok, %out_nz, %nz, %shift
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
+    EXPAND NONZERO_I64_ROTATE_RIGHT %out_ok, %out_nz, %nz, %shift
 [END_MACRO]
 
 [MACRO] NONZERO_U64_SWAP_BYTES %out_ok, %out_nz, %nz

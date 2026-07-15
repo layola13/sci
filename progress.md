@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer rotate macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `rotate_left` and `rotate_right` methods for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_ROTATE_LEFT` and `*_ROTATE_RIGHT` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface rotates each concrete wrapper's stored primitive bit-pattern by the requested count modulo its declared width and writes the nonzero result into a destination wrapper. Narrow signed wrappers sign-extend the rotated bit-pattern back to the declared signed width before reconstruction. It does not claim Rust nightly feature-gate handling, generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait/type-level integration.
+- Test: `tests/unit_framework/std_num_nonzero_rotate_macro_surface.sa` - 1 test (panic ID 10609) expanding all 20 new macros and covering declared-width unsigned/signed rotations plus signed low-bit rotation to the matching signed minimum value.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_rotate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10610+.
+
 ## Completed: 2026-07-15 NonZero integer reverse_bits macros
 
 - Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `reverse_bits` method for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
