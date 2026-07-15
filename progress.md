@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 VecDeque u64 hash_one macros
+
+- Continued Rust `std::hash` / `std::collections::VecDeque` macro-surface parity, referencing Rust's local `Hash for VecDeque<T, A>` implementation under `/home/vscode/projects/rust`.
+- `sa_std/vec_deque.sa`: added `DEFAULT_HASHER_WRITE_VEC_DEQUE_U64`, `VEC_DEQUE_HASH_U64`, `BUILD_HASHER_DEFAULT_HASH_ONE_VEC_DEQUE_U64`, and `RANDOM_STATE_HASH_ONE_VEC_DEQUE_U64`.
+- The helper surface models Rust's deque hash shape by hashing concrete `VecDeque<u64>` contents in logical front-to-back order through the existing `u64` slice hash path after making storage contiguous. It does not hash raw `as_slices` splits, whose lengths can differ for identical deques, and does not claim generic `VecDeque<T>`, allocator/drop semantics, randomized `RandomState`, or SipHash output compatibility.
+- Test: `tests/unit_framework/std_vec_deque_hash_one_macro_surface.sa` - 1 test (panic ID 10585) covering writer/direct equivalence with `SLICE_HASH_U64`, wrapped-ring logical order, equal-value deque construction, length/order sensitivity, `BuildHasherDefault::hash_one`, `RandomState::hash_one`, and mutation sensitivity after an additional push.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10586+.
+
 ## Completed: 2026-07-15 Cow slice u64 hash_one macros
 
 - Continued Rust `std::hash` / `std::borrow::Cow` macro-surface parity, referencing Rust's local `Hash for Cow<'_, B>` implementation under `/home/vscode/projects/rust`.

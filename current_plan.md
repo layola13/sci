@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 VecDeque u64 hash_one)
+
+Completed supportable deque hash macros:
+- `DEFAULT_HASHER_WRITE_VEC_DEQUE_U64`: concrete Rust `Hash for VecDeque<T>` shape for SA `VecDeque<u64>`, by forcing logical contents contiguous and writing the resulting slice through the existing `u64` slice hash path.
+- `VEC_DEQUE_HASH_U64`: direct one-shot helper for the same concrete subset.
+- `BUILD_HASHER_DEFAULT_HASH_ONE_VEC_DEQUE_U64` and `RANDOM_STATE_HASH_ONE_VEC_DEQUE_U64`: concrete `BuildHasher::hash_one` lowerings for `VecDeque<u64>` values.
+- This follows Rust's `VecDeque` `Hash` implementation by hashing the deque length and then elements in logical front-to-back order. It intentionally avoids hashing the raw `as_slices` split because Rust documents that identical deques can have different split lengths.
+- Test file `std_vec_deque_hash_one_macro_surface.sa` (panic ID 10585).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_hash_one_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10586+.
+Still blocked without redesign: trait-level `Hash` / `Hasher` / `BuildHasher`, generic primitive/container `Hash` impl dispatch, generic `VecDeque<T>` trait wiring, allocator/drop/borrow semantics, Rust iterator trait hierarchy, randomized `RandomState`, SipHash compatibility, const generics, generic `Try` residual/error object integration, generic `Option` / `Result` / `ControlFlow`, generic item/reference semantics, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Cow slice u64 hash_one)
 
 Completed supportable clone-on-write slice hash macros:
