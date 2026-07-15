@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-15 NonZero integer copy/clone)
+
+Completed supportable NonZero integer copy/clone helpers:
+- `NONZERO_{U8,U16,U32,U64,USIZE,I8,I16,I32,I64,ISIZE}_COPY`: concrete Rust `Copy` shape for SA's existing NonZero integer layouts, copying the stored primitive value to another wrapper slot.
+- Matching `*_CLONE` and `*_CLONE_FROM` helpers lower Rust's `Clone::clone` and `clone_from` behavior for the same concrete wrappers by reusing the copy path.
+- This follows Rust's current `core::num::NonZero<T>` transparent layout plus `Copy` and `Clone` implementations only for the existing SA integer widths. It deliberately does not expose `Default`, generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait dispatch.
+- Test file `std_num_nonzero_clone_macro_surface.sa` (panic ID 10604).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10605+.
+Still blocked without redesign: trait-level `Default` / `Copy` / `Clone` / `PartialEq` / `Eq` / `PartialOrd` / `Ord`, generic primitive/container trait impl dispatch, generic `NonZero<T>`, `u128` / `i128` and their NonZero variants, Rust niche optimization semantics, parser/formatter trait integration, `Ipv6Addr` / `SocketAddrV6` `u128::from_ne_bytes` hashing, `IpAddr` / `SocketAddr` enum trait hashing, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-15 Phantom marker extended traits)
 
 Completed supportable `PhantomData` / `PhantomPinned` derived/explicit trait helpers:

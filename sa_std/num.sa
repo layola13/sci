@@ -1,6 +1,146 @@
 @import "num.sal"
 @import "hash.sa"
 
+[MACRO] NONZERO_U64_COPY %dst_nz, %src_nz
+    __nonzero_u64_copy_value_%dst_nz = load %src_nz+NonZeroU64_value as u64
+    store %dst_nz+NonZeroU64_value, __nonzero_u64_copy_value_%dst_nz as u64
+    !__nonzero_u64_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U64_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_U64_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U64_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_U64_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_COPY %dst_nz, %src_nz
+    __nonzero_u32_copy_value_%dst_nz = load %src_nz+NonZeroU32_value as u64
+    store %dst_nz+NonZeroU32_value, __nonzero_u32_copy_value_%dst_nz as u64
+    !__nonzero_u32_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_U32_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U32_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_U32_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_COPY %dst_nz, %src_nz
+    __nonzero_u16_copy_value_%dst_nz = load %src_nz+NonZeroU16_value as u64
+    store %dst_nz+NonZeroU16_value, __nonzero_u16_copy_value_%dst_nz as u64
+    !__nonzero_u16_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_U16_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U16_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_U16_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U8_COPY %dst_nz, %src_nz
+    __nonzero_u8_copy_value_%dst_nz = load %src_nz+NonZeroU8_value as u64
+    store %dst_nz+NonZeroU8_value, __nonzero_u8_copy_value_%dst_nz as u64
+    !__nonzero_u8_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U8_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_U8_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_U8_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_U8_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_COPY %dst_nz, %src_nz
+    __nonzero_usize_copy_value_%dst_nz = load %src_nz+NonZeroUsize_value as u64
+    store %dst_nz+NonZeroUsize_value, __nonzero_usize_copy_value_%dst_nz as u64
+    !__nonzero_usize_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_USIZE_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_USIZE_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_USIZE_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_COPY %dst_nz, %src_nz
+    __nonzero_i64_copy_value_%dst_nz = load %src_nz+NonZeroI64_value as i64
+    store %dst_nz+NonZeroI64_value, __nonzero_i64_copy_value_%dst_nz as i64
+    !__nonzero_i64_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_I64_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I64_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_I64_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I32_COPY %dst_nz, %src_nz
+    __nonzero_i32_copy_value_%dst_nz = load %src_nz+NonZeroI32_value as i64
+    store %dst_nz+NonZeroI32_value, __nonzero_i32_copy_value_%dst_nz as i64
+    !__nonzero_i32_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I32_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_I32_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I32_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_I32_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_COPY %dst_nz, %src_nz
+    __nonzero_i16_copy_value_%dst_nz = load %src_nz+NonZeroI16_value as i64
+    store %dst_nz+NonZeroI16_value, __nonzero_i16_copy_value_%dst_nz as i64
+    !__nonzero_i16_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_I16_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I16_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_I16_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I8_COPY %dst_nz, %src_nz
+    __nonzero_i8_copy_value_%dst_nz = load %src_nz+NonZeroI8_value as i64
+    store %dst_nz+NonZeroI8_value, __nonzero_i8_copy_value_%dst_nz as i64
+    !__nonzero_i8_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I8_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_I8_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_I8_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_I8_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_COPY %dst_nz, %src_nz
+    __nonzero_isize_copy_value_%dst_nz = load %src_nz+NonZeroIsize_value as i64
+    store %dst_nz+NonZeroIsize_value, __nonzero_isize_copy_value_%dst_nz as i64
+    !__nonzero_isize_copy_value_%dst_nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_CLONE %dst_nz, %src_nz
+    EXPAND NONZERO_ISIZE_COPY %dst_nz, %src_nz
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_CLONE_FROM %dst_nz, %src_nz
+    EXPAND NONZERO_ISIZE_COPY %dst_nz, %src_nz
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_NONZERO_U64 %hasher, %nz
     __nonzero_u64_hash_value_%hasher = load %nz+NonZeroU64_value as u64
     EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __nonzero_u64_hash_value_%hasher

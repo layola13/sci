@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-15 NonZero integer copy/clone macros
+
+- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `Copy` and `Clone` implementations for `core::num::NonZero<T>` under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `*_COPY`, `*_CLONE`, and `*_CLONE_FROM` helpers for `NonZeroU8`, `NonZeroU16`, `NonZeroU32`, `NonZeroU64`, `NonZeroUsize`, `NonZeroI8`, `NonZeroI16`, `NonZeroI32`, `NonZeroI64`, and `NonZeroIsize`.
+- The helper surface copies each concrete wrapper's stored nonzero primitive into independent destination storage. It does not add a `Default` surface because Rust `NonZero*` has no zero default value, and it does not claim generic `NonZero<T>`, `u128` / `i128`, Rust niche optimization behavior, or generic trait dispatch.
+- Test: `tests/unit_framework/std_num_nonzero_clone_macro_surface.sa` - 1 test (panic ID 10604) expanding all 30 new macros and covering destination overwrite plus independence after source mutation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10605+.
+
 ## Completed: 2026-07-15 Phantom marker extended trait macros
 
 - Continued Rust `std::marker::{PhantomData,PhantomPinned}` macro-surface parity, referencing Rust's local `core::marker` implementations under `/home/vscode/projects/rust`.
