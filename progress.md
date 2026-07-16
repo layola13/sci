@@ -8732,3 +8732,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10722+.
+
+## Completed: 2026-07-16 Vec IntoIter transform collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_MAP_COLLECT_U64`, `VEC_INTO_ITER_INSPECT_COLLECT_U64`, `VEC_INTO_ITER_SCAN_COLLECT_U64`, `VEC_INTO_ITER_FILTER_COLLECT_U64`, `VEC_INTO_ITER_FILTER_MAP_COLLECT_U64`, and `VEC_INTO_ITER_MAP_WHILE_COLLECT_U64`.
+- Semantics: these helpers lower supportable Rust transform/filter adapter-then-collect shapes for concrete `vec::IntoIter<u64>` by delegating to existing eager slice-backed cursor collect primitives over explicit backing Vecs. Callback shapes are concrete SA function pointers and outputs are caller-owned `Vec<u64>` values; no lazy adapter object identity/state is modeled.
+- Test: `tests/unit_framework/std_vec_into_iter_transform_collect_macro_surface.sa` — 1 test (panic ID 10722) covering map, inspect, scan short-circuit with remaining suffix, filter, filter_map, and map_while short-circuit with remaining suffix.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_transform_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10723+.

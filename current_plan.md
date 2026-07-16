@@ -4121,3 +4121,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10722+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy adapter object identity/state, generic Iterator<Item=T>, panic object behavior, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter transform collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter transform/filter eager collect aliases in vec.sa: VEC_INTO_ITER_MAP_COLLECT_U64, VEC_INTO_ITER_INSPECT_COLLECT_U64, VEC_INTO_ITER_SCAN_COLLECT_U64, VEC_INTO_ITER_FILTER_COLLECT_U64, VEC_INTO_ITER_FILTER_MAP_COLLECT_U64, and VEC_INTO_ITER_MAP_WHILE_COLLECT_U64, delegating to existing concrete u64 cursor transform/filter collect helpers over explicit backing Vecs.
+- Test file std_vec_into_iter_transform_collect_macro_surface.sa (panic ID 10722).
+
+Panic IDs next free: 10723+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy adapter object identity/state, closure capture, generic Option/Iterator<Item=T>, panic/drop cleanup, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
