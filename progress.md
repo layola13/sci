@@ -8714,3 +8714,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10720+.
+
+## Completed: 2026-07-16 Vec IntoIter collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_COLLECT_U64`, `VEC_INTO_ITER_TRY_COLLECT_U64`, and `VEC_INTO_ITER_COLLECT_INTO_U64`.
+- Semantics: these helpers lower supportable Rust materializing iterator collection surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor collect primitives over explicit backing Vecs. They consume the cursor, materialize caller-owned `Vec<u64>` outputs, and use an explicit success scalar for `try_collect` rather than Rust generic `Try` residual or `Result` object layouts.
+- Test: `tests/unit_framework/std_vec_into_iter_collect_macro_surface.sa` — 1 test (panic ID 10720) covering collect, try_collect success, try_collect failure with mapped prefix and remaining cursor state, and collect_into appending to an existing Vec.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10721+.
