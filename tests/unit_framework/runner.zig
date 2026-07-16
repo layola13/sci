@@ -884,6 +884,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_unix_macro_surface.sa",
         "tests/unit_framework/std_net_dns_macro_surface.sa",
         "tests/unit_framework/std_os_fd_macro_surface.sa",
+        "tests/unit_framework/std_os_fd_as_fd_macro_surface.sa",
         "tests/unit_framework/std_os_unix_ffi_hash_one_macro_surface.sa",
         "tests/unit_framework/std_os_unix_ffi_macro_surface.sa",
     };

@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 std::os::fd AsFd aliases)
+
+Completed supportable `std::os::fd::AsFd` aliases:
+- `FD_OWNED_AS_FD` exposes the Rust `OwnedFd::as_fd` naming surface over the existing owned fd handle raw-fd view.
+- `FD_BORROWED_AS_FD` exposes the Rust `BorrowedFd::as_fd` reflexive naming surface over the current SA borrowed raw-fd scalar representation.
+- This batch does not model Rust lifetime tracking, borrow checker rules, trait dispatch, or native `BorrowedFd<'_>` object layout.
+- Test file `std_os_fd_as_fd_macro_surface.sa` (panic ID 10693).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10694+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, native `BorrowedFd<'_>` object layout, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 Process Command builder exec)
 
 Completed supportable process Command builder exec wrapper:

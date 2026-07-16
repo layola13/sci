@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 std::os::fd AsFd aliases
+
+- Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `impl AsFd for BorrowedFd<'_>` and `impl AsFd for OwnedFd`.
+- `sa_std/os/fd.sa`: added `FD_BORROWED_AS_FD` and `FD_OWNED_AS_FD`.
+- Semantics: helpers preserve the current SA fd facade shape where a borrowed fd is represented as the raw fd scalar. `FD_BORROWED_AS_FD` returns the same borrowed fd value, and `FD_OWNED_AS_FD` delegates through the existing owned handle raw-fd view.
+- Test: `tests/unit_framework/std_os_fd_as_fd_macro_surface.sa` - 1 test (panic ID 10693) covering owned-to-borrowed `as_fd`, borrowed reflexive `as_fd`, raw view equality, clone-to-owned lifetime independence after closing the original owned fd, and file cleanup.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_os_fd_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10694+.
+
 ## Completed: 2026-07-16 Process Command builder exec wrapper
 
 - Continued Rust process/Unix CommandExt macro-surface parity over the existing in-place exec runtime support.
