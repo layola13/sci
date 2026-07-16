@@ -28,11 +28,20 @@ test "PAL selector routes supported OS targets to platform backends" {
 
 test "runtime system entry points route executable path and args through PAL" {
     const allocator = std.testing.allocator;
+    const root = try readSource(allocator, "src/runtime/sa_std.zig");
+    defer allocator.free(root);
     const sources = [_][]const u8{
         "src/runtime/native_sys.zig",
         "src/runtime/sa_std_posix.zig",
         "src/runtime/sa_std_windows.zig",
     };
+
+    try expectContains(root, "pub usingnamespace switch (builtin.os.tag)");
+    try expectContains(root, ".windows => @import(\"sa_std_windows.zig\")");
+    try expectContains(root, "else => @import(\"sa_std_posix.zig\")");
+    try expectNotContains(root, "@import(\"pal_linux.zig\")");
+    try expectNotContains(root, "@import(\"pal_macos.zig\")");
+    try expectNotContains(root, "@import(\"pal_windows.zig\")");
 
     for (sources) |path| {
         const source = try readSource(allocator, path);
@@ -40,6 +49,9 @@ test "runtime system entry points route executable path and args through PAL" {
         try expectNotContains(source, "/proc/self/cmdline");
         try expectNotContains(source, "std.fs.selfExePathAlloc");
         try expectNotContains(source, "std.process.argsAlloc");
+        try expectNotContains(source, "@import(\"pal_linux.zig\")");
+        try expectNotContains(source, "@import(\"pal_macos.zig\")");
+        try expectNotContains(source, "@import(\"pal_windows.zig\")");
     }
 
     const native_sys = try readSource(allocator, "src/runtime/native_sys.zig");
