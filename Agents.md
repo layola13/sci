@@ -31,6 +31,25 @@ Next:
 - ...
 ```
 
+## 2026-07-16 09:00
+
+Question:
+- Does `sa test --affected --json` have focused P0.6 project test-cache metrics evidence?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "affected test cache metrics" -j1` -> `1/1`
+
+Answer:
+- Yes, for successful affected test runs. The focused smoke uses an isolated project and verifies first-run `cache.kind="test"`, `hit=false`, `reason="absent"` plus second-run `hit=true`, `reason="hit"` after the runner reports success.
+- The affected analysis JSON remains on stdout, while success metrics remain on stderr through the existing test diagnostics convention.
+- This does not complete P0.6. Candidate old-entry key-diff, richer write audit, redaction review, cross-process/cross-platform evidence, and failure-path coverage remain open.
+
+Next:
+- Continue P0.6 with candidate old-entry key-diff or richer write-event audit telemetry.
+
 ## 2026-07-16 08:53
 
 Question:

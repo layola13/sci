@@ -6763,6 +6763,57 @@ test "agent capability: affected selects impacted tests" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "no impacted tests; skipped") == null);
 }
 
+test "affected test cache metrics are reported after successful run" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "affected_cache_metrics.sa",
+        \\@helper() -> i32:
+        \\L_ENTRY:
+        \\    return 1
+        \\
+        \\@test "affected cache metrics"():
+        \\L_ENTRY:
+        \\    call @helper()
+        \\    return
+    );
+
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const argv = [_][]const u8{ "sa", "test", "affected_cache_metrics.sa", "--affected", "--jobs", "1", "--json" };
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"affected\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    var first_json = try parseJsonValue(std.testing.allocator, stderr_buffer.items);
+    defer first_json.deinit();
+    const first_cache = try jsonObjectGetValue(try jsonObjectGet(&first_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
+
+    stdout_buffer.clearRetainingCapacity();
+    stderr_buffer.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"affected\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    var second_json = try parseJsonValue(std.testing.allocator, stderr_buffer.items);
+    defer second_json.deinit();
+    const second_cache = try jsonObjectGetValue(try jsonObjectGet(&second_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(second_cache, "kind")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(second_cache, "reason")));
+}
+
 test "affected baseline is committed only after tests pass" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
