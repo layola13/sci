@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive strict shift macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `strict_shl` and `strict_shr` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `STRICT_SHL` and `STRICT_SHR` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Strict helpers reuse the existing checked shift logic for each declared width. Left-shift failures trap via SA `panic(2212)`, and right-shift failures trap via `panic(2213)`. This models Rust's strict shift panic control-flow shape without claiming panic message/object identity, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_strict_shift_macro_surface.sa` - 5 tests (panic ID 10636 for the non-panic assertion path) expanding all 20 new public helpers and covering unsigned/signed oversized left- and right-shift panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_strict_shift_macro_surface.sa --jobs 1 --trace-panic` -> `5 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10637+.
+
 ## Completed: 2026-07-16 primitive checked/strict Euclidean div/rem macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_div_euclid`, `checked_rem_euclid`, `strict_div_euclid`, and `strict_rem_euclid` implementations under `/home/vscode/projects/rust`.
