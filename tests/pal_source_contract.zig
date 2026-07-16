@@ -87,13 +87,20 @@ test "runtime system entry points route executable path and args through PAL" {
     const linux_pal = try readSource(allocator, "src/runtime/pal_linux.zig");
     defer allocator.free(linux_pal);
     try expectContains(linux_pal, "/proc/self/exe");
+    try expectContains(linux_pal, "/proc/self/cmdline");
+    try expectContains(linux_pal, "process_args_alloc_from_cmdline_bytes");
     try expectNotContains(linux_pal, "std.fs.selfExePathAlloc");
+    try expectNotContains(linux_pal, "std.process.argsAlloc");
 
     const macos_pal = try readSource(allocator, "src/runtime/pal_macos.zig");
     defer allocator.free(macos_pal);
     try expectContains(macos_pal, "_NSGetExecutablePath");
+    try expectContains(macos_pal, "_NSGetArgc");
+    try expectContains(macos_pal, "_NSGetArgv");
+    try expectContains(macos_pal, "process_args_alloc_from_native_argv");
     try expectContains(macos_pal, "realpathZ");
     try expectNotContains(macos_pal, "std.fs.selfExePathAlloc");
+    try expectNotContains(macos_pal, "std.process.argsAlloc");
 }
 
 test "platform event loop syscalls stay behind PAL backends" {

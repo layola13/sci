@@ -50,12 +50,32 @@ pub fn process_args_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     return std.json.stringifyAlloc(allocator, args, .{});
 }
 
+fn process_args_alloc_from_cmdline_bytes(allocator: std.mem.Allocator, bytes: []const u8) ![][:0]u8 {
+    var args = std.ArrayList([:0]u8).init(allocator);
+    errdefer {
+        for (args.items) |arg| allocator.free(arg);
+        args.deinit();
+    }
+
+    var start: usize = 0;
+    while (start < bytes.len) {
+        const end = std.mem.indexOfScalarPos(u8, bytes, start, 0) orelse bytes.len;
+        try args.append(try allocator.dupeZ(u8, bytes[start..end]));
+        start = if (end == bytes.len) bytes.len else end + 1;
+    }
+
+    return try args.toOwnedSlice();
+}
+
 pub fn process_args_alloc(allocator: std.mem.Allocator) ![][:0]u8 {
-    return std.process.argsAlloc(allocator);
+    const bytes = try std.fs.cwd().readFileAlloc(allocator, "/proc/self/cmdline", 16 * 1024 * 1024);
+    defer allocator.free(bytes);
+    return process_args_alloc_from_cmdline_bytes(allocator, bytes);
 }
 
 pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) void {
-    std.process.argsFree(allocator, args);
+    for (args) |arg| allocator.free(arg);
+    allocator.free(args);
 }
 
 pub fn term_epoll_create(flags: u32) !std.posix.fd_t {
@@ -207,4 +227,15 @@ test "PAL event loop wait blocks until submit wakes the platform backend" {
     try std.testing.expectEqual(event.user_data, result.event.user_data);
     try std.testing.expectEqual(event.flags, result.event.flags);
     try std.testing.expectEqual(event.res, result.event.res);
+}
+
+test "Linux PAL parses proc cmdline bytes without Zig startup argv" {
+    const bytes = "demo\x00two words\x00\x00";
+    const args = try process_args_alloc_from_cmdline_bytes(std.testing.allocator, bytes);
+    defer process_args_free(std.testing.allocator, args);
+
+    try std.testing.expectEqual(@as(usize, 3), args.len);
+    try std.testing.expectEqualStrings("demo", args[0]);
+    try std.testing.expectEqualStrings("two words", args[1]);
+    try std.testing.expectEqualStrings("", args[2]);
 }

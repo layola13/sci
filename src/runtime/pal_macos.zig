@@ -1,5 +1,8 @@
 const std = @import("std");
 
+extern "c" fn _NSGetArgc() *c_int;
+extern "c" fn _NSGetArgv() *[*:null]?[*:0]u8;
+
 pub const SA_STD_OK: i32 = 0;
 pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
 pub const SA_STD_ERR_NO_MEMORY: i32 = 5;
@@ -53,12 +56,30 @@ pub fn process_args_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     return std.json.stringifyAlloc(allocator, args, .{});
 }
 
+fn process_args_alloc_from_native_argv(allocator: std.mem.Allocator, argc: usize, argv: [*]const ?[*:0]const u8) ![][:0]u8 {
+    var args = std.ArrayList([:0]u8).init(allocator);
+    errdefer {
+        for (args.items) |arg| allocator.free(arg);
+        args.deinit();
+    }
+
+    for (0..argc) |i| {
+        const arg_ptr = argv[i] orelse return error.Unexpected;
+        try args.append(try allocator.dupeZ(u8, std.mem.sliceTo(arg_ptr, 0)));
+    }
+
+    return try args.toOwnedSlice();
+}
+
 pub fn process_args_alloc(allocator: std.mem.Allocator) ![][:0]u8 {
-    return std.process.argsAlloc(allocator);
+    const argc = _NSGetArgc().*;
+    if (argc < 0) return error.Unexpected;
+    return process_args_alloc_from_native_argv(allocator, @intCast(argc), _NSGetArgv().*);
 }
 
 pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) void {
-    std.process.argsFree(allocator, args);
+    for (args) |arg| allocator.free(arg);
+    allocator.free(args);
 }
 
 pub fn term_epoll_create(_: u32) !std.posix.fd_t {
@@ -203,4 +224,15 @@ test "PAL event loop wait blocks until submit wakes the kqueue backend" {
     try std.testing.expectEqual(event.user_data, result.event.user_data);
     try std.testing.expectEqual(event.flags, result.event.flags);
     try std.testing.expectEqual(event.res, result.event.res);
+}
+
+test "macOS PAL parses native argv without Zig startup argv" {
+    const raw = [_]?[*:0]const u8{ "demo".ptr, "two words".ptr, "".ptr };
+    const args = try process_args_alloc_from_native_argv(std.testing.allocator, raw.len, raw[0..].ptr);
+    defer process_args_free(std.testing.allocator, args);
+
+    try std.testing.expectEqual(@as(usize, 3), args.len);
+    try std.testing.expectEqualStrings("demo", args[0]);
+    try std.testing.expectEqualStrings("two words", args[1]);
+    try std.testing.expectEqualStrings("", args[2]);
 }
