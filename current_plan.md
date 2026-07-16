@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive bit positions)
+
+Completed supportable narrow unsigned primitive bit-position helpers:
+- `NUM_U{8,16,32,SIZE}_BIT_WIDTH` exposes Rust's unsigned primitive bit-width shape for the widths that were missing public SA macros.
+- `NUM_U{8,16,32,SIZE}_ISOLATE_HIGHEST_ONE` and `NUM_U{8,16,32,SIZE}_ISOLATE_LOWEST_ONE` expose selected-bit value helpers.
+- `NUM_U{8,16,32,SIZE}_HIGHEST_ONE` and `NUM_U{8,16,32,SIZE}_LOWEST_ONE` expose the matching optional bit-index shape as explicit `ok/index` outputs.
+- Narrow helpers mask inputs to the declared Rust width; `usize` aliases the current 64-bit SA ABI.
+- This batch models concrete result semantics, not Rust `Option` layout, compiler intrinsic selection, `u128`, or trait-level dispatch.
+- Test file `std_num_narrow_bit_position_macro_surface.sa` (panic ID 10663).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_bit_position_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10664+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive bit counts)
 
 Completed supportable narrow unsigned primitive bit count/zero-scan helpers:

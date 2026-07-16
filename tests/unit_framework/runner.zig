@@ -699,6 +699,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_num_signed_checked_isqrt_macro_surface.sa",
         "tests/unit_framework/std_num_signed_isqrt_macro_surface.sa",
         "tests/unit_framework/std_num_narrow_bit_counts_macro_surface.sa",
+        "tests/unit_framework/std_num_narrow_bit_position_macro_surface.sa",
         "tests/unit_framework/std_num_next_power_primitive_macro_surface.sa",
         "tests/unit_framework/std_num_wrapping_next_power_primitive_macro_surface.sa",
         "tests/unit_framework/std_num_primitive_sign_cast_macro_surface.sa",

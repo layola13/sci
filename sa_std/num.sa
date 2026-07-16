@@ -3389,6 +3389,108 @@ L_NUM_U64_LOW_ONE_NONE_%out_ok:
 L_NUM_U64_LOW_ONE_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_U8_BIT_WIDTH %out_width, %value
+    EXPAND NUM_U8_LEADING_ZEROS __num_u8_bit_width_lz_%out_width, %value
+    %out_width = sub NUM_U8_BITS, __num_u8_bit_width_lz_%out_width
+    !__num_u8_bit_width_lz_%out_width
+[END_MACRO]
+
+[MACRO] NUM_U8_ISOLATE_HIGHEST_ONE %out_value, %value
+    __num_u8_iso_high_value_%out_value = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE __num_u8_iso_high_raw_%out_value, __num_u8_iso_high_value_%out_value
+    %out_value = and __num_u8_iso_high_raw_%out_value, NUM_U8_MAX
+    !__num_u8_iso_high_raw_%out_value
+    !__num_u8_iso_high_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_ISOLATE_LOWEST_ONE %out_value, %value
+    __num_u8_iso_low_value_%out_value = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE __num_u8_iso_low_raw_%out_value, __num_u8_iso_low_value_%out_value
+    %out_value = and __num_u8_iso_low_raw_%out_value, NUM_U8_MAX
+    !__num_u8_iso_low_raw_%out_value
+    !__num_u8_iso_low_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_HIGHEST_ONE %out_ok, %out_index, %value
+    __num_u8_high_value_%out_ok = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_HIGHEST_ONE %out_ok, %out_index, __num_u8_high_value_%out_ok
+    !__num_u8_high_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_LOWEST_ONE %out_ok, %out_index, %value
+    __num_u8_low_value_%out_ok = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_LOWEST_ONE %out_ok, %out_index, __num_u8_low_value_%out_ok
+    !__num_u8_low_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_BIT_WIDTH %out_width, %value
+    EXPAND NUM_U16_LEADING_ZEROS __num_u16_bit_width_lz_%out_width, %value
+    %out_width = sub NUM_U16_BITS, __num_u16_bit_width_lz_%out_width
+    !__num_u16_bit_width_lz_%out_width
+[END_MACRO]
+
+[MACRO] NUM_U16_ISOLATE_HIGHEST_ONE %out_value, %value
+    __num_u16_iso_high_value_%out_value = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE __num_u16_iso_high_raw_%out_value, __num_u16_iso_high_value_%out_value
+    %out_value = and __num_u16_iso_high_raw_%out_value, NUM_U16_MAX
+    !__num_u16_iso_high_raw_%out_value
+    !__num_u16_iso_high_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_ISOLATE_LOWEST_ONE %out_value, %value
+    __num_u16_iso_low_value_%out_value = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE __num_u16_iso_low_raw_%out_value, __num_u16_iso_low_value_%out_value
+    %out_value = and __num_u16_iso_low_raw_%out_value, NUM_U16_MAX
+    !__num_u16_iso_low_raw_%out_value
+    !__num_u16_iso_low_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_HIGHEST_ONE %out_ok, %out_index, %value
+    __num_u16_high_value_%out_ok = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_HIGHEST_ONE %out_ok, %out_index, __num_u16_high_value_%out_ok
+    !__num_u16_high_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_LOWEST_ONE %out_ok, %out_index, %value
+    __num_u16_low_value_%out_ok = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_LOWEST_ONE %out_ok, %out_index, __num_u16_low_value_%out_ok
+    !__num_u16_low_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_BIT_WIDTH %out_width, %value
+    EXPAND NUM_U32_LEADING_ZEROS __num_u32_bit_width_lz_%out_width, %value
+    %out_width = sub NUM_U32_BITS, __num_u32_bit_width_lz_%out_width
+    !__num_u32_bit_width_lz_%out_width
+[END_MACRO]
+
+[MACRO] NUM_U32_ISOLATE_HIGHEST_ONE %out_value, %value
+    __num_u32_iso_high_value_%out_value = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE __num_u32_iso_high_raw_%out_value, __num_u32_iso_high_value_%out_value
+    %out_value = and __num_u32_iso_high_raw_%out_value, NUM_U32_MAX
+    !__num_u32_iso_high_raw_%out_value
+    !__num_u32_iso_high_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_ISOLATE_LOWEST_ONE %out_value, %value
+    __num_u32_iso_low_value_%out_value = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE __num_u32_iso_low_raw_%out_value, __num_u32_iso_low_value_%out_value
+    %out_value = and __num_u32_iso_low_raw_%out_value, NUM_U32_MAX
+    !__num_u32_iso_low_raw_%out_value
+    !__num_u32_iso_low_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_HIGHEST_ONE %out_ok, %out_index, %value
+    __num_u32_high_value_%out_ok = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_HIGHEST_ONE %out_ok, %out_index, __num_u32_high_value_%out_ok
+    !__num_u32_high_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_LOWEST_ONE %out_ok, %out_index, %value
+    __num_u32_low_value_%out_ok = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_LOWEST_ONE %out_ok, %out_index, __num_u32_low_value_%out_ok
+    !__num_u32_low_value_%out_ok
+[END_MACRO]
+
 [MACRO] NUM_U64_REVERSE_BITS %out_value, %value
     __num_rev_idx_slot_%out_value = stack_alloc 8
     __num_rev_acc_slot_%out_value = stack_alloc 8
@@ -10789,6 +10891,26 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_TRAILING_ONES %out_count, %value
     EXPAND NUM_U64_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_BIT_WIDTH %out_width, %value
+    EXPAND NUM_U64_BIT_WIDTH %out_width, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_ISOLATE_HIGHEST_ONE %out_value, %value
+    EXPAND NUM_U64_ISOLATE_HIGHEST_ONE %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_ISOLATE_LOWEST_ONE %out_value, %value
+    EXPAND NUM_U64_ISOLATE_LOWEST_ONE %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_HIGHEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U64_HIGHEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_LOWEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U64_LOWEST_ONE %out_ok, %out_index, %value
 [END_MACRO]
 
 [MACRO] NUM_USIZE_ABS_DIFF %out_value, %lhs, %rhs
