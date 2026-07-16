@@ -2353,6 +2353,51 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(json_second_cache, "hit")));
     try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(json_second_cache, "reason")));
 
+    try writeSource(tmp.dir, "cached_test_list_json.sa",
+        \\@test "cached test list json metrics"():
+        \\L_ENTRY:
+        \\    return
+    );
+
+    const list_json_argv = [_][]const u8{ "sa", "test", "cached_test_list_json.sa", "--list", "--jobs", "1", "--json" };
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const list_json_code = try saasm.cli.executeWithWriters(std.testing.allocator, list_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), list_json_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cached test list json metrics"));
+    var list_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer list_json.deinit();
+    const list_json_cache = try jsonObjectGetValue(try jsonObjectGet(&list_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(list_json_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(list_json_cache, "hit")));
+    try std.testing.expectEqualStrings("selection_changed", try jsonStringValue(try jsonObjectGetValue(list_json_cache, "reason")));
+
+    const disabled_list_json_argv = [_][]const u8{ "sa", "test", "cached_test_list_json.sa", "--list", "--jobs", "1", "--no-incremental", "--json" };
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const disabled_list_json_code = try saasm.cli.executeWithWriters(std.testing.allocator, disabled_list_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), disabled_list_json_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cached test list json metrics"));
+    var disabled_list_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer disabled_list_json.deinit();
+    const disabled_list_json_cache = try jsonObjectGetValue(try jsonObjectGet(&disabled_list_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(disabled_list_json_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(disabled_list_json_cache, "hit")));
+    try std.testing.expectEqualStrings("disabled", try jsonStringValue(try jsonObjectGetValue(disabled_list_json_cache, "reason")));
+
+    const cached_list_json_argv = [_][]const u8{ "sa", "test", "cached_test_json.sa", "--list", "--jobs", "1", "--json" };
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const cached_list_json_code = try saasm.cli.executeWithWriters(std.testing.allocator, cached_list_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), cached_list_json_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cached test json metrics"));
+    var cached_list_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer cached_list_json.deinit();
+    const cached_list_json_cache = try jsonObjectGetValue(try jsonObjectGet(&cached_list_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(cached_list_json_cache, "kind")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(cached_list_json_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(cached_list_json_cache, "reason")));
+
     try writeSource(tmp.dir, "cached_test_run_json.sa",
         \\@test "cached ordinary test json metrics"():
         \\L_ENTRY:

@@ -31,6 +31,25 @@ Next:
 - ...
 ```
 
+## 2026-07-16 08:53
+
+Question:
+- Can P0.6 expose test-cache metrics for `sa test --list --json` without publishing list-only queries as full test artifacts?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `12/12`
+
+Answer:
+- Yes, for the focused JSON list surface. `sa test --list --json` now writes the shared success metrics cache object.
+- Cold list queries that intentionally avoid publishing a full test artifact report `cache.kind="test"`, `hit=false`, and `reason="selection_changed"`. Disabled list lookup reports `reason="disabled"`. Listing from an existing project test-cache entry reports `hit=true` and `reason="hit"`.
+- This does not complete P0.6. Affected test-cache behavior, true candidate old-entry key-diff, richer write audit, redaction review, and broader cross-process/cross-platform evidence remain open.
+
+Next:
+- Continue P0.6 with affected behavior, candidate old-entry key-diff, or richer write-event audit telemetry.
+
 ## 2026-07-16 08:12
 
 Question:

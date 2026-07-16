@@ -10267,6 +10267,10 @@ fn executeTestInner(
                 };
                 if (test_options.list) {
                     defer cached_test_list.deinit(allocator);
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (test_total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = true, .reason = ProjectCacheLookupReason.hit.jsonName() } };
+                    if (diagnostics_mode == .json or compile_options.mem_report) {
+                        try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
+                    }
                     try test_formatter.writeList(stdout, cached_test_list.tests, test_options.selection);
                     return 0;
                 }
@@ -10340,6 +10344,12 @@ fn executeTestInner(
             }
             const test_list = if (sab_selected_test_list) |*list| list else &compiled_test_list.?;
             if (test_options.list) {
+                if (cache_key != null) {
+                    owned.metrics.cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = false, .reason = projectCacheLookupReasonName(cache_miss_reason) };
+                } else if (!compile_options.incremental_cache) {
+                    owned.metrics.cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = false, .reason = ProjectCacheLookupReason.disabled.jsonName() };
+                }
+                try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
                 try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
                 return 0;
             }
