@@ -16,7 +16,7 @@
 @extern sa_json_string_ptr(node: ptr) -> &ptr
 @extern sa_json_string_len(node: ptr) -> u64
 @extern sa_json_value_count(node: ptr, &out_count: ptr) -> i32
-@extern sa_json_free(node: ptr) -> i32!
+@extern sa_json_free(^node: ptr) -> i32!
 @extern sa_json_stringify(node: ptr, &out_handle: ptr) -> i32
 @extern sa_json_buffer_data(buffer: ptr) -> &ptr
 @extern sa_json_buffer_len(buffer: ptr) -> u64
