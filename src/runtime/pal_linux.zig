@@ -94,6 +94,52 @@ pub fn memory_usage_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     return memory_usage_json_from_statm_bytes(allocator, bytes, page_size);
 }
 
+fn formatSystemMemoryInfoJson(allocator: std.mem.Allocator, total: u64, free: u64, available: u64, buffers: u64, cached: u64, swapTotal: u64, swapFree: u64) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{{\"total\":{d},\"free\":{d},\"available\":{d},\"buffers\":{d},\"cached\":{d},\"swapTotal\":{d},\"swapFree\":{d}}}", .{ total, free, available, buffers, cached, swapTotal, swapFree });
+}
+
+fn system_memory_info_json_from_meminfo_bytes(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
+    var total: u64 = 0;
+    var free: u64 = 0;
+    var available: u64 = 0;
+    var buffers: u64 = 0;
+    var cached: u64 = 0;
+    var swapTotal: u64 = 0;
+    var swapFree: u64 = 0;
+
+    var it = std.mem.tokenizeScalar(u8, bytes, '\n');
+    while (it.next()) |line| {
+        var line_it = std.mem.tokenizeAny(u8, line, " \t:");
+        const key = line_it.next() orelse continue;
+        const val_str = line_it.next() orelse continue;
+        const val = std.fmt.parseInt(u64, val_str, 10) catch continue;
+        const value_bytes = val * 1024;
+        if (std.mem.eql(u8, key, "MemTotal")) {
+            total = value_bytes;
+        } else if (std.mem.eql(u8, key, "MemFree")) {
+            free = value_bytes;
+        } else if (std.mem.eql(u8, key, "MemAvailable")) {
+            available = value_bytes;
+        } else if (std.mem.eql(u8, key, "Buffers")) {
+            buffers = value_bytes;
+        } else if (std.mem.eql(u8, key, "Cached")) {
+            cached = value_bytes;
+        } else if (std.mem.eql(u8, key, "SwapTotal")) {
+            swapTotal = value_bytes;
+        } else if (std.mem.eql(u8, key, "SwapFree")) {
+            swapFree = value_bytes;
+        }
+    }
+
+    return formatSystemMemoryInfoJson(allocator, total, free, available, buffers, cached, swapTotal, swapFree);
+}
+
+pub fn system_memory_info_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const bytes = try std.fs.cwd().readFileAlloc(allocator, "/proc/meminfo", 64 * 1024);
+    defer allocator.free(bytes);
+    return system_memory_info_json_from_meminfo_bytes(allocator, bytes);
+}
+
 pub fn term_epoll_create(flags: u32) !std.posix.fd_t {
     const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
     if ((flags & ~cloexec_flag) != 0) return error.InvalidArgument;
@@ -260,4 +306,20 @@ test "Linux PAL formats memory usage from proc statm bytes" {
     const json = try memory_usage_json_from_statm_bytes(std.testing.allocator, "12 3 0 0 0 0 0\n", 4096);
     defer std.testing.allocator.free(json);
     try std.testing.expectEqualStrings("{\"rss\":12288,\"heapTotal\":12288,\"heapUsed\":12288,\"external\":0}", json);
+}
+
+test "Linux PAL formats system memory info from proc meminfo bytes" {
+    const meminfo =
+        \\MemTotal:       10 kB
+        \\MemFree:         2 kB
+        \\MemAvailable:    4 kB
+        \\Buffers:         1 kB
+        \\Cached:          3 kB
+        \\SwapTotal:       8 kB
+        \\SwapFree:        6 kB
+        \\
+    ;
+    const json = try system_memory_info_json_from_meminfo_bytes(std.testing.allocator, meminfo);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"total\":10240,\"free\":2048,\"available\":4096,\"buffers\":1024,\"cached\":3072,\"swapTotal\":8192,\"swapFree\":6144}", json);
 }

@@ -52,6 +52,7 @@ test "runtime system entry points route executable path and args through PAL" {
         defer allocator.free(source);
         try expectNotContains(source, "/proc/self/cmdline");
         try expectNotContains(source, "/proc/self/statm");
+        try expectNotContains(source, "/proc/meminfo");
         try expectNotContains(source, "std.fs.selfExePathAlloc");
         try expectNotContains(source, "std.process.argsAlloc");
         try expectNotContains(source, "@import(\"pal_linux.zig\")");
@@ -71,6 +72,7 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(posix, "pal_sys.get_executable_path");
     try expectContains(posix, "pal_sys.process_args_json_alloc");
     try expectContains(posix, "pal_sys.memory_usage_json_alloc");
+    try expectContains(posix, "pal_sys.system_memory_info_json_alloc");
 
     const windows = try readSource(allocator, "src/runtime/sa_std_windows.zig");
     defer allocator.free(windows);
@@ -78,6 +80,7 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows, "pal_sys.get_executable_path");
     try expectContains(windows, "pal_sys.process_args_json_alloc");
     try expectContains(windows, "pal_sys.memory_usage_json_alloc");
+    try expectContains(windows, "pal_sys.system_memory_info_json_alloc");
 
     const windows_pal = try readSource(allocator, "src/runtime/pal_windows.zig");
     defer allocator.free(windows_pal);
@@ -85,7 +88,9 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows_pal, "GetCommandLineW");
     try expectContains(windows_pal, "std.process.ArgIteratorWindows");
     try expectContains(windows_pal, "GetProcessMemoryInfo");
+    try expectContains(windows_pal, "GlobalMemoryStatusEx");
     try expectContains(windows_pal, "memory_usage_json_alloc");
+    try expectContains(windows_pal, "system_memory_info_json_alloc");
     try expectNotContains(windows_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(windows_pal, "std.process.argsAlloc");
 
@@ -94,8 +99,10 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(linux_pal, "/proc/self/exe");
     try expectContains(linux_pal, "/proc/self/cmdline");
     try expectContains(linux_pal, "/proc/self/statm");
+    try expectContains(linux_pal, "/proc/meminfo");
     try expectContains(linux_pal, "process_args_alloc_from_cmdline_bytes");
     try expectContains(linux_pal, "memory_usage_json_alloc");
+    try expectContains(linux_pal, "system_memory_info_json_alloc");
     try expectNotContains(linux_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(linux_pal, "std.process.argsAlloc");
 
@@ -109,6 +116,8 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(macos_pal, "mach_task_self");
     try expectContains(macos_pal, "task_info");
     try expectContains(macos_pal, "memory_usage_json_alloc");
+    try expectContains(macos_pal, "hw.memsize");
+    try expectContains(macos_pal, "system_memory_info_json_alloc");
     try expectNotContains(macos_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(macos_pal, "std.process.argsAlloc");
 }

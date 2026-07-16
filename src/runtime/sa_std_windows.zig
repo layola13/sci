@@ -1836,7 +1836,9 @@ pub export fn sa_deno_loadavg(_: ?*f64) i32 {
 }
 
 pub export fn sa_deno_system_memory_info() u64 {
-    return unsupportedU64();
+    const json = pal_sys.system_memory_info_json_alloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, json) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
 pub export fn sa_deno_network_interfaces() u64 {

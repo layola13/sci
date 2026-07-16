@@ -1,6 +1,19 @@
 const std = @import("std");
 
 extern "kernel32" fn GetCommandLineW() callconv(.winapi) ?[*:0]const u16;
+extern "kernel32" fn GlobalMemoryStatusEx(lpBuffer: *MemoryStatusEx) callconv(.winapi) std.os.windows.BOOL;
+
+const MemoryStatusEx = extern struct {
+    dwLength: std.os.windows.DWORD,
+    dwMemoryLoad: std.os.windows.DWORD,
+    ullTotalPhys: std.os.windows.ULONGLONG,
+    ullAvailPhys: std.os.windows.ULONGLONG,
+    ullTotalPageFile: std.os.windows.ULONGLONG,
+    ullAvailPageFile: std.os.windows.ULONGLONG,
+    ullTotalVirtual: std.os.windows.ULONGLONG,
+    ullAvailVirtual: std.os.windows.ULONGLONG,
+    ullAvailExtendedVirtual: std.os.windows.ULONGLONG,
+};
 
 pub const SA_STD_OK: i32 = 0;
 pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
@@ -95,6 +108,26 @@ fn formatMemoryUsageJson(allocator: std.mem.Allocator, rss: u64) ![]u8 {
 pub fn memory_usage_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     const counters = try std.os.windows.GetProcessMemoryInfo(std.os.windows.GetCurrentProcess());
     return formatMemoryUsageJson(allocator, @intCast(counters.WorkingSetSize));
+}
+
+fn formatSystemMemoryInfoJson(allocator: std.mem.Allocator, total: u64, free: u64, available: u64, buffers: u64, cached: u64, swapTotal: u64, swapFree: u64) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{{\"total\":{d},\"free\":{d},\"available\":{d},\"buffers\":{d},\"cached\":{d},\"swapTotal\":{d},\"swapFree\":{d}}}", .{ total, free, available, buffers, cached, swapTotal, swapFree });
+}
+
+pub fn system_memory_info_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    var status: MemoryStatusEx = undefined;
+    status.dwLength = @sizeOf(MemoryStatusEx);
+    if (GlobalMemoryStatusEx(&status) == 0) return error.Unexpected;
+    return formatSystemMemoryInfoJson(
+        allocator,
+        @intCast(status.ullTotalPhys),
+        @intCast(status.ullAvailPhys),
+        @intCast(status.ullAvailPhys),
+        0,
+        0,
+        @intCast(status.ullTotalPageFile),
+        @intCast(status.ullAvailPageFile),
+    );
 }
 
 pub fn term_epoll_create(_: u32) !std.os.windows.HANDLE {
@@ -232,4 +265,10 @@ test "Windows PAL formats process memory usage JSON" {
     const json = try formatMemoryUsageJson(std.testing.allocator, 12288);
     defer std.testing.allocator.free(json);
     try std.testing.expectEqualStrings("{\"rss\":12288,\"heapTotal\":12288,\"heapUsed\":12288,\"external\":0}", json);
+}
+
+test "Windows PAL formats system memory info JSON" {
+    const json = try formatSystemMemoryInfoJson(std.testing.allocator, 12288, 4096, 4096, 0, 0, 8192, 2048);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"total\":12288,\"free\":4096,\"available\":4096,\"buffers\":0,\"cached\":0,\"swapTotal\":8192,\"swapFree\":2048}", json);
 }

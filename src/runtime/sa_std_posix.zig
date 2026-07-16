@@ -5436,48 +5436,7 @@ pub export fn sa_deno_loadavg(out_ptr: ?*f64) i32 {
 }
 
 pub export fn sa_deno_system_memory_info() u64 {
-    var file = std.fs.openFileAbsolute("/proc/meminfo", .{}) catch return 0;
-    defer file.close();
-    var buf: [2048]u8 = undefined;
-    const n = file.readAll(&buf) catch return 0;
-    const content = buf[0..n];
-
-    var total: u64 = 0;
-    var free: u64 = 0;
-    var available: u64 = 0;
-    var buffers: u64 = 0;
-    var cached: u64 = 0;
-    var swapTotal: u64 = 0;
-    var swapFree: u64 = 0;
-
-    var it = std.mem.tokenizeScalar(u8, content, '\n');
-    while (it.next()) |line| {
-        var line_it = std.mem.tokenizeAny(u8, line, " \t:");
-        const key = line_it.next() orelse continue;
-        const val_str = line_it.next() orelse continue;
-        const val = std.fmt.parseInt(u64, val_str, 10) catch continue;
-        const bytes = val * 1024;
-        if (std.mem.eql(u8, key, "MemTotal")) {
-            total = bytes;
-        } else if (std.mem.eql(u8, key, "MemFree")) {
-            free = bytes;
-        } else if (std.mem.eql(u8, key, "MemAvailable")) {
-            available = bytes;
-        } else if (std.mem.eql(u8, key, "Buffers")) {
-            buffers = bytes;
-        } else if (std.mem.eql(u8, key, "Cached")) {
-            cached = bytes;
-        } else if (std.mem.eql(u8, key, "SwapTotal")) {
-            swapTotal = bytes;
-        } else if (std.mem.eql(u8, key, "SwapFree")) {
-            swapFree = bytes;
-        }
-    }
-
-    var out_buf: [512]u8 = undefined;
-    const json = std.fmt.bufPrint(&out_buf, "{{\"total\":{d},\"free\":{d},\"available\":{d},\"buffers\":{d},\"cached\":{d},\"swapTotal\":{d},\"swapFree\":{d}}}", .{ total, free, available, buffers, cached, swapTotal, swapFree }) catch return 0;
-
-    const owned = std.heap.page_allocator.dupe(u8, json) catch return 0;
+    const owned = pal_sys.system_memory_info_json_alloc(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(owned) catch return 0;
 }
 

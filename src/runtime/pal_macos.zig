@@ -102,6 +102,17 @@ pub fn memory_usage_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     return formatMemoryUsageJson(allocator, @intCast(info.resident_size));
 }
 
+fn formatSystemMemoryInfoJson(allocator: std.mem.Allocator, total: u64, free: u64, available: u64, buffers: u64, cached: u64, swapTotal: u64, swapFree: u64) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{{\"total\":{d},\"free\":{d},\"available\":{d},\"buffers\":{d},\"cached\":{d},\"swapTotal\":{d},\"swapFree\":{d}}}", .{ total, free, available, buffers, cached, swapTotal, swapFree });
+}
+
+pub fn system_memory_info_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    var total: u64 = 0;
+    var len: usize = @sizeOf(u64);
+    try std.posix.sysctlbynameZ("hw.memsize", &total, &len, null, 0);
+    return formatSystemMemoryInfoJson(allocator, total, 0, 0, 0, 0, 0, 0);
+}
+
 pub fn term_epoll_create(_: u32) !std.posix.fd_t {
     return error.Unsupported;
 }
@@ -261,4 +272,10 @@ test "macOS PAL formats process memory usage JSON" {
     const json = try formatMemoryUsageJson(std.testing.allocator, 12288);
     defer std.testing.allocator.free(json);
     try std.testing.expectEqualStrings("{\"rss\":12288,\"heapTotal\":12288,\"heapUsed\":12288,\"external\":0}", json);
+}
+
+test "macOS PAL formats system memory info JSON" {
+    const json = try formatSystemMemoryInfoJson(std.testing.allocator, 12288, 0, 0, 0, 0, 0, 0);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"total\":12288,\"free\":0,\"available\":0,\"buffers\":0,\"cached\":0,\"swapTotal\":0,\"swapFree\":0}", json);
 }
