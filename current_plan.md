@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 process AsFd aliases)
+
+Completed supportable `std::os::{linux,unix}::process` `AsFd` aliases:
+- `PIDFD_AS_FD`, `PROCESS_CHILD_STDOUT_AS_FD`, and `PROCESS_CHILD_STDERR_AS_FD` expose Rust process fd `as_fd` naming over existing pidfd and child pipe raw-fd views.
+- These helpers return the current SA borrowed raw-fd scalar representation and compose with `FD_BORROWED_*` helpers.
+- This batch does not model `ChildStdin`, Rust lifetime tracking, borrow checker rules, trait dispatch, or native `BorrowedFd<'_>` object layout.
+- Test file `std_process_as_fd_macro_surface.sa` (panic ID 10696).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10697+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, native `BorrowedFd<'_>` object layout, `ChildStdin` pipe wiring, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
+
+
 ## Active std parity batch (2026-07-16 stdio AsFd aliases)
 
 Completed supportable `std::io::{Stdin,Stdout,Stderr}` `AsFd` aliases:
@@ -2823,6 +2838,7 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - `std::os::linux::process` / pidfd-adjacent process-group signaling subset: `PROCESS_SEND_PROCESS_GROUP_SIGNAL` with effective PGID tracking.
    - `std::os::linux::process` pidfd subset: create-pidfd spawn path, process `pidfd` / `into_pidfd` extraction, and pidfd kill/send_signal/wait/try_wait raw and code helpers.
    - `std::os::linux::process::PidFd` raw-fd trait aliases: `PIDFD_AS_RAW_FD`, `PIDFD_INTO_RAW_FD`, `PIDFD_FROM_RAW_FD`, and `PIDFD_CLOSE_RAW_FD` over the existing owned-fd facade.
+   - `std::os::linux::process::PidFd` and `std::os::unix::process::{ChildStdout,ChildStderr}` AsFd aliases: `PIDFD_AS_FD`, `PROCESS_CHILD_STDOUT_AS_FD`, and `PROCESS_CHILD_STDERR_AS_FD` over the existing raw-fd facade.
    - `std::os::linux::process::PidFd` owned-fd trait aliases: `PIDFD_INTO_OWNED_FD` and `PIDFD_FROM_OWNED_FD` over the existing pidfd raw-fd and `sa_std/os/fd` owned-fd helpers.
    - `std::os::unix::process::{ChildStdout,ChildStderr}` raw-fd trait aliases over the existing owned-fd facade.
    - `std::os::unix::process::{ChildStdout,ChildStderr}` owned-fd trait aliases over the existing child pipe raw-fd and `sa_std/os/fd` owned-fd helpers.

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 process AsFd aliases
+
+- Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/linux/process.rs` for `impl AsFd for PidFd` and `library/std/src/os/unix/process.rs` for `impl AsFd for ChildStdout` / `ChildStderr`.
+- `sa_std/process.sa`: added `PIDFD_AS_FD`, `PROCESS_CHILD_STDOUT_AS_FD`, and `PROCESS_CHILD_STDERR_AS_FD`.
+- Semantics: helpers preserve the current SA fd facade shape where a borrowed fd is represented as the raw fd scalar, delegating through the existing pidfd and child pipe raw-fd views.
+- Test: `tests/unit_framework/std_process_as_fd_macro_surface.sa` - 1 test (panic ID 10696) covering pidfd/child stdout/child stderr `as_fd`, equality with `as_raw_fd`, borrowed raw view, child wait, and handle cleanup.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10697+.
+
 ## Completed: 2026-07-16 stdio AsFd aliases
 
 - Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `impl AsFd for io::Stdin`, `io::Stdout`, and `io::Stderr`.
