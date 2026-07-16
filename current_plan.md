@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow signed primitive bit helpers)
+
+Completed supportable narrow signed primitive bit-pattern helpers:
+- `NUM_I{8,16,32}_COUNT_ONES`, `COUNT_ZEROS`, `LEADING_ZEROS`, `TRAILING_ZEROS`, `LEADING_ONES`, and `TRAILING_ONES` expose Rust signed primitive count/scan methods for narrow widths.
+- `NUM_I{8,16,32}_ISOLATE_HIGHEST_ONE`, `ISOLATE_LOWEST_ONE`, `HIGHEST_ONE`, and `LOWEST_ONE` expose the signed primitive bit-isolation and bit-position helpers for narrow widths.
+- Helpers reuse existing same-width unsigned bit helpers, then sign-extend isolate results back to the signed width where the Rust return type is signed.
+- `highest_one` / `lowest_one` keep the existing explicit `ok/index` shape for Rust's `Option<u32>` result, returning `ok=0/index=0` for zero input.
+- This batch models concrete same-width signed bit-pattern semantics, not Rust `Option` layout, `i128`, or trait-level dispatch.
+- Test file `std_num_narrow_signed_bit_macro_surface.sa` (panic ID 10671).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_bit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10672+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 isize primitive bit helpers)
 
 Completed supportable 64-bit `isize` bit-pattern helper aliases:

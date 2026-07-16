@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed primitive bit helper macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `count_ones`, `count_zeros`, `leading_zeros`, `trailing_zeros`, `leading_ones`, `trailing_ones`, `isolate_highest_one`, `isolate_lowest_one`, `highest_one`, and `lowest_one`.
+- `sa_std/num.sa`: added `NUM_I8_*`, `NUM_I16_*`, and `NUM_I32_*` helper families for the signed bit count/scan, bit-isolation, and bit-position methods.
+- Semantics: narrow signed helpers operate on the same-width unsigned bit pattern, matching Rust's signed primitive lowering. Isolate helpers sign-extend the selected bit back to the signed width; highest/lowest helpers keep the existing explicit `ok/index` shape for zero input instead of materializing Rust `Option<u32>`.
+- Test: `tests/unit_framework/std_num_narrow_signed_bit_macro_surface.sa` - 1 test (panic ID 10671) covering `i8`, `i16`, and `i32` bit counts, zero/one scans, isolate-high/low, highest/lowest indexes, and zero-input none-shaped results.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_bit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10672+.
+
 ## Completed: 2026-07-16 isize primitive bit helper aliases
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive bit-pattern helpers.

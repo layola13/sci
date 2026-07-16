@@ -6580,6 +6580,138 @@ L_NUM_I32_SIGN_EXTEND_POS_%out_value:
 L_NUM_I32_SIGN_EXTEND_END_%out_value:
 [END_MACRO]
 
+[MACRO] NUM_I8_COUNT_ONES %out_count, %value
+    EXPAND NUM_U8_COUNT_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U8_COUNT_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_LEADING_ZEROS %out_count, %value
+    EXPAND NUM_U8_LEADING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_TRAILING_ZEROS %out_count, %value
+    EXPAND NUM_U8_TRAILING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_LEADING_ONES %out_count, %value
+    EXPAND NUM_U8_LEADING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_TRAILING_ONES %out_count, %value
+    EXPAND NUM_U8_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_ISOLATE_HIGHEST_ONE %out_value, %value
+    EXPAND NUM_U8_ISOLATE_HIGHEST_ONE __num_i8_iso_high_raw_%out_value, %value
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_iso_high_raw_%out_value
+    !__num_i8_iso_high_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_ISOLATE_LOWEST_ONE %out_value, %value
+    EXPAND NUM_U8_ISOLATE_LOWEST_ONE __num_i8_iso_low_raw_%out_value, %value
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_iso_low_raw_%out_value
+    !__num_i8_iso_low_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_HIGHEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U8_HIGHEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_I8_LOWEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U8_LOWEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_COUNT_ONES %out_count, %value
+    EXPAND NUM_U16_COUNT_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U16_COUNT_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_LEADING_ZEROS %out_count, %value
+    EXPAND NUM_U16_LEADING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_TRAILING_ZEROS %out_count, %value
+    EXPAND NUM_U16_TRAILING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_LEADING_ONES %out_count, %value
+    EXPAND NUM_U16_LEADING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_TRAILING_ONES %out_count, %value
+    EXPAND NUM_U16_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_ISOLATE_HIGHEST_ONE %out_value, %value
+    EXPAND NUM_U16_ISOLATE_HIGHEST_ONE __num_i16_iso_high_raw_%out_value, %value
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_iso_high_raw_%out_value
+    !__num_i16_iso_high_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_ISOLATE_LOWEST_ONE %out_value, %value
+    EXPAND NUM_U16_ISOLATE_LOWEST_ONE __num_i16_iso_low_raw_%out_value, %value
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_iso_low_raw_%out_value
+    !__num_i16_iso_low_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_HIGHEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U16_HIGHEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_I16_LOWEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U16_LOWEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_COUNT_ONES %out_count, %value
+    EXPAND NUM_U32_COUNT_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U32_COUNT_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_LEADING_ZEROS %out_count, %value
+    EXPAND NUM_U32_LEADING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_TRAILING_ZEROS %out_count, %value
+    EXPAND NUM_U32_TRAILING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_LEADING_ONES %out_count, %value
+    EXPAND NUM_U32_LEADING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_TRAILING_ONES %out_count, %value
+    EXPAND NUM_U32_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_ISOLATE_HIGHEST_ONE %out_value, %value
+    EXPAND NUM_U32_ISOLATE_HIGHEST_ONE __num_i32_iso_high_raw_%out_value, %value
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_iso_high_raw_%out_value
+    !__num_i32_iso_high_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_ISOLATE_LOWEST_ONE %out_value, %value
+    EXPAND NUM_U32_ISOLATE_LOWEST_ONE __num_i32_iso_low_raw_%out_value, %value
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_iso_low_raw_%out_value
+    !__num_i32_iso_low_raw_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_HIGHEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U32_HIGHEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_I32_LOWEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_U32_LOWEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
 [MACRO] NUM_U8_CAST_SIGNED %out_value, %value
     EXPAND NUM_I8_SIGN_EXTEND %out_value, %value
 [END_MACRO]
