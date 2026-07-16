@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive overflowing pow macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `overflowing_pow` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_OVERFLOWING_POW`, `NUM_U16_OVERFLOWING_POW`, `NUM_U32_OVERFLOWING_POW`, `NUM_U64_OVERFLOWING_POW`, and `NUM_USIZE_OVERFLOWING_POW`.
+- Semantics: helpers return the declared-width wrapping exponentiation result and a bool-style overflow flag. The result uses the existing primitive `POW` path, while the flag is derived from the corresponding `CHECKED_POW` path; `0^0` returns `(1, 0)`.
+- Test: `tests/unit_framework/std_num_overflowing_pow_macro_surface.sa` - 1 test (panic ID 10654) expanding all five new public helpers and covering Rust's documented `3^5`, `0^0`, and `3u8^6` examples plus width-boundary wrapping for `2^BITS`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_overflowing_pow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10655+.
+
 ## Completed: 2026-07-16 unsigned primitive overflowing div/rem/euclid/neg macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `overflowing_div`, `overflowing_div_euclid`, `overflowing_rem`, `overflowing_rem_euclid`, and `overflowing_neg` implementations under `/home/vscode/projects/rust`.
