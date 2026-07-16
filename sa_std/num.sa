@@ -12057,6 +12057,46 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
     EXPAND NUM_I64_WRAPPING_SHR %out_value, %value, %shift
 [END_MACRO]
 
+[MACRO] NUM_ISIZE_COUNT_ONES %out_count, %value
+    EXPAND NUM_I64_COUNT_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_I64_COUNT_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_LEADING_ZEROS %out_count, %value
+    EXPAND NUM_I64_LEADING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_TRAILING_ZEROS %out_count, %value
+    EXPAND NUM_I64_TRAILING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_LEADING_ONES %out_count, %value
+    EXPAND NUM_I64_LEADING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_TRAILING_ONES %out_count, %value
+    EXPAND NUM_I64_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_ISOLATE_HIGHEST_ONE %out_value, %value
+    EXPAND NUM_I64_ISOLATE_HIGHEST_ONE %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_ISOLATE_LOWEST_ONE %out_value, %value
+    EXPAND NUM_I64_ISOLATE_LOWEST_ONE %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_HIGHEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_I64_HIGHEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_LOWEST_ONE %out_ok, %out_index, %value
+    EXPAND NUM_I64_LOWEST_ONE %out_ok, %out_index, %value
+[END_MACRO]
+
 [MACRO] NUM_ISIZE_IS_POSITIVE %out_bool, %value
     EXPAND NUM_I64_IS_POSITIVE %out_bool, %value
 [END_MACRO]

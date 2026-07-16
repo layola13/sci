@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 isize primitive bit helper aliases
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive bit-pattern helpers.
+- `sa_std/num.sa`: added 64-bit SA ABI `isize` aliases for `COUNT_ONES`, `COUNT_ZEROS`, `LEADING_ZEROS`, `TRAILING_ZEROS`, `LEADING_ONES`, `TRAILING_ONES`, `ISOLATE_HIGHEST_ONE`, `ISOLATE_LOWEST_ONE`, `HIGHEST_ONE`, and `LOWEST_ONE`.
+- Semantics: helpers delegate to the existing `i64` bit-pattern implementations, matching current `NUM_ISIZE_*` alias policy for SA's 64-bit target. Highest/lowest helpers keep the explicit `ok/index` shape for zero input instead of materializing Rust `Option<u32>`.
+- Test: `tests/unit_framework/std_num_isize_bit_macro_surface.sa` - 1 test (panic ID 10670) covering signed bit counts, one-scans, isolate-high/low, highest/lowest indexes, and zero-input none-shaped results.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_isize_bit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10671+.
+
 ## Completed: 2026-07-16 narrow unsigned primitive unchecked macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `unchecked_add`, `unchecked_sub`, `unchecked_mul`, `unchecked_div`, `unchecked_rem`, `unchecked_shl`, and `unchecked_shr`.

@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 isize primitive bit helpers)
+
+Completed supportable 64-bit `isize` bit-pattern helper aliases:
+- `NUM_ISIZE_COUNT_ONES`, `COUNT_ZEROS`, `LEADING_ZEROS`, `TRAILING_ZEROS`, `LEADING_ONES`, and `TRAILING_ONES` expose the signed primitive count/scan helpers through the current 64-bit SA `isize` ABI.
+- `NUM_ISIZE_ISOLATE_HIGHEST_ONE`, `ISOLATE_LOWEST_ONE`, `HIGHEST_ONE`, and `LOWEST_ONE` expose the signed primitive bit-isolation and bit-position helpers through existing `i64` behavior.
+- `highest_one` / `lowest_one` keep the existing explicit `ok/index` shape for Rust's `Option<u32>` result, returning `ok=0/index=0` for zero input.
+- This batch models concrete 64-bit target semantics, not portable target-width switching, Rust `Option` layout, `i128`, or trait-level dispatch.
+- Test file `std_num_isize_bit_macro_surface.sa` (panic ID 10670).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_isize_bit_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10671+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive unchecked)
 
 Completed supportable narrow unsigned primitive unchecked helpers:
