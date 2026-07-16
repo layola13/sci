@@ -8723,3 +8723,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10721+.
+
+## Completed: 2026-07-16 Vec IntoIter adapter collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_TAKE_COLLECT_U64`, `VEC_INTO_ITER_SKIP_COLLECT_U64`, `VEC_INTO_ITER_REV_COLLECT_U64`, `VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64`, and `VEC_INTO_ITER_STEP_BY_COLLECT_U64`.
+- Semantics: these helpers lower supportable Rust adapter-then-collect shapes for concrete `vec::IntoIter<u64>` by delegating to existing eager slice-backed cursor collect primitives over explicit backing Vecs. They materialize caller-owned `Vec<u64>` outputs and consume the cursor according to the underlying adapter primitive; they do not model lazy adapter object identity/state.
+- Test: `tests/unit_framework/std_vec_into_iter_adapter_collect_macro_surface.sa` — 1 test (panic ID 10721) covering take, oversized take, skip, oversized skip, rev, step_by, try_step_by success, and `try_step_by(0)` failure without cursor advancement.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10722+.

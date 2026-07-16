@@ -355,6 +355,26 @@
     EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+    EXPAND ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+    EXPAND ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     __vec_into_iter_clone_slice_%out_iter = stack_alloc Slice_SIZE
     EXPAND VEC_INTO_ITER_AS_SLICE_U64 __vec_into_iter_clone_slice_%out_iter, %iter_reg
