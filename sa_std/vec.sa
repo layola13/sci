@@ -407,6 +407,18 @@
     EXPAND ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]

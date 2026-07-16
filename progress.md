@@ -8759,3 +8759,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_pair_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10725+.
+
+## Completed: 2026-07-16 Vec IntoIter adapter state collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_BY_REF_COLLECT_U64`, `VEC_INTO_ITER_FUSE_COLLECT_U64`, and `VEC_INTO_ITER_PEEKABLE_COLLECT_U64`.
+- Semantics: these helpers lower supportable Rust adapter-state collect shapes for concrete `vec::IntoIter<u64>` by delegating to existing eager slice-backed cursor collect primitives over explicit backing Vecs. `by_ref` mutates the original cursor through the existing aliasing primitive; `fuse` and `peekable` are eager materializing collect aliases over finite cursors, not lazy adapter objects.
+- Test: `tests/unit_framework/std_vec_into_iter_adapter_state_collect_macro_surface.sa` — 1 test (panic ID 10725) covering by_ref collection after partial consumption with clone independence, fuse collection and repeated exhausted next results, peekable collect after peek without advancement, and empty fuse/peekable paths.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_adapter_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10726+.

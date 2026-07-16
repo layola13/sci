@@ -4148,3 +4148,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10725+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy adapter object identity/state, tuple ABI, generic IntoIterator conversion, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter adapter state collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter adapter-state eager collect aliases in vec.sa: VEC_INTO_ITER_BY_REF_COLLECT_U64, VEC_INTO_ITER_FUSE_COLLECT_U64, and VEC_INTO_ITER_PEEKABLE_COLLECT_U64, delegating to existing concrete u64 cursor collect helpers over explicit backing Vecs.
+- Test file std_vec_into_iter_adapter_state_collect_macro_surface.sa (panic ID 10725).
+
+Panic IDs next free: 10726+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy ByRef/Fuse/Peekable adapter object identity/state, borrow lifetime/reference semantics, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
