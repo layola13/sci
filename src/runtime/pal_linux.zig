@@ -1,4 +1,5 @@
 const std = @import("std");
+const network_interfaces = @import("pal_network_interfaces_posix.zig");
 
 pub const SA_STD_OK: i32 = 0;
 pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
@@ -169,6 +170,20 @@ pub fn loadavg(out: *[3]f64) !void {
     const bytes = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, "/proc/loadavg", 4096);
     defer std.heap.page_allocator.free(bytes);
     out.* = try loadavg_from_loadavg_bytes(bytes);
+}
+
+fn linuxMacAddress(_: ?*network_interfaces.IfAddrs, name: []const u8, buffer: *[32]u8) []const u8 {
+    var path_buffer: [128]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buffer, "/sys/class/net/{s}/address", .{name}) catch return "00:00:00:00:00:00";
+    var file = std.fs.openFileAbsolute(path, .{}) catch return "00:00:00:00:00:00";
+    defer file.close();
+    const len = file.readAll(buffer) catch return "00:00:00:00:00:00";
+    const mac = std.mem.trim(u8, buffer[0..len], " \t\r\n");
+    return if (mac.len == 0) "00:00:00:00:00:00" else mac;
+}
+
+pub fn network_interfaces_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    return network_interfaces.network_interfaces_json_alloc(allocator, linuxMacAddress);
 }
 
 pub fn term_epoll_create(flags: u32) !std.posix.fd_t {
@@ -364,4 +379,43 @@ test "Linux PAL parses proc loadavg bytes" {
     try std.testing.expectEqual(@as(f64, 1.25), loads[0]);
     try std.testing.expectEqual(@as(f64, 0.50), loads[1]);
     try std.testing.expectEqual(@as(f64, 0.125), loads[2]);
+}
+
+fn testMacAddress(_: ?*network_interfaces.IfAddrs, _: []const u8, buffer: *[32]u8) []const u8 {
+    return std.fmt.bufPrint(buffer, "01:02:03:04:05:06", .{}) catch unreachable;
+}
+
+test "Linux PAL formats network interfaces from native sockaddr layouts" {
+    var address = std.c.sockaddr.in{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
+    var netmask = std.c.sockaddr.in{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 255, 0, 0, 0 }),
+    };
+    var interface = network_interfaces.IfAddrs{
+        .ifa_next = null,
+        .ifa_name = "lo",
+        .ifa_flags = 0,
+        .ifa_addr = @ptrCast(&address),
+        .ifa_netmask = @ptrCast(&netmask),
+        .ifa_ifu = .{ .ifu_broadaddr = null },
+        .ifa_data = null,
+    };
+
+    const json = try network_interfaces.network_interfaces_json_from_ifaddrs(std.testing.allocator, &interface, testMacAddress);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings(
+        "[{\"name\":\"lo\",\"family\":\"IPv4\",\"address\":\"127.0.0.1\",\"netmask\":\"255.0.0.0\",\"scopeid\":null,\"cidr\":\"127.0.0.1/8\",\"mac\":\"01:02:03:04:05:06\"}]",
+        json,
+    );
+}
+
+test "Linux PAL enumerates native network interfaces as JSON" {
+    const json = try network_interfaces_json_alloc(std.testing.allocator);
+    defer std.testing.allocator.free(json);
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    try std.testing.expect(parsed.value == .array);
 }

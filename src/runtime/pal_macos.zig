@@ -1,4 +1,5 @@
 const std = @import("std");
+const network_interfaces = @import("pal_network_interfaces_posix.zig");
 
 extern "c" fn _NSGetArgc() *c_int;
 extern "c" fn _NSGetArgv() *[*:null]?[*:0]u8;
@@ -122,6 +123,50 @@ pub fn os_uptime_seconds() !f64 {
 pub fn loadavg(out: *[3]f64) !void {
     const count: c_int = @intCast(out.len);
     if (getloadavg(out, count) != count) return error.Unsupported;
+}
+
+const SockaddrDl = extern struct {
+    len: u8,
+    family: u8,
+    index: u16,
+    interface_type: u8,
+    name_len: u8,
+    address_len: u8,
+    selector_len: u8,
+    data: [0]u8,
+};
+
+comptime {
+    std.debug.assert(@offsetOf(std.c.sockaddr.in, "addr") == 4);
+    std.debug.assert(@offsetOf(std.c.sockaddr.in6, "addr") == 8);
+    std.debug.assert(@offsetOf(SockaddrDl, "data") == 8);
+}
+
+fn macosMacAddress(ifap: ?*network_interfaces.IfAddrs, name: []const u8, buffer: *[32]u8) []const u8 {
+    var current = ifap;
+    while (current) |ifa| : (current = ifa.ifa_next) {
+        const addr = ifa.ifa_addr orelse continue;
+        if (addr.family != std.c.AF.LINK) continue;
+        if (!std.mem.eql(u8, name, std.mem.sliceTo(ifa.ifa_name, 0))) continue;
+
+        const link: *align(1) const SockaddrDl = @ptrCast(addr);
+        const data_offset = @offsetOf(SockaddrDl, "data");
+        const address_offset = data_offset + @as(usize, link.name_len);
+        const address_len: usize = link.address_len;
+        if (address_len != 6 or address_offset + address_len > link.len) continue;
+
+        const bytes: [*]const u8 = @ptrFromInt(@intFromPtr(addr) + address_offset);
+        return std.fmt.bufPrint(
+            buffer,
+            "{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}",
+            .{ bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5] },
+        ) catch return "00:00:00:00:00:00";
+    }
+    return "00:00:00:00:00:00";
+}
+
+pub fn network_interfaces_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    return network_interfaces.network_interfaces_json_alloc(allocator, macosMacAddress);
 }
 
 pub fn term_epoll_create(_: u32) !std.posix.fd_t {

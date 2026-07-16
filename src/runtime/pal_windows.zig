@@ -139,6 +139,10 @@ pub fn loadavg(_: *[3]f64) !void {
     return error.Unsupported;
 }
 
+pub fn network_interfaces_json_alloc(_: std.mem.Allocator) ![]u8 {
+    return error.Unsupported;
+}
+
 pub fn term_epoll_create(_: u32) !std.os.windows.HANDLE {
     return error.Unsupported;
 }

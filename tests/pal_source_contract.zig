@@ -55,6 +55,10 @@ test "runtime system entry points route executable path and args through PAL" {
         try expectNotContains(source, "/proc/meminfo");
         try expectNotContains(source, "/proc/uptime");
         try expectNotContains(source, "/proc/loadavg");
+        try expectNotContains(source, "/sys/class/net");
+        try expectNotContains(source, "getifaddrs(");
+        try expectNotContains(source, "freeifaddrs(");
+        try expectNotContains(source, "inet_ntop(");
         try expectNotContains(source, "std.fs.selfExePathAlloc");
         try expectNotContains(source, "std.process.argsAlloc");
         try expectNotContains(source, "@import(\"pal_linux.zig\")");
@@ -77,6 +81,7 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(posix, "pal_sys.system_memory_info_json_alloc");
     try expectContains(posix, "pal_sys.os_uptime_seconds");
     try expectContains(posix, "pal_sys.loadavg");
+    try expectContains(posix, "pal_sys.network_interfaces_json_alloc");
 
     const windows = try readSource(allocator, "src/runtime/sa_std_windows.zig");
     defer allocator.free(windows);
@@ -87,6 +92,7 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows, "pal_sys.system_memory_info_json_alloc");
     try expectContains(windows, "pal_sys.os_uptime_seconds");
     try expectContains(windows, "pal_sys.loadavg");
+    try expectContains(windows, "pal_sys.network_interfaces_json_alloc");
 
     const windows_pal = try readSource(allocator, "src/runtime/pal_windows.zig");
     defer allocator.free(windows_pal);
@@ -100,6 +106,7 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows_pal, "GetTickCount64");
     try expectContains(windows_pal, "os_uptime_seconds");
     try expectContains(windows_pal, "loadavg");
+    try expectContains(windows_pal, "network_interfaces_json_alloc");
     try expectNotContains(windows_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(windows_pal, "std.process.argsAlloc");
 
@@ -111,11 +118,14 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(linux_pal, "/proc/meminfo");
     try expectContains(linux_pal, "/proc/uptime");
     try expectContains(linux_pal, "/proc/loadavg");
+    try expectContains(linux_pal, "/sys/class/net/{s}/address");
+    try expectContains(linux_pal, "@import(\"pal_network_interfaces_posix.zig\")");
     try expectContains(linux_pal, "process_args_alloc_from_cmdline_bytes");
     try expectContains(linux_pal, "memory_usage_json_alloc");
     try expectContains(linux_pal, "system_memory_info_json_alloc");
     try expectContains(linux_pal, "os_uptime_seconds");
     try expectContains(linux_pal, "loadavg");
+    try expectContains(linux_pal, "network_interfaces_json_alloc");
     try expectNotContains(linux_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(linux_pal, "std.process.argsAlloc");
 
@@ -135,8 +145,22 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(macos_pal, "getloadavg");
     try expectContains(macos_pal, "os_uptime_seconds");
     try expectContains(macos_pal, "loadavg");
+    try expectContains(macos_pal, "@import(\"pal_network_interfaces_posix.zig\")");
+    try expectContains(macos_pal, "SockaddrDl");
+    try expectContains(macos_pal, "std.c.AF.LINK");
+    try expectContains(macos_pal, "network_interfaces_json_alloc");
     try expectNotContains(macos_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(macos_pal, "std.process.argsAlloc");
+
+    const posix_network = try readSource(allocator, "src/runtime/pal_network_interfaces_posix.zig");
+    defer allocator.free(posix_network);
+    try expectContains(posix_network, "extern \"c\" fn getifaddrs");
+    try expectContains(posix_network, "extern \"c\" fn freeifaddrs");
+    try expectContains(posix_network, "extern \"c\" fn inet_ntop");
+    try expectContains(posix_network, "std.c.sockaddr.in");
+    try expectContains(posix_network, "std.c.sockaddr.in6");
+    try expectContains(posix_network, "std.json.stringify");
+    try expectContains(posix_network, "network_interfaces_json_from_ifaddrs");
 }
 
 test "platform event loop syscalls stay behind PAL backends" {
