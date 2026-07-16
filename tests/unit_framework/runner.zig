@@ -788,6 +788,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_process_command_builder_groups_macro_surface.sa",
         "tests/unit_framework/std_process_command_builder_chroot_macro_surface.sa",
         "tests/unit_framework/std_process_command_builder_stream_uid_gid_macro_surface.sa",
+        "tests/unit_framework/std_process_command_builder_stream_groups_macro_surface.sa",
         "tests/unit_framework/std_env_macro_surface.sa",
         "tests/unit_framework/std_thread_macro_surface.sa",
         "tests/unit_framework/std_marker_macro_surface.sa",
