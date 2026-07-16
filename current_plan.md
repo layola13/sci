@@ -4067,3 +4067,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10716+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture, Rust Option<T> / Option<usize> ABI, generic Try residual conversion, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter for_each ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter for_each aliases in vec.sa: VEC_INTO_ITER_FOR_EACH_U64 and VEC_INTO_ITER_TRY_FOR_EACH_U64, delegating to existing concrete u64 cursor for_each helpers over the explicit backing Vec.
+- Test file std_vec_into_iter_for_each_macro_surface.sa (panic ID 10716).
+
+Panic IDs next free: 10717+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture, generic Try residual conversion, panic/drop cleanup, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
