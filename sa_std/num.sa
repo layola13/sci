@@ -2403,6 +2403,120 @@ L_NUM_UW_DEPOSIT_DONE_%out_value:
     !__num_uw_disjoint_bitor_lhs_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend, %bits, %mask
+    __num_uw_cmul_lhs_init_%out_low = and %lhs, %mask
+    __num_uw_cmul_rhs_init_%out_low = and %rhs, %mask
+    __num_uw_cmul_top_shift_%out_low = sub %bits, 1
+    __num_uw_cmul_idx_slot_%out_low = stack_alloc 8
+    __num_uw_cmul_rhs_slot_%out_low = stack_alloc 8
+    __num_uw_cmul_term_low_slot_%out_low = stack_alloc 8
+    __num_uw_cmul_term_high_slot_%out_low = stack_alloc 8
+    __num_uw_cmul_acc_low_slot_%out_low = stack_alloc 8
+    __num_uw_cmul_acc_high_slot_%out_low = stack_alloc 8
+    store __num_uw_cmul_idx_slot_%out_low+0, 0 as u64
+    store __num_uw_cmul_rhs_slot_%out_low+0, __num_uw_cmul_rhs_init_%out_low as u64
+    store __num_uw_cmul_term_low_slot_%out_low+0, __num_uw_cmul_lhs_init_%out_low as u64
+    store __num_uw_cmul_term_high_slot_%out_low+0, 0 as u64
+    store __num_uw_cmul_acc_low_slot_%out_low+0, 0 as u64
+    store __num_uw_cmul_acc_high_slot_%out_low+0, 0 as u64
+    !__num_uw_cmul_rhs_init_%out_low
+    !__num_uw_cmul_lhs_init_%out_low
+    jmp L_NUM_UW_CMUL_HEAD_%out_low
+
+L_NUM_UW_CMUL_HEAD_%out_low:
+    __num_uw_cmul_idx_%out_low = load __num_uw_cmul_idx_slot_%out_low+0 as u64
+    __num_uw_cmul_done_%out_low = eq __num_uw_cmul_idx_%out_low, %bits
+    br __num_uw_cmul_done_%out_low -> L_NUM_UW_CMUL_DONE_%out_low, L_NUM_UW_CMUL_BODY_%out_low
+
+L_NUM_UW_CMUL_BODY_%out_low:
+    __num_uw_cmul_rhs_%out_low = load __num_uw_cmul_rhs_slot_%out_low+0 as u64
+    __num_uw_cmul_term_low_%out_low = load __num_uw_cmul_term_low_slot_%out_low+0 as u64
+    __num_uw_cmul_term_high_%out_low = load __num_uw_cmul_term_high_slot_%out_low+0 as u64
+    __num_uw_cmul_acc_low_%out_low = load __num_uw_cmul_acc_low_slot_%out_low+0 as u64
+    __num_uw_cmul_acc_high_%out_low = load __num_uw_cmul_acc_high_slot_%out_low+0 as u64
+    __num_uw_cmul_rhs_bit_%out_low = and __num_uw_cmul_rhs_%out_low, 1
+    __num_uw_cmul_selected_low_%out_low = mul __num_uw_cmul_term_low_%out_low, __num_uw_cmul_rhs_bit_%out_low
+    __num_uw_cmul_selected_high_%out_low = mul __num_uw_cmul_term_high_%out_low, __num_uw_cmul_rhs_bit_%out_low
+    __num_uw_cmul_sum_low_raw_%out_low = add __num_uw_cmul_acc_low_%out_low, __num_uw_cmul_selected_low_%out_low
+    __num_uw_cmul_sum_low_%out_low = and __num_uw_cmul_sum_low_raw_%out_low, %mask
+    __num_uw_cmul_carry_low_%out_low = ult __num_uw_cmul_sum_low_%out_low, __num_uw_cmul_acc_low_%out_low
+    __num_uw_cmul_sum_high_raw_%out_low = add __num_uw_cmul_acc_high_%out_low, __num_uw_cmul_selected_high_%out_low
+    __num_uw_cmul_sum_high_mid_%out_low = and __num_uw_cmul_sum_high_raw_%out_low, %mask
+    __num_uw_cmul_sum_high_plus_carry_%out_low = add __num_uw_cmul_sum_high_mid_%out_low, __num_uw_cmul_carry_low_%out_low
+    __num_uw_cmul_sum_high_%out_low = and __num_uw_cmul_sum_high_plus_carry_%out_low, %mask
+    __num_uw_cmul_term_carry_%out_low = lshr __num_uw_cmul_term_low_%out_low, __num_uw_cmul_top_shift_%out_low
+    __num_uw_cmul_next_term_low_raw_%out_low = shl __num_uw_cmul_term_low_%out_low, 1
+    __num_uw_cmul_next_term_low_%out_low = and __num_uw_cmul_next_term_low_raw_%out_low, %mask
+    __num_uw_cmul_next_term_high_raw_%out_low = shl __num_uw_cmul_term_high_%out_low, 1
+    __num_uw_cmul_next_term_high_or_%out_low = or __num_uw_cmul_next_term_high_raw_%out_low, __num_uw_cmul_term_carry_%out_low
+    __num_uw_cmul_next_term_high_%out_low = and __num_uw_cmul_next_term_high_or_%out_low, %mask
+    __num_uw_cmul_next_rhs_%out_low = lshr __num_uw_cmul_rhs_%out_low, 1
+    __num_uw_cmul_next_idx_%out_low = add __num_uw_cmul_idx_%out_low, 1
+    store __num_uw_cmul_acc_low_slot_%out_low+0, __num_uw_cmul_sum_low_%out_low as u64
+    store __num_uw_cmul_acc_high_slot_%out_low+0, __num_uw_cmul_sum_high_%out_low as u64
+    store __num_uw_cmul_term_low_slot_%out_low+0, __num_uw_cmul_next_term_low_%out_low as u64
+    store __num_uw_cmul_term_high_slot_%out_low+0, __num_uw_cmul_next_term_high_%out_low as u64
+    store __num_uw_cmul_rhs_slot_%out_low+0, __num_uw_cmul_next_rhs_%out_low as u64
+    store __num_uw_cmul_idx_slot_%out_low+0, __num_uw_cmul_next_idx_%out_low as u64
+    !__num_uw_cmul_next_idx_%out_low
+    !__num_uw_cmul_next_rhs_%out_low
+    !__num_uw_cmul_next_term_high_%out_low
+    !__num_uw_cmul_next_term_high_or_%out_low
+    !__num_uw_cmul_next_term_high_raw_%out_low
+    !__num_uw_cmul_next_term_low_%out_low
+    !__num_uw_cmul_next_term_low_raw_%out_low
+    !__num_uw_cmul_term_carry_%out_low
+    !__num_uw_cmul_sum_high_%out_low
+    !__num_uw_cmul_sum_high_plus_carry_%out_low
+    !__num_uw_cmul_sum_high_mid_%out_low
+    !__num_uw_cmul_sum_high_raw_%out_low
+    !__num_uw_cmul_carry_low_%out_low
+    !__num_uw_cmul_sum_low_%out_low
+    !__num_uw_cmul_sum_low_raw_%out_low
+    !__num_uw_cmul_selected_high_%out_low
+    !__num_uw_cmul_selected_low_%out_low
+    !__num_uw_cmul_rhs_bit_%out_low
+    !__num_uw_cmul_acc_high_%out_low
+    !__num_uw_cmul_acc_low_%out_low
+    !__num_uw_cmul_term_high_%out_low
+    !__num_uw_cmul_term_low_%out_low
+    !__num_uw_cmul_rhs_%out_low
+    !__num_uw_cmul_done_%out_low
+    !__num_uw_cmul_idx_%out_low
+    jmp L_NUM_UW_CMUL_HEAD_%out_low
+
+L_NUM_UW_CMUL_DONE_%out_low:
+    __num_uw_cmul_prod_low_%out_low = load __num_uw_cmul_acc_low_slot_%out_low+0 as u64
+    __num_uw_cmul_prod_high_%out_low = load __num_uw_cmul_acc_high_slot_%out_low+0 as u64
+    __num_uw_cmul_carry_value_%out_low = and %carry, %mask
+    __num_uw_cmul_add_value_%out_low = and %addend, %mask
+    __num_uw_cmul_with_carry_raw_%out_low = add __num_uw_cmul_prod_low_%out_low, __num_uw_cmul_carry_value_%out_low
+    __num_uw_cmul_with_carry_low_%out_low = and __num_uw_cmul_with_carry_raw_%out_low, %mask
+    __num_uw_cmul_with_carry_high_bit_%out_low = ult __num_uw_cmul_with_carry_low_%out_low, __num_uw_cmul_prod_low_%out_low
+    __num_uw_cmul_high_after_carry_raw_%out_low = add __num_uw_cmul_prod_high_%out_low, __num_uw_cmul_with_carry_high_bit_%out_low
+    __num_uw_cmul_high_after_carry_%out_low = and __num_uw_cmul_high_after_carry_raw_%out_low, %mask
+    __num_uw_cmul_with_add_raw_%out_low = add __num_uw_cmul_with_carry_low_%out_low, __num_uw_cmul_add_value_%out_low
+    %out_low = and __num_uw_cmul_with_add_raw_%out_low, %mask
+    __num_uw_cmul_with_add_high_bit_%out_low = ult %out_low, __num_uw_cmul_with_carry_low_%out_low
+    __num_uw_cmul_out_high_raw_%out_low = add __num_uw_cmul_high_after_carry_%out_low, __num_uw_cmul_with_add_high_bit_%out_low
+    %out_high = and __num_uw_cmul_out_high_raw_%out_low, %mask
+    !__num_uw_cmul_out_high_raw_%out_low
+    !__num_uw_cmul_with_add_high_bit_%out_low
+    !__num_uw_cmul_with_add_raw_%out_low
+    !__num_uw_cmul_high_after_carry_%out_low
+    !__num_uw_cmul_high_after_carry_raw_%out_low
+    !__num_uw_cmul_with_carry_high_bit_%out_low
+    !__num_uw_cmul_with_carry_low_%out_low
+    !__num_uw_cmul_with_carry_raw_%out_low
+    !__num_uw_cmul_add_value_%out_low
+    !__num_uw_cmul_carry_value_%out_low
+    !__num_uw_cmul_prod_high_%out_low
+    !__num_uw_cmul_prod_low_%out_low
+    !__num_uw_cmul_top_shift_%out_low
+    !__num_uw_cmul_done_%out_low
+    !__num_uw_cmul_idx_%out_low
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -3925,6 +4039,14 @@ L_NUM_U64_NP_END_%out_ok:
     !__num_u64_bsub_borrow_bit_%out_value
     !__num_u64_bsub_over1_%out_value
     !__num_u64_bsub_diff_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_CARRYING_MUL %out_low, %out_high, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, 0, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend, NUM_U64_BITS, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_DIV_EUCLID %out_value, %lhs, %rhs
@@ -9203,6 +9325,30 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_CARRYING_MUL %out_low, %out_high, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, 0, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_CARRYING_MUL %out_low, %out_high, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, 0, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_CARRYING_MUL %out_low, %out_high, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, 0, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -9700,6 +9846,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow
     EXPAND NUM_U64_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CARRYING_MUL %out_low, %out_high, %lhs, %rhs, %carry
+    EXPAND NUM_U64_CARRYING_MUL %out_low, %out_high, %lhs, %rhs, %carry
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
+    EXPAND NUM_U64_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
 [END_MACRO]
 
 [MACRO] NUM_USIZE_CHECKED_DIV_EUCLID %out_ok, %out_value, %lhs, %rhs

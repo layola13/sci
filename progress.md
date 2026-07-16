@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive carrying multiplication macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `carrying_mul` / `carrying_mul_add` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `CARRYING_MUL` and `CARRYING_MUL_ADD` helpers for `U8`, `U16`, `U32`, `U64`, and `USIZE`, for 10 new public Rust-named entry points.
+- Semantics: helpers return `(low, high)` as two declared-width limbs for the full 2N-bit value `lhs * rhs + carry` or `lhs * rhs + carry + addend`. Operands and outputs are masked to the declared width, and `usize` uses the current 64-bit SA ABI.
+- Implementation note: the shared helper performs bitwise long multiplication into low/high accumulator limbs, then adds `carry` and `addend` with carry propagation. This preserves `u64` edge semantics without requiring a public `u128` scalar.
+- Test: `tests/unit_framework/std_num_carrying_mul_macro_surface.sa` - 1 test (panic ID 10650) expanding all 10 public helpers and covering Rust's documented small examples, the `u32` high-half examples, `MAX * MAX + MAX (+ MAX)` edge cases, and the `usize` alias path.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_carrying_mul_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10651+.
+
 ## Completed: 2026-07-16 unsigned primitive unchecked disjoint bit-or macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `unchecked_disjoint_bitor` implementation under `/home/vscode/projects/rust`.
