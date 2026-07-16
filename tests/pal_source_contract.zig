@@ -53,6 +53,8 @@ test "runtime system entry points route executable path and args through PAL" {
         try expectNotContains(source, "/proc/self/cmdline");
         try expectNotContains(source, "/proc/self/statm");
         try expectNotContains(source, "/proc/meminfo");
+        try expectNotContains(source, "/proc/uptime");
+        try expectNotContains(source, "/proc/loadavg");
         try expectNotContains(source, "std.fs.selfExePathAlloc");
         try expectNotContains(source, "std.process.argsAlloc");
         try expectNotContains(source, "@import(\"pal_linux.zig\")");
@@ -73,6 +75,8 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(posix, "pal_sys.process_args_json_alloc");
     try expectContains(posix, "pal_sys.memory_usage_json_alloc");
     try expectContains(posix, "pal_sys.system_memory_info_json_alloc");
+    try expectContains(posix, "pal_sys.os_uptime_seconds");
+    try expectContains(posix, "pal_sys.loadavg");
 
     const windows = try readSource(allocator, "src/runtime/sa_std_windows.zig");
     defer allocator.free(windows);
@@ -81,6 +85,8 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows, "pal_sys.process_args_json_alloc");
     try expectContains(windows, "pal_sys.memory_usage_json_alloc");
     try expectContains(windows, "pal_sys.system_memory_info_json_alloc");
+    try expectContains(windows, "pal_sys.os_uptime_seconds");
+    try expectContains(windows, "pal_sys.loadavg");
 
     const windows_pal = try readSource(allocator, "src/runtime/pal_windows.zig");
     defer allocator.free(windows_pal);
@@ -91,6 +97,9 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows_pal, "GlobalMemoryStatusEx");
     try expectContains(windows_pal, "memory_usage_json_alloc");
     try expectContains(windows_pal, "system_memory_info_json_alloc");
+    try expectContains(windows_pal, "GetTickCount64");
+    try expectContains(windows_pal, "os_uptime_seconds");
+    try expectContains(windows_pal, "loadavg");
     try expectNotContains(windows_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(windows_pal, "std.process.argsAlloc");
 
@@ -100,9 +109,13 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(linux_pal, "/proc/self/cmdline");
     try expectContains(linux_pal, "/proc/self/statm");
     try expectContains(linux_pal, "/proc/meminfo");
+    try expectContains(linux_pal, "/proc/uptime");
+    try expectContains(linux_pal, "/proc/loadavg");
     try expectContains(linux_pal, "process_args_alloc_from_cmdline_bytes");
     try expectContains(linux_pal, "memory_usage_json_alloc");
     try expectContains(linux_pal, "system_memory_info_json_alloc");
+    try expectContains(linux_pal, "os_uptime_seconds");
+    try expectContains(linux_pal, "loadavg");
     try expectNotContains(linux_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(linux_pal, "std.process.argsAlloc");
 
@@ -118,6 +131,10 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(macos_pal, "memory_usage_json_alloc");
     try expectContains(macos_pal, "hw.memsize");
     try expectContains(macos_pal, "system_memory_info_json_alloc");
+    try expectContains(macos_pal, "UPTIME_RAW");
+    try expectContains(macos_pal, "getloadavg");
+    try expectContains(macos_pal, "os_uptime_seconds");
+    try expectContains(macos_pal, "loadavg");
     try expectNotContains(macos_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(macos_pal, "std.process.argsAlloc");
 }

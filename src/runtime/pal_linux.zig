@@ -140,6 +140,37 @@ pub fn system_memory_info_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     return system_memory_info_json_from_meminfo_bytes(allocator, bytes);
 }
 
+fn os_uptime_seconds_from_uptime_bytes(bytes: []const u8) !f64 {
+    const space_idx = std.mem.indexOfAny(u8, bytes, " \t\r\n") orelse bytes.len;
+    const uptime_str = std.mem.trim(u8, bytes[0..space_idx], " \t\r\n");
+    if (uptime_str.len == 0) return error.InvalidUptime;
+    return std.fmt.parseFloat(f64, uptime_str);
+}
+
+pub fn os_uptime_seconds() !f64 {
+    const bytes = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, "/proc/uptime", 4096);
+    defer std.heap.page_allocator.free(bytes);
+    return os_uptime_seconds_from_uptime_bytes(bytes);
+}
+
+fn loadavg_from_loadavg_bytes(bytes: []const u8) ![3]f64 {
+    var it = std.mem.tokenizeAny(u8, bytes, " \t\r\n");
+    const l1_str = it.next() orelse return error.InvalidLoadAverage;
+    const l2_str = it.next() orelse return error.InvalidLoadAverage;
+    const l3_str = it.next() orelse return error.InvalidLoadAverage;
+    return .{
+        try std.fmt.parseFloat(f64, l1_str),
+        try std.fmt.parseFloat(f64, l2_str),
+        try std.fmt.parseFloat(f64, l3_str),
+    };
+}
+
+pub fn loadavg(out: *[3]f64) !void {
+    const bytes = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, "/proc/loadavg", 4096);
+    defer std.heap.page_allocator.free(bytes);
+    out.* = try loadavg_from_loadavg_bytes(bytes);
+}
+
 pub fn term_epoll_create(flags: u32) !std.posix.fd_t {
     const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
     if ((flags & ~cloexec_flag) != 0) return error.InvalidArgument;
@@ -322,4 +353,15 @@ test "Linux PAL formats system memory info from proc meminfo bytes" {
     const json = try system_memory_info_json_from_meminfo_bytes(std.testing.allocator, meminfo);
     defer std.testing.allocator.free(json);
     try std.testing.expectEqualStrings("{\"total\":10240,\"free\":2048,\"available\":4096,\"buffers\":1024,\"cached\":3072,\"swapTotal\":8192,\"swapFree\":6144}", json);
+}
+
+test "Linux PAL parses proc uptime bytes" {
+    try std.testing.expectEqual(@as(f64, 123.45), try os_uptime_seconds_from_uptime_bytes("123.45 678.90\n"));
+}
+
+test "Linux PAL parses proc loadavg bytes" {
+    const loads = try loadavg_from_loadavg_bytes("1.25 0.50 0.125 1/2 3\n");
+    try std.testing.expectEqual(@as(f64, 1.25), loads[0]);
+    try std.testing.expectEqual(@as(f64, 0.50), loads[1]);
+    try std.testing.expectEqual(@as(f64, 0.125), loads[2]);
 }

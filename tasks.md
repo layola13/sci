@@ -1,5 +1,12 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current PAL portability batch (2026-07-16)
+
+- [x] Route `sa_deno_os_uptime` and `sa_deno_loadavg` through PAL backends instead of reading Linux `/proc` from runtime core.
+- [x] Keep Linux behavior covered with parser tests for `/proc/uptime` and `/proc/loadavg`.
+- [x] Add macOS and Windows PAL implementations or deterministic unsupported behavior, then validate Linux runtime, cross typechecks, portability checks, and release-fast build before committing.
+- [x] Keep unrelated cache-writer PID diagnostics in `src/cli.zig` and `tests/cli_smoke.zig` out of this PAL commit unless handled as a separate batch.
+
 ## Active compiler-performance implementation (2026-07-15)
 
 Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of scope. Status below describes the current code, not the eventual roadmap; an unchecked item is not complete even when a containment subset has landed.

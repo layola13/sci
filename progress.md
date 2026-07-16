@@ -2,6 +2,13 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-16 PAL uptime/loadavg routing
+
+- `sa_deno_os_uptime` and `sa_deno_loadavg` now route through `pal_sys`; runtime core no longer reads Linux `/proc/uptime` or `/proc/loadavg` directly.
+- Linux PAL owns `/proc/uptime` and `/proc/loadavg` parsing with focused parser tests. macOS PAL uses `clock_gettime(.UPTIME_RAW)` and `getloadavg`; Windows PAL uses `GetTickCount64` for uptime and returns deterministic `Unsupported` for load average.
+- Validation passed: `test-runtime-pal pal-source-contract pal-typecheck portable-runtime-typecheck` (`45/45`, `test-runtime-pal` `9/9`), `test-runtime-basic sa-std-abi sa-std-artifact-abi` (`25/25`), `portability-check` (`65/65`), ReleaseFast (`13/13`), and `git diff --check`.
+- Unrelated cache-writer PID diagnostics in `src/cli.zig` and `tests/cli_smoke.zig` remain unstaged for this batch.
+
 ## In progress: 2026-07-15 compiler performance implementation
 
 - Reference: `docs/compiler_performance_optimization_cn.md`; GPU acceleration has been dropped from scope.

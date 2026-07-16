@@ -5404,34 +5404,17 @@ pub export fn sa_deno_os_release() u64 {
 }
 
 pub export fn sa_deno_os_uptime() f64 {
-    var file = std.fs.openFileAbsolute("/proc/uptime", .{}) catch return -1.0;
-    defer file.close();
-    var buf: [64]u8 = undefined;
-    const n = file.readAll(&buf) catch return -1.0;
-    const content = buf[0..n];
-    const space_idx = std.mem.indexOfScalar(u8, content, ' ') orelse content.len;
-    const uptime_str = std.mem.trim(u8, content[0..space_idx], " \t\r\n");
-    return std.fmt.parseFloat(f64, uptime_str) catch -1.0;
+    return pal_sys.os_uptime_seconds() catch -1.0;
 }
 
 pub export fn sa_deno_loadavg(out_ptr: ?*f64) i32 {
     const ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var file = std.fs.openFileAbsolute("/proc/loadavg", .{}) catch return finish(SA_STD_ERR_IO);
-    defer file.close();
-    var buf: [64]u8 = undefined;
-    const n = file.readAll(&buf) catch return finish(SA_STD_ERR_IO);
-    const content = buf[0..n];
-    var it = std.mem.tokenizeScalar(u8, content, ' ');
-    const l1_str = it.next() orelse return finish(SA_STD_ERR_IO);
-    const l2_str = it.next() orelse return finish(SA_STD_ERR_IO);
-    const l3_str = it.next() orelse return finish(SA_STD_ERR_IO);
-    const l1 = std.fmt.parseFloat(f64, l1_str) catch return finish(SA_STD_ERR_IO);
-    const l2 = std.fmt.parseFloat(f64, l2_str) catch return finish(SA_STD_ERR_IO);
-    const l3 = std.fmt.parseFloat(f64, l3_str) catch return finish(SA_STD_ERR_IO);
     const dest: [*]f64 = @ptrCast(ptr);
-    dest[0] = l1;
-    dest[1] = l2;
-    dest[2] = l3;
+    var loads: [3]f64 = undefined;
+    pal_sys.loadavg(&loads) catch |err| return finishErr(err);
+    dest[0] = loads[0];
+    dest[1] = loads[1];
+    dest[2] = loads[2];
     return finish(SA_STD_OK);
 }
 

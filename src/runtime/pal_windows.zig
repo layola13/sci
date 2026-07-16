@@ -1,6 +1,7 @@
 const std = @import("std");
 
 extern "kernel32" fn GetCommandLineW() callconv(.winapi) ?[*:0]const u16;
+extern "kernel32" fn GetTickCount64() callconv(.winapi) std.os.windows.ULONGLONG;
 extern "kernel32" fn GlobalMemoryStatusEx(lpBuffer: *MemoryStatusEx) callconv(.winapi) std.os.windows.BOOL;
 
 const MemoryStatusEx = extern struct {
@@ -128,6 +129,14 @@ pub fn system_memory_info_json_alloc(allocator: std.mem.Allocator) ![]u8 {
         @intCast(status.ullTotalPageFile),
         @intCast(status.ullAvailPageFile),
     );
+}
+
+pub fn os_uptime_seconds() !f64 {
+    return @as(f64, @floatFromInt(GetTickCount64())) / @as(f64, std.time.ms_per_s);
+}
+
+pub fn loadavg(_: *[3]f64) !void {
+    return error.Unsupported;
 }
 
 pub fn term_epoll_create(_: u32) !std.os.windows.HANDLE {

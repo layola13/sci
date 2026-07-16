@@ -2,6 +2,7 @@ const std = @import("std");
 
 extern "c" fn _NSGetArgc() *c_int;
 extern "c" fn _NSGetArgv() *[*:null]?[*:0]u8;
+extern "c" fn getloadavg(loadavg: [*]f64, nelem: c_int) c_int;
 
 pub const SA_STD_OK: i32 = 0;
 pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
@@ -111,6 +112,16 @@ pub fn system_memory_info_json_alloc(allocator: std.mem.Allocator) ![]u8 {
     var len: usize = @sizeOf(u64);
     try std.posix.sysctlbynameZ("hw.memsize", &total, &len, null, 0);
     return formatSystemMemoryInfoJson(allocator, total, 0, 0, 0, 0, 0, 0);
+}
+
+pub fn os_uptime_seconds() !f64 {
+    const uptime = try std.posix.clock_gettime(.UPTIME_RAW);
+    return @as(f64, @floatFromInt(uptime.sec)) + (@as(f64, @floatFromInt(uptime.nsec)) / @as(f64, std.time.ns_per_s));
+}
+
+pub fn loadavg(out: *[3]f64) !void {
+    const count: c_int = @intCast(out.len);
+    if (getloadavg(out, count) != count) return error.Unsupported;
 }
 
 pub fn term_epoll_create(_: u32) !std.posix.fd_t {

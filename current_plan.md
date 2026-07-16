@@ -2,6 +2,14 @@
 
 Date: 2026-07-16
 
+## Current turn: PAL uptime/loadavg portability batch
+
+1. [x] Confirm the worktree and preserve unrelated cache-writer PID diagnostics in `src/cli.zig` and `tests/cli_smoke.zig`.
+2. [x] Move uptime/loadavg runtime exports to `pal_sys` and add Linux/macOS/Windows backend behavior.
+3. [x] Update PAL source-contract checks so `/proc/uptime` and `/proc/loadavg` stay behind the Linux PAL backend.
+4. [x] Run focused PAL/runtime/portability/release-fast validation and `git diff --check`.
+5. [x] Commit the coherent PAL batch promptly without staging unrelated files.
+
 ## Active objective: implement the compiler performance plan
 
 Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is explicitly excluded. Correctness, cache authorization, deterministic diagnostics, and ownership semantics remain hard gates; no trusted/empty-delta verification shortcut may be reintroduced for codegen.

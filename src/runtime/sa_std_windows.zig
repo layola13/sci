@@ -1828,11 +1828,18 @@ pub export fn sa_deno_os_release() u64 {
 }
 
 pub export fn sa_deno_os_uptime() f64 {
-    return unsupportedF64();
+    return pal_sys.os_uptime_seconds() catch return unsupportedF64();
 }
 
-pub export fn sa_deno_loadavg(_: ?*f64) i32 {
-    return unsupported();
+pub export fn sa_deno_loadavg(out_ptr: ?*f64) i32 {
+    const ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const dest: [*]f64 = @ptrCast(ptr);
+    var loads: [3]f64 = undefined;
+    pal_sys.loadavg(&loads) catch |err| return finishErr(err);
+    dest[0] = loads[0];
+    dest[1] = loads[1];
+    dest[2] = loads[2];
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_deno_system_memory_info() u64 {
