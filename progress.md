@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 signed wide primitive overflowing add/sub/mul macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `overflowing_add`, `overflowing_sub`, and `overflowing_mul` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_I64_OVERFLOWING_ADD`, `NUM_I64_OVERFLOWING_SUB`, `NUM_I64_OVERFLOWING_MUL`, `NUM_ISIZE_OVERFLOWING_ADD`, `NUM_ISIZE_OVERFLOWING_SUB`, and `NUM_ISIZE_OVERFLOWING_MUL`.
+- Combined with the existing `NUM_I8_*`, `NUM_I16_*`, and `NUM_I32_*` helpers, signed add/sub/mul overflowing helpers now cover every existing SA signed primitive width.
+- Semantics: helpers return the signed wrapping result and a bool-style overflow flag by pairing the existing signed `CHECKED_*` and `WRAPPING_*` paths; `isize` aliases the current 64-bit SA ABI.
+- Test: `tests/unit_framework/std_num_signed_wide_overflowing_macro_surface.sa` - 1 test (panic ID 10655) expanding all six new public helpers and covering normal arithmetic plus `MAX + 1`, `MIN - 1`, and `MAX * 2` overflow wrapping.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_wide_overflowing_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10656+.
+
 ## Completed: 2026-07-16 unsigned primitive overflowing pow macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `overflowing_pow` implementation under `/home/vscode/projects/rust`.
