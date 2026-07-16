@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive unchecked)
+
+Completed supportable narrow unsigned primitive unchecked helpers:
+- `NUM_U{8,16,32}_UNCHECKED_ADD`, `UNCHECKED_SUB`, and `UNCHECKED_MUL` expose Rust's unsigned primitive unchecked arithmetic shapes for narrow widths.
+- `NUM_U{8,16,32}_UNCHECKED_DIV` and `UNCHECKED_REM` expose the matching unchecked division/remainder helpers.
+- `NUM_U{8,16,32}_UNCHECKED_SHL` and `UNCHECKED_SHR` expose Rust's unchecked shift shapes for narrow widths.
+- Helpers model caller-precondition lowering for legal inputs only, with no runtime UB enforcement. Narrow arithmetic/shift helpers mask results to the declared Rust width; division/remainder mask operands and still rely on the underlying operation for invalid zero-divisor traps.
+- This batch models concrete result/control-flow semantics for valid inputs, not Rust unsafe UB enforcement, `u128`, or trait-level dispatch.
+- Test file `std_num_narrow_unchecked_macro_surface.sa` (panic ID 10669).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_unchecked_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10670+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 unsigned primitive wrapping/euclidean division)
 
 Completed supportable unsigned primitive wrapping and Euclidean division helpers:

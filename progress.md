@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow unsigned primitive unchecked macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `unchecked_add`, `unchecked_sub`, `unchecked_mul`, `unchecked_div`, `unchecked_rem`, `unchecked_shl`, and `unchecked_shr`.
+- `sa_std/num.sa`: added `NUM_U8_UNCHECKED_ADD`, `NUM_U16_UNCHECKED_ADD`, `NUM_U32_UNCHECKED_ADD`, matching `UNCHECKED_SUB` / `UNCHECKED_MUL` / `UNCHECKED_DIV` / `UNCHECKED_REM` / `UNCHECKED_SHL` / `UNCHECKED_SHR` helpers.
+- Semantics: helpers model the caller-precondition lowering shape for legal inputs only, with no runtime UB enforcement. Narrow helpers mask results to the declared Rust width; division/remainder mask operands before the operation and still trap through the underlying division/remainder operation for invalid zero divisors.
+- Test: `tests/unit_framework/std_num_narrow_unchecked_macro_surface.sa` - 1 test (panic ID 10669) covering legal unchecked add/sub/mul/div/rem/shift paths for `u8`, `u16`, and `u32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_unchecked_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10670+.
+
 ## Completed: 2026-07-16 unsigned primitive wrapping/euclidean division macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `div_euclid`, `rem_euclid`, `wrapping_div`, `wrapping_rem`, `wrapping_div_euclid`, and `wrapping_rem_euclid`.

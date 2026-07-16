@@ -10718,6 +10718,144 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_UNCHECKED_ADD %out_value, %lhs, %rhs
+    __num_u8_unchecked_add_%out_value = add %lhs, %rhs
+    %out_value = and __num_u8_unchecked_add_%out_value, NUM_U8_MAX
+    !__num_u8_unchecked_add_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_ADD %out_value, %lhs, %rhs
+    __num_u16_unchecked_add_%out_value = add %lhs, %rhs
+    %out_value = and __num_u16_unchecked_add_%out_value, NUM_U16_MAX
+    !__num_u16_unchecked_add_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_ADD %out_value, %lhs, %rhs
+    __num_u32_unchecked_add_%out_value = add %lhs, %rhs
+    %out_value = and __num_u32_unchecked_add_%out_value, NUM_U32_MAX
+    !__num_u32_unchecked_add_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_SUB %out_value, %lhs, %rhs
+    __num_u8_unchecked_sub_%out_value = sub %lhs, %rhs
+    %out_value = and __num_u8_unchecked_sub_%out_value, NUM_U8_MAX
+    !__num_u8_unchecked_sub_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_SUB %out_value, %lhs, %rhs
+    __num_u16_unchecked_sub_%out_value = sub %lhs, %rhs
+    %out_value = and __num_u16_unchecked_sub_%out_value, NUM_U16_MAX
+    !__num_u16_unchecked_sub_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_SUB %out_value, %lhs, %rhs
+    __num_u32_unchecked_sub_%out_value = sub %lhs, %rhs
+    %out_value = and __num_u32_unchecked_sub_%out_value, NUM_U32_MAX
+    !__num_u32_unchecked_sub_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_MUL %out_value, %lhs, %rhs
+    __num_u8_unchecked_mul_%out_value = mul %lhs, %rhs
+    %out_value = and __num_u8_unchecked_mul_%out_value, NUM_U8_MAX
+    !__num_u8_unchecked_mul_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_MUL %out_value, %lhs, %rhs
+    __num_u16_unchecked_mul_%out_value = mul %lhs, %rhs
+    %out_value = and __num_u16_unchecked_mul_%out_value, NUM_U16_MAX
+    !__num_u16_unchecked_mul_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_MUL %out_value, %lhs, %rhs
+    __num_u32_unchecked_mul_%out_value = mul %lhs, %rhs
+    %out_value = and __num_u32_unchecked_mul_%out_value, NUM_U32_MAX
+    !__num_u32_unchecked_mul_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_DIV %out_value, %lhs, %rhs
+    __num_u8_unchecked_div_lhs_%out_value = and %lhs, NUM_U8_MAX
+    __num_u8_unchecked_div_rhs_%out_value = and %rhs, NUM_U8_MAX
+    %out_value = udiv __num_u8_unchecked_div_lhs_%out_value, __num_u8_unchecked_div_rhs_%out_value
+    !__num_u8_unchecked_div_rhs_%out_value
+    !__num_u8_unchecked_div_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_DIV %out_value, %lhs, %rhs
+    __num_u16_unchecked_div_lhs_%out_value = and %lhs, NUM_U16_MAX
+    __num_u16_unchecked_div_rhs_%out_value = and %rhs, NUM_U16_MAX
+    %out_value = udiv __num_u16_unchecked_div_lhs_%out_value, __num_u16_unchecked_div_rhs_%out_value
+    !__num_u16_unchecked_div_rhs_%out_value
+    !__num_u16_unchecked_div_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_DIV %out_value, %lhs, %rhs
+    __num_u32_unchecked_div_lhs_%out_value = and %lhs, NUM_U32_MAX
+    __num_u32_unchecked_div_rhs_%out_value = and %rhs, NUM_U32_MAX
+    %out_value = udiv __num_u32_unchecked_div_lhs_%out_value, __num_u32_unchecked_div_rhs_%out_value
+    !__num_u32_unchecked_div_rhs_%out_value
+    !__num_u32_unchecked_div_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_REM %out_value, %lhs, %rhs
+    __num_u8_unchecked_rem_lhs_%out_value = and %lhs, NUM_U8_MAX
+    __num_u8_unchecked_rem_rhs_%out_value = and %rhs, NUM_U8_MAX
+    %out_value = urem __num_u8_unchecked_rem_lhs_%out_value, __num_u8_unchecked_rem_rhs_%out_value
+    !__num_u8_unchecked_rem_rhs_%out_value
+    !__num_u8_unchecked_rem_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_REM %out_value, %lhs, %rhs
+    __num_u16_unchecked_rem_lhs_%out_value = and %lhs, NUM_U16_MAX
+    __num_u16_unchecked_rem_rhs_%out_value = and %rhs, NUM_U16_MAX
+    %out_value = urem __num_u16_unchecked_rem_lhs_%out_value, __num_u16_unchecked_rem_rhs_%out_value
+    !__num_u16_unchecked_rem_rhs_%out_value
+    !__num_u16_unchecked_rem_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_REM %out_value, %lhs, %rhs
+    __num_u32_unchecked_rem_lhs_%out_value = and %lhs, NUM_U32_MAX
+    __num_u32_unchecked_rem_rhs_%out_value = and %rhs, NUM_U32_MAX
+    %out_value = urem __num_u32_unchecked_rem_lhs_%out_value, __num_u32_unchecked_rem_rhs_%out_value
+    !__num_u32_unchecked_rem_rhs_%out_value
+    !__num_u32_unchecked_rem_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_SHL %out_value, %value, %shift
+    __num_u8_unchecked_shl_%out_value = shl %value, %shift
+    %out_value = and __num_u8_unchecked_shl_%out_value, NUM_U8_MAX
+    !__num_u8_unchecked_shl_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_SHL %out_value, %value, %shift
+    __num_u16_unchecked_shl_%out_value = shl %value, %shift
+    %out_value = and __num_u16_unchecked_shl_%out_value, NUM_U16_MAX
+    !__num_u16_unchecked_shl_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_SHL %out_value, %value, %shift
+    __num_u32_unchecked_shl_%out_value = shl %value, %shift
+    %out_value = and __num_u32_unchecked_shl_%out_value, NUM_U32_MAX
+    !__num_u32_unchecked_shl_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_SHR %out_value, %value, %shift
+    __num_u8_unchecked_shr_%out_value = lshr %value, %shift
+    %out_value = and __num_u8_unchecked_shr_%out_value, NUM_U8_MAX
+    !__num_u8_unchecked_shr_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_SHR %out_value, %value, %shift
+    __num_u16_unchecked_shr_%out_value = lshr %value, %shift
+    %out_value = and __num_u16_unchecked_shr_%out_value, NUM_U16_MAX
+    !__num_u16_unchecked_shr_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_SHR %out_value, %value, %shift
+    __num_u32_unchecked_shr_%out_value = lshr %value, %shift
+    %out_value = and __num_u32_unchecked_shr_%out_value, NUM_U32_MAX
+    !__num_u32_unchecked_shr_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U8_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
     EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U8_BITS, NUM_U8_MAX
 [END_MACRO]

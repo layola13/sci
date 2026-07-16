@@ -719,6 +719,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_num_exact_division_macro_surface.sa",
         "tests/unit_framework/std_num_div_floor_macro_surface.sa",
         "tests/unit_framework/std_num_funnel_shift_macro_surface.sa",
+        "tests/unit_framework/std_num_narrow_unchecked_macro_surface.sa",
         "tests/unit_framework/std_num_carryless_mul_macro_surface.sa",
         "tests/unit_framework/std_num_gather_scatter_bits_macro_surface.sa",
         "tests/unit_framework/std_num_unchecked_disjoint_bitor_macro_surface.sa",
