@@ -344,9 +344,25 @@ static LLVMTypeRef fallible_wire_type_of(EmitCtx *e, SaType payload_ty) {
     return fallible_type_of(e, payload_ty);
 }
 
+static int external_fallible_i32_uses_i64_abi(const SaFunction *f) {
+    return f != NULL && f->kind == SA_F_EXTERNAL && f->return_fallible && f->ret_ty == SA_T_I32;
+}
+
 static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
+    if (external_fallible_i32_uses_i64_abi(f)) return e->i64_ty;
     if (f->return_fallible) return fallible_type_of(e, f->ret_ty);
     return type_of(e, f->ret_ty);
+}
+
+static LLVMValueRef unpack_external_fallible_i32(EmitCtx *e, LLVMValueRef packed) {
+    LLVMTypeRef result_ty = fallible_type_of(e, SA_T_I32);
+    LLVMValueRef agg = LLVMGetUndef(result_ty);
+    LLVMValueRef status64 = LLVMBuildAnd(e->builder, packed, LLVMConstInt(e->i64_ty, 0xffffffffULL, 0), "fallible_status_bits");
+    LLVMValueRef payload64 = LLVMBuildLShr(e->builder, packed, LLVMConstInt(e->i64_ty, 32, 0), "fallible_payload_bits");
+    LLVMValueRef status = LLVMBuildTrunc(e->builder, status64, e->i32_ty, "fallible_status_i32");
+    LLVMValueRef payload = LLVMBuildTrunc(e->builder, payload64, e->i32_ty, "fallible_payload_i32");
+    agg = LLVMBuildInsertValue(e->builder, agg, status, 0, "fallible_status");
+    return LLVMBuildInsertValue(e->builder, agg, payload, 1, "fallible_payload");
 }
 
 static int apply_native_target_layout(EmitCtx *e, char **out_error) {
@@ -389,6 +405,14 @@ static int apply_native_target_layout(EmitCtx *e, char **out_error) {
 
 static LLVMValueRef find_function(EmitCtx *e, const char *name) { return LLVMGetNamedFunction(e->module, name); }
 static LLVMValueRef find_global(EmitCtx *e, const char *name) { return LLVMGetNamedGlobal(e->module, name); }
+
+static const SaFunction *function_by_name(EmitCtx *e, const char *name) {
+    if (e == NULL || name == NULL) return NULL;
+    for (size_t i = 0; i < e->function_count; i++) {
+        if (strcmp(e->functions[i].name, name) == 0) return &e->functions[i];
+    }
+    return NULL;
+}
 
 static SaType sa_type_from_llvm(LLVMTypeRef ty) {
     switch (LLVMGetTypeKind(ty)) {
@@ -1226,7 +1250,10 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     if (a < param_count) args[a] = coerce(e, args[a], aty, sa_type_from_llvm(param_types[a]));
                 }
                 free(param_types);
+                const SaFunction *callee_sig = function_by_name(e, in->callee);
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call" : "");
+                LLVMValueRef resultv = callv;
+                if (external_fallible_i32_uses_i64_abi(callee_sig)) resultv = unpack_external_fallible_i32(e, callv);
                 if (strcmp(in->callee, "sa_json_parse") == 0 && in->arg_count >= 2) {
                     LLVMValueRef dbg_args[3] = {
                         coerce(e, args[0], sa_type_from_llvm(LLVMTypeOf(args[0])), SA_T_PTR),
@@ -1278,7 +1305,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     break;
                 }
                 if (in->has_dst) {
-                    if (reg_store(e, regs, reg_count, in->dst, callv, in->ty, in->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
+                    if (reg_store(e, regs, reg_count, in->dst, resultv, in->ty, in->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
                     regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
                 }
                 free(args);
