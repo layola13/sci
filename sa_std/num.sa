@@ -7985,6 +7985,36 @@ L_NUM_I32_REM_EUCLID_FAIL_%out_ok:
 L_NUM_I32_REM_EUCLID_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_I8_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_DIV_EUCLID __num_i8_div_euclid_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i8_div_euclid_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_DIV_EUCLID __num_i16_div_euclid_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i16_div_euclid_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_DIV_EUCLID __num_i32_div_euclid_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i32_div_euclid_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_REM_EUCLID __num_i8_rem_euclid_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i8_rem_euclid_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_REM_EUCLID __num_i16_rem_euclid_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i16_rem_euclid_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_REM_EUCLID __num_i32_rem_euclid_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i32_rem_euclid_direct_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I8_STRICT_DIV_EUCLID %out_value, %lhs, %rhs
     EXPAND NUM_I8_CHECKED_DIV_EUCLID __num_i8_strict_div_euclid_ok_%out_value, %out_value, %lhs, %rhs
     br __num_i8_strict_div_euclid_ok_%out_value -> L_NUM_I8_STRICT_DIV_EUCLID_OK_%out_value, L_NUM_I8_STRICT_DIV_EUCLID_PANIC_%out_value

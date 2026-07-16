@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed direct Euclidean div/rem macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `div_euclid` and `rem_euclid`.
+- `sa_std/num.sa`: added direct `NUM_I8_DIV_EUCLID`, `NUM_I16_DIV_EUCLID`, `NUM_I32_DIV_EUCLID`, and matching `REM_EUCLID` helpers.
+- Semantics: direct helpers reuse the existing narrow signed checked Euclidean div/rem paths and match the existing `i64` direct helper shape, writing the computed quotient/remainder on success and preserving the current SA direct-helper failure shape rather than materializing Rust panic objects. Existing `STRICT_*_EUCLID` helpers remain the panic-control-flow surface.
+- Test: `tests/unit_framework/std_num_narrow_signed_euclid_macro_surface.sa` - 1 test (panic ID 10672) covering `i8`, `i16`, and `i32` direct Euclidean quotient/remainder adjustment for positive and negative operand combinations.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_euclid_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10673+.
+
 ## Completed: 2026-07-16 narrow signed primitive bit helper macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `count_ones`, `count_zeros`, `leading_zeros`, `trailing_zeros`, `leading_ones`, `trailing_ones`, `isolate_highest_one`, `isolate_lowest_one`, `highest_one`, and `lowest_one`.
