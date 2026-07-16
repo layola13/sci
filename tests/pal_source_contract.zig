@@ -24,6 +24,10 @@ test "PAL selector routes supported OS targets to platform backends" {
     try expectContains(selector, ".windows => @import(\"pal_windows.zig\")");
     try expectContains(selector, "else => @compileError(\"Unsupported OS\")");
     try expectContains(selector, "pub const SaEvent = sys.SaEvent");
+    try expectContains(selector, "PAL selector event loop drains submitted events through sys");
+    try expectContains(selector, "PAL selector event loop wait blocks until submit wakes sys backend");
+    try expectContains(selector, "sys.event_loop_create");
+    try expectContains(selector, "sys.event_loop_wait(loop, &out, 1, 2000)");
 }
 
 test "runtime system entry points route executable path and args through PAL" {
