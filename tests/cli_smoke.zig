@@ -976,6 +976,106 @@ test "cli build-exe prunes unused imported functions before llvm emission" {
     try std.testing.expect(artifact_bytes.len > 0);
 }
 
+test "json extern build-exe does not inject debug prints" {
+    const source =
+        \\@import "sa_std/encoding/json.sa"
+        \\
+        \\@const DOC = utf8:"{\"name\":\"sci\"}"
+        \\#def DOC_LEN = 14
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    root = call @sa_json_parse(&DOC, DOC_LEN)
+        \\    parse_ok = ne root, 0
+        \\    br parse_ok -> L_KIND, L_FAIL_PARSE
+        \\
+        \\L_FAIL_PARSE:
+        \\    !root
+        \\    !parse_ok
+        \\    return 10
+        \\
+        \\L_KIND:
+        \\    kind = call @sa_json_kind(root)
+        \\    kind_ok = eq kind, SA_JSON_KIND_OBJECT
+        \\    !kind
+        \\    br kind_ok -> L_FREE, L_FAIL_KIND
+        \\
+        \\L_FAIL_KIND:
+        \\    free_res = call @sa_json_free(^root)
+        \\    !free_res
+        \\    !parse_ok
+        \\    !kind_ok
+        \\    return 11
+        \\
+        \\L_FREE:
+        \\    free_res = call @sa_json_free(^root)
+        \\    !free_res
+        \\    !parse_ok
+        \\    !kind_ok
+        \\    return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "json_debug_clean.sa", source);
+
+    var build_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    defer build_stdout.deinit();
+    var build_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    defer build_stderr.deinit();
+
+    const build_exe_argv = [_][]const u8{
+        "sa",
+        "build-exe",
+        "json_debug_clean.sa",
+        "-o",
+        "json_debug_clean.out",
+        "--jobs",
+        "1",
+        "--no-incremental",
+    };
+    const build_exe_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        build_stdout.writer(),
+        build_stderr.writer(),
+    );
+    if (build_exe_code != 0) {
+        std.debug.print("json debug-clean build failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ build_stdout.items, build_stderr.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), build_exe_code);
+    try std.testing.expectEqual(@as(usize, 0), build_stdout.items.len);
+    try std.testing.expectEqual(@as(usize, 0), build_stderr.items.len);
+
+    const native_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./json_debug_clean.out"});
+    defer std.testing.allocator.free(native_result.stdout);
+    defer std.testing.allocator.free(native_result.stderr);
+    switch (native_result.term) {
+        .Exited => |code| {
+            if (code != 0 or native_result.stdout.len != 0 or native_result.stderr.len != 0) {
+                std.debug.print("json debug-clean native failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ native_result.stdout, native_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => |term| {
+            std.debug.print("json debug-clean native terminated unexpectedly: {any}\nstdout:\n{s}\nstderr:\n{s}\n", .{ term, native_result.stdout, native_result.stderr });
+            return error.TestUnexpectedResult;
+        },
+    }
+    try std.testing.expectEqual(@as(usize, 0), native_result.stdout.len);
+    try std.testing.expectEqual(@as(usize, 0), native_result.stderr.len);
+    try std.testing.expect(std.mem.indexOf(u8, native_result.stderr, "DBG parse") == null);
+    try std.testing.expect(std.mem.indexOf(u8, native_result.stderr, "DBG object_get") == null);
+    try std.testing.expect(std.mem.indexOf(u8, native_result.stderr, "DBG kind") == null);
+    try std.testing.expect(std.mem.indexOf(u8, native_result.stderr, "DBG string_") == null);
+}
+
 test "cli run with jobs 2 keeps the earliest source-order trap" {
     const source =
         \\@first() -> i32:

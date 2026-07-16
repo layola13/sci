@@ -275,6 +275,23 @@ pub fn build(b: *std.Build) void {
     const cli_smoke_step = b.step("bc2sa-smoke", "Run the bc2sa real bitcode smoke tests");
     cli_smoke_step.dependOn(&run_cli_smoke.step);
 
+    const cli_json_debug_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cli_json_debug_smoke_module.addImport("saasm", lib_module);
+    cli_json_debug_smoke_module.addOptions("build_options", build_options);
+    const cli_json_debug_smoke = b.addTest(.{
+        .root_module = cli_json_debug_smoke_module,
+        .filters = &.{"json extern build-exe does not inject debug prints"},
+    });
+    const run_cli_json_debug_smoke = b.addRunArtifact(cli_json_debug_smoke);
+    run_cli_json_debug_smoke.setCwd(repo_root_lazy);
+    run_cli_json_debug_smoke.step.dependOn(&sync_sa_std_artifact.step);
+    const cli_json_debug_smoke_step = b.step("llvmc-json-debug-smoke", "Run the LLVM-C JSON debug-print regression smoke test");
+    cli_json_debug_smoke_step.dependOn(&run_cli_json_debug_smoke.step);
+
     const cli_skills_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,
