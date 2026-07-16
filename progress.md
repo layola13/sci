@@ -8660,3 +8660,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_fold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10714+.
+
+## Completed: 2026-07-16 Vec IntoIter aggregate ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_SUM_U64`, `VEC_INTO_ITER_PRODUCT_U64`, `VEC_INTO_ITER_MIN_U64`, `VEC_INTO_ITER_MAX_U64`, `VEC_INTO_ITER_REDUCE_U64`, and `VEC_INTO_ITER_TRY_REDUCE_U64`.
+- Semantics: these helpers lower supportable Rust iterator aggregation/reduction surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor primitives over the explicit backing Vec. They return concrete values or explicit `(has, value)` / `(ok, has, value)` scalars rather than Rust trait-driven `Sum` / `Product` / `Ord`, `Option<T>`, or generic `Try` residual objects.
+- Test: `tests/unit_framework/std_vec_into_iter_aggregate_macro_surface.sa` — 1 test (panic ID 10714) covering sum, product, min, max, reduce, empty aggregate defaults, try_reduce success, try_reduce short-circuit, and remaining cursor state after short-circuit.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10715+.
