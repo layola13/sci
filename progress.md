@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive unbounded shift macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `unbounded_shl` / `unbounded_shr` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `UNBOUNDED_SHL` and `UNBOUNDED_SHR` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- In-range shifts preserve the declared primitive width through narrow unsigned masking or signed sign extension. Oversized left shifts and oversized unsigned right shifts return zero; oversized signed right shifts return sign fill (`0` for nonnegative values and `-1` for negative values). The helpers branch before executing the shift and do not add runtime panic codes.
+- Test: `tests/unit_framework/std_num_unbounded_shift_macro_surface.sa` - 1 test (panic ID 10640) expanding all 20 new public helpers and covering both in-range and oversized behavior, including negative signed oversized right shifts.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unbounded_shift_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10641+.
+
 ## Completed: 2026-07-16 primitive unsigned checked_signed_diff macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `checked_signed_diff` implementation under `/home/vscode/projects/rust`.

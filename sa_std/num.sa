@@ -1907,6 +1907,38 @@ L_NUM_U64_SHR_OVER_%out_ok:
 L_NUM_U64_SHR_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_U64_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_u64_unbounded_shl_in_range_%out_value = ult %shift, NUM_U64_BITS
+    br __num_u64_unbounded_shl_in_range_%out_value -> L_NUM_U64_UNBOUNDED_SHL_OK_%out_value, L_NUM_U64_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_U64_UNBOUNDED_SHL_OK_%out_value:
+    %out_value = shl %value, %shift
+    !__num_u64_unbounded_shl_in_range_%out_value
+    jmp L_NUM_U64_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_U64_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u64_unbounded_shl_in_range_%out_value
+
+L_NUM_U64_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U64_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_u64_unbounded_shr_in_range_%out_value = ult %shift, NUM_U64_BITS
+    br __num_u64_unbounded_shr_in_range_%out_value -> L_NUM_U64_UNBOUNDED_SHR_OK_%out_value, L_NUM_U64_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_U64_UNBOUNDED_SHR_OK_%out_value:
+    %out_value = lshr %value, %shift
+    !__num_u64_unbounded_shr_in_range_%out_value
+    jmp L_NUM_U64_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_U64_UNBOUNDED_SHR_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u64_unbounded_shr_in_range_%out_value
+
+L_NUM_U64_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
 [MACRO] NUM_U64_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U64_CHECKED_SHL __num_u64_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u64_strict_shl_ok_%out_value -> L_NUM_U64_STRICT_SHL_OK_%out_value, L_NUM_U64_STRICT_SHL_PANIC_%out_value
@@ -3958,6 +3990,40 @@ L_NUM_I64_SHR_OVER_%out_ok:
     !__num_ishr_ok_%out_ok
 
 L_NUM_I64_SHR_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_I64_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_i64_unbounded_shl_in_range_%out_value = ult %shift, NUM_I64_BITS
+    br __num_i64_unbounded_shl_in_range_%out_value -> L_NUM_I64_UNBOUNDED_SHL_OK_%out_value, L_NUM_I64_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_I64_UNBOUNDED_SHL_OK_%out_value:
+    %out_value = shl %value, %shift
+    !__num_i64_unbounded_shl_in_range_%out_value
+    jmp L_NUM_I64_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_I64_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_i64_unbounded_shl_in_range_%out_value
+
+L_NUM_I64_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I64_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_i64_unbounded_shr_in_range_%out_value = ult %shift, NUM_I64_BITS
+    br __num_i64_unbounded_shr_in_range_%out_value -> L_NUM_I64_UNBOUNDED_SHR_OK_%out_value, L_NUM_I64_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_I64_UNBOUNDED_SHR_OK_%out_value:
+    %out_value = ashr %value, %shift
+    !__num_i64_unbounded_shr_in_range_%out_value
+    jmp L_NUM_I64_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_I64_UNBOUNDED_SHR_OVER_%out_value:
+    __num_i64_unbounded_shr_negative_%out_value = slt %value, 0
+    %out_value = sub 0, __num_i64_unbounded_shr_negative_%out_value
+    !__num_i64_unbounded_shr_negative_%out_value
+    !__num_i64_unbounded_shr_in_range_%out_value
+
+L_NUM_I64_UNBOUNDED_SHR_END_%out_value:
 [END_MACRO]
 
 [MACRO] NUM_I64_STRICT_SHL %out_value, %value, %shift
@@ -6098,6 +6164,120 @@ L_NUM_I32_STRICT_REM_EUCLID_OK_%out_value:
     !__num_i32_shr_raw_%out_ok
 [END_MACRO]
 
+[MACRO] NUM_I8_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_i8_unbounded_shl_in_range_%out_value = ult %shift, NUM_I8_BITS
+    br __num_i8_unbounded_shl_in_range_%out_value -> L_NUM_I8_UNBOUNDED_SHL_OK_%out_value, L_NUM_I8_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_I8_UNBOUNDED_SHL_OK_%out_value:
+    __num_i8_unbounded_shl_raw_%out_value = shl %value, %shift
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_unbounded_shl_raw_%out_value
+    !__num_i8_unbounded_shl_raw_%out_value
+    !__num_i8_unbounded_shl_in_range_%out_value
+    jmp L_NUM_I8_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_I8_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_i8_unbounded_shl_in_range_%out_value
+
+L_NUM_I8_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I16_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_i16_unbounded_shl_in_range_%out_value = ult %shift, NUM_I16_BITS
+    br __num_i16_unbounded_shl_in_range_%out_value -> L_NUM_I16_UNBOUNDED_SHL_OK_%out_value, L_NUM_I16_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_I16_UNBOUNDED_SHL_OK_%out_value:
+    __num_i16_unbounded_shl_raw_%out_value = shl %value, %shift
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_unbounded_shl_raw_%out_value
+    !__num_i16_unbounded_shl_raw_%out_value
+    !__num_i16_unbounded_shl_in_range_%out_value
+    jmp L_NUM_I16_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_I16_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_i16_unbounded_shl_in_range_%out_value
+
+L_NUM_I16_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I32_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_i32_unbounded_shl_in_range_%out_value = ult %shift, NUM_I32_BITS
+    br __num_i32_unbounded_shl_in_range_%out_value -> L_NUM_I32_UNBOUNDED_SHL_OK_%out_value, L_NUM_I32_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_I32_UNBOUNDED_SHL_OK_%out_value:
+    __num_i32_unbounded_shl_raw_%out_value = shl %value, %shift
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_unbounded_shl_raw_%out_value
+    !__num_i32_unbounded_shl_raw_%out_value
+    !__num_i32_unbounded_shl_in_range_%out_value
+    jmp L_NUM_I32_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_I32_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_i32_unbounded_shl_in_range_%out_value
+
+L_NUM_I32_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I8_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_i8_unbounded_shr_in_range_%out_value = ult %shift, NUM_I8_BITS
+    br __num_i8_unbounded_shr_in_range_%out_value -> L_NUM_I8_UNBOUNDED_SHR_OK_%out_value, L_NUM_I8_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_I8_UNBOUNDED_SHR_OK_%out_value:
+    __num_i8_unbounded_shr_raw_%out_value = ashr %value, %shift
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_unbounded_shr_raw_%out_value
+    !__num_i8_unbounded_shr_raw_%out_value
+    !__num_i8_unbounded_shr_in_range_%out_value
+    jmp L_NUM_I8_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_I8_UNBOUNDED_SHR_OVER_%out_value:
+    __num_i8_unbounded_shr_negative_%out_value = slt %value, 0
+    %out_value = sub 0, __num_i8_unbounded_shr_negative_%out_value
+    !__num_i8_unbounded_shr_negative_%out_value
+    !__num_i8_unbounded_shr_in_range_%out_value
+
+L_NUM_I8_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I16_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_i16_unbounded_shr_in_range_%out_value = ult %shift, NUM_I16_BITS
+    br __num_i16_unbounded_shr_in_range_%out_value -> L_NUM_I16_UNBOUNDED_SHR_OK_%out_value, L_NUM_I16_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_I16_UNBOUNDED_SHR_OK_%out_value:
+    __num_i16_unbounded_shr_raw_%out_value = ashr %value, %shift
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_unbounded_shr_raw_%out_value
+    !__num_i16_unbounded_shr_raw_%out_value
+    !__num_i16_unbounded_shr_in_range_%out_value
+    jmp L_NUM_I16_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_I16_UNBOUNDED_SHR_OVER_%out_value:
+    __num_i16_unbounded_shr_negative_%out_value = slt %value, 0
+    %out_value = sub 0, __num_i16_unbounded_shr_negative_%out_value
+    !__num_i16_unbounded_shr_negative_%out_value
+    !__num_i16_unbounded_shr_in_range_%out_value
+
+L_NUM_I16_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I32_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_i32_unbounded_shr_in_range_%out_value = ult %shift, NUM_I32_BITS
+    br __num_i32_unbounded_shr_in_range_%out_value -> L_NUM_I32_UNBOUNDED_SHR_OK_%out_value, L_NUM_I32_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_I32_UNBOUNDED_SHR_OK_%out_value:
+    __num_i32_unbounded_shr_raw_%out_value = ashr %value, %shift
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_unbounded_shr_raw_%out_value
+    !__num_i32_unbounded_shr_raw_%out_value
+    !__num_i32_unbounded_shr_in_range_%out_value
+    jmp L_NUM_I32_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_I32_UNBOUNDED_SHR_OVER_%out_value:
+    __num_i32_unbounded_shr_negative_%out_value = slt %value, 0
+    %out_value = sub 0, __num_i32_unbounded_shr_negative_%out_value
+    !__num_i32_unbounded_shr_negative_%out_value
+    !__num_i32_unbounded_shr_in_range_%out_value
+
+L_NUM_I32_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
 [MACRO] NUM_I8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_I8_CHECKED_SHL __num_i8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_i8_strict_shl_ok_%out_value -> L_NUM_I8_STRICT_SHL_OK_%out_value, L_NUM_I8_STRICT_SHL_PANIC_%out_value
@@ -7935,6 +8115,114 @@ L_NUM_U32_STRICT_REM_EUCLID_OK_%out_value:
     !__num_u32_shr_value_%out_ok
 [END_MACRO]
 
+[MACRO] NUM_U8_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_u8_unbounded_shl_in_range_%out_value = ult %shift, NUM_U8_BITS
+    br __num_u8_unbounded_shl_in_range_%out_value -> L_NUM_U8_UNBOUNDED_SHL_OK_%out_value, L_NUM_U8_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_U8_UNBOUNDED_SHL_OK_%out_value:
+    __num_u8_unbounded_shl_raw_%out_value = shl %value, %shift
+    %out_value = and __num_u8_unbounded_shl_raw_%out_value, NUM_U8_MAX
+    !__num_u8_unbounded_shl_raw_%out_value
+    !__num_u8_unbounded_shl_in_range_%out_value
+    jmp L_NUM_U8_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_U8_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u8_unbounded_shl_in_range_%out_value
+
+L_NUM_U8_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U16_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_u16_unbounded_shl_in_range_%out_value = ult %shift, NUM_U16_BITS
+    br __num_u16_unbounded_shl_in_range_%out_value -> L_NUM_U16_UNBOUNDED_SHL_OK_%out_value, L_NUM_U16_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_U16_UNBOUNDED_SHL_OK_%out_value:
+    __num_u16_unbounded_shl_raw_%out_value = shl %value, %shift
+    %out_value = and __num_u16_unbounded_shl_raw_%out_value, NUM_U16_MAX
+    !__num_u16_unbounded_shl_raw_%out_value
+    !__num_u16_unbounded_shl_in_range_%out_value
+    jmp L_NUM_U16_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_U16_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u16_unbounded_shl_in_range_%out_value
+
+L_NUM_U16_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U32_UNBOUNDED_SHL %out_value, %value, %shift
+    __num_u32_unbounded_shl_in_range_%out_value = ult %shift, NUM_U32_BITS
+    br __num_u32_unbounded_shl_in_range_%out_value -> L_NUM_U32_UNBOUNDED_SHL_OK_%out_value, L_NUM_U32_UNBOUNDED_SHL_OVER_%out_value
+
+L_NUM_U32_UNBOUNDED_SHL_OK_%out_value:
+    __num_u32_unbounded_shl_raw_%out_value = shl %value, %shift
+    %out_value = and __num_u32_unbounded_shl_raw_%out_value, NUM_U32_MAX
+    !__num_u32_unbounded_shl_raw_%out_value
+    !__num_u32_unbounded_shl_in_range_%out_value
+    jmp L_NUM_U32_UNBOUNDED_SHL_END_%out_value
+
+L_NUM_U32_UNBOUNDED_SHL_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u32_unbounded_shl_in_range_%out_value
+
+L_NUM_U32_UNBOUNDED_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U8_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_u8_unbounded_shr_in_range_%out_value = ult %shift, NUM_U8_BITS
+    br __num_u8_unbounded_shr_in_range_%out_value -> L_NUM_U8_UNBOUNDED_SHR_OK_%out_value, L_NUM_U8_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_U8_UNBOUNDED_SHR_OK_%out_value:
+    __num_u8_unbounded_shr_raw_%out_value = lshr %value, %shift
+    %out_value = and __num_u8_unbounded_shr_raw_%out_value, NUM_U8_MAX
+    !__num_u8_unbounded_shr_raw_%out_value
+    !__num_u8_unbounded_shr_in_range_%out_value
+    jmp L_NUM_U8_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_U8_UNBOUNDED_SHR_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u8_unbounded_shr_in_range_%out_value
+
+L_NUM_U8_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U16_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_u16_unbounded_shr_in_range_%out_value = ult %shift, NUM_U16_BITS
+    br __num_u16_unbounded_shr_in_range_%out_value -> L_NUM_U16_UNBOUNDED_SHR_OK_%out_value, L_NUM_U16_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_U16_UNBOUNDED_SHR_OK_%out_value:
+    __num_u16_unbounded_shr_raw_%out_value = lshr %value, %shift
+    %out_value = and __num_u16_unbounded_shr_raw_%out_value, NUM_U16_MAX
+    !__num_u16_unbounded_shr_raw_%out_value
+    !__num_u16_unbounded_shr_in_range_%out_value
+    jmp L_NUM_U16_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_U16_UNBOUNDED_SHR_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u16_unbounded_shr_in_range_%out_value
+
+L_NUM_U16_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U32_UNBOUNDED_SHR %out_value, %value, %shift
+    __num_u32_unbounded_shr_in_range_%out_value = ult %shift, NUM_U32_BITS
+    br __num_u32_unbounded_shr_in_range_%out_value -> L_NUM_U32_UNBOUNDED_SHR_OK_%out_value, L_NUM_U32_UNBOUNDED_SHR_OVER_%out_value
+
+L_NUM_U32_UNBOUNDED_SHR_OK_%out_value:
+    __num_u32_unbounded_shr_raw_%out_value = lshr %value, %shift
+    %out_value = and __num_u32_unbounded_shr_raw_%out_value, NUM_U32_MAX
+    !__num_u32_unbounded_shr_raw_%out_value
+    !__num_u32_unbounded_shr_in_range_%out_value
+    jmp L_NUM_U32_UNBOUNDED_SHR_END_%out_value
+
+L_NUM_U32_UNBOUNDED_SHR_OVER_%out_value:
+    %out_value = add 0, 0
+    !__num_u32_unbounded_shr_in_range_%out_value
+
+L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -8250,6 +8538,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
     EXPAND NUM_U64_STRICT_SHR %out_value, %value, %shift
 [END_MACRO]
 
+[MACRO] NUM_USIZE_UNBOUNDED_SHL %out_value, %value, %shift
+    EXPAND NUM_U64_UNBOUNDED_SHL %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNBOUNDED_SHR %out_value, %value, %shift
+    EXPAND NUM_U64_UNBOUNDED_SHR %out_value, %value, %shift
+[END_MACRO]
+
 [MACRO] NUM_USIZE_SATURATING_ADD %out_value, %lhs, %rhs
     EXPAND NUM_U64_SATURATING_ADD %out_value, %lhs, %rhs
 [END_MACRO]
@@ -8496,6 +8792,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_ISIZE_STRICT_SHR %out_value, %value, %shift
     EXPAND NUM_I64_STRICT_SHR %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_UNBOUNDED_SHL %out_value, %value, %shift
+    EXPAND NUM_I64_UNBOUNDED_SHL %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_UNBOUNDED_SHR %out_value, %value, %shift
+    EXPAND NUM_I64_UNBOUNDED_SHR %out_value, %value, %shift
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_SATURATING_ADD %out_value, %lhs, %rhs
