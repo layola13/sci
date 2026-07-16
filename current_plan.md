@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 signed primitive overflowing neg/shift)
+
+Completed supportable signed primitive overflowing neg/shift helpers:
+- `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_NEG` exposes Rust's signed primitive overflowing negation shape for every existing SA signed width.
+- `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_SHL` and `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_SHR` expose Rust's signed primitive overflowing shift shape for the same widths.
+- Neg helpers return the signed wrapping negation plus a bool-style overflow flag for `MIN`; shift helpers return the signed wrapping shift result plus `shift >= BITS` as the overflow flag.
+- This batch models concrete primitive result semantics, not signed overflowing div/rem/abs/pow, Rust tuple ABI, `i128`, or trait-level dispatch.
+- Test file `std_num_signed_overflowing_neg_shift_macro_surface.sa` (panic ID 10656).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_overflowing_neg_shift_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10657+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 signed wide primitive overflowing add/sub/mul)
 
 Completed supportable signed wide primitive overflowing helpers:
