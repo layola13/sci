@@ -3713,6 +3713,30 @@ L_NUM_U64_REV_DONE_%out_value:
     !__num_rev_idx_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_REVERSE_BITS %out_value, %value
+    __num_u8_rev_value_%out_value = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_REVERSE_BITS __num_u8_rev_raw_%out_value, __num_u8_rev_value_%out_value
+    %out_value = lshr __num_u8_rev_raw_%out_value, 56
+    !__num_u8_rev_raw_%out_value
+    !__num_u8_rev_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_REVERSE_BITS %out_value, %value
+    __num_u16_rev_value_%out_value = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_REVERSE_BITS __num_u16_rev_raw_%out_value, __num_u16_rev_value_%out_value
+    %out_value = lshr __num_u16_rev_raw_%out_value, 48
+    !__num_u16_rev_raw_%out_value
+    !__num_u16_rev_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_REVERSE_BITS %out_value, %value
+    __num_u32_rev_value_%out_value = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_REVERSE_BITS __num_u32_rev_raw_%out_value, __num_u32_rev_value_%out_value
+    %out_value = lshr __num_u32_rev_raw_%out_value, 32
+    !__num_u32_rev_raw_%out_value
+    !__num_u32_rev_value_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_SWAP_BYTES %out_value, %value
     __num_swap_idx_slot_%out_value = stack_alloc 8
     __num_swap_acc_slot_%out_value = stack_alloc 8
@@ -11079,6 +11103,10 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_ROTATE_RIGHT %out_value, %value, %shift
     EXPAND NUM_U64_ROTATE_RIGHT %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_REVERSE_BITS %out_value, %value
+    EXPAND NUM_U64_REVERSE_BITS %out_value, %value
 [END_MACRO]
 
 [MACRO] NUM_USIZE_BIT_WIDTH %out_width, %value
