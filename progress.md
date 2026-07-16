@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive floor division macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `div_floor` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `DIV_FLOOR` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Unsigned helpers use ordinary truncating division. Signed helpers compute the truncating quotient and remainder, then subtract one only when the remainder is nonzero and the operand signs differ, matching floor division toward negative infinity.
+- Zero divisors and signed `MIN / -1` reuse SA `panic(2208)`. This models Rust's unstable `int_roundings` behavior without claiming Rust panic message/object identity, feature-gate plumbing, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_div_floor_macro_surface.sa` - 3 tests (panic ID 10645 for the ordinary assertion path) expanding all 10 new public helpers and covering unsigned truncation, all four signed sign combinations, exact signed division, zero-divisor panic, and signed overflow panic.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_div_floor_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10646+.
+
 ## Completed: 2026-07-16 primitive exact division macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `checked_div_exact`, `div_exact`, and `unchecked_div_exact` implementations under `/home/vscode/projects/rust`.

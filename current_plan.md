@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive floor division)
+
+Completed supportable primitive floor division helpers:
+- `NUM_U{8,16,32,64,SIZE}_DIV_FLOOR` exposes Rust's unsigned `div_floor` shape as ordinary division for every existing SA unsigned width.
+- `NUM_I{8,16,32,64,SIZE}_DIV_FLOOR` computes the truncating quotient and remainder, then subtracts one when the remainder is nonzero and the operand signs differ, producing a quotient rounded toward negative infinity.
+- Zero divisors and signed `MIN / -1` trap through existing SA `panic(2208)`. `usize` / `isize` alias the current 64-bit SA ABI. This batch models Rust's unstable `int_roundings` behavior, not panic message/object identity, feature-gate plumbing, `u128` / `i128`, or trait-level dispatch.
+- Test file `std_num_div_floor_macro_surface.sa` (panic ID 10645 for the ordinary assertion path).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_div_floor_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10646+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive exact division)
 
 Completed supportable primitive exact division helpers:
