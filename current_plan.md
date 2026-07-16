@@ -3959,3 +3959,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10704+.
 Still blocked without redesign: generic BinaryHeap<T> ordering, Rust borrow/lifetime modeling, owned IntoIterator object semantics, scoped PeekMut guards, lazy drain adapters, allocator-aware constructors, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 BinaryHeap into_iter helper)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap consuming iterator helper in binary_heap.sa: BINARY_HEAP_INTO_ITER_U64, consuming the heap into an explicit backing Vec and returning a slice-backed Iter cursor over that Vec.
+- Test file std_binary_heap_into_iter_macro_surface.sa (panic ID 10704).
+
+Panic IDs next free: 10705+.
+Still blocked without redesign: generic BinaryHeap<T> ordering, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware constructors, scoped PeekMut guards, lazy drain adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

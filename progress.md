@@ -8570,3 +8570,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10704+.
+
+## Completed: 2026-07-16 BinaryHeap into_iter helper
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_INTO_ITER_U64`.
+- Semantics: the helper mirrors Rust's consuming `IntoIterator for BinaryHeap` supportable shape by consuming the heap into an explicit caller-owned backing `Vec<u64>` and constructing the existing slice-backed `Iter` cursor over that Vec's heap-array order. The caller owns and frees the backing Vec after iteration. It does not model Rust's owned `IntoIter<T, A>` object layout, generic `T`, allocator parameter, or drop glue beyond the explicit Vec owner.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_macro_surface.sa` — 1 test (panic ID 10704) covering consuming conversion, arbitrary heap-order iteration, exhausted cursor, and backing Vec cleanup.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10705+.
