@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 usize saturating div alias macro
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `saturating_div`.
+- `sa_std/num.sa`: added `NUM_USIZE_SATURATING_DIV` as the current 64-bit target `usize` alias over `NUM_U64_SATURATING_DIV`.
+- Semantics: helper writes the quotient on checked-division success and writes `NUM_USIZE_MAX` on checked failure, including zero divisors. This keeps the current SA `NUM_U64_SATURATING_DIV` surface shape; Rust unsigned `saturating_div` still panics on zero divisors rather than returning MAX.
+- Test: `tests/unit_framework/std_num_usize_saturating_div_macro_surface.sa` - 1 test (panic ID 10679) covering ordinary quotient and zero-divisor saturation for the `usize` alias path.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_usize_saturating_div_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10680+.
+
 ## Completed: 2026-07-16 narrow unsigned primitive saturating div macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `saturating_div`.

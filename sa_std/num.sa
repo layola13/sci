@@ -12049,6 +12049,10 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
     EXPAND NUM_U64_SATURATING_MUL %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_USIZE_SATURATING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U64_SATURATING_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_USIZE_WRAPPING_ADD %out_value, %lhs, %rhs
     EXPAND NUM_U64_WRAPPING_ADD %out_value, %lhs, %rhs
 [END_MACRO]
