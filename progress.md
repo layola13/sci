@@ -8579,3 +8579,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10705+.
+
+## Completed: 2026-07-16 BinaryHeap into_iter_sorted helper
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_INTO_ITER_SORTED_U64`.
+- Semantics: the helper mirrors Rust's unstable `BinaryHeap::into_iter_sorted` supportable shape by consuming the heap, materializing the existing ascending sorted Vec result, reversing it into an explicit caller-owned backing `Vec<u64>`, and constructing a slice-backed cursor whose forward `next` yields greatest values first. It does not model Rust's `IntoIterSorted<T, A>` object layout, generic `T`, allocator parameter, or lazy pop-on-next behavior.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_macro_surface.sa` — 1 test (panic ID 10705) covering descending iteration, double-ended consumption, exhausted cursor, empty heap, and backing Vec cleanup.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10706+.

@@ -1009,6 +1009,40 @@ L_APPEND_DONE:
     %out_vec = call @sa_binary_heap_into_sorted_vec(^%heap_reg)
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_U64 %out_iter, %out_vec, %heap_reg
+    EXPAND BINARY_HEAP_INTO_SORTED_VEC __binary_heap_sorted_vec_%out_iter, %heap_reg
+    EXPAND VEC_LEN __binary_heap_sorted_len_%out_iter, __binary_heap_sorted_vec_%out_iter
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __binary_heap_sorted_len_%out_iter
+    __binary_heap_sorted_idx_slot_%out_iter = stack_alloc 8
+    store __binary_heap_sorted_idx_slot_%out_iter+0, __binary_heap_sorted_len_%out_iter as u64
+    jmp L_BINARY_HEAP_INTO_ITER_SORTED_HEAD_%out_iter
+
+L_BINARY_HEAP_INTO_ITER_SORTED_HEAD_%out_iter:
+    __binary_heap_sorted_idx_%out_iter = load __binary_heap_sorted_idx_slot_%out_iter+0 as u64
+    __binary_heap_sorted_done_%out_iter = eq __binary_heap_sorted_idx_%out_iter, 0
+    br __binary_heap_sorted_done_%out_iter -> L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter, L_BINARY_HEAP_INTO_ITER_SORTED_BODY_%out_iter
+
+L_BINARY_HEAP_INTO_ITER_SORTED_BODY_%out_iter:
+    __binary_heap_sorted_prev_%out_iter = sub __binary_heap_sorted_idx_%out_iter, 1
+    EXPAND VEC_GET_U64 __binary_heap_sorted_value_%out_iter, __binary_heap_sorted_vec_%out_iter, __binary_heap_sorted_prev_%out_iter
+    EXPAND VEC_PUSH_U64 %out_vec, __binary_heap_sorted_value_%out_iter
+    store __binary_heap_sorted_idx_slot_%out_iter+0, __binary_heap_sorted_prev_%out_iter as u64
+    !__binary_heap_sorted_value_%out_iter
+    !__binary_heap_sorted_prev_%out_iter
+    !__binary_heap_sorted_done_%out_iter
+    !__binary_heap_sorted_idx_%out_iter
+    jmp L_BINARY_HEAP_INTO_ITER_SORTED_HEAD_%out_iter
+
+L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
+    EXPAND VEC_FREE __binary_heap_sorted_vec_%out_iter
+    EXPAND VEC_AS_SLICE __binary_heap_into_iter_sorted_slice_%out_iter, %out_vec
+    EXPAND ITER_FROM_SLICE %out_iter, __binary_heap_into_iter_sorted_slice_%out_iter
+    !__binary_heap_into_iter_sorted_slice_%out_iter
+    !__binary_heap_sorted_done_%out_iter
+    !__binary_heap_sorted_idx_%out_iter
+    !__binary_heap_sorted_len_%out_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg
     %out_flag = call @sa_binary_heap_is_empty(&%heap_reg)
 [END_MACRO]

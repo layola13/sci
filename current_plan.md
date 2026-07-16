@@ -3968,3 +3968,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10705+.
 Still blocked without redesign: generic BinaryHeap<T> ordering, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware constructors, scoped PeekMut guards, lazy drain adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 BinaryHeap into_iter_sorted helper)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap sorted consuming iterator helper in binary_heap.sa: BINARY_HEAP_INTO_ITER_SORTED_U64, consuming the heap and returning an explicit descending backing Vec plus slice-backed Iter cursor whose next values are greatest-first.
+- Test file std_binary_heap_into_iter_sorted_macro_surface.sa (panic ID 10705).
+
+Panic IDs next free: 10706+.
+Still blocked without redesign: generic BinaryHeap<T> ordering, Rust IntoIterSorted<T,A> object layout/drop glue, lazy pop-on-next behavior, allocator-aware constructors, scoped PeekMut guards, lazy drain adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

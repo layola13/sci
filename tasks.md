@@ -2663,3 +2663,5 @@ sa/
 - [x] BinaryHeap iterator alias 批次新增 focused 测试 `std_binary_heap_iter_alias_macro_surface.sa`（panic ID 10703）并同步 progress/current_plan/std_missing；不主张 Rust generic `T` / reference lifetime / iterator trait object / owned `IntoIterator` 语义。
 - [x] `BinaryHeap` Rust API parity 审计继续补齐：补 consuming `IntoIterator for BinaryHeap` 具体降阶宏 `BINARY_HEAP_INTO_ITER_U64`，消费 heap 到显式 backing `Vec<u64>` 并在该 Vec 上建立 slice-backed `Iter`。
 - [x] BinaryHeap into_iter 批次新增 focused 测试 `std_binary_heap_into_iter_macro_surface.sa`（panic ID 10704）并同步 progress/current_plan/std_missing；不主张 Rust owned `IntoIter<T,A>` object layout / generic `T` / allocator parameter / 隐式 drop glue 语义。
+- [x] `BinaryHeap` Rust API parity 审计继续补齐：补 unstable `BinaryHeap::into_iter_sorted` 具体降阶宏 `BINARY_HEAP_INTO_ITER_SORTED_U64`，消费 heap 并生成降序 backing `Vec<u64>`，使 forward iterator 最大值优先。
+- [x] BinaryHeap into_iter_sorted 批次新增 focused 测试 `std_binary_heap_into_iter_sorted_macro_surface.sa`（panic ID 10705）并同步 progress/current_plan/std_missing；不主张 Rust `IntoIterSorted<T,A>` object layout / lazy pop-on-next / generic `T` / allocator parameter 语义。
