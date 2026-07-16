@@ -783,6 +783,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_mpsc_macro_surface.sa",
         "tests/unit_framework/std_process_macro_surface.sa",
         "tests/unit_framework/std_process_stdio_macro_surface.sa",
+        "tests/unit_framework/std_process_command_builder_pidfd_macro_surface.sa",
         "tests/unit_framework/std_env_macro_surface.sa",
         "tests/unit_framework/std_thread_macro_surface.sa",
         "tests/unit_framework/std_marker_macro_surface.sa",
