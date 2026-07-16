@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 unsigned primitive wrapping/euclidean division)
+
+Completed supportable unsigned primitive wrapping and Euclidean division helpers:
+- `NUM_U{8,16,32}_DIV_EUCLID` and `NUM_U{8,16,32}_REM_EUCLID` expose Rust's unsigned Euclidean division and remainder shapes for narrow widths.
+- `NUM_U{8,16,32,64,SIZE}_WRAPPING_DIV_EUCLID` and `NUM_U{8,16,32,64,SIZE}_WRAPPING_REM_EUCLID` expose Rust's unsigned wrapping Euclidean aliases for every current unsigned width.
+- `NUM_U{8,16,32,SIZE}_WRAPPING_DIV` and `NUM_U{8,16,32,SIZE}_WRAPPING_REM` fill the non-euclidean wrapping division/remainder aliases that were missing outside `u64`.
+- Narrow helpers mask operands to the declared Rust width before ordinary unsigned division/remainder; `usize` aliases the current 64-bit SA ABI.
+- This batch models concrete result/control-flow semantics, not Rust panic object identity, `u128`, or trait-level dispatch.
+- Test file `std_num_unsigned_wrapping_div_macro_surface.sa` (panic ID 10668).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unsigned_wrapping_div_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10669+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive ilog)
 
 Completed supportable narrow unsigned primitive integer-log helpers:

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive wrapping/euclidean division macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `div_euclid`, `rem_euclid`, `wrapping_div`, `wrapping_rem`, `wrapping_div_euclid`, and `wrapping_rem_euclid`.
+- `sa_std/num.sa`: added `NUM_U8_DIV_EUCLID`, `NUM_U16_DIV_EUCLID`, `NUM_U32_DIV_EUCLID`, matching `REM_EUCLID` helpers, and matching `WRAPPING_DIV` / `WRAPPING_REM` / `WRAPPING_DIV_EUCLID` / `WRAPPING_REM_EUCLID` helpers for narrow unsigned widths. Also added `NUM_U64_WRAPPING_DIV_EUCLID`, `NUM_U64_WRAPPING_REM_EUCLID`, and `usize` wrapping div/rem aliases through the current 64-bit SA ABI.
+- Semantics: unsigned Euclidean and wrapping division/remainder are ordinary unsigned division/remainder. Narrow helpers mask operands to the declared Rust width before the operation; zero divisors still trap through the underlying division/remainder operation rather than modeling Rust panic objects or messages.
+- Test: `tests/unit_framework/std_num_unsigned_wrapping_div_macro_surface.sa` - 1 test (panic ID 10668) covering direct Euclidean results, wrapping aliases, narrow mask behavior, and `u64` / `usize` alias paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unsigned_wrapping_div_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10669+.
+
 ## Completed: 2026-07-16 narrow unsigned primitive ilog macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `checked_ilog`, `ilog`, `checked_ilog2`, `ilog2`, `checked_ilog10`, and `ilog10`.

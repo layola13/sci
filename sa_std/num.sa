@@ -1963,6 +1963,14 @@ L_NUM_U64_SAT_DIV_END_%out_value:
     %out_value = urem %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_U64_WRAPPING_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U64_WRAPPING_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U64_WRAPPING_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U64_WRAPPING_REM %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_U64_CHECKED_NEG %out_ok, %out_value, %value
     %out_ok = eq %value, 0
     %out_value = add 0, 0
@@ -10185,6 +10193,102 @@ L_NUM_U32_STRICT_NEG_OK_%out_value:
     EXPAND NUM_U32_CHECKED_REM %out_ok, %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_U8_DIV_EUCLID %out_value, %lhs, %rhs
+    __num_u8_div_euclid_lhs_%out_value = and %lhs, NUM_U8_MAX
+    __num_u8_div_euclid_rhs_%out_value = and %rhs, NUM_U8_MAX
+    %out_value = udiv __num_u8_div_euclid_lhs_%out_value, __num_u8_div_euclid_rhs_%out_value
+    !__num_u8_div_euclid_rhs_%out_value
+    !__num_u8_div_euclid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_DIV_EUCLID %out_value, %lhs, %rhs
+    __num_u16_div_euclid_lhs_%out_value = and %lhs, NUM_U16_MAX
+    __num_u16_div_euclid_rhs_%out_value = and %rhs, NUM_U16_MAX
+    %out_value = udiv __num_u16_div_euclid_lhs_%out_value, __num_u16_div_euclid_rhs_%out_value
+    !__num_u16_div_euclid_rhs_%out_value
+    !__num_u16_div_euclid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_DIV_EUCLID %out_value, %lhs, %rhs
+    __num_u32_div_euclid_lhs_%out_value = and %lhs, NUM_U32_MAX
+    __num_u32_div_euclid_rhs_%out_value = and %rhs, NUM_U32_MAX
+    %out_value = udiv __num_u32_div_euclid_lhs_%out_value, __num_u32_div_euclid_rhs_%out_value
+    !__num_u32_div_euclid_rhs_%out_value
+    !__num_u32_div_euclid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_REM_EUCLID %out_value, %lhs, %rhs
+    __num_u8_rem_euclid_lhs_%out_value = and %lhs, NUM_U8_MAX
+    __num_u8_rem_euclid_rhs_%out_value = and %rhs, NUM_U8_MAX
+    %out_value = urem __num_u8_rem_euclid_lhs_%out_value, __num_u8_rem_euclid_rhs_%out_value
+    !__num_u8_rem_euclid_rhs_%out_value
+    !__num_u8_rem_euclid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_REM_EUCLID %out_value, %lhs, %rhs
+    __num_u16_rem_euclid_lhs_%out_value = and %lhs, NUM_U16_MAX
+    __num_u16_rem_euclid_rhs_%out_value = and %rhs, NUM_U16_MAX
+    %out_value = urem __num_u16_rem_euclid_lhs_%out_value, __num_u16_rem_euclid_rhs_%out_value
+    !__num_u16_rem_euclid_rhs_%out_value
+    !__num_u16_rem_euclid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_REM_EUCLID %out_value, %lhs, %rhs
+    __num_u32_rem_euclid_lhs_%out_value = and %lhs, NUM_U32_MAX
+    __num_u32_rem_euclid_rhs_%out_value = and %rhs, NUM_U32_MAX
+    %out_value = urem __num_u32_rem_euclid_lhs_%out_value, __num_u32_rem_euclid_rhs_%out_value
+    !__num_u32_rem_euclid_rhs_%out_value
+    !__num_u32_rem_euclid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_WRAPPING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U8_DIV_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U16_WRAPPING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U16_DIV_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U32_WRAPPING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U32_DIV_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U8_WRAPPING_REM %out_value, %lhs, %rhs
+    EXPAND NUM_U8_REM_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U16_WRAPPING_REM %out_value, %lhs, %rhs
+    EXPAND NUM_U16_REM_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U32_WRAPPING_REM %out_value, %lhs, %rhs
+    EXPAND NUM_U32_REM_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U8_WRAPPING_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U8_WRAPPING_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U16_WRAPPING_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U16_WRAPPING_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U32_WRAPPING_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U32_WRAPPING_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U8_WRAPPING_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U8_WRAPPING_REM %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U16_WRAPPING_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U16_WRAPPING_REM %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U32_WRAPPING_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U32_WRAPPING_REM %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_DIV_EUCLID %out_value, %lhs, %rhs
     EXPAND NUM_U8_CHECKED_DIV_EUCLID __num_u8_strict_div_euclid_ok_%out_value, %out_value, %lhs, %rhs
     br __num_u8_strict_div_euclid_ok_%out_value -> L_NUM_U8_STRICT_DIV_EUCLID_OK_%out_value, L_NUM_U8_STRICT_DIV_EUCLID_PANIC_%out_value
@@ -11353,6 +11457,22 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_WRAPPING_MUL %out_value, %lhs, %rhs
     EXPAND NUM_U64_WRAPPING_MUL %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_WRAPPING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U64_WRAPPING_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_WRAPPING_REM %out_value, %lhs, %rhs
+    EXPAND NUM_U64_WRAPPING_REM %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_WRAPPING_DIV_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U64_WRAPPING_DIV_EUCLID %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_WRAPPING_REM_EUCLID %out_value, %lhs, %rhs
+    EXPAND NUM_U64_WRAPPING_REM_EUCLID %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_USIZE_WRAPPING_SHL %out_value, %value, %shift
