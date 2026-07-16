@@ -4085,3 +4085,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10718+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture, generic Ord trait dispatch, Rust Option<T> ABI, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter sortedness ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter sortedness aliases in vec.sa: VEC_INTO_ITER_IS_SORTED_U64, VEC_INTO_ITER_IS_SORTED_BY_U64, and VEC_INTO_ITER_IS_SORTED_BY_KEY_U64, delegating to existing concrete u64 cursor sortedness helpers over the explicit backing Vec.
+- Test file std_vec_into_iter_sorted_macro_surface.sa (panic ID 10718).
+
+Panic IDs next free: 10719+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture, generic Ord trait dispatch, borrowed reference items, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

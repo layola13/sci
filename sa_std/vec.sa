@@ -243,6 +243,18 @@
     EXPAND ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_IS_SORTED_U64 %out_bool, %iter_reg
+    EXPAND ITER_IS_SORTED_U64 %out_bool, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
+    EXPAND ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
+    EXPAND ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]

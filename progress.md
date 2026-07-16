@@ -8696,3 +8696,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_min_max_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10718+.
+
+## Completed: 2026-07-16 Vec IntoIter sortedness ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_IS_SORTED_U64`, `VEC_INTO_ITER_IS_SORTED_BY_U64`, and `VEC_INTO_ITER_IS_SORTED_BY_KEY_U64`.
+- Semantics: these helpers lower supportable Rust `Iterator::is_sorted` / `is_sorted_by` / `is_sorted_by_key` surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor sortedness primitives over the explicit backing Vec. They return concrete bool scalars and consume the remaining cursor.
+- Test: `tests/unit_framework/std_vec_into_iter_sorted_macro_surface.sa` — 1 test (panic ID 10718) covering sorted/unsorted direct checks, comparator-based checks, key-based checks, cursor exhaustion after checks, and empty iterator truth values.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10719+.
