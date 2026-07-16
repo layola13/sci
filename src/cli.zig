@@ -6760,23 +6760,32 @@ fn projectCacheTouchHitTelemetry(allocator: std.mem.Allocator, project_root: []c
     try projectCacheTouchTelemetryMarker(allocator, marker_path);
 }
 
-fn projectCacheTouchStoreTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
-    const marker_path = try projectCacheStoreMarkerPath(allocator, project_root, kind, key);
-    defer allocator.free(marker_path);
-    try projectCacheTouchTelemetryMarker(allocator, marker_path);
-
+fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8) !void {
     const event_path = try projectCacheStoreEventMarkerPath(allocator, project_root, kind, key);
     defer allocator.free(event_path);
     try ensureParentDir(event_path);
     var event_file = try std.fs.cwd().createFile(event_path, .{ .truncate = true });
     defer event_file.close();
     var writer = event_file.writer();
-    try writer.writeAll("{\"version\":1,\"result\":\"published\",\"kind\":");
+    try writer.writeAll("{\"version\":1,\"result\":");
+    try writeJsonString(writer, result);
+    try writer.writeAll(",\"kind\":");
     try writeJsonString(writer, kind.dirName());
     try writer.writeAll(",\"key_prefix\":");
     try writeJsonString(writer, key.slice()[0..12]);
     try writer.writeAll("}\n");
     try event_file.sync();
+}
+
+fn projectCacheTouchStoreTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+    const marker_path = try projectCacheStoreMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(marker_path);
+    try projectCacheTouchTelemetryMarker(allocator, marker_path);
+    try projectCacheWriteStoreEventTelemetry(allocator, project_root, kind, key, "published");
+}
+
+fn projectCacheTouchStoreFailureTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+    try projectCacheWriteStoreEventTelemetry(allocator, project_root, kind, key, "failed");
 }
 
 fn projectCacheTouchEvictionTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
@@ -6915,7 +6924,12 @@ fn projectCacheStoreEntry(
 ) !void {
     var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, kind, key, .exclusive);
     defer entry_lock.deinit();
-    try projectCacheStoreEntryLocked(allocator, project_root, kind, key, artifact_path, out_path, test_list, dynamic_dependencies);
+    projectCacheStoreEntryLocked(allocator, project_root, kind, key, artifact_path, out_path, test_list, dynamic_dependencies) catch |err| {
+        projectCacheTouchStoreFailureTelemetry(allocator, project_root, kind, key) catch |telemetry_err| {
+            _ = @errorName(telemetry_err);
+        };
+        return err;
+    };
 }
 
 fn projectCacheStoreTest(
@@ -7251,6 +7265,7 @@ fn projectCacheEntryLastStoreResult(allocator: std.mem.Allocator, project_root: 
     defer parsed.deinit();
     const result = jsonString(jsonGetObject(parsed.value, "result") catch return "unknown") catch return "unknown";
     if (std.mem.eql(u8, result, "published")) return "published";
+    if (std.mem.eql(u8, result, "failed")) return "failed";
     return "unknown";
 }
 
@@ -7560,7 +7575,7 @@ fn writeCacheStatusEntry(
     const mtime_ns = if (stat) |entry_stat| entry_stat.mtime else null;
     const last_hit_ns = if (stat != null) projectCacheEntryLastHitNs(allocator, project_root, kind, key) else null;
     const last_store_ns = if (stat != null) projectCacheEntryLastStoreNs(allocator, project_root, kind, key) else null;
-    const last_store_result = if (stat != null) projectCacheEntryLastStoreResult(allocator, project_root, kind, key) else null;
+    const last_store_result = projectCacheEntryLastStoreResult(allocator, project_root, kind, key);
     const first_difference = if (reason == .hit or reason == .expired or stat == null)
         null
     else
@@ -11388,7 +11403,7 @@ test "project cache single flight hands a failed owner to one waiter" {
         null_writer,
         .human,
     )) {
-        .owner => |owner| first_owner = owner,
+        .owner => |owner| first_owner = owner.lock,
         else => return error.TestUnexpectedResult,
     }
 
@@ -11425,7 +11440,7 @@ test "project cache single flight hands a failed owner to one waiter" {
                 return;
             };
             switch (claim) {
-                .owner => |owner_value| owner = owner_value,
+                .owner => |owner_value| owner = owner_value.lock,
                 else => {
                     self.failure = error.TestUnexpectedResult;
                     return;
@@ -11456,6 +11471,13 @@ test "project cache single flight hands a failed owner to one waiter" {
         projectCacheStore(std.testing.allocator, project_root, .build_exe, key, artifact_path, "missing-output.bin", &.{}),
     );
     try ProjectCacheFailureTest.expectNoEntryOrStaging(tmp.dir, key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
+    var why_json = std.ArrayList(u8).init(std.testing.allocator);
+    defer why_json.deinit();
+    const why_args = [_][]const u8{ "--kind", "build-exe", "--key", key.slice(), "--json" };
+    try std.testing.expectEqual(@as(u8, 0), try executeCacheWhyCommand(std.testing.allocator, why_args[0..], why_json.writer(), false));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"failed\""));
 
     releaseProjectCacheOwner(&first_owner);
     thread.join();
@@ -11466,6 +11488,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
     defer std.testing.allocator.free(entry_dir);
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
+    try std.testing.expectEqualStrings("published", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
     defer kind_dir.close();
     var entries = kind_dir.iterate();

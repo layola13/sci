@@ -31,6 +31,26 @@ Next:
 - ...
 ```
 
+## 2026-07-16 09:09
+
+Question:
+- Can P0.6 write-event audit record a failed project-cache store attempt without creating or mutating a cache entry?
+
+Evidence checked:
+- `src/cli.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=src/cli.zig ... --test-filter "project cache single flight" -j1` -> `1/1`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `13/13`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, as a focused coarse failure checkpoint. A failed `projectCacheStore` now writes a source-free `.sa_cache/.store-events/<kind>/<key>` marker with `result:"failed"`.
+- `sa cache why --json` reads the event even when the entry directory is absent and reports `last_store_result:"failed"`. A later successful publication for the same key overwrites the event to `published`.
+- This does not complete rich write auditing. Failure stage taxonomy, writer identity, event history, cross-process owner details, and broader failure injection remain open.
+
+Next:
+- Continue P0.6 with candidate old-entry key-diff or richer write-event audit fields/history.
+
 ## 2026-07-16 09:00
 
 Question:
