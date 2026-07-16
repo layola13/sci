@@ -550,7 +550,7 @@ fn wasmImportNames(bytes: []const u8, allocator: std.mem.Allocator) ![]const []c
 test "cli run/build-exe/build-wasm produce real artifacts" {
     const source =
         \\#loc "hello.rs":10:4
-        \\@main() -> i32!:
+        \\@ffi_wrapper probe_fallible_i32_wire() -> i32:
         \\node = alloc 8
         \\!node
         \\return 7
@@ -2587,6 +2587,108 @@ test "extern u64 fallible return can be loaded from ABI payload offset" {
         .Exited => |code| {
             if (code != 0) {
                 std.debug.print("fallible u64 ABI probe failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "extern i32 fallible return uses fixed ABI payload offset" {
+    const source =
+        \\@extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!
+        \\@extern sa_fs_metadata_free(metadata: u64) -> i32!
+        \\
+        \\@const PROBE_PATH = utf8:"probe.env"
+        \\
+        \\@ffi_wrapper probe_fallible_i32_wire() -> i32:
+        \\L_ENTRY:
+        \\    path_tmp = *PROBE_PATH
+        \\    metadata_res = call @sa_fs_metadata(&path_tmp, 9)
+        \\    !path_tmp
+        \\    metadata_status = load metadata_res+0 as i32
+        \\    metadata = load metadata_res+8 as u64
+        \\    !metadata_res
+        \\    metadata_ok = eq metadata_status, 0
+        \\    !metadata_status
+        \\    br metadata_ok -> L_FREE, L_FAIL_METADATA
+        \\
+        \\L_FREE:
+        \\    !metadata_ok
+        \\    free_res = call @sa_fs_metadata_free(metadata)
+        \\    !metadata
+        \\    free_status = load free_res+0 as i32
+        \\    free_value = load free_res+8 as i32
+        \\    !free_res
+        \\    status_ok = eq free_status, 0
+        \\    !free_status
+        \\    br status_ok -> L_CHECK_VALUE, L_FAIL_STATUS
+        \\
+        \\L_CHECK_VALUE:
+        \\    !status_ok
+        \\    value_ok = eq free_value, 0
+        \\    !free_value
+        \\    br value_ok -> L_TAIL_SENTINEL, L_FAIL_VALUE
+        \\
+        \\L_TAIL_SENTINEL:
+        \\    !value_ok
+        \\    tail = alloc 35
+        \\    store tail+31, 1 as u8
+        \\    resolved = load tail+31 as u8
+        \\    !tail
+        \\    resolved_ok = eq resolved, 1
+        \\    !resolved
+        \\    br resolved_ok -> L_PASS, L_FAIL_TAIL
+        \\
+        \\L_PASS:
+        \\    !resolved_ok
+        \\    return 0
+        \\
+        \\L_FAIL_METADATA:
+        \\    !metadata_ok
+        \\    !metadata
+        \\    panic(125)
+        \\
+        \\L_FAIL_STATUS:
+        \\    !status_ok
+        \\    !free_value
+        \\    panic(126)
+        \\
+        \\L_FAIL_VALUE:
+        \\    !value_ok
+        \\    panic(128)
+        \\
+        \\L_FAIL_TAIL:
+        \\    !resolved_ok
+        \\    panic(127)
+        \\
+        \\@main() -> i32!:
+        \\L_MAIN:
+        \\    status = call @probe_fallible_i32_wire()
+        \\    return status
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+    try writeSource(tmp.dir, "fallible_i32_file.sa", source);
+    try writeBytes(tmp.dir, "probe.env", "PORT=28080\n");
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "fallible_i32_file.sa", "-o", "fallible_i32_file.out" };
+    const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), exe_code);
+
+    const exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./fallible_i32_file.out"});
+    defer std.testing.allocator.free(exe_result.stdout);
+    defer std.testing.allocator.free(exe_result.stderr);
+    switch (exe_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("fallible i32 ABI probe failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
             try std.testing.expectEqual(@as(u8, 0), code);
         },
@@ -4810,7 +4912,6 @@ test "llvmc backend compilation and verification on rosetta demos" {
     try assertBuildExeStdoutPureBc("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
     try assertBuildExeStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
 }
-
 
 test "agent capability: check verdict cache and affected help" {
     var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);

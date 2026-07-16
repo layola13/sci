@@ -340,6 +340,11 @@ static LLVMTypeRef fallible_type_of(EmitCtx *e, SaType payload_ty) {
     return LLVMStructTypeInContext(e->ctx, fields, 2, 0);
 }
 
+static LLVMTypeRef fallible_wire_type_of(EmitCtx *e, SaType payload_ty) {
+    LLVMTypeRef fields[3] = { e->i32_ty, e->i32_ty, type_of(e, payload_ty) };
+    return LLVMStructTypeInContext(e->ctx, fields, 3, 0);
+}
+
 static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
     if (f->return_fallible) return fallible_type_of(e, f->ret_ty);
     return type_of(e, f->ret_ty);
@@ -691,10 +696,18 @@ static int reg_store(EmitCtx *e, RegValue *regs, size_t reg_count, unsigned int 
 static int fallible_value_ptr(EmitCtx *e, RegValue *reg, LLVMValueRef *out, SaType *out_ty) {
     if (reg == NULL || !reg->fallible || reg->value == NULL) return 1;
     if (reg->fallible_slot == NULL) {
-        LLVMTypeRef result_ty = fallible_type_of(e, reg->ty);
-        reg->fallible_slot = LLVMBuildAlloca(e->builder, result_ty, "fallible_slot");
+        LLVMTypeRef wire_ty = fallible_wire_type_of(e, reg->ty);
+        reg->fallible_slot = LLVMBuildAlloca(e->builder, wire_ty, "fallible_slot");
     }
-    LLVMBuildStore(e->builder, reg->value, reg->fallible_slot);
+    LLVMTypeRef wire_ty = fallible_wire_type_of(e, reg->ty);
+    LLVMValueRef status = LLVMBuildExtractValue(e->builder, reg->value, 0, "fallible_wire_status");
+    LLVMValueRef payload = LLVMBuildExtractValue(e->builder, reg->value, 1, "fallible_wire_payload");
+    LLVMValueRef status_slot = LLVMBuildStructGEP2(e->builder, wire_ty, reg->fallible_slot, 0, "fallible_status_slot");
+    LLVMValueRef padding_slot = LLVMBuildStructGEP2(e->builder, wire_ty, reg->fallible_slot, 1, "fallible_padding_slot");
+    LLVMValueRef payload_slot = LLVMBuildStructGEP2(e->builder, wire_ty, reg->fallible_slot, 2, "fallible_payload_slot");
+    LLVMBuildStore(e->builder, status, status_slot);
+    LLVMBuildStore(e->builder, LLVMConstInt(e->i32_ty, 0, 0), padding_slot);
+    LLVMBuildStore(e->builder, payload, payload_slot);
     *out = LLVMBuildPointerCast(e->builder, reg->fallible_slot, e->ptr_ty, "fallible_ptr");
     *out_ty = SA_T_PTR;
     return 0;
