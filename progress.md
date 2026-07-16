@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow unsigned primitive bit count macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `count_ones`, `count_zeros`, `leading_zeros`, `trailing_zeros`, `leading_ones`, and `trailing_ones`.
+- `sa_std/num.sa`: added `NUM_U8_*`, `NUM_U16_*`, `NUM_U32_*`, and `NUM_USIZE_*` helper families for `COUNT_ONES`, `COUNT_ZEROS`, `LEADING_ZEROS`, `TRAILING_ZEROS`, `LEADING_ONES`, and `TRAILING_ONES`.
+- Semantics: narrow helpers mask inputs to the declared Rust width before counting; leading/trailing zero and one counts use the declared width for zero/all-one cases. `usize` aliases the current 64-bit SA ABI and delegates to the existing `u64` core helpers.
+- Test: `tests/unit_framework/std_num_narrow_bit_counts_macro_surface.sa` - 1 test (panic ID 10662) covering representative bit counts, zero-value leading/trailing zero widths, all-leading/all-trailing one counts, narrow mask behavior, and `usize` alias behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_bit_counts_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10663+.
+
 ## Completed: 2026-07-16 unsigned primitive checked/direct next-power macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for stable unsigned primitive `checked_next_power_of_two` and `next_power_of_two`.

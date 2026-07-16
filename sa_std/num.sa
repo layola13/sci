@@ -3154,6 +3154,171 @@ L_NUM_U64_TZ_END_%out_count:
     !__num_to_inv_%out_count
 [END_MACRO]
 
+[MACRO] NUM_U8_COUNT_ONES %out_count, %value
+    __num_u8_count_value_%out_count = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_COUNT_ONES %out_count, __num_u8_count_value_%out_count
+    !__num_u8_count_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U8_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U8_COUNT_ONES __num_u8_count_ones_%out_count, %value
+    %out_count = sub NUM_U8_BITS, __num_u8_count_ones_%out_count
+    !__num_u8_count_ones_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U8_LEADING_ZEROS %out_count, %value
+    __num_u8_lz_value_%out_count = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_LEADING_ZEROS __num_u8_lz64_%out_count, __num_u8_lz_value_%out_count
+    %out_count = sub __num_u8_lz64_%out_count, 56
+    !__num_u8_lz64_%out_count
+    !__num_u8_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U8_TRAILING_ZEROS %out_count, %value
+    __num_u8_tz_value_%out_count = and %value, NUM_U8_MAX
+    __num_u8_tz_zero_%out_count = eq __num_u8_tz_value_%out_count, 0
+    br __num_u8_tz_zero_%out_count -> L_NUM_U8_TZ_ZERO_%out_count, L_NUM_U8_TZ_VALUE_%out_count
+
+L_NUM_U8_TZ_VALUE_%out_count:
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, __num_u8_tz_value_%out_count
+    !__num_u8_tz_zero_%out_count
+    !__num_u8_tz_value_%out_count
+    jmp L_NUM_U8_TZ_END_%out_count
+
+L_NUM_U8_TZ_ZERO_%out_count:
+    %out_count = add 0, NUM_U8_BITS
+    !__num_u8_tz_zero_%out_count
+    !__num_u8_tz_value_%out_count
+
+L_NUM_U8_TZ_END_%out_count:
+[END_MACRO]
+
+[MACRO] NUM_U8_LEADING_ONES %out_count, %value
+    __num_u8_lo_value_%out_count = and %value, NUM_U8_MAX
+    __num_u8_lo_inv_%out_count = xor __num_u8_lo_value_%out_count, NUM_U8_MAX
+    EXPAND NUM_U8_LEADING_ZEROS %out_count, __num_u8_lo_inv_%out_count
+    !__num_u8_lo_inv_%out_count
+    !__num_u8_lo_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U8_TRAILING_ONES %out_count, %value
+    __num_u8_to_value_%out_count = and %value, NUM_U8_MAX
+    __num_u8_to_inv_%out_count = xor __num_u8_to_value_%out_count, NUM_U8_MAX
+    EXPAND NUM_U8_TRAILING_ZEROS %out_count, __num_u8_to_inv_%out_count
+    !__num_u8_to_inv_%out_count
+    !__num_u8_to_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U16_COUNT_ONES %out_count, %value
+    __num_u16_count_value_%out_count = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_COUNT_ONES %out_count, __num_u16_count_value_%out_count
+    !__num_u16_count_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U16_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U16_COUNT_ONES __num_u16_count_ones_%out_count, %value
+    %out_count = sub NUM_U16_BITS, __num_u16_count_ones_%out_count
+    !__num_u16_count_ones_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U16_LEADING_ZEROS %out_count, %value
+    __num_u16_lz_value_%out_count = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_LEADING_ZEROS __num_u16_lz64_%out_count, __num_u16_lz_value_%out_count
+    %out_count = sub __num_u16_lz64_%out_count, 48
+    !__num_u16_lz64_%out_count
+    !__num_u16_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U16_TRAILING_ZEROS %out_count, %value
+    __num_u16_tz_value_%out_count = and %value, NUM_U16_MAX
+    __num_u16_tz_zero_%out_count = eq __num_u16_tz_value_%out_count, 0
+    br __num_u16_tz_zero_%out_count -> L_NUM_U16_TZ_ZERO_%out_count, L_NUM_U16_TZ_VALUE_%out_count
+
+L_NUM_U16_TZ_VALUE_%out_count:
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, __num_u16_tz_value_%out_count
+    !__num_u16_tz_zero_%out_count
+    !__num_u16_tz_value_%out_count
+    jmp L_NUM_U16_TZ_END_%out_count
+
+L_NUM_U16_TZ_ZERO_%out_count:
+    %out_count = add 0, NUM_U16_BITS
+    !__num_u16_tz_zero_%out_count
+    !__num_u16_tz_value_%out_count
+
+L_NUM_U16_TZ_END_%out_count:
+[END_MACRO]
+
+[MACRO] NUM_U16_LEADING_ONES %out_count, %value
+    __num_u16_lo_value_%out_count = and %value, NUM_U16_MAX
+    __num_u16_lo_inv_%out_count = xor __num_u16_lo_value_%out_count, NUM_U16_MAX
+    EXPAND NUM_U16_LEADING_ZEROS %out_count, __num_u16_lo_inv_%out_count
+    !__num_u16_lo_inv_%out_count
+    !__num_u16_lo_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U16_TRAILING_ONES %out_count, %value
+    __num_u16_to_value_%out_count = and %value, NUM_U16_MAX
+    __num_u16_to_inv_%out_count = xor __num_u16_to_value_%out_count, NUM_U16_MAX
+    EXPAND NUM_U16_TRAILING_ZEROS %out_count, __num_u16_to_inv_%out_count
+    !__num_u16_to_inv_%out_count
+    !__num_u16_to_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U32_COUNT_ONES %out_count, %value
+    __num_u32_count_value_%out_count = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_COUNT_ONES %out_count, __num_u32_count_value_%out_count
+    !__num_u32_count_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U32_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U32_COUNT_ONES __num_u32_count_ones_%out_count, %value
+    %out_count = sub NUM_U32_BITS, __num_u32_count_ones_%out_count
+    !__num_u32_count_ones_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U32_LEADING_ZEROS %out_count, %value
+    __num_u32_lz_value_%out_count = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_LEADING_ZEROS __num_u32_lz64_%out_count, __num_u32_lz_value_%out_count
+    %out_count = sub __num_u32_lz64_%out_count, 32
+    !__num_u32_lz64_%out_count
+    !__num_u32_lz_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U32_TRAILING_ZEROS %out_count, %value
+    __num_u32_tz_value_%out_count = and %value, NUM_U32_MAX
+    __num_u32_tz_zero_%out_count = eq __num_u32_tz_value_%out_count, 0
+    br __num_u32_tz_zero_%out_count -> L_NUM_U32_TZ_ZERO_%out_count, L_NUM_U32_TZ_VALUE_%out_count
+
+L_NUM_U32_TZ_VALUE_%out_count:
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, __num_u32_tz_value_%out_count
+    !__num_u32_tz_zero_%out_count
+    !__num_u32_tz_value_%out_count
+    jmp L_NUM_U32_TZ_END_%out_count
+
+L_NUM_U32_TZ_ZERO_%out_count:
+    %out_count = add 0, NUM_U32_BITS
+    !__num_u32_tz_zero_%out_count
+    !__num_u32_tz_value_%out_count
+
+L_NUM_U32_TZ_END_%out_count:
+[END_MACRO]
+
+[MACRO] NUM_U32_LEADING_ONES %out_count, %value
+    __num_u32_lo_value_%out_count = and %value, NUM_U32_MAX
+    __num_u32_lo_inv_%out_count = xor __num_u32_lo_value_%out_count, NUM_U32_MAX
+    EXPAND NUM_U32_LEADING_ZEROS %out_count, __num_u32_lo_inv_%out_count
+    !__num_u32_lo_inv_%out_count
+    !__num_u32_lo_value_%out_count
+[END_MACRO]
+
+[MACRO] NUM_U32_TRAILING_ONES %out_count, %value
+    __num_u32_to_value_%out_count = and %value, NUM_U32_MAX
+    __num_u32_to_inv_%out_count = xor __num_u32_to_value_%out_count, NUM_U32_MAX
+    EXPAND NUM_U32_TRAILING_ZEROS %out_count, __num_u32_to_inv_%out_count
+    !__num_u32_to_inv_%out_count
+    !__num_u32_to_value_%out_count
+[END_MACRO]
+
 [MACRO] NUM_U64_BIT_WIDTH %out_width, %value
     EXPAND NUM_U64_LEADING_ZEROS __num_bit_width_lz_%out_width, %value
     %out_width = sub NUM_U64_BITS, __num_bit_width_lz_%out_width
@@ -10600,6 +10765,30 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_IS_POWER_OF_TWO %out_bool, %value
     EXPAND NUM_U64_IS_POWER_OF_TWO %out_bool, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_COUNT_ONES %out_count, %value
+    EXPAND NUM_U64_COUNT_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_COUNT_ZEROS %out_count, %value
+    EXPAND NUM_U64_COUNT_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_LEADING_ZEROS %out_count, %value
+    EXPAND NUM_U64_LEADING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_TRAILING_ZEROS %out_count, %value
+    EXPAND NUM_U64_TRAILING_ZEROS %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_LEADING_ONES %out_count, %value
+    EXPAND NUM_U64_LEADING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_TRAILING_ONES %out_count, %value
+    EXPAND NUM_U64_TRAILING_ONES %out_count, %value
 [END_MACRO]
 
 [MACRO] NUM_USIZE_ABS_DIFF %out_value, %lhs, %rhs

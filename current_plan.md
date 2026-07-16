@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive bit counts)
+
+Completed supportable narrow unsigned primitive bit count/zero-scan helpers:
+- `NUM_U{8,16,32,SIZE}_{COUNT_ONES,COUNT_ZEROS,LEADING_ZEROS,TRAILING_ZEROS,LEADING_ONES,TRAILING_ONES}` exposes Rust's unsigned primitive bit count and zero/one scan shapes for the widths that were missing public SA macros.
+- Narrow helpers mask inputs to the declared Rust width before counting.
+- Leading/trailing zero and one counts use the declared Rust bit width for zero/all-one cases; `usize` aliases the current 64-bit SA ABI.
+- This batch models concrete result semantics, not compiler intrinsic selection, `u128`, or trait-level dispatch.
+- Test file `std_num_narrow_bit_counts_macro_surface.sa` (panic ID 10662).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_bit_counts_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10663+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 unsigned primitive checked/direct next power)
 
 Completed supportable unsigned primitive checked/direct next-power helpers:
