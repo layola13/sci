@@ -16,6 +16,8 @@ jobs:
     name: Windows x86_64 native L0/L1 + L2 subset
     runs-on: windows-2025
     timeout-minutes: 75
+    env:
+      EXPECTED_ARCH: X64
     defaults:
       run:
         shell: pwsh
@@ -39,6 +41,10 @@ jobs:
           $diffCode = $LASTEXITCODE
           if ($diffCode -ne 0) {
             throw "artifacts/sa_std is already dirty before the native gate"
+          }
+          $actualArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+          if ($actualArch -ne $env:EXPECTED_ARCH) {
+            throw "Runner architecture mismatch: expected $env:EXPECTED_ARCH, got $actualArch"
           }
 
       - name: Setup Zig
