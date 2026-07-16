@@ -2,10 +2,10 @@
 
 ## Current PAL system-identity batch (2026-07-16)
 
-- [ ] Move hostname, OS release, PID, PPID, UID, and GID queries behind PAL backends so runtime core no longer declares or calls the native identity functions directly.
-- [ ] Preserve Linux/macOS uname and process-identity behavior.
-- [ ] Implement Windows hostname, release, PID, and PPID with native APIs; keep UID/GID explicitly unsupported.
-- [ ] Add source-contract and focused Linux coverage, run PAL/runtime/ABI/portability/ReleaseFast gates, and commit without staging unrelated worktree changes.
+- [x] Move hostname, OS release, PID, PPID, UID, and GID queries behind PAL backends so runtime core no longer declares or calls the native identity functions directly.
+- [x] Preserve Linux/macOS uname and process-identity behavior.
+- [x] Implement Windows hostname, release, PID, and PPID with native APIs; keep UID/GID explicitly unsupported.
+- [x] Add source-contract and focused Linux coverage, run PAL/runtime/ABI/portability/ReleaseFast gates, and commit without staging unrelated worktree changes.
 
 ## Current PAL network-interface batch (2026-07-16)
 

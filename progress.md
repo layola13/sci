@@ -2,11 +2,12 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
-## In progress: 2026-07-16 PAL system-identity routing
+## Focused verified: 2026-07-16 PAL system-identity routing
 
-- Active portability batch: move hostname, OS release, PID, PPID, UID, and GID behind PAL backends.
-- Linux/macOS will preserve uname and POSIX identity behavior. Windows will use native hostname/version/process APIs for hostname, release, PID, and PPID; UID/GID remain explicitly unsupported as required by the Windows portability boundary.
-- Verification and commit are pending. Unrelated performance/cache changes remain unstaged.
+- Deno and generic process hostname/release/PID/PPID/UID/GID entry points now route through PAL; runtime core no longer declares or calls uname/get*id identity APIs directly.
+- Linux/macOS preserve uname and POSIX identity behavior. Windows uses `GetComputerNameW`, `RtlGetVersion`, `GetCurrentProcessId`, and `NtQueryInformationProcess` for hostname, release, PID, and PPID; UID/GID remain explicitly unsupported.
+- Validation passed: `test-runtime-pal pal-source-contract pal-typecheck portable-runtime-typecheck` (`45/45`, PAL `12/12`), `test-runtime-basic sa-std-abi sa-std-artifact-abi` (`25/25`), Linux `test-runtime-netx` (`88/88`), `portability-check` (`65/65`), ReleaseFast (`13/13`), and `git diff --check`.
+- Unrelated performance/cache changes remain unstaged.
 
 ## Focused verified: 2026-07-16 PAL network-interface routing
 

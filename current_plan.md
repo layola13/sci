@@ -5,10 +5,10 @@ Date: 2026-07-16
 ## Current turn: PAL system-identity portability batch
 
 1. [x] Audit the remaining runtime-core identity calls and Windows support boundary.
-2. [ ] Move hostname/release/PID/PPID/UID/GID to Linux/macOS/Windows PAL backends.
-3. [ ] Add source-contract checks and focused Linux behavior coverage.
-4. [ ] Run PAL/runtime/ABI/portability/ReleaseFast validation and `git diff --check`.
-5. [ ] Commit the coherent system-identity PAL batch without staging unrelated files.
+2. [x] Move hostname/release/PID/PPID/UID/GID to Linux/macOS/Windows PAL backends.
+3. [x] Add source-contract checks and focused Linux behavior coverage.
+4. [x] Run PAL/runtime/ABI/portability/ReleaseFast validation and `git diff --check`.
+5. [x] Commit the coherent system-identity PAL batch without staging unrelated files.
 
 ## Current turn: PAL network-interface portability batch
 
