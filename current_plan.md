@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive exact shifts)
+
+Completed supportable primitive exact shift helpers:
+- `NUM_U{8,16,32,64,SIZE}_SHL_EXACT` / `SHR_EXACT` and matching signed helpers expose explicit `ok/out` lowering for Rust's unstable `shl_exact` / `shr_exact` methods.
+- A shift succeeds only when its amount is below the declared bit width and reversing the result recovers the original declared-width value. Failure returns `ok=0/out=0`.
+- `NUM_U{8,16,32,64,SIZE}_UNCHECKED_SHL_EXACT` / `UNCHECKED_SHR_EXACT` and matching signed helpers expose the corresponding caller-precondition lowering without runtime validation.
+- Narrow unsigned helpers mask results; narrow signed helpers sign-extend results. `usize` / `isize` alias the current 64-bit SA ABI. This batch models behavior, not Rust `Option` object layout, unsafe UB enforcement, `exact_bitshifts` feature-gate plumbing, `u128` / `i128`, or trait-level dispatch.
+- Test file `std_num_exact_shift_macro_surface.sa` (panic IDs 10641 and 10642).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_exact_shift_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10643+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive unbounded shifts)
 
 Completed supportable primitive unbounded shift helpers:

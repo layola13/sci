@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive exact shift macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `shl_exact`, `shr_exact`, `unchecked_shl_exact`, and `unchecked_shr_exact` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `SHL_EXACT`, `SHR_EXACT`, `UNCHECKED_SHL_EXACT`, and `UNCHECKED_SHR_EXACT` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Exact helpers return explicit `ok/out` values instead of Rust `Option<Self>`. They reject shifts greater than or equal to the declared width and reject results that cannot be reversed losslessly; narrow unsigned results are masked and narrow signed results are sign-extended. Unchecked exact helpers perform only the shift/width lowering and rely on callers to uphold Rust's lossless/in-range safety preconditions.
+- This models the supportable behavior of Rust's unstable `exact_bitshifts` surface without claiming Rust `Option` object layout, unsafe UB enforcement, feature-gate plumbing, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_exact_shift_macro_surface.sa` - 2 tests (panic IDs 10641 and 10642) expanding all 40 new Rust-named public helpers and covering lossless success, shifted-bit loss, oversized shifts, signed arithmetic behavior, and valid unchecked calls.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_exact_shift_macro_surface.sa --jobs 1 --trace-panic` -> `2 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10643+.
+
 ## Completed: 2026-07-16 primitive unbounded shift macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `unbounded_shl` / `unbounded_shr` implementations under `/home/vscode/projects/rust`.

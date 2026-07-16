@@ -707,6 +707,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_num_checked_strict_euclid_macro_surface.sa",
         "tests/unit_framework/std_num_strict_shift_macro_surface.sa",
         "tests/unit_framework/std_num_unbounded_shift_macro_surface.sa",
+        "tests/unit_framework/std_num_exact_shift_macro_surface.sa",
         "tests/unit_framework/std_num_checked_strict_neg_abs_macro_surface.sa",
         "tests/unit_framework/std_num_mixed_sign_add_sub_macro_surface.sa",
         "tests/unit_framework/std_num_checked_signed_diff_macro_surface.sa",

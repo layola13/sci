@@ -1871,6 +1871,180 @@ L_NUM_U64_STRICT_NEG_OK_%out_value:
     !__num_u64_strict_neg_ok_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, %bits, %mask
+    __num_uw_shl_exact_value_%out_ok = and %value, %mask
+    __num_uw_shl_exact_in_range_%out_ok = ult %shift, %bits
+    br __num_uw_shl_exact_in_range_%out_ok -> L_NUM_UW_SHL_EXACT_CHECK_%out_ok, L_NUM_UW_SHL_EXACT_NONE_%out_ok
+
+L_NUM_UW_SHL_EXACT_CHECK_%out_ok:
+    __num_uw_shl_exact_raw_%out_ok = shl __num_uw_shl_exact_value_%out_ok, %shift
+    __num_uw_shl_exact_result_%out_ok = and __num_uw_shl_exact_raw_%out_ok, %mask
+    __num_uw_shl_exact_reversed_%out_ok = lshr __num_uw_shl_exact_result_%out_ok, %shift
+    %out_ok = eq __num_uw_shl_exact_reversed_%out_ok, __num_uw_shl_exact_value_%out_ok
+    %out_value = mul %out_ok, __num_uw_shl_exact_result_%out_ok
+    !__num_uw_shl_exact_reversed_%out_ok
+    !__num_uw_shl_exact_result_%out_ok
+    !__num_uw_shl_exact_raw_%out_ok
+    !__num_uw_shl_exact_in_range_%out_ok
+    !__num_uw_shl_exact_value_%out_ok
+    jmp L_NUM_UW_SHL_EXACT_END_%out_ok
+
+L_NUM_UW_SHL_EXACT_NONE_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__num_uw_shl_exact_in_range_%out_ok
+    !__num_uw_shl_exact_value_%out_ok
+
+L_NUM_UW_SHL_EXACT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, %bits, %mask
+    __num_uw_shr_exact_value_%out_ok = and %value, %mask
+    __num_uw_shr_exact_in_range_%out_ok = ult %shift, %bits
+    br __num_uw_shr_exact_in_range_%out_ok -> L_NUM_UW_SHR_EXACT_CHECK_%out_ok, L_NUM_UW_SHR_EXACT_NONE_%out_ok
+
+L_NUM_UW_SHR_EXACT_CHECK_%out_ok:
+    __num_uw_shr_exact_result_%out_ok = lshr __num_uw_shr_exact_value_%out_ok, %shift
+    __num_uw_shr_exact_reverse_raw_%out_ok = shl __num_uw_shr_exact_result_%out_ok, %shift
+    __num_uw_shr_exact_reversed_%out_ok = and __num_uw_shr_exact_reverse_raw_%out_ok, %mask
+    %out_ok = eq __num_uw_shr_exact_reversed_%out_ok, __num_uw_shr_exact_value_%out_ok
+    %out_value = mul %out_ok, __num_uw_shr_exact_result_%out_ok
+    !__num_uw_shr_exact_reversed_%out_ok
+    !__num_uw_shr_exact_reverse_raw_%out_ok
+    !__num_uw_shr_exact_result_%out_ok
+    !__num_uw_shr_exact_in_range_%out_ok
+    !__num_uw_shr_exact_value_%out_ok
+    jmp L_NUM_UW_SHR_EXACT_END_%out_ok
+
+L_NUM_UW_SHR_EXACT_NONE_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__num_uw_shr_exact_in_range_%out_ok
+    !__num_uw_shr_exact_value_%out_ok
+
+L_NUM_UW_SHR_EXACT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, %bits, %mask
+    __num_sw_shl_exact_masked_%out_ok = and %value, %mask
+    __num_sw_shl_exact_adjust_%out_ok = sub NUM_U64_BITS, %bits
+    __num_sw_shl_exact_value_raw_%out_ok = shl __num_sw_shl_exact_masked_%out_ok, __num_sw_shl_exact_adjust_%out_ok
+    __num_sw_shl_exact_value_%out_ok = ashr __num_sw_shl_exact_value_raw_%out_ok, __num_sw_shl_exact_adjust_%out_ok
+    __num_sw_shl_exact_in_range_%out_ok = ult %shift, %bits
+    br __num_sw_shl_exact_in_range_%out_ok -> L_NUM_SW_SHL_EXACT_CHECK_%out_ok, L_NUM_SW_SHL_EXACT_NONE_%out_ok
+
+L_NUM_SW_SHL_EXACT_CHECK_%out_ok:
+    __num_sw_shl_exact_raw_%out_ok = shl __num_sw_shl_exact_masked_%out_ok, %shift
+    __num_sw_shl_exact_result_masked_%out_ok = and __num_sw_shl_exact_raw_%out_ok, %mask
+    __num_sw_shl_exact_result_raw_%out_ok = shl __num_sw_shl_exact_result_masked_%out_ok, __num_sw_shl_exact_adjust_%out_ok
+    __num_sw_shl_exact_result_%out_ok = ashr __num_sw_shl_exact_result_raw_%out_ok, __num_sw_shl_exact_adjust_%out_ok
+    __num_sw_shl_exact_reversed_%out_ok = ashr __num_sw_shl_exact_result_%out_ok, %shift
+    %out_ok = eq __num_sw_shl_exact_reversed_%out_ok, __num_sw_shl_exact_value_%out_ok
+    %out_value = mul %out_ok, __num_sw_shl_exact_result_%out_ok
+    !__num_sw_shl_exact_reversed_%out_ok
+    !__num_sw_shl_exact_result_%out_ok
+    !__num_sw_shl_exact_result_raw_%out_ok
+    !__num_sw_shl_exact_result_masked_%out_ok
+    !__num_sw_shl_exact_raw_%out_ok
+    !__num_sw_shl_exact_in_range_%out_ok
+    !__num_sw_shl_exact_value_%out_ok
+    !__num_sw_shl_exact_value_raw_%out_ok
+    !__num_sw_shl_exact_adjust_%out_ok
+    !__num_sw_shl_exact_masked_%out_ok
+    jmp L_NUM_SW_SHL_EXACT_END_%out_ok
+
+L_NUM_SW_SHL_EXACT_NONE_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__num_sw_shl_exact_in_range_%out_ok
+    !__num_sw_shl_exact_value_%out_ok
+    !__num_sw_shl_exact_value_raw_%out_ok
+    !__num_sw_shl_exact_adjust_%out_ok
+    !__num_sw_shl_exact_masked_%out_ok
+
+L_NUM_SW_SHL_EXACT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, %bits, %mask
+    __num_sw_shr_exact_masked_%out_ok = and %value, %mask
+    __num_sw_shr_exact_adjust_%out_ok = sub NUM_U64_BITS, %bits
+    __num_sw_shr_exact_value_raw_%out_ok = shl __num_sw_shr_exact_masked_%out_ok, __num_sw_shr_exact_adjust_%out_ok
+    __num_sw_shr_exact_value_%out_ok = ashr __num_sw_shr_exact_value_raw_%out_ok, __num_sw_shr_exact_adjust_%out_ok
+    __num_sw_shr_exact_in_range_%out_ok = ult %shift, %bits
+    br __num_sw_shr_exact_in_range_%out_ok -> L_NUM_SW_SHR_EXACT_CHECK_%out_ok, L_NUM_SW_SHR_EXACT_NONE_%out_ok
+
+L_NUM_SW_SHR_EXACT_CHECK_%out_ok:
+    __num_sw_shr_exact_result_%out_ok = ashr __num_sw_shr_exact_value_%out_ok, %shift
+    __num_sw_shr_exact_reverse_raw_%out_ok = shl __num_sw_shr_exact_result_%out_ok, %shift
+    __num_sw_shr_exact_reverse_masked_%out_ok = and __num_sw_shr_exact_reverse_raw_%out_ok, %mask
+    __num_sw_shr_exact_reversed_raw_%out_ok = shl __num_sw_shr_exact_reverse_masked_%out_ok, __num_sw_shr_exact_adjust_%out_ok
+    __num_sw_shr_exact_reversed_%out_ok = ashr __num_sw_shr_exact_reversed_raw_%out_ok, __num_sw_shr_exact_adjust_%out_ok
+    %out_ok = eq __num_sw_shr_exact_reversed_%out_ok, __num_sw_shr_exact_value_%out_ok
+    %out_value = mul %out_ok, __num_sw_shr_exact_result_%out_ok
+    !__num_sw_shr_exact_reversed_%out_ok
+    !__num_sw_shr_exact_reversed_raw_%out_ok
+    !__num_sw_shr_exact_reverse_masked_%out_ok
+    !__num_sw_shr_exact_reverse_raw_%out_ok
+    !__num_sw_shr_exact_result_%out_ok
+    !__num_sw_shr_exact_in_range_%out_ok
+    !__num_sw_shr_exact_value_%out_ok
+    !__num_sw_shr_exact_value_raw_%out_ok
+    !__num_sw_shr_exact_adjust_%out_ok
+    !__num_sw_shr_exact_masked_%out_ok
+    jmp L_NUM_SW_SHR_EXACT_END_%out_ok
+
+L_NUM_SW_SHR_EXACT_NONE_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__num_sw_shr_exact_in_range_%out_ok
+    !__num_sw_shr_exact_value_%out_ok
+    !__num_sw_shr_exact_value_raw_%out_ok
+    !__num_sw_shr_exact_adjust_%out_ok
+    !__num_sw_shr_exact_masked_%out_ok
+
+L_NUM_SW_SHR_EXACT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %mask
+    __num_uw_unchecked_shl_exact_value_%out_value = and %value, %mask
+    __num_uw_unchecked_shl_exact_raw_%out_value = shl __num_uw_unchecked_shl_exact_value_%out_value, %shift
+    %out_value = and __num_uw_unchecked_shl_exact_raw_%out_value, %mask
+    !__num_uw_unchecked_shl_exact_raw_%out_value
+    !__num_uw_unchecked_shl_exact_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, %mask
+    __num_uw_unchecked_shr_exact_value_%out_value = and %value, %mask
+    %out_value = lshr __num_uw_unchecked_shr_exact_value_%out_value, %shift
+    !__num_uw_unchecked_shr_exact_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
+    __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
+    __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
+    __num_sw_unchecked_shl_exact_masked_%out_value = and __num_sw_unchecked_shl_exact_raw_%out_value, %mask
+    __num_sw_unchecked_shl_exact_adjust_%out_value = sub NUM_U64_BITS, %bits
+    __num_sw_unchecked_shl_exact_shifted_%out_value = shl __num_sw_unchecked_shl_exact_masked_%out_value, __num_sw_unchecked_shl_exact_adjust_%out_value
+    %out_value = ashr __num_sw_unchecked_shl_exact_shifted_%out_value, __num_sw_unchecked_shl_exact_adjust_%out_value
+    !__num_sw_unchecked_shl_exact_shifted_%out_value
+    !__num_sw_unchecked_shl_exact_adjust_%out_value
+    !__num_sw_unchecked_shl_exact_masked_%out_value
+    !__num_sw_unchecked_shl_exact_raw_%out_value
+    !__num_sw_unchecked_shl_exact_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, %bits, %mask
+    __num_sw_unchecked_shr_exact_masked_%out_value = and %value, %mask
+    __num_sw_unchecked_shr_exact_adjust_%out_value = sub NUM_U64_BITS, %bits
+    __num_sw_unchecked_shr_exact_shifted_%out_value = shl __num_sw_unchecked_shr_exact_masked_%out_value, __num_sw_unchecked_shr_exact_adjust_%out_value
+    __num_sw_unchecked_shr_exact_value_%out_value = ashr __num_sw_unchecked_shr_exact_shifted_%out_value, __num_sw_unchecked_shr_exact_adjust_%out_value
+    %out_value = ashr __num_sw_unchecked_shr_exact_value_%out_value, %shift
+    !__num_sw_unchecked_shr_exact_value_%out_value
+    !__num_sw_unchecked_shr_exact_shifted_%out_value
+    !__num_sw_unchecked_shr_exact_adjust_%out_value
+    !__num_sw_unchecked_shr_exact_masked_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_CHECKED_SHL %out_ok, %out_value, %value, %shift
     __num_shl_ok_%out_ok = ult %shift, NUM_U64_BITS
     br __num_shl_ok_%out_ok -> L_NUM_U64_SHL_OK_%out_ok, L_NUM_U64_SHL_OVER_%out_ok
@@ -1937,6 +2111,22 @@ L_NUM_U64_UNBOUNDED_SHR_OVER_%out_value:
     !__num_u64_unbounded_shr_in_range_%out_value
 
 L_NUM_U64_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U64_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_STRICT_SHL %out_value, %value, %shift
@@ -4024,6 +4214,22 @@ L_NUM_I64_UNBOUNDED_SHR_OVER_%out_value:
     !__num_i64_unbounded_shr_in_range_%out_value
 
 L_NUM_I64_UNBOUNDED_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_I64_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_I64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_I64_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_I64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_I64_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_I64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_I64_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_I64_BITS, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_I64_STRICT_SHL %out_value, %value, %shift
@@ -6278,6 +6484,54 @@ L_NUM_I32_UNBOUNDED_SHR_OVER_%out_value:
 L_NUM_I32_UNBOUNDED_SHR_END_%out_value:
 [END_MACRO]
 
+[MACRO] NUM_I8_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_I8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_I16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_I32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_I8_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_I8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_I16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_I32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_I8_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_I8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_I16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_I32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_I8_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_I8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_I16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_I32_BITS, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_I8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_I8_CHECKED_SHL __num_i8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_i8_strict_shl_ok_%out_value -> L_NUM_I8_STRICT_SHL_OK_%out_value, L_NUM_I8_STRICT_SHL_PANIC_%out_value
@@ -8223,6 +8477,54 @@ L_NUM_U32_UNBOUNDED_SHR_OVER_%out_value:
 L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
 [END_MACRO]
 
+[MACRO] NUM_U8_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHL_EXACT %out_ok, %out_value, %value, %shift, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_SHR_EXACT %out_ok, %out_value, %value, %shift, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -8546,6 +8848,22 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
     EXPAND NUM_U64_UNBOUNDED_SHR %out_value, %value, %shift
 [END_MACRO]
 
+[MACRO] NUM_USIZE_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_U64_SHL_EXACT %out_ok, %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_U64_SHR_EXACT %out_ok, %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_U64_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_U64_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+[END_MACRO]
+
 [MACRO] NUM_USIZE_SATURATING_ADD %out_value, %lhs, %rhs
     EXPAND NUM_U64_SATURATING_ADD %out_value, %lhs, %rhs
 [END_MACRO]
@@ -8800,6 +9118,22 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_ISIZE_UNBOUNDED_SHR %out_value, %value, %shift
     EXPAND NUM_I64_UNBOUNDED_SHR %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_SHL_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_I64_SHL_EXACT %out_ok, %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_SHR_EXACT %out_ok, %out_value, %value, %shift
+    EXPAND NUM_I64_SHR_EXACT %out_ok, %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+    EXPAND NUM_I64_UNCHECKED_SHL_EXACT %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+    EXPAND NUM_I64_UNCHECKED_SHR_EXACT %out_value, %value, %shift
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_SATURATING_ADD %out_value, %lhs, %rhs
