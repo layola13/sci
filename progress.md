@@ -8543,3 +8543,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10701+.
+
+## Completed: 2026-07-16 BinaryHeap pop_if helpers
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_TRY_POP_IF_U64` and `BINARY_HEAP_POP_IF_U64` over the existing concrete `TRY_PEEK` / `TRY_POP` helpers.
+- Semantics: helpers model Rust's unstable `BinaryHeap::pop_if` supportable shape for the current concrete `u64` max-heap. Empty heaps return `(ok=0, value=0)` without invoking the predicate; false predicates return `(0, 0)` and leave the heap unchanged; true predicates pop and return the current root as `(1, value)`. They do not model Rust `Option<T>` layout, generic `T`, borrow lifetimes, or predicate unwind/drop behavior.
+- Test: `tests/unit_framework/std_binary_heap_pop_if_macro_surface.sa` — 1 test (panic ID 10701) covering miss/no-pop, hit/root-pop, empty heap, and alias behavior.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_pop_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10702+.

@@ -1026,6 +1026,47 @@ L_APPEND_DONE:
     %out_ok = __binary_heap_ok_%out_ok
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_TRY_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
+    EXPAND BINARY_HEAP_TRY_PEEK __binary_heap_pop_if_has_%out_ok, __binary_heap_pop_if_value_%out_ok, %heap_reg
+    br __binary_heap_pop_if_has_%out_ok -> L_BINARY_HEAP_POP_IF_CHECK_%out_ok, L_BINARY_HEAP_POP_IF_EMPTY_%out_ok
+
+L_BINARY_HEAP_POP_IF_CHECK_%out_ok:
+    __binary_heap_pop_if_pred_%out_ok = call %pred_fn(__binary_heap_pop_if_value_%out_ok)
+    __binary_heap_pop_if_take_%out_ok = ne __binary_heap_pop_if_pred_%out_ok, 0
+    br __binary_heap_pop_if_take_%out_ok -> L_BINARY_HEAP_POP_IF_TAKE_%out_ok, L_BINARY_HEAP_POP_IF_KEEP_%out_ok
+
+L_BINARY_HEAP_POP_IF_TAKE_%out_ok:
+    EXPAND BINARY_HEAP_TRY_POP __binary_heap_pop_if_pop_ok_%out_ok, __binary_heap_pop_if_pop_value_%out_ok, %heap_reg
+    %out_ok = __binary_heap_pop_if_pop_ok_%out_ok
+    %out_value = __binary_heap_pop_if_pop_value_%out_ok
+    !__binary_heap_pop_if_take_%out_ok
+    !__binary_heap_pop_if_pred_%out_ok
+    !__binary_heap_pop_if_value_%out_ok
+    !__binary_heap_pop_if_has_%out_ok
+    jmp L_BINARY_HEAP_POP_IF_END_%out_ok
+
+L_BINARY_HEAP_POP_IF_KEEP_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__binary_heap_pop_if_take_%out_ok
+    !__binary_heap_pop_if_pred_%out_ok
+    !__binary_heap_pop_if_value_%out_ok
+    !__binary_heap_pop_if_has_%out_ok
+    jmp L_BINARY_HEAP_POP_IF_END_%out_ok
+
+L_BINARY_HEAP_POP_IF_EMPTY_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__binary_heap_pop_if_value_%out_ok
+    !__binary_heap_pop_if_has_%out_ok
+
+L_BINARY_HEAP_POP_IF_END_%out_ok:
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
+    EXPAND BINARY_HEAP_TRY_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_CLEAR %heap_reg
     call @sa_binary_heap_clear(&%heap_reg)
 [END_MACRO]

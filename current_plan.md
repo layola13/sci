@@ -3932,3 +3932,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10701+.
 Still blocked without redesign: scoped Rust mutable references/lifetimes, generic VecDeque<T>, Rust Option/Panic object semantics, lazy/range drain and splice iterator semantics, allocator-aware constructors, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 BinaryHeap pop_if helpers)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap conditional-pop helpers in binary_heap.sa: BINARY_HEAP_TRY_POP_IF_U64 and BINARY_HEAP_POP_IF_U64, forwarding through try-peek and try-pop for Rust's unstable pop_if shape on the current u64 max-heap ABI.
+- Test file std_binary_heap_pop_if_macro_surface.sa (panic ID 10701).
+
+Panic IDs next free: 10702+.
+Still blocked without redesign: generic BinaryHeap<T> ordering, Rust Option<T> object layout, scoped PeekMut guards/lifetimes, lazy iterator/drain adapters, allocator-aware constructors, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

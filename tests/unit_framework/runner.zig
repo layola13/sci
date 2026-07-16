@@ -848,6 +848,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_vec_deque_macro_surface.sa",
         "tests/unit_framework/std_hashmap_macro_surface.sa",
         "tests/unit_framework/std_binary_heap_macro_surface.sa",
+        "tests/unit_framework/std_binary_heap_pop_if_macro_surface.sa",
         "tests/unit_framework/std_btree_macro_surface.sa",
         "tests/unit_framework/std_btree_hash_one_macro_surface.sa",
         "tests/unit_framework/std_future_task_macro_surface.sa",
