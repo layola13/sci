@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow unsigned primitive carrying add/borrowing sub macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `carrying_add` / `borrowing_sub` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_CARRYING_ADD`, `NUM_U16_CARRYING_ADD`, `NUM_U32_CARRYING_ADD`, `NUM_U8_BORROWING_SUB`, `NUM_U16_BORROWING_SUB`, and `NUM_U32_BORROWING_SUB`.
+- Combined with the existing `NUM_U64_*` and `NUM_USIZE_*` helpers, carrying add and borrowing sub now cover every existing SA unsigned primitive width.
+- Semantics: helpers mask operands to the declared width, perform ternary add/sub with a bool-style carry/borrow input, and return the wrapped declared-width result plus carry/borrow-out flag.
+- Test: `tests/unit_framework/std_num_narrow_carry_borrow_macro_surface.sa` - 1 test (panic ID 10651) expanding all six new public helpers and covering Rust's two-limb chained examples plus explicit carry-in and borrow-in edge cases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_carry_borrow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10652+.
+
 ## Completed: 2026-07-16 unsigned primitive carrying multiplication macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `carrying_mul` / `carrying_mul_add` implementations under `/home/vscode/projects/rust`.

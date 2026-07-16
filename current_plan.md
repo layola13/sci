@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive carrying add/borrowing sub)
+
+Completed supportable narrow unsigned primitive carrying add/borrowing sub helpers:
+- `NUM_U{8,16,32}_CARRYING_ADD` exposes Rust's `carrying_add` method shape for the narrow unsigned widths that were previously missing it.
+- `NUM_U{8,16,32}_BORROWING_SUB` exposes Rust's `borrowing_sub` method shape for the same widths.
+- Together with existing `NUM_U64_CARRYING_ADD` / `BORROWING_SUB` and `NUM_USIZE_CARRYING_ADD` / `BORROWING_SUB`, this completes the current unsigned-width coverage for these two bigint helpers.
+- Helpers return the declared-width wrapped result and a bool-style carry/borrow flag. This batch models Rust's `unsigned_bigint_helpers` result semantics, not Rust tuple ABI, `const_unsigned_bigint_helpers` feature-gate plumbing, compiler intrinsic lowering, or trait-level dispatch.
+- Test file `std_num_narrow_carry_borrow_macro_surface.sa` (panic ID 10651).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_carry_borrow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10652+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 unsigned primitive carrying multiplication)
 
 Completed supportable unsigned primitive carrying multiplication helpers:

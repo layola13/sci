@@ -2517,6 +2517,48 @@ L_NUM_UW_CMUL_DONE_%out_low:
     !__num_uw_cmul_idx_%out_low
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry, %mask
+    __num_uw_cadd_lhs_%out_value = and %lhs, %mask
+    __num_uw_cadd_rhs_%out_value = and %rhs, %mask
+    __num_uw_cadd_sum_raw_%out_value = add __num_uw_cadd_lhs_%out_value, __num_uw_cadd_rhs_%out_value
+    __num_uw_cadd_sum_%out_value = and __num_uw_cadd_sum_raw_%out_value, %mask
+    __num_uw_cadd_over1_%out_value = ult __num_uw_cadd_sum_%out_value, __num_uw_cadd_lhs_%out_value
+    __num_uw_cadd_carry_bit_%out_value = ne %carry, 0
+    __num_uw_cadd_with_carry_raw_%out_value = add __num_uw_cadd_sum_%out_value, __num_uw_cadd_carry_bit_%out_value
+    %out_value = and __num_uw_cadd_with_carry_raw_%out_value, %mask
+    __num_uw_cadd_over2_%out_value = ult %out_value, __num_uw_cadd_sum_%out_value
+    %out_carry = or __num_uw_cadd_over1_%out_value, __num_uw_cadd_over2_%out_value
+    !__num_uw_cadd_over2_%out_value
+    !__num_uw_cadd_with_carry_raw_%out_value
+    !__num_uw_cadd_carry_bit_%out_value
+    !__num_uw_cadd_over1_%out_value
+    !__num_uw_cadd_sum_%out_value
+    !__num_uw_cadd_sum_raw_%out_value
+    !__num_uw_cadd_rhs_%out_value
+    !__num_uw_cadd_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow, %mask
+    __num_uw_bsub_lhs_%out_value = and %lhs, %mask
+    __num_uw_bsub_rhs_%out_value = and %rhs, %mask
+    __num_uw_bsub_diff_raw_%out_value = sub __num_uw_bsub_lhs_%out_value, __num_uw_bsub_rhs_%out_value
+    __num_uw_bsub_diff_%out_value = and __num_uw_bsub_diff_raw_%out_value, %mask
+    __num_uw_bsub_over1_%out_value = ult __num_uw_bsub_lhs_%out_value, __num_uw_bsub_rhs_%out_value
+    __num_uw_bsub_borrow_bit_%out_value = ne %borrow, 0
+    __num_uw_bsub_with_borrow_raw_%out_value = sub __num_uw_bsub_diff_%out_value, __num_uw_bsub_borrow_bit_%out_value
+    %out_value = and __num_uw_bsub_with_borrow_raw_%out_value, %mask
+    __num_uw_bsub_over2_%out_value = ult __num_uw_bsub_diff_%out_value, __num_uw_bsub_borrow_bit_%out_value
+    %out_borrow = or __num_uw_bsub_over1_%out_value, __num_uw_bsub_over2_%out_value
+    !__num_uw_bsub_over2_%out_value
+    !__num_uw_bsub_with_borrow_raw_%out_value
+    !__num_uw_bsub_borrow_bit_%out_value
+    !__num_uw_bsub_over1_%out_value
+    !__num_uw_bsub_diff_%out_value
+    !__num_uw_bsub_diff_raw_%out_value
+    !__num_uw_bsub_rhs_%out_value
+    !__num_uw_bsub_lhs_%out_value
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -9347,6 +9389,30 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
 
 [MACRO] NUM_U32_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend
     EXPAND NUM_UNSIGNED_WIDTH_CARRYING_MUL_ADD %out_low, %out_high, %lhs, %rhs, %carry, %addend, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYING_ADD %out_value, %out_carry, %lhs, %rhs, %carry, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow
+    EXPAND NUM_UNSIGNED_WIDTH_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow
+    EXPAND NUM_UNSIGNED_WIDTH_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow
+    EXPAND NUM_UNSIGNED_WIDTH_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow, NUM_U32_MAX
 [END_MACRO]
 
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
