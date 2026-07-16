@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 Process Stdio value-object macros
+
+- Continued Rust `std::process` macro-surface parity, referencing local Rust `std/src/process.rs` for `Stdio::{piped,inherit,null}` and `Stdio::makes_pipe`.
+- `sa_std/process.sal`: added a concrete local `ProcessStdio` one-byte kind layout plus inherit/piped/null kind constants.
+- `sa_std/process.sa`: added `PROCESS_STDIO_NEW`, `PROCESS_STDIO_PIPED`, `PROCESS_STDIO_INHERIT`, `PROCESS_STDIO_NULL`, `PROCESS_STDIO_KIND`, and `PROCESS_STDIO_MAKES_PIPE`.
+- Semantics: `PROCESS_STDIO_MAKES_PIPE` returns true only for the piped kind. These helpers do not wire values into command spawn/capture redirection because the current process runtime ABI has no stdin/stdout/stderr configuration slots.
+- Test: `tests/unit_framework/std_process_stdio_macro_surface.sa` - 1 test (panic ID 10683) covering layout constants, constructor kind values, custom kind storage, and `makes_pipe`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_stdio_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10684+.
+
 ## Completed: 2026-07-16 SaturatingI64 arithmetic helper macros
 
 - Continued Rust `std::num::Saturating` macro-surface parity, referencing local Rust `saturating.rs` for signed `Saturating<T>` add/sub/mul operator forwarding.

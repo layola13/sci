@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 Process Stdio value object)
+
+Completed supportable `std::process::Stdio` value-object helpers:
+- `ProcessStdio_*` layout constants record a local one-byte kind value for inherit, piped, and null.
+- `PROCESS_STDIO_PIPED`, `PROCESS_STDIO_INHERIT`, `PROCESS_STDIO_NULL`, `PROCESS_STDIO_KIND`, and `PROCESS_STDIO_MAKES_PIPE` expose Rust `Stdio::{piped,inherit,null}` and `makes_pipe` naming over that local value.
+- This batch does not wire Stdio values into `Command` spawn/capture redirection because the current process runtime ABI has no stdin/stdout/stderr configuration slots; env maps and full command objects remain blocked.
+- Test file `std_process_stdio_macro_surface.sa` (panic ID 10683).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_stdio_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10684+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 SaturatingI64 arithmetic)
 
 Completed supportable `SaturatingI64` arithmetic helpers:

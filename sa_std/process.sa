@@ -176,6 +176,32 @@ L_PROCESS_OUTPUT_FREE_ERR_%out_status:
 L_PROCESS_OUTPUT_FREE_DONE_%out_status:
 [END_MACRO]
 
+[MACRO] PROCESS_STDIO_NEW %stdio, %kind
+    store %stdio+ProcessStdio_kind, %kind as u8
+[END_MACRO]
+
+[MACRO] PROCESS_STDIO_PIPED %stdio
+    EXPAND PROCESS_STDIO_NEW %stdio, PROCESS_STDIO_KIND_PIPED
+[END_MACRO]
+
+[MACRO] PROCESS_STDIO_INHERIT %stdio
+    EXPAND PROCESS_STDIO_NEW %stdio, PROCESS_STDIO_KIND_INHERIT
+[END_MACRO]
+
+[MACRO] PROCESS_STDIO_NULL %stdio
+    EXPAND PROCESS_STDIO_NEW %stdio, PROCESS_STDIO_KIND_NULL
+[END_MACRO]
+
+[MACRO] PROCESS_STDIO_KIND %out_kind, %stdio
+    %out_kind = load %stdio+ProcessStdio_kind as u8
+[END_MACRO]
+
+[MACRO] PROCESS_STDIO_MAKES_PIPE %out_bool, %stdio
+    EXPAND PROCESS_STDIO_KIND __process_stdio_kind_%out_bool, %stdio
+    %out_bool = eq __process_stdio_kind_%out_bool, PROCESS_STDIO_KIND_PIPED
+    !__process_stdio_kind_%out_bool
+[END_MACRO]
+
 [MACRO] PROCESS_ARGV_SLOT %out_ptr, %argv, %index
     __process_argv_off_%out_ptr = mul %index, SaProcessArgv_SIZE
     %out_ptr = ptr_add %argv, __process_argv_off_%out_ptr
@@ -808,4 +834,3 @@ L_PROCESS_CMD_OUT_PLAIN_%output:
 
 L_PROCESS_CMD_OUT_END_%output:
 [END_MACRO]
-

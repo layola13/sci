@@ -18,3 +18,10 @@
 #def ProcessOutput_status = +0
 #def ProcessOutput_stdout = +8
 #def ProcessOutput_stderr = +16
+
+#def ProcessStdio_SIZE = 1
+#def ProcessStdio_ALIGN = 1
+#def ProcessStdio_kind = +0
+#def PROCESS_STDIO_KIND_INHERIT = 0
+#def PROCESS_STDIO_KIND_PIPED = 1
+#def PROCESS_STDIO_KIND_NULL = 2
