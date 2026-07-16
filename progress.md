@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 Process Command builder exec wrapper
+
+- Continued Rust process/Unix CommandExt macro-surface parity over the existing in-place exec runtime support.
+- `sa_std/process.sa`: added `PROCESS_COMMAND_BUILDER_EXEC`.
+- Semantics: helper forwards the existing builder scalar state (`cwd`, `arg0`, `process_group`, `setsid`) plus explicit `uid` / `gid` / `groups` / `chroot` values and presence flags into the real `PROCESS_EXEC_COMMAND_EXT` path.
+- Test: `tests/unit_framework/std_process_command_builder_exec_macro_surface.sa` - 1 test (panic ID 10692) covering builder exec failure with a missing executable. The success path intentionally is not run in this focused test because successful `exec` replaces the test process.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_command_builder_exec_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10693+.
+
 ## Completed: 2026-07-16 Process Command builder stream pidfd wrapper
 
 - Continued Rust process/Linux CommandExt macro-surface parity over the existing stream pidfd runtime support.
