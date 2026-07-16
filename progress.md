@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive checked/strict neg/abs macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_neg`, `strict_neg`, `checked_abs`, and `strict_abs` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added unsigned `CHECKED_NEG` and `STRICT_NEG` helpers for `U8`, `U16`, `U32`, `U64`, and `USIZE`; added signed `STRICT_NEG` and `STRICT_ABS` helpers for `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Unsigned checked negation returns explicit `ok/out`, succeeding only for zero. Strict negation traps via SA `panic(2214)` on unsigned nonzero values or signed minimum values. Strict absolute value reuses checked abs and traps via `panic(2215)` on signed minimum values. This models Rust's panic control-flow shape without claiming panic message/object identity, `u128` / `i128`, unchecked neg, or trait-level integration.
+- Test: `tests/unit_framework/std_num_checked_strict_neg_abs_macro_surface.sa` - 4 tests (panic ID 10637 for the non-panic assertion path) expanding all 20 new public helpers and covering unsigned strict-neg nonzero, signed strict-neg minimum, and signed strict-abs minimum panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_strict_neg_abs_macro_surface.sa --jobs 1 --trace-panic` -> `4 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10638+.
+
 ## Completed: 2026-07-16 primitive strict shift macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `strict_shl` and `strict_shr` implementations under `/home/vscode/projects/rust`.

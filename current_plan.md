@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive checked/strict neg/abs)
+
+Completed supportable primitive checked/strict negation and absolute-value helpers:
+- `NUM_U{8,16,32,64,SIZE}_CHECKED_NEG`: concrete Rust unsigned primitive `checked_neg` shape for the existing SA unsigned widths, returning explicit `ok/out` values and succeeding only for zero.
+- `NUM_U{8,16,32,64,SIZE}_STRICT_NEG`: concrete Rust unsigned primitive strict negation control-flow shape over checked negation.
+- `NUM_I{8,16,32,64,SIZE}_STRICT_NEG` and `*_STRICT_ABS`: matching signed primitive strict negation and strict absolute value helpers over the existing checked helpers.
+- Strict negation traps with SA `panic(2214)` on unsigned nonzero values or signed `MIN`; strict absolute value traps with `panic(2215)` on signed `MIN`.
+- `usize` / `isize` alias the current 64-bit SA ABI. This batch models Rust's checked result and strict panic control flow, not panic message/object identity, `u128` / `i128`, unchecked neg, or trait-level dispatch.
+- Test file `std_num_checked_strict_neg_abs_macro_surface.sa` (panic ID 10637 for the ordinary assertion path).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_strict_neg_abs_macro_surface.sa --jobs 1 --trace-panic` -> `4 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10638+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive strict shift)
 
 Completed supportable primitive strict shift helpers:
