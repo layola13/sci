@@ -40,14 +40,17 @@ Evidence checked:
 - `src/cli.zig`
 - `tests/cli_smoke.zig`
 - `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=src/cli.zig ... --test-filter "project cache single flight" -j1` -> `1/1`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `13/13`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
 
 Answer:
-- Implemented pending focused verification. Store-event markers now include a source-free `writer_pid` on Linux, and `sa cache status/why` exposes it as `last_store_writer_pid`.
+- Yes, as a focused writer-identity checkpoint. Store-event markers now include a source-free `writer_pid` on Linux, and `sa cache status/why` exposes it as `last_store_writer_pid`.
 - Missing/legacy fields and unsupported platforms report `null`; only positive process ids are accepted when reading the marker.
 - This does not provide event history, process start identity, cross-process owner lifecycle, or native macOS/Windows evidence.
 
 Next:
-- Run the focused single-flight/cache smoke and Debug `sa-cli` build after other Zig jobs finish, then update this entry with evidence and commit the checkpoint.
+- Continue P0.6 with event history/process-start identity or fine-grained candidate key-input differences.
 
 ## 2026-07-16 11:23
 
