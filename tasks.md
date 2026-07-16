@@ -2659,3 +2659,5 @@ sa/
 - [x] BinaryHeap pop_if 批次新增 focused 测试 `std_binary_heap_pop_if_macro_surface.sa`（panic ID 10701）并同步 progress/current_plan/std_missing；不主张 Rust `Option<T>` 布局 / generic `BinaryHeap<T>` / borrow lifetime / predicate unwind/drop 语义。
 - [x] `BinaryHeap` Rust API parity 审计继续补齐：补 `BinaryHeap::iter` 具体降阶宏 `BINARY_HEAP_ITER_U64`，复用既有 heap `as_slice` 和 slice-backed `Iter`，按内部 heap-array order 读取且不消费 heap。
 - [x] BinaryHeap iter 批次新增 focused 测试 `std_binary_heap_iter_macro_surface.sa`（panic ID 10702）并同步 progress/current_plan/std_missing；不主张 Rust generic `Iter<'_, T>` / borrow lifetime / owned `IntoIterator` / lazy drain 语义。
+- [x] `BinaryHeap` Rust API parity 审计继续补齐：补 `IntoIterator for &BinaryHeap` 和 `Default for binary_heap::Iter` 具体降阶宏 `BINARY_HEAP_REF_INTO_ITER_U64` / `BINARY_HEAP_ITER_DEFAULT_U64`，都复用现有 slice-backed `Iter`。
+- [x] BinaryHeap iterator alias 批次新增 focused 测试 `std_binary_heap_iter_alias_macro_surface.sa`（panic ID 10703）并同步 progress/current_plan/std_missing；不主张 Rust generic `T` / reference lifetime / iterator trait object / owned `IntoIterator` 语义。

@@ -984,6 +984,16 @@ L_APPEND_DONE:
     EXPAND ITER_FROM_SLICE %out_iter, __binary_heap_iter_slice_%out_iter
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_REF_INTO_ITER_U64 %out_iter, %heap_reg
+    EXPAND BINARY_HEAP_ITER_U64 %out_iter, %heap_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_ITER_DEFAULT_U64 %out_iter
+    __binary_heap_iter_default_slice_%out_iter = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __binary_heap_iter_default_slice_%out_iter, 0, 0
+    EXPAND ITER_FROM_SLICE %out_iter, __binary_heap_iter_default_slice_%out_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_VEC %out_vec, %heap_reg
     %out_vec = call @sa_binary_heap_into_vec(^%heap_reg)
 [END_MACRO]

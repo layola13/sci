@@ -8561,3 +8561,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10703+.
+
+## Completed: 2026-07-16 BinaryHeap iterator aliases
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_REF_INTO_ITER_U64` and `BINARY_HEAP_ITER_DEFAULT_U64`.
+- Semantics: `REF_INTO_ITER_U64` mirrors Rust's `IntoIterator for &BinaryHeap` supportable shape by delegating to the concrete shared heap iterator. `ITER_DEFAULT_U64` creates an empty slice-backed cursor, matching Rust's `Default for binary_heap::Iter` observable empty iteration behavior. They do not model generic `T`, Rust reference lifetimes, iterator trait objects, or owned `IntoIterator`.
+- Test: `tests/unit_framework/std_binary_heap_iter_alias_macro_surface.sa` — 1 test (panic ID 10703) covering by-reference iteration non-mutation and default empty iterator behavior.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10704+.
