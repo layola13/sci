@@ -82,6 +82,26 @@ pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) voi
     allocator.free(args);
 }
 
+fn formatMemoryUsageJson(allocator: std.mem.Allocator, rss: u64) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{{\"rss\":{d},\"heapTotal\":{d},\"heapUsed\":{d},\"external\":0}}", .{ rss, rss, rss });
+}
+
+pub fn memory_usage_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const task_port = std.c.mach_task_self();
+    if (task_port == std.c.TASK_NULL) return error.Unexpected;
+
+    var info: std.c.mach_task_basic_info = undefined;
+    var info_count: std.c.mach_msg_type_number_t = std.c.MACH_TASK_BASIC_INFO_COUNT;
+    const rc = std.c.task_info(
+        task_port,
+        std.c.MACH_TASK_BASIC_INFO,
+        @as(std.c.task_info_t, @ptrCast(&info)),
+        &info_count,
+    );
+    if (rc != 0) return error.Unexpected;
+    return formatMemoryUsageJson(allocator, @intCast(info.resident_size));
+}
+
 pub fn term_epoll_create(_: u32) !std.posix.fd_t {
     return error.Unsupported;
 }
@@ -235,4 +255,10 @@ test "macOS PAL parses native argv without Zig startup argv" {
     try std.testing.expectEqualStrings("demo", args[0]);
     try std.testing.expectEqualStrings("two words", args[1]);
     try std.testing.expectEqualStrings("", args[2]);
+}
+
+test "macOS PAL formats process memory usage JSON" {
+    const json = try formatMemoryUsageJson(std.testing.allocator, 12288);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"rss\":12288,\"heapTotal\":12288,\"heapUsed\":12288,\"external\":0}", json);
 }

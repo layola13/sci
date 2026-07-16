@@ -1866,7 +1866,9 @@ pub export fn sa_deno_exec_path() u64 {
 }
 
 pub export fn sa_deno_memory_usage() u64 {
-    return unsupportedU64();
+    const json = pal_sys.memory_usage_json_alloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, json) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
 pub export fn sa_json_parse(_: ?[*]const u8, _: u64) u64 {

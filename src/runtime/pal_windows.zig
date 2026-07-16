@@ -88,6 +88,15 @@ pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) voi
     allocator.free(args);
 }
 
+fn formatMemoryUsageJson(allocator: std.mem.Allocator, rss: u64) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{{\"rss\":{d},\"heapTotal\":{d},\"heapUsed\":{d},\"external\":0}}", .{ rss, rss, rss });
+}
+
+pub fn memory_usage_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const counters = try std.os.windows.GetProcessMemoryInfo(std.os.windows.GetCurrentProcess());
+    return formatMemoryUsageJson(allocator, @intCast(counters.WorkingSetSize));
+}
+
 pub fn term_epoll_create(_: u32) !std.os.windows.HANDLE {
     return error.Unsupported;
 }
@@ -217,4 +226,10 @@ test "Windows PAL parses process args from GetCommandLineW-compatible input" {
     try std.testing.expectEqualStrings("sa.exe", args[0]);
     try std.testing.expectEqualStrings("two words", args[1]);
     try std.testing.expectEqualStrings("slash\\\"quote", args[2]);
+}
+
+test "Windows PAL formats process memory usage JSON" {
+    const json = try formatMemoryUsageJson(std.testing.allocator, 12288);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"rss\":12288,\"heapTotal\":12288,\"heapUsed\":12288,\"external\":0}", json);
 }

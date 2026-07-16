@@ -78,6 +78,22 @@ pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) voi
     allocator.free(args);
 }
 
+fn memory_usage_json_from_statm_bytes(allocator: std.mem.Allocator, bytes: []const u8, page_size: u64) ![]u8 {
+    var it = std.mem.tokenizeAny(u8, bytes, " \t\r\n");
+    _ = it.next() orelse return error.InvalidMemoryUsage;
+    const rss_pages_text = it.next() orelse return error.InvalidMemoryUsage;
+    const rss_pages = try std.fmt.parseInt(u64, rss_pages_text, 10);
+    const rss = rss_pages * page_size;
+    return std.fmt.allocPrint(allocator, "{{\"rss\":{d},\"heapTotal\":{d},\"heapUsed\":{d},\"external\":0}}", .{ rss, rss, rss });
+}
+
+pub fn memory_usage_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const bytes = try std.fs.cwd().readFileAlloc(allocator, "/proc/self/statm", 4096);
+    defer allocator.free(bytes);
+    const page_size: u64 = @intCast(std.heap.pageSize());
+    return memory_usage_json_from_statm_bytes(allocator, bytes, page_size);
+}
+
 pub fn term_epoll_create(flags: u32) !std.posix.fd_t {
     const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
     if ((flags & ~cloexec_flag) != 0) return error.InvalidArgument;
@@ -238,4 +254,10 @@ test "Linux PAL parses proc cmdline bytes without Zig startup argv" {
     try std.testing.expectEqualStrings("demo", args[0]);
     try std.testing.expectEqualStrings("two words", args[1]);
     try std.testing.expectEqualStrings("", args[2]);
+}
+
+test "Linux PAL formats memory usage from proc statm bytes" {
+    const json = try memory_usage_json_from_statm_bytes(std.testing.allocator, "12 3 0 0 0 0 0\n", 4096);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"rss\":12288,\"heapTotal\":12288,\"heapUsed\":12288,\"external\":0}", json);
 }

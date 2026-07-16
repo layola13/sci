@@ -5601,7 +5601,6 @@ extern fn getpid() c_int;
 extern fn getppid() c_int;
 extern fn getuid() c_uint;
 extern fn getgid() c_uint;
-extern fn getpagesize() c_int;
 
 pub export fn sa_deno_pid() u32 {
     return @intCast(getpid());
@@ -5625,23 +5624,7 @@ pub export fn sa_deno_exec_path() u64 {
 }
 
 pub export fn sa_deno_memory_usage() u64 {
-    var file = std.fs.openFileAbsolute("/proc/self/statm", .{}) catch return 0;
-    defer file.close();
-    var buf: [64]u8 = undefined;
-    const n = file.readAll(&buf) catch return 0;
-    const content = buf[0..n];
-    var it = std.mem.tokenizeScalar(u8, content, ' ');
-    _ = it.next() orelse return 0;
-    const rss_pages_str = it.next() orelse return 0;
-    const rss_pages = std.fmt.parseInt(u64, rss_pages_str, 10) catch return 0;
-
-    const page_size: u64 = @intCast(getpagesize());
-    const rss = rss_pages * page_size;
-
-    var out_buf: [256]u8 = undefined;
-    const json = std.fmt.bufPrint(&out_buf, "{{\"rss\":{d},\"heapTotal\":{d},\"heapUsed\":{d},\"external\":0}}", .{ rss, rss, rss }) catch return 0;
-
-    const owned = std.heap.page_allocator.dupe(u8, json) catch return 0;
+    const owned = pal_sys.memory_usage_json_alloc(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
