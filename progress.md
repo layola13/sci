@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 WrappingI64 arithmetic helper macros
+
+- Continued Rust `std::num::Wrapping` macro-surface parity, referencing local Rust `wrapping.rs` for signed `Wrapping<T>` add/sub/mul operator forwarding.
+- `sa_std/num.sa`: added `WRAPPING_I64_SET`, `WRAPPING_I64_ADD`, `WRAPPING_I64_SUB`, and `WRAPPING_I64_MUL`.
+- Semantics: helpers load the concrete `WrappingI64` inner field as signed `i64`, reuse existing `NUM_I64_WRAPPING_ADD` / `SUB` / `MUL`, and store the 64-bit wrapping result back into the destination wrapper. `WRAPPING_I64_SET` preserves the raw 64-bit value shape.
+- Test: `tests/unit_framework/std_num_wrapping_i64_arithmetic_macro_surface.sa` - 1 test (panic ID 10681) covering max-plus-one, min-minus-one, min-times-minus-one, and raw setter storage.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_i64_arithmetic_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10682+.
+
 ## Completed: 2026-07-16 WrappingU32 arithmetic helper macros
 
 - Continued Rust `std::num::Wrapping` macro-surface parity, referencing local Rust `wrapping.rs` for `Wrapping<T>` add/sub/mul operator forwarding.

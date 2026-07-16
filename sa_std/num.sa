@@ -16064,6 +16064,10 @@ L_WRAPPING_U32_NEXT_POWER_END_%out_ptr:
     %out_value = load %src_ptr+WrappingI64_value as u64
 [END_MACRO]
 
+[MACRO] WRAPPING_I64_SET %dst_ptr, %value
+    store %dst_ptr+WrappingI64_value, %value as u64
+[END_MACRO]
+
 [MACRO] WRAPPING_I64_DEFAULT %out_ptr
     EXPAND WRAPPING_I64_NEW %out_ptr, 0
 [END_MACRO]
@@ -16904,6 +16908,36 @@ L_SATURATING_I64_POW_END_%out_ptr:
     !__wr_u32_bitxor_lhs_%out_ptr
     !__wr_u32_bitxor_rhs_raw_%out_ptr
     !__wr_u32_bitxor_lhs_raw_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_ADD %out_ptr, %lhs_ptr, %rhs_ptr
+    __wr_i64_add_lhs_%out_ptr = load %lhs_ptr+WrappingI64_value as i64
+    __wr_i64_add_rhs_%out_ptr = load %rhs_ptr+WrappingI64_value as i64
+    EXPAND NUM_I64_WRAPPING_ADD __wr_i64_add_result_%out_ptr, __wr_i64_add_lhs_%out_ptr, __wr_i64_add_rhs_%out_ptr
+    EXPAND WRAPPING_I64_SET %out_ptr, __wr_i64_add_result_%out_ptr
+    !__wr_i64_add_result_%out_ptr
+    !__wr_i64_add_rhs_%out_ptr
+    !__wr_i64_add_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_SUB %out_ptr, %lhs_ptr, %rhs_ptr
+    __wr_i64_sub_lhs_%out_ptr = load %lhs_ptr+WrappingI64_value as i64
+    __wr_i64_sub_rhs_%out_ptr = load %rhs_ptr+WrappingI64_value as i64
+    EXPAND NUM_I64_WRAPPING_SUB __wr_i64_sub_result_%out_ptr, __wr_i64_sub_lhs_%out_ptr, __wr_i64_sub_rhs_%out_ptr
+    EXPAND WRAPPING_I64_SET %out_ptr, __wr_i64_sub_result_%out_ptr
+    !__wr_i64_sub_result_%out_ptr
+    !__wr_i64_sub_rhs_%out_ptr
+    !__wr_i64_sub_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_I64_MUL %out_ptr, %lhs_ptr, %rhs_ptr
+    __wr_i64_mul_lhs_%out_ptr = load %lhs_ptr+WrappingI64_value as i64
+    __wr_i64_mul_rhs_%out_ptr = load %rhs_ptr+WrappingI64_value as i64
+    EXPAND NUM_I64_WRAPPING_MUL __wr_i64_mul_result_%out_ptr, __wr_i64_mul_lhs_%out_ptr, __wr_i64_mul_rhs_%out_ptr
+    EXPAND WRAPPING_I64_SET %out_ptr, __wr_i64_mul_result_%out_ptr
+    !__wr_i64_mul_result_%out_ptr
+    !__wr_i64_mul_rhs_%out_ptr
+    !__wr_i64_mul_lhs_%out_ptr
 [END_MACRO]
 
 [MACRO] WRAPPING_I64_DIV %out_ptr, %lhs_ptr, %rhs_ptr
