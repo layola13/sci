@@ -1570,6 +1570,10 @@ L_APPEND_DONE:
     !__vec_deque_push_back_mut_len_%out_ptr
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_PUSH_BACK_MUT %out_ptr, %deque_reg, %value
+    EXPAND VEC_DEQUE_PUSH_BACK_MUT_PTR %out_ptr, %deque_reg, %value
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_PUSH_FRONT %deque_reg, %value
     call @sa_vec_deque_push_front(&%deque_reg, %value)
 [END_MACRO]
@@ -1580,6 +1584,10 @@ L_APPEND_DONE:
     __vec_deque_push_front_mut_ok_%out_ptr = call @sa_vec_deque_try_front_mut_ptr(&%deque_reg, &__vec_deque_push_front_mut_slot_%out_ptr)
     %out_ptr = load __vec_deque_push_front_mut_slot_%out_ptr+0 as ptr
     !__vec_deque_push_front_mut_ok_%out_ptr
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_PUSH_FRONT_MUT %out_ptr, %deque_reg, %value
+    EXPAND VEC_DEQUE_PUSH_FRONT_MUT_PTR %out_ptr, %deque_reg, %value
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_TRY_POP_FRONT %out_ok, %out_value, %deque_reg

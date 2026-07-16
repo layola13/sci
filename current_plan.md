@@ -3914,3 +3914,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10532+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 VecDeque push_mut aliases)
+
+Completed supportable defaults/aliases/macros:
+- Rust-named VecDeque mutating push aliases in vec_deque.sa: VEC_DEQUE_PUSH_BACK_MUT and VEC_DEQUE_PUSH_FRONT_MUT, forwarding to the existing raw-pointer slot helpers for Rust's push_back_mut / push_front_mut shape.
+- Test file std_vec_deque_push_mut_alias_macro_surface.sa (panic ID 10699).
+
+Panic IDs next free: 10700+.
+Still blocked without redesign: scoped Rust mutable references/lifetimes, generic VecDeque<T>, lazy/range drain and splice iterator semantics, allocator-aware constructors, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

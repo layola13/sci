@@ -2651,3 +2651,5 @@ sa/
   - Smoke coverage for expansion presence
   - Behavior coverage for success / failure / cleanup paths
   - Keep the tests in `tests/rust_core_unit.sa` or adjacent macro-specific SA tests
+- [x] `VecDeque` Rust API parity 审计继续补齐：补 Rust-named `VecDeque::push_back_mut` / `push_front_mut` 降阶别名 `VEC_DEQUE_PUSH_BACK_MUT` / `VEC_DEQUE_PUSH_FRONT_MUT`，转发到既有 raw-pointer slot helper，保持当前具体 `u64` 槽位指针语义。
+- [x] VecDeque push_mut alias 批次已新增 focused 测试 `std_vec_deque_push_mut_alias_macro_surface.sa`（panic ID 10699）并同步 progress/current_plan/std_missing；不主张 scoped Rust mutable references / generic `VecDeque<T>` / borrow lifetime 语义。

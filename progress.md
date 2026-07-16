@@ -8525,3 +8525,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hash_build_hasher_default_traits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10532+.
+
+## Completed: 2026-07-16 VecDeque push_mut aliases
+
+- `sa_std/vec_deque.sa`: Added Rust-named `VEC_DEQUE_PUSH_BACK_MUT` and `VEC_DEQUE_PUSH_FRONT_MUT` aliases over the existing raw-pointer mutating push helpers.
+- Semantics: aliases mirror Rust `VecDeque::push_back_mut` / `push_front_mut` at the current concrete `u64` slot-pointer level: they insert a value, return the newly inserted raw slot pointer, and allow immediate caller mutation without modeling Rust scoped mutable references, generic `T`, or borrow lifetimes.
+- Test: `tests/unit_framework/std_vec_deque_push_mut_alias_macro_surface.sa` — 1 test (panic ID 10699) covering back/front alias insertion and pointer write-back.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_push_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10700+.
