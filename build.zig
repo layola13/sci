@@ -593,6 +593,16 @@ pub fn build(b: *std.Build) void {
     const release_contract_step = b.step("release-contract", "Check release archive, checksum, workflow, and installer contracts");
     release_contract_step.dependOn(&release_contract_tests.step);
 
+    const linux_ci_contract_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/linux_native_ci_contract.zig",
+    });
+    linux_ci_contract_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&linux_ci_contract_tests.step);
+    const linux_ci_contract_step = b.step("linux-ci-contract", "Check the Linux native runtime CI contract");
+    linux_ci_contract_step.dependOn(&linux_ci_contract_tests.step);
+
     const windows_ci_contract_tests = b.addSystemCommand(&.{
         b.graph.zig_exe,
         "test",

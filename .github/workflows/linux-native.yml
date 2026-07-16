@@ -1,0 +1,92 @@
+name: Linux Native Runtime
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-native:
+    name: Linux x86_64 native runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check clean checkout
+        run: |
+          set -euo pipefail
+          status=$(git status --porcelain=v1 --untracked-files=all)
+          if [ -n "$status" ]; then
+            printf 'The checkout is not clean before the native gate:\n%s\n' "$status" >&2
+            exit 1
+          fi
+          git diff --exit-code -- artifacts/sa_std
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: linux-native-zig-0.14.1-runtime-${{ github.sha }}
+          restore-keys: |
+            linux-native-zig-0.14.1-runtime-
+
+      - name: Run native runtime gates
+        run: |
+          set -euo pipefail
+          zig build linux-ci-contract --summary all
+          zig build test-runtime-basic -Doptimize=ReleaseSafe --summary all
+          zig build test-runtime-pal -Doptimize=ReleaseSafe --summary all
+          zig build test-runtime-netx -Doptimize=ReleaseSafe --summary all
+          zig build sa-std-abi -Doptimize=ReleaseSafe --summary all
+
+      - name: Build isolated native runtime artifacts
+        run: |
+          set -euo pipefail
+          static_root="$RUNNER_TEMP/sa-runtime-static"
+          shared_root="$RUNNER_TEMP/sa-runtime-shared"
+          rm -rf "$static_root" "$shared_root"
+          mkdir -p "$static_root" "$shared_root"
+
+          zig build sa-std-static -Doptimize=ReleaseSafe --prefix "$static_root" --summary all
+          zig build sa-std-shared -Doptimize=ReleaseSafe --prefix "$shared_root" --summary all
+
+          for required_path in \
+            "$static_root/lib/libsa_std.a" \
+            "$static_root/include/sa_std.h" \
+            "$shared_root/lib/libsa_std.so"; do
+            if [ ! -s "$required_path" ]; then
+              printf 'Runtime install is missing %s\n' "$required_path" >&2
+              exit 1
+            fi
+          done
+          file "$static_root/lib/libsa_std.a" "$shared_root/lib/libsa_std.so"
+
+      - name: Check source artifact cleanliness
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- artifacts/sa_std
+          status=$(git status --porcelain=v1 --untracked-files=all)
+          if [ -n "$status" ]; then
+            printf 'The Linux native gate left the checkout dirty:\n%s\n' "$status" >&2
+            exit 1
+          fi
