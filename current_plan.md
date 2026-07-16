@@ -3923,3 +3923,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10700+.
 Still blocked without redesign: scoped Rust mutable references/lifetimes, generic VecDeque<T>, lazy/range drain and splice iterator semantics, allocator-aware constructors, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 VecDeque mut-slot aliases)
+
+Completed supportable defaults/aliases/macros:
+- Rust-named VecDeque mutable-slot aliases in vec_deque.sa: VEC_DEQUE_GET_MUT_PTR, VEC_DEQUE_GET_MUT, and VEC_DEQUE_INSERT_MUT, forwarding to the existing checked raw-pointer helpers for Rust's get_mut / insert_mut shapes.
+- Test file std_vec_deque_mut_alias_macro_surface.sa (panic ID 10700).
+
+Panic IDs next free: 10701+.
+Still blocked without redesign: scoped Rust mutable references/lifetimes, generic VecDeque<T>, Rust Option/Panic object semantics, lazy/range drain and splice iterator semantics, allocator-aware constructors, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

@@ -1544,6 +1544,14 @@ L_APPEND_DONE:
     %out_ok = __vec_deque_get_mut_ok_%out_ok
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_GET_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index
+    EXPAND VEC_DEQUE_TRY_GET_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_GET_MUT %out_ok, %out_ptr, %deque_reg, %index
+    EXPAND VEC_DEQUE_TRY_GET_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_SET %out_ok, %deque_reg, %index, %value
     %out_ok = call @sa_vec_deque_set(&%deque_reg, %index, %value)
 [END_MACRO]
@@ -1962,6 +1970,10 @@ L_VEC_DEQUE_INSERT_MUT_PTR_END_%out_ok:
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INSERT_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index, %value
+    EXPAND VEC_DEQUE_TRY_INSERT_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index, %value
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INSERT_MUT %out_ok, %out_ptr, %deque_reg, %index, %value
     EXPAND VEC_DEQUE_TRY_INSERT_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index, %value
 [END_MACRO]
 

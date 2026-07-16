@@ -2653,3 +2653,5 @@ sa/
   - Keep the tests in `tests/rust_core_unit.sa` or adjacent macro-specific SA tests
 - [x] `VecDeque` Rust API parity 审计继续补齐：补 Rust-named `VecDeque::push_back_mut` / `push_front_mut` 降阶别名 `VEC_DEQUE_PUSH_BACK_MUT` / `VEC_DEQUE_PUSH_FRONT_MUT`，转发到既有 raw-pointer slot helper，保持当前具体 `u64` 槽位指针语义。
 - [x] VecDeque push_mut alias 批次已新增 focused 测试 `std_vec_deque_push_mut_alias_macro_surface.sa`（panic ID 10699）并同步 progress/current_plan/std_missing；不主张 scoped Rust mutable references / generic `VecDeque<T>` / borrow lifetime 语义。
+- [x] `VecDeque` Rust API parity 审计继续补齐：补 Rust-named `VecDeque::get_mut` / `insert_mut` 降阶别名 `VEC_DEQUE_GET_MUT_PTR` / `VEC_DEQUE_GET_MUT` / `VEC_DEQUE_INSERT_MUT`，复用既有 checked raw-pointer helper，保持当前具体 `u64` 槽位 `(ok, ptr)` 语义。
+- [x] VecDeque mut-slot alias 批次已新增 focused 测试 `std_vec_deque_mut_alias_macro_surface.sa`（panic ID 10700）并同步 progress/current_plan/std_missing；不主张 Rust `Option<&mut T>` / panic object / scoped lifetime / generic `VecDeque<T>` 语义。

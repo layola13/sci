@@ -8534,3 +8534,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_push_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10700+.
+
+## Completed: 2026-07-16 VecDeque get_mut / insert_mut aliases
+
+- `sa_std/vec_deque.sa`: Added Rust-named mutable-slot aliases `VEC_DEQUE_GET_MUT_PTR`, `VEC_DEQUE_GET_MUT`, and `VEC_DEQUE_INSERT_MUT` over the existing checked raw-pointer helpers.
+- Semantics: aliases mirror the supportable shape of Rust `VecDeque::get_mut` and `VecDeque::insert_mut` by returning explicit `(ok, ptr)` outputs for concrete `u64` slots. Miss/out-of-bounds paths return `ok=0` and a null pointer; hit paths expose the slot pointer for immediate caller mutation. They do not model Rust `Option<&mut T>`, panic-on-out-of-bounds `insert_mut`, scoped mutable-reference lifetimes, or generic `T`.
+- Test: `tests/unit_framework/std_vec_deque_mut_alias_macro_surface.sa` — 1 test (panic ID 10700) covering get_mut, get_mut_ptr, insert_mut, pointer write-back, and miss/null paths.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10701+.
