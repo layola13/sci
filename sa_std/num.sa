@@ -2559,6 +2559,33 @@ L_NUM_UW_CMUL_DONE_%out_low:
     !__num_uw_bsub_lhs_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs, %mask
+    __num_uw_ov_div_lhs_%out_value = and %lhs, %mask
+    __num_uw_ov_div_rhs_%out_value = and %rhs, %mask
+    %out_value = udiv __num_uw_ov_div_lhs_%out_value, __num_uw_ov_div_rhs_%out_value
+    %out_overflow = add 0, 0
+    !__num_uw_ov_div_rhs_%out_value
+    !__num_uw_ov_div_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs, %mask
+    __num_uw_ov_rem_lhs_%out_value = and %lhs, %mask
+    __num_uw_ov_rem_rhs_%out_value = and %rhs, %mask
+    %out_value = urem __num_uw_ov_rem_lhs_%out_value, __num_uw_ov_rem_rhs_%out_value
+    %out_overflow = add 0, 0
+    !__num_uw_ov_rem_rhs_%out_value
+    !__num_uw_ov_rem_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_OVERFLOWING_NEG %out_value, %out_overflow, %value, %mask
+    __num_uw_ov_neg_value_%out_value = and %value, %mask
+    __num_uw_ov_neg_raw_%out_value = sub 0, __num_uw_ov_neg_value_%out_value
+    %out_value = and __num_uw_ov_neg_raw_%out_value, %mask
+    %out_overflow = ne __num_uw_ov_neg_value_%out_value, 0
+    !__num_uw_ov_neg_raw_%out_value
+    !__num_uw_ov_neg_value_%out_value
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -4049,6 +4076,26 @@ L_NUM_U64_NP_END_%out_ok:
     %out_overflow = eq __num_u64_ov_mul_ok_%out_value, 0
     !__num_u64_ov_mul_value_%out_value
     !__num_u64_ov_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_OVERFLOWING_DIV_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U64_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U64_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_OVERFLOWING_REM_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U64_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U64_OVERFLOWING_NEG %out_value, %out_overflow, %value
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_NEG %out_value, %out_overflow, %value, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_OVERFLOWING_SHL %out_value, %out_overflow, %value, %shift
@@ -9487,6 +9534,66 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     !__num_u32_ov_mul_ok_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_DIV_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U8_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_DIV_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U16_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_DIV_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U32_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_REM_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U8_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_REM_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U16_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_REM_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U32_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_NEG %out_value, %out_overflow, %value
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_NEG %out_value, %out_overflow, %value, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_NEG %out_value, %out_overflow, %value
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_NEG %out_value, %out_overflow, %value, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_NEG %out_value, %out_overflow, %value
+    EXPAND NUM_UNSIGNED_WIDTH_OVERFLOWING_NEG %out_value, %out_overflow, %value, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_OVERFLOWING_SHL %out_value, %out_overflow, %value, %shift
     EXPAND NUM_U8_WRAPPING_SHL %out_value, %value, %shift
     %out_overflow = uge %shift, NUM_U8_BITS
@@ -9998,6 +10105,26 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_OVERFLOWING_MUL %out_value, %out_overflow, %lhs, %rhs
     EXPAND NUM_U64_OVERFLOWING_MUL %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U64_OVERFLOWING_DIV %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_OVERFLOWING_DIV_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U64_OVERFLOWING_DIV_EUCLID %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U64_OVERFLOWING_REM %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_OVERFLOWING_REM_EUCLID %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U64_OVERFLOWING_REM_EUCLID %out_value, %out_overflow, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_OVERFLOWING_NEG %out_value, %out_overflow, %value
+    EXPAND NUM_U64_OVERFLOWING_NEG %out_value, %out_overflow, %value
 [END_MACRO]
 
 [MACRO] NUM_USIZE_OVERFLOWING_SHL %out_value, %out_overflow, %value, %shift

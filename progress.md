@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive overflowing div/rem/euclid/neg macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `overflowing_div`, `overflowing_div_euclid`, `overflowing_rem`, `overflowing_rem_euclid`, and `overflowing_neg` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `OVERFLOWING_DIV`, `OVERFLOWING_DIV_EUCLID`, `OVERFLOWING_REM`, `OVERFLOWING_REM_EUCLID`, and `OVERFLOWING_NEG` helpers for `U8`, `U16`, `U32`, `U64`, and `USIZE`.
+- Semantics: nonzero unsigned division and remainder helpers return the ordinary quotient/remainder with overflow flag `0`; Euclidean aliases match the same unsigned result. Negation returns wrapped two's-complement negation and sets the flag exactly when the input is nonzero.
+- Test: `tests/unit_framework/std_num_unsigned_overflowing_div_neg_macro_surface.sa` - 1 test (panic ID 10653) expanding all 25 new public helpers and covering every width for nonzero div/rem/euclid plus zero and nonzero negation.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unsigned_overflowing_div_neg_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10654+.
+
 ## Completed: 2026-07-16 narrow unsigned primitive overflowing macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `overflowing_add`, `overflowing_sub`, `overflowing_mul`, `overflowing_shl`, and `overflowing_shr` implementations under `/home/vscode/projects/rust`.

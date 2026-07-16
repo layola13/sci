@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 unsigned primitive overflowing div/rem/euclid/neg)
+
+Completed supportable unsigned primitive overflowing div/rem/euclid/neg helpers:
+- `NUM_U{8,16,32,64,SIZE}_OVERFLOWING_DIV` and `OVERFLOWING_DIV_EUCLID` expose Rust's unsigned quotient-plus-overflow-flag shape for every existing SA unsigned width.
+- `NUM_U{8,16,32,64,SIZE}_OVERFLOWING_REM` and `OVERFLOWING_REM_EUCLID` expose the matching remainder-plus-overflow-flag shape.
+- `NUM_U{8,16,32,64,SIZE}_OVERFLOWING_NEG` exposes Rust's unsigned wrapping negation result and nonzero overflow flag.
+- Nonzero div/rem helpers always return overflow flag `0`; divide-by-zero is left to the underlying operation rather than modeling Rust panic objects/messages. This batch does not cover `overflowing_pow`, Rust tuple ABI, `u128`, or trait-level dispatch.
+- Test file `std_num_unsigned_overflowing_div_neg_macro_surface.sa` (panic ID 10653).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unsigned_overflowing_div_neg_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10654+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive overflowing)
 
 Completed supportable narrow unsigned primitive overflowing helpers:
