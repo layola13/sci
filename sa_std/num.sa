@@ -10879,6 +10879,45 @@ L_NUM_U32_STRICT_REM_EUCLID_OK_%out_value:
     !__num_u32_sat_mul_ok_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_SATURATING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_DIV __num_u8_sat_div_ok_%out_value, __num_u8_sat_div_value_%out_value, %lhs, %rhs
+    __num_u8_sat_div_over_%out_value = eq __num_u8_sat_div_ok_%out_value, 0
+    __num_u8_sat_div_max_part_%out_value = mul __num_u8_sat_div_over_%out_value, NUM_U8_MAX
+    __num_u8_sat_div_value_part_%out_value = mul __num_u8_sat_div_ok_%out_value, __num_u8_sat_div_value_%out_value
+    %out_value = add __num_u8_sat_div_max_part_%out_value, __num_u8_sat_div_value_part_%out_value
+    !__num_u8_sat_div_value_part_%out_value
+    !__num_u8_sat_div_max_part_%out_value
+    !__num_u8_sat_div_over_%out_value
+    !__num_u8_sat_div_value_%out_value
+    !__num_u8_sat_div_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_SATURATING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_DIV __num_u16_sat_div_ok_%out_value, __num_u16_sat_div_value_%out_value, %lhs, %rhs
+    __num_u16_sat_div_over_%out_value = eq __num_u16_sat_div_ok_%out_value, 0
+    __num_u16_sat_div_max_part_%out_value = mul __num_u16_sat_div_over_%out_value, NUM_U16_MAX
+    __num_u16_sat_div_value_part_%out_value = mul __num_u16_sat_div_ok_%out_value, __num_u16_sat_div_value_%out_value
+    %out_value = add __num_u16_sat_div_max_part_%out_value, __num_u16_sat_div_value_part_%out_value
+    !__num_u16_sat_div_value_part_%out_value
+    !__num_u16_sat_div_max_part_%out_value
+    !__num_u16_sat_div_over_%out_value
+    !__num_u16_sat_div_value_%out_value
+    !__num_u16_sat_div_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_SATURATING_DIV %out_value, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_DIV __num_u32_sat_div_ok_%out_value, __num_u32_sat_div_value_%out_value, %lhs, %rhs
+    __num_u32_sat_div_over_%out_value = eq __num_u32_sat_div_ok_%out_value, 0
+    __num_u32_sat_div_max_part_%out_value = mul __num_u32_sat_div_over_%out_value, NUM_U32_MAX
+    __num_u32_sat_div_value_part_%out_value = mul __num_u32_sat_div_ok_%out_value, __num_u32_sat_div_value_%out_value
+    %out_value = add __num_u32_sat_div_max_part_%out_value, __num_u32_sat_div_value_part_%out_value
+    !__num_u32_sat_div_value_part_%out_value
+    !__num_u32_sat_div_max_part_%out_value
+    !__num_u32_sat_div_over_%out_value
+    !__num_u32_sat_div_value_%out_value
+    !__num_u32_sat_div_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U8_WRAPPING_ADD %out_value, %lhs, %rhs
     __num_u8_wrap_add_%out_value = add %lhs, %rhs
     %out_value = and __num_u8_wrap_add_%out_value, NUM_U8_MAX

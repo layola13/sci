@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow unsigned primitive saturating div macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `saturating_div`.
+- `sa_std/num.sa`: added `NUM_U8_SATURATING_DIV`, `NUM_U16_SATURATING_DIV`, and `NUM_U32_SATURATING_DIV`.
+- Semantics: helpers reuse the existing narrow unsigned checked division paths and write the quotient on success. On checked failure, including zero divisors or raw quotient values outside the declared narrow width, they write the matching unsigned MAX value. This keeps the current SA `NUM_U64_SATURATING_DIV` surface shape; Rust unsigned `saturating_div` still panics on zero divisors rather than returning MAX.
+- Test: `tests/unit_framework/std_num_narrow_unsigned_saturating_div_macro_surface.sa` - 1 test (panic ID 10678) covering ordinary quotients, zero-divisor saturation, raw inputs whose quotient stays in range, and raw quotient range overflow for `u8`, `u16`, and `u32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_unsigned_saturating_div_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10679+.
+
 ## Completed: 2026-07-16 narrow signed primitive pow macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `pow` / `wrapping_pow`.

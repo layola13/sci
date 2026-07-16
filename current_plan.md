@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive saturating div)
+
+Completed supportable narrow unsigned primitive saturating division helpers:
+- `NUM_U{8,16,32}_SATURATING_DIV` exposes direct saturating division helpers for narrow unsigned widths.
+- Helpers reuse the existing narrow checked division paths, write the quotient on success, and write the matching unsigned MAX value on checked failure, including zero divisors or raw quotient values outside the declared narrow width.
+- This batch follows the current SA `NUM_U64_SATURATING_DIV` surface shape; Rust unsigned `saturating_div` panics on zero divisors rather than returning MAX. It does not model Rust panic object/message identity, `u128`, or trait-level dispatch.
+- Test file `std_num_narrow_unsigned_saturating_div_macro_surface.sa` (panic ID 10678).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_unsigned_saturating_div_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10679+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow signed primitive pow)
 
 Completed supportable narrow signed primitive direct pow helpers:
