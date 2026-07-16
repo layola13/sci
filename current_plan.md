@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 Process Command builder stream pidfd)
+
+Completed supportable process Command builder stream pidfd wrapper:
+- `PROCESS_COMMAND_BUILDER_SPAWN_STREAM_PIDFD` forwards the existing builder scalar state into the real `PROCESS_SPAWN_STREAM_COMMAND_EXT_PIDFD` runtime path.
+- This helper preserves the current builder fields (`cwd`, `arg0`, `process_group`, `setsid`) and adds an explicit `create_pidfd` flag matching the existing lower-level stream PIDFD facade.
+- This batch does not model env maps, pipe Stdio redirection wiring, full heap `Command` objects, or capture-time CommandExt pidfd integration.
+- Test file `std_process_command_builder_stream_pidfd_macro_surface.sa` (panic ID 10691).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_command_builder_stream_pidfd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10692+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 Process Command builder stream chroot)
 
 Completed supportable process Command builder stream chroot wrapper:

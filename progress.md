@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 Process Command builder stream pidfd wrapper
+
+- Continued Rust process/Linux CommandExt macro-surface parity over the existing stream pidfd runtime support.
+- `sa_std/process.sa`: added `PROCESS_COMMAND_BUILDER_SPAWN_STREAM_PIDFD`.
+- Semantics: helper forwards the existing builder scalar state (`cwd`, `arg0`, `process_group`, `setsid`) plus an explicit `create_pidfd` flag into the real `PROCESS_SPAWN_STREAM_COMMAND_EXT_PIDFD` path.
+- Test: `tests/unit_framework/std_process_command_builder_stream_pidfd_macro_surface.sa` - 1 test (panic ID 10691) covering builder stream pidfd spawn, pidfd retrieval, raw fd view, successful wait, process/stdout/stderr cleanup, and pidfd handle cleanup.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_command_builder_stream_pidfd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10692+.
+
 ## Completed: 2026-07-16 Process Command builder stream chroot wrapper
 
 - Continued Rust process/Unix CommandExt macro-surface parity over the existing stream chroot runtime support.
