@@ -16,6 +16,8 @@ jobs:
     name: Linux x86_64 native runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      EXPECTED_ARCH: x86_64
     defaults:
       run:
         shell: bash
@@ -34,6 +36,11 @@ jobs:
             exit 1
           fi
           git diff --exit-code -- artifacts/sa_std
+          actual_arch=$(uname -m)
+          if [ "$actual_arch" != "$EXPECTED_ARCH" ]; then
+            printf 'Runner architecture mismatch: expected %s, got %s\n' "$EXPECTED_ARCH" "$actual_arch" >&2
+            exit 1
+          fi
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -79,7 +86,13 @@ jobs:
               exit 1
             fi
           done
-          file "$static_root/lib/libsa_std.a" "$shared_root/lib/libsa_std.so"
+          shared_info=$(file "$shared_root/lib/libsa_std.so")
+          printf '%s\n' "$shared_info"
+          if ! printf '%s\n' "$shared_info" | grep -F "x86-64" >/dev/null; then
+            printf 'Shared runtime architecture mismatch: %s\n' "$shared_info" >&2
+            exit 1
+          fi
+          file "$static_root/lib/libsa_std.a"
 
       - name: Check source artifact cleanliness
         run: |
