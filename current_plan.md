@@ -4031,3 +4031,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10712+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, Rust Option<usize> ABI, marker trait wiring, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter cursor ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter cursor operation aliases in vec.sa: VEC_INTO_ITER_NEXT_U64, VEC_INTO_ITER_NEXT_BACK_U64, VEC_INTO_ITER_NTH_U64, VEC_INTO_ITER_NTH_BACK_U64, VEC_INTO_ITER_COUNT_U64, VEC_INTO_ITER_LAST_U64, VEC_INTO_ITER_ADVANCE_BY, and VEC_INTO_ITER_ADVANCE_BACK_BY, delegating to the existing slice-backed Iter cursor over the explicit backing Vec.
+- Test file std_vec_into_iter_cursor_ops_macro_surface.sa (panic ID 10712).
+
+Panic IDs next free: 10713+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, Rust Option<T> / Result<(), NonZero<usize>> ABI, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

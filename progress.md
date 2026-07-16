@@ -8642,3 +8642,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_trait_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10712+.
+
+## Completed: 2026-07-16 Vec IntoIter cursor ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_NEXT_U64`, `VEC_INTO_ITER_NEXT_BACK_U64`, `VEC_INTO_ITER_NTH_U64`, `VEC_INTO_ITER_NTH_BACK_U64`, `VEC_INTO_ITER_COUNT_U64`, `VEC_INTO_ITER_LAST_U64`, `VEC_INTO_ITER_ADVANCE_BY`, and `VEC_INTO_ITER_ADVANCE_BACK_BY`.
+- Semantics: these helpers lower the supportable Rust `Iterator` / `DoubleEndedIterator` cursor operations for concrete `vec::IntoIter<u64>` by delegating to the existing slice-backed cursor primitives over the explicit backing Vec. The advance helpers return explicit `(ok, remaining)` values rather than Rust's `Result<(), NonZero<usize>>`, and the item helpers return `(has, value)` rather than Rust `Option<T>`.
+- Test: `tests/unit_framework/std_vec_into_iter_cursor_ops_macro_surface.sa` — 1 test (panic ID 10712) covering next, nth, next_back, nth_back, exact exhaustion after advance, advance_back plus last, count consumption, and short advance/advance_back failure paths.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_cursor_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10713+.
