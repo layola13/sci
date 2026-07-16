@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 SaturatingI64 arithmetic)
+
+Completed supportable `SaturatingI64` arithmetic helpers:
+- `SATURATING_I64_SET` stores the raw 64-bit wrapper value shape.
+- `SATURATING_I64_ADD`, `SATURATING_I64_SUB`, and `SATURATING_I64_MUL` expose Rust `Saturating<i64>` add/sub/mul operator forwarding over the existing concrete wrapper layout.
+- Helpers load wrapper inner fields as signed `i64`, reuse existing `NUM_I64_SATURATING_*` primitive helpers, and store the saturated result.
+- This batch does not model generic `Saturating<T>`, assignment operator traits, missing wrapper widths, `i128`, or trait-level dispatch.
+- Test file `std_num_saturating_i64_arithmetic_macro_surface.sa` (panic ID 10682).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_saturating_i64_arithmetic_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10683+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 WrappingI64 arithmetic)
 
 Completed supportable `WrappingI64` arithmetic helpers:
