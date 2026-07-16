@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive checked/direct next-power macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for stable unsigned primitive `checked_next_power_of_two` and `next_power_of_two`.
+- `sa_std/num.sa`: added `NUM_U8_CHECKED_NEXT_POWER_OF_TWO`, `NUM_U16_CHECKED_NEXT_POWER_OF_TWO`, `NUM_U32_CHECKED_NEXT_POWER_OF_TWO`, `NUM_USIZE_CHECKED_NEXT_POWER_OF_TWO`, plus matching `NUM_U8_NEXT_POWER_OF_TWO`, `NUM_U16_NEXT_POWER_OF_TWO`, `NUM_U32_NEXT_POWER_OF_TWO`, and `NUM_USIZE_NEXT_POWER_OF_TWO`.
+- Semantics: checked helpers return explicit `ok/out` values, preserving 0 -> 1 and already-power-of-two inputs while reporting `ok=0/out=0` when the next power exceeds the concrete width. Direct helpers reuse checked helpers and write 0 on failure, matching the existing `NUM_U64_NEXT_POWER_OF_TWO` surface rather than Rust debug panic object/message behavior.
+- Test: `tests/unit_framework/std_num_next_power_primitive_macro_surface.sa` - 1 test (panic ID 10661) expanding the newly added helpers and covering zero, ordinary rounding, highest representable power-of-two, overflow-above-high-bit, narrow mask behavior, direct success/failure, and `usize` alias behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_next_power_primitive_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10662+.
+
 ## Completed: 2026-07-16 unsigned primitive wrapping next-power macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for `wrapping_next_power_of_two` and `nonzero.rs` to confirm `NonZero<T>::isqrt` is unsigned-only.

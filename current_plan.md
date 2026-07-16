@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 unsigned primitive checked/direct next power)
+
+Completed supportable unsigned primitive checked/direct next-power helpers:
+- `NUM_U{8,16,32,SIZE}_CHECKED_NEXT_POWER_OF_TWO` exposes Rust's stable unsigned primitive `checked_next_power_of_two` shape for the widths that were missing a public SA macro.
+- `NUM_U{8,16,32,SIZE}_NEXT_POWER_OF_TWO` exposes the matching direct `next_power_of_two` helper shape, joining the existing `NUM_U64_*` support.
+- Checked helpers return explicit `ok/out` values, while direct helpers reuse checked helpers and write `0` on overflow like the existing `NUM_U64_NEXT_POWER_OF_TWO` macro.
+- Narrow helpers mask inputs to the declared Rust width; `usize` aliases the current 64-bit SA ABI.
+- This batch models concrete result/control-flow semantics, not Rust `Option` layout, debug overflow panic object/message identity, `u128`, or trait-level dispatch.
+- Test file `std_num_next_power_primitive_macro_surface.sa` (panic ID 10661).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_next_power_primitive_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10662+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 unsigned primitive wrapping next power)
 
 Completed supportable unsigned primitive wrapping next-power helpers:

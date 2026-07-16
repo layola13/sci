@@ -4026,6 +4026,57 @@ L_NUM_U64_NP_END_%out_ok:
     !__num_np_ok_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_CHECKED_NEXT_POWER_OF_TWO %out_ok, %out_value, %value
+    __num_u8_np_value_%out_ok = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_CHECKED_NEXT_POWER_OF_TWO __num_u8_np_ok_%out_ok, __num_u8_np_candidate_%out_ok, __num_u8_np_value_%out_ok
+    __num_u8_np_in_range_%out_ok = ule __num_u8_np_candidate_%out_ok, NUM_U8_MAX
+    %out_ok = and __num_u8_np_ok_%out_ok, __num_u8_np_in_range_%out_ok
+    %out_value = mul __num_u8_np_candidate_%out_ok, %out_ok
+    !__num_u8_np_in_range_%out_ok
+    !__num_u8_np_candidate_%out_ok
+    !__num_u8_np_ok_%out_ok
+    !__num_u8_np_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_NEXT_POWER_OF_TWO %out_value, %value
+    EXPAND NUM_U8_CHECKED_NEXT_POWER_OF_TWO __num_u8_np_direct_ok_%out_value, %out_value, %value
+    !__num_u8_np_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_NEXT_POWER_OF_TWO %out_ok, %out_value, %value
+    __num_u16_np_value_%out_ok = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_CHECKED_NEXT_POWER_OF_TWO __num_u16_np_ok_%out_ok, __num_u16_np_candidate_%out_ok, __num_u16_np_value_%out_ok
+    __num_u16_np_in_range_%out_ok = ule __num_u16_np_candidate_%out_ok, NUM_U16_MAX
+    %out_ok = and __num_u16_np_ok_%out_ok, __num_u16_np_in_range_%out_ok
+    %out_value = mul __num_u16_np_candidate_%out_ok, %out_ok
+    !__num_u16_np_in_range_%out_ok
+    !__num_u16_np_candidate_%out_ok
+    !__num_u16_np_ok_%out_ok
+    !__num_u16_np_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_NEXT_POWER_OF_TWO %out_value, %value
+    EXPAND NUM_U16_CHECKED_NEXT_POWER_OF_TWO __num_u16_np_direct_ok_%out_value, %out_value, %value
+    !__num_u16_np_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_NEXT_POWER_OF_TWO %out_ok, %out_value, %value
+    __num_u32_np_value_%out_ok = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_CHECKED_NEXT_POWER_OF_TWO __num_u32_np_ok_%out_ok, __num_u32_np_candidate_%out_ok, __num_u32_np_value_%out_ok
+    __num_u32_np_in_range_%out_ok = ule __num_u32_np_candidate_%out_ok, NUM_U32_MAX
+    %out_ok = and __num_u32_np_ok_%out_ok, __num_u32_np_in_range_%out_ok
+    %out_value = mul __num_u32_np_candidate_%out_ok, %out_ok
+    !__num_u32_np_in_range_%out_ok
+    !__num_u32_np_candidate_%out_ok
+    !__num_u32_np_ok_%out_ok
+    !__num_u32_np_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_NEXT_POWER_OF_TWO %out_value, %value
+    EXPAND NUM_U32_CHECKED_NEXT_POWER_OF_TWO __num_u32_np_direct_ok_%out_value, %out_value, %value
+    !__num_u32_np_direct_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_WRAPPING_NEXT_POWER_OF_TWO %out_value, %value
     EXPAND NUM_U64_CHECKED_NEXT_POWER_OF_TWO __num_u64_wrap_np_ok_%out_value, %out_value, %value
     !__num_u64_wrap_np_ok_%out_value
@@ -10561,6 +10612,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_ISQRT %out_value, %value
     EXPAND NUM_U64_ISQRT %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CHECKED_NEXT_POWER_OF_TWO %out_ok, %out_value, %value
+    EXPAND NUM_U64_CHECKED_NEXT_POWER_OF_TWO %out_ok, %out_value, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_NEXT_POWER_OF_TWO %out_value, %value
+    EXPAND NUM_U64_NEXT_POWER_OF_TWO %out_value, %value
 [END_MACRO]
 
 [MACRO] NUM_USIZE_WRAPPING_NEXT_POWER_OF_TWO %out_value, %value
