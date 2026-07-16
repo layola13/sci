@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive strict div/rem macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `strict_div` and `strict_rem` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `STRICT_DIV` and `STRICT_REM` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Strict helpers reuse the existing checked division/remainder logic for each declared width. Division failures trap via SA `panic(2208)`, and remainder failures trap via `panic(2209)`. This models Rust's strict arithmetic control-flow shape without claiming panic message/object identity, `u128` / `i128`, `strict_div_euclid` / `strict_rem_euclid`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_strict_div_rem_macro_surface.sa` - 7 tests (panic ID 10634 for the non-panic assertion path) expanding all 20 new public helpers and covering unsigned/signed zero-divisor paths plus signed `MIN / -1` and `MIN % -1` panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_strict_div_rem_macro_surface.sa --jobs 1 --trace-panic` -> `7 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10635+.
+
 ## Completed: 2026-07-15 primitive strict add/sub/mul macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `strict_add`, `strict_sub`, and `strict_mul` implementations under `/home/vscode/projects/rust`.
