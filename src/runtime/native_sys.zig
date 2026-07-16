@@ -1,4 +1,5 @@
 const std = @import("std");
+const pal_sys = @import("pal.zig").sys;
 
 const empty_argv: [0][:0]u8 = .{};
 
@@ -12,7 +13,7 @@ const ArgvState = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         if (self.initialized) return;
-        self.argv = loadProcCmdline() catch empty_argv[0..];
+        self.argv = loadProcessArgs() catch empty_argv[0..];
         self.argc = @as(i32, @intCast(self.argv.len));
         self.initialized = true;
     }
@@ -20,26 +21,20 @@ const ArgvState = struct {
 
 var argv_state: ArgvState = .{};
 
-fn loadProcCmdline() ![][:0]u8 {
-    var file = try std.fs.openFileAbsolute("/proc/self/cmdline", .{});
-    defer file.close();
-
-    const blob = try file.readToEndAlloc(std.heap.page_allocator, 1 << 20);
-    errdefer std.heap.page_allocator.free(blob);
-
+fn loadProcessArgs() ![][:0]u8 {
+    const raw_args = try pal_sys.process_args_alloc(std.heap.page_allocator);
+    defer pal_sys.process_args_free(std.heap.page_allocator, raw_args);
     var args = std.ArrayList([:0]u8).init(std.heap.page_allocator);
     errdefer {
         for (args.items) |arg| std.heap.page_allocator.free(arg);
         args.deinit();
     }
 
-    var it = std.mem.splitScalar(u8, blob, 0);
-    while (it.next()) |part| {
-        if (part.len == 0) continue;
-        try args.append(try std.heap.page_allocator.dupeZ(u8, part));
+    for (raw_args) |arg| {
+        if (arg.len == 0) continue;
+        try args.append(try std.heap.page_allocator.dupeZ(u8, arg));
     }
 
-    std.heap.page_allocator.free(blob);
     return try args.toOwnedSlice();
 }
 

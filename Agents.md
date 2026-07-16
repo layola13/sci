@@ -31,6 +31,369 @@ Next:
 - ...
 ```
 
+## 2026-07-16 08:12
+
+Question:
+- Can P0.6 write-event audit move beyond a bare last-store mtime without mutating cache entries?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `12/12`
+- `zig fmt --check src/cli.zig src/flattener.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, as a focused successful-publish checkpoint. Cache publication now writes a source-free `.sa_cache/.store-events/<kind>/<key>` marker and `sa cache status/why` exposes it as `last_store_result="published"`.
+- The marker is outside the entry directory, so it does not alter manifest validation, artifact files, or entry `last_write_ns`.
+- This does not complete the full write audit trail. Failed publish attempts, writer identity, cross-process owner details, and richer event history remain open.
+
+Next:
+- Continue P0.6 with candidate old-entry key-diff or the remaining test-cache list/affected surfaces.
+
+## 2026-07-16 07:42
+
+Question:
+- Can P0.6 `bypassed_untrusted` be focused verified for non-cacheable dynamic dependencies without a flaky file race?
+
+Evidence checked:
+- `src/flattener.zig`
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- waited for an unrelated `zig build sa-std-abi` / `zig test tests/sa_std_abi_layout.zig` before starting verification
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `12/12`
+- `zig fmt --check src/cli.zig src/flattener.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, as focused evidence. A `builtin.is_test` recorder hook simulates a same-request environment dependency change for one sentinel key, so the produced result is valid but not publishable.
+- The CLI smoke runs the full `sa build-exe --json` path twice and verifies `cache.kind="build-exe"`, `hit=false`, `reason="bypassed_untrusted"`, and no `.sa_cache/build-exe` entry publication.
+- This does not complete P0.6. Candidate old-entry key-diff, richer write audit, remaining list/affected test-cache surfaces, redaction review, cross-process/cross-platform evidence, and non-hook natural race/failure coverage remain open.
+
+Next:
+- Continue P0.6 with candidate old-entry key-diff or richer write-event audit telemetry.
+
+## 2026-07-16 07:06
+
+Question:
+- Can P0.6 `bypassed_untrusted` be focused verified for `sa test --json` plugin link inputs?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `11/11`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, for Linux-focused plugin link inputs. The new CLI smoke builds a minimal plugin dynamic library that exports the referenced extern, runs `sa test --json` twice, and verifies `cache.kind="test"`, `hit=false`, and `reason="bypassed_untrusted"` both times.
+- The fixture also verifies that no `.sa_cache/test` entry is published for plugin-linked test runs, matching the owner-release path in `executeTestInner`.
+- This does not complete P0.6. Non-cacheable dynamic-dependency bypass evidence, candidate old-entry key-diff, richer write audit, remaining list/affected test-cache surfaces, redaction review, and cross-process/cross-platform evidence remain open.
+
+Next:
+- Continue P0.6 with non-cacheable dynamic-dependency bypass evidence or candidate old-entry key-diff.
+
+## 2026-07-16 06:32
+
+Question:
+- Can successful ordinary `sa test --json` expose project test-cache metrics without masking failing test-run semantics?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, for successful ordinary test runs. `executeTestInner` now writes the success diagnostics cache object only after `test_runner.run` returns `0`, so failing test runs still do not get pre-emitted success metrics.
+- Focused smoke covers cold ordinary `sa test --json` with `cache.kind="test"`, `hit=false`, `reason="absent"`, then warm reuse with `hit=true`, `reason="hit"`.
+- This does not complete P0.6. List/affected test-cache surfaces, candidate old-entry key-diff, richer write audit, dynamic-dependency/plugin bypass fixtures, redaction review, and cross-process/cross-platform evidence remain open.
+
+Next:
+- Continue P0.6 with candidate old-entry key-diff or focused dynamic-dependency/plugin bypass evidence.
+
+## 2026-07-16 06:15
+
+Question:
+- Can P0.6 project-cache owner/claim failures report a stable reason instead of falling back to `unknown`?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, for project-cache claim/owner lock failure paths. Claim failures now set `cache.reason="lock_owner_failed"` while continuing ordinary compilation, instead of leaving the miss reason as `unknown`.
+- The focused CLI smoke injects a deterministic `.sa_cache/build-exe/.locks` path failure and verifies that `sa build-exe --json` succeeds with `cache.kind="build-exe"`, `hit=false`, and `reason="lock_owner_failed"`.
+- This is not full P0.6. True candidate old-entry key-diff, richer write audit, dynamic-dependency/plugin bypass fixtures, broader non-compile-only test-cache output coverage, redaction review, and cross-process/cross-platform evidence remain open.
+
+Next:
+- Continue P0.6 with true candidate old-entry key-diff or focused dynamic-dependency/plugin bypass fixtures.
+
+## 2026-07-16 05:53
+
+Question:
+- Can P0.6 distinguish a cache entry removed by `sa cache clean` from a key that was never seen?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> blocked by unrelated `src/runtime/sa_netx_macos.zig:7:9` undeclared `backend_name`
+
+Answer:
+- Yes, for `sa cache clean` removals. After a real 64-hex project-cache entry directory is successfully deleted, cleanup writes a source-free `.sa_cache/.evictions/<kind>/<key>` marker. `sa cache why --json` reports that missing entry as `reason="evicted"`, `manifest="missing"`, and `bytes=0`.
+- A never-seen key without an eviction marker still reports `reason="absent"`. Valid entries kept by cleanup, staging names, junk names, dry-run removals, and locked entries that are kept are not marked as evicted.
+- This is not full P0.6 completion. The fresh Debug build was blocked by an unrelated runtime worktree error, and owner-failure, dynamic-dependency/plugin bypass fixtures, candidate old-entry key first-difference, richer write audit, broader test-cache output coverage, redaction review, and cross-process/cross-platform evidence remain open.
+
+Next:
+- Once the unrelated runtime build break is resolved, rerun Debug `sa-cli`. Continue P0.6 with owner-failure explanation or true candidate old-entry key-diff.
+
+## 2026-07-16 05:08
+
+Question:
+- Can P0.6 `bypassed_untrusted` be focused verified without relying on a dynamic-dependency race or plugin fixture?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+
+Answer:
+- Yes, for the build-exe CGU artifact path. A generated 101-function source with explicit `--jobs 2` deterministically enters CGU emission, intentionally releases the project artifact-cache owner, and emits `cache.kind="build-exe"`, `hit=false`, and `reason="bypassed_untrusted"`.
+- This does not complete every bypass reason path. Non-cacheable dynamic dependencies and test plugin link inputs are wired to the same reason but still need dedicated fixtures; evicted and owner-failure explanations remain open.
+
+Next:
+- Continue P0.6 with true candidate old-entry key-diff, richer write-event telemetry, dynamic-dependency/plugin bypass fixtures, evicted/owner-failure reasons, broader non-compile-only test-cache output coverage, redaction review, and cross-process/cross-platform evidence.
+
+## 2026-07-16 04:50
+
+Question:
+- Can P0.6 explicit selection reasons be exposed without publishing selected test artifacts as full test-cache entries?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+
+Answer:
+- Yes, as a focused `selection_changed` checkpoint. Cold `sa test --compile-only --json --filter ...` now emits `cache.kind="test"`, `hit=false`, and `reason="selection_changed"` when the selected artifact is intentionally not published as a full test-cache entry.
+- `bypassed_untrusted` is wired for active owner-release paths such as non-cacheable dynamic dependencies, CGU artifact builds, and test plugin link inputs, but that reason still needs a dedicated focused fixture before it can be counted as completed evidence.
+
+Next:
+- Continue P0.6 with true candidate old-entry key-diff, richer write-event telemetry, focused bypassed/evicted/owner-failure reason evidence, broader non-compile-only test-cache output coverage, redaction review, and cross-process/cross-platform evidence.
+
+## 2026-07-16 04:39
+
+Question:
+- Can P0.6 test-cache metrics exposure be advanced without changing ordinary test-run result semantics?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+
+Answer:
+- Yes, as a focused `sa test --compile-only --json` checkpoint. Compile-only test-cache population now emits the shared success metrics cache object with `kind="test"`, `hit=false`, and `reason="absent"`; warm compile-only reuse emits `hit=true` and `reason="hit"`.
+- Ordinary test execution does not pre-emit success metrics before the runner exits, so failing test-run semantics are not masked. This is not complete P0.6 test-cache output coverage.
+
+Next:
+- Continue P0.6 with true candidate old-entry key-diff, richer write-event telemetry, bypassed/evicted/owner-failure reasons, broader non-compile-only test-cache output coverage, redaction review, and cross-process/cross-platform evidence.
+
+## 2026-07-16 04:23
+
+Question:
+- Can P0.6 recent-write telemetry be advanced without claiming a full write-event audit trail?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+
+Answer:
+- Yes, as a focused recent-store timestamp checkpoint. Successful project cache publication now updates a source-free `.sa_cache/.stores/<kind>/<key>` marker, and `sa cache status/why` reports it as `last_store_ns`. The marker is outside the entry directory, so it does not mutate manifest validation, artifact bytes, or entry `last_write_ns`.
+- This is not a full write-event audit trail. It does not record writer identity, publish attempts, failures, cross-process ownership, or evictions.
+
+Next:
+- Continue P0.6 with true candidate old-entry key-diff, bypassed/evicted/owner-failure reasons, test-cache metrics exposure, redaction review, and cross-process/cross-platform evidence.
+
+## 2026-07-16 04:14
+
+Question:
+- Can P0.6 first-difference reporting be advanced without claiming full candidate old-entry key comparison?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+
+Answer:
+- Yes, as a field-level existing-entry validation checkpoint. `sa cache status/why` now emits redacted `first_difference` values such as `manifest.version`, `output.file`, and `output.size` for invalid/incomplete/corrupt entries, while hit and expired entries report `null`.
+- This does not complete true candidate old-entry key-input first-difference reporting. The current field names do not expose env names, paths, hashes, source text, or full keys.
+
+Next:
+- Continue P0.6 with true candidate old-entry key-diff, richer write telemetry, bypassed/evicted/owner-failure reasons, test-cache metrics exposure, redaction review, and cross-process/cross-platform evidence.
+
+## 2026-07-16 03:59
+
+Question:
+- Is the P0.6 recent-hit telemetry change now focused verified?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `git diff --check` -> pass
+
+Answer:
+- Yes, as a focused recent-hit telemetry checkpoint. Cache hits update a source-free `.sa_cache/.hits/<kind>/<key>` marker, and `sa cache status/why` reports it as `last_hit_ns`. The marker is outside the entry directory, so it does not mutate manifest validation, artifact bytes, or entry `last_write_ns`.
+- This is not full P0.6 telemetry. Candidate first-difference, richer write-event telemetry beyond entry mtime, bypassed/evicted/owner-failure reasons, test-cache metrics exposure, redaction review, and cross-process/cross-platform evidence remain open.
+
+Next:
+- Continue P0.6 with candidate-entry first-difference reporting or the remaining explicit reason classes.
+
+## 2026-07-16 03:48
+
+Question:
+- Can the staged P0.6 recent-hit telemetry change be claimed as focused verified now?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `zig fmt --check src/cli.zig tests/cli_smoke.zig` -> pass
+- `ps -o pid=,etimes=,%cpu=,%mem=,stat=,args= -p 250549,250659` showed a separate long-running `zig test -lc src/runtime/sa_netx_portable.zig` and test runner still active after more than 10 minutes.
+
+Answer:
+- At the time, no. The implementation was staged: project cache hits updated a source-free `.sa_cache/.hits/<kind>/<key>` marker and `sa cache status/why` read it as `last_hit_ns` without changing entry manifest validation or entry-directory write mtime. The focused cache gate had not yet been rerun because another Zig test process was still active and the user asked to wait for concurrent compilation/test activity. This was later verified in the 2026-07-16 03:59 entry above.
+
+Next:
+- When the external Zig process exits, rerun focused cache smoke and Debug `sa-cli`, then update `progress.md`, `tasks.md`, `current_plan.md`, and the compiler optimization doc only if the gates pass.
+
+## 2026-07-16 04:16
+
+Question:
+- Should explicit `--no-incremental` project artifact cache disablement emit cache metrics?
+
+Evidence checked:
+- `docs/compiler_performance_optimization_cn.md` cache event constraint: `disabled => hit=false, reason=disabled`
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+
+Answer:
+- Yes. Build-exe/build-obj/build-wasm now populate `cache.kind`, `cache.hit=false`, and `cache.reason="disabled"` when the project artifact cache is explicitly disabled with `--no-incremental`.
+- This only covers explicit disablement. Bypassed/untrusted, evicted, lock-owner-failure, candidate first-difference, and broader telemetry remain open. `expired` is covered only as a later read-only status/why age-policy explanation, not as build lookup or eviction semantics.
+
+Next:
+- Continue P0.6 with candidate-entry first-difference or the remaining explicit miss reason classes.
+
+## 2026-07-16 03:58
+
+Question:
+- Does the new `sa cache status/why` surface complete P0.6 cache explanation?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+
+Answer:
+- No. It advances P0.6 by adding a read-only project-cache inspection surface: `sa cache status` lists entries and `sa cache why --kind <kind> --key <hex>` explains one entry. Text/JSON output includes kind, key prefix, reason, manifest status, byte size, and last-write mtime without source text, package secrets, private absolute paths, or full digests.
+- Full P0.6 remains open because there is no candidate-entry first-difference report, recent-hit/write telemetry beyond filesystem mtime, disabled/bypassed/evicted/owner-failure coverage, test-cache metrics exposure, full redaction audit, or cross-process/cross-platform evidence. `expired` is now covered only by status/why age-policy inspection, not build lookup or eviction.
+
+Next:
+- Extend cache explanation toward candidate-entry first-difference and explicit disabled/bypassed/evicted/expired/owner-failure reasons.
+
+## 2026-07-16 04:32
+
+Question:
+- Can P0.6 `expired` reason coverage be advanced through `sa cache status/why` without changing build cache lookup semantics?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache"` -> `10/10`
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, as a read-only status/why age-policy checkpoint. `sa cache status/why --max-age-days <n>` now reports otherwise reusable entries older than the requested age as `expired`; invalid, corrupt, and incomplete entries keep their underlying reason.
+- This does not change build lookup semantics and does not complete eviction/clean behavior beyond the already existing cache clean policy.
+
+Next:
+- Continue P0.6 with candidate-entry first-difference reporting, recent hit/write telemetry, bypassed/evicted/owner-failure reasons, test-cache metrics exposure, redaction review, and cross-process/cross-platform coverage.
+
+Question:
+- Can P0.6 cache explanation be advanced without completing the planned `sa cache status/why` tool?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "project cache"` -> `4/4`
+
+Answer:
+- Yes, as a focused artifact-cache JSON reason checkpoint only. Build-exe/build-obj/build-wasm success metrics now retain `cache.kind`/`cache.hit` and can include `cache.reason`; focused smoke tests cover cold miss, warm hit, dynamic dependency changes, artifact corruption, and manifest invalidation.
+- This does not complete P0.6. `sa cache status/why`, candidate-entry first-difference reporting, disabled/bypassed/expired/evicted/owner-failure reasons, test-cache metrics exposure, full redaction review, and cross-process/cross-platform evidence remain open.
+
+Next:
+- Continue P0.6 by adding the status/why surface and broader reason coverage before using it as Phase 0 completion evidence.
+
+## 2026-07-16 02:26
+
+Question:
+- Can the compiler-performance P0.5 LLVM focused reachability queue be advanced without claiming the unfinished shared ReachabilityEngine?
+
+Evidence checked:
+- `src/emit_llvm_llvmc.zig`
+- `docs/compiler_performance_optimization_cn.md` Phase 0 P0.5 requirements
+- `current_plan.md`, `tasks.md`, `progress.md`
+- `zig test src/emit_llvm_llvmc_shim.c ... -Mroot=src/emit_llvm_llvmc.zig ... --test-filter "focused test prune"` -> `6/6`
+- `zig build sa-cli -Doptimize=Debug -j1 --summary all` -> `5/5`
+
+Answer:
+- Yes, but only as a focused LLVM queue checkpoint. `emitLlvmc` and `emitLlvmcToArtifacts` now share `buildParallelEmitTasks()`, so focused-prune task selection no longer drifts between in-memory bitcode and artifact emission. The queue covers direct closure, self-recursive roots scanned once, real bitcode/artifact emit pruning, and conservative fallback for unresolved edges.
+- This does not complete P0.5 as a shared ReachabilityEngine. Cross-consumer edge provenance for full, focused, CGU, SAB, and affected-test consumers remains open.
+
+Next:
+- Continue P0.5 by lifting the focused queues into a shared indexed engine with edge provenance and cross-consumer differential tests.
+
 ## 2026-05-21 03:10
 
 Question:

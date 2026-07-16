@@ -33,6 +33,8 @@
   基于当前代码和交叉目标诊断，给出 ABI 保持、typed resource、宿主/runtime 双边界、原生 CI 与分阶段交付方案。
 - 🚄 **[Compiler Performance Optimization (编译器性能优化方案)](./compiler_performance_optimization_cn.md)**
   基于当前 Flattener、SAB、Referee、LLVM-C、缓存、测试与 daemon 实现，给出正确性前置、热点优化、统一 key/预算、路线图和验收门禁。
+- **[Rust -> SA/SCI Compiler Evaluation (Rust 直接编译架构评估)](./rust_to_sa_compiler_deep_evaluation_cn.md)**
+  以 rustc mono Instance/codegen MIR 为入口，评估 Rust 源码直接降低到 SA/SAB 并由 SCI 验证和发射目标对象的可行性、ABI 缺口、信任边界与分阶段门禁。
 
 ## 🧾 2.1 SA 文件后缀与清单速查
 

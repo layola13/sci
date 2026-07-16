@@ -56,6 +56,22 @@ const zig_abi = struct {
         data: u64,
     };
 
+    const SaEvent = extern struct {
+        user_data: u64,
+        flags: u32,
+        res: i32,
+    };
+
+    const SaNetxTicket = extern struct {
+        slot_id: u32,
+        op_code: u16,
+        proto: u8,
+        flags: u8,
+        payload: ?[*]u8,
+        payload_len: u32,
+        pad: u32,
+    };
+
     const SaTimeDate = extern struct {
         unix_ms: i64,
         unix_ns: i64,
@@ -188,6 +204,20 @@ test "64-bit desktop C and Zig v1 struct layouts remain stable" {
     try expectOffset(c.SaTermEpollEvent, zig_abi.SaTermEpollEvent, "events", 0);
     try expectOffset(c.SaTermEpollEvent, zig_abi.SaTermEpollEvent, "data", 8);
 
+    try expectLayout(c.SaEvent, zig_abi.SaEvent, 16, 8);
+    try expectOffset(c.SaEvent, zig_abi.SaEvent, "user_data", 0);
+    try expectOffset(c.SaEvent, zig_abi.SaEvent, "flags", 8);
+    try expectOffset(c.SaEvent, zig_abi.SaEvent, "res", 12);
+
+    try expectLayout(c.SaNetxTicket, zig_abi.SaNetxTicket, 24, 8);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "slot_id", 0);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "op_code", 4);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "proto", 6);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "flags", 7);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "payload", 8);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "payload_len", 16);
+    try expectOffset(c.SaNetxTicket, zig_abi.SaNetxTicket, "pad", 20);
+
     try expectLayout(c.SaTimeDate, zig_abi.SaTimeDate, 32, 8);
     try expectOffset(c.SaTimeDate, zig_abi.SaTimeDate, "unix_ms", 0);
     try expectOffset(c.SaTimeDate, zig_abi.SaTimeDate, "unix_ns", 8);
@@ -241,4 +271,55 @@ test "network constants and declarations preserve v1 contracts" {
     try std.testing.expectEqual(@as(usize, 4), set_keepalive_params.params.len);
     try std.testing.expect(set_keepalive.return_type.? == i32);
     try std.testing.expect(set_keepalive_params.return_type.? == i32);
+
+    try std.testing.expect(@hasDecl(c, "sa_netx_init"));
+    try std.testing.expect(@hasDecl(c, "sa_netx_listen"));
+    try std.testing.expect(@hasDecl(c, "sa_netx_recv_ticket"));
+    try std.testing.expect(@hasDecl(c, "sa_netx_push_outbound"));
+    try std.testing.expect(@hasDecl(c, "sa_netx_broadcast"));
+    try std.testing.expect(@hasDecl(c, "sa_netx_close_slot"));
+    try std.testing.expect(@hasDecl(c, "sa_netx_shutdown"));
+
+    const netx_init = @typeInfo(@TypeOf(c.sa_netx_init)).@"fn";
+    const netx_listen = @typeInfo(@TypeOf(c.sa_netx_listen)).@"fn";
+    const netx_recv_ticket = @typeInfo(@TypeOf(c.sa_netx_recv_ticket)).@"fn";
+    const netx_push = @typeInfo(@TypeOf(c.sa_netx_push_outbound)).@"fn";
+    const netx_broadcast = @typeInfo(@TypeOf(c.sa_netx_broadcast)).@"fn";
+    const netx_close_slot = @typeInfo(@TypeOf(c.sa_netx_close_slot)).@"fn";
+    const netx_shutdown = @typeInfo(@TypeOf(c.sa_netx_shutdown)).@"fn";
+    try std.testing.expectEqual(@as(usize, 2), netx_init.params.len);
+    try std.testing.expectEqual(@as(usize, 3), netx_listen.params.len);
+    try std.testing.expectEqual(@as(usize, 2), netx_recv_ticket.params.len);
+    try std.testing.expectEqual(@as(usize, 4), netx_push.params.len);
+    try std.testing.expectEqual(@as(usize, 5), netx_broadcast.params.len);
+    try std.testing.expectEqual(@as(usize, 1), netx_close_slot.params.len);
+    try std.testing.expectEqual(@as(usize, 0), netx_shutdown.params.len);
+    try std.testing.expect(netx_init.return_type.? == i32);
+    try std.testing.expect(netx_listen.return_type.? == i32);
+    try std.testing.expect(netx_recv_ticket.return_type.? == i32);
+    try std.testing.expect(netx_push.return_type.? == i32);
+    try std.testing.expect(netx_broadcast.return_type.? == i32);
+    try std.testing.expect(netx_close_slot.return_type.? == i32);
+    try std.testing.expect(netx_shutdown.return_type.? == i32);
+}
+
+test "platform event loop declarations preserve PAL C ABI" {
+    try std.testing.expect(@hasDecl(c, "sa_event_loop_create"));
+    try std.testing.expect(@hasDecl(c, "sa_event_loop_submit"));
+    try std.testing.expect(@hasDecl(c, "sa_event_loop_wait"));
+    try std.testing.expect(@hasDecl(c, "sa_event_loop_close"));
+
+    const create = @typeInfo(@TypeOf(c.sa_event_loop_create)).@"fn";
+    const submit = @typeInfo(@TypeOf(c.sa_event_loop_submit)).@"fn";
+    const wait = @typeInfo(@TypeOf(c.sa_event_loop_wait)).@"fn";
+    const close = @typeInfo(@TypeOf(c.sa_event_loop_close)).@"fn";
+
+    try std.testing.expectEqual(@as(usize, 1), create.params.len);
+    try std.testing.expectEqual(@as(usize, 2), submit.params.len);
+    try std.testing.expectEqual(@as(usize, 4), wait.params.len);
+    try std.testing.expectEqual(@as(usize, 1), close.params.len);
+    try std.testing.expect(create.return_type.? == i32);
+    try std.testing.expect(submit.return_type.? == i32);
+    try std.testing.expect(wait.return_type.? == i32);
+    try std.testing.expect(close.return_type.? == i32);
 }

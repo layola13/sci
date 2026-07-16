@@ -1454,6 +1454,135 @@ const ParallelEmitTask = struct {
     decl_kind: inst.InstKind,
 };
 
+fn buildParallelEmitTasks(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    source_path: []const u8,
+    options: EmitOptions,
+    function_sig_index: *const std.StringHashMap(usize),
+) ![]ParallelEmitTask {
+    var referenced_functions = std.StringHashMap(void).init(allocator);
+    defer referenced_functions.deinit();
+
+    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
+    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
+    if (focused_test_prune) {
+        prune_unreachable = try collectFocusedTestPruneReachability(allocator, verified, function_sig_index, options.selected_test_names, &referenced_functions);
+    } else if (prune_unreachable) {
+        try collectDceReachability(allocator, verified, function_sig_index, source_path, options, &referenced_functions);
+        prune_unreachable = referenced_functions.count() != 0;
+    } else if (options.codegen_unit_index) |cgu_idx| {
+        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, function_sig_index, &referenced_functions);
+
+        var sig_index: usize = 0;
+        var idx: usize = 0;
+        var task_idx: usize = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and !isFunctionDeclaration(verified.annotated[end].base.kind)) : (end += 1) {}
+
+                    if (task_idx % options.codegen_unit_count == cgu_idx) {
+                        _ = try collectBodyDirectCallees(allocator, verified, function_sig_index, idx + 1, end, &referenced_functions, null, null);
+                    }
+                    task_idx += 1;
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
+    } else if (options.function_task_index) |wanted_task_idx| {
+        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, function_sig_index, &referenced_functions);
+
+        var sig_index: usize = 0;
+        var idx: usize = 0;
+        var task_idx: usize = 0;
+        while (idx < verified.annotated.len) : (idx += 1) {
+            const item = verified.annotated[idx].base;
+            switch (item.kind) {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                    sig_index += 1;
+                    var end = idx + 1;
+                    while (end < verified.annotated.len and !isFunctionDeclaration(verified.annotated[end].base.kind)) : (end += 1) {}
+
+                    if (task_idx == wanted_task_idx) {
+                        _ = try collectBodyDirectCallees(allocator, verified, function_sig_index, idx + 1, end, &referenced_functions, null, null);
+                    }
+                    task_idx += 1;
+                    idx = end - 1;
+                },
+                else => {},
+            }
+        }
+    }
+
+    var tasks = std.ArrayList(ParallelEmitTask).init(allocator);
+    errdefer tasks.deinit();
+
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    var task_idx: usize = 0;
+    while (idx < verified.annotated.len) : (idx += 1) {
+        const item = verified.annotated[idx].base;
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
+                const current_sig_index = sig_index;
+                const fsig = verified.function_sigs[sig_index];
+                sig_index += 1;
+                var end = idx + 1;
+                while (end < verified.annotated.len and !isFunctionDeclaration(verified.annotated[end].base.kind)) : (end += 1) {}
+
+                var c_kind: CFuncKind = switch (item.kind) {
+                    .extern_decl => .external,
+                    .export_decl => .exported,
+                    .ffi_wrapper_decl => .exported,
+                    .test_decl => .test_func,
+                    else => .normal,
+                };
+                var emit_wrapper = !options.test_mode and fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
+
+                var should_include = true;
+                if (options.function_task_index) |wanted_task_idx| {
+                    if (task_idx != wanted_task_idx) {
+                        c_kind = .external;
+                        emit_wrapper = false;
+                    }
+                } else if (options.codegen_unit_index) |cgu_idx| {
+                    if (task_idx % options.codegen_unit_count != cgu_idx) {
+                        c_kind = .external;
+                        emit_wrapper = false;
+                    }
+                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
+                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
+                }
+
+                if (should_include) {
+                    try tasks.append(.{
+                        .sig_index = current_sig_index,
+                        .fsig = fsig,
+                        .kind = c_kind,
+                        .emit_main_wrapper = emit_wrapper,
+                        .start_idx = idx,
+                        .end_idx = end,
+                        .decl_kind = if (c_kind == .external) .extern_decl else item.kind,
+                    });
+                }
+                task_idx += 1;
+                idx = end - 1;
+            },
+            else => {},
+        }
+    }
+    if (sig_index != verified.function_sigs.len) return error.UnknownFunction;
+    return try tasks.toOwnedSlice();
+}
+
 const ParallelEmitJob = struct {
     arena: std.heap.ArenaAllocator,
     err: ?anyerror = null,
@@ -1637,141 +1766,10 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     }
     try collectAnonStringConstsForOptions(a, &verified.symbols, verified.annotated, options, &anon_string_names, &occupied_global_names, &c_consts);
 
-    var referenced_functions = std.StringHashMap(void).init(a);
-    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
-    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
-    if (focused_test_prune) {
-        prune_unreachable = try collectFocusedTestPruneReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
-    } else if (prune_unreachable) {
-        try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
-        prune_unreachable = referenced_functions.count() != 0;
-    } else if (options.codegen_unit_index) |cgu_idx| {
-        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
+    const tasks = try buildParallelEmitTasks(a, verified, source_path, options, &function_sig_index);
 
-        // Collect functions called by functions in this CGU
-        var sig_index: usize = 0;
-        var idx: usize = 0;
-        var task_idx: usize = 0;
-        while (idx < verified.annotated.len) : (idx += 1) {
-            const item = verified.annotated[idx].base;
-            switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                    sig_index += 1;
-                    var end = idx + 1;
-                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                        else => true,
-                    }) : (end += 1) {}
-
-                    if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
-                    }
-                    task_idx += 1;
-                    idx = end - 1;
-                },
-                else => {},
-            }
-        }
-    } else if (options.function_task_index) |wanted_task_idx| {
-        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
-
-        var sig_index: usize = 0;
-        var idx: usize = 0;
-        var task_idx: usize = 0;
-        while (idx < verified.annotated.len) : (idx += 1) {
-            const item = verified.annotated[idx].base;
-            switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                    sig_index += 1;
-                    var end = idx + 1;
-                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                        else => true,
-                    }) : (end += 1) {}
-
-                    if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
-                    }
-                    task_idx += 1;
-                    idx = end - 1;
-                },
-                else => {},
-            }
-        }
-    }
-
-    var tasks = std.ArrayList(ParallelEmitTask).init(a);
-    var sig_index: usize = 0;
-    var idx: usize = 0;
-    var task_idx: usize = 0;
-    while (idx < verified.annotated.len) : (idx += 1) {
-        const item = verified.annotated[idx].base;
-        switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                const current_sig_index = sig_index;
-                const fsig = verified.function_sigs[sig_index];
-                sig_index += 1;
-                var end = idx + 1;
-                while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                    else => true,
-                }) : (end += 1) {}
-
-                var c_kind: CFuncKind = switch (item.kind) {
-                    .extern_decl => .external,
-                    .export_decl => .exported,
-                    .ffi_wrapper_decl => .exported,
-                    .test_decl => .test_func,
-                    else => .normal,
-                };
-                var emit_wrapper = !options.test_mode and fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
-
-                var should_include = true;
-                if (options.function_task_index) |wanted_task_idx| {
-                    if (task_idx == wanted_task_idx) {
-                        // This task is emitted as a cached incremental object.
-                    } else {
-                        // Retain a full, globally ordered signature table so indirect-call
-                        // provenance indices remain stable inside every function object.
-                        c_kind = .external;
-                        emit_wrapper = false;
-                    }
-                } else if (options.codegen_unit_index) |cgu_idx| {
-                    if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        // Belongs to this CGU, define it!
-                    } else {
-                        // See the function-task case above: compressed signature tables
-                        // cannot safely consume stable global provenance indices.
-                        c_kind = .external;
-                        emit_wrapper = false;
-                    }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
-                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
-                }
-
-                if (should_include) {
-                    try tasks.append(.{
-                        .sig_index = current_sig_index,
-                        .fsig = fsig,
-                        .kind = c_kind,
-                        .emit_main_wrapper = emit_wrapper,
-                        .start_idx = idx,
-                        .end_idx = end,
-                        .decl_kind = if (c_kind == .external) .extern_decl else item.kind,
-                    });
-                }
-                task_idx += 1;
-                idx = end - 1;
-            },
-            else => {},
-        }
-    }
-
-    const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
-    const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
+    const worker_count = chooseEmitWorkerCount(options.jobs, tasks.len);
+    const jobs = try a.alloc(ParallelEmitJob, tasks.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
     for (jobs) |*job| {
         job.* = .{ .arena = std.heap.ArenaAllocator.init(job_backing_allocator) };
@@ -1790,7 +1788,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
         .function_names = function_names,
-        .tasks = tasks.items,
+        .tasks = tasks,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
     };
@@ -1918,132 +1916,10 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     }
     try collectAnonStringConstsForOptions(a, &verified.symbols, verified.annotated, options, &anon_string_names, &occupied_global_names, &c_consts);
 
-    var referenced_functions = std.StringHashMap(void).init(a);
-    const focused_test_prune = options.test_mode and options.selected_test_names.len != 0 and options.codegen_unit_index == null and options.function_task_index == null;
-    var prune_unreachable = options.dce != .no and (!options.test_mode or focused_test_prune) and options.codegen_unit_index == null and options.function_task_index == null;
-    if (focused_test_prune) {
-        prune_unreachable = try collectFocusedTestPruneReachability(a, verified, &function_sig_index, options.selected_test_names, &referenced_functions);
-    } else if (prune_unreachable) {
-        try collectDceReachability(a, verified, &function_sig_index, source_path, options, &referenced_functions);
-        prune_unreachable = referenced_functions.count() != 0;
-    } else if (options.codegen_unit_index) |cgu_idx| {
-        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
+    const tasks = try buildParallelEmitTasks(a, verified, source_path, options, &function_sig_index);
 
-        var sig_index: usize = 0;
-        var idx: usize = 0;
-        var task_idx: usize = 0;
-        while (idx < verified.annotated.len) : (idx += 1) {
-            const item = verified.annotated[idx].base;
-            switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                    sig_index += 1;
-                    var end = idx + 1;
-                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                        else => true,
-                    }) : (end += 1) {}
-
-                    if (task_idx % options.codegen_unit_count == cgu_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
-                    }
-                    task_idx += 1;
-                    idx = end - 1;
-                },
-                else => {},
-            }
-        }
-    } else if (options.function_task_index) |wanted_task_idx| {
-        try collectVtableFunctionReferences(verified.const_decls, verified.function_sigs, &function_sig_index, &referenced_functions);
-
-        var sig_index: usize = 0;
-        var idx: usize = 0;
-        var task_idx: usize = 0;
-        while (idx < verified.annotated.len) : (idx += 1) {
-            const item = verified.annotated[idx].base;
-            switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                    if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                    sig_index += 1;
-                    var end = idx + 1;
-                    while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                        else => true,
-                    }) : (end += 1) {}
-
-                    if (task_idx == wanted_task_idx) {
-                        _ = try collectBodyDirectCallees(a, verified, &function_sig_index, idx + 1, end, &referenced_functions, null, null);
-                    }
-                    task_idx += 1;
-                    idx = end - 1;
-                },
-                else => {},
-            }
-        }
-    }
-
-    var tasks = std.ArrayList(ParallelEmitTask).init(a);
-    var sig_index: usize = 0;
-    var idx: usize = 0;
-    var task_idx: usize = 0;
-    while (idx < verified.annotated.len) : (idx += 1) {
-        const item = verified.annotated[idx].base;
-        switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
-                if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
-                const current_sig_index = sig_index;
-                const fsig = verified.function_sigs[sig_index];
-                sig_index += 1;
-                var end = idx + 1;
-                while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
-                    else => true,
-                }) : (end += 1) {}
-
-                var c_kind: CFuncKind = switch (item.kind) {
-                    .extern_decl => .external,
-                    .export_decl => .exported,
-                    .ffi_wrapper_decl => .exported,
-                    .test_decl => .test_func,
-                    else => .normal,
-                };
-                var emit_wrapper = !options.test_mode and fsig.kind == .normal and std.mem.eql(u8, fsig.name, "main") and fsig.params.len == 0;
-
-                var should_include = true;
-                if (options.function_task_index) |wanted_task_idx| {
-                    if (task_idx != wanted_task_idx) {
-                        c_kind = .external;
-                        emit_wrapper = false;
-                    }
-                } else if (options.codegen_unit_index) |cgu_idx| {
-                    if (task_idx % options.codegen_unit_count != cgu_idx) {
-                        c_kind = .external;
-                        emit_wrapper = false;
-                    }
-                } else if (prune_unreachable and !referenced_functions.contains(fsig.name)) {
-                    if (focused_test_prune or shouldPruneUnreachableFunction(options, fsig, source_path)) should_include = false;
-                }
-
-                if (should_include) {
-                    try tasks.append(.{
-                        .sig_index = current_sig_index,
-                        .fsig = fsig,
-                        .kind = c_kind,
-                        .emit_main_wrapper = emit_wrapper,
-                        .start_idx = idx,
-                        .end_idx = end,
-                        .decl_kind = if (c_kind == .external) .extern_decl else item.kind,
-                    });
-                }
-                task_idx += 1;
-                idx = end - 1;
-            },
-            else => {},
-        }
-    }
-
-    const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
-    const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
+    const worker_count = chooseEmitWorkerCount(options.jobs, tasks.len);
+    const jobs = try a.alloc(ParallelEmitJob, tasks.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
     for (jobs) |*job| job.* = .{ .arena = std.heap.ArenaAllocator.init(job_backing_allocator) };
     defer for (jobs) |*job| job.arena.deinit();
@@ -2058,7 +1934,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
         .function_names = function_names,
-        .tasks = tasks.items,
+        .tasks = tasks,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
     };
@@ -2199,6 +2075,69 @@ fn runFocusedReachabilityTest(body: inst.Instruction) !FocusedReachabilityTestRe
     };
 }
 
+fn expectFocusedBitcodePrunedClosure(bitcode: []const u8) !void {
+    try std.testing.expect(std.mem.indexOf(u8, bitcode, "selected") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bitcode, "helper") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bitcode, "leaf") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bitcode, "unrelated") == null);
+}
+
+fn runFocusedEmitPathDifferential(use_artifacts_path: bool) !void {
+    const function_sigs = [_]sig.FunctionSig{
+        .{ .id = 0, .name = "selected", .params = &.{}, .kind = .test_func, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 1, .name = "helper", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 3, .is_ffi_wrapper = false },
+        .{ .id = 2, .name = "leaf", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 6, .is_ffi_wrapper = false },
+        .{ .id = 3, .name = "unrelated", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 8, .is_ffi_wrapper = false },
+    };
+    const annotated = [_]referee.AnnotatedInstruction{
+        .{ .base = inst.makeInstruction(.test_decl, 1, 0, null, "@test selected():"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.call, 2, 1, null, "call @helper()"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.return_, 3, 2, null, "return"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.func_decl, 4, 3, null, "@helper():"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.call, 5, 4, null, "call @leaf()"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.return_, 6, 5, null, "return"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.func_decl, 7, 6, null, "@leaf():"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.return_, 8, 7, null, "return"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.func_decl, 9, 8, null, "@unrelated():"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+        .{ .base = inst.makeInstruction(.return_, 10, 9, null, "return"), .delta = .{ .changes = &.{} }, .gas_step_cost = 1 },
+    };
+    var symbols = @import("flattener/symbol.zig").SymbolTable.init(std.testing.allocator);
+    defer symbols.deinit();
+    const verified = .{
+        .annotated = annotated[0..],
+        .function_sigs = function_sigs[0..],
+        .symbols = symbols,
+        .const_decls = @as([]const const_decl.ConstDecl, &.{}),
+    };
+    const options = EmitOptions{
+        .test_mode = true,
+        .dce = .full,
+        .selected_test_names = &.{"selected"},
+        .jobs = 1,
+    };
+
+    if (!use_artifacts_path) {
+        const bitcode = try emitLlvmc(std.testing.allocator, verified, null, &.{}, "/tmp/focused.sa", 64, options);
+        defer std.testing.allocator.free(bitcode);
+        try expectFocusedBitcodePrunedClosure(bitcode);
+        return;
+    }
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try emitLlvmcToArtifacts(std.testing.allocator, verified, null, &.{}, "/tmp/focused.sa", 64, options, "focused.bc", "focused.o", 0);
+    const bitcode_file = try tmp.dir.openFile("focused.bc", .{});
+    defer bitcode_file.close();
+    const bitcode = try bitcode_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer std.testing.allocator.free(bitcode);
+    try expectFocusedBitcodePrunedClosure(bitcode);
+}
+
 test "function signature index preserves linear alias precedence" {
     const sigs = [_]sig.FunctionSig{
         .{ .id = 0, .name = "one", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false, .llvm_name = "shared" },
@@ -2252,6 +2191,26 @@ test "focused test prune keeps a complete direct-call closure" {
     try std.testing.expect(result.leaf_reachable);
     try std.testing.expect(!result.unrelated_reachable);
     try std.testing.expectEqual(@as(usize, 3), result.body_scan_count);
+}
+
+test "focused test prune scans self-recursive roots once" {
+    const body = inst.makeInstruction(.call, 2, 1, null, "call @selected()");
+    const result = try runFocusedReachabilityTest(body);
+
+    try std.testing.expect(result.prune_enabled);
+    try std.testing.expect(result.selected_reachable);
+    try std.testing.expect(!result.helper_reachable);
+    try std.testing.expect(!result.leaf_reachable);
+    try std.testing.expect(!result.unrelated_reachable);
+    try std.testing.expectEqual(@as(usize, 1), result.body_scan_count);
+}
+
+test "focused test prune applies to bitcode emit path" {
+    try runFocusedEmitPathDifferential(false);
+}
+
+test "focused test prune applies to artifact emit path" {
+    try runFocusedEmitPathDifferential(true);
 }
 
 test "focused test prune falls back for indirect invalid and unknown calls" {

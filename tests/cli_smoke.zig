@@ -110,6 +110,13 @@ fn writeCacheManifest(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, 
     try writeBytes(dir, manifest_path, manifest);
 }
 
+fn updateDirTimes(dir: std.fs.Dir, path: []const u8, atime: i128, mtime: i128) !void {
+    var entry_dir = try dir.openDir(path, .{ .iterate = true });
+    defer entry_dir.close();
+    const entry_file = std.fs.File{ .handle = entry_dir.fd };
+    try entry_file.updateTimes(atime, mtime);
+}
+
 fn freeStringMtimeMap(allocator: std.mem.Allocator, map: *std.StringHashMap(i128)) void {
     var iter = map.iterator();
     while (iter.next()) |entry| allocator.free(entry.key_ptr.*);
@@ -1657,6 +1664,7 @@ test "cli build project cache is default and can be disabled" {
     const first_cache = try jsonObjectGetValue(first_metrics, "cache");
     try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
     try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
 
     try tmp.dir.deleteFile("cached.out");
     try tmp.dir.deleteFile("cached.out.sa.bc");
@@ -1668,6 +1676,50 @@ test "cli build project cache is default and can be disabled" {
     const second_metrics = try jsonObjectGet(&second_json, "metrics");
     const second_cache = try jsonObjectGetValue(second_metrics, "cache");
     try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(second_cache, "reason")));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const cache_status_argv = [_][]const u8{ "sa", "cache", "status", "--kind", "build-exe", "--json" };
+    const cache_status_code = try saasm.cli.executeWithWriters(std.testing.allocator, cache_status_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), cache_status_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_hit_ns\":"));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"last_hit_ns\":null") == null);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_ns\":"));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"last_store_ns\":null") == null);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_result\":\"published\""));
+
+    const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
+    defer std.testing.allocator.free(cache_key);
+    const cached_output_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/build-exe/{s}/output.bin", .{cache_key});
+    defer std.testing.allocator.free(cached_output_path);
+    const cached_manifest_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/build-exe/{s}/manifest.json", .{cache_key});
+    defer std.testing.allocator.free(cached_manifest_path);
+
+    try writeBytes(tmp.dir, cached_output_path, "tampered output");
+    try tmp.dir.deleteFile("cached.out");
+    try tmp.dir.deleteFile("cached.out.sa.bc");
+    stderr_buf.clearRetainingCapacity();
+    const corrupt_artifact_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), corrupt_artifact_code);
+    var corrupt_artifact_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer corrupt_artifact_json.deinit();
+    const corrupt_artifact_cache = try jsonObjectGetValue(try jsonObjectGet(&corrupt_artifact_json, "metrics"), "cache");
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(corrupt_artifact_cache, "hit")));
+    try std.testing.expectEqualStrings("artifact_corrupt", try jsonStringValue(try jsonObjectGetValue(corrupt_artifact_cache, "reason")));
+
+    try writeBytes(tmp.dir, cached_manifest_path, "{\"version\":1,\"kind\":\"build-exe\",\"key\":\"bad\"}\n");
+    try tmp.dir.deleteFile("cached.out");
+    try tmp.dir.deleteFile("cached.out.sa.bc");
+    stderr_buf.clearRetainingCapacity();
+    const invalid_manifest_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), invalid_manifest_code);
+    var invalid_manifest_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer invalid_manifest_json.deinit();
+    const invalid_manifest_cache = try jsonObjectGetValue(try jsonObjectGet(&invalid_manifest_json, "metrics"), "cache");
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(invalid_manifest_cache, "hit")));
+    try std.testing.expectEqualStrings("manifest_invalid", try jsonStringValue(try jsonObjectGetValue(invalid_manifest_cache, "reason")));
 
     stderr_buf.clearRetainingCapacity();
     const no_cache_argv = [_][]const u8{ "sa", "build-exe", "cached.sa", "-o", "cached_no_cache.out", "--json", "--profile", "--no-incremental" };
@@ -1676,7 +1728,56 @@ test "cli build project cache is default and can be disabled" {
     var no_cache_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
     defer no_cache_json.deinit();
     const no_cache_metrics = try jsonObjectGet(&no_cache_json, "metrics");
-    try std.testing.expectError(error.TestUnexpectedResult, jsonObjectGetValue(no_cache_metrics, "cache"));
+    const no_cache = try jsonObjectGetValue(no_cache_metrics, "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(no_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(no_cache, "hit")));
+    try std.testing.expectEqualStrings("disabled", try jsonStringValue(try jsonObjectGetValue(no_cache, "reason")));
+
+    try writeSource(tmp.dir, "lock_owner_failed.sa", source);
+    try tmp.dir.deleteTree(".sa_cache/build-exe/.locks");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/.locks", "not a lock dir");
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const lock_owner_failed_argv = [_][]const u8{ "sa", "build-exe", "lock_owner_failed.sa", "-o", "lock_owner_failed.out", "--json", "--profile" };
+    const lock_owner_failed_code = try saasm.cli.executeWithWriters(std.testing.allocator, lock_owner_failed_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), lock_owner_failed_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    var lock_owner_failed_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer lock_owner_failed_json.deinit();
+    const lock_owner_failed_cache = try jsonObjectGetValue(try jsonObjectGet(&lock_owner_failed_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(lock_owner_failed_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(lock_owner_failed_cache, "hit")));
+    try std.testing.expectEqualStrings("lock_owner_failed", try jsonStringValue(try jsonObjectGetValue(lock_owner_failed_cache, "reason")));
+    try tmp.dir.deleteFile(".sa_cache/build-exe/.locks");
+
+    var cgu_source = std.ArrayList(u8).init(std.testing.allocator);
+    defer cgu_source.deinit();
+    try cgu_source.appendSlice(
+        \\@main() -> i32:
+        \\return 0
+        \\
+    );
+    for (0..100) |idx| {
+        try cgu_source.writer().print(
+            \\@helper_{d}() -> i32:
+            \\return {d}
+            \\
+        , .{ idx, idx });
+    }
+    try writeBytes(tmp.dir, "cgu_bypass.sa", cgu_source.items);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const cgu_bypass_argv = [_][]const u8{ "sa", "build-exe", "cgu_bypass.sa", "-o", "cgu_bypass.out", "--json", "--jobs", "2" };
+    const cgu_bypass_code = try saasm.cli.executeWithWriters(std.testing.allocator, cgu_bypass_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), cgu_bypass_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    var cgu_bypass_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer cgu_bypass_json.deinit();
+    const cgu_bypass_cache = try jsonObjectGetValue(try jsonObjectGet(&cgu_bypass_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(cgu_bypass_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(cgu_bypass_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(cgu_bypass_cache, "reason")));
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
@@ -1716,6 +1817,7 @@ test "project cache manifest revalidates INCLUDE_STR dependencies" {
     defer first_json.deinit();
     const first_cache = try jsonObjectGetValue(try jsonObjectGet(&first_json, "metrics"), "cache");
     try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
 
     stderr_buf.clearRetainingCapacity();
     const warm_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
@@ -1724,6 +1826,7 @@ test "project cache manifest revalidates INCLUDE_STR dependencies" {
     defer warm_json.deinit();
     const warm_cache = try jsonObjectGetValue(try jsonObjectGet(&warm_json, "metrics"), "cache");
     try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(warm_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(warm_cache, "reason")));
 
     try writeBytes(tmp.dir, "payload.txt", "second payload");
     stderr_buf.clearRetainingCapacity();
@@ -1733,6 +1836,7 @@ test "project cache manifest revalidates INCLUDE_STR dependencies" {
     defer changed_json.deinit();
     const changed_cache = try jsonObjectGetValue(try jsonObjectGet(&changed_json, "metrics"), "cache");
     try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(changed_cache, "hit")));
+    try std.testing.expectEqualStrings("dependency_changed", try jsonStringValue(try jsonObjectGetValue(changed_cache, "reason")));
 
     const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
     defer std.testing.allocator.free(cache_key);
@@ -1794,6 +1898,7 @@ test "project cache manifest revalidates OPTION_ENV absent to present" {
     defer absent_json.deinit();
     const absent_cache = try jsonObjectGetValue(try jsonObjectGet(&absent_json, "metrics"), "cache");
     try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(absent_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(absent_cache, "reason")));
 
     try tmp.dir.deleteFile("dynamic_env.out");
     try tmp.dir.deleteFile("dynamic_env.out.sa.bc");
@@ -1804,6 +1909,7 @@ test "project cache manifest revalidates OPTION_ENV absent to present" {
     defer absent_warm_json.deinit();
     const absent_warm_cache = try jsonObjectGetValue(try jsonObjectGet(&absent_warm_json, "metrics"), "cache");
     try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(absent_warm_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(absent_warm_cache, "reason")));
 
     try setProcessEnvironmentVariable(std.testing.allocator, env_name, env_value);
     try tmp.dir.deleteFile("dynamic_env.out");
@@ -1815,6 +1921,7 @@ test "project cache manifest revalidates OPTION_ENV absent to present" {
     defer present_json.deinit();
     const present_cache = try jsonObjectGetValue(try jsonObjectGet(&present_json, "metrics"), "cache");
     try std.testing.expect(!try jsonBoolValue(try jsonObjectGetValue(present_cache, "hit")));
+    try std.testing.expectEqualStrings("dependency_changed", try jsonStringValue(try jsonObjectGetValue(present_cache, "reason")));
 
     try tmp.dir.deleteFile("dynamic_env.out");
     try tmp.dir.deleteFile("dynamic_env.out.sa.bc");
@@ -1825,6 +1932,7 @@ test "project cache manifest revalidates OPTION_ENV absent to present" {
     defer present_warm_json.deinit();
     const present_warm_cache = try jsonObjectGetValue(try jsonObjectGet(&present_warm_json, "metrics"), "cache");
     try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(present_warm_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(present_warm_cache, "reason")));
 
     try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/build-exe"));
     const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
@@ -1848,6 +1956,78 @@ test "project cache manifest revalidates OPTION_ENV absent to present" {
     try std.testing.expect(try jsonBoolValue(try jsonObjectGetValue(dependency, "present")));
     const expected_digest = bytesHashHex(env_value);
     try std.testing.expectEqualStrings(expected_digest[0..], try jsonStringValue(try jsonObjectGetValue(dependency, "sha256")));
+}
+
+test "project cache non-cacheable dynamic dependency reports bypassed" {
+    const env_name = "SA_TEST_FORCE_NON_CACHEABLE_DYNAMIC_DEPENDENCY_51D4";
+    const source =
+        \\#def Slice_SIZE = 16
+        \\#def Slice_ptr = +0
+        \\#def Slice_len = +8
+        \\#def Option_SIZE = 16
+        \\#def Option_tag = +0
+        \\#def Option_value = +8
+        \\#def Option_NONE = 0
+        \\#def Option_SOME = 1
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    option = alloc Option_SIZE
+        \\    EXPAND OPTION_ENV! option, "SA_TEST_FORCE_NON_CACHEABLE_DYNAMIC_DEPENDENCY_51D4"
+        \\    !option
+        \\    return 9
+    ;
+
+    const original_env = std.process.getEnvVarOwned(std.testing.allocator, env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (original_env) |bytes| std.testing.allocator.free(bytes);
+    try setProcessEnvironmentVariable(std.testing.allocator, env_name, null);
+    defer setProcessEnvironmentVariable(std.testing.allocator, env_name, original_env) catch {};
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "dynamic_bypass.sa", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const build_argv = [_][]const u8{ "sa", "build-exe", "dynamic_bypass.sa", "-o", "dynamic_bypass.out", "--json", "--profile", "--jobs", "1" };
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    var first_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer first_json.deinit();
+    const first_cache = try jsonObjectGetValue(try jsonObjectGet(&first_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
+
+    const build_cache_entries = cacheEntryCount(tmp.dir, ".sa_cache/build-exe") catch |err| switch (err) {
+        error.FileNotFound => 0,
+        else => return err,
+    };
+    try std.testing.expectEqual(@as(usize, 0), build_cache_entries);
+
+    try tmp.dir.deleteFile("dynamic_bypass.out");
+    try tmp.dir.deleteFile("dynamic_bypass.out.sa.bc");
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    var second_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer second_json.deinit();
+    const second_cache = try jsonObjectGetValue(try jsonObjectGet(&second_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(second_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(second_cache, "reason")));
 }
 
 test "cli cache clean removes invalid project cache entries" {
@@ -1889,11 +2069,153 @@ test "cli cache clean removes invalid project cache entries" {
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ incomplete_key, .{}));
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ corrupt_manifest_key, .{}));
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/test/not-a-hex-key", .{}));
+    try tmp.dir.access(".sa_cache/.evictions/build-exe/" ++ incomplete_key, .{});
+    try tmp.dir.access(".sa_cache/.evictions/build-exe/" ++ corrupt_manifest_key, .{});
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/.evictions/build-exe/" ++ good_key, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/.evictions/test/not-a-hex-key", .{}));
 
     stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const evicted_why_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", incomplete_key, "--json" };
+    const evicted_why_code = try saasm.cli.executeWithWriters(std.testing.allocator, evicted_why_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), evicted_why_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"evicted\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"manifest\":\"missing\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"bytes\":0"));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const never_seen_key = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    const absent_why_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", never_seen_key, "--json" };
+    const absent_why_code = try saasm.cli.executeWithWriters(std.testing.allocator, absent_why_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), absent_why_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"manifest\":\"missing\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"bytes\":0"));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
     const help_argv = [_][]const u8{ "sa", "cache", "clean", "--help" };
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), help_code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
+}
+
+test "cli cache status and why explain project cache entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const good_key = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const incomplete_key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const corrupt_artifact_key = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    const invalid_manifest_key = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ good_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/output.bin", "exe");
+    try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ good_key, "build-exe", good_key, "bc", "exe");
+
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ incomplete_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ incomplete_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ incomplete_key ++ "/output.bin", "exe");
+    try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ incomplete_key, "build-exe", incomplete_key, "bc", "exe");
+    try tmp.dir.deleteFile(".sa_cache/build-exe/" ++ incomplete_key ++ "/output.bin");
+
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ corrupt_artifact_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_artifact_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_artifact_key ++ "/output.bin", "exe");
+    try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_artifact_key, "build-exe", corrupt_artifact_key, "bc", "wrong-output");
+
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ invalid_manifest_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ invalid_manifest_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ invalid_manifest_key ++ "/output.bin", "exe");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ invalid_manifest_key ++ "/manifest.json", "{\"version\":1,\"kind\":\"build-exe\",\"key\":\"bad\"}\n");
+    const old_mtime_ns = std.time.nanoTimestamp() - (@as(i128, 3) * 24 * 60 * 60 * std.time.ns_per_s);
+    try updateDirTimes(tmp.dir, ".sa_cache/build-exe/" ++ good_key, old_mtime_ns, old_mtime_ns);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const status_argv = [_][]const u8{ "sa", "cache", "status", "--kind", "build-exe" };
+    const status_code = try saasm.cli.executeWithWriters(std.testing.allocator, status_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), status_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache status: root=.sa_cache"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache status summary: entries=4"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=bbbbbbbbbbbb reason=hit manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=aaaaaaaaaaaa reason=incomplete manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=cccccccccccc reason=artifact_corrupt manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=dddddddddddd reason=manifest_invalid manifest=invalid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_hit_ns=null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_ns=null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=output.file"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=output.size"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=manifest.version"));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const expired_status_argv = [_][]const u8{ "sa", "cache", "status", "--kind", "build-exe", "--max-age-days=1" };
+    const expired_status_code = try saasm.cli.executeWithWriters(std.testing.allocator, expired_status_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), expired_status_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=bbbbbbbbbbbb reason=expired manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=aaaaaaaaaaaa reason=incomplete manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "reason=expired manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=null"));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", corrupt_artifact_key };
+    const why_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache why: kind=build-exe key=cccccccccccc reason=artifact_corrupt manifest=valid"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=output.size"));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_json_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", invalid_manifest_key, "--json" };
+    const why_json_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_json_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"manifest_invalid\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"key_prefix\":\"dddddddddddd\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_hit_ns\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_ns\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"manifest.version\""));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_expired_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", good_key, "--json", "--max-age-days", "1" };
+    const why_expired_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_expired_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_expired_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"expired\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"manifest\":\"valid\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":null"));
+
+    stdout_buf.clearRetainingCapacity();
+    const status_help_argv = [_][]const u8{ "sa", "cache", "status", "--help" };
+    const status_help_code = try saasm.cli.executeWithWriters(std.testing.allocator, status_help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), status_help_code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--kind") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
+
+    stdout_buf.clearRetainingCapacity();
+    const why_help_argv = [_][]const u8{ "sa", "cache", "why", "--help" };
+    const why_help_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_help_code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--key") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
 }
 
@@ -1986,6 +2308,231 @@ test "sa test compile-only reuses and repairs project test cache" {
     const repaired_manifest = try tmp.dir.readFileAlloc(std.testing.allocator, cached_manifest, 64 * 1024);
     defer std.testing.allocator.free(repaired_manifest);
     try std.testing.expect(std.mem.indexOf(u8, repaired_manifest, cache_key) != null);
+
+    try writeSource(tmp.dir, "cached_test_json.sa",
+        \\@test "cached test json metrics"():
+        \\L_ENTRY:
+        \\    return
+    );
+
+    const selected_json_argv = [_][]const u8{ "sa", "test", "cached_test_json.sa", "--compile-only", "--filter", "cached test json metrics", "--jobs", "1", "--json" };
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const selected_json_code = try saasm.cli.executeWithWriters(std.testing.allocator, selected_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), selected_json_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    var selected_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer selected_json.deinit();
+    const selected_json_cache = try jsonObjectGetValue(try jsonObjectGet(&selected_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(selected_json_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(selected_json_cache, "hit")));
+    try std.testing.expectEqualStrings("selection_changed", try jsonStringValue(try jsonObjectGetValue(selected_json_cache, "reason")));
+
+    const test_json_argv = [_][]const u8{ "sa", "test", "cached_test_json.sa", "--compile-only", "--jobs", "1", "--json" };
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const json_first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), json_first_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    var json_first = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer json_first.deinit();
+    const json_first_cache = try jsonObjectGetValue(try jsonObjectGet(&json_first, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(json_first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(json_first_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(json_first_cache, "reason")));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const json_second_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), json_second_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
+    var json_second = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer json_second.deinit();
+    const json_second_cache = try jsonObjectGetValue(try jsonObjectGet(&json_second, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(json_second_cache, "kind")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(json_second_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(json_second_cache, "reason")));
+
+    try writeSource(tmp.dir, "cached_test_run_json.sa",
+        \\@test "cached ordinary test json metrics"():
+        \\L_ENTRY:
+        \\    return
+    );
+
+    const test_run_json_argv = [_][]const u8{ "sa", "test", "cached_test_run_json.sa", "--jobs", "1", "--json" };
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const run_json_first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_run_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), run_json_first_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    var run_json_first = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer run_json_first.deinit();
+    const run_json_first_cache = try jsonObjectGetValue(try jsonObjectGet(&run_json_first, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(run_json_first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(run_json_first_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(run_json_first_cache, "reason")));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const run_json_second_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_run_json_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), run_json_second_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    var run_json_second = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer run_json_second.deinit();
+    const run_json_second_cache = try jsonObjectGetValue(try jsonObjectGet(&run_json_second, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(run_json_second_cache, "kind")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(run_json_second_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(run_json_second_cache, "reason")));
+}
+
+test "sa test plugin link inputs report bypassed project cache" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "cache_link_plugin.zig",
+        \\const std = @import("std");
+        \\
+        \\const SkillSection = struct {
+        \\    name: []const u8,
+        \\    summary: []const u8,
+        \\    items: []const []const u8,
+        \\};
+        \\
+        \\const Context = struct {
+        \\    allocator: std.mem.Allocator,
+        \\    host_version: ?[]const u8 = null,
+        \\    log: ?*const fn (ctx: *const anyopaque, level: u8, message_ptr: [*]const u8, message_len: usize) callconv(.c) void = null,
+        \\    log_ctx: ?*anyopaque = null,
+        \\    json_mode: bool = false,
+        \\};
+        \\
+        \\const HostStream = extern struct {
+        \\    ctx: ?*anyopaque,
+        \\    write_all: ?*const fn (ctx: ?*anyopaque, bytes: [*]const u8, len: usize) callconv(.c) u32,
+        \\};
+        \\
+        \\const PluginDescriptor = extern struct {
+        \\    abi_version: u32,
+        \\    descriptor_size: u32,
+        \\    name: [*:0]const u8,
+        \\    init: ?*const fn (ctx: *const Context) callconv(.c) u32,
+        \\    prebuild: ?*const fn (ctx: *const Context, compile_options: ?*anyopaque) callconv(.c) u32,
+        \\    postbuild: ?*const fn (ctx: *const Context) callconv(.c) u32,
+        \\    handle_command: ?*const fn (ctx: *const Context, argv: [*]const [*:0]const u8, argv_len: usize, stdout: HostStream, stderr: HostStream, out_code: *u8) callconv(.c) u32,
+        \\    skills_ptr: [*]const SkillSection,
+        \\    skills_len: usize,
+        \\};
+        \\
+        \\const skills = [_]SkillSection{};
+        \\pub export const saasm_plugin_descriptor_v1: PluginDescriptor = .{
+        \\    .abi_version = 1,
+        \\    .descriptor_size = @as(u32, @intCast(@sizeOf(PluginDescriptor))),
+        \\    .name = "cache-link-plugin",
+        \\    .init = null,
+        \\    .prebuild = null,
+        \\    .postbuild = null,
+        \\    .handle_command = null,
+        \\    .skills_ptr = skills[0..].ptr,
+        \\    .skills_len = skills.len,
+        \\};
+        \\
+        \\pub export fn sa_cache_plugin_probe() u32 {
+        \\    return 0;
+        \\}
+    );
+    try writeSource(tmp.dir, "plugin_cache_test.sa",
+        \\@extern sa_cache_plugin_probe() -> u32
+        \\
+        \\@test "plugin cache bypass"():
+        \\L_ENTRY:
+        \\    status = call @sa_cache_plugin_probe()
+        \\    ok = eq status, 0
+        \\    !status
+        \\    br ok -> L_OK, L_ERR
+        \\
+        \\L_OK:
+        \\    !ok
+        \\    return
+        \\
+        \\L_ERR:
+        \\    !ok
+        \\    panic(902)
+    );
+
+    const build_plugin = try runCommandAnyExit(std.testing.allocator, &.{
+        "zig",
+        "build-lib",
+        "cache_link_plugin.zig",
+        "-dynamic",
+        "-O",
+        "Debug",
+        "-femit-bin=libcache_link_plugin.so",
+    });
+    defer std.testing.allocator.free(build_plugin.stdout);
+    defer std.testing.allocator.free(build_plugin.stderr);
+    switch (build_plugin.term) {
+        .Exited => |code| {
+            if (code != 0) std.debug.print("plugin cache build failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ build_plugin.stdout, build_plugin.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const env_name = "SA_PLUGINS_PATH";
+    const saved_env = std.process.getEnvVarOwned(std.testing.allocator, env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer {
+        if (saved_env) |value| {
+            setProcessEnvironmentVariable(std.testing.allocator, env_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            setProcessEnvironmentVariable(std.testing.allocator, env_name, null) catch {};
+        }
+    }
+    try setProcessEnvironmentVariable(std.testing.allocator, env_name, ".");
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+    const test_argv = [_][]const u8{ "sa", "test", "plugin_cache_test.sa", "--jobs", "1", "--json" };
+
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    if (first_code != 0) std.debug.print("plugin cache test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buf.items, stderr_buf.items });
+    try std.testing.expectEqual(@as(u8, 0), first_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    var first_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer first_json.deinit();
+    const first_cache = try jsonObjectGetValue(try jsonObjectGet(&first_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_code);
+    var second_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer second_json.deinit();
+    const second_cache = try jsonObjectGetValue(try jsonObjectGet(&second_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(second_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(second_cache, "reason")));
+
+    const test_cache_entries = cacheEntryCount(tmp.dir, ".sa_cache/test") catch |err| switch (err) {
+        error.FileNotFound => 0,
+        else => return err,
+    };
+    try std.testing.expectEqual(@as(usize, 0), test_cache_entries);
 }
 
 test "artifact cache hits revalidate the current package permission request before restore" {

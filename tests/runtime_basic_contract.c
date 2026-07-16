@@ -37,6 +37,18 @@ static int32_t thread_worker(uint8_t *arg) {
     return 73;
 }
 
+typedef struct EventLoopWaitState {
+    void *event_loop;
+    int32_t ready;
+    SaEvent observed;
+} EventLoopWaitState;
+
+static int32_t event_loop_wait_worker(uint8_t *arg) {
+    EventLoopWaitState *state = (EventLoopWaitState *)arg;
+    state->ready = sa_event_loop_wait(state->event_loop, &state->observed, 1, 2000);
+    return state->ready == 1 ? 91 : state->ready;
+}
+
 int main(int argc, char **argv) {
     const uint8_t child_arg[] = "--runtime-basic-child";
     const uint8_t large_child_arg[] = "--runtime-basic-large-child";
@@ -214,6 +226,42 @@ int main(int argc, char **argv) {
               149);
         CHECK(thread_result == 0, 150);
         thread_handle = 0;
+    }
+
+    {
+        void *event_loop = NULL;
+        const SaEvent submitted = {0x5a17u, 7u, -3};
+        const SaEvent delayed = {0x7a11u, 9u, 17};
+        SaEvent observed[1] = {{0, 0, 0}};
+        EventLoopWaitState wait_state = {NULL, -1, {0, 0, 0}};
+        int32_t wait_thread_result = -1;
+        CHECK(sa_event_loop_create(&event_loop) == SA_STD_OK, 178);
+        CHECK(event_loop != NULL, 179);
+        CHECK(sa_event_loop_submit(event_loop, &submitted) == SA_STD_OK, 180);
+        CHECK(sa_event_loop_wait(event_loop, observed, 1, 0) == 1, 181);
+        CHECK(observed[0].user_data == submitted.user_data && observed[0].flags == submitted.flags &&
+                  observed[0].res == submitted.res,
+              182);
+        CHECK(sa_event_loop_wait(event_loop, observed, 1, 0) == 0, 183);
+
+        wait_state.event_loop = event_loop;
+        thread_handle = pthread_spawn((const uint8_t *)(uintptr_t)&event_loop_wait_worker,
+                                      (const uint8_t *)&wait_state);
+        CHECK(sa_std_last_error() == SA_STD_OK, 185);
+        thread_live = 1;
+        CHECK(sa_time_sleep_ms(10) == SA_STD_OK, 186);
+        CHECK(sa_event_loop_submit(event_loop, &delayed) == SA_STD_OK, 187);
+        CHECK(pthread_join(thread_handle, (uint8_t *)&wait_thread_result) == SA_STD_OK, 188);
+        thread_live = 0;
+        thread_handle = 0;
+        CHECK(wait_thread_result == 91 && wait_state.ready == 1, 189);
+        CHECK(wait_state.observed.user_data == delayed.user_data &&
+                  wait_state.observed.flags == delayed.flags &&
+                  wait_state.observed.res == delayed.res,
+              190);
+
+        CHECK(sa_event_loop_close(event_loop) == SA_STD_OK, 191);
+        event_loop = NULL;
     }
 
     exe_handle = sa_env_current_exe();

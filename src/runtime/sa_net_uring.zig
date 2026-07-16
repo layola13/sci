@@ -11,6 +11,9 @@ const Mutex = std.Thread.Mutex;
 const Condition = std.Thread.Condition;
 
 pub const SA_NETX_ABI_VERSION: u32 = 1;
+pub const backend_name = "io_uring";
+pub const platform_reactor = "io_uring";
+pub const supports_native_reactor = true;
 
 pub const SA_NETX_OK: i32 = sa_std.SA_STD_OK;
 pub const SA_NETX_ERR_INVALID_ARGUMENT: i32 = sa_std.SA_STD_ERR_INVALID_ARGUMENT;

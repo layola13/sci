@@ -240,6 +240,7 @@ const CompileMetrics = struct {
 const BuildCacheMetrics = struct {
     kind: []const u8,
     hit: bool,
+    reason: ?[]const u8 = null,
 };
 
 fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics, memory: ?CompileMemoryMetrics) CompileMetrics {
@@ -1281,10 +1282,33 @@ fn printCacheHelp(writer: anytype, args: []const []const u8) !void {
         try writer.writeAll("  -h, --help                     Show this help message\n");
         return;
     }
+    if (std.mem.eql(u8, sub, "status")) {
+        try writer.writeAll("usage: sa cache status [options]\n\n");
+        try writer.writeAll("Inspect project cache entries and explain their current reuse status.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --kind <kind>                  Limit to build-exe, build-obj, build-wasm, build-obj-incremental, or test\n");
+        try writer.writeAll("  --max-age-days <n>             Explain otherwise reusable entries older than n days as expired\n");
+        try writer.writeAll("  --json                         Emit JSON report\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+    if (std.mem.eql(u8, sub, "why")) {
+        try writer.writeAll("usage: sa cache why --kind <kind> --key <hex> [--json]\n\n");
+        try writer.writeAll("Explain one project cache entry without exposing source or package secrets.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --kind <kind>                  Cache kind to inspect\n");
+        try writer.writeAll("  --key <hex>                    64-character cache key\n");
+        try writer.writeAll("  --max-age-days <n>             Explain an otherwise reusable entry older than n days as expired\n");
+        try writer.writeAll("  --json                         Emit JSON report\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
 
-    try writer.writeAll("usage: sa cache <clean> [options]\n\n");
+    try writer.writeAll("usage: sa cache <status|why|clean> [options]\n\n");
     try writer.writeAll("Inspect and clean project-local SA build/test caches.\n\n");
     try writer.writeAll("Subcommands:\n");
+    try writer.writeAll("  status                         List cache entries with reusable/miss reasons\n");
+    try writer.writeAll("  why                            Explain one cache entry by kind and key\n");
     try writer.writeAll("  clean                          Remove invalid or expired .sa_cache entries\n");
     try writer.writeAll("\nUse `sa cache <subcommand> --help` for subcommand options.\n");
 }
@@ -2303,6 +2327,10 @@ fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
         try writeJsonString(writer, cache.kind);
         try writer.writeAll(",\"hit\":");
         try writer.writeAll(if (cache.hit) "true" else "false");
+        if (cache.reason) |reason| {
+            try writer.writeAll(",\"reason\":");
+            try writeJsonString(writer, reason);
+        }
         try writer.writeByte('}');
     }
     try writer.writeByte('}');
@@ -5611,6 +5639,15 @@ const BuildCacheKind = enum {
     }
 };
 
+const build_cache_kinds = [_]BuildCacheKind{ .build_exe, .build_obj, .build_wasm, .build_obj_incremental, .test_cache };
+
+fn parseBuildCacheKindName(name: []const u8) ?BuildCacheKind {
+    for (build_cache_kinds) |kind| {
+        if (std.mem.eql(u8, name, kind.dirName())) return kind;
+    }
+    return null;
+}
+
 const CacheCleanStats = struct {
     scanned: usize = 0,
     removed: usize = 0,
@@ -6330,6 +6367,92 @@ fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_va
     return jsonStringEquals(try jsonGetObject(artifact_value, "sha256"), hash_hex[0..]);
 }
 
+const ProjectCacheLookupReason = enum {
+    hit,
+    disabled,
+    absent,
+    dependency_changed,
+    manifest_invalid,
+    artifact_corrupt,
+    incomplete,
+    expired,
+    security_context_changed,
+    selection_changed,
+    bypassed_untrusted,
+    evicted,
+    lock_owner_failed,
+    unknown,
+
+    fn jsonName(self: ProjectCacheLookupReason) []const u8 {
+        return switch (self) {
+            .hit => "hit",
+            .disabled => "disabled",
+            .absent => "absent",
+            .dependency_changed => "dependency_changed",
+            .manifest_invalid => "manifest_invalid",
+            .artifact_corrupt => "artifact_corrupt",
+            .incomplete => "incomplete",
+            .expired => "expired",
+            .security_context_changed => "security_context_changed",
+            .selection_changed => "selection_changed",
+            .bypassed_untrusted => "bypassed_untrusted",
+            .evicted => "evicted",
+            .lock_owner_failed => "lock_owner_failed",
+            .unknown => "unknown",
+        };
+    }
+};
+
+fn projectCacheLookupReasonName(reason: ?ProjectCacheLookupReason) []const u8 {
+    return (reason orelse ProjectCacheLookupReason.unknown).jsonName();
+}
+
+fn projectCacheArtifactLookupReason(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) ProjectCacheLookupReason {
+    if (!projectCacheArtifactExistsNonEmpty(path)) return .incomplete;
+    const matches = projectCacheArtifactMatchesManifest(allocator, artifact_value, path) catch |err| switch (err) {
+        error.InvalidCacheManifest => return .manifest_invalid,
+        else => return .unknown,
+    };
+    return if (matches) .hit else .artifact_corrupt;
+}
+
+fn projectCacheManifestLookupReason(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+) ProjectCacheLookupReason {
+    const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return .unknown;
+    defer allocator.free(manifest_path);
+    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch |err| switch (err) {
+        error.FileNotFound => return .absent,
+        else => return .manifest_invalid,
+    };
+    defer allocator.free(manifest_bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return .manifest_invalid;
+    defer parsed.deinit();
+    // v1 had no dynamic-dependency contract and must never be reused.
+    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return .manifest_invalid, 2)) return .manifest_invalid;
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return .manifest_invalid, kind.dirName())) return .manifest_invalid;
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return .manifest_invalid, key.slice())) return .manifest_invalid;
+    const dependencies = jsonGetObject(parsed.value, "dynamic_dependencies") catch return .manifest_invalid;
+    if (!(projectCacheDynamicDependenciesWellFormed(dependencies) catch return .manifest_invalid)) return .manifest_invalid;
+    if (!(projectCacheDynamicDependenciesValid(allocator, dependencies) catch return .unknown)) return .dependency_changed;
+    const artifact_reason = projectCacheArtifactLookupReason(allocator, jsonGetObject(parsed.value, "artifact") catch return .manifest_invalid, artifact_path);
+    if (artifact_reason != .hit) return artifact_reason;
+    const output_reason = projectCacheArtifactLookupReason(allocator, jsonGetObject(parsed.value, "output") catch return .manifest_invalid, out_path);
+    if (output_reason != .hit) return output_reason;
+    if (kind == .test_cache) {
+        const metadata_path = projectCacheTestMetadataPath(allocator, project_root, key) catch return .unknown;
+        defer allocator.free(metadata_path);
+        const metadata_reason = projectCacheArtifactLookupReason(allocator, jsonGetObject(parsed.value, "test_metadata") catch return .manifest_invalid, metadata_path);
+        if (metadata_reason != .hit) return metadata_reason;
+    }
+    return .hit;
+}
+
 fn projectCacheManifestValid(
     allocator: std.mem.Allocator,
     project_root: []const u8,
@@ -6338,25 +6461,7 @@ fn projectCacheManifestValid(
     artifact_path: []const u8,
     out_path: []const u8,
 ) bool {
-    const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return false;
-    defer allocator.free(manifest_path);
-    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return false;
-    defer allocator.free(manifest_bytes);
-    var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return false;
-    defer parsed.deinit();
-    // v1 had no dynamic-dependency contract and must never be reused.
-    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return false, 2)) return false;
-    if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return false, kind.dirName())) return false;
-    if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return false, key.slice())) return false;
-    if (!(projectCacheDynamicDependenciesValid(allocator, jsonGetObject(parsed.value, "dynamic_dependencies") catch return false) catch return false)) return false;
-    if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "artifact") catch return false, artifact_path) catch return false)) return false;
-    if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "output") catch return false, out_path) catch return false)) return false;
-    if (kind == .test_cache) {
-        const metadata_path = projectCacheTestMetadataPath(allocator, project_root, key) catch return false;
-        defer allocator.free(metadata_path);
-        if (!(projectCacheArtifactMatchesManifest(allocator, jsonGetObject(parsed.value, "test_metadata") catch return false, metadata_path) catch return false)) return false;
-    }
-    return true;
+    return projectCacheManifestLookupReason(allocator, project_root, kind, key, artifact_path, out_path) == .hit;
 }
 
 fn writeCacheArtifactManifestEntry(writer: anytype, allocator: std.mem.Allocator, name: []const u8, path: []const u8) !void {
@@ -6461,15 +6566,20 @@ fn projectCacheWriteManifestAt(
     try writeCacheManifestBytesAtomically(allocator, manifest_path, contents.items);
 }
 
-const ProjectCacheHitResult = enum {
-    miss,
+const ProjectCacheHitResult = union(enum) {
+    miss: ProjectCacheLookupReason,
     hit,
     authorization_rejected,
 };
 
+const ProjectCacheClaimOwner = struct {
+    lock: ProjectCacheEntryLock,
+    miss_reason: ProjectCacheLookupReason,
+};
+
 const ProjectCacheClaimResult = union(enum) {
     hit,
-    owner: ProjectCacheEntryLock,
+    owner: ProjectCacheClaimOwner,
     authorization_rejected,
 };
 
@@ -6489,15 +6599,8 @@ fn projectCacheHitLocked(
     defer allocator.free(cached_artifact);
     const cached_output = try projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin");
     defer allocator.free(cached_output);
-    const cached_test_metadata = if (kind == .test_cache) try projectCacheTestMetadataPath(allocator, project_root, key) else null;
-    defer if (cached_test_metadata) |path| allocator.free(path);
-    if (!projectCacheArtifactExistsNonEmpty(cached_artifact) or
-        !projectCacheArtifactExistsNonEmpty(cached_output) or
-        (if (cached_test_metadata) |path| !projectCacheArtifactExistsNonEmpty(path) else false) or
-        !projectCacheManifestValid(allocator, project_root, kind, key, cached_artifact, cached_output))
-    {
-        return .miss;
-    }
+    const lookup_reason = projectCacheManifestLookupReason(allocator, project_root, kind, key, cached_artifact, cached_output);
+    if (lookup_reason != .hit) return .{ .miss = lookup_reason };
 
     // A cache manifest proves artifact identity, not that this request is
     // currently authorized to use it. Run package and permission checks only
@@ -6537,7 +6640,12 @@ fn projectCacheClaim(
         defer entry_lock.deinit();
         switch (try projectCacheHitLocked(allocator, project_root, kind, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
             .miss => {},
-            .hit => return .hit,
+            .hit => {
+                projectCacheTouchHitTelemetry(allocator, project_root, kind, key) catch |err| {
+                    _ = @errorName(err);
+                };
+                return .hit;
+            },
             .authorization_rejected => return .authorization_rejected,
         }
     }
@@ -6548,8 +6656,11 @@ fn projectCacheClaim(
         var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, kind, key, .shared);
         defer entry_lock.deinit();
         switch (try projectCacheHitLocked(allocator, project_root, kind, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
-            .miss => return .{ .owner = owner },
+            .miss => |reason| return .{ .owner = .{ .lock = owner, .miss_reason = reason } },
             .hit => {
+                projectCacheTouchHitTelemetry(allocator, project_root, kind, key) catch |err| {
+                    _ = @errorName(err);
+                };
                 owner.deinit();
                 return .hit;
             },
@@ -6617,6 +6728,70 @@ fn projectCacheStore(
 
 fn projectCacheTestMetadataPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
     return try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "test-metadata.json");
+}
+
+fn projectCacheHitMarkerPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", ".hits", kind.dirName(), key.slice() });
+}
+
+fn projectCacheStoreMarkerPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", ".stores", kind.dirName(), key.slice() });
+}
+
+fn projectCacheStoreEventMarkerPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", ".store-events", kind.dirName(), key.slice() });
+}
+
+fn projectCacheEvictionMarkerPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", ".evictions", kind.dirName(), key.slice() });
+}
+
+fn projectCacheTouchTelemetryMarker(allocator: std.mem.Allocator, marker_path: []const u8) !void {
+    _ = allocator;
+    try ensureParentDir(marker_path);
+    var file = try std.fs.cwd().createFile(marker_path, .{ .truncate = true });
+    defer file.close();
+    try file.sync();
+}
+
+fn projectCacheTouchHitTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+    const marker_path = try projectCacheHitMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(marker_path);
+    try projectCacheTouchTelemetryMarker(allocator, marker_path);
+}
+
+fn projectCacheTouchStoreTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+    const marker_path = try projectCacheStoreMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(marker_path);
+    try projectCacheTouchTelemetryMarker(allocator, marker_path);
+
+    const event_path = try projectCacheStoreEventMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(event_path);
+    try ensureParentDir(event_path);
+    var event_file = try std.fs.cwd().createFile(event_path, .{ .truncate = true });
+    defer event_file.close();
+    var writer = event_file.writer();
+    try writer.writeAll("{\"version\":1,\"result\":\"published\",\"kind\":");
+    try writeJsonString(writer, kind.dirName());
+    try writer.writeAll(",\"key_prefix\":");
+    try writeJsonString(writer, key.slice()[0..12]);
+    try writer.writeAll("}\n");
+    try event_file.sync();
+}
+
+fn projectCacheTouchEvictionTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+    const marker_path = try projectCacheEvictionMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(marker_path);
+    try projectCacheTouchTelemetryMarker(allocator, marker_path);
+}
+
+fn projectCacheClearEvictionTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+    const marker_path = try projectCacheEvictionMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(marker_path);
+    std.fs.cwd().deleteFile(marker_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
 }
 
 fn writeOptionalJsonString(writer: anytype, value: ?[]const u8) !void {
@@ -6715,7 +6890,15 @@ fn projectCacheStoreEntryLocked(
         }
     }
     switch (try publishProjectCacheEntry(kind, key, staging_dir, final_dir)) {
-        .published => staging_live = false,
+        .published => {
+            staging_live = false;
+            projectCacheClearEvictionTelemetry(allocator, project_root, kind, key) catch |err| {
+                _ = @errorName(err);
+            };
+            projectCacheTouchStoreTelemetry(allocator, project_root, kind, key) catch |err| {
+                _ = @errorName(err);
+            };
+        },
         .winner_exists => {},
     }
 }
@@ -6831,14 +7014,14 @@ fn parseProjectCacheTestMetadata(allocator: std.mem.Allocator, metadata_bytes: [
 }
 
 const ProjectCacheTestHitResult = union(enum) {
-    miss,
+    miss: ProjectCacheLookupReason,
     hit: test_meta.TestList,
     authorization_rejected,
 };
 
 const ProjectCacheTestClaimResult = union(enum) {
     hit: test_meta.TestList,
-    owner: ProjectCacheEntryLock,
+    owner: ProjectCacheClaimOwner,
     authorization_rejected,
 };
 
@@ -6854,12 +7037,12 @@ fn projectCacheTestHitLocked(
     diagnostics_mode: DiagnosticsMode,
 ) !ProjectCacheTestHitResult {
     switch (try projectCacheHitLocked(allocator, project_root, .test_cache, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
-        .miss => return .miss,
+        .miss => |reason| return .{ .miss = reason },
         .authorization_rejected => return .authorization_rejected,
         .hit => {
             const test_list = projectCacheReadTestMetadata(allocator, project_root, key) catch |err| switch (err) {
                 error.OutOfMemory => return err,
-                else => return .miss,
+                else => return .{ .miss = .artifact_corrupt },
             };
             return .{ .hit = test_list };
         },
@@ -6882,7 +7065,12 @@ fn projectCacheTestClaim(
         defer entry_lock.deinit();
         switch (try projectCacheTestHitLocked(allocator, project_root, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
             .miss => {},
-            .hit => |test_list| return .{ .hit = test_list },
+            .hit => |test_list| {
+                projectCacheTouchHitTelemetry(allocator, project_root, .test_cache, key) catch |err| {
+                    _ = @errorName(err);
+                };
+                return .{ .hit = test_list };
+            },
             .authorization_rejected => return .authorization_rejected,
         }
     }
@@ -6893,8 +7081,11 @@ fn projectCacheTestClaim(
         var entry_lock = try acquireProjectCacheEntryLock(allocator, project_root, .test_cache, key, .shared);
         defer entry_lock.deinit();
         switch (try projectCacheTestHitLocked(allocator, project_root, key, project_context, options, artifact_path, out_path, stderr, diagnostics_mode)) {
-            .miss => return .{ .owner = owner },
+            .miss => |reason| return .{ .owner = .{ .lock = owner, .miss_reason = reason } },
             .hit => |test_list| {
+                projectCacheTouchHitTelemetry(allocator, project_root, .test_cache, key) catch |err| {
+                    _ = @errorName(err);
+                };
                 owner.deinit();
                 return .{ .hit = test_list };
             },
@@ -6995,7 +7186,427 @@ fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir
     return true;
 }
 
+fn projectCacheKeyFromHex(text: []const u8) !ProjectCacheKey {
+    if (!isHexCacheKey(text)) return error.InvalidCacheKey;
+    var key = ProjectCacheKey{ .hex = undefined };
+    std.mem.copyForwards(u8, key.hex[0..], text);
+    return key;
+}
+
+fn cacheEntrySizeBytes(entry_dir: std.fs.Dir) !u64 {
+    var total: u64 = 0;
+    var iter_dir = entry_dir;
+    var iter = iter_dir.iterate();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .directory => {
+                var child = try iter_dir.openDir(entry.name, .{ .iterate = true });
+                defer child.close();
+                total += try cacheEntrySizeBytes(child);
+            },
+            else => {
+                const stat = iter_dir.statFile(entry.name) catch continue;
+                total += stat.size;
+            },
+        }
+    }
+    return total;
+}
+
+fn cacheEntrySizeBytesAt(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) u64 {
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return 0;
+    defer allocator.free(entry_path);
+    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return 0;
+    defer entry_dir.close();
+    return cacheEntrySizeBytes(entry_dir) catch 0;
+}
+
+fn projectCacheEntryMtimeNs(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?i128 {
+    const stat = projectCacheEntryStat(allocator, project_root, kind, key) orelse return null;
+    return stat.mtime;
+}
+
+fn projectCacheEntryLastHitNs(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?i128 {
+    const marker_path = projectCacheHitMarkerPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(marker_path);
+    const stat = std.fs.cwd().statFile(marker_path) catch return null;
+    if (stat.kind != .file) return null;
+    return stat.mtime;
+}
+
+fn projectCacheEntryLastStoreNs(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?i128 {
+    const marker_path = projectCacheStoreMarkerPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(marker_path);
+    const stat = std.fs.cwd().statFile(marker_path) catch return null;
+    if (stat.kind != .file) return null;
+    return stat.mtime;
+}
+
+fn projectCacheEntryLastStoreResult(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?[]const u8 {
+    const marker_path = projectCacheStoreEventMarkerPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(marker_path);
+    const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
+    defer allocator.free(bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return "unknown";
+    defer parsed.deinit();
+    const result = jsonString(jsonGetObject(parsed.value, "result") catch return "unknown") catch return "unknown";
+    if (std.mem.eql(u8, result, "published")) return "published";
+    return "unknown";
+}
+
+fn projectCacheEntryWasEvicted(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) bool {
+    const marker_path = projectCacheEvictionMarkerPath(allocator, project_root, kind, key) catch return false;
+    defer allocator.free(marker_path);
+    const stat = std.fs.cwd().statFile(marker_path) catch return false;
+    return stat.kind == .file;
+}
+
+fn projectCacheEntryStat(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?std.fs.File.Stat {
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(entry_path);
+    const stat = std.fs.cwd().statFile(entry_path) catch return null;
+    return stat;
+}
+
+fn projectCacheManifestPathForKind(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    return switch (kind) {
+        .build_obj_incremental => projectFunctionCacheManifestPath(allocator, project_root, key),
+        else => projectCacheManifestPath(allocator, project_root, kind, key),
+    };
+}
+
+fn projectCacheManifestStatusName(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, reason: ProjectCacheLookupReason) []const u8 {
+    const manifest_path = projectCacheManifestPathForKind(allocator, project_root, kind, key) catch return "unknown";
+    defer allocator.free(manifest_path);
+    const stat = std.fs.cwd().statFile(manifest_path) catch |err| switch (err) {
+        error.FileNotFound => return "missing",
+        else => return "unknown",
+    };
+    if (stat.kind != .file) return "invalid";
+    if (reason == .manifest_invalid) return "invalid";
+    return "valid";
+}
+
+fn projectCacheEntryLookupReasonAt(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+) ProjectCacheLookupReason {
+    if (kind == .build_obj_incremental) {
+        const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
+        defer allocator.free(entry_path);
+        var entry_dir = std.fs.cwd().openDir(entry_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => return if (projectCacheEntryWasEvicted(allocator, project_root, kind, key)) .evicted else .absent,
+            else => return .manifest_invalid,
+        };
+        defer entry_dir.close();
+        if (!cacheEntryComplete(kind, entry_dir)) return .incomplete;
+        return if (cacheEntryManifestValid(kind, key.slice(), entry_dir)) .hit else .manifest_invalid;
+    }
+
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
+    defer allocator.free(entry_path);
+    _ = std.fs.cwd().statFile(entry_path) catch |err| switch (err) {
+        error.FileNotFound => {
+            if (projectCacheEntryWasEvicted(allocator, project_root, kind, key)) return .evicted;
+        },
+        else => {},
+    };
+
+    {
+        var entry_dir = std.fs.cwd().openDir(entry_path, .{}) catch null;
+        if (entry_dir) |*dir| {
+            defer dir.close();
+            if (!cacheEntryComplete(kind, dir.*)) return .incomplete;
+        }
+    }
+
+    const cached_artifact = projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc") catch return .unknown;
+    defer allocator.free(cached_artifact);
+    const cached_output = projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin") catch return .unknown;
+    defer allocator.free(cached_output);
+    return projectCacheManifestLookupReason(allocator, project_root, kind, key, cached_artifact, cached_output);
+}
+
+fn projectCacheDynamicDependenciesFirstDifference(allocator: std.mem.Allocator, value: std.json.Value) ?[]const u8 {
+    const dependencies = switch (value) {
+        .array => |items| items.items,
+        else => return "dynamic_dependencies",
+    };
+    if (dependencies.len > 4096) return "dynamic_dependencies";
+
+    for (dependencies) |dependency| {
+        const object = switch (dependency) {
+            .object => |object| object,
+            else => return "dynamic_dependencies",
+        };
+        const kind = jsonString(object.get("kind") orelse return "dynamic_dependencies.kind") catch return "dynamic_dependencies.kind";
+        if (std.mem.eql(u8, kind, "environment")) {
+            const key = jsonString(object.get("key") orelse return "dynamic_dependencies.key") catch return "dynamic_dependencies.key";
+            if (key.len == 0 or key.len > 4096) return "dynamic_dependencies.key";
+            const expected_present = jsonBool(object.get("present") orelse return "dynamic_dependencies.present") catch return "dynamic_dependencies.present";
+            const current_value: ?[]u8 = std.process.getEnvVarOwned(allocator, key) catch |err| switch (err) {
+                error.EnvironmentVariableNotFound => null,
+                else => return "dynamic_dependencies.present",
+            };
+            defer if (current_value) |bytes| allocator.free(bytes);
+            if (expected_present != (current_value != null)) return "dynamic_dependencies.present";
+            if (current_value) |bytes| {
+                const sha_value = object.get("sha256") orelse return "dynamic_dependencies.sha256";
+                if (!(jsonSha256(sha_value) catch return "dynamic_dependencies.sha256")) return "dynamic_dependencies.sha256";
+                var digest: [32]u8 = undefined;
+                std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+                const digest_hex = std.fmt.bytesToHex(digest, .lower);
+                if (!jsonStringEquals(sha_value, digest_hex[0..])) return "dynamic_dependencies.sha256";
+            } else if (object.get("sha256") != null) {
+                return "dynamic_dependencies.sha256";
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, kind, "file")) {
+            const path = jsonString(object.get("path") orelse return "dynamic_dependencies.path") catch return "dynamic_dependencies.path";
+            if (path.len == 0 or path.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path)) return "dynamic_dependencies.path";
+            const stat = std.fs.cwd().statFile(path) catch return "dynamic_dependencies.path";
+            if (stat.kind != .file) return "dynamic_dependencies.path";
+            if (!jsonIntEquals(object.get("size") orelse return "dynamic_dependencies.size", stat.size)) return "dynamic_dependencies.size";
+            const sha_value = object.get("sha256") orelse return "dynamic_dependencies.sha256";
+            if (!(jsonSha256(sha_value) catch return "dynamic_dependencies.sha256")) return "dynamic_dependencies.sha256";
+            const digest_hex = hashFileHex(allocator, path) catch return "dynamic_dependencies.sha256";
+            if (!jsonStringEquals(sha_value, digest_hex[0..])) return "dynamic_dependencies.sha256";
+            continue;
+        }
+        return "dynamic_dependencies.kind";
+    }
+    return null;
+}
+
+fn projectCacheArtifactFirstDifference(
+    allocator: std.mem.Allocator,
+    artifact_value: std.json.Value,
+    path: []const u8,
+    file_field: []const u8,
+    size_field: []const u8,
+    sha_field: []const u8,
+) ?[]const u8 {
+    const stat = std.fs.cwd().statFile(path) catch return file_field;
+    if (stat.kind != .file or stat.size == 0) return file_field;
+    if (!jsonIntEquals(jsonGetObject(artifact_value, "size") catch return size_field, stat.size)) return size_field;
+    const sha_value = jsonGetObject(artifact_value, "sha256") catch return sha_field;
+    if (!(jsonSha256(sha_value) catch return sha_field)) return sha_field;
+    const hash_hex = hashFileHex(allocator, path) catch return sha_field;
+    if (!jsonStringEquals(sha_value, hash_hex[0..])) return sha_field;
+    return null;
+}
+
+fn projectCacheManifestFirstDifference(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+) ?[]const u8 {
+    if (kind == .build_obj_incremental) return null;
+
+    const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return "manifest.path";
+    defer allocator.free(manifest_path);
+    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return "manifest";
+    defer allocator.free(manifest_bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return "manifest.json";
+    defer parsed.deinit();
+
+    if (!jsonIntEquals(jsonGetObject(parsed.value, "version") catch return "manifest.version", 2)) return "manifest.version";
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "kind") catch return "manifest.kind", kind.dirName())) return "manifest.kind";
+    if (!jsonStringEquals(jsonGetObject(parsed.value, "key") catch return "manifest.key", key.slice())) return "manifest.key";
+    const dependencies = jsonGetObject(parsed.value, "dynamic_dependencies") catch return "dynamic_dependencies";
+    if (projectCacheDynamicDependenciesFirstDifference(allocator, dependencies)) |field| return field;
+
+    const cached_artifact = projectCacheArtifactPath(allocator, project_root, kind, key, "artifact.sa.bc") catch return "artifact.file";
+    defer allocator.free(cached_artifact);
+    const cached_output = projectCacheArtifactPath(allocator, project_root, kind, key, "output.bin") catch return "output.file";
+    defer allocator.free(cached_output);
+    if (projectCacheArtifactFirstDifference(allocator, jsonGetObject(parsed.value, "artifact") catch return "artifact", cached_artifact, "artifact.file", "artifact.size", "artifact.sha256")) |field| return field;
+    if (projectCacheArtifactFirstDifference(allocator, jsonGetObject(parsed.value, "output") catch return "output", cached_output, "output.file", "output.size", "output.sha256")) |field| return field;
+    if (kind == .test_cache) {
+        const metadata_path = projectCacheTestMetadataPath(allocator, project_root, key) catch return "test_metadata.file";
+        defer allocator.free(metadata_path);
+        if (projectCacheArtifactFirstDifference(allocator, jsonGetObject(parsed.value, "test_metadata") catch return "test_metadata", metadata_path, "test_metadata.file", "test_metadata.size", "test_metadata.sha256")) |field| return field;
+    }
+    return null;
+}
+
+const CacheStatusSummary = struct {
+    entries: usize = 0,
+    bytes: u64 = 0,
+};
+
+fn writeCacheStatusEntryJson(
+    writer: anytype,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    reason: ProjectCacheLookupReason,
+    manifest_status: []const u8,
+    bytes: u64,
+    mtime_ns: ?i128,
+    last_hit_ns: ?i128,
+    last_store_ns: ?i128,
+    last_store_result: ?[]const u8,
+    first_difference: ?[]const u8,
+) !void {
+    try writer.writeAll("{\"kind\":");
+    try writeJsonString(writer, kind.dirName());
+    try writer.writeAll(",\"key_prefix\":");
+    try writeJsonString(writer, key.slice()[0..12]);
+    try writer.writeAll(",\"reason\":");
+    try writeJsonString(writer, reason.jsonName());
+    try writer.writeAll(",\"manifest\":");
+    try writeJsonString(writer, manifest_status);
+    try writer.writeAll(",\"bytes\":");
+    try writer.print("{d}", .{bytes});
+    try writer.writeAll(",\"last_write_ns\":");
+    if (mtime_ns) |ns| {
+        try writer.print("{d}", .{ns});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"last_hit_ns\":");
+    if (last_hit_ns) |ns| {
+        try writer.print("{d}", .{ns});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"last_store_ns\":");
+    if (last_store_ns) |ns| {
+        try writer.print("{d}", .{ns});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"last_store_result\":");
+    if (last_store_result) |result| {
+        try writeJsonString(writer, result);
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"first_difference\":");
+    if (first_difference) |field| {
+        try writeJsonString(writer, field);
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeByte('}');
+}
+
+fn writeCacheStatusEntryText(
+    writer: anytype,
+    prefix: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    reason: ProjectCacheLookupReason,
+    manifest_status: []const u8,
+    bytes: u64,
+    mtime_ns: ?i128,
+    last_hit_ns: ?i128,
+    last_store_ns: ?i128,
+    last_store_result: ?[]const u8,
+    first_difference: ?[]const u8,
+) !void {
+    try writer.print("{s}: kind={s} key={s} reason={s} manifest={s} bytes={d}", .{ prefix, kind.dirName(), key.slice()[0..12], reason.jsonName(), manifest_status, bytes });
+    if (mtime_ns) |ns| {
+        try writer.print(" last_write_ns={d}", .{ns});
+    } else {
+        try writer.writeAll(" last_write_ns=null");
+    }
+    if (last_hit_ns) |ns| {
+        try writer.print(" last_hit_ns={d}", .{ns});
+    } else {
+        try writer.writeAll(" last_hit_ns=null");
+    }
+    if (last_store_ns) |ns| {
+        try writer.print(" last_store_ns={d}", .{ns});
+    } else {
+        try writer.writeAll(" last_store_ns=null");
+    }
+    if (last_store_result) |result| {
+        try writer.print(" last_store_result={s}", .{result});
+    } else {
+        try writer.writeAll(" last_store_result=null");
+    }
+    if (first_difference) |field| {
+        try writer.print(" first_difference={s}", .{field});
+    } else {
+        try writer.writeAll(" first_difference=null");
+    }
+    try writer.writeByte('\n');
+}
+
+fn writeCacheStatusEntry(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    max_age_days: u64,
+    json: bool,
+    prefix: []const u8,
+    writer: anytype,
+    json_first: *bool,
+    summary: *CacheStatusSummary,
+) !void {
+    var reason = projectCacheEntryLookupReasonAt(allocator, project_root, kind, key);
+    const stat = projectCacheEntryStat(allocator, project_root, kind, key);
+    if (reason == .hit and stat != null and cacheEntryExpired(stat.?, max_age_days)) {
+        reason = .expired;
+    }
+    const manifest_status = projectCacheManifestStatusName(allocator, project_root, kind, key, reason);
+    const bytes = cacheEntrySizeBytesAt(allocator, project_root, kind, key);
+    const mtime_ns = if (stat) |entry_stat| entry_stat.mtime else null;
+    const last_hit_ns = if (stat != null) projectCacheEntryLastHitNs(allocator, project_root, kind, key) else null;
+    const last_store_ns = if (stat != null) projectCacheEntryLastStoreNs(allocator, project_root, kind, key) else null;
+    const last_store_result = if (stat != null) projectCacheEntryLastStoreResult(allocator, project_root, kind, key) else null;
+    const first_difference = if (reason == .hit or reason == .expired or stat == null)
+        null
+    else
+        projectCacheManifestFirstDifference(allocator, project_root, kind, key);
+    summary.entries += 1;
+    summary.bytes += bytes;
+    if (json) {
+        if (!json_first.*) try writer.writeByte(',');
+        json_first.* = false;
+        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, first_difference);
+    } else {
+        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, first_difference);
+    }
+}
+
+fn writeCacheStatusKind(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    max_age_days: u64,
+    json: bool,
+    writer: anytype,
+    json_first: *bool,
+    summary: *CacheStatusSummary,
+) !void {
+    const kind_dir_path = try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName() });
+    defer allocator.free(kind_dir_path);
+    var kind_dir = std.fs.cwd().openDir(kind_dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        error.NotDir => return,
+        else => return err,
+    };
+    defer kind_dir.close();
+
+    var iter = kind_dir.iterate();
+    while (try iter.next()) |entry| {
+        if (std.mem.eql(u8, entry.name, ".locks")) continue;
+        if (entry.kind != .directory or !isHexCacheKey(entry.name)) continue;
+        const key = try projectCacheKeyFromHex(entry.name);
+        try writeCacheStatusEntry(allocator, project_root, kind, key, max_age_days, json, "cache entry", writer, json_first, summary);
+    }
+}
+
 fn cleanCacheKindDir(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
     root_dir: std.fs.Dir,
     kind: BuildCacheKind,
     options: CacheCleanOptions,
@@ -7049,10 +7660,17 @@ fn cleanCacheKindDir(
         if (remove) {
             stats.removed += 1;
             if (!options.dry_run) {
+                const evicted_key = if (entry.kind == .directory and isHexCacheKey(entry.name))
+                    try projectCacheKeyFromHex(entry.name)
+                else
+                    null;
                 if (entry.kind == .directory) {
                     try kind_dir.deleteTree(entry.name);
                 } else {
                     try kind_dir.deleteFile(entry.name);
+                }
+                if (evicted_key) |key| {
+                    try projectCacheTouchEvictionTelemetry(allocator, project_root, kind, key);
                 }
             }
         } else {
@@ -7075,18 +7693,152 @@ fn cleanProjectCache(allocator: std.mem.Allocator, project_root: []const u8, opt
     defer root_dir.close();
 
     var stats: CacheCleanStats = .{};
-    try cleanCacheKindDir(root_dir, .build_exe, options, &stats);
-    try cleanCacheKindDir(root_dir, .build_obj, options, &stats);
-    try cleanCacheKindDir(root_dir, .build_wasm, options, &stats);
-    try cleanCacheKindDir(root_dir, .build_obj_incremental, options, &stats);
-    try cleanCacheKindDir(root_dir, .test_cache, options, &stats);
+    try cleanCacheKindDir(allocator, project_root, root_dir, .build_exe, options, &stats);
+    try cleanCacheKindDir(allocator, project_root, root_dir, .build_obj, options, &stats);
+    try cleanCacheKindDir(allocator, project_root, root_dir, .build_wasm, options, &stats);
+    try cleanCacheKindDir(allocator, project_root, root_dir, .build_obj_incremental, options, &stats);
+    try cleanCacheKindDir(allocator, project_root, root_dir, .test_cache, options, &stats);
     return stats;
 }
 
-fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype) !u8 {
+const CacheStatusOptions = struct {
+    kind: ?BuildCacheKind = null,
+    key: ?ProjectCacheKey = null,
+    max_age_days: u64 = 0,
+    json: bool = false,
+};
+
+fn parseCacheStatusOptions(args: []const []const u8, require_key: bool) !CacheStatusOptions {
+    var options: CacheStatusOptions = .{};
+    var positional: usize = 0;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--json")) {
+            options.json = true;
+            continue;
+        }
+        if (std.mem.eql(u8, args[i], "--kind")) {
+            if (i + 1 >= args.len) return error.MissingArgument;
+            options.kind = parseBuildCacheKindName(args[i + 1]) orelse return error.InvalidCacheKind;
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, args[i], "--kind=")) {
+            options.kind = parseBuildCacheKindName(args[i]["--kind=".len..]) orelse return error.InvalidCacheKind;
+            continue;
+        }
+        if (std.mem.eql(u8, args[i], "--key")) {
+            if (i + 1 >= args.len) return error.MissingArgument;
+            options.key = try projectCacheKeyFromHex(args[i + 1]);
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, args[i], "--key=")) {
+            options.key = try projectCacheKeyFromHex(args[i]["--key=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, args[i], "--max-age-days")) {
+            if (i + 1 >= args.len) return error.MissingArgument;
+            options.max_age_days = try std.fmt.parseInt(u64, args[i + 1], 10);
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, args[i], "--max-age-days=")) {
+            options.max_age_days = try std.fmt.parseInt(u64, args[i]["--max-age-days=".len..], 10);
+            continue;
+        }
+        if (args[i].len != 0 and args[i][0] != '-') {
+            if (require_key and positional == 0) {
+                options.kind = parseBuildCacheKindName(args[i]) orelse return error.InvalidCacheKind;
+                positional += 1;
+                continue;
+            }
+            if (require_key and positional == 1) {
+                options.key = try projectCacheKeyFromHex(args[i]);
+                positional += 1;
+                continue;
+            }
+        }
+        return error.UnexpectedArgument;
+    }
+    if (require_key) {
+        if (options.kind == null) return error.MissingCacheKind;
+        if (options.key == null) return error.MissingCacheKey;
+    }
+    return options;
+}
+
+fn executeCacheStatusCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, json_mode: bool) !u8 {
+    var options = try parseCacheStatusOptions(args, false);
+    if (json_mode) options.json = true;
+    const project_root = try projectRootDir(allocator);
+    defer allocator.free(project_root);
+
+    var summary: CacheStatusSummary = .{};
+    var json_first = true;
+    if (options.json) {
+        try stdout.writeAll("{\"status\":\"ok\",\"entries\":[");
+    } else {
+        try stdout.writeAll("cache status: root=.sa_cache\n");
+    }
+
+    if (options.kind) |kind| {
+        try writeCacheStatusKind(allocator, project_root, kind, options.max_age_days, options.json, stdout, &json_first, &summary);
+    } else {
+        for (build_cache_kinds) |kind| {
+            try writeCacheStatusKind(allocator, project_root, kind, options.max_age_days, options.json, stdout, &json_first, &summary);
+        }
+    }
+
+    if (options.json) {
+        try stdout.writeAll("],\"summary\":{\"entries\":");
+        try stdout.print("{d}", .{summary.entries});
+        try stdout.writeAll(",\"bytes\":");
+        try stdout.print("{d}", .{summary.bytes});
+        try stdout.writeAll("}}\n");
+    } else {
+        try stdout.print("cache status summary: entries={d} bytes={d}\n", .{ summary.entries, summary.bytes });
+    }
+    return 0;
+}
+
+fn executeCacheWhyCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, json_mode: bool) !u8 {
+    var options = try parseCacheStatusOptions(args, true);
+    if (json_mode) options.json = true;
+    const project_root = try projectRootDir(allocator);
+    defer allocator.free(project_root);
+    var summary: CacheStatusSummary = .{};
+    var json_first = true;
+    if (options.json) {
+        try stdout.writeAll("{\"status\":\"ok\",\"entries\":[");
+    }
+    try writeCacheStatusEntry(allocator, project_root, options.kind.?, options.key.?, options.max_age_days, options.json, "cache why", stdout, &json_first, &summary);
+    if (options.json) {
+        try stdout.writeAll("],\"summary\":{\"entries\":1,\"bytes\":");
+        try stdout.print("{d}", .{summary.bytes});
+        try stdout.writeAll("}}\n");
+    }
+    return 0;
+}
+
+fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, json_mode: bool) !u8 {
     if (args.len == 0 or isHelpFlag(args[0])) {
         try printCacheHelp(stdout, args);
         return 0;
+    }
+    if (std.mem.eql(u8, args[0], "status")) {
+        if (args.len > 1 and isHelpFlag(args[1])) {
+            try printCacheHelp(stdout, args);
+            return 0;
+        }
+        return try executeCacheStatusCommand(allocator, args[1..], stdout, json_mode);
+    }
+    if (std.mem.eql(u8, args[0], "why")) {
+        if (args.len > 1 and isHelpFlag(args[1])) {
+            try printCacheHelp(stdout, args);
+            return 0;
+        }
+        return try executeCacheWhyCommand(allocator, args[1..], stdout, json_mode);
     }
     if (!std.mem.eql(u8, args[0], "clean")) return error.UnknownCommand;
 
@@ -8254,20 +9006,25 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var output_stage = try BuildOutputStage.init(allocator, out_path);
     defer output_stage.deinit(allocator);
     var cache_owner: ?ProjectCacheEntryLock = null;
+    var cache_miss_reason: ?ProjectCacheLookupReason = null;
     defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
         const claim: ?ProjectCacheClaimResult = projectCacheClaim(allocator, project_root, .build_exe, key, &project_context, compile_options, output_stage.artifact_path, output_stage.output_path, stderr, diagnostics_mode) catch |err| blk: {
             _ = @errorName(err);
+            cache_miss_reason = .lock_owner_failed;
             break :blk null;
         };
         if (claim) |result| switch (result) {
-            .owner => |owner| cache_owner = owner,
+            .owner => |owner| {
+                cache_miss_reason = owner.miss_reason;
+                cache_owner = owner.lock;
+            },
             .authorization_rejected => return 1,
             .hit => {
                 try output_stage.publish(allocator, artifact_path, out_path, true, true);
                 if (diagnostics_mode == .json or compile_options.mem_report) {
-                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true, .reason = ProjectCacheLookupReason.hit.jsonName() } };
                     try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
                 }
                 return 0;
@@ -8295,7 +9052,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             };
             const emission_workers = @max(@min(worker_count, 4), 1);
             const use_cgu = (compile_options.jobs_explicit and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
-            if (use_cgu or !owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
+            if (use_cgu or !owned.flat.dynamic_dependencies_cacheable) {
+                cache_miss_reason = .bypassed_untrusted;
+                releaseProjectCacheOwner(&cache_owner);
+            }
 
             if (use_cgu) {
                 const cgu_count = @min(@max(emission_workers, 2), 4);
@@ -8473,7 +9233,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 try output_stage.publish(allocator, artifact_path, out_path, true, true);
             }
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
+            if (cache_key != null) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false, .reason = projectCacheLookupReasonName(cache_miss_reason) };
+            } else if (!compile_options.incremental_cache) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false, .reason = ProjectCacheLookupReason.disabled.jsonName() };
+            }
 
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
@@ -8497,20 +9261,25 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var output_stage = try BuildOutputStage.init(allocator, out_path);
     defer output_stage.deinit(allocator);
     var cache_owner: ?ProjectCacheEntryLock = null;
+    var cache_miss_reason: ?ProjectCacheLookupReason = null;
     defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
         const claim: ?ProjectCacheClaimResult = projectCacheClaim(allocator, project_root, .build_obj, key, &project_context, compile_options, output_stage.artifact_path, output_stage.output_path, stderr, diagnostics_mode) catch |err| blk: {
             _ = @errorName(err);
+            cache_miss_reason = .lock_owner_failed;
             break :blk null;
         };
         if (claim) |result| switch (result) {
-            .owner => |owner| cache_owner = owner,
+            .owner => |owner| {
+                cache_miss_reason = owner.miss_reason;
+                cache_owner = owner.lock;
+            },
             .authorization_rejected => return 1,
             .hit => {
                 try output_stage.publish(allocator, artifact_path, out_path, true, false);
                 if (diagnostics_mode == .json or compile_options.mem_report) {
-                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true, .reason = ProjectCacheLookupReason.hit.jsonName() } };
                     try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
                 }
                 return 0;
@@ -8527,7 +9296,10 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            if (!owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
+            if (!owned.flat.dynamic_dependencies_cacheable) {
+                cache_miss_reason = .bypassed_untrusted;
+                releaseProjectCacheOwner(&cache_owner);
+            }
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(output_stage.artifact_path);
@@ -8557,7 +9329,11 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 }
             }
             try output_stage.publish(allocator, artifact_path, out_path, true, false);
-            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false };
+            if (cache_key != null) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false, .reason = projectCacheLookupReasonName(cache_miss_reason) };
+            } else if (!compile_options.incremental_cache) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false, .reason = ProjectCacheLookupReason.disabled.jsonName() };
+            }
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
         },
@@ -8580,20 +9356,25 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var output_stage = try BuildOutputStage.init(allocator, out_path);
     defer output_stage.deinit(allocator);
     var cache_owner: ?ProjectCacheEntryLock = null;
+    var cache_miss_reason: ?ProjectCacheLookupReason = null;
     defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
         const claim: ?ProjectCacheClaimResult = projectCacheClaim(allocator, project_root, .build_wasm, key, &project_context, compile_options, output_stage.artifact_path, output_stage.output_path, stderr, diagnostics_mode) catch |err| blk: {
             _ = @errorName(err);
+            cache_miss_reason = .lock_owner_failed;
             break :blk null;
         };
         if (claim) |result| switch (result) {
-            .owner => |owner| cache_owner = owner,
+            .owner => |owner| {
+                cache_miss_reason = owner.miss_reason;
+                cache_owner = owner.lock;
+            },
             .authorization_rejected => return 1,
             .hit => {
                 try output_stage.publish(allocator, artifact_path, out_path, true, false);
                 if (diagnostics_mode == .json or compile_options.mem_report) {
-                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
+                    const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true, .reason = ProjectCacheLookupReason.hit.jsonName() } };
                     try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
                 }
                 return 0;
@@ -8610,7 +9391,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            if (!owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
+            if (!owned.flat.dynamic_dependencies_cacheable) {
+                cache_miss_reason = .bypassed_untrusted;
+                releaseProjectCacheOwner(&cache_owner);
+            }
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(output_stage.artifact_path);
@@ -8641,7 +9425,11 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
                 }
             }
             try output_stage.publish(allocator, artifact_path, out_path, true, false);
-            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
+            if (cache_key != null) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false, .reason = projectCacheLookupReasonName(cache_miss_reason) };
+            } else if (!compile_options.incremental_cache) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false, .reason = ProjectCacheLookupReason.disabled.jsonName() };
+            }
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
         },
@@ -9446,22 +10234,29 @@ fn executeTestInner(
     defer if (project_root_owned) allocator.free(project_root);
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
+    const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
         try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
     else
         null;
     var cache_owner: ?ProjectCacheEntryLock = null;
+    var cache_miss_reason: ?ProjectCacheLookupReason = null;
     defer releaseProjectCacheOwner(&cache_owner);
 
     if (cache_key) |key| {
         const claim: ?ProjectCacheTestClaimResult = projectCacheTestClaim(allocator, project_root, key, &project_context, compile_options, artifact_full_path, exe_full_path, stderr, diagnostics_mode) catch |err| blk: {
             _ = @errorName(err);
+            cache_miss_reason = .lock_owner_failed;
             break :blk null;
         };
         if (claim) |result| switch (result) {
             .owner => |owner| {
-                cache_owner = owner;
-                if (test_options.list or hasExplicitTestSelection(test_options.selection)) releaseProjectCacheOwner(&cache_owner);
+                cache_miss_reason = owner.miss_reason;
+                cache_owner = owner.lock;
+                if (test_options.list or hasExplicitTestSelection(test_options.selection)) {
+                    cache_miss_reason = .selection_changed;
+                    releaseProjectCacheOwner(&cache_owner);
+                }
             },
             .authorization_rejected => return 1,
             .hit => |hit_test_list| {
@@ -9477,6 +10272,10 @@ fn executeTestInner(
                 }
                 if (test_options.compile_only) {
                     defer cached_test_list.deinit(allocator);
+                    if (diagnostics_mode == .json or compile_options.mem_report) {
+                        const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (test_total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = true, .reason = ProjectCacheLookupReason.hit.jsonName() } };
+                        try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
+                    }
                     try stdout.print(
                         "compiled {d} selected tests ({d} discovered)\n",
                         .{
@@ -9486,7 +10285,8 @@ fn executeTestInner(
                     );
                     return 0;
                 }
-                return try test_runner.run(
+                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (test_total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = true, .reason = ProjectCacheLookupReason.hit.jsonName() } };
+                const run_code = try test_runner.run(
                     allocator,
                     exe_full_path,
                     tmp.dir,
@@ -9497,11 +10297,14 @@ fn executeTestInner(
                     stdout.any(),
                     stderr.any(),
                 );
+                if (run_code == 0 and (diagnostics_mode == .json or compile_options.mem_report)) {
+                    try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
+                }
+                return run_code;
             },
         };
     }
 
-    const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
     var effective_compile_options = compile_options;
     var sab_selected_test_list: ?test_meta.TestList = null;
     defer if (sab_selected_test_list) |*list| list.deinit(allocator);
@@ -9525,7 +10328,10 @@ fn executeTestInner(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
-            if (!owned.flat.dynamic_dependencies_cacheable) releaseProjectCacheOwner(&cache_owner);
+            if (!owned.flat.dynamic_dependencies_cacheable) {
+                cache_miss_reason = .bypassed_untrusted;
+                releaseProjectCacheOwner(&cache_owner);
+            }
 
             var compiled_test_list: ?test_meta.TestList = null;
             defer if (compiled_test_list) |*list| list.deinit(allocator);
@@ -9551,7 +10357,10 @@ fn executeTestInner(
                 owned_link_inputs.deinit();
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
-            if (link_inputs.items.len != 0) releaseProjectCacheOwner(&cache_owner);
+            if (link_inputs.items.len != 0) {
+                cache_miss_reason = .bypassed_untrusted;
+                releaseProjectCacheOwner(&cache_owner);
+            }
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
@@ -9561,7 +10370,7 @@ fn executeTestInner(
 
             const fast_sab_compile_only = test_options.compile_only and std.mem.endsWith(u8, source_path, ".sab") and has_explicit_test_selection;
             if (fast_sab_compile_only) {
-                if (compile_options.profile) {
+                if (compile_options.profile and diagnostics_mode == .human) {
                     try stderr.print(
                         "profile test compile={d:.3}ms emit={d:.3}ms link=0.000ms total={d:.3}ms\n",
                         .{
@@ -9587,7 +10396,8 @@ fn executeTestInner(
                 else => return err,
             };
             const link_ns = if (link_start) |start| elapsedNs(start) else null;
-            if (compile_options.profile) {
+            finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (test_total_start) |start| elapsedNs(start) else null);
+            if (compile_options.profile and diagnostics_mode == .human) {
                 try stderr.print(
                     "profile test compile={d:.3}ms emit={d:.3}ms link={d:.3}ms total={d:.3}ms\n",
                     .{
@@ -9608,7 +10418,14 @@ fn executeTestInner(
                 }
             }
 
+            if (cache_key != null) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = false, .reason = projectCacheLookupReasonName(cache_miss_reason) };
+            } else if (!compile_options.incremental_cache) {
+                owned.metrics.cache = .{ .kind = BuildCacheKind.test_cache.dirName(), .hit = false, .reason = ProjectCacheLookupReason.disabled.jsonName() };
+            }
+
             if (test_options.compile_only) {
+                try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
                 try stdout.print(
                     "compiled {d} selected tests ({d} discovered)\n",
                     .{
@@ -9622,7 +10439,7 @@ fn executeTestInner(
             if (sab_selected_test_list) |list| {
                 var run_list = list;
                 sab_selected_test_list = null;
-                return try test_runner.run(
+                const run_code = try test_runner.run(
                     allocator,
                     exe_full_path,
                     tmp.dir,
@@ -9633,10 +10450,14 @@ fn executeTestInner(
                     stdout.any(),
                     stderr.any(),
                 );
+                if (run_code == 0 and (diagnostics_mode == .json or compile_options.mem_report)) {
+                    try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+                }
+                return run_code;
             } else {
                 var run_list = compiled_test_list.?;
                 compiled_test_list = null;
-                return try test_runner.run(
+                const run_code = try test_runner.run(
                     allocator,
                     exe_full_path,
                     tmp.dir,
@@ -9647,6 +10468,10 @@ fn executeTestInner(
                     stdout.any(),
                     stderr.any(),
                 );
+                if (run_code == 0 and (diagnostics_mode == .json or compile_options.mem_report)) {
+                    try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+                }
+                return run_code;
             }
         },
     }
@@ -9719,7 +10544,7 @@ pub fn executeWithWritersAndOptions(
             if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
             return error.UnknownCommand;
         },
-        .cache => return try executeCacheCommand(allocator, args[2..], stdout),
+        .cache => return try executeCacheCommand(allocator, args[2..], stdout, json_mode),
         .audit => return error.UnknownCommand,
         .check => {
             return try executeCheck(allocator, args[2..], stdout, stderr, json_mode, exec_options);

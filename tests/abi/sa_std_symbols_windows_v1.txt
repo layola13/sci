@@ -1,0 +1,15 @@
+# Additional managed exports emitted by the Windows artifact through portable
+# unsupported/runtime-helper modules.
+sa_netx_broadcast
+sa_netx_close_slot
+sa_netx_init
+sa_netx_listen
+sa_netx_push_outbound
+sa_netx_recv_ticket
+sa_netx_shutdown
+sa_std_url_parse
+sa_std_ws_accept_key
+sa_std_ws_frame_build
+sa_std_ws_frame_build_unmasked
+sa_std_ws_frame_parse
+sa_std_ws_unmask

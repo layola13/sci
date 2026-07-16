@@ -1,6 +1,6 @@
 # Current Plan
 
-Date: 2026-07-15
+Date: 2026-07-16
 
 ## Active objective: implement the compiler performance plan
 
@@ -35,29 +35,48 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] index function body ranges once and process every reachable function body at most once;
    - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;
    - [x] pass focused direct-closure/function-reference/unknown-call tests `3/3`;
-   - [ ] finish recursion and both LLVM emit-path differential tests before shared-engine completion.
-5. [ ] **Partial — extend the verified Referee delta checkpoint (P1.2):**
+   - [x] finish recursion and both LLVM emit-path differential tests before shared-engine completion: `focused test prune` now passes `6/6`, including self-recursive root single-scan and real `emitLlvmc`/`emitLlvmcToArtifacts` bitcode pruning gates;
+   - [ ] build the shared cross-consumer ReachabilityEngine with edge provenance for full, focused, CGU, SAB, and affected-test consumers.
+5. [ ] **Partial — P0.6 cache explanation surface:**
+   - [x] add stable `cache.reason` to success metrics without removing existing `cache.kind`/`cache.hit`;
+   - [x] report `hit`, `absent`, `dependency_changed`, `manifest_invalid`, `artifact_corrupt`, `incomplete`, and fallback `unknown` from build-exe/build-obj/build-wasm artifact-cache lookup paths;
+   - [x] pass focused project-cache smoke coverage `4/4`, including cold miss, warm hit, INCLUDE_STR dependency flip, OPTION_ENV absent-to-present, artifact corruption, and manifest-invalid repair;
+   - [x] add read-only `sa cache status` and `sa cache why` text/JSON inspection for project-local entries, showing kind, key prefix, reason, manifest status, bytes, and last-write mtime without source/package-secret disclosure; focused cache smoke now passes `10/10`;
+   - [x] report `cache.reason="disabled"` with `hit=false` for `--no-incremental` build-exe/build-obj/build-wasm project artifact cache disablement; focused cache smoke still passes `10/10`;
+   - [x] explain otherwise reusable `sa cache status/why --max-age-days <n>` entries as `expired` without changing build lookup semantics; focused cache smoke still passes `10/10`;
+   - [x] record source-free recent-hit telemetry in `.sa_cache/.hits/<kind>/<key>` and show `last_hit_ns` in `sa cache status/why` without mutating entry manifest/write mtime; focused cache smoke still passes `10/10`;
+   - [x] show redacted field-level `first_difference` for existing invalid/incomplete/corrupt entries in `sa cache status/why` without exposing env names, paths, hashes, source, or full keys; focused cache smoke still passes `10/10`;
+   - [x] record source-free recent-store telemetry in `.sa_cache/.stores/<kind>/<key>` after successful entry publication and show `last_store_ns` in `sa cache status/why` without mutating entry manifest/write mtime; focused cache smoke still passes `10/10`;
+   - [x] record source-free successful store-event telemetry in `.sa_cache/.store-events/<kind>/<key>` and show `last_store_result="published"` in `sa cache status/why` without mutating entry manifest/write mtime; focused cache smoke still passes `12/12`;
+   - [x] expose `cache.kind="test"`, `cache.hit`, and `cache.reason` for `sa test --compile-only --json` cold miss and warm hit paths; focused cache smoke still passes `10/10`;
+   - [x] expose `cache.kind="test"`, `cache.hit`, and `cache.reason` for successful ordinary `sa test --json` cold miss and warm hit paths after the test runner exits successfully; focused cache smoke still passes `10/10` and fresh Debug `sa-cli` build passes `5/5`;
+   - [x] report `cache.reason="selection_changed"` for cold `sa test --compile-only --json --filter ...` paths that intentionally avoid publishing a selected artifact as the full test cache; focused cache smoke still passes `10/10`;
+   - [x] report `cache.reason="bypassed_untrusted"` for build-exe CGU artifact paths, non-cacheable dynamic-dependency build-exe paths, and `sa test --json` plugin link-input paths that intentionally do not publish project cache entries; focused cache smoke now passes `12/12`;
+   - [x] report `reason="evicted"` from `sa cache why --json` for real 64-hex project-cache entries removed by `sa cache clean`, using source-free `.sa_cache/.evictions/<kind>/<key>` markers; focused cache smoke still passes `10/10`;
+   - [x] report `cache.reason="lock_owner_failed"` when project-cache claim/owner locking fails and the command falls back to ordinary compilation; focused cache smoke still passes `10/10` and fresh Debug `sa-cli` build passes `5/5`;
+   - [ ] finish true candidate old-entry key first-difference reporting, richer write-event audit telemetry beyond successful-publish result, remaining test-cache surfaces such as list/affected behavior, redaction review, and broader cross-process/cross-platform coverage.
+6. [ ] **Partial — extend the verified Referee delta checkpoint (P1.2):**
    - [x] reuse `state_before`/change scratch and perform one ordered diff scan;
    - [x] pass focused/all 63 Referee tests and the 128-register allocation fixture (`434 -> 307` allocations, `175,722 -> 143,978` requested bytes);
    - [ ] introduce `StateWriter` + dirty epoch/list so executable instructions no longer copy the whole state;
    - [ ] keep seed/reset/label restore non-recording and dual-check old/new deltas during migration.
-6. [ ] Close the remaining artifact-key boundary:
+7. [ ] Close the remaining artifact-key boundary:
    - [x] key native `build-exe`/`test` on canonical runtime archive path, size, and SHA-256 under namespace v3;
    - [x] pass an isolated same-path/same-size archive content-flip key test `1/1`;
    - [x] include LLVM version, target triple, generic CPU policy, backend pipeline, and partial-link policy through backend ABI v11 in artifact key v3 and function key v8;
    - [ ] add exact linker/`zig cc`/`objcopy` executable, version, and build identity plus ordered plugin/export/rpath/link flags, target CPU/features policy, corruption, and authorization inputs/tests.
-7. [ ] Continue the combined-worktree gates without turning focused evidence into a full-suite claim:
+8. [ ] Continue the combined-worktree gates without turning focused evidence into a full-suite claim:
    - [x] pass a fresh `/opt/zig/zig build -Doptimize=Debug -j1` for the final v11 snapshot;
    - [x] pass incremental CLI `10/10`, `DT_UNKNOWN` and non-cacheable safety `1/1 + 1/1`, split-module emitter `2/2`, local owned-pointer delta `1/1`, and anonymous-name collision `1/1`;
    - [ ] finish the remaining artifact authorization, affected-selection, Referee, and cross-consumer reachability closures;
    - [x] `git diff --check`;
    - [x] focused format check for the related compiler/test files;
    - [ ] obtain a clean full `/opt/zig/zig fmt --check src tests` result; no full-tree format pass is claimed. The stopped full emitter run (`83/119`) and incomplete `llvmc-test` are not passes.
-8. [ ] Continue the Phase 0 gaps in dependency order: P0.1 metrics, remaining P0.2 snapshot/source-map/differential/pressure work, remaining P0.3/P0.4/P0.5, P0.6 explainable cache miss, P0.7 formal baseline, then P0.8 backend profile.
-9. [ ] Continue Phase 1 only behind the Phase 0 gates: P1.1 SAB lazy body decode, finish P1.2 journal, P1.3 result-region merge, and P1.4 weighted physical-core-aware scheduling.
-10. [ ] Continue Phase 2 only after integrity/key gates: build a reusable ModuleIndex so each function miss no longer scans the full verified stream or rebuilds the complete declaration table; then design and prove an artifact-contract-preserving direct-object or bitcode-composition path before removing the extra whole-module bitcode emit; finally measure disabled/cold/hit P50/P95/RSS on at least 100 functions.
+9. [ ] Continue the Phase 0 gaps in dependency order: P0.1 metrics, remaining P0.2 snapshot/source-map/differential/pressure work, remaining P0.3/P0.4/P0.5, remaining P0.6 candidate-diff/cache telemetry explanation, P0.7 formal baseline, then P0.8 backend profile.
+10. [ ] Continue Phase 1 only behind the Phase 0 gates: P1.1 SAB lazy body decode, finish P1.2 journal, P1.3 result-region merge, and P1.4 weighted physical-core-aware scheduling.
+11. [ ] Continue Phase 2 only after integrity/key gates: build a reusable ModuleIndex so each function miss no longer scans the full verified stream or rebuilds the complete declaration table; then design and prove an artifact-contract-preserving direct-object or bitcode-composition path before removing the extra whole-module bitcode emit; finally measure disabled/cold/hit P50/P95/RSS on at least 100 functions.
 
-Status boundary: Phase -1/P0 containment, the focused P0.2 verdict-only checkpoint, and the focused incremental-object integrity checkpoint are landed, but full P0.2, P0.3, Phase 0, Phase 1, and Phase 2 are not complete. The current P0.2 cache is process-local, success-only, and restricted to verdict-only `check`; compile/emit and any consumer needing annotations/delta/gas/symbols/signatures/source maps still run Referee. A cold miss remains approximately `O(F·I + F²)`, with per-miss verified-stream scans, a complete declaration table, and a final whole-module bitcode emit. Key v8 is not complete alpha-normalization, and the tested `DT_UNKNOWN` symlink rejection is not TOCTOU-hard path authorization. Linux requires PATH-resolved `objcopy`; macOS/Windows localization remains natively unverified. Failure injection, crash recovery, cross-process/cross-platform behavior, complete tool identity keying, ModuleIndex, formal performance measurements, failed-publication repair, remaining corruption cases, owned VerifySnapshot/source-map rebind, full field differential, and cross-consumer gates remain. The current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
+Status boundary: Phase -1/P0 containment, the focused P0.2 verdict-only checkpoint, the focused incremental-object integrity checkpoint, the focused LLVM P0.5 queue checkpoint, and the first P0.6 artifact-cache JSON/status/why/test-cache explanation layer are landed, but full P0.2, P0.3, P0.5 shared reachability, full P0.6 cache explanation, Phase 0, Phase 1, and Phase 2 are not complete. The current P0.2 cache is process-local, success-only, and restricted to verdict-only `check`; compile/emit and any consumer needing annotations/delta/gas/symbols/signatures/source maps still run Referee. A cold miss remains approximately `O(F·I + F²)`, with per-miss verified-stream scans, a complete declaration table, and a final whole-module bitcode emit. Key v8 is not complete alpha-normalization, and the tested `DT_UNKNOWN` symlink rejection is not TOCTOU-hard path authorization. Linux requires PATH-resolved `objcopy`; macOS/Windows localization remains natively unverified. P0.6 still lacks true candidate old-entry key first-difference reporting, richer write-event audit telemetry beyond successful-publish result, remaining test-cache surfaces such as list/affected behavior, and full redaction/cross-platform coverage; the current `first_difference` is only field-level validation detail for existing entries, the current `last_store_result` only records successful publish markers without writer identity or failed attempts, the current `selection_changed` evidence is limited to cold filtered test compile-only, the current ordinary test-cache metrics evidence is limited to successful cold/warm `sa test --json` after the runner exits, the current `bypassed_untrusted` focused evidence covers build-exe CGU artifact paths, a test-hooked non-cacheable dynamic-dependency build-exe path, and Linux test plugin link inputs, the current `evicted` evidence is limited to entries removed by `sa cache clean`, the current `lock_owner_failed` evidence is limited to deterministic project-cache lock-path failure, and the current `expired` reason is only a status/why age-policy explanation for otherwise reusable entries. Failure injection, crash recovery, cross-process/cross-platform behavior, complete tool identity keying, ModuleIndex, formal performance measurements, failed-publication repair, remaining corruption cases, owned VerifySnapshot/source-map rebind, full field differential, and cross-consumer gates remain. The current Referee improvement is a partial P1.2 checkpoint, not a complete mutation journal.
 
 ## Active objective: macOS / Windows portability
 

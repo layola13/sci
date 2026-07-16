@@ -141,6 +141,15 @@ fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
     return owned;
 }
 
+fn palFileForOsTag(os_tag: std.Target.Os.Tag) ?[]const u8 {
+    return switch (os_tag) {
+        .linux => "src/runtime/pal_linux.zig",
+        .macos => "src/runtime/pal_macos.zig",
+        .windows => "src/runtime/pal_windows.zig",
+        else => null,
+    };
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const release_safe = b.option(bool, "release-safe", "Build all artifacts with ReleaseSafe optimization.") orelse false;
@@ -272,6 +281,45 @@ pub fn build(b: *std.Build) void {
     } else {
         const fail = b.addFail("test-runtime-basic requires a native Linux, macOS, or Windows host and target");
         test_runtime_basic_step.dependOn(&fail.step);
+    }
+
+    const runtime_pal_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/pal.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const runtime_pal_test = b.addTest(.{
+        .root_module = runtime_pal_module,
+    });
+    const run_runtime_pal_test = b.addRunArtifact(runtime_pal_test);
+    run_runtime_pal_test.setCwd(repo_root_lazy);
+    const test_runtime_pal_step = b.step("test-runtime-pal", "Run the native PAL selector and event loop backend contract");
+    if (runtime_target_is_native and runtime_basic_os_supported) {
+        test_runtime_pal_step.dependOn(&run_runtime_pal_test.step);
+    } else {
+        const fail = b.addFail("test-runtime-pal requires a native Linux, macOS, or Windows host and target");
+        test_runtime_pal_step.dependOn(&fail.step);
+    }
+
+    const runtime_netx_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_netx.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    if (target.result.os.tag == .windows) runtime_netx_module.linkSystemLibrary("ws2_32", .{});
+    const runtime_netx_test = b.addTest(.{
+        .root_module = runtime_netx_module,
+    });
+    const run_runtime_netx_test = b.addRunArtifact(runtime_netx_test);
+    run_runtime_netx_test.setCwd(repo_root_lazy);
+    const test_runtime_netx_step = b.step("test-runtime-netx", "Run the native NetX reactor runtime contract");
+    if (runtime_target_is_native and runtime_basic_os_supported) {
+        test_runtime_netx_step.dependOn(&run_runtime_netx_test.step);
+    } else {
+        const fail = b.addFail("test-runtime-netx requires a native Linux, macOS, or Windows host and target");
+        test_runtime_netx_step.dependOn(&fail.step);
     }
 
     const runtime_darwin_contract_module = b.createModule(.{
@@ -509,6 +557,7 @@ pub fn build(b: *std.Build) void {
     const abi_common_baseline = b.path("tests/abi/sa_std_symbols_v1.txt");
     const abi_thread_baseline = b.path("tests/abi/sa_std_symbols_thread_v1.txt");
     const abi_posix_baseline = b.path("tests/abi/sa_std_symbols_posix_v1.txt");
+    const abi_windows_baseline = b.path("tests/abi/sa_std_symbols_windows_v1.txt");
     const check_linux_static = b.addRunArtifact(abi_checker);
     check_linux_static.addArgs(&.{ abi_nm, "archive" });
     check_linux_static.addFileArg(abi_linux_static.getEmittedBin());
@@ -527,6 +576,7 @@ pub fn build(b: *std.Build) void {
     check_windows_shared.addFileArg(abi_windows_shared.getEmittedImplib());
     check_windows_shared.addFileArg(abi_common_baseline);
     check_windows_shared.addFileArg(abi_thread_baseline);
+    check_windows_shared.addFileArg(abi_windows_baseline);
 
     const sa_std_artifact_abi_step = b.step("sa-std-artifact-abi", "Check Linux ELF/archive and Windows COFF sa_std exports");
     sa_std_artifact_abi_step.dependOn(&check_linux_static.step);
@@ -609,6 +659,34 @@ pub fn build(b: *std.Build) void {
         runtime_typecheck.setCwd(repo_root_lazy);
         portable_runtime_typecheck.dependOn(&runtime_typecheck.step);
 
+        const netx_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "test",
+            "-target",
+            portable_runtime_target,
+            "-fno-emit-bin",
+            "-lc",
+            "src/runtime/sa_netx.zig",
+        });
+        netx_typecheck.setCwd(repo_root_lazy);
+        portable_runtime_typecheck.dependOn(&netx_typecheck.step);
+
+        const netx_backend_source = if (std.mem.indexOf(u8, portable_runtime_target, "macos") != null)
+            "src/runtime/sa_netx_macos.zig"
+        else
+            "src/runtime/sa_netx_windows.zig";
+        const netx_backend_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "test",
+            "-target",
+            portable_runtime_target,
+            "-fno-emit-bin",
+            "-lc",
+            netx_backend_source,
+        });
+        netx_backend_typecheck.setCwd(repo_root_lazy);
+        portable_runtime_typecheck.dependOn(&netx_backend_typecheck.step);
+
         for ([_][]const u8{ "runtime_basic_contract", "runtime_contract_fixture" }) |contract_source_name| {
             const contract_typecheck = b.addSystemCommand(&.{
                 b.graph.zig_exe,
@@ -629,6 +707,53 @@ pub fn build(b: *std.Build) void {
             portable_runtime_typecheck.dependOn(&contract_typecheck.step);
         }
     }
+
+    const pal_typecheck_step = b.step("pal-typecheck", "Type-check the PAL selector and selected platform backends");
+    for ([_]struct {
+        triple: []const u8,
+        file: []const u8,
+    }{
+        .{ .triple = "x86_64-linux-gnu", .file = palFileForOsTag(.linux).? },
+        .{ .triple = "x86_64-macos", .file = palFileForOsTag(.macos).? },
+        .{ .triple = "aarch64-macos", .file = palFileForOsTag(.macos).? },
+        .{ .triple = "x86_64-windows-gnu", .file = palFileForOsTag(.windows).? },
+        .{ .triple = "aarch64-windows-gnu", .file = palFileForOsTag(.windows).? },
+    }) |pal_target| {
+        const pal_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "test",
+            "-target",
+            pal_target.triple,
+            "-fno-emit-bin",
+            "-lc",
+            pal_target.file,
+        });
+        pal_typecheck.setCwd(repo_root_lazy);
+        pal_typecheck_step.dependOn(&pal_typecheck.step);
+
+        const pal_selector_typecheck = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "test",
+            "-target",
+            pal_target.triple,
+            "-fno-emit-bin",
+            "-lc",
+            "src/runtime/pal.zig",
+        });
+        pal_selector_typecheck.setCwd(repo_root_lazy);
+        pal_typecheck_step.dependOn(&pal_selector_typecheck.step);
+    }
+
+    const pal_source_contract_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tests/pal_source_contract.zig",
+    });
+    pal_source_contract_tests.setCwd(repo_root_lazy);
+    const pal_source_contract_step = b.step("pal-source-contract", "Check runtime PAL source boundaries");
+    pal_source_contract_step.dependOn(&pal_source_contract_tests.step);
+    test_step.dependOn(&pal_source_contract_tests.step);
+
     for ([_][]const u8{ "x86_64-macos", "aarch64-macos" }) |darwin_target| {
         const pthread_shim_typecheck = b.addSystemCommand(&.{
             b.graph.zig_exe,
@@ -701,6 +826,8 @@ pub fn build(b: *std.Build) void {
     const portability_check_step = b.step("portability-check", "Run cross-platform host, runtime, and ABI type checks");
     portability_check_step.dependOn(portable_host_typecheck);
     portability_check_step.dependOn(portable_runtime_typecheck);
+    portability_check_step.dependOn(pal_typecheck_step);
+    portability_check_step.dependOn(pal_source_contract_step);
     portability_check_step.dependOn(sa_std_abi_step);
 
     const lib_root_smoke_module = b.createModule(.{

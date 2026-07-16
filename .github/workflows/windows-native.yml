@@ -182,6 +182,16 @@ jobs:
           if ($exitCode -ne 0) {
             throw "test-runtime-basic failed with exit code $exitCode"
           }
+          zig build test-runtime-pal -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "test-runtime-pal failed with exit code $exitCode"
+          }
+          zig build test-runtime-netx -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "test-runtime-netx failed with exit code $exitCode"
+          }
           zig build test-runtime-windows -Doptimize=ReleaseSafe --summary all
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {

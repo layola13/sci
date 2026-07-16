@@ -11,6 +11,9 @@ fd_open
 fd_read
 mmap
 munmap
+sa_host_dlclose
+sa_host_dlopen
+sa_host_dlsym
 sa_netx_broadcast
 sa_netx_close_slot
 sa_netx_init

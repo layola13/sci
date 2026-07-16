@@ -115,6 +115,12 @@ pub const DynamicDependencyRecorder = struct {
         var digest = [_]u8{0} ** 32;
         if (value) |bytes| std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
         try self.record(.environment, key, value != null, 0, digest);
+        if (builtin.is_test and std.mem.eql(u8, key, "SA_TEST_FORCE_NON_CACHEABLE_DYNAMIC_DEPENDENCY_51D4")) {
+            // Deterministic unit-test hook for the same-request dependency-change path.
+            var changed_digest = digest;
+            changed_digest[0] ^= 0xff;
+            try self.record(.environment, key, value != null, 1, changed_digest);
+        }
     }
 
     fn recordFile(self: *DynamicDependencyRecorder, path: []const u8, bytes: []const u8) !void {

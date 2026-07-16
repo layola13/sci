@@ -20,21 +20,7 @@
         }                                                                                              \
     } while (0)
 
-typedef struct ContractNetxTicket {
-    uint32_t slot_id;
-    uint16_t op_code;
-    uint8_t proto;
-    uint8_t flags;
-    uint8_t *payload;
-    uint32_t payload_len;
-    uint32_t pad;
-} ContractNetxTicket;
-
-_Static_assert(sizeof(ContractNetxTicket) == 24, "netx ticket ABI size changed");
-
-extern int32_t sa_netx_init(uint64_t slot_capacity, uint32_t reactor_count);
-extern int32_t sa_netx_recv_ticket(uint32_t reactor_id, ContractNetxTicket *out_ticket);
-extern int32_t sa_netx_shutdown(void);
+_Static_assert(sizeof(SaNetxTicket) == 24, "netx ticket ABI size changed");
 
 static int write_all(uint64_t stream, const uint8_t *data, uint64_t len) {
     uint64_t offset = 0;
@@ -362,7 +348,7 @@ int main(void) {
         uint64_t epoll_count = UINT64_MAX;
         SaTermEpollEvent epoll_event = {1, 2};
         uint8_t ticket_payload = 1;
-        ContractNetxTicket ticket = {1, 2, 3, 4, &ticket_payload, 5, 6};
+        SaNetxTicket ticket = {1, 2, 3, 4, &ticket_payload, 5, 6};
 
         CHECK(sa_std_net_unix_addr_from_abstract_name(abstract_name,
                                                        sizeof(abstract_name) - 1,
@@ -430,13 +416,9 @@ int main(void) {
                   &pidfd_stderr) == SA_STD_ERR_UNSUPPORTED &&
                   pidfd_process == 0 && pidfd_stdout == 0 && pidfd_stderr == 0,
               318);
-        CHECK(sa_netx_init(8, 1) == SA_STD_ERR_UNSUPPORTED, 319);
-        CHECK(sa_netx_recv_ticket(0, &ticket) == SA_STD_ERR_UNSUPPORTED &&
-                  ticket.slot_id == 0 && ticket.op_code == 0 && ticket.proto == 0 &&
-                  ticket.flags == 0 && ticket.payload == NULL && ticket.payload_len == 0 &&
-                  ticket.pad == 0,
-              320);
-        CHECK(sa_netx_shutdown() == SA_STD_ERR_UNSUPPORTED, 321);
+        CHECK(sa_netx_init(8, 1) == SA_STD_OK, 319);
+        CHECK(sa_netx_recv_ticket(99, &ticket) == SA_STD_ERR_INVALID_HANDLE, 320);
+        CHECK(sa_netx_shutdown() == SA_STD_OK, 321);
     }
 
 cleanup:

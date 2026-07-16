@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const netx = if (builtin.os.tag == .linux)
-    @import("sa_net_uring.zig")
-else
-    @import("sa_netx_unsupported.zig");
+const netx = @import("sa_netx.zig");
+const pal = @import("pal.zig");
+const pal_sys = pal.sys;
 // Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
 // functions into the library object. Zig only emits `pub export fn`s of a
 // transitively-imported module when the root source actually retains the
@@ -1071,10 +1070,8 @@ const SaTermWinsize = extern struct {
     ypixel: u16,
 };
 
-const SaTermEpollEvent = extern struct {
-    events: u32,
-    data: u64,
-};
+const SaTermEpollEvent = pal_sys.SaTermEpollEvent;
+const SaEvent = pal.SaEvent;
 
 const ProcessHandle = struct {
     pid: std.posix.pid_t,
@@ -4950,30 +4947,7 @@ fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
 }
 
 fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
-    if (builtin.os.tag == .linux) {
-        const file = std.fs.openFileAbsolute("/proc/self/cmdline", .{}) catch |err| switch (err) {
-            error.FileNotFound, error.AccessDenied => null,
-            else => return err,
-        };
-        if (file) |cmdline_file| {
-            defer cmdline_file.close();
-            const cmdline = try cmdline_file.readToEndAlloc(allocator, 1024 * 1024);
-            defer allocator.free(cmdline);
-
-            var args = std.ArrayList([]const u8).init(allocator);
-            defer args.deinit();
-            var it = std.mem.splitScalar(u8, cmdline, 0);
-            while (it.next()) |arg| {
-                if (arg.len == 0) continue;
-                try args.append(arg);
-            }
-            return std.json.stringifyAlloc(allocator, args.items, .{});
-        }
-    }
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    return std.json.stringifyAlloc(allocator, args, .{});
+    return pal_sys.process_args_json_alloc(allocator);
 }
 
 fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
@@ -5213,8 +5187,8 @@ pub export fn sa_deno_make_temp_file(
 }
 
 pub export fn sa_deno_args_json() u64 {
-    var args = std.process.argsAlloc(std.heap.page_allocator) catch return 0;
-    defer std.process.argsFree(std.heap.page_allocator, args);
+    var args = pal_sys.process_args_alloc(std.heap.page_allocator) catch return 0;
+    defer pal_sys.process_args_free(std.heap.page_allocator, args);
 
     const deno_args = if (args.len > 0) args[1..] else args[0..0];
     const json = std.json.stringifyAlloc(std.heap.page_allocator, deno_args, .{}) catch return 0;
@@ -5646,7 +5620,7 @@ pub export fn sa_deno_gid() u32 {
 }
 
 pub export fn sa_deno_exec_path() u64 {
-    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch return 0;
+    const path = pal_sys.get_executable_path(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(path) catch return 0;
 }
 
@@ -7857,10 +7831,8 @@ pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
 pub export fn sa_term_epoll_create(flags: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
-    if ((flags & ~cloexec_flag) != 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const fd = std.posix.epoll_create1(flags) catch |err| return finishErr(err);
+    if (!pal_sys.supports_term_epoll) return finish(SA_STD_ERR_UNSUPPORTED);
+    const fd = pal_sys.term_epoll_create(flags) catch |err| return finishErr(err);
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const handle = registerResourceLocked(.{ .owned_fd = .{ .fd = fd } }) catch |err| {
@@ -7872,22 +7844,13 @@ pub export fn sa_term_epoll_create(flags: u32, out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_term_epoll_ctl(epoll_handle: u64, op: u32, target_handle: u64, events: u32, data: u64) i32 {
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (op != std.os.linux.EPOLL.CTL_ADD and op != std.os.linux.EPOLL.CTL_MOD and op != std.os.linux.EPOLL.CTL_DEL) {
-        return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    }
-    if (op != std.os.linux.EPOLL.CTL_DEL and events == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (!pal_sys.supports_term_epoll) return finish(SA_STD_ERR_UNSUPPORTED);
     registry_mutex.lock();
     defer registry_mutex.unlock();
 
     const epoll_fd = handleToFd(epoll_handle) catch |err| return finishErr(err);
     const target_fd = handleToFd(target_handle) catch |err| return finishErr(err);
-    var event: std.os.linux.epoll_event = .{
-        .events = events,
-        .data = .{ .u64 = data },
-    };
-    const event_ptr = if (op == std.os.linux.EPOLL.CTL_DEL) null else &event;
-    std.posix.epoll_ctl(epoll_fd, op, target_fd, event_ptr) catch |err| return finishErr(err);
+    pal_sys.term_epoll_ctl(epoll_fd, op, target_fd, events, data) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -7895,7 +7858,7 @@ pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollE
     const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     count_ptr.* = 0;
     const events_ptr = out_events orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (!pal_sys.supports_term_epoll) return finish(SA_STD_ERR_UNSUPPORTED);
     const event_count = lenAsUsize(max_events) catch |err| return finishErr(err);
     if (event_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
 
@@ -7903,16 +7866,7 @@ pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollE
     defer registry_mutex.unlock();
 
     const epoll_fd = handleToFd(epoll_handle) catch |err| return finishErr(err);
-    const kernel_events = std.heap.page_allocator.alloc(std.os.linux.epoll_event, event_count) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(kernel_events);
-
-    const ready = std.posix.epoll_wait(epoll_fd, kernel_events, timeout_ms);
-    for (kernel_events[0..ready], 0..) |event, i| {
-        events_ptr[i] = .{
-            .events = event.events,
-            .data = event.data.u64,
-        };
-    }
+    const ready = pal_sys.term_epoll_wait(std.heap.page_allocator, epoll_fd, events_ptr, event_count, timeout_ms) catch |err| return finishErr(err);
     count_ptr.* = @as(u64, @intCast(ready));
     return finish(SA_STD_OK);
 }
@@ -7927,8 +7881,47 @@ test "terminal epoll wait clears count before rejecting events output" {
 }
 
 pub export fn sa_term_epoll_close(handle: u64) i32 {
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (!pal_sys.supports_term_epoll) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_close(handle);
+}
+
+pub export fn sa_event_loop_create(out_loop: ?*?*anyopaque) i32 {
+    return finish(pal_sys.event_loop_create(out_loop));
+}
+
+pub export fn sa_event_loop_submit(loop: ?*anyopaque, event: ?*const SaEvent) i32 {
+    return finish(pal_sys.event_loop_submit(loop, event));
+}
+
+pub export fn sa_event_loop_wait(loop: ?*anyopaque, out_events: ?[*]SaEvent, max_events: u32, timeout_ms: i32) i32 {
+    const result = pal_sys.event_loop_wait(loop, out_events, max_events, timeout_ms);
+    if (result < 0) {
+        _ = finish(-result);
+    } else {
+        _ = finish(SA_STD_OK);
+    }
+    return result;
+}
+
+pub export fn sa_event_loop_close(loop: ?*anyopaque) i32 {
+    return finish(pal_sys.event_loop_close(loop));
+}
+
+test "PAL event loop returns submitted events through the platform neutral ABI" {
+    var loop: ?*anyopaque = null;
+    try std.testing.expectEqual(SA_STD_OK, sa_event_loop_create(&loop));
+    try std.testing.expect(loop != null);
+
+    const event = SaEvent{ .user_data = 0x5a17, .flags = 3, .res = -9 };
+    try std.testing.expectEqual(SA_STD_OK, sa_event_loop_submit(loop, &event));
+
+    var out = [_]SaEvent{.{ .user_data = 0, .flags = 0, .res = 0 }};
+    try std.testing.expectEqual(@as(i32, 1), sa_event_loop_wait(loop, &out, 1, 0));
+    try std.testing.expectEqual(event.user_data, out[0].user_data);
+    try std.testing.expectEqual(event.flags, out[0].flags);
+    try std.testing.expectEqual(event.res, out[0].res);
+    try std.testing.expectEqual(@as(i32, 0), sa_event_loop_wait(loop, &out, 1, 0));
+    try std.testing.expectEqual(SA_STD_OK, sa_event_loop_close(loop));
 }
 
 pub export fn sa_io_stdin() u64 {
@@ -10631,7 +10624,7 @@ pub export fn sa_env_temp_dir() u64 {
 }
 
 pub export fn sa_env_current_exe() u64 {
-    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch return 0;
+    const path = pal_sys.get_executable_path(std.heap.page_allocator) catch return 0;
     return openOwnedEnvBuffer(path) catch return 0;
 }
 

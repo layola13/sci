@@ -135,10 +135,28 @@ typedef struct SaTermWinsize {
     uint16_t ypixel;
 } SaTermWinsize;
 
+/* Legacy Linux-first terminal polling ABI. New cross-platform code should use
+   SaEvent with sa_event_loop_* below. */
 typedef struct SaTermEpollEvent {
     uint32_t events;
     uint64_t data;
 } SaTermEpollEvent;
+
+typedef struct SaEvent {
+    uint64_t user_data;
+    uint32_t flags;
+    int32_t res;
+} SaEvent;
+
+typedef struct SaNetxTicket {
+    uint32_t slot_id;
+    uint16_t op_code;
+    uint8_t proto;
+    uint8_t flags;
+    uint8_t *payload;
+    uint32_t payload_len;
+    uint32_t pad;
+} SaNetxTicket;
 
 typedef struct SaTimeDate {
     int64_t unix_ms;
@@ -639,6 +657,29 @@ int32_t sa_term_epoll_create(uint32_t flags, uint64_t *out_handle);
 int32_t sa_term_epoll_ctl(uint64_t epoll_handle, uint32_t op, uint64_t target_handle, uint32_t events, uint64_t data);
 int32_t sa_term_epoll_wait(uint64_t epoll_handle, SaTermEpollEvent *out_events, uint64_t max_events, int32_t timeout_ms, uint64_t *out_count);
 int32_t sa_term_epoll_close(uint64_t handle);
+
+/* Cross-platform PAL event loop ABI. Backed by epoll/eventfd on Linux,
+   kqueue on macOS, and IOCP on Windows. */
+int32_t sa_event_loop_create(void **out_loop);
+int32_t sa_event_loop_submit(void *loop, const SaEvent *ev);
+int32_t sa_event_loop_wait(void *loop, SaEvent *out_events, uint32_t max_events, int32_t timeout_ms);
+int32_t sa_event_loop_close(void *loop);
+
+/* Platform-neutral NetX ABI. Linux uses io_uring, macOS uses kqueue, and
+   Windows uses IOCP behind this stable ticket surface. */
+int32_t sa_netx_init(uint64_t slot_capacity, uint32_t reactor_count);
+int32_t sa_netx_listen(const uint8_t *host_ptr, uint64_t host_len, uint16_t port);
+int32_t sa_netx_recv_ticket(uint32_t reactor_id, SaNetxTicket *out_ticket);
+int32_t sa_netx_push_outbound(uint32_t reactor_id, uint32_t slot_id, const uint8_t *msg_ptr, uint32_t len);
+int32_t sa_netx_broadcast(uint32_t reactor_id, const uint32_t *slot_ids_ptr, uint32_t n, const uint8_t *msg_ptr, uint32_t len);
+int32_t sa_netx_close_slot(uint32_t slot_id);
+int32_t sa_netx_shutdown(void);
+int32_t sa_std_ws_accept_key(const uint8_t *key_ptr, uint64_t key_len, uint8_t *out_ptr, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_ws_frame_parse(const uint8_t *data_ptr, uint64_t data_len, uint8_t *out_fin, uint8_t *out_opcode, uint8_t *out_masked, uint64_t *out_payload_offset, uint64_t *out_payload_len, uint64_t *out_frame_len, uint8_t *out_mask);
+int32_t sa_std_ws_unmask(uint8_t *payload_ptr, uint64_t payload_len, const uint8_t *mask_ptr);
+int32_t sa_std_ws_frame_build(uint32_t opcode, uint32_t fin, const uint8_t *payload_ptr, uint64_t payload_len, const uint8_t *mask_ptr, uint8_t *out_ptr, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_ws_frame_build_unmasked(uint32_t opcode, uint32_t fin, const uint8_t *payload_ptr, uint64_t payload_len, uint8_t *out_ptr, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_url_parse(const uint8_t *url_ptr, uint64_t url_len, uint8_t *scheme_out, uint64_t scheme_cap, uint64_t *scheme_len, uint8_t *host_out, uint64_t host_cap, uint64_t *host_len, uint8_t *path_out, uint64_t path_cap, uint64_t *path_len, uint32_t *out_port);
 
 uint64_t sa_time_instant_ns(void);
 int64_t sa_time_unix_s(void);

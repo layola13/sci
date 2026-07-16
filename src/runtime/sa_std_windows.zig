@@ -1,5 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const netx = @import("sa_netx.zig");
+const pal = @import("pal.zig");
+const pal_sys = pal.sys;
+
+comptime {
+    _ = &netx.sa_netx_init;
+}
 
 pub const SA_STD_ABI_VERSION: u32 = 1;
 pub const SA_STD_OK: i32 = 0;
@@ -25,6 +32,7 @@ pub const SaJsonToken = extern struct { kind: u32, text_ptr: ?[*]const u8, text_
 pub const SaProcessArgv = extern struct { data: [*]const u8, len: u64 };
 pub const SaTermWinsize = extern struct { row: u16, col: u16, xpixel: u16, ypixel: u16 };
 pub const SaTermEpollEvent = extern struct { events: u32, data: u64 };
+pub const SaEvent = pal.SaEvent;
 pub const TimeDate = extern struct { unix_ms: i64, unix_ns: i64, year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8, millisecond: u16 };
 pub const SaIoBuffer = extern struct {
     ptr: ?[*]u8,
@@ -1852,7 +1860,9 @@ pub export fn sa_deno_gid() u32 {
 }
 
 pub export fn sa_deno_exec_path() u64 {
-    return unsupportedU64();
+    const path = pal_sys.get_executable_path(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, path) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
 pub export fn sa_deno_memory_usage() u64 {
@@ -2845,6 +2855,45 @@ pub export fn sa_term_epoll_wait(_: u64, out_events: ?[*]SaTermEpollEvent, _: u6
 
 pub export fn sa_term_epoll_close(_: u64) i32 {
     return unsupported();
+}
+
+pub export fn sa_event_loop_create(out_loop: ?*?*anyopaque) i32 {
+    return finish(pal_sys.event_loop_create(out_loop));
+}
+
+pub export fn sa_event_loop_submit(loop: ?*anyopaque, event: ?*const SaEvent) i32 {
+    return finish(pal_sys.event_loop_submit(loop, event));
+}
+
+pub export fn sa_event_loop_wait(loop: ?*anyopaque, out_events: ?[*]SaEvent, max_events: u32, timeout_ms: i32) i32 {
+    const result = pal_sys.event_loop_wait(loop, out_events, max_events, timeout_ms);
+    if (result < 0) {
+        _ = finish(-result);
+    } else {
+        _ = finish(SA_STD_OK);
+    }
+    return result;
+}
+
+pub export fn sa_event_loop_close(loop: ?*anyopaque) i32 {
+    return finish(pal_sys.event_loop_close(loop));
+}
+
+test "PAL event loop returns submitted events through the platform neutral ABI" {
+    var loop: ?*anyopaque = null;
+    try std.testing.expectEqual(SA_STD_OK, sa_event_loop_create(&loop));
+    try std.testing.expect(loop != null);
+
+    const event = SaEvent{ .user_data = 0x5a17, .flags = 3, .res = -9 };
+    try std.testing.expectEqual(SA_STD_OK, sa_event_loop_submit(loop, &event));
+
+    var out = [_]SaEvent{.{ .user_data = 0, .flags = 0, .res = 0 }};
+    try std.testing.expectEqual(@as(i32, 1), sa_event_loop_wait(loop, &out, 1, 0));
+    try std.testing.expectEqual(event.user_data, out[0].user_data);
+    try std.testing.expectEqual(event.flags, out[0].flags);
+    try std.testing.expectEqual(event.res, out[0].res);
+    try std.testing.expectEqual(@as(i32, 0), sa_event_loop_wait(loop, &out, 1, 0));
+    try std.testing.expectEqual(SA_STD_OK, sa_event_loop_close(loop));
 }
 
 pub export fn sa_io_stdin() u64 {
@@ -5102,12 +5151,7 @@ fn windowsEnvironmentBlockJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
 }
 
 fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    for (args) |arg| {
-        if (!std.unicode.utf8ValidateSlice(arg)) return error.NativeStringNotUnicode;
-    }
-    return std.json.stringifyAlloc(allocator, args, .{});
+    return pal_sys.process_args_json_alloc(allocator);
 }
 
 fn splitWindowsPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
@@ -5224,7 +5268,7 @@ pub export fn sa_env_temp_dir() u64 {
 }
 
 pub export fn sa_env_current_exe() u64 {
-    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const path = pal_sys.get_executable_path(std.heap.page_allocator) catch |err| return failEnvHandle(err);
     const strict = validateOwnedNativeUtf8(std.heap.page_allocator, path) catch |err| return failEnvHandle(err);
     return finishOwnedEnvBuffer(strict);
 }

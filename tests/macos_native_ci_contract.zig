@@ -77,6 +77,8 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build portability-check -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-portable -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-basic -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
+        "zig build test-runtime-pal -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
+        "zig build test-runtime-netx -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
@@ -96,6 +98,8 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build portability-check -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-portable -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-basic -Dtarget=\"$ZIG_TARGET\"",
+        "zig build test-runtime-pal -Dtarget=\"$ZIG_TARGET\"",
+        "zig build test-runtime-netx -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\"",
@@ -222,6 +226,8 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(build_source, "b.step(\"portable-runtime-typecheck\"");
     try expectContains(build_source, "b.step(\"portability-check\"");
     try expectContains(build_source, "b.step(\"test-runtime-basic\"");
+    try expectContains(build_source, "b.step(\"test-runtime-pal\"");
+    try expectContains(build_source, "b.step(\"test-runtime-netx\"");
     try expectContains(build_source, "b.step(\"test-runtime-darwin\"");
     try expectContains(build_source, "b.step(\"test-runtime-darwin-socket\"");
     try expectContains(build_source, "b.step(\"runtime-darwin-pty-link\"");
@@ -232,6 +238,8 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(build_source, "tests/runtime_darwin_pty_contract.c");
     try expectContains(build_source, "tests/runtime_contract_fixture.c");
     try expectContains(build_source, "test-runtime-darwin requires a native macOS x86_64 or aarch64 host and target");
+    try expectContains(build_source, "test-runtime-pal requires a native Linux, macOS, or Windows host and target");
+    try expectContains(build_source, "test-runtime-netx requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "test-runtime-darwin-socket requires a native macOS x86_64 or aarch64 host and target");
     try expectContains(build_source, "runtime-darwin-pty-link requires a macOS x86_64 or aarch64 target");
     try expectContains(build_source, "test-runtime-darwin-pty requires a native macOS x86_64 or aarch64 host and target");

@@ -65,6 +65,10 @@ sa_env_xdg_config_home_dir
 sa_env_xdg_data_dirs
 sa_env_xdg_data_home_dir
 sa_env_xdg_state_home_dir
+sa_event_loop_close
+sa_event_loop_create
+sa_event_loop_submit
+sa_event_loop_wait
 sa_fmt_bool
 sa_fmt_bool_into
 sa_fmt_buffer_data
