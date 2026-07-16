@@ -8615,3 +8615,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_default_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10709+.
+
+## Completed: 2026-07-16 Vec IntoIter slice views
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_AS_SLICE_U64` and `VEC_INTO_ITER_AS_MUT_SLICE_U64`.
+- Semantics: these helpers lower Rust `vec::IntoIter::as_slice` / `as_mut_slice` for the concrete `u64` surface by exposing the current remaining cursor range as a `Slice` view. The mutable form returns the same SA slice metadata over the backing Vec storage and does not model Rust borrow lifetimes or reference item types.
+- Test: `tests/unit_framework/std_vec_into_iter_slice_macro_surface.sa` — 1 test (panic ID 10709) covering initial and post-next remaining slices, mutable slice write-through, subsequent iteration, empty default iterator slice, and backing Vec cleanup.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_slice_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10710+.
