@@ -2915,6 +2915,186 @@ L_NUM_U64_ROTR_ZERO_%out_value:
 L_NUM_U64_ROTR_END_%out_value:
 [END_MACRO]
 
+[MACRO] NUM_U8_ROTATE_LEFT %out_value, %value, %shift
+    __num_u8_rotl_value_%out_value = and %value, NUM_U8_MAX
+    __num_u8_rotl_shift_%out_value = urem %shift, NUM_U8_BITS
+    __num_u8_rotl_zero_%out_value = eq __num_u8_rotl_shift_%out_value, 0
+    br __num_u8_rotl_zero_%out_value -> L_NUM_U8_ROTL_ZERO_%out_value, L_NUM_U8_ROTL_BODY_%out_value
+
+L_NUM_U8_ROTL_BODY_%out_value:
+    __num_u8_rotl_right_%out_value = sub NUM_U8_BITS, __num_u8_rotl_shift_%out_value
+    __num_u8_rotl_left_part_%out_value = shl __num_u8_rotl_value_%out_value, __num_u8_rotl_shift_%out_value
+    __num_u8_rotl_right_part_%out_value = lshr __num_u8_rotl_value_%out_value, __num_u8_rotl_right_%out_value
+    __num_u8_rotl_raw_%out_value = or __num_u8_rotl_left_part_%out_value, __num_u8_rotl_right_part_%out_value
+    %out_value = and __num_u8_rotl_raw_%out_value, NUM_U8_MAX
+    !__num_u8_rotl_raw_%out_value
+    !__num_u8_rotl_right_part_%out_value
+    !__num_u8_rotl_left_part_%out_value
+    !__num_u8_rotl_right_%out_value
+    !__num_u8_rotl_zero_%out_value
+    !__num_u8_rotl_shift_%out_value
+    !__num_u8_rotl_value_%out_value
+    jmp L_NUM_U8_ROTL_END_%out_value
+
+L_NUM_U8_ROTL_ZERO_%out_value:
+    %out_value = add __num_u8_rotl_value_%out_value, 0
+    !__num_u8_rotl_zero_%out_value
+    !__num_u8_rotl_shift_%out_value
+    !__num_u8_rotl_value_%out_value
+
+L_NUM_U8_ROTL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U8_ROTATE_RIGHT %out_value, %value, %shift
+    __num_u8_rotr_value_%out_value = and %value, NUM_U8_MAX
+    __num_u8_rotr_shift_%out_value = urem %shift, NUM_U8_BITS
+    __num_u8_rotr_zero_%out_value = eq __num_u8_rotr_shift_%out_value, 0
+    br __num_u8_rotr_zero_%out_value -> L_NUM_U8_ROTR_ZERO_%out_value, L_NUM_U8_ROTR_BODY_%out_value
+
+L_NUM_U8_ROTR_BODY_%out_value:
+    __num_u8_rotr_left_%out_value = sub NUM_U8_BITS, __num_u8_rotr_shift_%out_value
+    __num_u8_rotr_right_part_%out_value = lshr __num_u8_rotr_value_%out_value, __num_u8_rotr_shift_%out_value
+    __num_u8_rotr_left_part_%out_value = shl __num_u8_rotr_value_%out_value, __num_u8_rotr_left_%out_value
+    __num_u8_rotr_raw_%out_value = or __num_u8_rotr_left_part_%out_value, __num_u8_rotr_right_part_%out_value
+    %out_value = and __num_u8_rotr_raw_%out_value, NUM_U8_MAX
+    !__num_u8_rotr_raw_%out_value
+    !__num_u8_rotr_left_part_%out_value
+    !__num_u8_rotr_right_part_%out_value
+    !__num_u8_rotr_left_%out_value
+    !__num_u8_rotr_zero_%out_value
+    !__num_u8_rotr_shift_%out_value
+    !__num_u8_rotr_value_%out_value
+    jmp L_NUM_U8_ROTR_END_%out_value
+
+L_NUM_U8_ROTR_ZERO_%out_value:
+    %out_value = add __num_u8_rotr_value_%out_value, 0
+    !__num_u8_rotr_zero_%out_value
+    !__num_u8_rotr_shift_%out_value
+    !__num_u8_rotr_value_%out_value
+
+L_NUM_U8_ROTR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U16_ROTATE_LEFT %out_value, %value, %shift
+    __num_u16_rotl_value_%out_value = and %value, NUM_U16_MAX
+    __num_u16_rotl_shift_%out_value = urem %shift, NUM_U16_BITS
+    __num_u16_rotl_zero_%out_value = eq __num_u16_rotl_shift_%out_value, 0
+    br __num_u16_rotl_zero_%out_value -> L_NUM_U16_ROTL_ZERO_%out_value, L_NUM_U16_ROTL_BODY_%out_value
+
+L_NUM_U16_ROTL_BODY_%out_value:
+    __num_u16_rotl_right_%out_value = sub NUM_U16_BITS, __num_u16_rotl_shift_%out_value
+    __num_u16_rotl_left_part_%out_value = shl __num_u16_rotl_value_%out_value, __num_u16_rotl_shift_%out_value
+    __num_u16_rotl_right_part_%out_value = lshr __num_u16_rotl_value_%out_value, __num_u16_rotl_right_%out_value
+    __num_u16_rotl_raw_%out_value = or __num_u16_rotl_left_part_%out_value, __num_u16_rotl_right_part_%out_value
+    %out_value = and __num_u16_rotl_raw_%out_value, NUM_U16_MAX
+    !__num_u16_rotl_raw_%out_value
+    !__num_u16_rotl_right_part_%out_value
+    !__num_u16_rotl_left_part_%out_value
+    !__num_u16_rotl_right_%out_value
+    !__num_u16_rotl_zero_%out_value
+    !__num_u16_rotl_shift_%out_value
+    !__num_u16_rotl_value_%out_value
+    jmp L_NUM_U16_ROTL_END_%out_value
+
+L_NUM_U16_ROTL_ZERO_%out_value:
+    %out_value = add __num_u16_rotl_value_%out_value, 0
+    !__num_u16_rotl_zero_%out_value
+    !__num_u16_rotl_shift_%out_value
+    !__num_u16_rotl_value_%out_value
+
+L_NUM_U16_ROTL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U16_ROTATE_RIGHT %out_value, %value, %shift
+    __num_u16_rotr_value_%out_value = and %value, NUM_U16_MAX
+    __num_u16_rotr_shift_%out_value = urem %shift, NUM_U16_BITS
+    __num_u16_rotr_zero_%out_value = eq __num_u16_rotr_shift_%out_value, 0
+    br __num_u16_rotr_zero_%out_value -> L_NUM_U16_ROTR_ZERO_%out_value, L_NUM_U16_ROTR_BODY_%out_value
+
+L_NUM_U16_ROTR_BODY_%out_value:
+    __num_u16_rotr_left_%out_value = sub NUM_U16_BITS, __num_u16_rotr_shift_%out_value
+    __num_u16_rotr_right_part_%out_value = lshr __num_u16_rotr_value_%out_value, __num_u16_rotr_shift_%out_value
+    __num_u16_rotr_left_part_%out_value = shl __num_u16_rotr_value_%out_value, __num_u16_rotr_left_%out_value
+    __num_u16_rotr_raw_%out_value = or __num_u16_rotr_left_part_%out_value, __num_u16_rotr_right_part_%out_value
+    %out_value = and __num_u16_rotr_raw_%out_value, NUM_U16_MAX
+    !__num_u16_rotr_raw_%out_value
+    !__num_u16_rotr_left_part_%out_value
+    !__num_u16_rotr_right_part_%out_value
+    !__num_u16_rotr_left_%out_value
+    !__num_u16_rotr_zero_%out_value
+    !__num_u16_rotr_shift_%out_value
+    !__num_u16_rotr_value_%out_value
+    jmp L_NUM_U16_ROTR_END_%out_value
+
+L_NUM_U16_ROTR_ZERO_%out_value:
+    %out_value = add __num_u16_rotr_value_%out_value, 0
+    !__num_u16_rotr_zero_%out_value
+    !__num_u16_rotr_shift_%out_value
+    !__num_u16_rotr_value_%out_value
+
+L_NUM_U16_ROTR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U32_ROTATE_LEFT %out_value, %value, %shift
+    __num_u32_rotl_value_%out_value = and %value, NUM_U32_MAX
+    __num_u32_rotl_shift_%out_value = urem %shift, NUM_U32_BITS
+    __num_u32_rotl_zero_%out_value = eq __num_u32_rotl_shift_%out_value, 0
+    br __num_u32_rotl_zero_%out_value -> L_NUM_U32_ROTL_ZERO_%out_value, L_NUM_U32_ROTL_BODY_%out_value
+
+L_NUM_U32_ROTL_BODY_%out_value:
+    __num_u32_rotl_right_%out_value = sub NUM_U32_BITS, __num_u32_rotl_shift_%out_value
+    __num_u32_rotl_left_part_%out_value = shl __num_u32_rotl_value_%out_value, __num_u32_rotl_shift_%out_value
+    __num_u32_rotl_right_part_%out_value = lshr __num_u32_rotl_value_%out_value, __num_u32_rotl_right_%out_value
+    __num_u32_rotl_raw_%out_value = or __num_u32_rotl_left_part_%out_value, __num_u32_rotl_right_part_%out_value
+    %out_value = and __num_u32_rotl_raw_%out_value, NUM_U32_MAX
+    !__num_u32_rotl_raw_%out_value
+    !__num_u32_rotl_right_part_%out_value
+    !__num_u32_rotl_left_part_%out_value
+    !__num_u32_rotl_right_%out_value
+    !__num_u32_rotl_zero_%out_value
+    !__num_u32_rotl_shift_%out_value
+    !__num_u32_rotl_value_%out_value
+    jmp L_NUM_U32_ROTL_END_%out_value
+
+L_NUM_U32_ROTL_ZERO_%out_value:
+    %out_value = add __num_u32_rotl_value_%out_value, 0
+    !__num_u32_rotl_zero_%out_value
+    !__num_u32_rotl_shift_%out_value
+    !__num_u32_rotl_value_%out_value
+
+L_NUM_U32_ROTL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_U32_ROTATE_RIGHT %out_value, %value, %shift
+    __num_u32_rotr_value_%out_value = and %value, NUM_U32_MAX
+    __num_u32_rotr_shift_%out_value = urem %shift, NUM_U32_BITS
+    __num_u32_rotr_zero_%out_value = eq __num_u32_rotr_shift_%out_value, 0
+    br __num_u32_rotr_zero_%out_value -> L_NUM_U32_ROTR_ZERO_%out_value, L_NUM_U32_ROTR_BODY_%out_value
+
+L_NUM_U32_ROTR_BODY_%out_value:
+    __num_u32_rotr_left_%out_value = sub NUM_U32_BITS, __num_u32_rotr_shift_%out_value
+    __num_u32_rotr_right_part_%out_value = lshr __num_u32_rotr_value_%out_value, __num_u32_rotr_shift_%out_value
+    __num_u32_rotr_left_part_%out_value = shl __num_u32_rotr_value_%out_value, __num_u32_rotr_left_%out_value
+    __num_u32_rotr_raw_%out_value = or __num_u32_rotr_left_part_%out_value, __num_u32_rotr_right_part_%out_value
+    %out_value = and __num_u32_rotr_raw_%out_value, NUM_U32_MAX
+    !__num_u32_rotr_raw_%out_value
+    !__num_u32_rotr_left_part_%out_value
+    !__num_u32_rotr_right_part_%out_value
+    !__num_u32_rotr_left_%out_value
+    !__num_u32_rotr_zero_%out_value
+    !__num_u32_rotr_shift_%out_value
+    !__num_u32_rotr_value_%out_value
+    jmp L_NUM_U32_ROTR_END_%out_value
+
+L_NUM_U32_ROTR_ZERO_%out_value:
+    %out_value = add __num_u32_rotr_value_%out_value, 0
+    !__num_u32_rotr_zero_%out_value
+    !__num_u32_rotr_shift_%out_value
+    !__num_u32_rotr_value_%out_value
+
+L_NUM_U32_ROTR_END_%out_value:
+[END_MACRO]
+
 [MACRO] NUM_U64_COUNT_ONES %out_count, %value
     __num_count_idx_slot_%out_count = stack_alloc 8
     __num_count_value_slot_%out_count = stack_alloc 8
@@ -10891,6 +11071,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_TRAILING_ONES %out_count, %value
     EXPAND NUM_U64_TRAILING_ONES %out_count, %value
+[END_MACRO]
+
+[MACRO] NUM_USIZE_ROTATE_LEFT %out_value, %value, %shift
+    EXPAND NUM_U64_ROTATE_LEFT %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_ROTATE_RIGHT %out_value, %value, %shift
+    EXPAND NUM_U64_ROTATE_RIGHT %out_value, %value, %shift
 [END_MACRO]
 
 [MACRO] NUM_USIZE_BIT_WIDTH %out_width, %value

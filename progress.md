@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow unsigned primitive rotate macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `rotate_left` and `rotate_right`.
+- `sa_std/num.sa`: added `NUM_U8_ROTATE_LEFT`, `NUM_U8_ROTATE_RIGHT`, `NUM_U16_ROTATE_LEFT`, `NUM_U16_ROTATE_RIGHT`, `NUM_U32_ROTATE_LEFT`, `NUM_U32_ROTATE_RIGHT`, `NUM_USIZE_ROTATE_LEFT`, and `NUM_USIZE_ROTATE_RIGHT`.
+- Semantics: narrow helpers mask inputs to the declared Rust width, reduce shift amounts modulo that width, and rotate within the declared width. `usize` aliases the current 64-bit SA ABI and delegates to the existing `u64` core helpers.
+- Test: `tests/unit_framework/std_num_narrow_rotate_macro_surface.sa` - 1 test (panic ID 10664) covering wrap-around rotations, half-width rotations, shift modulo behavior, zero shift, narrow mask behavior, and `usize` alias behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_rotate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10665+.
+
 ## Completed: 2026-07-16 narrow unsigned primitive bit-position macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `bit_width`, `isolate_highest_one`, `isolate_lowest_one`, `highest_one`, and `lowest_one`.
