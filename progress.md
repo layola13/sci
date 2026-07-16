@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive exact division macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `checked_div_exact`, `div_exact`, and `unchecked_div_exact` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `CHECKED_DIV_EXACT`, `DIV_EXACT`, and `UNCHECKED_DIV_EXACT` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Checked helpers return explicit `ok/out` values instead of Rust `Option<Self>` and report zero divisors, signed `MIN / -1`, or nonzero remainders through `ok=0/out=0`. Direct helpers also return explicit `ok/out` for exact versus inexact division, but zero divisors and signed overflow reuse SA `panic(2208)` to model Rust's panic boundary.
+- Unchecked exact division performs declared-width division without validation and relies on callers to provide a positive divisor, exact divisibility, and no signed overflow. This models Rust's unstable `exact_div` behavior without claiming Rust `Option` object layout, unsafe UB enforcement, feature-gate plumbing, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_exact_division_macro_surface.sa` - 4 tests (panic IDs 10643 and 10644 for ordinary assertion paths) expanding all 30 new Rust-named public helpers and covering exact success, inexact results, zero divisors, signed overflow, signed negative-divisor safe paths, valid unchecked calls, and direct panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_exact_division_macro_surface.sa --jobs 1 --trace-panic` -> `4 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10645+.
+
 ## Completed: 2026-07-16 primitive exact shift macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `shl_exact`, `shr_exact`, `unchecked_shl_exact`, and `unchecked_shr_exact` implementations under `/home/vscode/projects/rust`.

@@ -1741,6 +1741,88 @@ L_NUM_U64_REM_ZERO_%out_ok:
 L_NUM_U64_REM_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_DIV_EXACT_RESULT %out_ok, %out_value, %div_ok, %quotient, %lhs, %rhs
+    br %div_ok -> L_NUM_DIV_EXACT_CHECK_%out_ok, L_NUM_DIV_EXACT_NONE_%out_ok
+
+L_NUM_DIV_EXACT_CHECK_%out_ok:
+    __num_div_exact_product_%out_ok = mul %quotient, %rhs
+    %out_ok = eq __num_div_exact_product_%out_ok, %lhs
+    %out_value = mul %out_ok, %quotient
+    !__num_div_exact_product_%out_ok
+    jmp L_NUM_DIV_EXACT_END_%out_ok
+
+L_NUM_DIV_EXACT_NONE_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+
+L_NUM_DIV_EXACT_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, %div_ok, %quotient, %lhs, %rhs
+    br %div_ok -> L_NUM_DIV_EXACT_DIRECT_CHECK_%out_ok, L_NUM_DIV_EXACT_DIRECT_PANIC_%out_ok
+
+L_NUM_DIV_EXACT_DIRECT_PANIC_%out_ok:
+    panic(2208)
+
+L_NUM_DIV_EXACT_DIRECT_CHECK_%out_ok:
+    __num_div_exact_direct_product_%out_ok = mul %quotient, %rhs
+    %out_ok = eq __num_div_exact_direct_product_%out_ok, %lhs
+    %out_value = mul %out_ok, %quotient
+    !__num_div_exact_direct_product_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, %mask
+    __num_uw_unchecked_div_exact_lhs_%out_value = and %lhs, %mask
+    __num_uw_unchecked_div_exact_rhs_%out_value = and %rhs, %mask
+    __num_uw_unchecked_div_exact_raw_%out_value = udiv __num_uw_unchecked_div_exact_lhs_%out_value, __num_uw_unchecked_div_exact_rhs_%out_value
+    %out_value = and __num_uw_unchecked_div_exact_raw_%out_value, %mask
+    !__num_uw_unchecked_div_exact_raw_%out_value
+    !__num_uw_unchecked_div_exact_rhs_%out_value
+    !__num_uw_unchecked_div_exact_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_SIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, %bits, %mask
+    __num_sw_unchecked_div_exact_adjust_%out_value = sub NUM_U64_BITS, %bits
+    __num_sw_unchecked_div_exact_lhs_masked_%out_value = and %lhs, %mask
+    __num_sw_unchecked_div_exact_lhs_raw_%out_value = shl __num_sw_unchecked_div_exact_lhs_masked_%out_value, __num_sw_unchecked_div_exact_adjust_%out_value
+    __num_sw_unchecked_div_exact_lhs_%out_value = ashr __num_sw_unchecked_div_exact_lhs_raw_%out_value, __num_sw_unchecked_div_exact_adjust_%out_value
+    __num_sw_unchecked_div_exact_rhs_masked_%out_value = and %rhs, %mask
+    __num_sw_unchecked_div_exact_rhs_raw_%out_value = shl __num_sw_unchecked_div_exact_rhs_masked_%out_value, __num_sw_unchecked_div_exact_adjust_%out_value
+    __num_sw_unchecked_div_exact_rhs_%out_value = ashr __num_sw_unchecked_div_exact_rhs_raw_%out_value, __num_sw_unchecked_div_exact_adjust_%out_value
+    __num_sw_unchecked_div_exact_result_%out_value = sdiv __num_sw_unchecked_div_exact_lhs_%out_value, __num_sw_unchecked_div_exact_rhs_%out_value
+    __num_sw_unchecked_div_exact_result_masked_%out_value = and __num_sw_unchecked_div_exact_result_%out_value, %mask
+    __num_sw_unchecked_div_exact_result_raw_%out_value = shl __num_sw_unchecked_div_exact_result_masked_%out_value, __num_sw_unchecked_div_exact_adjust_%out_value
+    %out_value = ashr __num_sw_unchecked_div_exact_result_raw_%out_value, __num_sw_unchecked_div_exact_adjust_%out_value
+    !__num_sw_unchecked_div_exact_result_raw_%out_value
+    !__num_sw_unchecked_div_exact_result_masked_%out_value
+    !__num_sw_unchecked_div_exact_result_%out_value
+    !__num_sw_unchecked_div_exact_rhs_%out_value
+    !__num_sw_unchecked_div_exact_rhs_raw_%out_value
+    !__num_sw_unchecked_div_exact_rhs_masked_%out_value
+    !__num_sw_unchecked_div_exact_lhs_%out_value
+    !__num_sw_unchecked_div_exact_lhs_raw_%out_value
+    !__num_sw_unchecked_div_exact_lhs_masked_%out_value
+    !__num_sw_unchecked_div_exact_adjust_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U64_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_DIV __num_u64_checked_div_exact_div_ok_%out_ok, __num_u64_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_u64_checked_div_exact_div_ok_%out_ok, __num_u64_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u64_checked_div_exact_q_%out_ok
+    !__num_u64_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U64_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_DIV __num_u64_div_exact_div_ok_%out_ok, __num_u64_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_u64_div_exact_div_ok_%out_ok, __num_u64_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u64_div_exact_q_%out_ok
+    !__num_u64_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U64_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_U64_MAX
+[END_MACRO]
+
 [MACRO] NUM_U64_STRICT_DIV %out_value, %lhs, %rhs
     EXPAND NUM_U64_CHECKED_DIV __num_u64_strict_div_ok_%out_value, %out_value, %lhs, %rhs
     br __num_u64_strict_div_ok_%out_value -> L_NUM_U64_STRICT_DIV_OK_%out_value, L_NUM_U64_STRICT_DIV_PANIC_%out_value
@@ -3978,6 +4060,24 @@ L_NUM_I64_REM_ZERO_%out_ok:
 L_NUM_I64_REM_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_I64_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I64_CHECKED_DIV __num_i64_checked_div_exact_div_ok_%out_ok, __num_i64_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_i64_checked_div_exact_div_ok_%out_ok, __num_i64_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i64_checked_div_exact_q_%out_ok
+    !__num_i64_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I64_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I64_CHECKED_DIV __num_i64_div_exact_div_ok_%out_ok, __num_i64_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_i64_div_exact_div_ok_%out_ok, __num_i64_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i64_div_exact_q_%out_ok
+    !__num_i64_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I64_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_I64_BITS, NUM_U64_MAX
+[END_MACRO]
+
 [MACRO] NUM_I64_STRICT_DIV %out_value, %lhs, %rhs
     EXPAND NUM_I64_CHECKED_DIV __num_i64_strict_div_ok_%out_value, %out_value, %lhs, %rhs
     br __num_i64_strict_div_ok_%out_value -> L_NUM_I64_STRICT_DIV_OK_%out_value, L_NUM_I64_STRICT_DIV_PANIC_%out_value
@@ -5888,6 +5988,60 @@ L_NUM_I32_REM_FAIL_%out_ok:
     !__num_i32_rem_div_%out_ok
 
 L_NUM_I32_REM_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_I8_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_DIV __num_i8_checked_div_exact_div_ok_%out_ok, __num_i8_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_i8_checked_div_exact_div_ok_%out_ok, __num_i8_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i8_checked_div_exact_q_%out_ok
+    !__num_i8_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_DIV __num_i16_checked_div_exact_div_ok_%out_ok, __num_i16_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_i16_checked_div_exact_div_ok_%out_ok, __num_i16_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i16_checked_div_exact_q_%out_ok
+    !__num_i16_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_DIV __num_i32_checked_div_exact_div_ok_%out_ok, __num_i32_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_i32_checked_div_exact_div_ok_%out_ok, __num_i32_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i32_checked_div_exact_q_%out_ok
+    !__num_i32_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I8_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_DIV __num_i8_div_exact_div_ok_%out_ok, __num_i8_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_i8_div_exact_div_ok_%out_ok, __num_i8_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i8_div_exact_q_%out_ok
+    !__num_i8_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I16_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_DIV __num_i16_div_exact_div_ok_%out_ok, __num_i16_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_i16_div_exact_div_ok_%out_ok, __num_i16_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i16_div_exact_q_%out_ok
+    !__num_i16_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I32_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_DIV __num_i32_div_exact_div_ok_%out_ok, __num_i32_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_i32_div_exact_div_ok_%out_ok, __num_i32_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_i32_div_exact_q_%out_ok
+    !__num_i32_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I8_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_I8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_I16_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_I16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_I32_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_SIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_I32_BITS, NUM_U32_MAX
 [END_MACRO]
 
 [MACRO] NUM_I8_STRICT_DIV %out_value, %lhs, %rhs
@@ -7958,6 +8112,60 @@ L_NUM_U32_STRICT_MUL_OK_%out_value:
     !__num_u32_rem_ok_%out_ok
 [END_MACRO]
 
+[MACRO] NUM_U8_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_DIV __num_u8_checked_div_exact_div_ok_%out_ok, __num_u8_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_u8_checked_div_exact_div_ok_%out_ok, __num_u8_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u8_checked_div_exact_q_%out_ok
+    !__num_u8_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_DIV __num_u16_checked_div_exact_div_ok_%out_ok, __num_u16_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_u16_checked_div_exact_div_ok_%out_ok, __num_u16_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u16_checked_div_exact_q_%out_ok
+    !__num_u16_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_DIV __num_u32_checked_div_exact_div_ok_%out_ok, __num_u32_checked_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_u32_checked_div_exact_div_ok_%out_ok, __num_u32_checked_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u32_checked_div_exact_q_%out_ok
+    !__num_u32_checked_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_DIV __num_u8_div_exact_div_ok_%out_ok, __num_u8_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_u8_div_exact_div_ok_%out_ok, __num_u8_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u8_div_exact_q_%out_ok
+    !__num_u8_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_DIV __num_u16_div_exact_div_ok_%out_ok, __num_u16_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_u16_div_exact_div_ok_%out_ok, __num_u16_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u16_div_exact_q_%out_ok
+    !__num_u16_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_DIV __num_u32_div_exact_div_ok_%out_ok, __num_u32_div_exact_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_DIV_EXACT_RESULT_OR_PANIC %out_ok, %out_value, __num_u32_div_exact_div_ok_%out_ok, __num_u32_div_exact_q_%out_ok, %lhs, %rhs
+    !__num_u32_div_exact_q_%out_ok
+    !__num_u32_div_exact_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_DIV %out_value, %lhs, %rhs
     EXPAND NUM_U8_CHECKED_DIV __num_u8_strict_div_ok_%out_value, %out_value, %lhs, %rhs
     br __num_u8_strict_div_ok_%out_value -> L_NUM_U8_STRICT_DIV_OK_%out_value, L_NUM_U8_STRICT_DIV_PANIC_%out_value
@@ -8808,6 +9016,18 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
     EXPAND NUM_U64_STRICT_DIV %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_USIZE_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_U64_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_USIZE_CHECKED_REM %out_ok, %out_value, %lhs, %rhs
     EXPAND NUM_U64_CHECKED_REM %out_ok, %out_value, %lhs, %rhs
 [END_MACRO]
@@ -9086,6 +9306,18 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_ISIZE_STRICT_DIV %out_value, %lhs, %rhs
     EXPAND NUM_I64_STRICT_DIV %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I64_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I64_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
+    EXPAND NUM_I64_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_CHECKED_REM %out_ok, %out_value, %lhs, %rhs

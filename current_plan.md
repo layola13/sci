@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive exact division)
+
+Completed supportable primitive exact division helpers:
+- `NUM_U{8,16,32,64,SIZE}_CHECKED_DIV_EXACT` and matching signed helpers expose explicit `ok/out` lowering for Rust's unstable `checked_div_exact`, returning failure for zero divisors, signed `MIN / -1`, or nonzero remainders.
+- `NUM_U{8,16,32,64,SIZE}_DIV_EXACT` and matching signed helpers expose Rust `div_exact`'s mixed behavior: nonexact division returns `ok=0/out=0`, while zero divisors and signed overflow trap through existing SA `panic(2208)`.
+- Matching `UNCHECKED_DIV_EXACT` helpers perform only declared-width division and rely on callers to uphold the positive-divisor, exact-divisibility, and no-overflow safety preconditions.
+- Narrow unsigned outputs remain masked and narrow signed outputs remain sign-extended. `usize` / `isize` alias the current 64-bit SA ABI. This batch models behavior, not Rust `Option` object layout, unsafe UB enforcement, `exact_div` feature-gate plumbing, `u128` / `i128`, or trait-level dispatch.
+- Test file `std_num_exact_division_macro_surface.sa` (panic IDs 10643 and 10644 for ordinary assertion paths).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_exact_division_macro_surface.sa --jobs 1 --trace-panic` -> `4 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10645+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive exact shifts)
 
 Completed supportable primitive exact shift helpers:
