@@ -3995,3 +3995,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10708+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter default helper)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter default helper in vec.sa: VEC_INTO_ITER_DEFAULT_U64, creating an empty backing Vec and empty slice-backed Iter cursor for Rust's `Default for vec::IntoIter` shape.
+- Test file std_vec_into_iter_default_macro_surface.sa (panic ID 10708).
+
+Panic IDs next free: 10709+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

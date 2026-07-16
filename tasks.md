@@ -2669,3 +2669,5 @@ sa/
 - [x] Vec iterator alias 批次新增 focused 测试 `std_vec_iter_macro_surface.sa`（panic ID 10706）并同步 progress/current_plan/std_missing；不主张 Rust reference item type / borrow lifetime / owned `IntoIter<T,A>` object layout / generic `T` / allocator parameter 语义。
 - [x] `Vec` Rust API parity 审计继续补齐：补 consuming `IntoIterator for Vec` 具体 U64 降阶宏 `VEC_INTO_ITER_U64`，消费 Vec 到显式 backing `Vec<u64>` 并在该 Vec 上建立 slice-backed `Iter`。
 - [x] Vec into_iter 批次新增 focused 测试 `std_vec_into_iter_macro_surface.sa`（panic ID 10707）并同步 progress/current_plan/std_missing；不主张 Rust owned `IntoIter<T,A>` object layout / generic `T` / allocator parameter / 隐式 drop glue 语义。
+- [x] `Vec` Rust API parity 审计继续补齐：补 `Default for vec::IntoIter` 具体 U64 降阶宏 `VEC_INTO_ITER_DEFAULT_U64`，创建空 backing `Vec<u64>` 和空 slice-backed cursor。
+- [x] Vec IntoIter default 批次新增 focused 测试 `std_vec_into_iter_default_macro_surface.sa`（panic ID 10708）并同步 progress/current_plan/std_missing；不主张 Rust owned `IntoIter<T,A>` object layout / generic `T` / allocator parameter / 隐式 drop glue 语义。
