@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow unsigned primitive multiples/ceil macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `is_multiple_of`, `checked_next_multiple_of`, `next_multiple_of`, and `div_ceil`.
+- `sa_std/num.sa`: added `NUM_U8_IS_MULTIPLE_OF`, `NUM_U16_IS_MULTIPLE_OF`, `NUM_U32_IS_MULTIPLE_OF`, matching `CHECKED_NEXT_MULTIPLE_OF` / `NEXT_MULTIPLE_OF` helpers, and `NUM_U8_DIV_CEIL`, `NUM_U16_DIV_CEIL`, `NUM_U32_DIV_CEIL`.
+- Semantics: narrow helpers mask values and divisors to the declared Rust width. `is_multiple_of` follows Rust's zero divisor behavior through the existing `u64` helper, checked next-multiple returns explicit `ok/out` for zero divisors or overflow, direct next-multiple writes `0` on checked failure like the existing direct helper shape, and `div_ceil` reuses the existing unsigned ceil division path.
+- Test: `tests/unit_framework/std_num_narrow_multiples_macro_surface.sa` - 1 test (panic ID 10666) covering multiple checks, zero-divisor multiple semantics, checked next-multiple success/aligned/zero-divisor/overflow cases, direct next-multiple success/failure, div-ceil, and narrow mask behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_multiples_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10667+.
+
 ## Completed: 2026-07-16 narrow unsigned primitive reverse-bits macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `reverse_bits`.

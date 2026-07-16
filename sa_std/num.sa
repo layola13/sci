@@ -4817,6 +4817,195 @@ L_NUM_U64_NEXT_MUL_END_%out_ok:
     !__num_u64_div_ceil_q_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_IS_MULTIPLE_OF %out_bool, %value, %rhs
+    __num_u8_multiple_value_%out_bool = and %value, NUM_U8_MAX
+    __num_u8_multiple_rhs_%out_bool = and %rhs, NUM_U8_MAX
+    EXPAND NUM_U64_IS_MULTIPLE_OF %out_bool, __num_u8_multiple_value_%out_bool, __num_u8_multiple_rhs_%out_bool
+    !__num_u8_multiple_rhs_%out_bool
+    !__num_u8_multiple_value_%out_bool
+[END_MACRO]
+
+[MACRO] NUM_U8_CHECKED_NEXT_MULTIPLE_OF %out_ok, %out_value, %value, %rhs
+    __num_u8_next_mul_value_%out_ok = and %value, NUM_U8_MAX
+    __num_u8_next_mul_rhs_%out_ok = and %rhs, NUM_U8_MAX
+    __num_u8_next_mul_zero_rhs_%out_ok = eq __num_u8_next_mul_rhs_%out_ok, 0
+    br __num_u8_next_mul_zero_rhs_%out_ok -> L_NUM_U8_NEXT_MUL_ZERO_RHS_%out_ok, L_NUM_U8_NEXT_MUL_REM_%out_ok
+
+L_NUM_U8_NEXT_MUL_REM_%out_ok:
+    __num_u8_next_mul_rem_%out_ok = urem __num_u8_next_mul_value_%out_ok, __num_u8_next_mul_rhs_%out_ok
+    __num_u8_next_mul_aligned_%out_ok = eq __num_u8_next_mul_rem_%out_ok, 0
+    br __num_u8_next_mul_aligned_%out_ok -> L_NUM_U8_NEXT_MUL_ALIGNED_%out_ok, L_NUM_U8_NEXT_MUL_ADD_%out_ok
+
+L_NUM_U8_NEXT_MUL_ADD_%out_ok:
+    __num_u8_next_mul_delta_%out_ok = sub __num_u8_next_mul_rhs_%out_ok, __num_u8_next_mul_rem_%out_ok
+    EXPAND NUM_U8_CHECKED_ADD %out_ok, %out_value, __num_u8_next_mul_value_%out_ok, __num_u8_next_mul_delta_%out_ok
+    !__num_u8_next_mul_delta_%out_ok
+    !__num_u8_next_mul_aligned_%out_ok
+    !__num_u8_next_mul_rem_%out_ok
+    !__num_u8_next_mul_zero_rhs_%out_ok
+    !__num_u8_next_mul_rhs_%out_ok
+    !__num_u8_next_mul_value_%out_ok
+    jmp L_NUM_U8_NEXT_MUL_END_%out_ok
+
+L_NUM_U8_NEXT_MUL_ALIGNED_%out_ok:
+    %out_value = add __num_u8_next_mul_value_%out_ok, 0
+    %out_ok = add 0, 1
+    !__num_u8_next_mul_aligned_%out_ok
+    !__num_u8_next_mul_rem_%out_ok
+    !__num_u8_next_mul_zero_rhs_%out_ok
+    !__num_u8_next_mul_rhs_%out_ok
+    !__num_u8_next_mul_value_%out_ok
+    jmp L_NUM_U8_NEXT_MUL_END_%out_ok
+
+L_NUM_U8_NEXT_MUL_ZERO_RHS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_u8_next_mul_zero_rhs_%out_ok
+    !__num_u8_next_mul_rhs_%out_ok
+    !__num_u8_next_mul_value_%out_ok
+
+L_NUM_U8_NEXT_MUL_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U8_NEXT_MULTIPLE_OF %out_value, %value, %rhs
+    EXPAND NUM_U8_CHECKED_NEXT_MULTIPLE_OF __num_u8_next_mul_ok_%out_value, %out_value, %value, %rhs
+    !__num_u8_next_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_DIV_CEIL %out_value, %value, %rhs
+    __num_u8_div_ceil_value_%out_value = and %value, NUM_U8_MAX
+    __num_u8_div_ceil_rhs_%out_value = and %rhs, NUM_U8_MAX
+    EXPAND NUM_U64_DIV_CEIL %out_value, __num_u8_div_ceil_value_%out_value, __num_u8_div_ceil_rhs_%out_value
+    !__num_u8_div_ceil_rhs_%out_value
+    !__num_u8_div_ceil_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_IS_MULTIPLE_OF %out_bool, %value, %rhs
+    __num_u16_multiple_value_%out_bool = and %value, NUM_U16_MAX
+    __num_u16_multiple_rhs_%out_bool = and %rhs, NUM_U16_MAX
+    EXPAND NUM_U64_IS_MULTIPLE_OF %out_bool, __num_u16_multiple_value_%out_bool, __num_u16_multiple_rhs_%out_bool
+    !__num_u16_multiple_rhs_%out_bool
+    !__num_u16_multiple_value_%out_bool
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_NEXT_MULTIPLE_OF %out_ok, %out_value, %value, %rhs
+    __num_u16_next_mul_value_%out_ok = and %value, NUM_U16_MAX
+    __num_u16_next_mul_rhs_%out_ok = and %rhs, NUM_U16_MAX
+    __num_u16_next_mul_zero_rhs_%out_ok = eq __num_u16_next_mul_rhs_%out_ok, 0
+    br __num_u16_next_mul_zero_rhs_%out_ok -> L_NUM_U16_NEXT_MUL_ZERO_RHS_%out_ok, L_NUM_U16_NEXT_MUL_REM_%out_ok
+
+L_NUM_U16_NEXT_MUL_REM_%out_ok:
+    __num_u16_next_mul_rem_%out_ok = urem __num_u16_next_mul_value_%out_ok, __num_u16_next_mul_rhs_%out_ok
+    __num_u16_next_mul_aligned_%out_ok = eq __num_u16_next_mul_rem_%out_ok, 0
+    br __num_u16_next_mul_aligned_%out_ok -> L_NUM_U16_NEXT_MUL_ALIGNED_%out_ok, L_NUM_U16_NEXT_MUL_ADD_%out_ok
+
+L_NUM_U16_NEXT_MUL_ADD_%out_ok:
+    __num_u16_next_mul_delta_%out_ok = sub __num_u16_next_mul_rhs_%out_ok, __num_u16_next_mul_rem_%out_ok
+    EXPAND NUM_U16_CHECKED_ADD %out_ok, %out_value, __num_u16_next_mul_value_%out_ok, __num_u16_next_mul_delta_%out_ok
+    !__num_u16_next_mul_delta_%out_ok
+    !__num_u16_next_mul_aligned_%out_ok
+    !__num_u16_next_mul_rem_%out_ok
+    !__num_u16_next_mul_zero_rhs_%out_ok
+    !__num_u16_next_mul_rhs_%out_ok
+    !__num_u16_next_mul_value_%out_ok
+    jmp L_NUM_U16_NEXT_MUL_END_%out_ok
+
+L_NUM_U16_NEXT_MUL_ALIGNED_%out_ok:
+    %out_value = add __num_u16_next_mul_value_%out_ok, 0
+    %out_ok = add 0, 1
+    !__num_u16_next_mul_aligned_%out_ok
+    !__num_u16_next_mul_rem_%out_ok
+    !__num_u16_next_mul_zero_rhs_%out_ok
+    !__num_u16_next_mul_rhs_%out_ok
+    !__num_u16_next_mul_value_%out_ok
+    jmp L_NUM_U16_NEXT_MUL_END_%out_ok
+
+L_NUM_U16_NEXT_MUL_ZERO_RHS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_u16_next_mul_zero_rhs_%out_ok
+    !__num_u16_next_mul_rhs_%out_ok
+    !__num_u16_next_mul_value_%out_ok
+
+L_NUM_U16_NEXT_MUL_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U16_NEXT_MULTIPLE_OF %out_value, %value, %rhs
+    EXPAND NUM_U16_CHECKED_NEXT_MULTIPLE_OF __num_u16_next_mul_ok_%out_value, %out_value, %value, %rhs
+    !__num_u16_next_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_DIV_CEIL %out_value, %value, %rhs
+    __num_u16_div_ceil_value_%out_value = and %value, NUM_U16_MAX
+    __num_u16_div_ceil_rhs_%out_value = and %rhs, NUM_U16_MAX
+    EXPAND NUM_U64_DIV_CEIL %out_value, __num_u16_div_ceil_value_%out_value, __num_u16_div_ceil_rhs_%out_value
+    !__num_u16_div_ceil_rhs_%out_value
+    !__num_u16_div_ceil_value_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_IS_MULTIPLE_OF %out_bool, %value, %rhs
+    __num_u32_multiple_value_%out_bool = and %value, NUM_U32_MAX
+    __num_u32_multiple_rhs_%out_bool = and %rhs, NUM_U32_MAX
+    EXPAND NUM_U64_IS_MULTIPLE_OF %out_bool, __num_u32_multiple_value_%out_bool, __num_u32_multiple_rhs_%out_bool
+    !__num_u32_multiple_rhs_%out_bool
+    !__num_u32_multiple_value_%out_bool
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_NEXT_MULTIPLE_OF %out_ok, %out_value, %value, %rhs
+    __num_u32_next_mul_value_%out_ok = and %value, NUM_U32_MAX
+    __num_u32_next_mul_rhs_%out_ok = and %rhs, NUM_U32_MAX
+    __num_u32_next_mul_zero_rhs_%out_ok = eq __num_u32_next_mul_rhs_%out_ok, 0
+    br __num_u32_next_mul_zero_rhs_%out_ok -> L_NUM_U32_NEXT_MUL_ZERO_RHS_%out_ok, L_NUM_U32_NEXT_MUL_REM_%out_ok
+
+L_NUM_U32_NEXT_MUL_REM_%out_ok:
+    __num_u32_next_mul_rem_%out_ok = urem __num_u32_next_mul_value_%out_ok, __num_u32_next_mul_rhs_%out_ok
+    __num_u32_next_mul_aligned_%out_ok = eq __num_u32_next_mul_rem_%out_ok, 0
+    br __num_u32_next_mul_aligned_%out_ok -> L_NUM_U32_NEXT_MUL_ALIGNED_%out_ok, L_NUM_U32_NEXT_MUL_ADD_%out_ok
+
+L_NUM_U32_NEXT_MUL_ADD_%out_ok:
+    __num_u32_next_mul_delta_%out_ok = sub __num_u32_next_mul_rhs_%out_ok, __num_u32_next_mul_rem_%out_ok
+    EXPAND NUM_U32_CHECKED_ADD %out_ok, %out_value, __num_u32_next_mul_value_%out_ok, __num_u32_next_mul_delta_%out_ok
+    !__num_u32_next_mul_delta_%out_ok
+    !__num_u32_next_mul_aligned_%out_ok
+    !__num_u32_next_mul_rem_%out_ok
+    !__num_u32_next_mul_zero_rhs_%out_ok
+    !__num_u32_next_mul_rhs_%out_ok
+    !__num_u32_next_mul_value_%out_ok
+    jmp L_NUM_U32_NEXT_MUL_END_%out_ok
+
+L_NUM_U32_NEXT_MUL_ALIGNED_%out_ok:
+    %out_value = add __num_u32_next_mul_value_%out_ok, 0
+    %out_ok = add 0, 1
+    !__num_u32_next_mul_aligned_%out_ok
+    !__num_u32_next_mul_rem_%out_ok
+    !__num_u32_next_mul_zero_rhs_%out_ok
+    !__num_u32_next_mul_rhs_%out_ok
+    !__num_u32_next_mul_value_%out_ok
+    jmp L_NUM_U32_NEXT_MUL_END_%out_ok
+
+L_NUM_U32_NEXT_MUL_ZERO_RHS_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+    !__num_u32_next_mul_zero_rhs_%out_ok
+    !__num_u32_next_mul_rhs_%out_ok
+    !__num_u32_next_mul_value_%out_ok
+
+L_NUM_U32_NEXT_MUL_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U32_NEXT_MULTIPLE_OF %out_value, %value, %rhs
+    EXPAND NUM_U32_CHECKED_NEXT_MULTIPLE_OF __num_u32_next_mul_ok_%out_value, %out_value, %value, %rhs
+    !__num_u32_next_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_DIV_CEIL %out_value, %value, %rhs
+    __num_u32_div_ceil_value_%out_value = and %value, NUM_U32_MAX
+    __num_u32_div_ceil_rhs_%out_value = and %rhs, NUM_U32_MAX
+    EXPAND NUM_U64_DIV_CEIL %out_value, __num_u32_div_ceil_value_%out_value, __num_u32_div_ceil_rhs_%out_value
+    !__num_u32_div_ceil_rhs_%out_value
+    !__num_u32_div_ceil_value_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_CHECKED_ILOG2 %out_ok, %out_value, %value
     __num_u64_ilog2_zero_%out_ok = eq %value, 0
     br __num_u64_ilog2_zero_%out_ok -> L_NUM_U64_ILOG2_NONE_%out_ok, L_NUM_U64_ILOG2_SOME_%out_ok

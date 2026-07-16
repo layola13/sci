@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive multiples/ceil)
+
+Completed supportable narrow unsigned primitive multiples and ceil helpers:
+- `NUM_U{8,16,32}_IS_MULTIPLE_OF` exposes Rust's unsigned primitive multiple predicate for narrow widths.
+- `NUM_U{8,16,32}_CHECKED_NEXT_MULTIPLE_OF` and `NUM_U{8,16,32}_NEXT_MULTIPLE_OF` expose checked and direct next-multiple shapes.
+- `NUM_U{8,16,32}_DIV_CEIL` exposes unsigned ceil division for narrow widths.
+- Narrow helpers mask inputs to the declared Rust width and reuse existing `u64` behavior where appropriate; current `usize` support was already present as a 64-bit alias.
+- This batch models concrete result/control-flow semantics, not Rust panic object identity, `u128`, or trait-level dispatch.
+- Test file `std_num_narrow_multiples_macro_surface.sa` (panic ID 10666).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_multiples_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10667+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive reverse bits)
 
 Completed supportable narrow unsigned primitive reverse-bits helpers:
