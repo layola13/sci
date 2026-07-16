@@ -7702,6 +7702,93 @@ L_NUM_I32_REM_END_%out_ok:
     !__num_i32_next_mul_direct_ok_%out_value
 [END_MACRO]
 
+[MACRO] NUM_I8_CHECKED_ILOG %out_ok, %out_value, %value, %base
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_ilog_value_%out_ok, %value
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_ilog_base_%out_ok, %base
+    EXPAND NUM_I64_CHECKED_ILOG %out_ok, %out_value, __num_i8_ilog_value_%out_ok, __num_i8_ilog_base_%out_ok
+    !__num_i8_ilog_base_%out_ok
+    !__num_i8_ilog_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_ILOG %out_ok, %out_value, %value, %base
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_ilog_value_%out_ok, %value
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_ilog_base_%out_ok, %base
+    EXPAND NUM_I64_CHECKED_ILOG %out_ok, %out_value, __num_i16_ilog_value_%out_ok, __num_i16_ilog_base_%out_ok
+    !__num_i16_ilog_base_%out_ok
+    !__num_i16_ilog_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_ILOG %out_ok, %out_value, %value, %base
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_ilog_value_%out_ok, %value
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_ilog_base_%out_ok, %base
+    EXPAND NUM_I64_CHECKED_ILOG %out_ok, %out_value, __num_i32_ilog_value_%out_ok, __num_i32_ilog_base_%out_ok
+    !__num_i32_ilog_base_%out_ok
+    !__num_i32_ilog_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I8_ILOG %out_value, %value, %base
+    EXPAND NUM_I8_CHECKED_ILOG __num_i8_ilog_direct_ok_%out_value, %out_value, %value, %base
+    !__num_i8_ilog_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_ILOG %out_value, %value, %base
+    EXPAND NUM_I16_CHECKED_ILOG __num_i16_ilog_direct_ok_%out_value, %out_value, %value, %base
+    !__num_i16_ilog_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_ILOG %out_value, %value, %base
+    EXPAND NUM_I32_CHECKED_ILOG __num_i32_ilog_direct_ok_%out_value, %out_value, %value, %base
+    !__num_i32_ilog_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_CHECKED_ILOG2 %out_ok, %out_value, %value
+    EXPAND NUM_I8_CHECKED_ILOG %out_ok, %out_value, %value, 2
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_ILOG2 %out_ok, %out_value, %value
+    EXPAND NUM_I16_CHECKED_ILOG %out_ok, %out_value, %value, 2
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_ILOG2 %out_ok, %out_value, %value
+    EXPAND NUM_I32_CHECKED_ILOG %out_ok, %out_value, %value, 2
+[END_MACRO]
+
+[MACRO] NUM_I8_ILOG2 %out_value, %value
+    EXPAND NUM_I8_ILOG %out_value, %value, 2
+[END_MACRO]
+
+[MACRO] NUM_I16_ILOG2 %out_value, %value
+    EXPAND NUM_I16_ILOG %out_value, %value, 2
+[END_MACRO]
+
+[MACRO] NUM_I32_ILOG2 %out_value, %value
+    EXPAND NUM_I32_ILOG %out_value, %value, 2
+[END_MACRO]
+
+[MACRO] NUM_I8_CHECKED_ILOG10 %out_ok, %out_value, %value
+    EXPAND NUM_I8_CHECKED_ILOG %out_ok, %out_value, %value, 10
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_ILOG10 %out_ok, %out_value, %value
+    EXPAND NUM_I16_CHECKED_ILOG %out_ok, %out_value, %value, 10
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_ILOG10 %out_ok, %out_value, %value
+    EXPAND NUM_I32_CHECKED_ILOG %out_ok, %out_value, %value, 10
+[END_MACRO]
+
+[MACRO] NUM_I8_ILOG10 %out_value, %value
+    EXPAND NUM_I8_ILOG %out_value, %value, 10
+[END_MACRO]
+
+[MACRO] NUM_I16_ILOG10 %out_value, %value
+    EXPAND NUM_I16_ILOG %out_value, %value, 10
+[END_MACRO]
+
+[MACRO] NUM_I32_ILOG10 %out_value, %value
+    EXPAND NUM_I32_ILOG %out_value, %value, 10
+[END_MACRO]
+
 [MACRO] NUM_I8_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
     EXPAND NUM_I8_CHECKED_DIV __num_i8_checked_div_exact_div_ok_%out_ok, __num_i8_checked_div_exact_q_%out_ok, %lhs, %rhs
     EXPAND NUM_DIV_EXACT_RESULT %out_ok, %out_value, __num_i8_checked_div_exact_div_ok_%out_ok, __num_i8_checked_div_exact_q_%out_ok, %lhs, %rhs

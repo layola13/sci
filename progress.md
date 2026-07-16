@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed primitive ilog macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `checked_ilog`, `ilog`, `checked_ilog2`, `ilog2`, `checked_ilog10`, and `ilog10`.
+- `sa_std/num.sa`: added `NUM_I8_CHECKED_ILOG`, `NUM_I16_CHECKED_ILOG`, `NUM_I32_CHECKED_ILOG`, matching direct `ILOG` helpers, and matching base-2/base-10 checked/direct helpers.
+- Semantics: helpers sign-extend narrow signed values and arbitrary bases to their declared width before delegating to the existing `i64` signed log implementation. Checked helpers return explicit `ok/value` pairs for nonpositive values or bases below 2, while direct helpers keep the current SA direct-helper failure shape and write `0` on checked failure.
+- Test: `tests/unit_framework/std_num_narrow_signed_ilog_macro_surface.sa` - 1 test (panic ID 10676) covering arbitrary-base logs, `value < base`, negative and zero values, invalid bases, raw i8 bit-pattern input, direct helper success/failure, and base-2/base-10 helpers for `i8`, `i16`, and `i32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_ilog_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10677+.
+
 ## Completed: 2026-07-16 narrow signed primitive next-multiple macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `checked_next_multiple_of` and `next_multiple_of`.

@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow signed primitive ilog)
+
+Completed supportable narrow signed primitive integer-log helpers:
+- `NUM_I{8,16,32}_CHECKED_ILOG` and `NUM_I{8,16,32}_ILOG` expose arbitrary-base signed integer-log helpers for narrow widths.
+- `NUM_I{8,16,32}_CHECKED_ILOG2` / `ILOG2` and `NUM_I{8,16,32}_CHECKED_ILOG10` / `ILOG10` expose the base-2 and base-10 variants.
+- Helpers sign-extend values and bases to the declared signed width before delegating to the existing `i64` signed log implementation.
+- Checked helpers return explicit `ok/value` pairs for nonpositive values or bases below 2; direct helpers write `0` on checked failure like the current SA direct `i64` surface.
+- This batch models concrete result semantics, not Rust panic object/message identity, `i128`, or trait-level dispatch.
+- Test file `std_num_narrow_signed_ilog_macro_surface.sa` (panic ID 10676).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_ilog_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10677+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow signed primitive next-multiple)
 
 Completed supportable narrow signed primitive next-multiple helpers:
