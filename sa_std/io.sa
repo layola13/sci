@@ -43,13 +43,31 @@
     !__io_stdin_handle_%out_status
 [END_MACRO]
 
+[MACRO] IO_STDIN_AS_FD %out_status, %out_fd
+    __io_stdin_handle_%out_status = call @sa_io_stdin()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdin_handle_%out_status
+    !__io_stdin_handle_%out_status
+[END_MACRO]
+
 [MACRO] IO_STDOUT_AS_RAW_FD %out_status, %out_fd
     __io_stdout_handle_%out_status = call @sa_io_stdout()
     EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdout_handle_%out_status
     !__io_stdout_handle_%out_status
 [END_MACRO]
 
+[MACRO] IO_STDOUT_AS_FD %out_status, %out_fd
+    __io_stdout_handle_%out_status = call @sa_io_stdout()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdout_handle_%out_status
+    !__io_stdout_handle_%out_status
+[END_MACRO]
+
 [MACRO] IO_STDERR_AS_RAW_FD %out_status, %out_fd
+    __io_stderr_handle_%out_status = call @sa_io_stderr()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stderr_handle_%out_status
+    !__io_stderr_handle_%out_status
+[END_MACRO]
+
+[MACRO] IO_STDERR_AS_FD %out_status, %out_fd
     __io_stderr_handle_%out_status = call @sa_io_stderr()
     EXPAND FD_AS_RAW %out_status, %out_fd, __io_stderr_handle_%out_status
     !__io_stderr_handle_%out_status

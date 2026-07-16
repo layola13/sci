@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 stdio AsFd aliases
+
+- Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `impl AsFd for io::Stdin`, `io::Stdout`, and `io::Stderr`.
+- `sa_std/io.sa`: added `IO_STDIN_AS_FD`, `IO_STDOUT_AS_FD`, and `IO_STDERR_AS_FD`.
+- Semantics: helpers preserve the current SA fd facade shape where a borrowed fd is represented as the raw fd scalar. They return fixed stdio fds `0`, `1`, and `2` through the existing stdio handle fd view.
+- Test: `tests/unit_framework/std_io_stdio_as_fd_macro_surface.sa` - 1 test (panic ID 10695) covering stdio `as_fd`, equality with `as_raw_fd`, borrowed raw view, and fixed fd values.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_io_stdio_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10696+.
+
 ## Completed: 2026-07-16 std::fs::File AsFd alias
 
 - Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `impl AsFd for fs::File`.
