@@ -8741,3 +8741,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_transform_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10723+.
+
+## Completed: 2026-07-16 Vec IntoIter sequence collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_INTERSPERSE_COLLECT_U64`, `VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64`, `VEC_INTO_ITER_CYCLE_TAKE_COLLECT_U64`, `VEC_INTO_ITER_TAKE_WHILE_COLLECT_U64`, and `VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64`.
+- Semantics: these helpers lower supportable Rust sequence adapter-then-collect shapes for concrete `vec::IntoIter<u64>` by delegating to existing eager slice-backed cursor collect primitives over explicit backing Vecs. `cycle_take` is a finite eager collection helper, not Rust's infinite lazy `Cycle` adapter object.
+- Test: `tests/unit_framework/std_vec_into_iter_sequence_collect_macro_surface.sa` — 1 test (panic ID 10723) covering intersperse, intersperse_with, finite cycle+take, zero cycle-take without cursor advancement, take_while's consumed failing element, take-all, skip_while, and skip-all.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_sequence_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10724+.
