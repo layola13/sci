@@ -1793,6 +1793,33 @@ L_NUM_SIGNED_DIV_FLOOR_COMPUTE_%out_value:
     !__num_signed_div_floor_rem_%out_value
 [END_MACRO]
 
+[MACRO] NUM_SIGNED_CHECKED_DIV_CEIL_RESULT %out_ok, %out_value, %div_ok, %quotient, %lhs, %rhs
+    br %div_ok -> L_NUM_SIGNED_DIV_CEIL_COMPUTE_%out_ok, L_NUM_SIGNED_DIV_CEIL_FAIL_%out_ok
+
+L_NUM_SIGNED_DIV_CEIL_COMPUTE_%out_ok:
+    __num_signed_div_ceil_rem_%out_ok = srem %lhs, %rhs
+    __num_signed_div_ceil_has_rem_%out_ok = ne __num_signed_div_ceil_rem_%out_ok, 0
+    __num_signed_div_ceil_lhs_neg_%out_ok = slt %lhs, 0
+    __num_signed_div_ceil_rhs_neg_%out_ok = slt %rhs, 0
+    __num_signed_div_ceil_same_sign_%out_ok = eq __num_signed_div_ceil_lhs_neg_%out_ok, __num_signed_div_ceil_rhs_neg_%out_ok
+    __num_signed_div_ceil_correct_%out_ok = and __num_signed_div_ceil_has_rem_%out_ok, __num_signed_div_ceil_same_sign_%out_ok
+    %out_value = add %quotient, __num_signed_div_ceil_correct_%out_ok
+    %out_ok = add 0, 1
+    !__num_signed_div_ceil_correct_%out_ok
+    !__num_signed_div_ceil_same_sign_%out_ok
+    !__num_signed_div_ceil_rhs_neg_%out_ok
+    !__num_signed_div_ceil_lhs_neg_%out_ok
+    !__num_signed_div_ceil_has_rem_%out_ok
+    !__num_signed_div_ceil_rem_%out_ok
+    jmp L_NUM_SIGNED_DIV_CEIL_END_%out_ok
+
+L_NUM_SIGNED_DIV_CEIL_FAIL_%out_ok:
+    %out_value = add 0, 0
+    %out_ok = add 0, 0
+
+L_NUM_SIGNED_DIV_CEIL_END_%out_ok:
+[END_MACRO]
+
 [MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, %mask
     __num_uw_unchecked_div_exact_lhs_%out_value = and %lhs, %mask
     __num_uw_unchecked_div_exact_rhs_%out_value = and %rhs, %mask
@@ -7578,6 +7605,42 @@ L_NUM_I32_REM_FAIL_%out_ok:
     !__num_i32_rem_div_%out_ok
 
 L_NUM_I32_REM_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_I8_CHECKED_DIV_CEIL %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_DIV __num_i8_div_ceil_div_ok_%out_ok, __num_i8_div_ceil_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_SIGNED_CHECKED_DIV_CEIL_RESULT %out_ok, %out_value, __num_i8_div_ceil_div_ok_%out_ok, __num_i8_div_ceil_q_%out_ok, %lhs, %rhs
+    !__num_i8_div_ceil_q_%out_ok
+    !__num_i8_div_ceil_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_DIV_CEIL %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_DIV __num_i16_div_ceil_div_ok_%out_ok, __num_i16_div_ceil_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_SIGNED_CHECKED_DIV_CEIL_RESULT %out_ok, %out_value, __num_i16_div_ceil_div_ok_%out_ok, __num_i16_div_ceil_q_%out_ok, %lhs, %rhs
+    !__num_i16_div_ceil_q_%out_ok
+    !__num_i16_div_ceil_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_DIV_CEIL %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_DIV __num_i32_div_ceil_div_ok_%out_ok, __num_i32_div_ceil_q_%out_ok, %lhs, %rhs
+    EXPAND NUM_SIGNED_CHECKED_DIV_CEIL_RESULT %out_ok, %out_value, __num_i32_div_ceil_div_ok_%out_ok, __num_i32_div_ceil_q_%out_ok, %lhs, %rhs
+    !__num_i32_div_ceil_q_%out_ok
+    !__num_i32_div_ceil_div_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I8_DIV_CEIL %out_value, %lhs, %rhs
+    EXPAND NUM_I8_CHECKED_DIV_CEIL __num_i8_div_ceil_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i8_div_ceil_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_DIV_CEIL %out_value, %lhs, %rhs
+    EXPAND NUM_I16_CHECKED_DIV_CEIL __num_i16_div_ceil_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i16_div_ceil_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_DIV_CEIL %out_value, %lhs, %rhs
+    EXPAND NUM_I32_CHECKED_DIV_CEIL __num_i32_div_ceil_direct_ok_%out_value, %out_value, %lhs, %rhs
+    !__num_i32_div_ceil_direct_ok_%out_value
 [END_MACRO]
 
 [MACRO] NUM_I8_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs

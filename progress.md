@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed primitive div_ceil macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `div_ceil`.
+- `sa_std/num.sa`: added `NUM_I8_CHECKED_DIV_CEIL`, `NUM_I16_CHECKED_DIV_CEIL`, `NUM_I32_CHECKED_DIV_CEIL`, and matching direct `DIV_CEIL` helpers.
+- Semantics: checked helpers reuse each width's existing checked signed division to reject zero divisors and `MIN / -1`, then adjust the truncating quotient by `+1` only when there is a nonzero remainder and operands have the same sign. Direct helpers match the existing `i64` direct helper shape by writing the checked result and `0` on checked failure rather than materializing Rust panic objects.
+- Test: `tests/unit_framework/std_num_narrow_signed_div_ceil_macro_surface.sa` - 1 test (panic ID 10674) covering positive, negative-lhs, negative-rhs, both-negative, exact-division, zero-divisor, signed-overflow, and direct helper paths for `i8`, `i16`, and `i32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_div_ceil_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10675+.
+
 ## Completed: 2026-07-16 narrow signed primitive midpoint macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `core/src/num/mod.rs` for signed primitive `midpoint`.
