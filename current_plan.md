@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 signed NonZero isqrt)
+
+Completed supportable signed NonZero isqrt helpers:
+- `NONZERO_I{8,16,32,64,SIZE}_ISQRT` exposes Rust's `NonZero<signed>::isqrt` shape for every existing SA signed NonZero wrapper width.
+- Helpers load the concrete signed wrapper value, delegate to the corresponding `NUM_I*_ISQRT`, and write the floor square root back into the same signed NonZero wrapper layout.
+- Positive inputs preserve the NonZero invariant; negative inputs follow the existing signed primitive `isqrt` SA `panic(2203)` path.
+- This batch models concrete wrapper result/control-flow semantics, not Rust panic message/object identity, generic `NonZero<T>`, `i128`, niche optimization, or trait-level dispatch.
+- Test file `std_num_nonzero_signed_isqrt_macro_surface.sa` (panic ID 10659).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_signed_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10660+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 signed primitive overflowing div/rem/euclid)
 
 Completed supportable signed primitive overflowing div/rem/euclid helpers:

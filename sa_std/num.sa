@@ -804,6 +804,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI64_value
 [END_MACRO]
 
+[MACRO] NONZERO_I64_ISQRT %out_nz, %nz
+    __nonzero_i64_isqrt_value_%out_nz = load %nz+NonZeroI64_value as i64
+    EXPAND NUM_I64_ISQRT __nonzero_i64_isqrt_result_%out_nz, __nonzero_i64_isqrt_value_%out_nz
+    store %out_nz+NonZeroI64_value, __nonzero_i64_isqrt_result_%out_nz as i64
+    !__nonzero_i64_isqrt_result_%out_nz
+    !__nonzero_i64_isqrt_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_I32_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI32_value
 [END_MACRO]
@@ -842,6 +850,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
 
 [MACRO] NONZERO_I32_MAX %out_nz, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI32_value
+[END_MACRO]
+
+[MACRO] NONZERO_I32_ISQRT %out_nz, %nz
+    __nonzero_i32_isqrt_value_%out_nz = load %nz+NonZeroI32_value as i64
+    EXPAND NUM_I32_ISQRT __nonzero_i32_isqrt_result_%out_nz, __nonzero_i32_isqrt_value_%out_nz
+    store %out_nz+NonZeroI32_value, __nonzero_i32_isqrt_result_%out_nz as i64
+    !__nonzero_i32_isqrt_result_%out_nz
+    !__nonzero_i32_isqrt_value_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_I16_EQ %out_bool, %left_nz, %right_nz
@@ -884,6 +900,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI16_value
 [END_MACRO]
 
+[MACRO] NONZERO_I16_ISQRT %out_nz, %nz
+    __nonzero_i16_isqrt_value_%out_nz = load %nz+NonZeroI16_value as i64
+    EXPAND NUM_I16_ISQRT __nonzero_i16_isqrt_result_%out_nz, __nonzero_i16_isqrt_value_%out_nz
+    store %out_nz+NonZeroI16_value, __nonzero_i16_isqrt_result_%out_nz as i64
+    !__nonzero_i16_isqrt_result_%out_nz
+    !__nonzero_i16_isqrt_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_I8_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroI8_value
 [END_MACRO]
@@ -924,6 +948,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
     EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroI8_value
 [END_MACRO]
 
+[MACRO] NONZERO_I8_ISQRT %out_nz, %nz
+    __nonzero_i8_isqrt_value_%out_nz = load %nz+NonZeroI8_value as i64
+    EXPAND NUM_I8_ISQRT __nonzero_i8_isqrt_result_%out_nz, __nonzero_i8_isqrt_value_%out_nz
+    store %out_nz+NonZeroI8_value, __nonzero_i8_isqrt_result_%out_nz as i64
+    !__nonzero_i8_isqrt_result_%out_nz
+    !__nonzero_i8_isqrt_value_%out_nz
+[END_MACRO]
+
 [MACRO] NONZERO_ISIZE_EQ %out_bool, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_EQ_FIELD %out_bool, %left_nz, %right_nz, NonZeroIsize_value
 [END_MACRO]
@@ -962,6 +994,14 @@ L_NONZERO_SIGNED_SATURATING_POW_DONE_%out_nz:
 
 [MACRO] NONZERO_ISIZE_MAX %out_nz, %left_nz, %right_nz
     EXPAND NONZERO_SIGNED_MAX_FIELD %out_nz, %left_nz, %right_nz, NonZeroIsize_value
+[END_MACRO]
+
+[MACRO] NONZERO_ISIZE_ISQRT %out_nz, %nz
+    __nonzero_isize_isqrt_value_%out_nz = load %nz+NonZeroIsize_value as i64
+    EXPAND NUM_ISIZE_ISQRT __nonzero_isize_isqrt_result_%out_nz, __nonzero_isize_isqrt_value_%out_nz
+    store %out_nz+NonZeroIsize_value, __nonzero_isize_isqrt_result_%out_nz as i64
+    !__nonzero_isize_isqrt_result_%out_nz
+    !__nonzero_isize_isqrt_value_%out_nz
 [END_MACRO]
 
 [MACRO] NONZERO_U64_COPY %dst_nz, %src_nz
