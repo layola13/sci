@@ -8633,3 +8633,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10711+.
+
+## Completed: 2026-07-16 Vec IntoIter trait aliases
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_AS_REF_SLICE_U64`, `VEC_INTO_ITER_SIZE_HINT_U64`, `VEC_INTO_ITER_EXACT_SIZE_LEN_U64`, and `VEC_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers lower the supportable Rust `AsRef<[T]>`, `Iterator::size_hint`, and `ExactSizeIterator` surfaces for concrete `vec::IntoIter<u64>` by delegating to the existing current-remaining slice and exact-length cursor helpers. They do not model generic `T`, Rust `Option<usize>` ABI, marker trait wiring, allocator state, owned `IntoIter<T, A>` object layout, borrow lifetimes, or drop glue.
+- Test: `tests/unit_framework/std_vec_into_iter_trait_alias_macro_surface.sa` — 1 test (panic ID 10711) covering as-ref remaining slice, exact size hints before and after front/back consumption, exact-size empty state after exhaustion, and default empty iterator alias behavior.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_trait_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10712+.

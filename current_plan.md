@@ -4022,3 +4022,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10711+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter trait aliases)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter trait aliases in vec.sa: VEC_INTO_ITER_AS_REF_SLICE_U64, VEC_INTO_ITER_SIZE_HINT_U64, VEC_INTO_ITER_EXACT_SIZE_LEN_U64, and VEC_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64, exposing the supportable AsRef/slice, exact size hint, and exact-size empty state over the current cursor remainder.
+- Test file std_vec_into_iter_trait_alias_macro_surface.sa (panic ID 10711).
+
+Panic IDs next free: 10712+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, Rust Option<usize> ABI, marker trait wiring, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
