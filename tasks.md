@@ -2687,3 +2687,5 @@ sa/
 - [x] Vec IntoIter search/predicate ops 批次新增 focused 测试 `std_vec_into_iter_search_macro_surface.sa`（panic ID 10715）并同步 progress/current_plan/std_missing；不主张 Rust closure capture / generic `Try` residual / `Option<T>` / `Option<usize>` ABI / owned `IntoIter<T,A>` object layout 语义。
 - [x] `Vec` Rust API parity 审计继续补齐：补 `vec::IntoIter` 的 concrete for_each 降阶别名 `VEC_INTO_ITER_FOR_EACH_U64` / `VEC_INTO_ITER_TRY_FOR_EACH_U64`。
 - [x] Vec IntoIter for_each ops 批次新增 focused 测试 `std_vec_into_iter_for_each_macro_surface.sa`（panic ID 10716）并同步 progress/current_plan/std_missing；不主张 Rust closure capture / generic `Try` residual / panic-drop cleanup / owned `IntoIter<T,A>` object layout 语义。
+- [x] `Vec` Rust API parity 审计继续补齐：补 `vec::IntoIter` 的 concrete comparator/key 降阶别名 `VEC_INTO_ITER_MIN_BY_U64` / `VEC_INTO_ITER_MAX_BY_U64` / `VEC_INTO_ITER_MIN_BY_KEY_U64` / `VEC_INTO_ITER_MAX_BY_KEY_U64`。
+- [x] Vec IntoIter min/max-by ops 批次新增 focused 测试 `std_vec_into_iter_min_max_by_macro_surface.sa`（panic ID 10717）并同步 progress/current_plan/std_missing；不主张 Rust `Option<T>` ABI / generic `Ord` / closure capture / owned `IntoIter<T,A>` object layout 语义。

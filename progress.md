@@ -8687,3 +8687,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_for_each_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10717+.
+
+## Completed: 2026-07-16 Vec IntoIter min/max-by ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_MIN_BY_U64`, `VEC_INTO_ITER_MAX_BY_U64`, `VEC_INTO_ITER_MIN_BY_KEY_U64`, and `VEC_INTO_ITER_MAX_BY_KEY_U64`.
+- Semantics: these helpers lower supportable Rust `Iterator::min_by` / `max_by` / `min_by_key` / `max_by_key` surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor primitives over the explicit backing Vec. They return explicit `(has, value)` scalars rather than Rust `Option<T>` and use concrete SA comparator/key callbacks rather than generic closure capture or trait dispatch.
+- Test: `tests/unit_framework/std_vec_into_iter_min_max_by_macro_surface.sa` — 1 test (panic ID 10717) covering comparator-based min/max, key-based min/max, cursor exhaustion after each aggregate, and empty iterator results.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_min_max_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10718+.
