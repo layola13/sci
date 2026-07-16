@@ -2,6 +2,20 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 socket AsFd aliases
+
+- Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `TcpStream`, `TcpListener`, and `UdpSocket` `AsFd`, plus `library/std/src/os/unix/net/{stream,listener,datagram}.rs` for Unix socket `AsFd`.
+- `sa_std/net.sa`: added `NET_TCP_LISTENER_AS_FD`, `NET_TCP_STREAM_AS_FD`, `NET_UDP_AS_FD`, `NET_UNIX_LISTENER_AS_FD`, `NET_UNIX_STREAM_AS_FD`, and `NET_UNIX_DATAGRAM_AS_FD`.
+- Semantics: helpers preserve the current SA fd facade shape where a borrowed fd is represented as the raw fd scalar, delegating through the existing socket raw-fd views.
+- Tests:
+  - `tests/unit_framework/std_net_as_fd_macro_surface.sa` - 1 test (panic ID 10697) covering TCP listener/stream and UDP socket `as_fd`, equality with `as_raw_fd`, borrowed raw view, and handle cleanup.
+  - `tests/unit_framework/std_net_unix_as_fd_macro_surface.sa` - 1 test (panic ID 10698) covering Unix listener/stream/datagram `as_fd`, equality with `as_raw_fd`, borrowed raw view, and handle cleanup.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused tests.
+- Panic IDs next free: 10699+.
+
 ## Completed: 2026-07-16 process AsFd aliases
 
 - Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/linux/process.rs` for `impl AsFd for PidFd` and `library/std/src/os/unix/process.rs` for `impl AsFd for ChildStdout` / `ChildStderr`.

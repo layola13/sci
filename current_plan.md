@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 socket AsFd aliases)
+
+Completed supportable `std::net` / `std::os::unix::net` `AsFd` aliases:
+- `NET_TCP_LISTENER_AS_FD`, `NET_TCP_STREAM_AS_FD`, `NET_UDP_AS_FD`, `NET_UNIX_LISTENER_AS_FD`, `NET_UNIX_STREAM_AS_FD`, and `NET_UNIX_DATAGRAM_AS_FD` expose Rust socket `as_fd` naming over existing socket raw-fd views.
+- These helpers return the current SA borrowed raw-fd scalar representation and compose with `FD_BORROWED_*` helpers.
+- This batch does not model Rust lifetime tracking, borrow checker rules, trait dispatch, or native `BorrowedFd<'_>` object layout.
+- Test files `std_net_as_fd_macro_surface.sa` (panic ID 10697) and `std_net_unix_as_fd_macro_surface.sa` (panic ID 10698).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_net_unix_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10699+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, native `BorrowedFd<'_>` object layout, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
+
+
 ## Active std parity batch (2026-07-16 process AsFd aliases)
 
 Completed supportable `std::os::{linux,unix}::process` `AsFd` aliases:
@@ -2735,6 +2751,7 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
    - `std::os::unix::net::{UnixStream,UnixListener}` option named surfaces: stream timeout/nonblocking/take_error and listener nonblocking/take_error aliases over existing fd-based runtime.
    - `std::os::unix::net::{UnixStream,UnixListener}::try_clone`: fd-dup clone facades preserving stream/listener resource kinds and independent close lifetimes.
    - `std::os::unix::net::{UnixStream,UnixListener}` raw-fd trait surface: stream/listener `as_raw_fd`, `into_raw_fd`, and `from_raw_fd` with `from_raw_fd` restoring the correct Unix stream/listener resource kind.
+   - `std::os::fd::AsFd` socket aliases: TCP listener/stream, UDP socket, Unix listener/stream, and Unix datagram `as_fd` naming over the existing socket raw-fd facade.
    - `std::os::unix::net::{UnixStream,UnixListener}` owned-fd trait aliases: stream/listener `into_owned_fd` and `from_owned_fd` style macro surfaces over existing raw-fd and `sa_std/os/fd` owned-fd helpers.
    - `std::os::fd` / `std::os::unix::io` TCP stream/listener raw-fd trait surface: `TcpStream` / `TcpListener` `as_raw_fd`, `into_raw_fd`, and `from_raw_fd`, with `from_raw_fd` restoring the correct TCP stream/listener resource kind.
    - `std::os::fd::OwnedFd` TCP stream/listener conversion aliases: `TcpStream` / `TcpListener` `into_owned_fd` and `from_owned_fd` style macro surfaces over TCP raw-fd and `sa_std/os/fd` owned-fd helpers.

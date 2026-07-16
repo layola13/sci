@@ -60,6 +60,10 @@
     EXPAND FD_AS_RAW %out_status, %out_fd, %listener
 [END_MACRO]
 
+[MACRO] NET_TCP_LISTENER_AS_FD %out_status, %out_fd, %listener
+    EXPAND NET_TCP_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
+[END_MACRO]
+
 [MACRO] NET_TCP_LISTENER_INTO_RAW_FD %out_status, %out_fd, %listener
     EXPAND FD_INTO_RAW %out_status, %out_fd, %listener
 [END_MACRO]
@@ -233,6 +237,10 @@
     EXPAND FD_AS_RAW %out_status, %out_fd, %stream
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_AS_FD %out_status, %out_fd, %stream
+    EXPAND NET_TCP_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_INTO_RAW_FD %out_status, %out_fd, %stream
     EXPAND FD_INTO_RAW %out_status, %out_fd, %stream
 [END_MACRO]
@@ -347,6 +355,10 @@
     EXPAND FD_AS_RAW %out_status, %out_fd, %listener
 [END_MACRO]
 
+[MACRO] NET_UNIX_LISTENER_AS_FD %out_status, %out_fd, %listener
+    EXPAND NET_UNIX_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
+[END_MACRO]
+
 [MACRO] NET_UNIX_LISTENER_INTO_RAW_FD %out_status, %out_fd, %listener
     EXPAND FD_INTO_RAW %out_status, %out_fd, %listener
 [END_MACRO]
@@ -409,6 +421,10 @@
 
 [MACRO] NET_UNIX_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
     EXPAND FD_AS_RAW %out_status, %out_fd, %stream
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_AS_FD %out_status, %out_fd, %stream
+    EXPAND NET_UNIX_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
 [END_MACRO]
 
 [MACRO] NET_UNIX_STREAM_INTO_RAW_FD %out_status, %out_fd, %stream
@@ -539,6 +555,10 @@
 
 [MACRO] NET_UNIX_DATAGRAM_AS_RAW_FD %out_status, %out_fd, %socket
     EXPAND FD_AS_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_AS_FD %out_status, %out_fd, %socket
+    EXPAND NET_UNIX_DATAGRAM_AS_RAW_FD %out_status, %out_fd, %socket
 [END_MACRO]
 
 [MACRO] NET_UNIX_DATAGRAM_INTO_RAW_FD %out_status, %out_fd, %socket
@@ -739,6 +759,10 @@
 
 [MACRO] NET_UDP_AS_RAW_FD %out_status, %out_fd, %socket
     EXPAND FD_AS_RAW %out_status, %out_fd, %socket
+[END_MACRO]
+
+[MACRO] NET_UDP_AS_FD %out_status, %out_fd, %socket
+    EXPAND NET_UDP_AS_RAW_FD %out_status, %out_fd, %socket
 [END_MACRO]
 
 [MACRO] NET_UDP_INTO_RAW_FD %out_status, %out_fd, %socket
