@@ -7486,6 +7486,26 @@ fn projectCacheManifestFirstDifference(
     return null;
 }
 
+fn projectCacheCandidateKeyFirstDifference(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+) ?[]const u8 {
+    const kind_dir_path = pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName() }) catch return null;
+    defer allocator.free(kind_dir_path);
+    var kind_dir = std.fs.cwd().openDir(kind_dir_path, .{ .iterate = true }) catch return null;
+    defer kind_dir.close();
+
+    var iter = kind_dir.iterate();
+    while (iter.next() catch return null) |entry| {
+        if (entry.kind != .directory or !isHexCacheKey(entry.name)) continue;
+        if (std.mem.eql(u8, entry.name, key.slice())) continue;
+        if (std.mem.startsWith(u8, entry.name, key.slice()[0..12])) return "key.digest";
+    }
+    return null;
+}
+
 const CacheStatusSummary = struct {
     entries: usize = 0,
     bytes: u64 = 0,
@@ -7627,8 +7647,10 @@ fn writeCacheStatusEntry(
     const last_store_ns = if (stat != null) projectCacheEntryLastStoreNs(allocator, project_root, kind, key) else null;
     const last_store_result = projectCacheEntryLastStoreResult(allocator, project_root, kind, key);
     const last_store_stage = projectCacheEntryLastStoreStage(allocator, project_root, kind, key);
-    const first_difference = if (reason == .hit or reason == .expired or stat == null)
+    const first_difference = if (reason == .hit or reason == .expired)
         null
+    else if (stat == null)
+        projectCacheCandidateKeyFirstDifference(allocator, project_root, kind, key)
     else
         projectCacheManifestFirstDifference(allocator, project_root, kind, key);
     summary.entries += 1;

@@ -31,6 +31,25 @@ Next:
 - ...
 ```
 
+## 2026-07-16 11:23
+
+Question:
+- Can P0.6 explain an absent requested cache key against an old candidate without leaking the old key or input material?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=tests/cli_smoke.zig ... --test-filter "cache" -j1` -> `13/13`
+
+Answer:
+- Yes, as a coarse source-free candidate key-digest checkpoint. `sa cache why --json` now reports `first_difference:"key.digest"` when the requested absent key has a same-kind old candidate sharing the public 12-character key prefix but differing in the complete digest.
+- The focused smoke verifies `reason:"absent"`, the redacted key prefix, `first_difference:"key.digest"`, and that the full candidate key is absent from JSON output.
+- This does not complete fine-grained key-input explanation. It does not classify source/options/target/provenance/security input fields behind the digest.
+
+Next:
+- Continue P0.6 with fine-grained key-input difference metadata or richer write-event identity/history.
+
 ## 2026-07-16 11:07
 
 Question:

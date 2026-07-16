@@ -2204,6 +2204,20 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"manifest\":\"valid\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":null"));
 
+    var candidate_miss_key_buf = [_]u8{'b'} ** 64;
+    candidate_miss_key_buf[12] = 'a';
+    const candidate_miss_key = candidate_miss_key_buf[0..];
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_candidate_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", candidate_miss_key, "--json" };
+    const why_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"key_prefix\":\"bbbbbbbbbbbb\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.digest\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+
     stdout_buf.clearRetainingCapacity();
     const status_help_argv = [_][]const u8{ "sa", "cache", "status", "--help" };
     const status_help_code = try saasm.cli.executeWithWriters(std.testing.allocator, status_help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
