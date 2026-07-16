@@ -15779,6 +15779,12 @@ L_NONZERO_UNSIGNED_WIDTH_ROTR_DONE_%out_value:
     %out_value = load %src_ptr+WrappingU32_value as u64
 [END_MACRO]
 
+[MACRO] WRAPPING_U32_SET %dst_ptr, %value
+    __wrapping_u32_set_value_%dst_ptr = and %value, NUM_U32_MAX
+    store %dst_ptr+WrappingU32_value, __wrapping_u32_set_value_%dst_ptr as u64
+    !__wrapping_u32_set_value_%dst_ptr
+[END_MACRO]
+
 [MACRO] WRAPPING_U32_DEFAULT %out_ptr
     EXPAND WRAPPING_U32_NEW %out_ptr, 0
 [END_MACRO]
@@ -16658,6 +16664,36 @@ L_SATURATING_I64_POW_END_%out_ptr:
     !__wr_mul_lhs_%out_ptr
     !__wr_mul_rhs_%out_ptr
     !__wr_mul_result_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_ADD %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND WRAPPING_U32_GET __wr_u32_add_lhs_%out_ptr, %lhs_ptr
+    EXPAND WRAPPING_U32_GET __wr_u32_add_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U32_WRAPPING_ADD __wr_u32_add_result_%out_ptr, __wr_u32_add_lhs_%out_ptr, __wr_u32_add_rhs_%out_ptr
+    EXPAND WRAPPING_U32_SET %out_ptr, __wr_u32_add_result_%out_ptr
+    !__wr_u32_add_result_%out_ptr
+    !__wr_u32_add_rhs_%out_ptr
+    !__wr_u32_add_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_SUB %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND WRAPPING_U32_GET __wr_u32_sub_lhs_%out_ptr, %lhs_ptr
+    EXPAND WRAPPING_U32_GET __wr_u32_sub_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U32_WRAPPING_SUB __wr_u32_sub_result_%out_ptr, __wr_u32_sub_lhs_%out_ptr, __wr_u32_sub_rhs_%out_ptr
+    EXPAND WRAPPING_U32_SET %out_ptr, __wr_u32_sub_result_%out_ptr
+    !__wr_u32_sub_result_%out_ptr
+    !__wr_u32_sub_rhs_%out_ptr
+    !__wr_u32_sub_lhs_%out_ptr
+[END_MACRO]
+
+[MACRO] WRAPPING_U32_MUL %out_ptr, %lhs_ptr, %rhs_ptr
+    EXPAND WRAPPING_U32_GET __wr_u32_mul_lhs_%out_ptr, %lhs_ptr
+    EXPAND WRAPPING_U32_GET __wr_u32_mul_rhs_%out_ptr, %rhs_ptr
+    EXPAND NUM_U32_WRAPPING_MUL __wr_u32_mul_result_%out_ptr, __wr_u32_mul_lhs_%out_ptr, __wr_u32_mul_rhs_%out_ptr
+    EXPAND WRAPPING_U32_SET %out_ptr, __wr_u32_mul_result_%out_ptr
+    !__wr_u32_mul_result_%out_ptr
+    !__wr_u32_mul_rhs_%out_ptr
+    !__wr_u32_mul_lhs_%out_ptr
 [END_MACRO]
 
 [MACRO] SATURATING_U64_ADD %out_ptr, %lhs_ptr, %rhs_ptr

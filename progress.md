@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 WrappingU32 arithmetic helper macros
+
+- Continued Rust `std::num::Wrapping` macro-surface parity, referencing local Rust `wrapping.rs` for `Wrapping<T>` add/sub/mul operator forwarding.
+- `sa_std/num.sa`: added `WRAPPING_U32_SET`, `WRAPPING_U32_ADD`, `WRAPPING_U32_SUB`, and `WRAPPING_U32_MUL`.
+- Semantics: helpers load the concrete `WrappingU32` inner field, reuse existing `NUM_U32_WRAPPING_ADD` / `SUB` / `MUL`, and store the concrete 32-bit masked result back into the destination wrapper. `WRAPPING_U32_SET` masks assigned raw values to the concrete width.
+- Test: `tests/unit_framework/std_num_wrapping_u32_arithmetic_macro_surface.sa` - 1 test (panic ID 10680) covering add overflow, sub underflow, mul overflow, and raw setter masking.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_u32_arithmetic_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10681+.
+
 ## Completed: 2026-07-16 usize saturating div alias macro
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for unsigned primitive `saturating_div`.
