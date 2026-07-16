@@ -3,6 +3,24 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive mixed-sign checked/strict add/sub)
+
+Completed supportable primitive mixed-sign checked and strict add/sub helpers:
+- `NUM_U{8,16,32,64,SIZE}_CHECKED_ADD_SIGNED` / `STRICT_ADD_SIGNED`: concrete Rust unsigned primitive `*_add_signed` shape for the existing SA unsigned widths.
+- `NUM_U{8,16,32,64,SIZE}_CHECKED_SUB_SIGNED` / `STRICT_SUB_SIGNED`: matching unsigned primitive `*_sub_signed` helpers.
+- `NUM_I{8,16,32,64,SIZE}_CHECKED_ADD_UNSIGNED` / `STRICT_ADD_UNSIGNED`: concrete Rust signed primitive `*_add_unsigned` shape for the existing SA signed widths.
+- `NUM_I{8,16,32,64,SIZE}_CHECKED_SUB_UNSIGNED` / `STRICT_SUB_UNSIGNED`: matching signed primitive `*_sub_unsigned` helpers.
+- Checked helpers expose explicit `ok/out` results instead of Rust `Option<Self>`. Strict add-shaped failures reuse SA `panic(2205)` and strict sub-shaped failures reuse `panic(2206)`.
+- `usize` / `isize` alias the current 64-bit SA ABI. This batch models Rust's checked result and strict panic control flow, not panic message/object identity, `u128` / `i128`, or trait-level dispatch.
+- Test file `std_num_mixed_sign_add_sub_macro_surface.sa` (panic ID 10638 for the ordinary assertion path).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_mixed_sign_add_sub_macro_surface.sa --jobs 1 --trace-panic` -> `7 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10639+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive checked/strict neg/abs)
 
 Completed supportable primitive checked/strict negation and absolute-value helpers:

@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive mixed-sign checked/strict add/sub macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_add_signed`, `strict_add_signed`, `checked_sub_signed`, `strict_sub_signed`, `checked_add_unsigned`, `strict_add_unsigned`, `checked_sub_unsigned`, and `strict_sub_unsigned` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added unsigned `CHECKED_ADD_SIGNED`, `STRICT_ADD_SIGNED`, `CHECKED_SUB_SIGNED`, and `STRICT_SUB_SIGNED` helpers for `U8`, `U16`, `U32`, `U64`, and `USIZE`; added signed `CHECKED_ADD_UNSIGNED`, `STRICT_ADD_UNSIGNED`, `CHECKED_SUB_UNSIGNED`, and `STRICT_SUB_UNSIGNED` helpers for `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Checked helpers return explicit `ok/out` values instead of Rust `Option<Self>`. Strict helpers reuse existing arithmetic panic codes: add-shaped overflow traps through SA `panic(2205)`, and sub-shaped overflow/underflow traps through `panic(2206)`. This models Rust's mixed-integer panic control-flow shape without claiming panic message/object identity, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_mixed_sign_add_sub_macro_surface.sa` - 7 tests (panic ID 10638 for the non-panic assertion path) expanding all 40 new public helpers, checking failure result paths, and covering unsigned strict add/sub signed overflow/underflow plus signed strict add/sub unsigned overflow/underflow panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_mixed_sign_add_sub_macro_surface.sa --jobs 1 --trace-panic` -> `7 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10639+.
+
 ## Completed: 2026-07-16 primitive checked/strict neg/abs macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_neg`, `strict_neg`, `checked_abs`, and `strict_abs` implementations under `/home/vscode/projects/rust`.
