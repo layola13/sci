@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 signed primitive overflowing abs/pow macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `overflowing_abs` and `overflowing_pow` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_ABS` and `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_POW`.
+- Semantics: abs helpers return the signed wrapping absolute value and flag overflow exactly for the signed minimum value. Pow helpers return signed wrapping exponentiation plus an overflow flag derived from the corresponding checked pow helper; narrow values are sign-extended back to their declared Rust width, and `isize` aliases the current 64-bit SA ABI.
+- Test: `tests/unit_framework/std_num_signed_overflowing_abs_pow_macro_surface.sa` - 1 test (panic ID 10657) expanding all 10 new public helpers and covering positive/negative/minimum abs, ordinary powers, `0^0`, Rust's `3i8^5 -> -13` overflow example, and width-boundary `2^(BITS-1)` wrapping for i16/i32/i64/isize.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_overflowing_abs_pow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10658+.
+
 ## Completed: 2026-07-16 signed primitive overflowing neg/shift macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `overflowing_neg`, `overflowing_shl`, and `overflowing_shr` implementations under `/home/vscode/projects/rust`.

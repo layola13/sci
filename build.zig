@@ -270,6 +270,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_cli_smoke = b.addRunArtifact(cli_smoke);
     run_cli_smoke.setCwd(repo_root_lazy);
+    run_cli_smoke.step.dependOn(&sync_sa_std_artifact.step);
     test_step.dependOn(&run_cli_smoke.step);
     const cli_smoke_step = b.step("bc2sa-smoke", "Run the bc2sa real bitcode smoke tests");
     cli_smoke_step.dependOn(&run_cli_smoke.step);

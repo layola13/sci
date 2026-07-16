@@ -1891,6 +1891,7 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .allocator = std.testing.allocator,
         .symbols = &symbols,
         .fsig = fsig,
+        .reg_operands_are_global_ids = false,
         .const_names = std.StringHashMap(void).init(std.testing.allocator),
         .anon_string_names = &anon_string_names,
         .const_decls = &.{},

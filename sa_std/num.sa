@@ -7939,6 +7939,76 @@ L_NUM_I32_WRAP_REM_END_%out_value:
     %out_overflow = uge %shift, NUM_I64_BITS
 [END_MACRO]
 
+[MACRO] NUM_I8_OVERFLOWING_ABS %out_value, %out_overflow, %value
+    EXPAND NUM_I8_CHECKED_ABS __num_i8_ov_abs_ok_%out_value, __num_i8_ov_abs_value_%out_value, %value
+    EXPAND NUM_I8_WRAPPING_ABS %out_value, %value
+    %out_overflow = eq __num_i8_ov_abs_ok_%out_value, 0
+    !__num_i8_ov_abs_value_%out_value
+    !__num_i8_ov_abs_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_OVERFLOWING_ABS %out_value, %out_overflow, %value
+    EXPAND NUM_I16_CHECKED_ABS __num_i16_ov_abs_ok_%out_value, __num_i16_ov_abs_value_%out_value, %value
+    EXPAND NUM_I16_WRAPPING_ABS %out_value, %value
+    %out_overflow = eq __num_i16_ov_abs_ok_%out_value, 0
+    !__num_i16_ov_abs_value_%out_value
+    !__num_i16_ov_abs_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_OVERFLOWING_ABS %out_value, %out_overflow, %value
+    EXPAND NUM_I32_CHECKED_ABS __num_i32_ov_abs_ok_%out_value, __num_i32_ov_abs_value_%out_value, %value
+    EXPAND NUM_I32_WRAPPING_ABS %out_value, %value
+    %out_overflow = eq __num_i32_ov_abs_ok_%out_value, 0
+    !__num_i32_ov_abs_value_%out_value
+    !__num_i32_ov_abs_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I64_OVERFLOWING_ABS %out_value, %out_overflow, %value
+    EXPAND NUM_I64_CHECKED_ABS __num_i64_ov_abs_ok_%out_value, __num_i64_ov_abs_value_%out_value, %value
+    EXPAND NUM_I64_WRAPPING_ABS %out_value, %value
+    %out_overflow = eq __num_i64_ov_abs_ok_%out_value, 0
+    !__num_i64_ov_abs_value_%out_value
+    !__num_i64_ov_abs_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_OVERFLOWING_POW %out_value, %out_overflow, %base, %exp
+    EXPAND NUM_I8_CHECKED_POW __num_i8_ov_pow_ok_%out_value, __num_i8_ov_pow_value_%out_value, %base, %exp
+    EXPAND NUM_I64_POW __num_i8_ov_pow_raw_%out_value, %base, %exp
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_ov_pow_raw_%out_value
+    %out_overflow = eq __num_i8_ov_pow_ok_%out_value, 0
+    !__num_i8_ov_pow_raw_%out_value
+    !__num_i8_ov_pow_value_%out_value
+    !__num_i8_ov_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_OVERFLOWING_POW %out_value, %out_overflow, %base, %exp
+    EXPAND NUM_I16_CHECKED_POW __num_i16_ov_pow_ok_%out_value, __num_i16_ov_pow_value_%out_value, %base, %exp
+    EXPAND NUM_I64_POW __num_i16_ov_pow_raw_%out_value, %base, %exp
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_ov_pow_raw_%out_value
+    %out_overflow = eq __num_i16_ov_pow_ok_%out_value, 0
+    !__num_i16_ov_pow_raw_%out_value
+    !__num_i16_ov_pow_value_%out_value
+    !__num_i16_ov_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_OVERFLOWING_POW %out_value, %out_overflow, %base, %exp
+    EXPAND NUM_I32_CHECKED_POW __num_i32_ov_pow_ok_%out_value, __num_i32_ov_pow_value_%out_value, %base, %exp
+    EXPAND NUM_I64_POW __num_i32_ov_pow_raw_%out_value, %base, %exp
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_ov_pow_raw_%out_value
+    %out_overflow = eq __num_i32_ov_pow_ok_%out_value, 0
+    !__num_i32_ov_pow_raw_%out_value
+    !__num_i32_ov_pow_value_%out_value
+    !__num_i32_ov_pow_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I64_OVERFLOWING_POW %out_value, %out_overflow, %base, %exp
+    EXPAND NUM_I64_CHECKED_POW __num_i64_ov_pow_ok_%out_value, __num_i64_ov_pow_value_%out_value, %base, %exp
+    EXPAND NUM_I64_POW %out_value, %base, %exp
+    %out_overflow = eq __num_i64_ov_pow_ok_%out_value, 0
+    !__num_i64_ov_pow_value_%out_value
+    !__num_i64_ov_pow_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I8_CHECKED_NEG %out_ok, %out_value, %value
     __num_i8_neg_min_%out_ok = eq %value, NUM_I8_MIN
     %out_ok = eq __num_i8_neg_min_%out_ok, 0
@@ -10505,6 +10575,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_ISIZE_OVERFLOWING_SHR %out_value, %out_overflow, %value, %shift
     EXPAND NUM_I64_OVERFLOWING_SHR %out_value, %out_overflow, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_OVERFLOWING_ABS %out_value, %out_overflow, %value
+    EXPAND NUM_I64_OVERFLOWING_ABS %out_value, %out_overflow, %value
+[END_MACRO]
+
+[MACRO] NUM_ISIZE_OVERFLOWING_POW %out_value, %out_overflow, %base, %exp
+    EXPAND NUM_I64_OVERFLOWING_POW %out_value, %out_overflow, %base, %exp
 [END_MACRO]
 
 [MACRO] NUM_ISIZE_WRAPPING_SHL %out_value, %value, %shift
