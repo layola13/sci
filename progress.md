@@ -8552,3 +8552,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_pop_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10702+.
+
+## Completed: 2026-07-16 BinaryHeap iter helper
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_ITER_U64`, a Rust `BinaryHeap::iter`-style helper that creates the existing slice-backed concrete `Iter` cursor over the heap's internal array order.
+- Semantics: the helper borrows the current concrete `u64` heap storage through `sa_binary_heap_as_slice`, does not consume or mutate the heap, and yields values in heap-array order. It does not model Rust's generic `Iter<'_, T>` type, borrow lifetimes, owned `IntoIterator`, or lazy draining semantics.
+- Test: `tests/unit_framework/std_binary_heap_iter_macro_surface.sa` — 1 test (panic ID 10702) covering non-empty iteration, remaining slice view, double-ended consumption, heap non-mutation, and empty-heap iteration.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10703+.

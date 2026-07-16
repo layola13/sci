@@ -2657,3 +2657,5 @@ sa/
 - [x] VecDeque mut-slot alias 批次已新增 focused 测试 `std_vec_deque_mut_alias_macro_surface.sa`（panic ID 10700）并同步 progress/current_plan/std_missing；不主张 Rust `Option<&mut T>` / panic object / scoped lifetime / generic `VecDeque<T>` 语义。
 - [x] `BinaryHeap` Rust API parity 审计继续补齐：补 unstable `BinaryHeap::pop_if` 降阶宏 `BINARY_HEAP_TRY_POP_IF_U64` / `BINARY_HEAP_POP_IF_U64`，复用既有 try-peek/try-pop，保持当前具体 `u64` max-heap 的 `(ok, value)` 语义。
 - [x] BinaryHeap pop_if 批次新增 focused 测试 `std_binary_heap_pop_if_macro_surface.sa`（panic ID 10701）并同步 progress/current_plan/std_missing；不主张 Rust `Option<T>` 布局 / generic `BinaryHeap<T>` / borrow lifetime / predicate unwind/drop 语义。
+- [x] `BinaryHeap` Rust API parity 审计继续补齐：补 `BinaryHeap::iter` 具体降阶宏 `BINARY_HEAP_ITER_U64`，复用既有 heap `as_slice` 和 slice-backed `Iter`，按内部 heap-array order 读取且不消费 heap。
+- [x] BinaryHeap iter 批次新增 focused 测试 `std_binary_heap_iter_macro_surface.sa`（panic ID 10702）并同步 progress/current_plan/std_missing；不主张 Rust generic `Iter<'_, T>` / borrow lifetime / owned `IntoIterator` / lazy drain 语义。

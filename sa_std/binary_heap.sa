@@ -2,6 +2,7 @@
 @import "core/mem.sa"
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "core/iter.sa"
 @import "alloc/vec.sal"
 @import "vec.sa"
 @import "num.sa"
@@ -975,6 +976,12 @@ L_APPEND_DONE:
 [MACRO] BINARY_HEAP_AS_MUT_SLICE %out_slice, %heap_reg
     %out_slice = alloc Slice_SIZE
     call @sa_binary_heap_as_mut_slice(&%heap_reg, &%out_slice)
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_ITER_U64 %out_iter, %heap_reg
+    __binary_heap_iter_slice_%out_iter = stack_alloc Slice_SIZE
+    call @sa_binary_heap_as_slice(&%heap_reg, &__binary_heap_iter_slice_%out_iter)
+    EXPAND ITER_FROM_SLICE %out_iter, __binary_heap_iter_slice_%out_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_VEC %out_vec, %heap_reg
