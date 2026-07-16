@@ -59,6 +59,12 @@ test "runtime system entry points route executable path and args through PAL" {
         try expectNotContains(source, "getifaddrs(");
         try expectNotContains(source, "freeifaddrs(");
         try expectNotContains(source, "inet_ntop(");
+        try expectNotContains(source, "std.posix.uname");
+        try expectNotContains(source, "std.os.windows.GetCurrentProcessId");
+        try expectNotContains(source, "extern fn getpid");
+        try expectNotContains(source, "extern fn getppid");
+        try expectNotContains(source, "extern fn getuid");
+        try expectNotContains(source, "extern fn getgid");
         try expectNotContains(source, "std.fs.selfExePathAlloc");
         try expectNotContains(source, "std.process.argsAlloc");
         try expectNotContains(source, "@import(\"pal_linux.zig\")");
@@ -82,6 +88,12 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(posix, "pal_sys.os_uptime_seconds");
     try expectContains(posix, "pal_sys.loadavg");
     try expectContains(posix, "pal_sys.network_interfaces_json_alloc");
+    try expectContains(posix, "pal_sys.hostname_alloc");
+    try expectContains(posix, "pal_sys.os_release_alloc");
+    try expectContains(posix, "pal_sys.process_id");
+    try expectContains(posix, "pal_sys.parent_process_id");
+    try expectContains(posix, "pal_sys.user_id");
+    try expectContains(posix, "pal_sys.group_id");
 
     const windows = try readSource(allocator, "src/runtime/sa_std_windows.zig");
     defer allocator.free(windows);
@@ -93,6 +105,12 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows, "pal_sys.os_uptime_seconds");
     try expectContains(windows, "pal_sys.loadavg");
     try expectContains(windows, "pal_sys.network_interfaces_json_alloc");
+    try expectContains(windows, "pal_sys.hostname_alloc");
+    try expectContains(windows, "pal_sys.os_release_alloc");
+    try expectContains(windows, "pal_sys.process_id");
+    try expectContains(windows, "pal_sys.parent_process_id");
+    try expectContains(windows, "pal_sys.user_id");
+    try expectContains(windows, "pal_sys.group_id");
 
     const windows_pal = try readSource(allocator, "src/runtime/pal_windows.zig");
     defer allocator.free(windows_pal);
@@ -107,6 +125,13 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows_pal, "os_uptime_seconds");
     try expectContains(windows_pal, "loadavg");
     try expectContains(windows_pal, "network_interfaces_json_alloc");
+    try expectContains(windows_pal, "GetComputerNameW");
+    try expectContains(windows_pal, "RtlGetVersion");
+    try expectContains(windows_pal, "NtQueryInformationProcess");
+    try expectContains(windows_pal, "hostname_alloc");
+    try expectContains(windows_pal, "os_release_alloc");
+    try expectContains(windows_pal, "parent_process_id");
+    try expectContains(windows_pal, "return error.Unsupported");
     try expectNotContains(windows_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(windows_pal, "std.process.argsAlloc");
 
@@ -126,6 +151,13 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(linux_pal, "os_uptime_seconds");
     try expectContains(linux_pal, "loadavg");
     try expectContains(linux_pal, "network_interfaces_json_alloc");
+    try expectContains(linux_pal, "std.posix.uname");
+    try expectContains(linux_pal, "std.os.linux.getpid");
+    try expectContains(linux_pal, "std.os.linux.getppid");
+    try expectContains(linux_pal, "std.os.linux.getuid");
+    try expectContains(linux_pal, "std.os.linux.getgid");
+    try expectContains(linux_pal, "hostname_alloc");
+    try expectContains(linux_pal, "os_release_alloc");
     try expectNotContains(linux_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(linux_pal, "std.process.argsAlloc");
 
@@ -149,6 +181,13 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(macos_pal, "SockaddrDl");
     try expectContains(macos_pal, "std.c.AF.LINK");
     try expectContains(macos_pal, "network_interfaces_json_alloc");
+    try expectContains(macos_pal, "std.posix.uname");
+    try expectContains(macos_pal, "std.c.getpid");
+    try expectContains(macos_pal, "std.c.getppid");
+    try expectContains(macos_pal, "extern \"c\" fn getuid");
+    try expectContains(macos_pal, "extern \"c\" fn getgid");
+    try expectContains(macos_pal, "hostname_alloc");
+    try expectContains(macos_pal, "os_release_alloc");
     try expectNotContains(macos_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(macos_pal, "std.process.argsAlloc");
 

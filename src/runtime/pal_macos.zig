@@ -4,6 +4,8 @@ const network_interfaces = @import("pal_network_interfaces_posix.zig");
 extern "c" fn _NSGetArgc() *c_int;
 extern "c" fn _NSGetArgv() *[*:null]?[*:0]u8;
 extern "c" fn getloadavg(loadavg: [*]f64, nelem: c_int) c_int;
+extern "c" fn getuid() c_uint;
+extern "c" fn getgid() c_uint;
 
 pub const SA_STD_OK: i32 = 0;
 pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
@@ -82,6 +84,32 @@ pub fn process_args_alloc(allocator: std.mem.Allocator) ![][:0]u8 {
 pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) void {
     for (args) |arg| allocator.free(arg);
     allocator.free(args);
+}
+
+pub fn hostname_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const uname = std.posix.uname();
+    return allocator.dupe(u8, std.mem.sliceTo(&uname.nodename, 0));
+}
+
+pub fn os_release_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const uname = std.posix.uname();
+    return allocator.dupe(u8, std.mem.sliceTo(&uname.release, 0));
+}
+
+pub fn process_id() !u32 {
+    return @intCast(std.c.getpid());
+}
+
+pub fn parent_process_id() !u32 {
+    return @intCast(std.c.getppid());
+}
+
+pub fn user_id() !u32 {
+    return @intCast(getuid());
+}
+
+pub fn group_id() !u32 {
+    return @intCast(getgid());
 }
 
 fn formatMemoryUsageJson(allocator: std.mem.Allocator, rss: u64) ![]u8 {

@@ -1820,11 +1820,15 @@ pub export fn sa_deno_date_now_iso() u64 {
 }
 
 pub export fn sa_deno_hostname() u64 {
-    return unsupportedU64();
+    const hostname = pal_sys.hostname_alloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, hostname) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
 pub export fn sa_deno_os_release() u64 {
-    return unsupportedU64();
+    const release = pal_sys.os_release_alloc(std.heap.page_allocator) catch |err| return failEnvHandle(err);
+    const strict = validateOwnedNativeUtf8(std.heap.page_allocator, release) catch |err| return failEnvHandle(err);
+    return finishOwnedEnvBuffer(strict);
 }
 
 pub export fn sa_deno_os_uptime() f64 {
@@ -1855,19 +1859,39 @@ pub export fn sa_deno_network_interfaces() u64 {
 }
 
 pub export fn sa_deno_pid() u32 {
-    return unsupportedU32();
+    const pid = pal_sys.process_id() catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return pid;
 }
 
 pub export fn sa_deno_ppid() u32 {
-    return unsupportedU32();
+    const ppid = pal_sys.parent_process_id() catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return ppid;
 }
 
 pub export fn sa_deno_uid() u32 {
-    return unsupportedU32();
+    const uid = pal_sys.user_id() catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return uid;
 }
 
 pub export fn sa_deno_gid() u32 {
-    return unsupportedU32();
+    const gid = pal_sys.group_id() catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return gid;
 }
 
 pub export fn sa_deno_exec_path() u64 {
@@ -2449,17 +2473,17 @@ pub export fn sa_std_process_exec_command_ext(_: ?[*]const SaProcessArgv, _: u64
 }
 
 pub export fn sa_std_process_id() u32 {
-    _ = finish(SA_STD_OK);
-    return std.os.windows.GetCurrentProcessId();
-}
-
-pub export fn sa_std_process_parent_id() u32 {
-    const info = windowsProcessInfo(std.os.windows.GetCurrentProcess()) catch |err| {
+    const pid = pal_sys.process_id() catch |err| {
         _ = finishErr(err);
         return 0;
     };
-    const pid = std.math.cast(u32, info.InheritedFromUniqueProcessId) orelse {
-        _ = finish(SA_STD_ERR_IO);
+    _ = finish(SA_STD_OK);
+    return pid;
+}
+
+pub export fn sa_std_process_parent_id() u32 {
+    const pid = pal_sys.parent_process_id() catch |err| {
+        _ = finishErr(err);
         return 0;
     };
     _ = finish(SA_STD_OK);
@@ -2467,11 +2491,21 @@ pub export fn sa_std_process_parent_id() u32 {
 }
 
 pub export fn sa_std_process_user_id() u32 {
-    return unsupportedU32();
+    const uid = pal_sys.user_id() catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return uid;
 }
 
 pub export fn sa_std_process_group_id() u32 {
-    return unsupportedU32();
+    const gid = pal_sys.group_id() catch |err| {
+        _ = finishErr(err);
+        return 0;
+    };
+    _ = finish(SA_STD_OK);
+    return gid;
 }
 
 pub export fn sa_std_process_abort() noreturn {

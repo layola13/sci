@@ -2,6 +2,12 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## In progress: 2026-07-16 PAL system-identity routing
+
+- Active portability batch: move hostname, OS release, PID, PPID, UID, and GID behind PAL backends.
+- Linux/macOS will preserve uname and POSIX identity behavior. Windows will use native hostname/version/process APIs for hostname, release, PID, and PPID; UID/GID remain explicitly unsupported as required by the Windows portability boundary.
+- Verification and commit are pending. Unrelated performance/cache changes remain unstaged.
+
 ## Focused verified: 2026-07-16 PAL network-interface routing
 
 - `sa_deno_network_interfaces` now routes through PAL; runtime core no longer owns `getifaddrs`/`inet_ntop` declarations or Linux `/sys/class/net` reads.

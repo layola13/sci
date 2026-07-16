@@ -5363,16 +5363,12 @@ pub export fn sa_deno_date_now_iso() u64 {
 }
 
 pub export fn sa_deno_hostname() u64 {
-    const uname = std.posix.uname();
-    const nodename = std.mem.sliceTo(&uname.nodename, 0);
-    const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 0;
+    const owned = pal_sys.hostname_alloc(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
 pub export fn sa_deno_os_release() u64 {
-    const uname = std.posix.uname();
-    const release = std.mem.sliceTo(&uname.release, 0);
-    const owned = std.heap.page_allocator.dupe(u8, release) catch return 0;
+    const owned = pal_sys.os_release_alloc(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
@@ -5401,25 +5397,20 @@ pub export fn sa_deno_network_interfaces() u64 {
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
-extern fn getpid() c_int;
-extern fn getppid() c_int;
-extern fn getuid() c_uint;
-extern fn getgid() c_uint;
-
 pub export fn sa_deno_pid() u32 {
-    return @intCast(getpid());
+    return pal_sys.process_id() catch 0;
 }
 
 pub export fn sa_deno_ppid() u32 {
-    return @intCast(getppid());
+    return pal_sys.parent_process_id() catch 0;
 }
 
 pub export fn sa_deno_uid() u32 {
-    return @intCast(getuid());
+    return pal_sys.user_id() catch 0;
 }
 
 pub export fn sa_deno_gid() u32 {
-    return @intCast(getgid());
+    return pal_sys.group_id() catch 0;
 }
 
 pub export fn sa_deno_exec_path() u64 {
@@ -6960,19 +6951,19 @@ pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv,
 }
 
 pub export fn sa_std_process_id() u32 {
-    return @intCast(getpid());
+    return pal_sys.process_id() catch 0;
 }
 
 pub export fn sa_std_process_parent_id() u32 {
-    return @intCast(getppid());
+    return pal_sys.parent_process_id() catch 0;
 }
 
 pub export fn sa_std_process_user_id() u32 {
-    return @intCast(getuid());
+    return pal_sys.user_id() catch 0;
 }
 
 pub export fn sa_std_process_group_id() u32 {
-    return @intCast(getgid());
+    return pal_sys.group_id() catch 0;
 }
 
 pub export fn sa_std_process_abort() noreturn {

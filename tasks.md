@@ -1,5 +1,12 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current PAL system-identity batch (2026-07-16)
+
+- [ ] Move hostname, OS release, PID, PPID, UID, and GID queries behind PAL backends so runtime core no longer declares or calls the native identity functions directly.
+- [ ] Preserve Linux/macOS uname and process-identity behavior.
+- [ ] Implement Windows hostname, release, PID, and PPID with native APIs; keep UID/GID explicitly unsupported.
+- [ ] Add source-contract and focused Linux coverage, run PAL/runtime/ABI/portability/ReleaseFast gates, and commit without staging unrelated worktree changes.
+
 ## Current PAL network-interface batch (2026-07-16)
 
 - [x] Move `sa_deno_network_interfaces` behind PAL backends so runtime core no longer declares `getifaddrs`/`inet_ntop` or reads Linux `/sys/class/net`.

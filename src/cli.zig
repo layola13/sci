@@ -6760,6 +6760,13 @@ fn projectCacheTouchHitTelemetry(allocator: std.mem.Allocator, project_root: []c
     try projectCacheTouchTelemetryMarker(allocator, marker_path);
 }
 
+fn projectCacheStoreEventWriterPid() ?u64 {
+    return switch (builtin.os.tag) {
+        .linux => @as(u64, @intCast(std.os.linux.getpid())),
+        else => null,
+    };
+}
+
 fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8, stage: []const u8) !void {
     const event_path = try projectCacheStoreEventMarkerPath(allocator, project_root, kind, key);
     defer allocator.free(event_path);
@@ -6775,6 +6782,12 @@ fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_ro
     try writeJsonString(writer, stage);
     try writer.writeAll(",\"key_prefix\":");
     try writeJsonString(writer, key.slice()[0..12]);
+    try writer.writeAll(",\"writer_pid\":");
+    if (projectCacheStoreEventWriterPid()) |pid| {
+        try writer.print("{d}", .{pid});
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll("}\n");
     try event_file.sync();
 }
@@ -7306,6 +7319,20 @@ fn projectCacheEntryLastStoreStage(allocator: std.mem.Allocator, project_root: [
     return "unknown";
 }
 
+fn projectCacheEntryLastStoreWriterPid(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?u64 {
+    const marker_path = projectCacheStoreEventMarkerPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(marker_path);
+    const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
+    defer allocator.free(bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
+    defer parsed.deinit();
+    const value = jsonGetObject(parsed.value, "writer_pid") catch return null;
+    return switch (value) {
+        .integer => |pid| if (pid > 0) @as(u64, @intCast(pid)) else null,
+        else => null,
+    };
+}
+
 fn projectCacheEntryWasEvicted(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) bool {
     const marker_path = projectCacheEvictionMarkerPath(allocator, project_root, kind, key) catch return false;
     defer allocator.free(marker_path);
@@ -7523,6 +7550,7 @@ fn writeCacheStatusEntryJson(
     last_store_ns: ?i128,
     last_store_result: ?[]const u8,
     last_store_stage: ?[]const u8,
+    last_store_writer_pid: ?u64,
     first_difference: ?[]const u8,
 ) !void {
     try writer.writeAll("{\"kind\":");
@@ -7565,6 +7593,12 @@ fn writeCacheStatusEntryJson(
     } else {
         try writer.writeAll("null");
     }
+    try writer.writeAll(",\"last_store_writer_pid\":");
+    if (last_store_writer_pid) |pid| {
+        try writer.print("{d}", .{pid});
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll(",\"first_difference\":");
     if (first_difference) |field| {
         try writeJsonString(writer, field);
@@ -7587,6 +7621,7 @@ fn writeCacheStatusEntryText(
     last_store_ns: ?i128,
     last_store_result: ?[]const u8,
     last_store_stage: ?[]const u8,
+    last_store_writer_pid: ?u64,
     first_difference: ?[]const u8,
 ) !void {
     try writer.print("{s}: kind={s} key={s} reason={s} manifest={s} bytes={d}", .{ prefix, kind.dirName(), key.slice()[0..12], reason.jsonName(), manifest_status, bytes });
@@ -7614,6 +7649,11 @@ fn writeCacheStatusEntryText(
         try writer.print(" last_store_stage={s}", .{stage});
     } else {
         try writer.writeAll(" last_store_stage=null");
+    }
+    if (last_store_writer_pid) |pid| {
+        try writer.print(" last_store_writer_pid={d}", .{pid});
+    } else {
+        try writer.writeAll(" last_store_writer_pid=null");
     }
     if (first_difference) |field| {
         try writer.print(" first_difference={s}", .{field});
@@ -7647,6 +7687,7 @@ fn writeCacheStatusEntry(
     const last_store_ns = if (stat != null) projectCacheEntryLastStoreNs(allocator, project_root, kind, key) else null;
     const last_store_result = projectCacheEntryLastStoreResult(allocator, project_root, kind, key);
     const last_store_stage = projectCacheEntryLastStoreStage(allocator, project_root, kind, key);
+    const last_store_writer_pid = projectCacheEntryLastStoreWriterPid(allocator, project_root, kind, key);
     const first_difference = if (reason == .hit or reason == .expired)
         null
     else if (stat == null)
@@ -7658,9 +7699,9 @@ fn writeCacheStatusEntry(
     if (json) {
         if (!json_first.*) try writer.writeByte(',');
         json_first.* = false;
-        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, first_difference);
+        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_writer_pid, first_difference);
     } else {
-        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, first_difference);
+        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_writer_pid, first_difference);
     }
 }
 
@@ -11546,6 +11587,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     try ProjectCacheFailureTest.expectNoEntryOrStaging(tmp.dir, key);
     try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expectEqualStrings("copy_output", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     var why_json = std.ArrayList(u8).init(std.testing.allocator);
     defer why_json.deinit();
     const why_args = [_][]const u8{ "--kind", "build-exe", "--key", key.slice(), "--json" };
@@ -11553,6 +11595,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"reason\":\"absent\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"failed\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"copy_output\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_pid\":"));
+    try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_writer_pid\":null") == null);
 
     releaseProjectCacheOwner(&first_owner);
     thread.join();
@@ -11565,6 +11609,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
     try std.testing.expectEqualStrings("published", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
     defer kind_dir.close();
     var entries = kind_dir.iterate();

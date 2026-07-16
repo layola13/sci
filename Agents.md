@@ -31,6 +31,24 @@ Next:
 - ...
 ```
 
+## 2026-07-16 11:52
+
+Question:
+- Can P0.6 identify the process that wrote the latest project-cache store event without recording source, paths, arguments, or raw errors?
+
+Evidence checked:
+- `src/cli.zig`
+- `tests/cli_smoke.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+
+Answer:
+- Implemented pending focused verification. Store-event markers now include a source-free `writer_pid` on Linux, and `sa cache status/why` exposes it as `last_store_writer_pid`.
+- Missing/legacy fields and unsupported platforms report `null`; only positive process ids are accepted when reading the marker.
+- This does not provide event history, process start identity, cross-process owner lifecycle, or native macOS/Windows evidence.
+
+Next:
+- Run the focused single-flight/cache smoke and Debug `sa-cli` build after other Zig jobs finish, then update this entry with evidence and commit the checkpoint.
+
 ## 2026-07-16 11:23
 
 Question:

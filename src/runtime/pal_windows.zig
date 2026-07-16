@@ -1,6 +1,7 @@
 const std = @import("std");
 
 extern "kernel32" fn GetCommandLineW() callconv(.winapi) ?[*:0]const u16;
+extern "kernel32" fn GetComputerNameW(lpBuffer: [*]u16, nSize: *std.os.windows.DWORD) callconv(.winapi) std.os.windows.BOOL;
 extern "kernel32" fn GetTickCount64() callconv(.winapi) std.os.windows.ULONGLONG;
 extern "kernel32" fn GlobalMemoryStatusEx(lpBuffer: *MemoryStatusEx) callconv(.winapi) std.os.windows.BOOL;
 
@@ -100,6 +101,51 @@ pub fn process_args_alloc(allocator: std.mem.Allocator) ![][:0]u8 {
 pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) void {
     for (args) |arg| allocator.free(arg);
     allocator.free(args);
+}
+
+pub fn hostname_alloc(allocator: std.mem.Allocator) ![]u8 {
+    var buffer: [256]u16 = undefined;
+    var len: std.os.windows.DWORD = buffer.len;
+    if (GetComputerNameW(&buffer, &len) == 0) return error.Unexpected;
+    return std.unicode.wtf16LeToWtf8Alloc(allocator, buffer[0..len]);
+}
+
+pub fn os_release_alloc(allocator: std.mem.Allocator) ![]u8 {
+    var version = std.mem.zeroes(std.os.windows.RTL_OSVERSIONINFOW);
+    version.dwOSVersionInfoSize = @sizeOf(std.os.windows.RTL_OSVERSIONINFOW);
+    const status = std.os.windows.ntdll.RtlGetVersion(&version);
+    if (status != .SUCCESS) return std.os.windows.unexpectedStatus(status);
+    return std.fmt.allocPrint(
+        allocator,
+        "{d}.{d}.{d}",
+        .{ version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber },
+    );
+}
+
+pub fn process_id() !u32 {
+    return std.os.windows.GetCurrentProcessId();
+}
+
+pub fn parent_process_id() !u32 {
+    var info: std.os.windows.PROCESS_BASIC_INFORMATION = undefined;
+    var returned: std.os.windows.ULONG = 0;
+    const status = std.os.windows.ntdll.NtQueryInformationProcess(
+        std.os.windows.GetCurrentProcess(),
+        .ProcessBasicInformation,
+        &info,
+        @sizeOf(std.os.windows.PROCESS_BASIC_INFORMATION),
+        &returned,
+    );
+    if (status != .SUCCESS) return std.os.windows.unexpectedStatus(status);
+    return std.math.cast(u32, info.InheritedFromUniqueProcessId) orelse error.Overflow;
+}
+
+pub fn user_id() !u32 {
+    return error.Unsupported;
+}
+
+pub fn group_id() !u32 {
+    return error.Unsupported;
 }
 
 fn formatMemoryUsageJson(allocator: std.mem.Allocator, rss: u64) ![]u8 {

@@ -79,6 +79,32 @@ pub fn process_args_free(allocator: std.mem.Allocator, args: []const [:0]u8) voi
     allocator.free(args);
 }
 
+pub fn hostname_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const uname = std.posix.uname();
+    return allocator.dupe(u8, std.mem.sliceTo(&uname.nodename, 0));
+}
+
+pub fn os_release_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const uname = std.posix.uname();
+    return allocator.dupe(u8, std.mem.sliceTo(&uname.release, 0));
+}
+
+pub fn process_id() !u32 {
+    return @intCast(std.os.linux.getpid());
+}
+
+pub fn parent_process_id() !u32 {
+    return @intCast(std.os.linux.getppid());
+}
+
+pub fn user_id() !u32 {
+    return @intCast(std.os.linux.getuid());
+}
+
+pub fn group_id() !u32 {
+    return @intCast(std.os.linux.getgid());
+}
+
 fn memory_usage_json_from_statm_bytes(allocator: std.mem.Allocator, bytes: []const u8, page_size: u64) ![]u8 {
     var it = std.mem.tokenizeAny(u8, bytes, " \t\r\n");
     _ = it.next() orelse return error.InvalidMemoryUsage;
@@ -346,6 +372,21 @@ test "Linux PAL parses proc cmdline bytes without Zig startup argv" {
     try std.testing.expectEqualStrings("demo", args[0]);
     try std.testing.expectEqualStrings("two words", args[1]);
     try std.testing.expectEqualStrings("", args[2]);
+}
+
+test "Linux PAL reports hostname release and process identity" {
+    const hostname = try hostname_alloc(std.testing.allocator);
+    defer std.testing.allocator.free(hostname);
+    try std.testing.expect(hostname.len != 0);
+
+    const release = try os_release_alloc(std.testing.allocator);
+    defer std.testing.allocator.free(release);
+    try std.testing.expect(release.len != 0);
+
+    try std.testing.expectEqual(@as(u32, @intCast(std.os.linux.getpid())), try process_id());
+    try std.testing.expectEqual(@as(u32, @intCast(std.os.linux.getppid())), try parent_process_id());
+    try std.testing.expectEqual(@as(u32, @intCast(std.os.linux.getuid())), try user_id());
+    try std.testing.expectEqual(@as(u32, @intCast(std.os.linux.getgid())), try group_id());
 }
 
 test "Linux PAL formats memory usage from proc statm bytes" {
