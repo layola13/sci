@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 unsigned primitive unchecked disjoint bit-or)
+
+Completed supportable unsigned primitive unchecked disjoint bit-or helpers:
+- `NUM_U{8,16,32,64,SIZE}_UNCHECKED_DISJOINT_BITOR` exposes Rust's `unchecked_disjoint_bitor` caller-precondition shape for every existing SA unsigned width.
+- Helpers mask operands to the declared width and return bitwise OR. Callers must guarantee `(lhs & rhs) == 0`; under that precondition the result is also equal to declared-width addition.
+- `usize` aliases the current 64-bit SA ABI. This batch models Rust's unstable `disjoint_bitor` result semantics for valid inputs, not immediate-UB enforcement, overlap validation, feature-gate plumbing, compiler intrinsic selection, `u128`, or trait-level dispatch.
+- Test file `std_num_unchecked_disjoint_bitor_macro_surface.sa` (panic ID 10649).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unchecked_disjoint_bitor_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10650+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 unsigned primitive gather/scatter bits)
 
 Completed supportable unsigned primitive gather/scatter bit helpers:

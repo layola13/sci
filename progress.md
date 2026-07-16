@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive unchecked disjoint bit-or macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `unchecked_disjoint_bitor` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_UNCHECKED_DISJOINT_BITOR`, `NUM_U16_UNCHECKED_DISJOINT_BITOR`, `NUM_U32_UNCHECKED_DISJOINT_BITOR`, `NUM_U64_UNCHECKED_DISJOINT_BITOR`, and `NUM_USIZE_UNCHECKED_DISJOINT_BITOR`.
+- Each helper masks operands to the declared width and returns their bitwise OR. Callers must uphold Rust's `(lhs & rhs) == 0` precondition; for valid inputs the OR result is also equal to addition.
+- This models the caller-precondition lowering shape of Rust's unstable `disjoint_bitor` method without claiming immediate-UB enforcement, runtime overlap validation, feature-gate plumbing, compiler intrinsic selection, `u128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_unchecked_disjoint_bitor_macro_surface.sa` - 1 test (panic ID 10649) expanding all five public helpers and covering Rust's documented `1 | 4` example, each width's highest bit, zero operands, and narrow declared-width truncation using only valid disjoint inputs.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_unchecked_disjoint_bitor_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10650+.
+
 ## Completed: 2026-07-16 unsigned primitive gather/scatter bits macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `extract_bits` / `deposit_bits` methods and `num/imp/int_bits.rs` fallback semantics under `/home/vscode/projects/rust`.

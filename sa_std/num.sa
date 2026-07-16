@@ -2393,6 +2393,16 @@ L_NUM_UW_DEPOSIT_DONE_%out_value:
     !__num_uw_deposit_idx_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs, %mask
+    __num_uw_disjoint_bitor_lhs_%out_value = and %lhs, %mask
+    __num_uw_disjoint_bitor_rhs_%out_value = and %rhs, %mask
+    __num_uw_disjoint_bitor_raw_%out_value = or __num_uw_disjoint_bitor_lhs_%out_value, __num_uw_disjoint_bitor_rhs_%out_value
+    %out_value = and __num_uw_disjoint_bitor_raw_%out_value, %mask
+    !__num_uw_disjoint_bitor_raw_%out_value
+    !__num_uw_disjoint_bitor_rhs_%out_value
+    !__num_uw_disjoint_bitor_lhs_%out_value
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -2529,6 +2539,10 @@ L_NUM_U64_UNBOUNDED_SHR_END_%out_value:
 
 [MACRO] NUM_U64_DEPOSIT_BITS %out_value, %value, %mask
     EXPAND NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %mask, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_STRICT_SHL %out_value, %value, %shift
@@ -9177,6 +9191,18 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %mask, NUM_U32_BITS, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -9558,6 +9584,10 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_DEPOSIT_BITS %out_value, %value, %mask
     EXPAND NUM_U64_DEPOSIT_BITS %out_value, %value, %mask
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs
+    EXPAND NUM_U64_UNCHECKED_DISJOINT_BITOR %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_USIZE_SATURATING_ADD %out_value, %lhs, %rhs
