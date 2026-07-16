@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 signed primitive overflowing div/rem/euclid macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `overflowing_div`, `overflowing_div_euclid`, `overflowing_rem`, and `overflowing_rem_euclid` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_DIV`, `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_DIV_EUCLID`, `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_REM`, and `NUM_I{8,16,32,64,SIZE}_OVERFLOWING_REM_EUCLID`.
+- Semantics: div helpers return the signed quotient with overflow flag `0`, except `MIN / -1` returns the signed minimum value and flag `1`. Rem helpers return the signed remainder with flag `0`, except `MIN % -1` returns `0` and flag `1`. Euclidean variants perform Rust-style quotient/remainder adjustment for negative remainders and preserve the same overflow special cases; zero divisors trap through existing SA div/rem panic codes.
+- Test: `tests/unit_framework/std_num_signed_overflowing_div_rem_macro_surface.sa` - 1 test (panic ID 10658) expanding all 20 new public helpers and covering ordinary division/remainder, Euclidean negative-remainder adjustment, and Rust's `MIN / -1` overflow examples for every current signed width via `i8` / `i16` / `i32` / `i64` / `isize`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_signed_overflowing_div_rem_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10659+.
+
 ## Completed: 2026-07-16 signed primitive overflowing abs/pow macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed primitive `overflowing_abs` and `overflowing_pow` implementations under `/home/vscode/projects/rust`.
