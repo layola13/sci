@@ -10,6 +10,12 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 - Validation passed: combined PAL/runtime/ABI/NetX/portability/Windows-contract gate `88/88` steps and `100/100` tests, including Linux `test-runtime-pal` `12/12`, Linux `test-runtime-netx` `88/88`, PAL source contract `6/6`, Windows helper `3/3`, Windows CI contract `4/4`, and Windows COFF ABI check; ReleaseFast `13/13`; Windows PAL x86_64/aarch64 PE test links; installed Windows static runtime `4/4`; installed `sa_std.lib` x86_64 basic-contract PE link; and `git diff --check`.
 - Native Windows behavior remains unverified until the Windows runner executes `test-runtime-pal`, `test-runtime-netx`, and the runtime contracts.
 
+## Focused verified: 2026-07-16 POSIX process capture drain
+
+- POSIX process capture no longer waits for child exit before draining pipes. Capture-mode waits call `drainProcessOutput` before probing child status, then loop with nonblocking wait and repeated stdout/stderr drain until the child exits.
+- Each stream is read in repeated 8192-byte chunks until EOF or `WouldBlock`, so captured stdout/stderr are not limited to one read per stream. `tests/runtime_basic_contract.c` covers 20000 bytes of stdout plus 17000 bytes of stderr from the child process.
+- Validation passed with isolated caches: `zig build --cache-dir /tmp/sci-basic-cache --global-cache-dir /tmp/sci-basic-global-cache test-runtime-basic --summary all` rebuilt and ran `6/6` steps successfully.
+
 ## Focused verified: 2026-07-16 PAL system-identity routing
 
 - Deno and generic process hostname/release/PID/PPID/UID/GID entry points now route through PAL; runtime core no longer declares or calls uname/get*id identity APIs directly.

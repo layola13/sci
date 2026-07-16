@@ -10,6 +10,14 @@ Date: 2026-07-16
 4. [x] Link `iphlpapi` and the audited IOCP `mswsock` dependency through runtime artifacts, tests, ABI builds, and compiler-produced executables.
 5. [x] Run focused native Linux and Windows cross-target gates, update evidence, and commit the coherent batch promptly.
 
+## Current turn: POSIX process capture evidence sync
+
+1. [x] Audit current POSIX process capture implementation for wait-before-drain deadlock risk.
+2. [x] Confirm capture mode drains stdout/stderr before and during nonblocking wait loops.
+3. [x] Confirm runtime basic contract covers outputs beyond one 8192-byte read per stream.
+4. [x] Re-run `test-runtime-basic` with an isolated Zig cache and record evidence.
+5. [x] Update tracking docs without staging unrelated CLI/cache worktree changes.
+
 ## Current turn: PAL system-identity portability batch
 
 1. [x] Audit the remaining runtime-core identity calls and Windows support boundary.
