@@ -6712,6 +6712,36 @@ L_NUM_I32_SIGN_EXTEND_END_%out_value:
     EXPAND NUM_U32_LOWEST_ONE %out_ok, %out_index, %value
 [END_MACRO]
 
+[MACRO] NUM_I8_MIDPOINT %out_value, %lhs, %rhs
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_mid_lhs_%out_value, %lhs
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_mid_rhs_%out_value, %rhs
+    EXPAND NUM_I64_MIDPOINT __num_i8_mid_raw_%out_value, __num_i8_mid_lhs_%out_value, __num_i8_mid_rhs_%out_value
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_mid_raw_%out_value
+    !__num_i8_mid_raw_%out_value
+    !__num_i8_mid_rhs_%out_value
+    !__num_i8_mid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_MIDPOINT %out_value, %lhs, %rhs
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_mid_lhs_%out_value, %lhs
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_mid_rhs_%out_value, %rhs
+    EXPAND NUM_I64_MIDPOINT __num_i16_mid_raw_%out_value, __num_i16_mid_lhs_%out_value, __num_i16_mid_rhs_%out_value
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_mid_raw_%out_value
+    !__num_i16_mid_raw_%out_value
+    !__num_i16_mid_rhs_%out_value
+    !__num_i16_mid_lhs_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_MIDPOINT %out_value, %lhs, %rhs
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_mid_lhs_%out_value, %lhs
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_mid_rhs_%out_value, %rhs
+    EXPAND NUM_I64_MIDPOINT __num_i32_mid_raw_%out_value, __num_i32_mid_lhs_%out_value, __num_i32_mid_rhs_%out_value
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_mid_raw_%out_value
+    !__num_i32_mid_raw_%out_value
+    !__num_i32_mid_rhs_%out_value
+    !__num_i32_mid_lhs_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U8_CAST_SIGNED %out_value, %value
     EXPAND NUM_I8_SIGN_EXTEND %out_value, %value
 [END_MACRO]

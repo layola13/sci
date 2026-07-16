@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed primitive midpoint macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `core/src/num/mod.rs` for signed primitive `midpoint`.
+- `sa_std/num.sa`: added `NUM_I8_MIDPOINT`, `NUM_I16_MIDPOINT`, and `NUM_I32_MIDPOINT`.
+- Semantics: helpers sign-extend narrow operands to their declared signed width, reuse the existing overflow-avoiding `i64` midpoint path, and sign-extend the result back to the concrete narrow signed width. This matches Rust's sufficiently-wide signed average rounded toward zero for current SA integer widths.
+- Test: `tests/unit_framework/std_num_narrow_signed_midpoint_macro_surface.sa` - 1 test (panic ID 10673) covering positive, negative, mixed-sign, min/max edge, and raw bit-pattern input cases for `i8`, `i16`, and `i32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_midpoint_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10674+.
+
 ## Completed: 2026-07-16 narrow signed direct Euclidean div/rem macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `div_euclid` and `rem_euclid`.

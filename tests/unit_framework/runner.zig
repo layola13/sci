@@ -731,6 +731,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_num_unsigned_overflowing_div_neg_macro_surface.sa",
         "tests/unit_framework/std_num_unsigned_wrapping_div_macro_surface.sa",
         "tests/unit_framework/std_num_narrow_signed_euclid_macro_surface.sa",
+        "tests/unit_framework/std_num_narrow_signed_midpoint_macro_surface.sa",
         "tests/unit_framework/std_num_overflowing_pow_macro_surface.sa",
         "tests/unit_framework/std_num_signed_wide_overflowing_macro_surface.sa",
         "tests/unit_framework/std_num_signed_overflowing_neg_shift_macro_surface.sa",
