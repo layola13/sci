@@ -8588,3 +8588,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10706+.
+
+## Completed: 2026-07-16 Vec iterator aliases
+
+- `sa_std/vec.sa`: Added `VEC_ITER_U64`, `VEC_ITER_MUT_U64`, `VEC_REF_INTO_ITER_U64`, `VEC_MUT_REF_INTO_ITER_U64`, and `VEC_ITER_DEFAULT_U64`.
+- Semantics: these helpers lower Rust `Vec::iter`, `Vec::iter_mut`, `IntoIterator for &Vec`, `IntoIterator for &mut Vec`, and default empty iterator shapes to the existing concrete value-yielding slice-backed `Iter` cursor over `u64` storage. They do not model Rust reference item types, borrow lifetimes, generic `T`, owned `IntoIter<T, A>` object layout, allocator parameter, or drop glue.
+- Test: `tests/unit_framework/std_vec_iter_macro_surface.sa` — 1 test (panic ID 10706) covering forward/back iteration, mutable/reference aliases, default empty iterator, and non-consuming Vec behavior.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10707+.

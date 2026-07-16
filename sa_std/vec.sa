@@ -2,6 +2,7 @@
 @import "alloc/vec.sa"
 @import "core/slice.sal"
 @import "core/slice.sa"
+@import "core/iter.sa"
 @import "ptr.sal"
 @import "ptr.sa"
 @import "hash.sa"
@@ -85,6 +86,32 @@
 
 [MACRO] VEC_DEREF_MUT_SLICE %out_slice, %vec_reg
     EXPAND VEC_AS_MUT_SLICE %out_slice, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_U64 %out_iter, %vec_reg
+    EXPAND VEC_AS_SLICE __vec_iter_slice_%out_iter, %vec_reg
+    EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_slice_%out_iter
+    !__vec_iter_slice_%out_iter
+[END_MACRO]
+
+[MACRO] VEC_ITER_MUT_U64 %out_iter, %vec_reg
+    EXPAND VEC_AS_MUT_SLICE __vec_iter_mut_slice_%out_iter, %vec_reg
+    EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_mut_slice_%out_iter
+    !__vec_iter_mut_slice_%out_iter
+[END_MACRO]
+
+[MACRO] VEC_REF_INTO_ITER_U64 %out_iter, %vec_reg
+    EXPAND VEC_ITER_U64 %out_iter, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_MUT_REF_INTO_ITER_U64 %out_iter, %vec_reg
+    EXPAND VEC_ITER_MUT_U64 %out_iter, %vec_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_DEFAULT_U64 %out_iter
+    __vec_iter_default_slice_%out_iter = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW __vec_iter_default_slice_%out_iter, 0, 0
+    EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_default_slice_%out_iter
 [END_MACRO]
 
 [MACRO] VEC_LEAK %out_slice, %vec_reg

@@ -3977,3 +3977,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10706+.
 Still blocked without redesign: generic BinaryHeap<T> ordering, Rust IntoIterSorted<T,A> object layout/drop glue, lazy pop-on-next behavior, allocator-aware constructors, scoped PeekMut guards, lazy drain adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec iterator aliases)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec iterator aliases in vec.sa: VEC_ITER_U64, VEC_ITER_MUT_U64, VEC_REF_INTO_ITER_U64, VEC_MUT_REF_INTO_ITER_U64, and VEC_ITER_DEFAULT_U64, each backed by the existing slice-backed Iter cursor over u64 storage.
+- Test file std_vec_iter_macro_surface.sa (panic ID 10706).
+
+Panic IDs next free: 10707+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
