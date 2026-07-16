@@ -2268,6 +2268,131 @@ L_NUM_UW_CLMUL_DONE_%out_value:
     !__num_uw_clmul_idx_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_EXTRACT_BITS %out_value, %value, %sparse, %bits, %mask
+    __num_uw_extract_value_init_%out_value = and %value, %mask
+    __num_uw_extract_sparse_init_%out_value = and %sparse, %mask
+    __num_uw_extract_idx_slot_%out_value = stack_alloc 8
+    __num_uw_extract_out_idx_slot_%out_value = stack_alloc 8
+    __num_uw_extract_value_slot_%out_value = stack_alloc 8
+    __num_uw_extract_sparse_slot_%out_value = stack_alloc 8
+    __num_uw_extract_acc_slot_%out_value = stack_alloc 8
+    store __num_uw_extract_idx_slot_%out_value+0, 0 as u64
+    store __num_uw_extract_out_idx_slot_%out_value+0, 0 as u64
+    store __num_uw_extract_value_slot_%out_value+0, __num_uw_extract_value_init_%out_value as u64
+    store __num_uw_extract_sparse_slot_%out_value+0, __num_uw_extract_sparse_init_%out_value as u64
+    store __num_uw_extract_acc_slot_%out_value+0, 0 as u64
+    !__num_uw_extract_sparse_init_%out_value
+    !__num_uw_extract_value_init_%out_value
+    jmp L_NUM_UW_EXTRACT_HEAD_%out_value
+
+L_NUM_UW_EXTRACT_HEAD_%out_value:
+    __num_uw_extract_idx_%out_value = load __num_uw_extract_idx_slot_%out_value+0 as u64
+    __num_uw_extract_done_%out_value = eq __num_uw_extract_idx_%out_value, %bits
+    br __num_uw_extract_done_%out_value -> L_NUM_UW_EXTRACT_DONE_%out_value, L_NUM_UW_EXTRACT_BODY_%out_value
+
+L_NUM_UW_EXTRACT_BODY_%out_value:
+    __num_uw_extract_out_idx_%out_value = load __num_uw_extract_out_idx_slot_%out_value+0 as u64
+    __num_uw_extract_value_%out_value = load __num_uw_extract_value_slot_%out_value+0 as u64
+    __num_uw_extract_sparse_%out_value = load __num_uw_extract_sparse_slot_%out_value+0 as u64
+    __num_uw_extract_acc_%out_value = load __num_uw_extract_acc_slot_%out_value+0 as u64
+    __num_uw_extract_mask_bit_%out_value = and __num_uw_extract_sparse_%out_value, 1
+    __num_uw_extract_value_bit_%out_value = and __num_uw_extract_value_%out_value, 1
+    __num_uw_extract_selected_%out_value = mul __num_uw_extract_value_bit_%out_value, __num_uw_extract_mask_bit_%out_value
+    __num_uw_extract_shifted_%out_value = shl __num_uw_extract_selected_%out_value, __num_uw_extract_out_idx_%out_value
+    __num_uw_extract_next_acc_%out_value = xor __num_uw_extract_acc_%out_value, __num_uw_extract_shifted_%out_value
+    __num_uw_extract_next_value_%out_value = lshr __num_uw_extract_value_%out_value, 1
+    __num_uw_extract_next_sparse_%out_value = lshr __num_uw_extract_sparse_%out_value, 1
+    __num_uw_extract_next_out_idx_%out_value = add __num_uw_extract_out_idx_%out_value, __num_uw_extract_mask_bit_%out_value
+    __num_uw_extract_next_idx_%out_value = add __num_uw_extract_idx_%out_value, 1
+    store __num_uw_extract_acc_slot_%out_value+0, __num_uw_extract_next_acc_%out_value as u64
+    store __num_uw_extract_value_slot_%out_value+0, __num_uw_extract_next_value_%out_value as u64
+    store __num_uw_extract_sparse_slot_%out_value+0, __num_uw_extract_next_sparse_%out_value as u64
+    store __num_uw_extract_out_idx_slot_%out_value+0, __num_uw_extract_next_out_idx_%out_value as u64
+    store __num_uw_extract_idx_slot_%out_value+0, __num_uw_extract_next_idx_%out_value as u64
+    !__num_uw_extract_next_idx_%out_value
+    !__num_uw_extract_next_out_idx_%out_value
+    !__num_uw_extract_next_sparse_%out_value
+    !__num_uw_extract_next_value_%out_value
+    !__num_uw_extract_next_acc_%out_value
+    !__num_uw_extract_shifted_%out_value
+    !__num_uw_extract_selected_%out_value
+    !__num_uw_extract_value_bit_%out_value
+    !__num_uw_extract_mask_bit_%out_value
+    !__num_uw_extract_acc_%out_value
+    !__num_uw_extract_sparse_%out_value
+    !__num_uw_extract_value_%out_value
+    !__num_uw_extract_out_idx_%out_value
+    !__num_uw_extract_done_%out_value
+    !__num_uw_extract_idx_%out_value
+    jmp L_NUM_UW_EXTRACT_HEAD_%out_value
+
+L_NUM_UW_EXTRACT_DONE_%out_value:
+    __num_uw_extract_result_%out_value = load __num_uw_extract_acc_slot_%out_value+0 as u64
+    %out_value = and __num_uw_extract_result_%out_value, %mask
+    !__num_uw_extract_result_%out_value
+    !__num_uw_extract_done_%out_value
+    !__num_uw_extract_idx_%out_value
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %sparse, %bits, %mask
+    __num_uw_deposit_value_init_%out_value = and %value, %mask
+    __num_uw_deposit_sparse_init_%out_value = and %sparse, %mask
+    __num_uw_deposit_idx_slot_%out_value = stack_alloc 8
+    __num_uw_deposit_value_slot_%out_value = stack_alloc 8
+    __num_uw_deposit_sparse_slot_%out_value = stack_alloc 8
+    __num_uw_deposit_acc_slot_%out_value = stack_alloc 8
+    store __num_uw_deposit_idx_slot_%out_value+0, 0 as u64
+    store __num_uw_deposit_value_slot_%out_value+0, __num_uw_deposit_value_init_%out_value as u64
+    store __num_uw_deposit_sparse_slot_%out_value+0, __num_uw_deposit_sparse_init_%out_value as u64
+    store __num_uw_deposit_acc_slot_%out_value+0, 0 as u64
+    !__num_uw_deposit_sparse_init_%out_value
+    !__num_uw_deposit_value_init_%out_value
+    jmp L_NUM_UW_DEPOSIT_HEAD_%out_value
+
+L_NUM_UW_DEPOSIT_HEAD_%out_value:
+    __num_uw_deposit_idx_%out_value = load __num_uw_deposit_idx_slot_%out_value+0 as u64
+    __num_uw_deposit_done_%out_value = eq __num_uw_deposit_idx_%out_value, %bits
+    br __num_uw_deposit_done_%out_value -> L_NUM_UW_DEPOSIT_DONE_%out_value, L_NUM_UW_DEPOSIT_BODY_%out_value
+
+L_NUM_UW_DEPOSIT_BODY_%out_value:
+    __num_uw_deposit_value_%out_value = load __num_uw_deposit_value_slot_%out_value+0 as u64
+    __num_uw_deposit_sparse_%out_value = load __num_uw_deposit_sparse_slot_%out_value+0 as u64
+    __num_uw_deposit_acc_%out_value = load __num_uw_deposit_acc_slot_%out_value+0 as u64
+    __num_uw_deposit_mask_bit_%out_value = and __num_uw_deposit_sparse_%out_value, 1
+    __num_uw_deposit_value_bit_%out_value = and __num_uw_deposit_value_%out_value, 1
+    __num_uw_deposit_selected_%out_value = mul __num_uw_deposit_value_bit_%out_value, __num_uw_deposit_mask_bit_%out_value
+    __num_uw_deposit_shifted_%out_value = shl __num_uw_deposit_selected_%out_value, __num_uw_deposit_idx_%out_value
+    __num_uw_deposit_next_acc_%out_value = xor __num_uw_deposit_acc_%out_value, __num_uw_deposit_shifted_%out_value
+    __num_uw_deposit_next_value_%out_value = lshr __num_uw_deposit_value_%out_value, __num_uw_deposit_mask_bit_%out_value
+    __num_uw_deposit_next_sparse_%out_value = lshr __num_uw_deposit_sparse_%out_value, 1
+    __num_uw_deposit_next_idx_%out_value = add __num_uw_deposit_idx_%out_value, 1
+    store __num_uw_deposit_acc_slot_%out_value+0, __num_uw_deposit_next_acc_%out_value as u64
+    store __num_uw_deposit_value_slot_%out_value+0, __num_uw_deposit_next_value_%out_value as u64
+    store __num_uw_deposit_sparse_slot_%out_value+0, __num_uw_deposit_next_sparse_%out_value as u64
+    store __num_uw_deposit_idx_slot_%out_value+0, __num_uw_deposit_next_idx_%out_value as u64
+    !__num_uw_deposit_next_idx_%out_value
+    !__num_uw_deposit_next_sparse_%out_value
+    !__num_uw_deposit_next_value_%out_value
+    !__num_uw_deposit_next_acc_%out_value
+    !__num_uw_deposit_shifted_%out_value
+    !__num_uw_deposit_selected_%out_value
+    !__num_uw_deposit_value_bit_%out_value
+    !__num_uw_deposit_mask_bit_%out_value
+    !__num_uw_deposit_acc_%out_value
+    !__num_uw_deposit_sparse_%out_value
+    !__num_uw_deposit_value_%out_value
+    !__num_uw_deposit_done_%out_value
+    !__num_uw_deposit_idx_%out_value
+    jmp L_NUM_UW_DEPOSIT_HEAD_%out_value
+
+L_NUM_UW_DEPOSIT_DONE_%out_value:
+    __num_uw_deposit_result_%out_value = load __num_uw_deposit_acc_slot_%out_value+0 as u64
+    %out_value = and __num_uw_deposit_result_%out_value, %mask
+    !__num_uw_deposit_result_%out_value
+    !__num_uw_deposit_done_%out_value
+    !__num_uw_deposit_idx_%out_value
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -2396,6 +2521,14 @@ L_NUM_U64_UNBOUNDED_SHR_END_%out_value:
 
 [MACRO] NUM_U64_CARRYLESS_MUL %out_value, %lhs, %rhs
     EXPAND NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_EXTRACT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_EXTRACT_BITS %out_value, %value, %mask, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_DEPOSIT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %mask, NUM_U64_BITS, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_STRICT_SHL %out_value, %value, %shift
@@ -9020,6 +9153,30 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, NUM_U32_BITS, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_EXTRACT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_EXTRACT_BITS %out_value, %value, %mask, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_EXTRACT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_EXTRACT_BITS %out_value, %value, %mask, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_EXTRACT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_EXTRACT_BITS %out_value, %value, %mask, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_DEPOSIT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %mask, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_DEPOSIT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %mask, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_DEPOSIT_BITS %out_value, %value, %mask
+    EXPAND NUM_UNSIGNED_WIDTH_DEPOSIT_BITS %out_value, %value, %mask, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -9393,6 +9550,14 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_CARRYLESS_MUL %out_value, %lhs, %rhs
     EXPAND NUM_U64_CARRYLESS_MUL %out_value, %lhs, %rhs
+[END_MACRO]
+
+[MACRO] NUM_USIZE_EXTRACT_BITS %out_value, %value, %mask
+    EXPAND NUM_U64_EXTRACT_BITS %out_value, %value, %mask
+[END_MACRO]
+
+[MACRO] NUM_USIZE_DEPOSIT_BITS %out_value, %value, %mask
+    EXPAND NUM_U64_DEPOSIT_BITS %out_value, %value, %mask
 [END_MACRO]
 
 [MACRO] NUM_USIZE_SATURATING_ADD %out_value, %lhs, %rhs

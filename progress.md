@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive gather/scatter bits macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `extract_bits` / `deposit_bits` methods and `num/imp/int_bits.rs` fallback semantics under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `EXTRACT_BITS` and `DEPOSIT_BITS` helpers for `U8`, `U16`, `U32`, `U64`, and `USIZE`, for 10 new public Rust-named entry points.
+- Extraction scans mask bits from least to most significant and packs selected source bits contiguously into the result's low bits. Deposition consumes source low bits in order and places them at successive set-bit positions in the mask.
+- Inputs, masks, and results are masked to the declared width; source bits beyond the mask population count are ignored and `usize` uses the current 64-bit SA ABI. This models Rust's unstable `uint_gather_scatter_bits` behavior without claiming feature-gate plumbing, hardware/compiler `pext` / `pdep` selection, `u128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_gather_scatter_bits_macro_surface.sa` - 1 test (panic ID 10648) expanding all 10 public helpers and covering Rust's documented examples, empty/full masks, declared-width truncation, ignored excess source bits, highest-bit placement/extraction, and extract/deposit inverse behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_gather_scatter_bits_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10649+.
+
 ## Completed: 2026-07-16 unsigned primitive carryless multiplication macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `carryless_mul` implementation under `/home/vscode/projects/rust`.
