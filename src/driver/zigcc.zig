@@ -63,7 +63,11 @@ pub fn argvForExe(
     for (extra_inputs) |input| {
         try argv.items.append(input);
     }
-    if (builtin.os.tag == .windows) try argv.items.append("-lws2_32");
+    if (builtin.os.tag == .windows) {
+        try argv.items.append("-lws2_32");
+        try argv.items.append("-lmswsock");
+        try argv.items.append("-liphlpapi");
+    }
     if (hostRpathArgument(builtin.os.tag)) |argument| try argv.items.append(argument);
     try argv.items.append("-o");
     try argv.items.append(out_path);

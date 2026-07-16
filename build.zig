@@ -197,7 +197,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addPthreadHostShimToModule(b, sa_std_static_module, target.result.os.tag);
-    if (target.result.os.tag == .windows) sa_std_static_module.linkSystemLibrary("ws2_32", .{});
+    linkWindowsRuntimeLibraries(sa_std_static_module, target.result.os.tag);
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_static_module,
@@ -213,7 +213,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addPthreadHostShimToModule(b, sa_std_shared_module, target.result.os.tag);
-    if (target.result.os.tag == .windows) sa_std_shared_module.linkSystemLibrary("ws2_32", .{});
+    linkWindowsRuntimeLibraries(sa_std_shared_module, target.result.os.tag);
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_shared_module,
@@ -260,7 +260,7 @@ pub fn build(b: *std.Build) void {
     });
     runtime_basic_contract_module.linkLibrary(sa_std_static);
     if (target.result.os.tag == .linux) runtime_basic_contract_module.linkSystemLibrary("dl", .{});
-    if (target.result.os.tag == .windows) runtime_basic_contract_module.linkSystemLibrary("ws2_32", .{});
+    linkWindowsRuntimeLibraries(runtime_basic_contract_module, target.result.os.tag);
     const runtime_basic_contract = b.addExecutable(.{
         .name = "runtime-basic-contract",
         .root_module = runtime_basic_contract_module,
@@ -289,6 +289,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    linkWindowsRuntimeLibraries(runtime_pal_module, target.result.os.tag);
     const runtime_pal_test = b.addTest(.{
         .root_module = runtime_pal_module,
     });
@@ -308,7 +309,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    if (target.result.os.tag == .windows) runtime_netx_module.linkSystemLibrary("ws2_32", .{});
+    linkWindowsRuntimeLibraries(runtime_netx_module, target.result.os.tag);
     const runtime_netx_test = b.addTest(.{
         .root_module = runtime_netx_module,
     });
@@ -548,6 +549,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    linkWindowsRuntimeLibraries(abi_windows_module, .windows);
     const abi_windows_shared = b.addLibrary(.{
         .name = "sa_std_abi_windows",
         .root_module = abi_windows_module,
@@ -760,9 +762,17 @@ pub fn build(b: *std.Build) void {
         "tests/pal_source_contract.zig",
     });
     pal_source_contract_tests.setCwd(repo_root_lazy);
+    const pal_windows_network_helper_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "src/runtime/pal_network_interfaces_windows_support.zig",
+    });
+    pal_windows_network_helper_tests.setCwd(repo_root_lazy);
     const pal_source_contract_step = b.step("pal-source-contract", "Check runtime PAL source boundaries");
     pal_source_contract_step.dependOn(&pal_source_contract_tests.step);
+    pal_source_contract_step.dependOn(&pal_windows_network_helper_tests.step);
     test_step.dependOn(&pal_source_contract_tests.step);
+    test_step.dependOn(&pal_windows_network_helper_tests.step);
 
     for ([_][]const u8{ "x86_64-macos", "aarch64-macos" }) |darwin_target| {
         const pthread_shim_typecheck = b.addSystemCommand(&.{
@@ -1127,6 +1137,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    linkWindowsRuntimeLibraries(sa_std_unit_module, target.result.os.tag);
     sa_std_unit_module.addOptions("build_options", build_options);
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
@@ -1143,6 +1154,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    linkWindowsRuntimeLibraries(windows_sa_std_smoke_module, target.result.os.tag);
     windows_sa_std_smoke_module.addOptions("build_options", build_options);
     const windows_sa_std_smoke = b.addTest(.{
         .root_module = windows_sa_std_smoke_module,
@@ -1450,6 +1462,13 @@ fn addPthreadHostShimToModule(b: *std.Build, module: *std.Build.Module, os_tag: 
     } else if (os_tag == .macos) {
         module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host_darwin.c"), .flags = &.{} });
     }
+}
+
+fn linkWindowsRuntimeLibraries(module: *std.Build.Module, os_tag: std.Target.Os.Tag) void {
+    if (os_tag != .windows) return;
+    module.linkSystemLibrary("ws2_32", .{});
+    module.linkSystemLibrary("mswsock", .{});
+    module.linkSystemLibrary("iphlpapi", .{});
 }
 
 fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {

@@ -1,9 +1,59 @@
 const std = @import("std");
+const network_interfaces = @import("pal_network_interfaces_windows_support.zig");
+const ws = std.os.windows.ws2_32;
 
 extern "kernel32" fn GetCommandLineW() callconv(.winapi) ?[*:0]const u16;
 extern "kernel32" fn GetComputerNameW(lpBuffer: [*]u16, nSize: *std.os.windows.DWORD) callconv(.winapi) std.os.windows.BOOL;
 extern "kernel32" fn GetTickCount64() callconv(.winapi) std.os.windows.ULONGLONG;
 extern "kernel32" fn GlobalMemoryStatusEx(lpBuffer: *MemoryStatusEx) callconv(.winapi) std.os.windows.BOOL;
+extern "iphlpapi" fn GetAdaptersAddresses(
+    family: std.os.windows.ULONG,
+    flags: std.os.windows.ULONG,
+    reserved: ?*anyopaque,
+    addresses: ?*IpAdapterAddresses,
+    size: *std.os.windows.ULONG,
+) callconv(.winapi) std.os.windows.ULONG;
+extern "ws2_32" fn InetNtopW(
+    family: c_int,
+    address: *const anyopaque,
+    buffer: [*]u16,
+    buffer_size: usize,
+) callconv(.winapi) ?[*:0]const u16;
+
+const IpAdapterUnicastAddress = extern struct {
+    alignment: u64,
+    next: ?*IpAdapterUnicastAddress,
+    address: ws.SOCKET_ADDRESS,
+    prefix_origin: c_int,
+    suffix_origin: c_int,
+    dad_state: c_int,
+    valid_lifetime: std.os.windows.ULONG,
+    preferred_lifetime: std.os.windows.ULONG,
+    lease_lifetime: std.os.windows.ULONG,
+    on_link_prefix_length: u8,
+};
+
+const IpAdapterAddresses = extern struct {
+    alignment: u64,
+    next: ?*IpAdapterAddresses,
+    adapter_name: ?[*:0]const u8,
+    first_unicast_address: ?*IpAdapterUnicastAddress,
+    first_anycast_address: ?*anyopaque,
+    first_multicast_address: ?*anyopaque,
+    first_dns_server_address: ?*anyopaque,
+    dns_suffix: ?[*:0]const u16,
+    description: ?[*:0]const u16,
+    friendly_name: ?[*:0]const u16,
+    physical_address: [8]u8,
+    physical_address_length: std.os.windows.ULONG,
+};
+
+comptime {
+    std.debug.assert(@sizeOf(IpAdapterUnicastAddress) == 64);
+    std.debug.assert(@offsetOf(IpAdapterUnicastAddress, "on_link_prefix_length") == 56);
+    std.debug.assert(@offsetOf(IpAdapterAddresses, "physical_address") == 80);
+    std.debug.assert(@offsetOf(IpAdapterAddresses, "physical_address_length") == 88);
+}
 
 const MemoryStatusEx = extern struct {
     dwLength: std.os.windows.DWORD,
@@ -185,8 +235,126 @@ pub fn loadavg(_: *[3]f64) !void {
     return error.Unsupported;
 }
 
-pub fn network_interfaces_json_alloc(_: std.mem.Allocator) ![]u8 {
-    return error.Unsupported;
+fn adapterNameAlloc(allocator: std.mem.Allocator, adapter: *const IpAdapterAddresses) ![]u8 {
+    if (adapter.friendly_name) |friendly_name| {
+        return std.unicode.wtf16LeToWtf8Alloc(allocator, std.mem.sliceTo(friendly_name, 0));
+    }
+    if (adapter.adapter_name) |adapter_name| {
+        return allocator.dupe(u8, std.mem.sliceTo(adapter_name, 0));
+    }
+    return allocator.dupe(u8, "");
+}
+
+fn internetAddressText(
+    family: c_int,
+    address: *const anyopaque,
+    utf8_buffer: []u8,
+) ![]const u8 {
+    var utf16_buffer: [ws.INET6_ADDRSTRLEN]u16 = undefined;
+    const text_w = InetNtopW(family, address, &utf16_buffer, utf16_buffer.len) orelse return error.Unexpected;
+    const text_w_slice = std.mem.sliceTo(text_w, 0);
+    const text_len = std.unicode.wtf16LeToWtf8(utf8_buffer, text_w_slice);
+    return utf8_buffer[0..text_len];
+}
+
+fn socketAddressSource(address: *const ws.sockaddr, is_ipv4: bool) *const anyopaque {
+    if (is_ipv4) {
+        const inet: *align(1) const ws.sockaddr.in = @ptrCast(address);
+        return @ptrCast(&inet.addr);
+    }
+    const inet6: *align(1) const ws.sockaddr.in6 = @ptrCast(address);
+    return @ptrCast(&inet6.addr);
+}
+
+fn networkInterfacesJsonFromAdapters(
+    allocator: std.mem.Allocator,
+    first_adapter: ?*IpAdapterAddresses,
+) ![]u8 {
+    var list = std.ArrayList(u8).init(allocator);
+    errdefer list.deinit();
+    try list.append('[');
+
+    var first = true;
+    var current_adapter = first_adapter;
+    while (current_adapter) |adapter| : (current_adapter = adapter.next) {
+        const name = try adapterNameAlloc(allocator, adapter);
+        defer allocator.free(name);
+
+        const physical_address_length = @min(
+            adapter.physical_address.len,
+            @as(usize, @intCast(adapter.physical_address_length)),
+        );
+        var mac_buffer: [32]u8 = undefined;
+        const mac = network_interfaces.formatMac(adapter.physical_address[0..physical_address_length], &mac_buffer);
+
+        var current_unicast = adapter.first_unicast_address;
+        while (current_unicast) |unicast| : (current_unicast = unicast.next) {
+            const sockaddr = unicast.address.lpSockaddr;
+            const family: c_int = @intCast(sockaddr.family);
+            const is_ipv4 = family == ws.AF.INET;
+            if (!is_ipv4 and family != ws.AF.INET6) continue;
+
+            const required_size: i32 = if (is_ipv4) @sizeOf(ws.sockaddr.in) else @sizeOf(ws.sockaddr.in6);
+            if (unicast.address.iSockaddrLength < required_size) continue;
+
+            var address_buffer: [ws.INET6_ADDRSTRLEN * 3]u8 = undefined;
+            const address = internetAddressText(
+                family,
+                socketAddressSource(sockaddr, is_ipv4),
+                &address_buffer,
+            ) catch continue;
+
+            var mask_bytes: [16]u8 = undefined;
+            const mask_slice = mask_bytes[0..if (is_ipv4) 4 else 16];
+            network_interfaces.prefixMask(mask_slice, unicast.on_link_prefix_length);
+            var mask_buffer: [ws.INET6_ADDRSTRLEN * 3]u8 = undefined;
+            const netmask = internetAddressText(family, mask_slice.ptr, &mask_buffer) catch continue;
+
+            var cidr_buffer: [ws.INET6_ADDRSTRLEN * 3 + 4]u8 = undefined;
+            const cidr = try std.fmt.bufPrint(
+                &cidr_buffer,
+                "{s}/{d}",
+                .{ address, unicast.on_link_prefix_length },
+            );
+            try network_interfaces.appendJson(&list, &first, .{
+                .name = name,
+                .family = if (is_ipv4) "IPv4" else "IPv6",
+                .address = address,
+                .netmask = netmask,
+                .scopeid = null,
+                .cidr = cidr,
+                .mac = mac,
+            });
+        }
+    }
+
+    try list.append(']');
+    return list.toOwnedSlice();
+}
+
+pub fn network_interfaces_json_alloc(allocator: std.mem.Allocator) ![]u8 {
+    const gaa_flag_include_prefix: std.os.windows.ULONG = 0x0010;
+    const error_buffer_overflow: std.os.windows.ULONG = 111;
+    const error_no_data: std.os.windows.ULONG = 232;
+    var size: std.os.windows.ULONG = 0;
+    const probe = GetAdaptersAddresses(ws.AF.UNSPEC, gaa_flag_include_prefix, null, null, &size);
+    if ((probe == 0 and size == 0) or probe == error_no_data) return allocator.dupe(u8, "[]");
+    if (probe != error_buffer_overflow or size == 0) return error.Unexpected;
+
+    var attempts: usize = 0;
+    while (attempts < 3) : (attempts += 1) {
+        const buffer = try allocator.alignedAlloc(u8, @alignOf(IpAdapterAddresses), size);
+        const adapters: *IpAdapterAddresses = @ptrCast(buffer.ptr);
+        const result = GetAdaptersAddresses(ws.AF.UNSPEC, gaa_flag_include_prefix, null, adapters, &size);
+        if (result == 0) {
+            defer allocator.free(buffer);
+            return networkInterfacesJsonFromAdapters(allocator, adapters);
+        }
+        allocator.free(buffer);
+        if (result == error_no_data) return allocator.dupe(u8, "[]");
+        if (result != error_buffer_overflow or size == 0) return error.Unexpected;
+    }
+    return error.Unexpected;
 }
 
 pub fn term_epoll_create(_: u32) !std.os.windows.HANDLE {

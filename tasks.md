@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current Windows PAL network-interface batch (2026-07-16)
+
+- [x] Audit the Windows IP Helper API structures and confirm the required x86_64/aarch64 field offsets.
+- [x] Enumerate adapters and IPv4/IPv6 unicast addresses with `GetAdaptersAddresses`.
+- [x] Preserve structured JSON escaping and derive netmask/CIDR/MAC values through Linux-runnable pure helpers.
+- [x] Link `iphlpapi` and the audited IOCP `mswsock` dependency through all Windows runtime, ABI, test, and compiler-driver paths.
+- [x] Run focused Linux runtime, Windows cross-target, portability, ABI, and ReleaseFast gates, then commit promptly.
+- [x] Keep the evidence boundary explicit: cross checks are not native Windows execution.
+
 ## Current PAL system-identity batch (2026-07-16)
 
 - [x] Move hostname, OS release, PID, PPID, UID, and GID queries behind PAL backends so runtime core no longer declares or calls the native identity functions directly.

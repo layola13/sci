@@ -2,6 +2,14 @@
 
 Date: 2026-07-16
 
+## Current turn: Windows PAL network-interface backend
+
+1. [x] Audit `GetAdaptersAddresses`, `IP_ADAPTER_ADDRESSES_LH`, `IP_ADAPTER_UNICAST_ADDRESS_LH`, and x86_64/aarch64 Windows ABI layouts.
+2. [x] Implement Windows adapter/unicast enumeration with IPv4/IPv6 address, prefix-derived netmask/CIDR, friendly name, and physical address JSON.
+3. [x] Add Linux-runnable pure helper coverage plus PAL/build/Windows CI source contracts.
+4. [x] Link `iphlpapi` and the audited IOCP `mswsock` dependency through runtime artifacts, tests, ABI builds, and compiler-produced executables.
+5. [x] Run focused native Linux and Windows cross-target gates, update evidence, and commit the coherent batch promptly.
+
 ## Current turn: PAL system-identity portability batch
 
 1. [x] Audit the remaining runtime-core identity calls and Windows support boundary.

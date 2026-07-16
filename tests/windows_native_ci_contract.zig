@@ -142,7 +142,11 @@ test "build graph exposes focused Windows CI entry points" {
     try expectContains(build_source, "tests/runtime_basic_contract.c");
     try expectContains(build_source, "tests/runtime_contract_fixture.c");
     try expectContains(build_source, "linkSystemLibrary(\"ws2_32\"");
-    try expectContains(driver_source, "if (builtin.os.tag == .windows) try argv.items.append(\"-lws2_32\");");
+    try expectContains(build_source, "linkSystemLibrary(\"mswsock\"");
+    try expectContains(build_source, "linkSystemLibrary(\"iphlpapi\"");
+    try expectContains(driver_source, "try argv.items.append(\"-lws2_32\");");
+    try expectContains(driver_source, "try argv.items.append(\"-lmswsock\");");
+    try expectContains(driver_source, "try argv.items.append(\"-liphlpapi\");");
     try expectContains(build_source, "requires a native Windows x86_64 host and target");
     try expectContains(build_source, "windows process spawn failure leaves no live child handle");
     try expectContains(build_source, "b.step(\"windows-ci-contract\"");

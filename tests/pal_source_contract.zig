@@ -124,6 +124,11 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows_pal, "GetTickCount64");
     try expectContains(windows_pal, "os_uptime_seconds");
     try expectContains(windows_pal, "loadavg");
+    try expectContains(windows_pal, "GetAdaptersAddresses");
+    try expectContains(windows_pal, "InetNtopW");
+    try expectContains(windows_pal, "gaa_flag_include_prefix");
+    try expectContains(windows_pal, "networkInterfacesJsonFromAdapters");
+    try expectContains(windows_pal, "@alignOf(IpAdapterAddresses)");
     try expectContains(windows_pal, "network_interfaces_json_alloc");
     try expectContains(windows_pal, "GetComputerNameW");
     try expectContains(windows_pal, "RtlGetVersion");
@@ -132,6 +137,7 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(windows_pal, "os_release_alloc");
     try expectContains(windows_pal, "parent_process_id");
     try expectContains(windows_pal, "return error.Unsupported");
+    try expectNotContains(windows_pal, "pub fn network_interfaces_json_alloc(_: std.mem.Allocator)");
     try expectNotContains(windows_pal, "std.fs.selfExePathAlloc");
     try expectNotContains(windows_pal, "std.process.argsAlloc");
 
@@ -200,6 +206,12 @@ test "runtime system entry points route executable path and args through PAL" {
     try expectContains(posix_network, "std.c.sockaddr.in6");
     try expectContains(posix_network, "std.json.stringify");
     try expectContains(posix_network, "network_interfaces_json_from_ifaddrs");
+
+    const windows_network = try readSource(allocator, "src/runtime/pal_network_interfaces_windows_support.zig");
+    defer allocator.free(windows_network);
+    try expectContains(windows_network, "pub fn prefixMask");
+    try expectContains(windows_network, "pub fn formatMac");
+    try expectContains(windows_network, "std.json.stringify");
 }
 
 test "platform event loop syscalls stay behind PAL backends" {
@@ -259,6 +271,9 @@ test "build gates PAL backends by target" {
     try expectContains(build, "pal_typecheck_step.dependOn(&pal_selector_typecheck.step)");
     try expectContains(build, "const runtime_pal_module = b.createModule");
     try expectContains(build, ".root_source_file = b.path(\"src/runtime/pal.zig\")");
+    try expectContains(build, "\"src/runtime/pal_network_interfaces_windows_support.zig\"");
+    try expectContains(build, "fn linkWindowsRuntimeLibraries");
+    try expectContains(build, "module.linkSystemLibrary(\"iphlpapi\"");
     try expectContains(build, "b.step(\"test-runtime-pal\"");
     try expectContains(build, "test-runtime-pal requires a native Linux, macOS, or Windows host and target");
     try expectContains(build, "portability_check_step.dependOn(pal_typecheck_step)");
