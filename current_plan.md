@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 Process Command builder uid/gid)
+
+Completed supportable process Command builder uid/gid wrappers:
+- `PROCESS_COMMAND_BUILDER_STATUS_UID_GID` and `PROCESS_COMMAND_BUILDER_SPAWN_UID_GID` forward the existing builder scalar state into the real `PROCESS_*_COMMAND_EXT_UID_GID` runtime paths.
+- These helpers preserve the current builder fields (`cwd`, `arg0`, `process_group`, `setsid`) and add explicit `uid` / `gid` values plus `has_uid` / `has_gid` flags matching the existing lower-level CommandExt facade.
+- This batch does not model env maps, pipe Stdio redirection wiring, full heap `Command` objects, groups/chroot builder wrappers, or capture-time CommandExt uid/gid integration.
+- Test file `std_process_command_builder_uid_gid_macro_surface.sa` (panic ID 10685).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_command_builder_uid_gid_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10686+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 Process Command builder pidfd)
 
 Completed supportable process Command builder pidfd wrappers:
