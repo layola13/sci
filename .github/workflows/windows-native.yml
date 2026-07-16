@@ -235,6 +235,25 @@ jobs:
               throw "Runtime install is missing $requiredPath"
             }
           }
+          function Get-PeMachine([string]$Path) {
+            $bytes = [IO.File]::ReadAllBytes($Path)
+            if ($bytes.Length -lt 0x40) {
+              throw "PE image is too small: $Path"
+            }
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ($peOffset -lt 0 -or $bytes.Length -lt ($peOffset + 6)) {
+              throw "PE header offset is invalid: $Path"
+            }
+            if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or $bytes[$peOffset + 2] -ne 0 -or $bytes[$peOffset + 3] -ne 0) {
+              throw "PE signature is invalid: $Path"
+            }
+            return [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          }
+          $sharedDll = Join-Path $sharedRoot "bin\sa_std.dll"
+          $sharedMachine = Get-PeMachine $sharedDll
+          if ($sharedMachine -ne 0x8664) {
+            throw ("Shared runtime architecture mismatch for {0}: expected 0x8664, got 0x{1:x4}" -f $sharedDll, $sharedMachine)
+          }
           $utf8NoBom = New-Object Text.UTF8Encoding($false)
           [IO.File]::AppendAllText($env:GITHUB_ENV, "SA_STATIC_ROOT=$staticRoot`n", $utf8NoBom)
 
