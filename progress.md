@@ -8705,3 +8705,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10719+.
+
+## Completed: 2026-07-16 Vec IntoIter comparison ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_CMP_U64`, `VEC_INTO_ITER_CMP_BY_U64`, `VEC_INTO_ITER_PARTIAL_CMP_U64`, `VEC_INTO_ITER_PARTIAL_CMP_BY_U64`, `VEC_INTO_ITER_EQ_BY_U64`, `VEC_INTO_ITER_EQ_U64`, `VEC_INTO_ITER_PARTIAL_EQ_U64`, `VEC_INTO_ITER_NE_U64`, `VEC_INTO_ITER_LT_U64`, `VEC_INTO_ITER_LE_U64`, `VEC_INTO_ITER_GT_U64`, and `VEC_INTO_ITER_GE_U64`.
+- Semantics: these helpers lower supportable Rust lexicographic iterator comparison/equality surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor primitives over explicit backing Vecs. They consume both cursors and return concrete ordering/bool scalars or explicit `(ok, ordering)` for partial comparison by callback.
+- Test: `tests/unit_framework/std_vec_into_iter_comparison_macro_surface.sa` — 1 test (panic ID 10719) covering equal comparison, item-order less, short-sequence less, cmp_by, partial_cmp, partial_cmp_by None-style failure with remaining cursor state, eq_by, eq, partial_eq, ne, lt, le, gt, and ge.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10720+.
