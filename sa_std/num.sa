@@ -9717,6 +9717,30 @@ L_NUM_I32_STRICT_ABS_OK_%out_value:
     EXPAND NUM_I64_ISQRT %out_value, %value
 [END_MACRO]
 
+[MACRO] NUM_I8_POW %out_value, %base, %exp
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_pow_base_%out_value, %base
+    EXPAND NUM_I64_POW __num_i8_pow_raw_%out_value, __num_i8_pow_base_%out_value, %exp
+    EXPAND NUM_I8_SIGN_EXTEND %out_value, __num_i8_pow_raw_%out_value
+    !__num_i8_pow_raw_%out_value
+    !__num_i8_pow_base_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_POW %out_value, %base, %exp
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_pow_base_%out_value, %base
+    EXPAND NUM_I64_POW __num_i16_pow_raw_%out_value, __num_i16_pow_base_%out_value, %exp
+    EXPAND NUM_I16_SIGN_EXTEND %out_value, __num_i16_pow_raw_%out_value
+    !__num_i16_pow_raw_%out_value
+    !__num_i16_pow_base_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_POW %out_value, %base, %exp
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_pow_base_%out_value, %base
+    EXPAND NUM_I64_POW __num_i32_pow_raw_%out_value, __num_i32_pow_base_%out_value, %exp
+    EXPAND NUM_I32_SIGN_EXTEND %out_value, __num_i32_pow_raw_%out_value
+    !__num_i32_pow_raw_%out_value
+    !__num_i32_pow_base_%out_value
+[END_MACRO]
+
 [MACRO] NUM_I8_CHECKED_POW %out_ok, %out_value, %base, %exp
     EXPAND NUM_I64_CHECKED_POW __num_i8_pow_ok_%out_ok, __num_i8_pow_value_%out_ok, %base, %exp
     __num_i8_pow_ge_min_%out_ok = sge __num_i8_pow_value_%out_ok, NUM_I8_MIN

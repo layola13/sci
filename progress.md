@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed primitive pow macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `pow` / `wrapping_pow`.
+- `sa_std/num.sa`: added `NUM_I8_POW`, `NUM_I16_POW`, and `NUM_I32_POW`.
+- Semantics: helpers sign-extend the base to the declared signed width, reuse the existing `i64` direct pow accumulator, and sign-extend the result back to the concrete narrow signed width. This exposes the current SA direct pow surface as wrapping-width result semantics, matching the release-style `pow` lowering shape and existing `i64` direct helper behavior rather than Rust debug overflow panics.
+- Test: `tests/unit_framework/std_num_narrow_signed_pow_macro_surface.sa` - 1 test (panic ID 10677) covering positive powers, negative odd/even powers, zero exponent, wrapping results, and raw bit-pattern input for `i8`, `i16`, and `i32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_pow_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10678+.
+
 ## Completed: 2026-07-16 narrow signed primitive ilog macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `checked_ilog`, `ilog`, `checked_ilog2`, `ilog2`, `checked_ilog10`, and `ilog10`.
