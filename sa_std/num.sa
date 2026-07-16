@@ -5006,6 +5006,111 @@ L_NUM_U32_NEXT_MUL_END_%out_ok:
     !__num_u32_div_ceil_value_%out_value
 [END_MACRO]
 
+[MACRO] NUM_U8_CHECKED_ILOG %out_ok, %out_value, %value, %base
+    __num_u8_ilog_value_%out_ok = and %value, NUM_U8_MAX
+    __num_u8_ilog_base_%out_ok = and %base, NUM_U8_MAX
+    EXPAND NUM_U64_CHECKED_ILOG %out_ok, %out_value, __num_u8_ilog_value_%out_ok, __num_u8_ilog_base_%out_ok
+    !__num_u8_ilog_base_%out_ok
+    !__num_u8_ilog_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_ILOG %out_value, %value, %base
+    EXPAND NUM_U8_CHECKED_ILOG __num_u8_ilog_ok_%out_value, %out_value, %value, %base
+    !__num_u8_ilog_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_CHECKED_ILOG2 %out_ok, %out_value, %value
+    __num_u8_ilog2_value_%out_ok = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_CHECKED_ILOG2 %out_ok, %out_value, __num_u8_ilog2_value_%out_ok
+    !__num_u8_ilog2_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_ILOG2 %out_value, %value
+    EXPAND NUM_U8_CHECKED_ILOG2 __num_u8_ilog2_ok_%out_value, %out_value, %value
+    !__num_u8_ilog2_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_CHECKED_ILOG10 %out_ok, %out_value, %value
+    __num_u8_ilog10_value_%out_ok = and %value, NUM_U8_MAX
+    EXPAND NUM_U64_CHECKED_ILOG10 %out_ok, %out_value, __num_u8_ilog10_value_%out_ok
+    !__num_u8_ilog10_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_ILOG10 %out_value, %value
+    EXPAND NUM_U8_CHECKED_ILOG10 __num_u8_ilog10_ok_%out_value, %out_value, %value
+    !__num_u8_ilog10_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_ILOG %out_ok, %out_value, %value, %base
+    __num_u16_ilog_value_%out_ok = and %value, NUM_U16_MAX
+    __num_u16_ilog_base_%out_ok = and %base, NUM_U16_MAX
+    EXPAND NUM_U64_CHECKED_ILOG %out_ok, %out_value, __num_u16_ilog_value_%out_ok, __num_u16_ilog_base_%out_ok
+    !__num_u16_ilog_base_%out_ok
+    !__num_u16_ilog_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_ILOG %out_value, %value, %base
+    EXPAND NUM_U16_CHECKED_ILOG __num_u16_ilog_ok_%out_value, %out_value, %value, %base
+    !__num_u16_ilog_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_ILOG2 %out_ok, %out_value, %value
+    __num_u16_ilog2_value_%out_ok = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_CHECKED_ILOG2 %out_ok, %out_value, __num_u16_ilog2_value_%out_ok
+    !__num_u16_ilog2_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_ILOG2 %out_value, %value
+    EXPAND NUM_U16_CHECKED_ILOG2 __num_u16_ilog2_ok_%out_value, %out_value, %value
+    !__num_u16_ilog2_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_ILOG10 %out_ok, %out_value, %value
+    __num_u16_ilog10_value_%out_ok = and %value, NUM_U16_MAX
+    EXPAND NUM_U64_CHECKED_ILOG10 %out_ok, %out_value, __num_u16_ilog10_value_%out_ok
+    !__num_u16_ilog10_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U16_ILOG10 %out_value, %value
+    EXPAND NUM_U16_CHECKED_ILOG10 __num_u16_ilog10_ok_%out_value, %out_value, %value
+    !__num_u16_ilog10_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_ILOG %out_ok, %out_value, %value, %base
+    __num_u32_ilog_value_%out_ok = and %value, NUM_U32_MAX
+    __num_u32_ilog_base_%out_ok = and %base, NUM_U32_MAX
+    EXPAND NUM_U64_CHECKED_ILOG %out_ok, %out_value, __num_u32_ilog_value_%out_ok, __num_u32_ilog_base_%out_ok
+    !__num_u32_ilog_base_%out_ok
+    !__num_u32_ilog_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_ILOG %out_value, %value, %base
+    EXPAND NUM_U32_CHECKED_ILOG __num_u32_ilog_ok_%out_value, %out_value, %value, %base
+    !__num_u32_ilog_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_ILOG2 %out_ok, %out_value, %value
+    __num_u32_ilog2_value_%out_ok = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_CHECKED_ILOG2 %out_ok, %out_value, __num_u32_ilog2_value_%out_ok
+    !__num_u32_ilog2_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_ILOG2 %out_value, %value
+    EXPAND NUM_U32_CHECKED_ILOG2 __num_u32_ilog2_ok_%out_value, %out_value, %value
+    !__num_u32_ilog2_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_ILOG10 %out_ok, %out_value, %value
+    __num_u32_ilog10_value_%out_ok = and %value, NUM_U32_MAX
+    EXPAND NUM_U64_CHECKED_ILOG10 %out_ok, %out_value, __num_u32_ilog10_value_%out_ok
+    !__num_u32_ilog10_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U32_ILOG10 %out_value, %value
+    EXPAND NUM_U32_CHECKED_ILOG10 __num_u32_ilog10_ok_%out_value, %out_value, %value
+    !__num_u32_ilog10_ok_%out_value
+[END_MACRO]
+
 [MACRO] NUM_U64_CHECKED_ILOG2 %out_ok, %out_value, %value
     __num_u64_ilog2_zero_%out_ok = eq %value, 0
     br __num_u64_ilog2_zero_%out_ok -> L_NUM_U64_ILOG2_NONE_%out_ok, L_NUM_U64_ILOG2_SOME_%out_ok

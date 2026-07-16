@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive ilog)
+
+Completed supportable narrow unsigned primitive integer-log helpers:
+- `NUM_U{8,16,32}_CHECKED_ILOG` and `NUM_U{8,16,32}_ILOG` expose Rust's arbitrary-base unsigned primitive integer-log shapes for narrow widths.
+- `NUM_U{8,16,32}_CHECKED_ILOG2` / `ILOG2` and `NUM_U{8,16,32}_CHECKED_ILOG10` / `ILOG10` expose the base-2 and base-10 variants for the same widths.
+- Narrow helpers mask values and arbitrary bases to the declared Rust width before reusing the existing `u64` floor-log implementation; current `usize` support was already present as a 64-bit alias.
+- Checked helpers return explicit `ok/out` values for zero values or bases below 2, while direct helpers write `0` on checked failure like the existing SA direct `u64` surface.
+- This batch models concrete result/control-flow semantics, not Rust panic object identity, `u128`, const/static-known optimization branches, or trait-level dispatch.
+- Test file `std_num_narrow_ilog_macro_surface.sa` (panic ID 10667).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_ilog_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10668+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive multiples/ceil)
 
 Completed supportable narrow unsigned primitive multiples and ceil helpers:
