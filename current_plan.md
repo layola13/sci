@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 narrow unsigned primitive overflowing)
+
+Completed supportable narrow unsigned primitive overflowing helpers:
+- `NUM_U{8,16,32}_OVERFLOWING_{ADD,SUB,MUL}` exposes Rust's wrapping-result plus overflow-flag shape for narrow unsigned arithmetic.
+- `NUM_U{8,16,32}_OVERFLOWING_{SHL,SHR}` exposes Rust's wrapping shift plus oversized-shift flag shape for narrow unsigned shifts.
+- Together with existing `NUM_U64_OVERFLOWING_{ADD,SUB,MUL,SHL,SHR}` and matching `NUM_USIZE_*` aliases, this completes current unsigned-width coverage for these five overflowing methods.
+- This batch models Rust's result semantics for concrete primitive widths, not overflowing div/rem/pow, Rust tuple ABI, `u128`, or trait-level dispatch.
+- Test file `std_num_narrow_overflowing_macro_surface.sa` (panic ID 10652).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_overflowing_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10653+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 narrow unsigned primitive carrying add/borrowing sub)
 
 Completed supportable narrow unsigned primitive carrying add/borrowing sub helpers:

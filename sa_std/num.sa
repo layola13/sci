@@ -9415,6 +9415,108 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_BORROWING_SUB %out_value, %out_borrow, %lhs, %rhs, %borrow, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_OVERFLOWING_ADD %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_ADD __num_u8_ov_add_ok_%out_value, __num_u8_ov_add_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U8_WRAPPING_ADD %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u8_ov_add_ok_%out_value, 0
+    !__num_u8_ov_add_value_%out_value
+    !__num_u8_ov_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_ADD %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_ADD __num_u16_ov_add_ok_%out_value, __num_u16_ov_add_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U16_WRAPPING_ADD %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u16_ov_add_ok_%out_value, 0
+    !__num_u16_ov_add_value_%out_value
+    !__num_u16_ov_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_ADD %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_ADD __num_u32_ov_add_ok_%out_value, __num_u32_ov_add_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U32_WRAPPING_ADD %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u32_ov_add_ok_%out_value, 0
+    !__num_u32_ov_add_value_%out_value
+    !__num_u32_ov_add_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_SUB %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_SUB __num_u8_ov_sub_ok_%out_value, __num_u8_ov_sub_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U8_WRAPPING_SUB %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u8_ov_sub_ok_%out_value, 0
+    !__num_u8_ov_sub_value_%out_value
+    !__num_u8_ov_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_SUB %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_SUB __num_u16_ov_sub_ok_%out_value, __num_u16_ov_sub_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U16_WRAPPING_SUB %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u16_ov_sub_ok_%out_value, 0
+    !__num_u16_ov_sub_value_%out_value
+    !__num_u16_ov_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_SUB %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_SUB __num_u32_ov_sub_ok_%out_value, __num_u32_ov_sub_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U32_WRAPPING_SUB %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u32_ov_sub_ok_%out_value, 0
+    !__num_u32_ov_sub_value_%out_value
+    !__num_u32_ov_sub_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_MUL %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U8_CHECKED_MUL __num_u8_ov_mul_ok_%out_value, __num_u8_ov_mul_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U8_WRAPPING_MUL %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u8_ov_mul_ok_%out_value, 0
+    !__num_u8_ov_mul_value_%out_value
+    !__num_u8_ov_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_MUL %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U16_CHECKED_MUL __num_u16_ov_mul_ok_%out_value, __num_u16_ov_mul_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U16_WRAPPING_MUL %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u16_ov_mul_ok_%out_value, 0
+    !__num_u16_ov_mul_value_%out_value
+    !__num_u16_ov_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_MUL %out_value, %out_overflow, %lhs, %rhs
+    EXPAND NUM_U32_CHECKED_MUL __num_u32_ov_mul_ok_%out_value, __num_u32_ov_mul_value_%out_value, %lhs, %rhs
+    EXPAND NUM_U32_WRAPPING_MUL %out_value, %lhs, %rhs
+    %out_overflow = eq __num_u32_ov_mul_ok_%out_value, 0
+    !__num_u32_ov_mul_value_%out_value
+    !__num_u32_ov_mul_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_SHL %out_value, %out_overflow, %value, %shift
+    EXPAND NUM_U8_WRAPPING_SHL %out_value, %value, %shift
+    %out_overflow = uge %shift, NUM_U8_BITS
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_SHL %out_value, %out_overflow, %value, %shift
+    EXPAND NUM_U16_WRAPPING_SHL %out_value, %value, %shift
+    %out_overflow = uge %shift, NUM_U16_BITS
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_SHL %out_value, %out_overflow, %value, %shift
+    EXPAND NUM_U32_WRAPPING_SHL %out_value, %value, %shift
+    %out_overflow = uge %shift, NUM_U32_BITS
+[END_MACRO]
+
+[MACRO] NUM_U8_OVERFLOWING_SHR %out_value, %out_overflow, %value, %shift
+    EXPAND NUM_U8_WRAPPING_SHR %out_value, %value, %shift
+    %out_overflow = uge %shift, NUM_U8_BITS
+[END_MACRO]
+
+[MACRO] NUM_U16_OVERFLOWING_SHR %out_value, %out_overflow, %value, %shift
+    EXPAND NUM_U16_WRAPPING_SHR %out_value, %value, %shift
+    %out_overflow = uge %shift, NUM_U16_BITS
+[END_MACRO]
+
+[MACRO] NUM_U32_OVERFLOWING_SHR %out_value, %out_overflow, %value, %shift
+    EXPAND NUM_U32_WRAPPING_SHR %out_value, %value, %shift
+    %out_overflow = uge %shift, NUM_U32_BITS
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
