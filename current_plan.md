@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 unsigned primitive carryless multiplication)
+
+Completed supportable unsigned primitive carryless multiplication helpers:
+- `NUM_U{8,16,32,64,SIZE}_CARRYLESS_MUL` exposes Rust's `carryless_mul` method for every existing SA unsigned width.
+- The shared implementation performs binary polynomial multiplication over GF(2), using XOR instead of addition and returning the declared-width low half.
+- Inputs, each shifted LHS term, and the final result are masked to the declared width; `usize` aliases the current 64-bit SA ABI. This batch models Rust's unstable `uint_carryless_mul` behavior, not feature-gate plumbing, compiler intrinsic selection, `u128`, or trait-level dispatch.
+- Test file `std_num_carryless_mul_macro_surface.sa` (panic ID 10647).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_carryless_mul_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10648+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 unsigned primitive funnel shifts)
 
 Completed supportable unsigned primitive funnel shift helpers:

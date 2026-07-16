@@ -2,6 +2,18 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive carryless multiplication macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `carryless_mul` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_CARRYLESS_MUL`, `NUM_U16_CARRYLESS_MUL`, `NUM_U32_CARRYLESS_MUL`, `NUM_U64_CARRYLESS_MUL`, and `NUM_USIZE_CARRYLESS_MUL`.
+- The shared implementation performs declared-width binary polynomial multiplication over GF(2): each set RHS bit selects the current shifted LHS term, selected terms are accumulated with XOR, and the declared-width low half is returned.
+- Inputs, each shifted LHS value, and the final result are masked to the declared width; `usize` uses the current 64-bit SA ABI. This models Rust's unstable `uint_carryless_mul` behavior without claiming feature-gate plumbing, compiler intrinsic selection, `u128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_carryless_mul_macro_surface.sa` - 1 test (panic ID 10647) expanding all five public helpers and covering the GF(2) product, declared-width truncation, zero, and multiplicative identity.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_carryless_mul_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10648+.
+
 ## Completed: 2026-07-16 unsigned primitive funnel shift macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `funnel_shl`, `funnel_shr`, `unchecked_funnel_shl`, and `unchecked_funnel_shr` implementations under `/home/vscode/projects/rust`.

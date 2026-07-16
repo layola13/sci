@@ -2211,6 +2211,63 @@ L_NUM_UW_FUNNEL_SHR_OK_%out_value:
     !__num_uw_funnel_shr_in_range_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, %bits, %mask
+    __num_uw_clmul_lhs_init_%out_value = and %lhs, %mask
+    __num_uw_clmul_rhs_init_%out_value = and %rhs, %mask
+    __num_uw_clmul_idx_slot_%out_value = stack_alloc 8
+    __num_uw_clmul_lhs_slot_%out_value = stack_alloc 8
+    __num_uw_clmul_rhs_slot_%out_value = stack_alloc 8
+    __num_uw_clmul_acc_slot_%out_value = stack_alloc 8
+    store __num_uw_clmul_idx_slot_%out_value+0, 0 as u64
+    store __num_uw_clmul_lhs_slot_%out_value+0, __num_uw_clmul_lhs_init_%out_value as u64
+    store __num_uw_clmul_rhs_slot_%out_value+0, __num_uw_clmul_rhs_init_%out_value as u64
+    store __num_uw_clmul_acc_slot_%out_value+0, 0 as u64
+    !__num_uw_clmul_rhs_init_%out_value
+    !__num_uw_clmul_lhs_init_%out_value
+    jmp L_NUM_UW_CLMUL_HEAD_%out_value
+
+L_NUM_UW_CLMUL_HEAD_%out_value:
+    __num_uw_clmul_idx_%out_value = load __num_uw_clmul_idx_slot_%out_value+0 as u64
+    __num_uw_clmul_done_%out_value = eq __num_uw_clmul_idx_%out_value, %bits
+    br __num_uw_clmul_done_%out_value -> L_NUM_UW_CLMUL_DONE_%out_value, L_NUM_UW_CLMUL_BODY_%out_value
+
+L_NUM_UW_CLMUL_BODY_%out_value:
+    __num_uw_clmul_lhs_%out_value = load __num_uw_clmul_lhs_slot_%out_value+0 as u64
+    __num_uw_clmul_rhs_%out_value = load __num_uw_clmul_rhs_slot_%out_value+0 as u64
+    __num_uw_clmul_acc_%out_value = load __num_uw_clmul_acc_slot_%out_value+0 as u64
+    __num_uw_clmul_bit_%out_value = and __num_uw_clmul_rhs_%out_value, 1
+    __num_uw_clmul_selected_%out_value = mul __num_uw_clmul_lhs_%out_value, __num_uw_clmul_bit_%out_value
+    __num_uw_clmul_next_acc_%out_value = xor __num_uw_clmul_acc_%out_value, __num_uw_clmul_selected_%out_value
+    __num_uw_clmul_next_lhs_raw_%out_value = shl __num_uw_clmul_lhs_%out_value, 1
+    __num_uw_clmul_next_lhs_%out_value = and __num_uw_clmul_next_lhs_raw_%out_value, %mask
+    __num_uw_clmul_next_rhs_%out_value = lshr __num_uw_clmul_rhs_%out_value, 1
+    __num_uw_clmul_next_idx_%out_value = add __num_uw_clmul_idx_%out_value, 1
+    store __num_uw_clmul_acc_slot_%out_value+0, __num_uw_clmul_next_acc_%out_value as u64
+    store __num_uw_clmul_lhs_slot_%out_value+0, __num_uw_clmul_next_lhs_%out_value as u64
+    store __num_uw_clmul_rhs_slot_%out_value+0, __num_uw_clmul_next_rhs_%out_value as u64
+    store __num_uw_clmul_idx_slot_%out_value+0, __num_uw_clmul_next_idx_%out_value as u64
+    !__num_uw_clmul_next_idx_%out_value
+    !__num_uw_clmul_next_rhs_%out_value
+    !__num_uw_clmul_next_lhs_%out_value
+    !__num_uw_clmul_next_lhs_raw_%out_value
+    !__num_uw_clmul_next_acc_%out_value
+    !__num_uw_clmul_selected_%out_value
+    !__num_uw_clmul_bit_%out_value
+    !__num_uw_clmul_acc_%out_value
+    !__num_uw_clmul_rhs_%out_value
+    !__num_uw_clmul_lhs_%out_value
+    !__num_uw_clmul_done_%out_value
+    !__num_uw_clmul_idx_%out_value
+    jmp L_NUM_UW_CLMUL_HEAD_%out_value
+
+L_NUM_UW_CLMUL_DONE_%out_value:
+    __num_uw_clmul_result_%out_value = load __num_uw_clmul_acc_slot_%out_value+0 as u64
+    %out_value = and __num_uw_clmul_result_%out_value, %mask
+    !__num_uw_clmul_result_%out_value
+    !__num_uw_clmul_done_%out_value
+    !__num_uw_clmul_idx_%out_value
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -2335,6 +2392,10 @@ L_NUM_U64_UNBOUNDED_SHR_END_%out_value:
 
 [MACRO] NUM_U64_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
     EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_CARRYLESS_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, NUM_U64_BITS, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_STRICT_SHL %out_value, %value, %shift
@@ -8947,6 +9008,18 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U32_BITS, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_CARRYLESS_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_CARRYLESS_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_CARRYLESS_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_WIDTH_CARRYLESS_MUL %out_value, %lhs, %rhs, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -9316,6 +9389,10 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
     EXPAND NUM_U64_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_CARRYLESS_MUL %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CARRYLESS_MUL %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] NUM_USIZE_SATURATING_ADD %out_value, %lhs, %rhs
