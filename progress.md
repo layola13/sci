@@ -8624,3 +8624,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_slice_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10710+.
+
+## Completed: 2026-07-16 Vec IntoIter clone helper
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_CLONE_U64`.
+- Semantics: the helper lowers Rust `Clone for vec::IntoIter` for the concrete `u64` surface by cloning the iterator's current remaining slice into a new caller-owned backing `Vec<u64>` and creating a fresh slice-backed cursor over that backing Vec. It does not model generic `T: Clone`, allocator cloning, Rust `IntoIter<T, A>` object layout, borrow lifetimes, or drop glue.
+- Test: `tests/unit_framework/std_vec_into_iter_clone_macro_surface.sa` — 1 test (panic ID 10710) covering clone-after-next remaining values, clone backing independence from the original iterator backing, original cursor non-advancement, double-ended clone consumption, exhaustion, and empty default iterator clone.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10711+.

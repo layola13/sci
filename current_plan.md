@@ -4013,3 +4013,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10710+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter clone helper)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter clone helper in vec.sa: VEC_INTO_ITER_CLONE_U64, cloning the current remaining cursor slice into a new explicit backing Vec and returning a fresh slice-backed Iter cursor over that Vec.
+- Test file std_vec_into_iter_clone_macro_surface.sa (panic ID 10710).
+
+Panic IDs next free: 10711+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
