@@ -2,16 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
-## Completed: 2026-07-16 signed NonZero isqrt macros
+## Completed: 2026-07-16 unsigned primitive wrapping next-power macros
 
-- Continued Rust `std::num::NonZero*` macro-surface parity, referencing Rust's local `NonZero<signed>::isqrt` implementation under `/home/vscode/projects/rust`.
-- `sa_std/num.sa`: added `NONZERO_I8_ISQRT`, `NONZERO_I16_ISQRT`, `NONZERO_I32_ISQRT`, `NONZERO_I64_ISQRT`, and `NONZERO_ISIZE_ISQRT`.
-- Semantics: helpers load the concrete signed NonZero wrapper value, delegate to the matching signed primitive `NUM_I*_ISQRT`, and write the nonzero floor square root into the same signed NonZero wrapper layout. Positive inputs preserve the NonZero invariant; negative inputs follow the existing signed primitive `isqrt` SA `panic(2203)` control-flow shape.
-- Test: `tests/unit_framework/std_num_nonzero_signed_isqrt_macro_surface.sa` - 1 test (panic ID 10659) expanding all five new public helpers and covering positive floor-square-root outputs for `i8`, `i16`, `i32`, `i64`, and `isize` wrappers.
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `uint_macros.rs` for `wrapping_next_power_of_two` and `nonzero.rs` to confirm `NonZero<T>::isqrt` is unsigned-only.
+- `sa_std/num.sa`: added `NUM_U8_WRAPPING_NEXT_POWER_OF_TWO`, `NUM_U16_WRAPPING_NEXT_POWER_OF_TWO`, `NUM_U32_WRAPPING_NEXT_POWER_OF_TWO`, `NUM_U64_WRAPPING_NEXT_POWER_OF_TWO`, and `NUM_USIZE_WRAPPING_NEXT_POWER_OF_TWO`.
+- Semantics: helpers return the smallest power of two greater than or equal to the input, returning `0` when that power exceeds the concrete unsigned width. Narrow helpers mask inputs to their declared Rust width; `usize` aliases the current 64-bit SA ABI.
+- Correction: removed the unsupported signed `NONZERO_I{8,16,32,64,SIZE}_ISQRT` helpers, removed their runner entry/test, and reverted docs that claimed Rust signed NonZero isqrt parity.
+- Test: `tests/unit_framework/std_num_wrapping_next_power_primitive_macro_surface.sa` - 1 test (panic ID 10660) expanding all five new public helpers and covering zero, ordinary rounding, highest representable power-of-two, overflow-above-high-bit, and max-value overflow cases.
 - Validation status:
-  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_signed_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_next_power_primitive_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
   - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
-- Panic IDs next free: 10660+.
+- Panic IDs next free: 10661+.
 
 ## Completed: 2026-07-16 signed primitive overflowing div/rem/euclid macros
 

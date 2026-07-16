@@ -3,19 +3,20 @@
 Date: 2026-07-09
 
 
-## Active std parity batch (2026-07-16 signed NonZero isqrt)
+## Active std parity batch (2026-07-16 unsigned primitive wrapping next power)
 
-Completed supportable signed NonZero isqrt helpers:
-- `NONZERO_I{8,16,32,64,SIZE}_ISQRT` exposes Rust's `NonZero<signed>::isqrt` shape for every existing SA signed NonZero wrapper width.
-- Helpers load the concrete signed wrapper value, delegate to the corresponding `NUM_I*_ISQRT`, and write the floor square root back into the same signed NonZero wrapper layout.
-- Positive inputs preserve the NonZero invariant; negative inputs follow the existing signed primitive `isqrt` SA `panic(2203)` path.
-- This batch models concrete wrapper result/control-flow semantics, not Rust panic message/object identity, generic `NonZero<T>`, `i128`, niche optimization, or trait-level dispatch.
-- Test file `std_num_nonzero_signed_isqrt_macro_surface.sa` (panic ID 10659).
+Completed supportable unsigned primitive wrapping next-power helpers:
+- `NUM_U{8,16,32,64,SIZE}_WRAPPING_NEXT_POWER_OF_TWO` exposes Rust's unstable unsigned primitive `wrapping_next_power_of_two` shape for every existing SA unsigned primitive width.
+- Helpers return the smallest power of two greater than or equal to the input and return `0` when the result would exceed the concrete width.
+- Narrow helpers mask inputs to the declared Rust width; `usize` aliases the current 64-bit SA ABI.
+- This batch also removes the prior signed NonZero isqrt helper/test/docs because Rust's local `nonzero.rs` places `NonZero<T>::isqrt` in the unsigned-only branch.
+- This batch models concrete result semantics, not Rust feature-gate plumbing, debug overflow panic differences, `u128`, or trait-level dispatch.
+- Test file `std_num_wrapping_next_power_primitive_macro_surface.sa` (panic ID 10660).
 
 Focused validation only:
-- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_nonzero_signed_isqrt_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_wrapping_next_power_primitive_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 
-Panic IDs next free: 10660+.
+Panic IDs next free: 10661+.
 Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
 
 
