@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive checked/strict Euclidean div/rem macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_div_euclid`, `checked_rem_euclid`, `strict_div_euclid`, and `strict_rem_euclid` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `CHECKED_DIV_EUCLID`, `CHECKED_REM_EUCLID`, `STRICT_DIV_EUCLID`, and `STRICT_REM_EUCLID` helpers for `U8`, `U16`, `U32`, `U64`, `USIZE`, `I8`, `I16`, `I32`, `I64`, and `ISIZE`.
+- Checked helpers return explicit `ok/out` values instead of Rust `Option<Self>`. Unsigned checked Euclidean div/rem fail on zero divisors; signed checked Euclidean div/rem fail on zero divisors and signed `MIN / -1`. Strict Euclidean division traps via SA `panic(2210)` and strict Euclidean remainder traps via `panic(2211)`, modeling Rust's panic control-flow shape without claiming panic message/object identity, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_checked_strict_euclid_macro_surface.sa` - 7 tests (panic ID 10635 for the non-panic assertion path) expanding all 40 new public helpers, checking checked failure results, and covering unsigned/signed zero-divisor paths plus signed `MIN / -1` and `MIN % -1` panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_strict_euclid_macro_surface.sa --jobs 1 --trace-panic` -> `7 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10636+.
+
 ## Completed: 2026-07-16 primitive strict div/rem macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `strict_div` and `strict_rem` implementations under `/home/vscode/projects/rust`.

@@ -3,6 +3,23 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive checked/strict Euclidean div/rem)
+
+Completed supportable primitive checked/strict Euclidean division/remainder helpers:
+- `NUM_U{8,16,32,64,SIZE}_CHECKED_DIV_EUCLID` and `*_CHECKED_REM_EUCLID`: concrete Rust unsigned primitive checked Euclidean div/rem shape for the existing SA widths.
+- `NUM_I{8,16,32,64,SIZE}_CHECKED_DIV_EUCLID` and `*_CHECKED_REM_EUCLID`: matching signed primitive checked Euclidean div/rem helpers.
+- `NUM_U{8,16,32,64,SIZE}_STRICT_DIV_EUCLID`, `*_STRICT_REM_EUCLID`, and matching signed helpers: Rust primitive strict Euclidean control-flow shape over the checked helpers.
+- Checked helpers expose explicit `ok/out` results instead of Rust `Option`. Unsigned helpers fail on zero divisors; signed helpers fail on zero divisors and signed `MIN / -1`. Strict Euclidean division traps with SA `panic(2210)`, and strict Euclidean remainder traps with `panic(2211)`.
+- `usize` / `isize` alias the current 64-bit SA ABI. This batch models Rust's checked result and strict panic control flow, not panic message/object identity, `u128` / `i128`, or trait-level dispatch.
+- Test file `std_num_checked_strict_euclid_macro_surface.sa` (panic ID 10635 for the ordinary assertion path).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_strict_euclid_macro_surface.sa --jobs 1 --trace-panic` -> `7 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10636+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive strict div/rem)
 
 Completed supportable primitive strict division/remainder helpers:
