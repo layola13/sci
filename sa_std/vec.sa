@@ -114,6 +114,16 @@
     EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_default_slice_%out_iter
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_U64 %out_iter, %out_vec, %vec_reg
+    EXPAND VEC_INTO_RAW_PARTS __vec_into_iter_ptr_%out_iter, __vec_into_iter_len_%out_iter, __vec_into_iter_cap_%out_iter, %vec_reg
+    EXPAND VEC_FROM_RAW_PARTS %out_vec, __vec_into_iter_ptr_%out_iter, __vec_into_iter_len_%out_iter, __vec_into_iter_cap_%out_iter
+    EXPAND VEC_AS_SLICE __vec_into_iter_slice_%out_iter, %out_vec
+    EXPAND ITER_FROM_SLICE %out_iter, __vec_into_iter_slice_%out_iter
+    !__vec_into_iter_slice_%out_iter
+    !__vec_into_iter_len_%out_iter
+    !__vec_into_iter_cap_%out_iter
+[END_MACRO]
+
 [MACRO] VEC_LEAK %out_slice, %vec_reg
     %out_slice = alloc Slice_SIZE
     __vec_leak_ptr_%out_slice = take %vec_reg+Vec_ptr

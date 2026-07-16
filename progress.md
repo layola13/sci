@@ -8597,3 +8597,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10707+.
+
+## Completed: 2026-07-16 Vec into_iter helper
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_U64`.
+- Semantics: the helper lowers Rust `IntoIterator for Vec` for the concrete `u64` surface by consuming the source Vec raw parts into an explicit caller-owned backing `Vec<u64>`, then constructing a slice-backed cursor over that backing Vec. It preserves element order and supports double-ended cursor consumption, but does not model Rust's `IntoIter<T, A>` object layout, generic `T`, allocator parameter, or drop glue.
+- Test: `tests/unit_framework/std_vec_into_iter_macro_surface.sa` — 1 test (panic ID 10707) covering consuming iteration order, back iteration, exhaustion, empty Vec path, and backing Vec cleanup.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10708+.
