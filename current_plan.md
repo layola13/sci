@@ -4058,3 +4058,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10715+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, Rust Sum/Product/Ord trait dispatch, Rust Option<T> ABI, generic Try residual conversion, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter search/predicate ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter search/predicate aliases in vec.sa: VEC_INTO_ITER_FIND_U64, VEC_INTO_ITER_TRY_FIND_U64, VEC_INTO_ITER_FIND_MAP_U64, VEC_INTO_ITER_POSITION_U64, VEC_INTO_ITER_RPOSITION_U64, VEC_INTO_ITER_RFIND_U64, VEC_INTO_ITER_ANY_U64, and VEC_INTO_ITER_ALL_U64, delegating to existing concrete u64 cursor search/predicate helpers over the explicit backing Vec.
+- Test file std_vec_into_iter_search_macro_surface.sa (panic ID 10715).
+
+Panic IDs next free: 10716+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture, Rust Option<T> / Option<usize> ABI, generic Try residual conversion, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

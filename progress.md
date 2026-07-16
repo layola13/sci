@@ -8669,3 +8669,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10715+.
+
+## Completed: 2026-07-16 Vec IntoIter search/predicate ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_FIND_U64`, `VEC_INTO_ITER_TRY_FIND_U64`, `VEC_INTO_ITER_FIND_MAP_U64`, `VEC_INTO_ITER_POSITION_U64`, `VEC_INTO_ITER_RPOSITION_U64`, `VEC_INTO_ITER_RFIND_U64`, `VEC_INTO_ITER_ANY_U64`, and `VEC_INTO_ITER_ALL_U64`.
+- Semantics: these helpers lower supportable Rust iterator search/predicate surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor primitives over the explicit backing Vec. They return concrete bools or explicit `(has, value)` / `(has, index)` / `(ok, has, value)` scalars rather than Rust `Option<T>`, `Option<usize>`, or generic `Try` residual objects.
+- Test: `tests/unit_framework/std_vec_into_iter_search_macro_surface.sa` — 1 test (panic ID 10715) covering find, failed find, try_find success/failure, find_map, position, rposition, rfind, any, all, empty any/all defaults, and remaining cursor state after short-circuit.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_search_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10716+.

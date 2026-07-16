@@ -847,6 +847,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_vec_into_iter_cursor_ops_macro_surface.sa",
         "tests/unit_framework/std_vec_into_iter_fold_macro_surface.sa",
         "tests/unit_framework/std_vec_into_iter_aggregate_macro_surface.sa",
+        "tests/unit_framework/std_vec_into_iter_search_macro_surface.sa",
         "tests/unit_framework/std_path_hash_one_macro_surface.sa",
         "tests/unit_framework/std_path_macro_surface.sa",
         "tests/unit_framework/std_time_macro_surface.sa",
