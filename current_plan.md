@@ -4040,3 +4040,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10713+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, Rust Option<T> / Result<(), NonZero<usize>> ABI, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter fold ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter fold aliases in vec.sa: VEC_INTO_ITER_FOLD_U64, VEC_INTO_ITER_TRY_FOLD_U64, VEC_INTO_ITER_RFOLD_U64, and VEC_INTO_ITER_TRY_RFOLD_U64, delegating to existing forward/reverse concrete u64 cursor folds over the explicit backing Vec.
+- Test file std_vec_into_iter_fold_macro_surface.sa (panic ID 10713).
+
+Panic IDs next free: 10714+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture, generic Try residual conversion, panic/drop cleanup, lazy drain/splice adapters, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

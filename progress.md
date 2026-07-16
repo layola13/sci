@@ -8651,3 +8651,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_cursor_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10713+.
+
+## Completed: 2026-07-16 Vec IntoIter fold ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_FOLD_U64`, `VEC_INTO_ITER_TRY_FOLD_U64`, `VEC_INTO_ITER_RFOLD_U64`, and `VEC_INTO_ITER_TRY_RFOLD_U64`.
+- Semantics: these helpers lower the supportable Rust `Iterator::fold` / `try_fold` and `DoubleEndedIterator::rfold` / `try_rfold` surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor fold primitives over the explicit backing Vec. The callback shapes are concrete SA function pointers (`(u64, u64) -> u64` or `(u64, u64, out_ptr) -> ok`) and do not model Rust closure capture, generic `Try` residual conversion, or unwind/drop behavior.
+- Test: `tests/unit_framework/std_vec_into_iter_fold_macro_surface.sa` — 1 test (panic ID 10713) covering fold/rfold consumption, try_fold success and short-circuit, try_rfold success and reverse short-circuit, and remaining cursor state after short-circuit.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_fold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10714+.

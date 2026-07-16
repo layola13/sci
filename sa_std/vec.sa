@@ -187,6 +187,22 @@
     EXPAND ITER_ADVANCE_BACK_BY %out_ok, %out_remaining, %iter_reg, %count
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     __vec_into_iter_clone_slice_%out_iter = stack_alloc Slice_SIZE
     EXPAND VEC_INTO_ITER_AS_SLICE_U64 __vec_into_iter_clone_slice_%out_iter, %iter_reg
