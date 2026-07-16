@@ -3,6 +3,22 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 unsigned primitive funnel shifts)
+
+Completed supportable unsigned primitive funnel shift helpers:
+- `NUM_U{8,16,32,64,SIZE}_FUNNEL_SHL` / `FUNNEL_SHR` expose Rust's safe funnel shift methods for every existing SA unsigned width.
+- Matching `UNCHECKED_FUNNEL_SHL` / `UNCHECKED_FUNNEL_SHR` helpers expose the caller-precondition lowering shape without runtime validation.
+- Left funnel shift combines `lhs << shift` with the high bits of `rhs`; right funnel shift combines `rhs >> shift` with the low bits shifted in from `lhs`. Zero shifts return `lhs` for left and `rhs` for right without evaluating a complementary full-width shift.
+- Safe out-of-range shifts reuse SA `panic(2212)` / `panic(2213)`. Narrow results are masked and `usize` aliases the current 64-bit SA ABI. This batch models Rust's unstable `funnel_shifts` behavior, not unsafe UB enforcement, feature-gate plumbing, intrinsic lowering, `u128`, or trait-level dispatch.
+- Test file `std_num_funnel_shift_macro_surface.sa` (panic ID 10646 for the ordinary assertion path).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_funnel_shift_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10647+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive floor division)
 
 Completed supportable primitive floor division helpers:

@@ -2127,6 +2127,90 @@ L_NUM_SW_SHR_EXACT_END_%out_ok:
     !__num_uw_unchecked_shr_exact_value_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, %bits, %mask
+    __num_uw_funnel_shl_lhs_%out_value = and %lhs, %mask
+    __num_uw_funnel_shl_rhs_%out_value = and %rhs, %mask
+    __num_uw_funnel_shl_zero_%out_value = eq %shift, 0
+    br __num_uw_funnel_shl_zero_%out_value -> L_NUM_UW_FUNNEL_SHL_ZERO_%out_value, L_NUM_UW_FUNNEL_SHL_BODY_%out_value
+
+L_NUM_UW_FUNNEL_SHL_BODY_%out_value:
+    __num_uw_funnel_shl_complement_%out_value = sub %bits, %shift
+    __num_uw_funnel_shl_left_%out_value = shl __num_uw_funnel_shl_lhs_%out_value, %shift
+    __num_uw_funnel_shl_right_%out_value = lshr __num_uw_funnel_shl_rhs_%out_value, __num_uw_funnel_shl_complement_%out_value
+    __num_uw_funnel_shl_combined_%out_value = or __num_uw_funnel_shl_left_%out_value, __num_uw_funnel_shl_right_%out_value
+    %out_value = and __num_uw_funnel_shl_combined_%out_value, %mask
+    !__num_uw_funnel_shl_combined_%out_value
+    !__num_uw_funnel_shl_right_%out_value
+    !__num_uw_funnel_shl_left_%out_value
+    !__num_uw_funnel_shl_complement_%out_value
+    !__num_uw_funnel_shl_zero_%out_value
+    !__num_uw_funnel_shl_rhs_%out_value
+    !__num_uw_funnel_shl_lhs_%out_value
+    jmp L_NUM_UW_FUNNEL_SHL_END_%out_value
+
+L_NUM_UW_FUNNEL_SHL_ZERO_%out_value:
+    %out_value = add __num_uw_funnel_shl_lhs_%out_value, 0
+    !__num_uw_funnel_shl_zero_%out_value
+    !__num_uw_funnel_shl_rhs_%out_value
+    !__num_uw_funnel_shl_lhs_%out_value
+
+L_NUM_UW_FUNNEL_SHL_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, %bits, %mask
+    __num_uw_funnel_shr_lhs_%out_value = and %lhs, %mask
+    __num_uw_funnel_shr_rhs_%out_value = and %rhs, %mask
+    __num_uw_funnel_shr_zero_%out_value = eq %shift, 0
+    br __num_uw_funnel_shr_zero_%out_value -> L_NUM_UW_FUNNEL_SHR_ZERO_%out_value, L_NUM_UW_FUNNEL_SHR_BODY_%out_value
+
+L_NUM_UW_FUNNEL_SHR_BODY_%out_value:
+    __num_uw_funnel_shr_complement_%out_value = sub %bits, %shift
+    __num_uw_funnel_shr_right_%out_value = lshr __num_uw_funnel_shr_rhs_%out_value, %shift
+    __num_uw_funnel_shr_left_%out_value = shl __num_uw_funnel_shr_lhs_%out_value, __num_uw_funnel_shr_complement_%out_value
+    __num_uw_funnel_shr_combined_%out_value = or __num_uw_funnel_shr_left_%out_value, __num_uw_funnel_shr_right_%out_value
+    %out_value = and __num_uw_funnel_shr_combined_%out_value, %mask
+    !__num_uw_funnel_shr_combined_%out_value
+    !__num_uw_funnel_shr_left_%out_value
+    !__num_uw_funnel_shr_right_%out_value
+    !__num_uw_funnel_shr_complement_%out_value
+    !__num_uw_funnel_shr_zero_%out_value
+    !__num_uw_funnel_shr_rhs_%out_value
+    !__num_uw_funnel_shr_lhs_%out_value
+    jmp L_NUM_UW_FUNNEL_SHR_END_%out_value
+
+L_NUM_UW_FUNNEL_SHR_ZERO_%out_value:
+    %out_value = add __num_uw_funnel_shr_rhs_%out_value, 0
+    !__num_uw_funnel_shr_zero_%out_value
+    !__num_uw_funnel_shr_rhs_%out_value
+    !__num_uw_funnel_shr_lhs_%out_value
+
+L_NUM_UW_FUNNEL_SHR_END_%out_value:
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, %bits, %mask
+    __num_uw_funnel_shl_in_range_%out_value = ult %shift, %bits
+    br __num_uw_funnel_shl_in_range_%out_value -> L_NUM_UW_FUNNEL_SHL_OK_%out_value, L_NUM_UW_FUNNEL_SHL_PANIC_%out_value
+
+L_NUM_UW_FUNNEL_SHL_PANIC_%out_value:
+    panic(2212)
+
+L_NUM_UW_FUNNEL_SHL_OK_%out_value:
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, %bits, %mask
+    !__num_uw_funnel_shl_in_range_%out_value
+[END_MACRO]
+
+[MACRO] NUM_UNSIGNED_WIDTH_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, %bits, %mask
+    __num_uw_funnel_shr_in_range_%out_value = ult %shift, %bits
+    br __num_uw_funnel_shr_in_range_%out_value -> L_NUM_UW_FUNNEL_SHR_OK_%out_value, L_NUM_UW_FUNNEL_SHR_PANIC_%out_value
+
+L_NUM_UW_FUNNEL_SHR_PANIC_%out_value:
+    panic(2213)
+
+L_NUM_UW_FUNNEL_SHR_OK_%out_value:
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, %bits, %mask
+    !__num_uw_funnel_shr_in_range_%out_value
+[END_MACRO]
+
 [MACRO] NUM_SIGNED_WIDTH_UNCHECKED_SHL_EXACT %out_value, %value, %shift, %bits, %mask
     __num_sw_unchecked_shl_exact_value_%out_value = and %value, %mask
     __num_sw_unchecked_shl_exact_raw_%out_value = shl __num_sw_unchecked_shl_exact_value_%out_value, %shift
@@ -2235,6 +2319,22 @@ L_NUM_U64_UNBOUNDED_SHR_END_%out_value:
 
 [MACRO] NUM_U64_UNCHECKED_SHR_EXACT %out_value, %value, %shift
     EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U64_BITS, NUM_U64_MAX
+[END_MACRO]
+
+[MACRO] NUM_U64_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U64_BITS, NUM_U64_MAX
 [END_MACRO]
 
 [MACRO] NUM_U64_STRICT_SHL %out_value, %value, %shift
@@ -8799,6 +8899,54 @@ L_NUM_U32_UNBOUNDED_SHR_END_%out_value:
     EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_SHR_EXACT %out_value, %value, %shift, NUM_U32_MAX
 [END_MACRO]
 
+[MACRO] NUM_U8_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
+[MACRO] NUM_U8_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U8_BITS, NUM_U8_MAX
+[END_MACRO]
+
+[MACRO] NUM_U16_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U16_BITS, NUM_U16_MAX
+[END_MACRO]
+
+[MACRO] NUM_U32_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_UNSIGNED_WIDTH_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift, NUM_U32_BITS, NUM_U32_MAX
+[END_MACRO]
+
 [MACRO] NUM_U8_STRICT_SHL %out_value, %value, %shift
     EXPAND NUM_U8_CHECKED_SHL __num_u8_strict_shl_ok_%out_value, %out_value, %value, %shift
     br __num_u8_strict_shl_ok_%out_value -> L_NUM_U8_STRICT_SHL_OK_%out_value, L_NUM_U8_STRICT_SHL_PANIC_%out_value
@@ -9152,6 +9300,22 @@ L_NUM_U32_STRICT_POW_OK_%out_value:
 
 [MACRO] NUM_USIZE_UNCHECKED_SHR_EXACT %out_value, %value, %shift
     EXPAND NUM_U64_UNCHECKED_SHR_EXACT %out_value, %value, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_U64_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_U64_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_U64_UNCHECKED_FUNNEL_SHL %out_value, %lhs, %rhs, %shift
+[END_MACRO]
+
+[MACRO] NUM_USIZE_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
+    EXPAND NUM_U64_UNCHECKED_FUNNEL_SHR %out_value, %lhs, %rhs, %shift
 [END_MACRO]
 
 [MACRO] NUM_USIZE_SATURATING_ADD %out_value, %lhs, %rhs

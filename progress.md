@@ -2,6 +2,19 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 unsigned primitive funnel shift macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `funnel_shl`, `funnel_shr`, `unchecked_funnel_shl`, and `unchecked_funnel_shr` implementations under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added all four funnel shift helpers for `U8`, `U16`, `U32`, `U64`, and `USIZE`, for 20 new public Rust-named entry points.
+- Left funnel shift extracts the high half of `(lhs || rhs) << shift`; right funnel shift extracts the low half of `(lhs || rhs) >> shift`. The implementation handles zero shifts explicitly so the complementary 64-bit shift never evaluates with an amount of 64.
+- Safe helpers trap with existing SA `panic(2212)` / `panic(2213)` when `shift >= BITS`. Unchecked helpers skip validation and rely on callers to uphold Rust's in-range safety precondition. Narrow results are masked and `usize` uses the current 64-bit SA ABI.
+- This models Rust's unstable `funnel_shifts` behavior without claiming unsafe UB enforcement, feature-gate plumbing, compiler intrinsic lowering, `u128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_funnel_shift_macro_surface.sa` - 3 tests (panic ID 10646 for the ordinary assertion path) expanding all 20 public helpers and covering cross-half bit injection, all existing widths, zero shifts, valid unchecked calls, and both out-of-range panic paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_funnel_shift_macro_surface.sa --jobs 1 --trace-panic` -> `3 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10647+.
+
 ## Completed: 2026-07-16 primitive floor division macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local signed and unsigned primitive `div_floor` implementations under `/home/vscode/projects/rust`.
