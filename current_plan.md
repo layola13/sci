@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 primitive unsigned checked_signed_diff)
+
+Completed supportable primitive unsigned checked signed-difference helpers:
+- `NUM_U{8,16,32,64,SIZE}_CHECKED_SIGNED_DIFF`: concrete Rust unsigned primitive `checked_signed_diff` shape for the existing SA unsigned widths.
+- Helpers expose explicit `ok/out` results instead of Rust `Option<SignedT>`. Positive differences are accepted only through the matching signed max, and negative differences are accepted through the matching signed min.
+- `usize` aliases the current 64-bit SA ABI. This batch models Rust's checked result shape, not Rust `Option` object layout, `u128` / `i128`, feature-gate plumbing, or trait-level dispatch.
+- Test file `std_num_checked_signed_diff_macro_surface.sa` (panic ID 10639).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_signed_diff_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10640+.
+Still blocked without redesign: generic primitive/container trait impl dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128`, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps/Stdio objects, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 primitive mixed-sign checked/strict add/sub)
 
 Completed supportable primitive mixed-sign checked and strict add/sub helpers:

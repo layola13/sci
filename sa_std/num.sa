@@ -1664,6 +1664,36 @@ L_NUM_U64_STRICT_SUB_SIGNED_OK_%out_value:
     !__num_u64_strict_sub_signed_ok_%out_value
 [END_MACRO]
 
+[MACRO] NUM_UNSIGNED_CHECKED_SIGNED_DIFF_WIDTH %out_ok, %out_value, %lhs, %rhs, %positive_limit, %negative_magnitude_limit
+    __num_signed_diff_lhs_ge_%out_ok = uge %lhs, %rhs
+    br __num_signed_diff_lhs_ge_%out_ok -> L_NUM_SIGNED_DIFF_POS_%out_ok, L_NUM_SIGNED_DIFF_NEG_%out_ok
+
+L_NUM_SIGNED_DIFF_POS_%out_ok:
+    __num_signed_diff_pos_%out_ok = sub %lhs, %rhs
+    %out_ok = ule __num_signed_diff_pos_%out_ok, %positive_limit
+    %out_value = mul %out_ok, __num_signed_diff_pos_%out_ok
+    !__num_signed_diff_pos_%out_ok
+    !__num_signed_diff_lhs_ge_%out_ok
+    jmp L_NUM_SIGNED_DIFF_END_%out_ok
+
+L_NUM_SIGNED_DIFF_NEG_%out_ok:
+    __num_signed_diff_neg_mag_%out_ok = sub %rhs, %lhs
+    %out_ok = ule __num_signed_diff_neg_mag_%out_ok, %negative_magnitude_limit
+    __num_signed_diff_neg_%out_ok = sub 0, __num_signed_diff_neg_mag_%out_ok
+    %out_value = mul %out_ok, __num_signed_diff_neg_%out_ok
+    !__num_signed_diff_neg_%out_ok
+    !__num_signed_diff_neg_mag_%out_ok
+    !__num_signed_diff_lhs_ge_%out_ok
+
+L_NUM_SIGNED_DIFF_END_%out_ok:
+[END_MACRO]
+
+[MACRO] NUM_U64_CHECKED_SIGNED_DIFF %out_ok, %out_value, %lhs, %rhs
+    __num_u64_signed_diff_neg_limit_%out_ok = sub 0, NUM_I64_MIN
+    EXPAND NUM_UNSIGNED_CHECKED_SIGNED_DIFF_WIDTH %out_ok, %out_value, %lhs, %rhs, NUM_I64_MAX, __num_u64_signed_diff_neg_limit_%out_ok
+    !__num_u64_signed_diff_neg_limit_%out_ok
+[END_MACRO]
+
 [MACRO] NUM_U64_STRICT_MUL %out_value, %lhs, %rhs
     EXPAND NUM_U64_CHECKED_MUL __num_u64_strict_mul_ok_%out_value, %out_value, %lhs, %rhs
     br __num_u64_strict_mul_ok_%out_value -> L_NUM_U64_STRICT_MUL_OK_%out_value, L_NUM_U64_STRICT_MUL_PANIC_%out_value
@@ -7088,6 +7118,10 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     EXPAND NUM_U64_STRICT_SUB_SIGNED %out_value, %lhs, %rhs
 [END_MACRO]
 
+[MACRO] NUM_USIZE_CHECKED_SIGNED_DIFF %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_U64_CHECKED_SIGNED_DIFF %out_ok, %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] NUM_U8_CHECKED_ADD %out_ok, %out_value, %lhs, %rhs
     __num_u8_add_sum_%out_ok = add %lhs, %rhs
     %out_ok = ule __num_u8_add_sum_%out_ok, NUM_U8_MAX
@@ -7212,6 +7246,18 @@ L_NUM_I32_WRAP_ABS_END_%out_value:
     !__num_u32_sub_signed_in_range_%out_ok
     !__num_u32_sub_signed_value_%out_ok
     !__num_u32_sub_signed_ok_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_U8_CHECKED_SIGNED_DIFF %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_CHECKED_SIGNED_DIFF_WIDTH %out_ok, %out_value, %lhs, %rhs, NUM_I8_MAX, 128
+[END_MACRO]
+
+[MACRO] NUM_U16_CHECKED_SIGNED_DIFF %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_CHECKED_SIGNED_DIFF_WIDTH %out_ok, %out_value, %lhs, %rhs, NUM_I16_MAX, 32768
+[END_MACRO]
+
+[MACRO] NUM_U32_CHECKED_SIGNED_DIFF %out_ok, %out_value, %lhs, %rhs
+    EXPAND NUM_UNSIGNED_CHECKED_SIGNED_DIFF_WIDTH %out_ok, %out_value, %lhs, %rhs, NUM_I32_MAX, 2147483648
 [END_MACRO]
 
 [MACRO] NUM_U8_CHECKED_MUL %out_ok, %out_value, %lhs, %rhs

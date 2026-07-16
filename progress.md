@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 primitive unsigned checked_signed_diff macros
+
+- Continued Rust `std::num` macro-surface parity, referencing Rust's local unsigned primitive `checked_signed_diff` implementation under `/home/vscode/projects/rust`.
+- `sa_std/num.sa`: added `NUM_U8_CHECKED_SIGNED_DIFF`, `NUM_U16_CHECKED_SIGNED_DIFF`, `NUM_U32_CHECKED_SIGNED_DIFF`, `NUM_U64_CHECKED_SIGNED_DIFF`, and `NUM_USIZE_CHECKED_SIGNED_DIFF`.
+- Helpers return explicit `ok/out` values instead of Rust `Option<SignedT>`. Positive differences must fit in the corresponding signed maximum, while negative differences may reach the signed minimum magnitude. This models Rust's checked result shape without claiming Rust `Option` object layout, `u128` / `i128`, or trait-level integration.
+- Test: `tests/unit_framework/std_num_checked_signed_diff_macro_surface.sa` - 1 test (panic ID 10639) expanding all 5 new public helpers and covering positive, negative, zero, signed-min, and overflow/failure paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_checked_signed_diff_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10640+.
+
 ## Completed: 2026-07-16 primitive mixed-sign checked/strict add/sub macros
 
 - Continued Rust `std::num` macro-surface parity, referencing Rust's local primitive `checked_add_signed`, `strict_add_signed`, `checked_sub_signed`, `strict_sub_signed`, `checked_add_unsigned`, `strict_add_unsigned`, `checked_sub_unsigned`, and `strict_sub_unsigned` implementations under `/home/vscode/projects/rust`.
