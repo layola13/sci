@@ -9746,6 +9746,10 @@ pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) v
     if (test_debug_count < test_debug_scalars.len) test_debug_count += 1;
 }
 
+pub export fn sa_test_fallible_i32_value(value: i32) Fallible(i32) {
+    return ok(i32, value);
+}
+
 fn testTracePanicEnabled() bool {
     const value = envValueFromCurrentProcess("SA_TEST_TRACE_PANIC") orelse return false;
     return value.len != 0 and !std.mem.eql(u8, value, "0");

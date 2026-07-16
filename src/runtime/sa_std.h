@@ -138,6 +138,7 @@ typedef struct sa_std_fallible_i32 {
 
 uint32_t sa_std_version(void);
 int32_t sa_std_last_error(void);
+sa_std_fallible_i32 sa_test_fallible_i32_value(int32_t value);
 int32_t sa_std_error_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 
 int32_t sa_dl_open(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);

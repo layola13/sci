@@ -2594,15 +2594,32 @@ test "extern u64 fallible return can be loaded from ABI payload offset" {
     }
 }
 
-test "extern i32 fallible return uses fixed ABI payload offset" {
+test "extern i32 fallible return uses ABI-aligned payload offset" {
     const source =
         \\@extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!
         \\@extern sa_fs_metadata_free(metadata: u64) -> i32!
+        \\@extern sa_test_fallible_i32_value(value: i32) -> i32!
         \\
         \\@const PROBE_PATH = utf8:"probe.env"
         \\
         \\@ffi_wrapper probe_fallible_i32_wire() -> i32:
         \\L_ENTRY:
+        \\    sentinel_res = call @sa_test_fallible_i32_value(77)
+        \\    sentinel_status = load sentinel_res+0 as i32
+        \\    sentinel_value = load sentinel_res+4 as i32
+        \\    !sentinel_res
+        \\    sentinel_status_ok = eq sentinel_status, 0
+        \\    !sentinel_status
+        \\    br sentinel_status_ok -> L_CHECK_SENTINEL_VALUE, L_FAIL_SENTINEL_STATUS
+        \\
+        \\L_CHECK_SENTINEL_VALUE:
+        \\    !sentinel_status_ok
+        \\    sentinel_value_ok = eq sentinel_value, 77
+        \\    !sentinel_value
+        \\    br sentinel_value_ok -> L_METADATA, L_FAIL_SENTINEL_VALUE
+        \\
+        \\L_METADATA:
+        \\    !sentinel_value_ok
         \\    path_tmp = *PROBE_PATH
         \\    metadata_res = call @sa_fs_metadata(&path_tmp, 9)
         \\    !path_tmp
@@ -2618,7 +2635,7 @@ test "extern i32 fallible return uses fixed ABI payload offset" {
         \\    free_res = call @sa_fs_metadata_free(metadata)
         \\    !metadata
         \\    free_status = load free_res+0 as i32
-        \\    free_value = load free_res+8 as i32
+        \\    free_value = load free_res+4 as i32
         \\    !free_res
         \\    status_ok = eq free_status, 0
         \\    !free_status
@@ -2661,6 +2678,15 @@ test "extern i32 fallible return uses fixed ABI payload offset" {
         \\L_FAIL_TAIL:
         \\    !resolved_ok
         \\    panic(127)
+        \\
+        \\L_FAIL_SENTINEL_STATUS:
+        \\    !sentinel_status_ok
+        \\    !sentinel_value
+        \\    panic(129)
+        \\
+        \\L_FAIL_SENTINEL_VALUE:
+        \\    !sentinel_value_ok
+        \\    panic(130)
         \\
         \\@main() -> i32!:
         \\L_MAIN:
