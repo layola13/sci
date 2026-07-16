@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 narrow signed primitive next-multiple macros
+
+- Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `checked_next_multiple_of` and `next_multiple_of`.
+- `sa_std/num.sa`: added `NUM_I8_CHECKED_NEXT_MULTIPLE_OF`, `NUM_I16_CHECKED_NEXT_MULTIPLE_OF`, `NUM_I32_CHECKED_NEXT_MULTIPLE_OF`, and matching direct `NEXT_MULTIPLE_OF` helpers.
+- Semantics: helpers sign-extend operands to their declared signed width, reuse the existing `i64` checked next-multiple path, and reject results outside the concrete narrow signed range. This preserves the current SA signed next-multiple subset, where negative divisors are treated by absolute magnitude and direct helpers write `0` on checked failure.
+- Test: `tests/unit_framework/std_num_narrow_signed_next_multiple_macro_surface.sa` - 1 test (panic ID 10675) covering positive and negative values, negative divisors, aligned values, zero divisors, overflow, minimum-width divisors, raw i8 bit-pattern input, and direct helper success/failure paths for `i8`, `i16`, and `i32`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_num_narrow_signed_next_multiple_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10676+.
+
 ## Completed: 2026-07-16 narrow signed primitive div_ceil macros
 
 - Continued Rust `std::num` macro-surface parity, referencing local Rust `int_macros.rs` for signed primitive `div_ceil`.

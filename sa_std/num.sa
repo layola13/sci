@@ -1820,6 +1820,17 @@ L_NUM_SIGNED_DIV_CEIL_FAIL_%out_ok:
 L_NUM_SIGNED_DIV_CEIL_END_%out_ok:
 [END_MACRO]
 
+[MACRO] NUM_SIGNED_CHECKED_RANGE_RESULT %out_ok, %out_value, %source_ok, %source_value, %min_value, %max_value
+    __num_signed_range_ge_min_%out_ok = sge %source_value, %min_value
+    __num_signed_range_le_max_%out_ok = sle %source_value, %max_value
+    __num_signed_range_in_bounds_%out_ok = and __num_signed_range_ge_min_%out_ok, __num_signed_range_le_max_%out_ok
+    %out_ok = and %source_ok, __num_signed_range_in_bounds_%out_ok
+    %out_value = mul %out_ok, %source_value
+    !__num_signed_range_in_bounds_%out_ok
+    !__num_signed_range_le_max_%out_ok
+    !__num_signed_range_ge_min_%out_ok
+[END_MACRO]
+
 [MACRO] NUM_UNSIGNED_WIDTH_UNCHECKED_DIV_EXACT %out_value, %lhs, %rhs, %mask
     __num_uw_unchecked_div_exact_lhs_%out_value = and %lhs, %mask
     __num_uw_unchecked_div_exact_rhs_%out_value = and %rhs, %mask
@@ -7641,6 +7652,54 @@ L_NUM_I32_REM_END_%out_ok:
 [MACRO] NUM_I32_DIV_CEIL %out_value, %lhs, %rhs
     EXPAND NUM_I32_CHECKED_DIV_CEIL __num_i32_div_ceil_direct_ok_%out_value, %out_value, %lhs, %rhs
     !__num_i32_div_ceil_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I8_CHECKED_NEXT_MULTIPLE_OF %out_ok, %out_value, %value, %rhs
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_next_mul_value_%out_ok, %value
+    EXPAND NUM_I8_SIGN_EXTEND __num_i8_next_mul_rhs_%out_ok, %rhs
+    EXPAND NUM_I64_CHECKED_NEXT_MULTIPLE_OF __num_i8_next_mul_ok_%out_ok, __num_i8_next_mul_raw_%out_ok, __num_i8_next_mul_value_%out_ok, __num_i8_next_mul_rhs_%out_ok
+    EXPAND NUM_SIGNED_CHECKED_RANGE_RESULT %out_ok, %out_value, __num_i8_next_mul_ok_%out_ok, __num_i8_next_mul_raw_%out_ok, NUM_I8_MIN, NUM_I8_MAX
+    !__num_i8_next_mul_raw_%out_ok
+    !__num_i8_next_mul_ok_%out_ok
+    !__num_i8_next_mul_rhs_%out_ok
+    !__num_i8_next_mul_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I16_CHECKED_NEXT_MULTIPLE_OF %out_ok, %out_value, %value, %rhs
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_next_mul_value_%out_ok, %value
+    EXPAND NUM_I16_SIGN_EXTEND __num_i16_next_mul_rhs_%out_ok, %rhs
+    EXPAND NUM_I64_CHECKED_NEXT_MULTIPLE_OF __num_i16_next_mul_ok_%out_ok, __num_i16_next_mul_raw_%out_ok, __num_i16_next_mul_value_%out_ok, __num_i16_next_mul_rhs_%out_ok
+    EXPAND NUM_SIGNED_CHECKED_RANGE_RESULT %out_ok, %out_value, __num_i16_next_mul_ok_%out_ok, __num_i16_next_mul_raw_%out_ok, NUM_I16_MIN, NUM_I16_MAX
+    !__num_i16_next_mul_raw_%out_ok
+    !__num_i16_next_mul_ok_%out_ok
+    !__num_i16_next_mul_rhs_%out_ok
+    !__num_i16_next_mul_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I32_CHECKED_NEXT_MULTIPLE_OF %out_ok, %out_value, %value, %rhs
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_next_mul_value_%out_ok, %value
+    EXPAND NUM_I32_SIGN_EXTEND __num_i32_next_mul_rhs_%out_ok, %rhs
+    EXPAND NUM_I64_CHECKED_NEXT_MULTIPLE_OF __num_i32_next_mul_ok_%out_ok, __num_i32_next_mul_raw_%out_ok, __num_i32_next_mul_value_%out_ok, __num_i32_next_mul_rhs_%out_ok
+    EXPAND NUM_SIGNED_CHECKED_RANGE_RESULT %out_ok, %out_value, __num_i32_next_mul_ok_%out_ok, __num_i32_next_mul_raw_%out_ok, NUM_I32_MIN, NUM_I32_MAX
+    !__num_i32_next_mul_raw_%out_ok
+    !__num_i32_next_mul_ok_%out_ok
+    !__num_i32_next_mul_rhs_%out_ok
+    !__num_i32_next_mul_value_%out_ok
+[END_MACRO]
+
+[MACRO] NUM_I8_NEXT_MULTIPLE_OF %out_value, %value, %rhs
+    EXPAND NUM_I8_CHECKED_NEXT_MULTIPLE_OF __num_i8_next_mul_direct_ok_%out_value, %out_value, %value, %rhs
+    !__num_i8_next_mul_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I16_NEXT_MULTIPLE_OF %out_value, %value, %rhs
+    EXPAND NUM_I16_CHECKED_NEXT_MULTIPLE_OF __num_i16_next_mul_direct_ok_%out_value, %out_value, %value, %rhs
+    !__num_i16_next_mul_direct_ok_%out_value
+[END_MACRO]
+
+[MACRO] NUM_I32_NEXT_MULTIPLE_OF %out_value, %value, %rhs
+    EXPAND NUM_I32_CHECKED_NEXT_MULTIPLE_OF __num_i32_next_mul_direct_ok_%out_value, %out_value, %value, %rhs
+    !__num_i32_next_mul_direct_ok_%out_value
 [END_MACRO]
 
 [MACRO] NUM_I8_CHECKED_DIV_EXACT %out_ok, %out_value, %lhs, %rhs
