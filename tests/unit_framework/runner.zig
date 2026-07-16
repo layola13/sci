@@ -876,6 +876,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_fs_metadata_ext_macro_surface.sa",
         "tests/unit_framework/std_fs_dir_entry_ext_macro_surface.sa",
         "tests/unit_framework/std_fs_unix_ext_macro_surface.sa",
+        "tests/unit_framework/std_fs_file_as_fd_macro_surface.sa",
         "tests/unit_framework/std_net_macro_surface.sa",
         "tests/unit_framework/std_net_addr_macro_surface.sa",
         "tests/unit_framework/std_net_ip_hash_one_macro_surface.sa",

@@ -3,6 +3,21 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-16 std::fs::File AsFd alias)
+
+Completed supportable `std::fs::File` `AsFd` alias:
+- `FS_FILE_AS_FD` exposes the Rust `File::as_fd` naming surface over the existing File handle raw-fd view.
+- This returns the current SA borrowed raw-fd scalar representation and composes with `FD_BORROWED_*` helpers.
+- This batch does not model Rust lifetime tracking, borrow checker rules, trait dispatch, or native `BorrowedFd<'_>` object layout.
+- Test file `std_fs_file_as_fd_macro_surface.sa` (panic ID 10694).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_file_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10695+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, native `BorrowedFd<'_>` object layout, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, and thread stack/name builder ABI.
+
+
 ## Active std parity batch (2026-07-16 std::os::fd AsFd aliases)
 
 Completed supportable `std::os::fd::AsFd` aliases:

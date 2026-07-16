@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 std::fs::File AsFd alias
+
+- Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `impl AsFd for fs::File`.
+- `sa_std/fs.sa`: added `FS_FILE_AS_FD`.
+- Semantics: helper preserves the current SA fd facade shape where a borrowed fd is represented as the raw fd scalar, delegating through the existing File handle raw-fd view.
+- Test: `tests/unit_framework/std_fs_file_as_fd_macro_surface.sa` - 1 test (panic ID 10694) covering File `as_fd`, equality with `as_raw_fd`, borrowed raw view, clone-to-owned lifetime independence after closing the File handle, and file cleanup.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_fs_file_as_fd_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10695+.
+
 ## Completed: 2026-07-16 std::os::fd AsFd aliases
 
 - Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `impl AsFd for BorrowedFd<'_>` and `impl AsFd for OwnedFd`.

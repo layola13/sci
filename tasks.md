@@ -1,5 +1,6 @@
 # 架构设计参考 (Technical Design Reference)
 
+- [x] `std::fs::File` / `std::os::fd::AsFd` 命名别名批次已完成：新增 `FS_FILE_AS_FD`，复用现有 File handle fd view，以 Rust `File::as_fd` 表面返回当前 SA borrowed raw-fd 标量形态。新增 focused 单测并同步 `progress/current_plan/std_missing`。不主张 Rust lifetime、borrow checker、trait dispatch 或 `BorrowedFd<'_>` 对象布局全语义。
 - [x] `std::os::fd::AsFd` 命名别名批次已完成：新增 `FD_OWNED_AS_FD` 与 `FD_BORROWED_AS_FD`，复用现有 owned/borrowed fd facade，以 Rust `OwnedFd/BorrowedFd` 的 `AsFd::as_fd` 表面返回当前 SA borrowed raw-fd 标量形态。新增 focused 单测并同步 `progress/current_plan/std_missing`。不主张 Rust lifetime、borrow checker、trait dispatch 或 `BorrowedFd<'_>` 对象布局全语义。
 - [x] `std::process` Command builder exec wrapper 批次已完成：新增 `PROCESS_COMMAND_BUILDER_EXEC`，把现有 builder 标量状态及显式 uid/gid/groups/chroot 配置转发到真实 `PROCESS_EXEC_COMMAND_EXT` runtime 路径。新增 focused 失败路径单测并同步 `progress/current_plan/std_missing`；成功 `exec` 会替换测试进程，因此本批不运行成功路径单测。不主张 env maps、pipe Stdio redirection wiring、heap Command object 或 pre_exec closure 集成。
 - [x] `std::process` Command builder stream pidfd wrapper 批次已完成：新增 `PROCESS_COMMAND_BUILDER_SPAWN_STREAM_PIDFD`，把现有 builder 标量状态转发到真实 `PROCESS_SPAWN_STREAM_COMMAND_EXT_PIDFD` runtime 路径，并保留显式 `create_pidfd` flag。新增 focused 单测并同步 `progress/current_plan/std_missing`。不主张 env maps、pipe Stdio redirection wiring、heap Command object 或 capture-time pidfd 集成。

@@ -38,6 +38,10 @@
     EXPAND FD_AS_RAW %out_status, %out_fd, %file
 [END_MACRO]
 
+[MACRO] FS_FILE_AS_FD %out_status, %out_fd, %file
+    EXPAND FD_AS_RAW %out_status, %out_fd, %file
+[END_MACRO]
+
 [MACRO] FS_FILE_INTO_RAW_FD %out_status, %out_fd, %file
     EXPAND FD_INTO_RAW %out_status, %out_fd, %file
 [END_MACRO]
