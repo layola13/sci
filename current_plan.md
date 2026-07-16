@@ -4157,3 +4157,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10726+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy ByRef/Fuse/Peekable adapter object identity/state, borrow lifetime/reference semantics, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter partition ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter partition aliases in vec.sa: VEC_INTO_ITER_PARTITION_U64 and VEC_INTO_ITER_IS_PARTITIONED_U64, delegating to existing concrete u64 cursor partition helpers over explicit backing Vecs.
+- Test file std_vec_into_iter_partition_macro_surface.sa (panic ID 10726).
+
+Panic IDs next free: 10727+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust generic `Default + Extend` partition collection, tuple ABI, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture/unwind/drop cleanup, nightly trait wiring for is_partitioned, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

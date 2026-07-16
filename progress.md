@@ -8768,3 +8768,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_adapter_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10726+.
+
+## Completed: 2026-07-16 Vec IntoIter partition ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_PARTITION_U64` and `VEC_INTO_ITER_IS_PARTITIONED_U64`.
+- Semantics: these helpers lower supportable Rust partition surfaces for concrete `vec::IntoIter<u64>` by delegating to existing slice-backed cursor primitives over explicit backing Vecs. `PARTITION` returns two caller-owned concrete `Vec<u64>` outputs; `IS_PARTITIONED` follows the existing consuming `all(predicate) || !any(predicate)` cursor behavior.
+- Test: `tests/unit_framework/std_vec_into_iter_partition_macro_surface.sa` — 1 test (panic ID 10726) covering partition after partial consumption, empty partition, partitioned/all-true/empty `is_partitioned`, and non-partitioned short-circuit cursor state.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_partition_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10727+.
