@@ -31,6 +31,24 @@ Next:
 - ...
 ```
 
+## 2026-07-16 11:07
+
+Question:
+- Can P0.6 write-event audit identify the failed store pipeline stage without leaking paths or raw errors?
+
+Evidence checked:
+- `src/cli.zig`
+- `docs/compiler_performance_optimization_cn.md` section 9.5
+- `PATH=/root/projects/tools/zig-x86_64-linux-0.14.1:$PATH /root/projects/tools/zig-x86_64-linux-0.14.1/zig test src/emit_llvm_llvmc_shim.c ... -Mroot=src/cli.zig ... --test-filter "project cache single flight" -j1` -> `1/1`
+
+Answer:
+- Yes, as a focused source-free stage checkpoint. Store events now include `stage`, and `sa cache status/why` exposes it as `last_store_stage`.
+- The focused failed-owner smoke verifies a missing output path records `last_store_result:"failed"` and `last_store_stage:"copy_output"` for an absent entry, then verifies a later successful handoff overwrites the result/stage to `published`/`publish`.
+- This does not complete rich write auditing. Writer identity, event history, cross-process owner details, broader failure injection, and candidate old-entry key-diff remain open.
+
+Next:
+- Continue P0.6 with candidate old-entry key-diff or richer write-event identity/history.
+
 ## 2026-07-16 09:09
 
 Question:
