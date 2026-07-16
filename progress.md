@@ -8750,3 +8750,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_sequence_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10724+.
+
+## Completed: 2026-07-16 Vec IntoIter pair collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_ENUMERATE_COLLECT_U64`, `VEC_INTO_ITER_ZIP_COLLECT_U64`, and `VEC_INTO_ITER_CHAIN_COLLECT_U64`.
+- Semantics: these helpers lower supportable Rust pair/composition adapter-then-collect shapes for concrete `vec::IntoIter<u64>` by delegating to existing eager slice-backed cursor collect primitives over explicit backing Vecs. Pair outputs are flattened into caller-owned `Vec<u64>` values (`index,value` or `left,right` lanes) rather than Rust tuple objects.
+- Test: `tests/unit_framework/std_vec_into_iter_pair_collect_macro_surface.sa` — 1 test (panic ID 10724) covering enumerate after partial consumption, zip with a shorter right iterator and resulting cursor state, and chain consuming both iterators.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_pair_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10725+.
