@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-16 Process Command builder groups wrappers
+
+- Continued Rust process/Unix CommandExt macro-surface parity over the existing groups runtime support.
+- `sa_std/process.sa`: added `PROCESS_COMMAND_BUILDER_STATUS_GROUPS` and `PROCESS_COMMAND_BUILDER_SPAWN_GROUPS`.
+- Semantics: helpers forward the existing builder scalar state (`cwd`, `arg0`, `process_group`, `setsid`) plus an explicit groups pointer, groups length, and `has_groups` flag into the real `PROCESS_RUN_COMMAND_EXT_GROUPS` / `PROCESS_SPAWN_COMMAND_EXT_GROUPS` paths.
+- Test: `tests/unit_framework/std_process_command_builder_groups_macro_surface.sa` - 1 test (panic ID 10686) covering builder status/spawn groups paths with the current process group and accepting either successful child exit or child setup denial on non-root `setgroups`.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_process_command_builder_groups_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10687+.
+
 ## Completed: 2026-07-16 Process Command builder uid/gid wrappers
 
 - Continued Rust process/Unix CommandExt macro-surface parity over the existing uid/gid runtime support.

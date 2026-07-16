@@ -811,6 +811,14 @@ L_PROCESS_CMD_SETSID_END_%out_setsid:
     EXPAND PROCESS_SPAWN_COMMAND_EXT_UID_GID %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %uid, %has_uid, %gid, %has_gid
 [END_MACRO]
 
+[MACRO] PROCESS_COMMAND_BUILDER_STATUS_GROUPS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+    EXPAND PROCESS_RUN_COMMAND_EXT_GROUPS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+[END_MACRO]
+
+[MACRO] PROCESS_COMMAND_BUILDER_SPAWN_GROUPS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+    EXPAND PROCESS_SPAWN_COMMAND_EXT_GROUPS %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, %groups, %groups_len, %has_groups
+[END_MACRO]
+
 [MACRO] PROCESS_COMMAND_BUILDER_SPAWN_STREAM %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
     EXPAND PROCESS_SPAWN_STREAM_COMMAND_EXT %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
 [END_MACRO]
