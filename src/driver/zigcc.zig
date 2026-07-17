@@ -704,6 +704,9 @@ test "external tool injection fails compile paths before output publication" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try tmp.dir.writeFile(. .sub_path = "input.bc", .data = "not-real-bitcode" });
+        .sub_path = "input.bc",
+        .data = "not-real-bitcode",
+    });
     const input_path = try tmp.dir.realpathAlloc(std.testing.allocator, "input.bc");
     defer std.testing.allocator.free(input_path);
     const exe_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
