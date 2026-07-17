@@ -6,7 +6,8 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
 - `tools/ci/validate_native_evidence.zig` now rejects required toolchain/provenance arguments that are empty, whitespace-only, or `unknown` before accepting native evidence, so future macOS/Windows artifacts cannot validate solely because both the workflow argument and JSON field are equally uninformative.
 - The macOS/Windows source contracts lock the stricter validator checks for Zig, LLVM, GitHub SHA, run id, and run attempt.
-- Validation passed on Linux: `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `zig build native-evidence-validator --summary all` -> `5/5`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `5/5`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `5/5`; `zig build release-contract --summary all` -> release contract `7/7` plus validator `5/5`.
+- Validation passed on Linux: `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `zig build native-evidence-validator --summary all` -> `5/5`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `5/5`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `5/5`; `zig build release-contract --summary all` -> release contract `7/7` plus validator `5/5`; `git diff --check`.
+- A first parallel validation attempt hit an lld object error in the shared Zig cache after the Windows contract tests themselves passed; the same validator passed independently and under `release-contract`, and a serial `windows-ci-contract` rerun passed.
 - Evidence boundary: this is Linux validator/source-contract hardening until macOS/Windows runners execute the updated workflows.
 
 ## Focused verified: 2026-07-17 native smoke toolchain fallback
