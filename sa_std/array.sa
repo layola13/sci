@@ -410,6 +410,14 @@
     EXPAND ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] ARRAY_INTO_ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+    EXPAND ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
+    EXPAND ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]

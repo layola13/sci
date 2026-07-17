@@ -9002,3 +9002,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_adapter_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10752+.
+
+## Completed: 2026-07-17 Array IntoIter partition ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_PARTITION_U64` and `ARRAY_INTO_ITER_IS_PARTITIONED_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` partition operations by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. `PARTITION` materializes caller-owned true/false `Vec<u64>` outputs, while `IS_PARTITIONED` follows the current iterator helper's short-circuiting consuming shape and can leave an unchecked suffix after non-partitioned detection. They do not model Rust generic `Default + Extend` collection, tuple ABI, nightly adapter trait wiring, closure capture, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_partition_macro_surface.sa` — 1 test (panic ID 10752) covering partition after partial consumption, empty partition, partitioned/all-true/empty `is_partitioned`, and non-partitioned short-circuit state with remaining suffix.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_partition_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10753+.

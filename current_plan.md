@@ -4392,3 +4392,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10752+.
 Still blocked without redesign: Rust lazy `ByRef` / `Fuse` / `Peekable` adapter identity/state types, borrow lifetime/reference semantics, generic `Iterator<Item = T>` object composition, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter partition ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter partition aliases in array.sa: ARRAY_INTO_ITER_PARTITION_U64 and ARRAY_INTO_ITER_IS_PARTITIONED_U64.
+- Test file std_array_into_iter_partition_macro_surface.sa (panic ID 10752).
+
+Panic IDs next free: 10753+.
+Still blocked without redesign: Rust generic `Default + Extend` collection, tuple ABI, nightly partition adapter object/trait wiring, generic closure capture/call ABI, generic `Iterator<Item = T>` object composition, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
