@@ -45,6 +45,17 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
   - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
 - Panic IDs next free: 10763+.
 
+## Completed: 2026-07-17 BinaryHeap Iter fold aliases
+
+- Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter`, `library/core/src/iter/traits/iterator.rs` for `fold` / `try_fold`, and `library/core/src/iter/traits/double_ended.rs` for `rfold` / `try_rfold`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_ITER_FOLD_U64`, `BINARY_HEAP_ITER_TRY_FOLD_U64`, `BINARY_HEAP_ITER_RFOLD_U64`, and `BINARY_HEAP_ITER_TRY_RFOLD_U64`.
+- Semantics: helpers consume the concrete borrowed slice-backed cursor in heap-array order or from the back for reverse folds while leaving the heap itself intact. Try variants use explicit success/value scalars and leave the suffix after the failing item available.
+- Test: `tests/unit_framework/std_binary_heap_iter_fold_macro_surface.sa` - 1 test (panic ID 10763) covering fold, rfold, try_fold success/failure, try_rfold success/failure, empty fold/rfold identities, cursor remainders, and heap non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_fold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10764+.
+
 ## Completed: 2026-07-17 BinaryHeap Iter advance/chunk aliases
 
 - Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` over the backing slice, `library/core/src/iter/traits/iterator.rs` for `next_chunk` / `advance_by`, and `library/core/src/iter/traits/double_ended.rs` for `advance_back_by`.

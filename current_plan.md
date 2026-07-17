@@ -59,6 +59,20 @@ Focused validation only:
 Panic IDs next free: 10763+.
 Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, Rust reference item identity, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
 
+## Active std parity batch (2026-07-17 BinaryHeap Iter fold aliases)
+
+Completed supportable `std::collections::BinaryHeap::Iter` fold aliases:
+- `BINARY_HEAP_ITER_FOLD_U64`, `BINARY_HEAP_ITER_TRY_FOLD_U64`, `BINARY_HEAP_ITER_RFOLD_U64`, and `BINARY_HEAP_ITER_TRY_RFOLD_U64` expose Rust borrowed iterator fold naming over the existing slice-backed heap cursor.
+- These helpers consume only the cursor in internal heap-array order, or from the back for reverse folds; they do not consume or reorder the heap itself.
+- This batch does not model Rust closure capture, generic `Try` residual conversion, reference item lifetimes, or panic/drop cleanup.
+- Test file `std_binary_heap_iter_fold_macro_surface.sa` (panic ID 10763).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_fold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10764+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, Rust reference item identity, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
+
 
 ## Active std parity batch (2026-07-17 BinaryHeap Iter advance/chunk aliases)
 
