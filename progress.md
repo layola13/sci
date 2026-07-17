@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap Iter collect aliases
+
+- Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` over the backing slice and `library/core/src/iter/traits/iterator.rs` for `collect`, `try_collect`, and `collect_into`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_ITER_COLLECT_U64`, `BINARY_HEAP_ITER_TRY_COLLECT_U64`, and `BINARY_HEAP_ITER_COLLECT_INTO_U64`.
+- Semantics: helpers consume the concrete borrowed slice-backed cursor in heap-array order into caller-owned `Vec<u64>` outputs, while leaving the heap storage itself intact; `try_collect` uses the existing concrete mapper callback and leaves the suffix after the failing item available.
+- Test: `tests/unit_framework/std_binary_heap_iter_collect_macro_surface.sa` - 1 test (panic ID 10756) covering collect, try_collect success, try_collect short-circuit, collect_into append, cursor exhaustion, suffix availability, and heap non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10757+.
+
 ## Completed: 2026-07-16 socket AsFd aliases
 
 - Continued Rust fd macro-surface parity, referencing local Rust `library/std/src/os/fd/owned.rs` for `TcpStream`, `TcpListener`, and `UdpSocket` `AsFd`, plus `library/std/src/os/unix/net/{stream,listener,datagram}.rs` for Unix socket `AsFd`.
