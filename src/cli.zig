@@ -6234,6 +6234,7 @@ fn tryAcquireProjectCacheEntryLockInKindDir(kind_dir: std.fs.Dir, key_name: []co
 }
 
 fn projectCacheArtifactExistsNonEmpty(path: []const u8) bool {
+    if (!cachePathIsRegularFile(path)) return false;
     const stat = std.fs.cwd().statFile(path) catch return false;
     return stat.kind == .file and stat.size != 0;
 }
@@ -6367,6 +6368,7 @@ fn projectCacheDynamicDependenciesValid(allocator: std.mem.Allocator, value: std
 }
 
 fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) !bool {
+    if (!cachePathIsRegularFile(path)) return false;
     const stat = std.fs.cwd().statFile(path) catch return false;
     if (stat.kind != .file or stat.size == 0) return false;
     if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
@@ -6906,7 +6908,7 @@ fn projectCacheStoreEntryLocked(
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
     var store_failure_stage: []const u8 = "validate";
-    errdefer projectCacheTouchStoreFailureTelemetry(allocator, project_root, kind, key, store_failure_stage) catch |err| {
+    errdefer projectCacheTouchStoreFailureTelemetry(std.heap.page_allocator, project_root, kind, key, store_failure_stage) catch |err| {
         _ = @errorName(err);
     };
 
@@ -6964,10 +6966,10 @@ fn projectCacheStoreEntryLocked(
     switch (try publishProjectCacheEntry(kind, key, staging_dir, final_dir)) {
         .published => {
             staging_live = false;
-            projectCacheClearEvictionTelemetry(allocator, project_root, kind, key) catch |err| {
+            projectCacheClearEvictionTelemetry(std.heap.page_allocator, project_root, kind, key) catch |err| {
                 _ = @errorName(err);
             };
-            projectCacheTouchStoreTelemetry(allocator, project_root, kind, key) catch |err| {
+            projectCacheTouchStoreTelemetry(std.heap.page_allocator, project_root, kind, key) catch |err| {
                 _ = @errorName(err);
             };
         },
@@ -6986,7 +6988,7 @@ fn projectCacheStoreEntry(
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
     var entry_lock = acquireProjectCacheEntryLock(allocator, project_root, kind, key, .exclusive) catch |err| {
-        projectCacheTouchStoreFailureTelemetry(allocator, project_root, kind, key, "lock") catch |telemetry_err| {
+        projectCacheTouchStoreFailureTelemetry(std.heap.page_allocator, project_root, kind, key, "lock") catch |telemetry_err| {
             _ = @errorName(telemetry_err);
         };
         return err;
@@ -7520,6 +7522,7 @@ fn projectCacheArtifactFirstDifference(
     size_field: []const u8,
     sha_field: []const u8,
 ) ?[]const u8 {
+    if (!cachePathIsRegularFile(path)) return file_field;
     const stat = std.fs.cwd().statFile(path) catch return file_field;
     if (stat.kind != .file or stat.size == 0) return file_field;
     if (!jsonIntEquals(jsonGetObject(artifact_value, "size") catch return size_field, stat.size)) return size_field;
@@ -11612,6 +11615,44 @@ test "project cache publishes one complete entry under concurrent writers" {
         try std.testing.expectEqualStrings(key.slice(), entry.name);
     }
     try std.testing.expectEqual(@as(usize, 1), entry_count);
+}
+
+test "project cache manifest rejects symlink artifact entries" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'f'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile("real-output.bin", "output");
+    try std.fs.cwd().symLink("real-output.bin", output_path, .{});
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, "real-output.bin", null, &.{});
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "output.file",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
 }
 
 const ProjectCacheFailureTest = struct {
