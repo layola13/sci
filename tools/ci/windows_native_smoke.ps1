@@ -2,7 +2,8 @@
 param(
     [string]$SaPath = "zig-out\bin\sa.exe",
     [string]$RuntimeRoot = $env:SA_STATIC_ROOT,
-    [string]$DemoPath = "demos\rosetta\01_hello_world\main.sa"
+    [string]$DemoPath = "demos\rosetta\01_hello_world\main.sa",
+    [string]$EvidencePath = $env:SA_NATIVE_SMOKE_EVIDENCE
 )
 
 $ErrorActionPreference = "Stop"
@@ -245,6 +246,22 @@ try {
     [Environment]::SetEnvironmentVariable("SA_STD_DIR", $installedStdRoot, "Process")
     $installedCheck = Invoke-NativeCapture -FilePath $installedSa -Arguments @("check", $tempDemo)
     Assert-Success -Action "installed sa.exe check" -Result $installedCheck
+
+    if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
+        $evidenceParent = Split-Path -Parent $EvidencePath
+        if (-not [string]::IsNullOrWhiteSpace($evidenceParent)) {
+            [void][IO.Directory]::CreateDirectory($evidenceParent)
+        }
+        [pscustomobject]@{
+            platform = "windows"
+            arch = $archiveArch
+            archive = "$archivePayloadName.zip"
+            staged_version = $versionResult.Output
+            installed_version = $installedVersion.Output
+            wasm_magic = "0061736d"
+            native_smoke = "passed"
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $EvidencePath -Encoding utf8
+    }
 } finally {
     if ($locationPushed) {
         Pop-Location

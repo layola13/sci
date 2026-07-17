@@ -177,7 +177,15 @@ jobs:
           printf 'SA_STATIC_ROOT=%s\n' "$static_root" >> "$GITHUB_ENV"
 
       - name: Run compiler and release-layout smoke
-        run: /bin/bash tools/ci/macos_native_smoke.sh --sa-path "$SA_COMPILER_ROOT/bin/sa" --runtime-root "$SA_STATIC_ROOT"
+        run: /bin/bash tools/ci/macos_native_smoke.sh --sa-path "$SA_COMPILER_ROOT/bin/sa" --runtime-root "$SA_STATIC_ROOT" --evidence-path "$RUNNER_TEMP/macos-native-smoke-$EXPECTED_ARCH.json"
+
+      - name: Upload native smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-native-smoke-${{ matrix.expected_arch }}
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/macos-native-smoke-${{ matrix.expected_arch }}.json
 
       - name: Check source artifact cleanliness
         run: |

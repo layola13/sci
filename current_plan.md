@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: native smoke evidence artifact capture
+
+1. [x] Audit macOS/Windows native compiler smoke scripts and workflow upload behavior.
+2. [x] Add optional evidence JSON output to both native smoke scripts after staged archive, installer, wasm, package, and installed-check smokes pass.
+3. [x] Upload native smoke evidence artifacts from macOS and Windows workflows with source contracts locking the artifact names and required fields.
+4. [x] Run focused macOS/Windows CI contract validation, script syntax checks, formatting/diff checks, then commit and push the coherent batch.
+
 ## Current turn: release matrix native-evidence guard
 
 1. [x] Audit the release workflow boundary for non-Linux archive rows.
@@ -212,6 +219,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - [x] define native macOS/Windows archive roundtrip inside the existing compiler smoke scripts: stage release payload, package it as `sa-macos-<arch>.tar.gz` / `sa-windows-<arch>.zip`, extract it to a clean directory, and run all compiler/package smoke checks from the extracted `bin/` + `std/` tree;
    - [x] add a Linux-verifiable native `daemon-smoke` gate that starts a real Unix-socket daemon, verifies ping metrics, forwards `sa version` through `SA_DAEMON_SOCKET`, shuts down, and checks socket cleanup; wire it into macOS native CI for future runner evidence;
    - [x] lock the GitHub release matrix so macOS/Windows archive rows remain disabled until matching native compiler/runtime/installer/archive evidence exists;
+   - [x] emit and upload native smoke evidence JSON artifacts from macOS/Windows workflows after the archive, installer, wasm, package, and installed-check smokes pass;
    - [ ] execute those archive smokes on native macOS/Windows runners and add remote installer/release-download evidence before claiming installer/archive support.
 
 Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket and PTY contracts have not run natively, and socket multicast join/leave paths remain uncovered.

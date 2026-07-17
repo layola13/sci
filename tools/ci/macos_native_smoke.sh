@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage: %s [--sa-path PATH] [--runtime-root PATH] [--demo-path PATH]\n' "$0" >&2
+    printf 'usage: %s [--sa-path PATH] [--runtime-root PATH] [--demo-path PATH] [--evidence-path PATH]\n' "$0" >&2
 }
 
 script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
@@ -11,6 +11,7 @@ repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd -P)
 sa_path="zig-out/bin/sa"
 runtime_root=${SA_STATIC_ROOT:-zig-out}
 demo_path="demos/rosetta/01_hello_world/main.sa"
+evidence_path=${SA_NATIVE_SMOKE_EVIDENCE:-}
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -27,6 +28,11 @@ while [ "$#" -gt 0 ]; do
         --demo-path)
             [ "$#" -ge 2 ] || { usage; exit 2; }
             demo_path=$2
+            shift 2
+            ;;
+        --evidence-path)
+            [ "$#" -ge 2 ] || { usage; exit 2; }
+            evidence_path=$2
             shift 2
             ;;
         *)
@@ -210,6 +216,7 @@ if ! printf '%s\n' "$captured_output" | grep -Eq '^sa[[:space:]]+[^[:space:]]+$'
     printf 'Unexpected version output: %s\n' "$captured_output" >&2
     exit 1
 fi
+staged_version_output=$captured_output
 
 capture_success "staged sa help" "$sa" help
 if ! printf '%s\n' "$captured_output" | grep -Eq 'usage:[[:space:]]+sa'; then
@@ -288,6 +295,24 @@ if ! printf '%s\n' "$captured_output" | grep -Eq '^sa[[:space:]]+[^[:space:]]+$'
     printf 'Unexpected installed version output: %s\n' "$captured_output" >&2
     exit 1
 fi
+installed_version_output=$captured_output
 capture_success "installed sa check" env SA_STD_DIR="$installed_std_root" "$installed_sa" check "$temp_demo"
+
+if [ -n "$evidence_path" ]; then
+    evidence_dir=$(dirname "$evidence_path")
+    mkdir -p "$evidence_dir"
+    {
+        printf '{\n'
+        printf '  "platform": "macos",\n'
+        printf '  "arch": "%s",\n' "$expected_arch"
+        printf '  "zig_target": "%s",\n' "${ZIG_TARGET:-}"
+        printf '  "archive": "%s.tar.gz",\n' "$archive_payload_name"
+        printf '  "staged_version": "%s",\n' "$staged_version_output"
+        printf '  "installed_version": "%s",\n' "$installed_version_output"
+        printf '  "wasm_magic": "%s",\n' "$wasm_magic"
+        printf '  "native_smoke": "passed"\n'
+        printf '}\n'
+    } > "$evidence_path"
+fi
 
 printf 'macOS native compiler smoke passed.\n'

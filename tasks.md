@@ -1,5 +1,12 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native smoke evidence artifact batch (2026-07-17)
+
+- [x] Add optional evidence JSON output to macOS and Windows native smoke scripts.
+- [x] Include platform, architecture, archive name, staged/installed version output, wasm magic, and pass marker after the smoke succeeds.
+- [x] Upload the evidence JSON from both native workflows with deterministic artifact names.
+- [x] Run focused contracts/syntax/format checks and commit/push the batch.
+
 ## Current release matrix native-evidence guard batch (2026-07-17)
 
 - [x] Keep the GitHub release matrix restricted to Linux archive rows while macOS/Windows native evidence is still pending.

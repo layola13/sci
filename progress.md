@@ -2,6 +2,14 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native smoke evidence artifact capture
+
+- `tools/ci/macos_native_smoke.sh` and `tools/ci/windows_native_smoke.ps1` now accept an evidence-path option/env var and write a small JSON evidence file only after staged archive, compiler, wasm, offline package, local installer, installed version, and installed check smokes pass.
+- `.github/workflows/macos-native.yml` and `.github/workflows/windows-native.yml` upload those JSON files as deterministic native-smoke artifacts so future runner results can be audited without scraping logs.
+- `tests/macos_native_ci_contract.zig` and `tests/windows_native_ci_contract.zig` lock the evidence fields and upload steps.
+- Validation passed on Linux: `zig build macos-ci-contract --summary all` -> `3/3`; `zig build windows-ci-contract --summary all` -> `5/5`; `zig fmt --check tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `bash -n tools/ci/macos_native_smoke.sh`; `git diff --check`. `pwsh` is not installed on this host, so the PowerShell smoke remains source/static evidence until the Windows runner executes it.
+- Evidence boundary: this records future native-run evidence when the workflows execute. It is still source/static evidence on this Linux host and does not claim macOS/Windows native success.
+
 ## Focused verified: 2026-07-17 release matrix native-evidence guard
 
 - `.github/workflows/release.yml` now states that non-Linux release archive rows stay disabled until the matching native macOS/Windows workflows have recorded compiler, runtime, installer, and archive smoke evidence.

@@ -271,7 +271,15 @@ jobs:
           }
 
       - name: Run compiler and release-layout smoke
-        run: .\tools\ci\windows_native_smoke.ps1 -RuntimeRoot $env:SA_STATIC_ROOT
+        run: .\tools\ci\windows_native_smoke.ps1 -RuntimeRoot $env:SA_STATIC_ROOT -EvidencePath (Join-Path $env:RUNNER_TEMP "windows-native-smoke-x86_64.json")
+
+      - name: Upload native smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-smoke-x86_64
+          if-no-files-found: warn
+          path: ${{ runner.temp }}\windows-native-smoke-x86_64.json
 
       - name: Check source artifact cleanliness
         run: |
