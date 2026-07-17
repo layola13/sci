@@ -110,6 +110,20 @@ fn writeCacheManifest(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, 
     try writeBytes(dir, manifest_path, manifest);
 }
 
+fn writeCacheManifestWithDynamicDependencies(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8, dependencies_json: []const u8) !void {
+    const artifact_hash = bytesHashHex(artifact);
+    const output_hash = bytesHashHex(output);
+    const manifest = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{{\"version\":2,\"kind\":\"{s}\",\"key\":\"{s}\",\"dynamic_dependencies\":{s},\"artifact\":{{\"size\":{d},\"sha256\":\"{s}\"}},\"output\":{{\"size\":{d},\"sha256\":\"{s}\"}}}}\n",
+        .{ kind, key, dependencies_json, artifact.len, artifact_hash[0..], output.len, output_hash[0..] },
+    );
+    defer std.testing.allocator.free(manifest);
+    const manifest_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/manifest.json", .{cache_dir});
+    defer std.testing.allocator.free(manifest_path);
+    try writeBytes(dir, manifest_path, manifest);
+}
+
 fn updateDirTimes(dir: std.fs.Dir, path: []const u8, atime: i128, mtime: i128) !void {
     var entry_dir = try dir.openDir(path, .{ .iterate = true });
     defer entry_dir.close();
@@ -2319,6 +2333,112 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expectEqual(@as(u8, 0), why_help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--key") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
+}
+
+test "cli cache status and why redact dynamic dependency differences" {
+    const present_env_name = "SA_CACHE_WHY_REDACT_PRESENT_3FD1E0";
+    const present_env_value = "cache-redaction-present-secret-6cf3";
+    const sha_env_name = "SA_CACHE_WHY_REDACT_SHA_91A7B2";
+    const old_sha_env_value = "cache-redaction-old-secret-17ba";
+    const current_sha_env_value = "cache-redaction-current-secret-3a8e";
+
+    const original_present_env = std.process.getEnvVarOwned(std.testing.allocator, present_env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (original_present_env) |bytes| std.testing.allocator.free(bytes);
+    const original_sha_env = std.process.getEnvVarOwned(std.testing.allocator, sha_env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer if (original_sha_env) |bytes| std.testing.allocator.free(bytes);
+    defer setProcessEnvironmentVariable(std.testing.allocator, present_env_name, original_present_env) catch {};
+    defer setProcessEnvironmentVariable(std.testing.allocator, sha_env_name, original_sha_env) catch {};
+
+    try setProcessEnvironmentVariable(std.testing.allocator, present_env_name, present_env_value);
+    try setProcessEnvironmentVariable(std.testing.allocator, sha_env_name, current_sha_env_value);
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const present_key = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    const sha_key = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    const old_sha_digest = bytesHashHex(old_sha_env_value);
+    const current_sha_digest = bytesHashHex(current_sha_env_value);
+
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ present_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ present_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ present_key ++ "/output.bin", "exe");
+    const present_dependencies = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "[{{\"kind\":\"environment\",\"key\":\"{s}\",\"present\":false}}]",
+        .{present_env_name},
+    );
+    defer std.testing.allocator.free(present_dependencies);
+    try writeCacheManifestWithDynamicDependencies(tmp.dir, ".sa_cache/build-exe/" ++ present_key, "build-exe", present_key, "bc", "exe", present_dependencies);
+
+    try tmp.dir.makePath(".sa_cache/build-exe/" ++ sha_key);
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ sha_key ++ "/artifact.sa.bc", "bc");
+    try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ sha_key ++ "/output.bin", "exe");
+    const sha_dependencies = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "[{{\"kind\":\"environment\",\"key\":\"{s}\",\"present\":true,\"sha256\":\"{s}\"}}]",
+        .{ sha_env_name, old_sha_digest[0..] },
+    );
+    defer std.testing.allocator.free(sha_dependencies);
+    try writeCacheManifestWithDynamicDependencies(tmp.dir, ".sa_cache/build-exe/" ++ sha_key, "build-exe", sha_key, "bc", "exe", sha_dependencies);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const status_argv = [_][]const u8{ "sa", "cache", "status", "--kind", "build-exe", "--json" };
+    const status_code = try saasm.cli.executeWithWriters(std.testing.allocator, status_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), status_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 2, "\"reason\":\"dependency_changed\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"dynamic_dependencies.present\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"dynamic_dependencies.sha256\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_env_name) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, sha_env_name) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_digest[0..]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_digest[0..]) == null);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_present_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", present_key, "--json" };
+    const why_present_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_present_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_present_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"reason\":\"dependency_changed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"key_prefix\":\"eeeeeeeeeeee\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"first_difference\":\"dynamic_dependencies.present\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_env_name) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_env_value) == null);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_sha_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", sha_key, "--json" };
+    const why_sha_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_sha_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_sha_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"reason\":\"dependency_changed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"key_prefix\":\"ffffffffffff\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"first_difference\":\"dynamic_dependencies.sha256\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, sha_env_name) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_digest[0..]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_digest[0..]) == null);
 }
 
 test "sa test compile-only reuses and repairs project test cache" {
