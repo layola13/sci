@@ -1205,6 +1205,30 @@ L_APPEND_DONE:
     EXPAND VEC_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SUM_U64 %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND VEC_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
