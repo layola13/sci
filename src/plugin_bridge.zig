@@ -57,6 +57,7 @@ fn cloneFunctionSigForSymbolTable(
         .kind = source.kind,
         .return_cap = source.return_cap,
         .return_ty = source.return_ty,
+        .return_ty2 = source.return_ty2,
         .return_fallible = source.return_fallible,
         .entry_inst_idx = source.entry_inst_idx,
         .is_ffi_wrapper = source.is_ffi_wrapper,

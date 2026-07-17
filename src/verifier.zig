@@ -1228,7 +1228,10 @@ fn markInstructionConsumedRegs(
     switch (item.kind) {
         .move_, .release => if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function),
         .assign => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
-        .return_ => if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function),
+        .return_ => {
+            if (item.operands[0] == .reg) markConsumedGlobalReg(scope, item.operands[0].reg, consumed_in_function);
+            if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function);
+        },
         .try_, .early_return => if (item.operands[1] == .reg) markConsumedGlobalReg(scope, item.operands[1].reg, consumed_in_function),
         else => {},
     }
@@ -2276,6 +2279,7 @@ fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.Function
         .kind = source.kind,
         .return_cap = source.return_cap,
         .return_ty = source.return_ty,
+        .return_ty2 = source.return_ty2,
         .return_fallible = source.return_fallible,
         .entry_inst_idx = source.entry_inst_idx,
         .is_ffi_wrapper = source.is_ffi_wrapper,
@@ -3325,7 +3329,67 @@ fn verifyBody(
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                 }
-                terminated = true;
+                
+                if (item.operands[1] == .reg) {
+                    const ret2_id = item.operands[1].reg;
+                    const ret2_name = current_scope.?.nameOf(&metadata.symbols, ret2_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(ret2_id)) orelse item.operands[1].text;
+                    const idx2: usize = @intCast(ret2_id);
+                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, ret2_name, ret2_id, state, flags)) |tr| {
+                        return tr;
+                    }
+                    if ((state[idx2] & maskOf(.fallible)) != 0) {
+                        return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret2_name, maskOf(.fallible), state[idx2], "multi-scalar returns cannot carry fallible values", null);
+                    }
+                    if ((state[idx2] & maskOf(.borrow_view)) == 0 and hasActiveBorrowRefs(locks, ret2_id)) {
+                        return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, ret2_name, maskOf(.active), state[idx2], "borrow rules reject this access", null);
+                    }
+                    if (isStackAllocated(flags, origins, state, ret2_id)) {
+                        return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret2_name, maskOf(.active), state[idx2], "stack allocation cannot be returned", null);
+                    }
+                    if ((flags[idx2] & regFlagRawPointer) == 0) {
+                        if ((state[idx2] & maskOf(.borrow_view)) != 0) {
+                            clearBorrow(state, flags, origins, locks, ret2_id, &interior);
+                        } else if (hasInteriorTree(state, interior_first_child, ret2_id)) {
+                            consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret2_id);
+                        } else if ((state[idx2] & maskOf(.untracked)) == 0) {
+                            state[idx2] = maskOf(.consumed);
+                        }
+                    }
+                } else if (item.operands[1] == .text and isIdentLike(item.operands[1].text)) {
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, item.operands[1].text)) |ret2_id| {
+                            const idx2: usize = @intCast(ret2_id);
+                            const ret2_name = scope.nameOf(&metadata.symbols, ret2_id) orelse item.operands[1].text;
+                            if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[1].text, ret2_id, state, flags)) |tr| {
+                                return tr;
+                            }
+                            if (isImmutableConst(state, flags, ret2_id)) {
+                                return constTrap(item, current_function_text, current_is_ffi_wrapper, ret2_name, state[idx2], "immutable registers cannot be returned by move");
+                            }
+                            if ((state[idx2] & maskOf(.fallible)) != 0) {
+                                return trapReport(.fallible_contract_mismatch, item, current_function_text, current_is_ffi_wrapper, ret2_name, maskOf(.fallible), state[idx2], "multi-scalar returns cannot carry fallible values", null);
+                            }
+                            if ((state[idx2] & maskOf(.borrow_view)) == 0 and hasActiveBorrowRefs(locks, ret2_id)) {
+                                return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, ret2_name, maskOf(.active), state[idx2], "borrow rules reject this access", null);
+                            }
+                            if (isStackAllocated(flags, origins, state, ret2_id)) {
+                                return trapReport(.stack_escape, item, current_function_text, current_is_ffi_wrapper, ret2_name, maskOf(.active), state[idx2], "stack allocation cannot be returned", null);
+                            }
+                            if ((flags[idx2] & regFlagRawPointer) == 0) {
+                                if ((state[idx2] & maskOf(.borrow_view)) != 0) {
+                                    clearBorrow(state, flags, origins, locks, ret2_id, &interior);
+                                } else if (hasInteriorTree(state, interior_first_child, ret2_id)) {
+                                    consumeInteriorValue(state, interior_parent, interior_first_child, interior_next_sibling, ret2_id);
+                                } else if ((state[idx2] & maskOf(.untracked)) == 0) {
+                                    state[idx2] = maskOf(.consumed);
+                                }
+                            }
+                        } else {
+                            return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, item.operands[1].text, null, null, "register is not declared in the current scope", null);
+                        }
+                    }
+                }
+terminated = true;
             },
             .br => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
