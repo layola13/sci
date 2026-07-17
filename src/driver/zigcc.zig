@@ -17,6 +17,39 @@ pub const CompileError = error{
     MissingTarget,
 };
 
+// Test-only external tool failure injection for zig cc / objcopy process
+// launch paths. `fail_after` matching operations succeed first, then the next
+// matching operation returns TestInjectedExternalToolFailure and clears the hook.
+var external_tool_test_fail_op: ?[]const u8 = null;
+var external_tool_test_fail_after: usize = 0;
+var external_tool_test_fail_seen: usize = 0;
+
+fn externalToolTestMaybeFail(op: []const u8) !void {
+    if (!builtin.is_test) return;
+    const want = external_tool_test_fail_op orelse return;
+    if (!std.mem.eql(u8, want, op)) return;
+    if (external_tool_test_fail_seen < external_tool_test_fail_after) {
+        external_tool_test_fail_seen += 1;
+        return;
+    }
+    external_tool_test_fail_op = null;
+    external_tool_test_fail_after = 0;
+    external_tool_test_fail_seen = 0;
+    return error.TestInjectedExternalToolFailure;
+}
+
+fn externalToolTestArm(op: []const u8, fail_after: usize) void {
+    external_tool_test_fail_op = op;
+    external_tool_test_fail_after = fail_after;
+    external_tool_test_fail_seen = 0;
+}
+
+fn externalToolTestDisarm() void {
+    external_tool_test_fail_op = null;
+    external_tool_test_fail_after = 0;
+    external_tool_test_fail_seen = 0;
+}
+
 pub const Argv = struct {
     items: std.ArrayList([]const u8),
 
@@ -362,6 +395,7 @@ pub fn argvForWasm(
 }
 
 fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
+    try externalToolTestMaybeFail("run");
     return try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
@@ -369,6 +403,7 @@ fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !std.proce
 }
 
 fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.Term {
+    try externalToolTestMaybeFail("spawn");
     var child = std.process.Child.init(argv, allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
@@ -402,10 +437,7 @@ fn localizeElfHiddenSymbols(allocator: std.mem.Allocator, object_path: []const u
     var found_tool = false;
     for (candidates) |candidate| {
         std.fs.cwd().deleteFile(staging_path) catch {};
-        const result = std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &.{ candidate, "--localize-hidden", object_path, staging_path },
-        }) catch |err| switch (err) {
+        const result = runProcess(allocator, &.{ candidate, "--localize-hidden", object_path, staging_path }) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return err,
         };
