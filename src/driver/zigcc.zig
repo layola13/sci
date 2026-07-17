@@ -700,6 +700,39 @@ test "argv helpers preserve input and link flag order" {
     try std.testing.expectEqualStrings("-o", wasm_args[7]);
 }
 
+test "external tool injection fails compile paths before output publication" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(. .sub_path = "input.bc", .data = "not-real-bitcode" });
+    const input_path = try tmp.dir.realpathAlloc(std.testing.allocator, "input.bc");
+    defer std.testing.allocator.free(input_path);
+    const exe_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const exe_out = try std.fs.path.join(std.testing.allocator, &.{ exe_path, "out.exe" });
+    defer std.testing.allocator.free(exe_path);
+    defer std.testing.allocator.free(exe_out);
+
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    externalToolTestArm("spawn", 0);
+    defer externalToolTestDisarm();
+    try std.testing.expectError(
+        CompileError.ChildProcessFailed,
+        compileExe(std.testing.allocator, input_path, exe_out, .release_small, input_path, &.{}, false, stderr_buffer.writer()),
+    );
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(exe_out, .{}));
+    try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "TestInjectedExternalToolFailure") != null);
+
+    stderr_buffer.clearRetainingCapacity();
+    externalToolTestArm("run", 0);
+    try std.testing.expectError(
+        CompileError.ChildProcessFailed,
+        compileObj(std.testing.allocator, input_path, exe_out, .release_small, false, stderr_buffer.writer()),
+    );
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(exe_out, .{}));
+    try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "TestInjectedExternalToolFailure") != null);
+}
+
 fn writeFakeTool(dir: std.fs.Dir, path: []const u8, version: []const u8) !void {
     const source = try std.fmt.allocPrint(std.testing.allocator, "#!/bin/sh\necho {s}\n", .{version});
     defer std.testing.allocator.free(source);
