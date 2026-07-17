@@ -410,7 +410,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "call_indirect")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["call_indirect".len..], " 	");
+        const rest = std.mem.trimLeft(u8, simple_rhs["call_indirect".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call_indirect;
@@ -438,7 +438,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "call")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["call".len..], " 	");
+        const rest = std.mem.trimLeft(u8, simple_rhs["call".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call;
@@ -756,7 +756,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "return")) {
-        const rest = std.mem.trimLeft(u8, trimmed["return".len..], " 	");
+        const rest = std.mem.trimLeft(u8, trimmed["return".len..], " \t");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .return_;
         if (rest.len != 0) {
@@ -771,7 +771,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "ret")) {
-        const rest = std.mem.trimLeft(u8, trimmed["ret".len..], " 	");
+        const rest = std.mem.trimLeft(u8, trimmed["ret".len..], " \t");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .return_;
         if (rest.len != 0) {

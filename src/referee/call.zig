@@ -257,17 +257,17 @@ pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall
     }
 
     const call_start = if (findCallKeyword(trimmed, "call_indirect")) |idx| idx else if (findCallKeyword(trimmed, "call")) |idx| idx else return CallError.InvalidCallSyntax;
-    const prefix = std.mem.trim(u8, trimmed[0..call_start], " 	");
+    const prefix = std.mem.trim(u8, trimmed[0..call_start], " \t");
     var dest: ?[]const u8 = null;
     var dest2: ?[]const u8 = null;
     if (prefix.len != 0) {
         const eq = std.mem.indexOfScalar(u8, prefix, '=') orelse return CallError.InvalidCallSyntax;
-        const name = std.mem.trim(u8, prefix[0..eq], " 	");
-        const tail = std.mem.trim(u8, prefix[eq + 1 ..], " 	");
+        const name = std.mem.trim(u8, prefix[0..eq], " \t");
+        const tail = std.mem.trim(u8, prefix[eq + 1 ..], " \t");
         if (name.len == 0 or tail.len != 0) return CallError.InvalidCallSyntax;
         if (std.mem.indexOfScalar(u8, name, ',')) |comma| {
-            const left = std.mem.trim(u8, name[0..comma], " 	");
-            const right = std.mem.trim(u8, name[comma + 1 ..], " 	");
+            const left = std.mem.trim(u8, name[0..comma], " \t");
+            const right = std.mem.trim(u8, name[comma + 1 ..], " \t");
             if (left.len == 0 or right.len == 0) return CallError.InvalidCallSyntax;
             if (std.mem.indexOfScalar(u8, right, ',') != null) return CallError.InvalidCallSyntax;
             dest = try allocator.dupe(u8, left);
