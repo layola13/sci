@@ -984,10 +984,21 @@ fn openDirNoFollowPath(path: []const u8, options: std.fs.Dir.OpenOptions) !std.f
     while (it.next()) |component| {
         if (std.mem.eql(u8, component.name, ".")) continue;
         const is_last = it.peekNext() == null;
-        const child = try current.openDir(component.name, .{
+        // Linux openat(O_NOFOLLOW|O_DIRECTORY) returns ENOTDIR for a final
+        // symlink component; map that back to SymLinkLoop when readlink works.
+        const child = current.openDir(component.name, .{
             .no_follow = true,
             .iterate = is_last and options.iterate,
-        });
+        }) catch |err| switch (err) {
+            error.NotDir, error.FileNotFound => {
+                var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+                if (current.readLink(component.name, &link_buf)) |_| {
+                    return error.SymLinkLoop;
+                } else |_| {}
+                return err;
+            },
+            else => return err,
+        };
         current.close();
         current = child;
     }
@@ -6938,6 +6949,13 @@ fn projectCacheManifestLookupReason(
     const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
     defer allocator.free(entry_path);
     if (projectCacheEntryPathIsSymlinkDir(entry_path)) return .incomplete;
+    {
+        // Intermediate parent symlink authorization fails closed as incomplete
+        // before following-based presence probes can misreport "absent".
+        var entry_dir = openProjectCacheEntryDir(entry_path) catch return .incomplete;
+        defer entry_dir.close();
+        if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return .artifact_corrupt;
+    }
 
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return .unknown;
     defer allocator.free(manifest_path);
@@ -6948,11 +6966,6 @@ fn projectCacheManifestLookupReason(
     if (manifest_stat.kind != .file or manifest_stat.size == 0) return .incomplete;
     if (!cachePathIsRegularFile(manifest_path)) return .incomplete;
     if (manifest_stat.size > project_cache_manifest_max_bytes) return .manifest_invalid;
-    {
-        var entry_dir = openProjectCacheEntryDir(entry_path) catch return .incomplete;
-        defer entry_dir.close();
-        if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return .artifact_corrupt;
-    }
     const manifest_bytes = readCacheTextFileAlloc(allocator, manifest_path, project_cache_manifest_max_bytes) catch return .manifest_invalid;
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return .manifest_invalid;
@@ -8369,22 +8382,22 @@ fn projectCacheManifestFirstDifference(
 ) ?[]const u8 {
     if (kind == .build_obj_incremental) return null;
 
-    // Reject symlink entry directories before nested no_follow path probes so the
-    // authorization failure is not collapsed into a generic "manifest" miss.
+    // Reject unauthorized entry paths (final entry symlink or intermediate parent
+    // symlink) before nested probes so the failure is not collapsed into "manifest".
     const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return "entry.path";
     defer allocator.free(entry_path);
     if (projectCacheEntryPathIsSymlinkDir(entry_path)) return "entry.symlink";
+    {
+        var entry_dir = openProjectCacheEntryDir(entry_path) catch return "entry.path";
+        defer entry_dir.close();
+        if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return "entry.extra_file";
+    }
 
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return "manifest.path";
     defer allocator.free(manifest_path);
     if (!cachePathIsRegularFile(manifest_path)) return "manifest";
     const manifest_stat = std.fs.cwd().statFile(manifest_path) catch return "manifest";
     if (manifest_stat.size > project_cache_manifest_max_bytes) return "manifest.size";
-    {
-        var entry_dir = openProjectCacheEntryDir(entry_path) catch return "entry.path";
-        defer entry_dir.close();
-        if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return "entry.extra_file";
-    }
     const manifest_bytes = readCacheTextFileAlloc(allocator, manifest_path, project_cache_manifest_max_bytes) catch return "manifest";
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return "manifest.json";
@@ -14258,7 +14271,7 @@ test "project cache lookup rejects intermediate symlink parents under entry path
     );
 
     try std.fs.cwd().makePath(".sa_cache");
-    try std.fs.cwd().symLink("../real-cache", ".sa_cache/build-exe", .{ .is_directory = true });
+    try std.fs.cwd().symLink("../real-cache/build-exe", ".sa_cache/build-exe", .{ .is_directory = true });
 
     const entry_path = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
     defer std.testing.allocator.free(entry_path);
