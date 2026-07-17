@@ -20,6 +20,12 @@
 - [x] Reject symlinked `test-metadata.json` before cached test metadata is parsed or accepted through manifest validation.
 - [x] Preserve Linux-focused evidence boundaries with direct unit coverage; this is not TOCTOU-hard path authorization or native macOS/Windows cache validation.
 
+## Current daemon Unix-socket smoke batch (2026-07-17)
+
+- [x] Add a native `daemon-smoke` build step that starts a real `sa daemon` process on a Unix socket, verifies ping metrics, forwards `sa version` through `SA_DAEMON_SOCKET`, sends shutdown, and checks socket cleanup.
+- [x] Wire `daemon-smoke` into the macOS native workflow after plugin smoke and lock the workflow contract.
+- [x] Validate the smoke on Linux; macOS native daemon evidence still requires the GitHub macOS runners.
+
 ## Current macOS native plugin-smoke batch (2026-07-17)
 
 - [x] Replace Linux-only plugin smoke artifact names with host-specific `linux|macos|windows` manifest keys and `.so/.dylib/.dll` library paths.

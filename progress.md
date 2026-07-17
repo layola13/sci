@@ -9,6 +9,14 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 - Static/source validation passed on Linux: `bash -n tools/ci/macos_native_smoke.sh`; `zig test tests/macos_native_ci_contract.zig` -> `3/3`; `zig test tests/windows_native_ci_contract.zig` -> `4/4`; `git diff --check`.
 - Evidence boundary: this defines and locks the archive roundtrip gate. It is not native macOS/Windows execution until the GitHub runners run the updated workflows, and it does not yet prove remote installer download behavior.
 
+## Focused verified: 2026-07-17 daemon Unix-socket smoke gate
+
+- `build.zig` now exposes `daemon-smoke`, a focused native test step that builds the real `sa` executable and passes its emitted path to `tests/daemon_smoke.zig`.
+- The smoke starts `sa daemon --socket <tmp>/daemon.sock`, verifies the ping control response and in-flight metrics, runs `sa version` through a separate client process with `SA_DAEMON_SOCKET` set, sends shutdown, unblocks the accept loop if needed, and verifies the socket path is removed before the daemon exits with code 0.
+- `.github/workflows/macos-native.yml` now runs `zig build daemon-smoke -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all`, and `tests/macos_native_ci_contract.zig` locks that workflow/source contract.
+- Validation passed on Linux: `zig build daemon-smoke -Doptimize=ReleaseSafe --summary all`; `zig build macos-ci-contract --summary all` -> `3/3`; focused `zig fmt --check`; `git diff --check`.
+- Evidence boundary: this is Linux executable daemon evidence plus macOS workflow/static-contract evidence. The macOS runners have not executed the daemon smoke natively yet, and Windows remains intentionally unsupported for this Unix-socket gate.
+
 ## Focused verified: 2026-07-17 Windows native plugin-smoke contract
 
 - `tests/plugin_host_smoke.zig` now uses host-specific artifact keys and dynamic-library paths for `.dll` as well as `.so/.dylib`, avoids POSIX-only `setenv`/`unsetenv` on Windows by using `SetEnvironmentVariableW`, and replaces the broker process runner shell script with a tiny native Zig executable.

@@ -968,6 +968,10 @@ pub fn build(b: *std.Build) void {
     release_artifacts_step.dependOn(&install_sa_std_static.step);
     release_artifacts_step.dependOn(&install_sa_std_header.step);
 
+    const daemon_smoke_options = b.addOptions();
+    daemon_smoke_options.addOption([]const u8, "version", version);
+    daemon_smoke_options.addOptionPath("sa_cli_path", exe.getEmittedBin());
+
     const wasm_matrix_module = b.createModule(.{
         .root_source_file = b.path("tests/wasm_matrix_smoke.zig"),
         .target = target,
@@ -1041,6 +1045,23 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_workspace_smoke.step);
     const workspace_smoke_step = b.step("workspace-smoke", "Run workspace package-management smoke tests");
     workspace_smoke_step.dependOn(&run_workspace_smoke.step);
+
+    const daemon_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/daemon_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    daemon_smoke_module.addImport("saasm", lib_module);
+    daemon_smoke_module.addOptions("build_options", build_options);
+    daemon_smoke_module.addOptions("daemon_smoke_options", daemon_smoke_options);
+    const daemon_smoke = b.addTest(.{
+        .root_module = daemon_smoke_module,
+        .filters = &.{"daemon unix socket smoke forwards cli command and shuts down"},
+    });
+    const run_daemon_smoke = b.addRunArtifact(daemon_smoke);
+    run_daemon_smoke.setCwd(repo_root_lazy);
+    const daemon_smoke_step = b.step("daemon-smoke", "Run native Unix-socket daemon client/server smoke");
+    daemon_smoke_step.dependOn(&run_daemon_smoke.step);
 
     const pthread_vtable_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),

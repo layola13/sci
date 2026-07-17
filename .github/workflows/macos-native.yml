@@ -129,6 +129,7 @@ jobs:
           zig build portability-check -Dtarget="$ZIG_TARGET" --summary all
           zig build test-portable -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
           zig build plugin-host-smoke -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
+          zig build daemon-smoke -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
           zig build test-runtime-basic -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
           zig build test-runtime-pal -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
           zig build test-runtime-netx -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all

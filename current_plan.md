@@ -198,6 +198,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - retain the evidence boundary: no macOS native PTY run exists yet, and `sa-std-runtime` is still the known Linux-container `13/14` IPv6 multicast environment failure.
 15. [ ] Finish native `.dll`/`.dylib` plugin, daemon Unix-socket, PowerShell/macOS installer, archive, and release smoke.
    - [x] define native macOS/Windows archive roundtrip inside the existing compiler smoke scripts: stage release payload, package it as `sa-macos-<arch>.tar.gz` / `sa-windows-<arch>.zip`, extract it to a clean directory, and run all compiler/package smoke checks from the extracted `bin/` + `std/` tree;
+   - [x] add a Linux-verifiable native `daemon-smoke` gate that starts a real Unix-socket daemon, verifies ping metrics, forwards `sa version` through `SA_DAEMON_SOCKET`, shuts down, and checks socket cleanup; wire it into macOS native CI for future runner evidence;
    - [ ] execute those archive smokes on native macOS/Windows runners and add remote installer/release-download evidence before claiming installer/archive support.
 
 Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket and PTY contracts have not run natively, and socket multicast join/leave paths remain uncovered.
