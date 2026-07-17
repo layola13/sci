@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIterSorted advance/chunk aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `next_chunk` and `advance_by`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_TRY_NEXT_CHUNK_U64` and `BINARY_HEAP_INTO_ITER_SORTED_ADVANCE_BY`.
+- Semantics: aliases consume the existing materialized descending cursor greatest-first and reuse concrete `u64` iterator advance/chunk helpers. Reverse advance aliases are intentionally not added because Rust `IntoIterSorted` is not a `DoubleEndedIterator`.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_advance_chunk_macro_surface.sa` - 1 test (panic ID 10773) covering advance success, short advance exhaustion, zero advance, complete chunk, short chunk, zero chunk, cursor remainders, and backing Vec ownership.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_advance_chunk_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10774+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIterSorted cursor ops aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `nth`, `count`, and `last`.

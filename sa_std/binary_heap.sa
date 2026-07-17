@@ -1407,6 +1407,14 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND VEC_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
+    EXPAND VEC_INTO_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
