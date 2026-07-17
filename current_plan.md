@@ -4329,3 +4329,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10745+.
 Still blocked without redesign: Rust generic `Ord` trait dispatch, generic closure capture/call ABI, borrowed reference item types, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter comparison ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter lexicographic comparison aliases in array.sa: ARRAY_INTO_ITER_CMP_U64, ARRAY_INTO_ITER_CMP_BY_U64, ARRAY_INTO_ITER_PARTIAL_CMP_U64, ARRAY_INTO_ITER_PARTIAL_CMP_BY_U64, ARRAY_INTO_ITER_EQ_BY_U64, ARRAY_INTO_ITER_EQ_U64, ARRAY_INTO_ITER_PARTIAL_EQ_U64, ARRAY_INTO_ITER_NE_U64, ARRAY_INTO_ITER_LT_U64, ARRAY_INTO_ITER_LE_U64, ARRAY_INTO_ITER_GT_U64, and ARRAY_INTO_ITER_GE_U64.
+- Test file std_array_into_iter_comparison_macro_surface.sa (panic ID 10745).
+
+Panic IDs next free: 10746+.
+Still blocked without redesign: Rust `Option<Ordering>` ABI for partial comparison, Rust generic `Ord` / `PartialOrd` trait dispatch, generic closure capture/call ABI, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
