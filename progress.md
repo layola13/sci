@@ -8930,3 +8930,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_for_each_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10744+.
+
+## Completed: 2026-07-17 Array IntoIter sortedness ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_IS_SORTED_U64`, `ARRAY_INTO_ITER_IS_SORTED_BY_U64`, and `ARRAY_INTO_ITER_IS_SORTED_BY_KEY_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` sortedness checks by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They consume the remaining cursor and return concrete bool scalars, not Rust generic `Ord` trait dispatch, closure capture, borrowed reference item types, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_sorted_macro_surface.sa` — 1 test (panic ID 10744) covering sorted/unsorted direct checks, comparator-based checks, key-based checks, cursor exhaustion after checks, and empty iterator truth values.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_sorted_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10745+.
