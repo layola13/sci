@@ -1006,6 +1006,22 @@ L_APPEND_DONE:
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+    EXPAND ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+    EXPAND ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_ITER_COUNT_U64 %out_count, %iter_reg
+    EXPAND ITER_COUNT %out_count, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_ITER_LAST_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_LAST_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]

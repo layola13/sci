@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap Iter cursor ops aliases
+
+- Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` over the backing slice and `library/core/src/iter/traits/iterator.rs` for `nth`, `nth_back`, `count`, and `last`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_ITER_NTH_U64`, `BINARY_HEAP_ITER_NTH_BACK_U64`, `BINARY_HEAP_ITER_COUNT_U64`, and `BINARY_HEAP_ITER_LAST_U64`.
+- Semantics: helpers consume only the concrete borrowed slice-backed cursor in heap-array order. `nth` and `nth_back` consume through their selected item or exhaust on miss; `count` and `last` consume the remaining cursor while leaving the heap storage intact.
+- Test: `tests/unit_framework/std_binary_heap_iter_cursor_ops_macro_surface.sa` - 1 test (panic ID 10757) covering next+nth+nth_back composition, last, count, nth miss, nth_back miss, cursor exhaustion, and heap non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_cursor_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10758+.
+
 ## Completed: 2026-07-17 BinaryHeap Iter collect aliases
 
 - Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` over the backing slice and `library/core/src/iter/traits/iterator.rs` for `collect`, `try_collect`, and `collect_into`.
