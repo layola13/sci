@@ -2349,6 +2349,20 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0101010101010101010101010101010101010101010101010101010101010101") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0202020202020202020202020202020202020202020202020202020202020202") == null);
 
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_text_candidate_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", candidate_miss_key };
+    const why_text_schema_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_text_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_text_schema_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "reason=absent"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=bbbbbbbbbbbb"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=key.schema"));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, candidate_miss_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0101010101010101010101010101010101010101010101010101010101010101") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0202020202020202020202020202020202020202020202020202020202020202") == null);
+
     try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
         \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]}
         \\
@@ -2660,6 +2674,19 @@ test "cli cache status and why redact dynamic dependency differences" {
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
+    const why_present_text_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", present_key };
+    const why_present_text_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_present_text_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_present_text_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "reason=dependency_changed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "key=eeeeeeeeeeee") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "first_difference=dynamic_dependencies.present") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_env_name) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, present_env_value) == null);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
     const why_sha_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", sha_key, "--json" };
     const why_sha_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_sha_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), why_sha_code);
@@ -2667,6 +2694,22 @@ test "cli cache status and why redact dynamic dependency differences" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"reason\":\"dependency_changed\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"key_prefix\":\"ffffffffffff\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"first_difference\":\"dynamic_dependencies.sha256\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, sha_env_name) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_env_value) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_digest[0..]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_digest[0..]) == null);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_sha_text_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", sha_key };
+    const why_sha_text_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_sha_text_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_sha_text_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "reason=dependency_changed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "key=ffffffffffff") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "first_difference=dynamic_dependencies.sha256") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, sha_key) == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, sha_env_name) == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, old_sha_env_value) == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, current_sha_env_value) == null);
