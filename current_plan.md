@@ -4238,3 +4238,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10735+.
 Still blocked without redesign: generic Vec<T> borrowed reference item semantics, Rust lifetime enforcement, mutable `slice::IterMut` Clone support, iterator object layout/debug formatting, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Vec IterMut trait ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec borrowed IterMut as-ref/as-mut/cursor/size aliases in vec.sa: VEC_ITER_MUT_AS_REF_SLICE_U64, VEC_ITER_MUT_AS_MUT_SLICE_U64, VEC_ITER_MUT_NEXT_U64, VEC_ITER_MUT_NEXT_BACK_U64, VEC_ITER_MUT_SIZE_HINT_U64, VEC_ITER_MUT_EXACT_SIZE_LEN_U64, and VEC_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64.
+- Test file std_vec_iter_mut_trait_macro_surface.sa (panic ID 10735).
+
+Panic IDs next free: 10736+.
+Still blocked without redesign: generic Vec<T> mutable reference item semantics, Rust lifetime/aliasing enforcement, iterator object layout/debug formatting, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

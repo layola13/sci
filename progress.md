@@ -8849,3 +8849,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_iter_trait_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10735+.
+
+## Completed: 2026-07-17 Vec IterMut trait ops
+
+- `sa_std/vec.sa`: Added `VEC_ITER_MUT_AS_REF_SLICE_U64`, `VEC_ITER_MUT_AS_MUT_SLICE_U64`, `VEC_ITER_MUT_NEXT_U64`, `VEC_ITER_MUT_NEXT_BACK_U64`, `VEC_ITER_MUT_SIZE_HINT_U64`, `VEC_ITER_MUT_EXACT_SIZE_LEN_U64`, and `VEC_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers expose the supportable concrete borrowed `slice::IterMut<u64>` / `Vec::iter_mut` AsRef, unstable as-mut-slice, Iterator, DoubleEndedIterator, ExactSizeIterator, and fused exhaustion shapes over the existing Vec mutable slice-backed cursor. Values are still returned as concrete `u64` scalars; mutable slice views can expose raw mutable storage, but this does not model Rust `&mut T` item ABI or borrow aliasing rules.
+- Test: `tests/unit_framework/std_vec_iter_mut_trait_macro_surface.sa` — 1 test (panic ID 10735) covering initial/remaining size hints, ref/mut remaining slice views, mutation through the remaining mutable slice, forward/back consumption, repeated exhaustion, `&mut Vec` into-iterator alias reuse, and unchanged Vec length.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_iter_mut_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10736+.
