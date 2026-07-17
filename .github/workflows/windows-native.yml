@@ -283,6 +283,9 @@ jobs:
             archive = "sa-windows-x86_64.zip"
             native_smoke = "passed"
             wasm_magic = "0061736d"
+            github_sha = "${{ github.sha }}"
+            github_run_id = "${{ github.run_id }}"
+            github_run_attempt = "${{ github.run_attempt }}"
           }
           foreach ($key in $expected.Keys) {
             if ($evidence.$key -ne $expected[$key]) {

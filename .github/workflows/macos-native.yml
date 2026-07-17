@@ -197,6 +197,9 @@ jobs:
               "archive": f"sa-macos-{expected_arch}.tar.gz",
               "native_smoke": "passed",
               "wasm_magic": "0061736d",
+              "github_sha": "${{ github.sha }}",
+              "github_run_id": "${{ github.run_id }}",
+              "github_run_attempt": "${{ github.run_attempt }}",
           }
           for key, value in expected.items():
               if evidence.get(key) != value:

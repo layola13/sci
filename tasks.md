@@ -1,5 +1,13 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native smoke evidence provenance batch (2026-07-17)
+
+- [x] Keep unrelated cache/compiler worktree changes out of this portability batch.
+- [x] Add GitHub SHA, run id, and run attempt to native smoke evidence JSON.
+- [x] Validate those provenance fields before uploading macOS/Windows native smoke artifacts.
+- [x] Lock the provenance fields with Linux-runnable source contracts.
+- [x] Run focused validation and commit/push the selected portability files.
+
 ## Current native smoke evidence validation batch (2026-07-17)
 
 - [x] Check whether the GitHub workflows can be triggered from this host; `gh` is installed but not authenticated.

@@ -256,6 +256,9 @@ try {
             platform = "windows"
             arch = $archiveArch
             archive = "$archivePayloadName.zip"
+            github_sha = $env:GITHUB_SHA
+            github_run_id = $env:GITHUB_RUN_ID
+            github_run_attempt = $env:GITHUB_RUN_ATTEMPT
             staged_version = $versionResult.Output
             installed_version = $installedVersion.Output
             wasm_magic = "0061736d"

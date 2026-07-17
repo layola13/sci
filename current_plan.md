@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: native smoke evidence provenance
+
+1. [x] Preserve unrelated cache/compiler worktree changes without staging them.
+2. [x] Add GitHub SHA, run id, and run attempt to macOS/Windows native-smoke evidence JSON.
+3. [x] Validate those provenance fields in both native workflows before artifact upload and lock them with source contracts.
+4. [x] Run focused macOS/Windows CI contract validation, syntax/format/diff checks, then commit and push only the coherent portability batch.
+
 ## Current turn: native smoke evidence validation
 
 1. [x] Confirm remote GitHub workflow execution cannot be triggered from this host because `gh` is not authenticated.
@@ -228,6 +235,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - [x] lock the GitHub release matrix so macOS/Windows archive rows remain disabled until matching native compiler/runtime/installer/archive evidence exists;
    - [x] emit and upload native smoke evidence JSON artifacts from macOS/Windows workflows after the archive, installer, wasm, package, and installed-check smokes pass;
    - [x] validate native smoke evidence JSON contents in macOS/Windows workflows before artifact upload;
+   - [x] bind native smoke evidence JSON to the GitHub SHA, run id, and run attempt before artifact upload;
    - [ ] execute those archive smokes on native macOS/Windows runners and add remote installer/release-download evidence before claiming installer/archive support.
 
 Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket and PTY contracts have not run natively, and socket multicast join/leave paths remain uncovered.

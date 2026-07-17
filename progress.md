@@ -2,6 +2,15 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native smoke evidence provenance
+
+- Unrelated cache/compiler worktree changes are preserved and intentionally left out of this portability batch.
+- `tools/ci/macos_native_smoke.sh` and `tools/ci/windows_native_smoke.ps1` now write `github_sha`, `github_run_id`, and `github_run_attempt` into native-smoke evidence JSON.
+- The macOS/Windows workflows validate those provenance fields against the current GitHub Actions context before uploading the artifact.
+- The macOS/Windows CI source contracts lock the provenance fields in both the scripts and workflow validation.
+- Validation passed on Linux: `zig build macos-ci-contract --summary all` -> `3/3`; `zig build windows-ci-contract --summary all` -> `5/5`; `zig fmt --check tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `bash -n tools/ci/macos_native_smoke.sh`; `git diff --check`.
+- Evidence boundary: this strengthens future native-run artifact attribution. It is still source/static evidence on this Linux host and does not claim native macOS/Windows execution.
+
 ## Focused verified: 2026-07-17 native smoke evidence validation
 
 - `gh` is present but unauthenticated on this host, so the macOS/Windows workflows could not be triggered from here for native runner evidence.
