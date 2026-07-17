@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native installer HTTP release-download evidence
+
+1. [x] Keep the worktree clean before starting the batch and preserve unrelated changes.
+2. [x] Add loopback HTTP release-download installer smoke after the existing local `file://` installer smoke in macOS and Windows native smoke scripts.
+3. [x] Record `installer_transports: ["file", "http"]` in native-smoke evidence and validate it through `tools/ci/validate_native_evidence.zig`.
+4. [x] Lock the script and validator changes with macOS/Windows CI source contracts.
+5. [x] Run focused validator/CI contract validation, syntax/format/diff checks, then commit and push the batch.
+
 ## Current turn: release contract native-evidence binding
 
 1. [x] Preserve unrelated compiler/cache worktree changes without staging them.

@@ -188,6 +188,8 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "archive_path=\"$temp_root/$archive_payload_name.tar.gz\"",
         "archive_extract_root=\"$temp_root/archive extracted\"",
         "installer_root=\"$temp_root/installed via install.sh\"",
+        "http_installer_root=\"$temp_root/installed via install.sh http\"",
+        "http_port_file=\"$temp_root/release_http_port\"",
         "cp -R \"$source_std_root/.\" \"$std_root/\"",
         "libsa_std.a",
         "sa_std.h",
@@ -232,6 +234,14 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "capture_success \"install.sh local release archive\" env",
         "SA_RELEASE_URL=\"file://$installer_release_root\"",
         "sh \"$repo_root/tools/install.sh\" --dir \"$installer_root\" --no-shell",
+        "python3 - \"$installer_release_root\" \"$http_port_file\"",
+        "http_server_pid=$!",
+        "release_http_url=\"http://127.0.0.1:$(cat \"$http_port_file\")\"",
+        "capture_success \"install.sh HTTP release archive\" env",
+        "SA_RELEASE_URL=\"$release_http_url\"",
+        "sh \"$repo_root/tools/install.sh\" --dir \"$http_installer_root\" --no-shell",
+        "HTTP installed sa version",
+        "HTTP installed sa check",
         "installed_sa=\"$installer_root/bin/sa\"",
         "installed_std_root=\"$installer_root/std\"",
         "$installed_std_root/libsa_std.a",
@@ -247,6 +257,7 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "\"github_sha\": \"%s\"",
         "\"github_run_id\": \"%s\"",
         "\"github_run_attempt\": \"%s\"",
+        "\"installer_transports\": [\"file\", \"http\"]",
         "\"staged_version\": \"%s\"",
         "\"installed_version\": \"%s\"",
         "\"wasm_magic\": \"%s\"",
@@ -275,6 +286,9 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "capture_success \"install.sh local release archive\"",
         "capture_success \"installed sa version\"",
         "capture_success \"installed sa check\"",
+        "capture_success \"install.sh HTTP release archive\"",
+        "capture_success \"HTTP installed sa version\"",
+        "capture_success \"HTTP installed sa check\"",
     });
 
     const forbidden = [_][]const u8{
@@ -340,6 +354,7 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     defer std.testing.allocator.free(evidence_validator_source);
     try expectContains(evidence_validator_source, "const EvidenceKind = enum");
     try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
+    try expectContains(evidence_validator_source, "fn validateInstallerTransports");
     try expectContains(evidence_validator_source, "\"plugin-host-smoke\"");
     try expectContains(evidence_validator_source, "\"daemon-smoke\"");
     try expectContains(evidence_validator_source, "\"test-runtime-darwin-socket\"");

@@ -49,6 +49,83 @@ function Assert-Success {
     }
 }
 
+function Start-ReleaseHttpServer {
+    param(
+        [string]$Root,
+        [string]$PortFile
+    )
+
+    if (Test-Path -LiteralPath $PortFile) {
+        Remove-Item -LiteralPath $PortFile -Force
+    }
+    $serverJob = Start-Job -ScriptBlock {
+        param(
+            [string]$Root,
+            [string]$PortFile
+        )
+
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        [IO.File]::WriteAllText($PortFile, [string]$listener.LocalEndpoint.Port, [Text.Encoding]::ASCII)
+        try {
+            while ($true) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::ASCII, $false, 1024, $true)
+                    $requestLine = $reader.ReadLine()
+                    while ($true) {
+                        $line = $reader.ReadLine()
+                        if ($null -eq $line -or $line.Length -eq 0) {
+                            break
+                        }
+                    }
+                    if ($requestLine -notmatch '^GET\s+([^ ]+)\s+HTTP/') {
+                        $response = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 400 Bad Request`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+                        $stream.Write($response, 0, $response.Length)
+                        continue
+                    }
+                    $relativePath = [Uri]::UnescapeDataString($Matches[1].TrimStart("/"))
+                    if ($relativePath.Contains("/") -or $relativePath.Contains("\") -or $relativePath.Contains("..")) {
+                        $response = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+                        $stream.Write($response, 0, $response.Length)
+                        continue
+                    }
+                    $filePath = Join-Path $Root $relativePath
+                    if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+                        $response = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+                        $stream.Write($response, 0, $response.Length)
+                        continue
+                    }
+                    $bytes = [IO.File]::ReadAllBytes($filePath)
+                    $header = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
+                    $stream.Write($header, 0, $header.Length)
+                    $stream.Write($bytes, 0, $bytes.Length)
+                } finally {
+                    $client.Close()
+                }
+            }
+        } finally {
+            $listener.Stop()
+        }
+    } -ArgumentList $Root, $PortFile
+
+    for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $PortFile -PathType Leaf); $i += 1) {
+        if ($serverJob.State -ne "Running") {
+            throw "release HTTP server exited before writing its port: $(Receive-Job -Job $serverJob)"
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path -LiteralPath $PortFile -PathType Leaf)) {
+        throw "release HTTP server did not report a port"
+    }
+    $port = [IO.File]::ReadAllText($PortFile).Trim()
+    return [pscustomobject]@{
+        Job = $serverJob
+        Url = "http://127.0.0.1:$port"
+    }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
 if ([string]::IsNullOrWhiteSpace($RuntimeRoot)) {
     $RuntimeRoot = "zig-out"
@@ -78,6 +155,9 @@ $archivePath = Join-Path $tempRoot "$archivePayloadName.zip"
 $archiveExtractRoot = Join-Path $tempRoot "archive extracted"
 $installerReleaseRoot = Join-Path $tempRoot "installer release"
 $installerRoot = Join-Path $tempRoot "installed via install.ps1"
+$httpInstallerRoot = Join-Path $tempRoot "installed via install.ps1 http"
+$httpPortFile = Join-Path $tempRoot "release-http-port.txt"
+$releaseHttpJob = $null
 $tempDemo = Join-Path $tempRoot "hello main.sa"
 $nativeOutput = Join-Path $tempRoot "hello output.exe"
 $wasmOutput = Join-Path $tempRoot "hello output.wasm"
@@ -247,6 +327,28 @@ try {
     $installedCheck = Invoke-NativeCapture -FilePath $installedSa -Arguments @("check", $tempDemo)
     Assert-Success -Action "installed sa.exe check" -Result $installedCheck
 
+    $releaseHttp = Start-ReleaseHttpServer -Root $installerReleaseRoot -PortFile $httpPortFile
+    $releaseHttpJob = $releaseHttp.Job
+    [Environment]::SetEnvironmentVariable("SA_RELEASE_URL", $releaseHttp.Url, "Process")
+    Write-Host "Running install.ps1 against HTTP release archive $($releaseHttp.Url)"
+    & (Join-Path $repoRoot "tools\install.ps1") -Dir $httpInstallerRoot -NoShell
+    $httpInstalledSa = Join-Path $httpInstallerRoot "bin\sa.exe"
+    $httpInstalledStdRoot = Join-Path $httpInstallerRoot "std"
+    foreach ($requiredPath in @(
+        $httpInstalledSa,
+        (Join-Path $httpInstalledStdRoot "sa_std.lib"),
+        (Join-Path $httpInstalledStdRoot "sa_std.h"),
+        (Join-Path $httpInstalledStdRoot "io\print.sai"))) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "install.ps1 HTTP release install is missing $requiredPath"
+        }
+    }
+    $httpInstalledVersion = Invoke-NativeCapture -FilePath $httpInstalledSa -Arguments @("version")
+    Assert-Success -Action "HTTP installed sa.exe version" -Result $httpInstalledVersion
+    [Environment]::SetEnvironmentVariable("SA_STD_DIR", $httpInstalledStdRoot, "Process")
+    $httpInstalledCheck = Invoke-NativeCapture -FilePath $httpInstalledSa -Arguments @("check", $tempDemo)
+    Assert-Success -Action "HTTP installed sa.exe check" -Result $httpInstalledCheck
+
     if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
         $evidenceParent = Split-Path -Parent $EvidencePath
         if (-not [string]::IsNullOrWhiteSpace($evidenceParent)) {
@@ -259,6 +361,7 @@ try {
             github_sha = $env:GITHUB_SHA
             github_run_id = $env:GITHUB_RUN_ID
             github_run_attempt = $env:GITHUB_RUN_ATTEMPT
+            installer_transports = @("file", "http")
             staged_version = $versionResult.Output
             installed_version = $installedVersion.Output
             wasm_magic = "0061736d"
@@ -266,6 +369,10 @@ try {
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $EvidencePath -Encoding utf8
     }
 } finally {
+    if ($null -ne $releaseHttpJob) {
+        Stop-Job -Job $releaseHttpJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $releaseHttpJob -Force -ErrorAction SilentlyContinue
+    }
     if ($locationPushed) {
         Pop-Location
     }

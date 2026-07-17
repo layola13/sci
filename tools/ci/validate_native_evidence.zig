@@ -163,6 +163,23 @@ fn validatePassedGates(root: std.json.Value, platform: []const u8) !void {
     }
 }
 
+fn validateInstallerTransports(root: std.json.Value) !void {
+    const value = try jsonObjectGet(root, "installer_transports");
+    if (value != .array) return error.ExpectedArray;
+    const expected = [_][]const u8{ "file", "http" };
+    if (value.array.items.len != expected.len) {
+        std.debug.print("native smoke evidence installer transport count mismatch: expected {}, got {}\n", .{ expected.len, value.array.items.len });
+        return error.EvidenceMismatch;
+    }
+    for (expected, 0..) |expected_transport, index| {
+        const item = value.array.items[index];
+        if (item != .string or !std.mem.eql(u8, item.string, expected_transport)) {
+            std.debug.print("native smoke evidence installer transport mismatch at {}: expected '{s}'\n", .{ index, expected_transport });
+            return error.EvidenceMismatch;
+        }
+    }
+}
+
 fn validateEvidence(root: std.json.Value, options: Options) !void {
     try expectString(root, "platform", options.platform);
     try expectString(root, "arch", options.arch);
@@ -177,6 +194,7 @@ fn validateEvidence(root: std.json.Value, options: Options) !void {
             try expectString(root, "wasm_magic", "0061736d");
             try validateVersionString(try jsonString(root, "staged_version"));
             try validateVersionString(try jsonString(root, "installed_version"));
+            try validateInstallerTransports(root);
         },
         .runtime => {
             try expectString(root, "target", options.target orelse return error.MissingTarget);
@@ -240,6 +258,7 @@ test "validates Windows smoke evidence" {
         \\  "github_run_id": "100",
         \\  "github_sha": "def",
         \\  "installed_version": "sa 0.0.4",
+        \\  "installer_transports": ["file", "http"],
         \\  "native_smoke": "passed",
         \\  "platform": "windows",
         \\  "staged_version": "sa 0.0.4",

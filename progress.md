@@ -2,6 +2,16 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native installer HTTP release-download evidence
+
+- `tools/ci/macos_native_smoke.sh` now starts a loopback Python HTTP server over the staged release archive/checksum directory and runs `install.sh` against `http://127.0.0.1:<port>` after the existing local `file://` install.
+- `tools/ci/windows_native_smoke.ps1` now starts a PowerShell/.NET loopback TCP HTTP server over the same staged release directory and runs `install.ps1` against that HTTP URL after the existing local file install.
+- Native-smoke evidence now records `installer_transports: ["file", "http"]`, and `tools/ci/validate_native_evidence.zig` rejects smoke evidence that does not include both transports in order.
+- The macOS/Windows CI source contracts lock the new HTTP installer path, evidence field, and validator rule.
+- Validation passed on Linux: `zig build native-evidence-validator --summary all` -> `3/3`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `3/3`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `3/3`; `zig build release-contract --summary all`; `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `bash -n tools/ci/macos_native_smoke.sh`; Python YAML parsing for macOS/Windows/release workflows; `git diff --check`.
+- `pwsh` is not installed on this Linux host, so `tools/ci/windows_native_smoke.ps1` remains source-contract evidence until the Windows runner executes it.
+- Evidence boundary: this defines and validates the remote-download-style installer smoke path, but this Linux host still has not executed the macOS/Windows native smoke workflows.
+
 ## Focused verified: 2026-07-17 release contract native-evidence binding
 
 - `release-contract` now depends on the shared `native-evidence-validator` step, so release-switch validation also exercises the native smoke/runtime evidence JSON validator.

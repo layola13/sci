@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native installer HTTP release-download batch (2026-07-17)
+
+- [x] Preserve unrelated worktree changes out of this portability batch.
+- [x] Extend macOS and Windows native smoke scripts to serve the staged release archive/checksum over loopback HTTP and run the installer against that URL after the existing `file://` install.
+- [x] Add `installer_transports: ["file", "http"]` to native-smoke evidence and validate it with the shared evidence validator.
+- [x] Lock the new smoke paths with Linux-runnable macOS/Windows CI source contracts.
+- [x] Run focused validator/CI contract validation, syntax/format/diff checks, then commit/push the selected portability files.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is gate-definition/source-contract evidence only until then.
+
 ## Current release contract native-evidence binding batch (2026-07-17)
 
 - [x] Preserve unrelated compiler/cache worktree changes out of this portability batch.

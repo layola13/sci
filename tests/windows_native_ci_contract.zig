@@ -123,6 +123,10 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "$archivePath = Join-Path $tempRoot \"$archivePayloadName.zip\"",
         "$installerReleaseRoot = Join-Path $tempRoot \"installer release\"",
         "$installerRoot = Join-Path $tempRoot \"installed via install.ps1\"",
+        "$httpInstallerRoot = Join-Path $tempRoot \"installed via install.ps1 http\"",
+        "$httpPortFile = Join-Path $tempRoot \"release-http-port.txt\"",
+        "function Start-ReleaseHttpServer",
+        "[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)",
         "Compress-Archive -LiteralPath $archivePayloadRoot -DestinationPath $archivePath -Force",
         "Copy-Item -LiteralPath $archivePath -Destination $installerArchive -Force",
         "Get-FileHash -LiteralPath $installerArchive -Algorithm SHA256",
@@ -158,6 +162,11 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "$installerReleaseRootUri = ([Uri]((Resolve-Path -LiteralPath $installerReleaseRoot).Path + [IO.Path]::DirectorySeparatorChar)).AbsoluteUri.TrimEnd(\"/\")",
         "SetEnvironmentVariable(\"SA_RELEASE_URL\", $installerReleaseRootUri, \"Process\")",
         "tools\\install.ps1\") -Dir $installerRoot -NoShell",
+        "$releaseHttp = Start-ReleaseHttpServer -Root $installerReleaseRoot -PortFile $httpPortFile",
+        "SetEnvironmentVariable(\"SA_RELEASE_URL\", $releaseHttp.Url, \"Process\")",
+        "tools\\install.ps1\") -Dir $httpInstallerRoot -NoShell",
+        "HTTP installed sa.exe version",
+        "HTTP installed sa.exe check",
         "$installedSa = Join-Path $installerRoot \"bin\\sa.exe\"",
         "$installedStdRoot = Join-Path $installerRoot \"std\"",
         "install.ps1 local release install is missing",
@@ -170,6 +179,7 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "github_sha = $env:GITHUB_SHA",
         "github_run_id = $env:GITHUB_RUN_ID",
         "github_run_attempt = $env:GITHUB_RUN_ATTEMPT",
+        "installer_transports = @(\"file\", \"http\")",
         "staged_version = $versionResult.Output",
         "installed_version = $installedVersion.Output",
         "native_smoke = \"passed\"",
@@ -242,6 +252,7 @@ test "build graph exposes focused Windows CI entry points" {
     try expectContains(evidence_validator_source, "fn expectedArchive");
     try expectContains(evidence_validator_source, "\"sa-windows-x86_64.zip\"");
     try expectContains(evidence_validator_source, "fn validatePassedGates");
+    try expectContains(evidence_validator_source, "fn validateInstallerTransports");
     try expectContains(evidence_validator_source, "\"test-runtime-windows\"");
     try expectContains(build_source, "requires a native Windows x86_64 host and target");
     try expectContains(build_source, "windows process spawn failure leaves no live child handle");

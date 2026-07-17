@@ -119,11 +119,16 @@ temp_parent=${temp_parent%/}
 unicode_word=$(printf '\346\265\213\350\257\225')
 temp_root=$(mktemp -d "$temp_parent/sa macOS smoke $unicode_word.XXXXXX")
 installer_release_root=$(mktemp -d "$temp_parent/sa_installer_release.XXXXXX")
+http_server_pid=
 
 cleanup() {
     status=$?
     trap - EXIT HUP INT TERM
     CDPATH= cd -- "$repo_root" 2>/dev/null || true
+    if [ -n "${http_server_pid:-}" ]; then
+        kill "$http_server_pid" 2>/dev/null || true
+        wait "$http_server_pid" 2>/dev/null || true
+    fi
     if [ -n "${temp_root:-}" ] && [ -d "$temp_root" ]; then
         rm -rf -- "$temp_root"
     fi
@@ -150,6 +155,8 @@ temp_demo="$temp_root/hello main.sa"
 native_output="$temp_root/hello output"
 wasm_output="$temp_root/hello output.wasm"
 installer_root="$temp_root/installed via install.sh"
+http_installer_root="$temp_root/installed via install.sh http"
+http_port_file="$temp_root/release_http_port"
 home_root="$temp_root/isolated home"
 process_temp_root="$temp_root/isolated temp"
 plugins_root="$temp_root/isolated plugins"
@@ -298,6 +305,64 @@ fi
 installed_version_output=$captured_output
 capture_success "installed sa check" env SA_STD_DIR="$installed_std_root" "$installed_sa" check "$temp_demo"
 
+rm -f "$http_port_file"
+python3 - "$installer_release_root" "$http_port_file" <<'PY' &
+import http.server
+import socketserver
+import sys
+
+root = sys.argv[1]
+port_file = sys.argv[2]
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=root, **kwargs)
+
+    def log_message(self, format, *args):
+        pass
+
+class Server(socketserver.TCPServer):
+    allow_reuse_address = True
+
+with Server(("127.0.0.1", 0), Handler) as httpd:
+    with open(port_file, "w", encoding="ascii") as handle:
+        handle.write(str(httpd.server_address[1]))
+    httpd.serve_forever()
+PY
+http_server_pid=$!
+attempt=0
+while [ "$attempt" -lt 100 ] && [ ! -s "$http_port_file" ]; do
+    if ! kill -0 "$http_server_pid" 2>/dev/null; then
+        printf 'release HTTP server exited before writing its port\n' >&2
+        exit 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+if [ ! -s "$http_port_file" ]; then
+    printf 'release HTTP server did not report a port\n' >&2
+    exit 1
+fi
+release_http_url="http://127.0.0.1:$(cat "$http_port_file")"
+capture_success "install.sh HTTP release archive" env \
+    SA_RELEASE_URL="$release_http_url" \
+    HOME="$home_root" \
+    USERPROFILE="$home_root" \
+    TMPDIR="$process_temp_root" \
+    TEMP="$process_temp_root" \
+    TMP="$process_temp_root" \
+    sh "$repo_root/tools/install.sh" --dir "$http_installer_root" --no-shell
+http_installed_sa="$http_installer_root/bin/sa"
+http_installed_std_root="$http_installer_root/std"
+for required_path in "$http_installed_sa" "$http_installed_std_root/libsa_std.a" "$http_installed_std_root/sa_std.h" "$http_installed_std_root/io/print.sai"; do
+    if [ ! -s "$required_path" ]; then
+        printf 'install.sh HTTP release install is missing %s\n' "$required_path" >&2
+        exit 1
+    fi
+done
+capture_success "HTTP installed sa version" "$http_installed_sa" version
+capture_success "HTTP installed sa check" env SA_STD_DIR="$http_installed_std_root" "$http_installed_sa" check "$temp_demo"
+
 if [ -n "$evidence_path" ]; then
     evidence_dir=$(dirname "$evidence_path")
     mkdir -p "$evidence_dir"
@@ -310,6 +375,7 @@ if [ -n "$evidence_path" ]; then
         printf '  "github_sha": "%s",\n' "${GITHUB_SHA:-}"
         printf '  "github_run_id": "%s",\n' "${GITHUB_RUN_ID:-}"
         printf '  "github_run_attempt": "%s",\n' "${GITHUB_RUN_ATTEMPT:-}"
+        printf '  "installer_transports": ["file", "http"],\n'
         printf '  "staged_version": "%s",\n' "$staged_version_output"
         printf '  "installed_version": "%s",\n' "$installed_version_output"
         printf '  "wasm_magic": "%s",\n' "$wasm_magic"
