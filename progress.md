@@ -8993,3 +8993,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_pair_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10751+.
+
+## Completed: 2026-07-17 Array IntoIter adapter-state collect ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_BY_REF_COLLECT_U64`, `ARRAY_INTO_ITER_FUSE_COLLECT_U64`, and `ARRAY_INTO_ITER_PEEKABLE_COLLECT_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` adapter-state eager collection shapes by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. `BY_REF_COLLECT` mutates the original cursor via a pointer alias while independent clones retain their own state, `FUSE_COLLECT` is an eager collect over an already-fused finite cursor, and `PEEKABLE_COLLECT` consumes the current remainder without exposing buffered lazy state. They do not model Rust lazy adapter object identity, borrow lifetimes, reference item semantics, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_adapter_state_collect_macro_surface.sa` — 1 test (panic ID 10751) covering by_ref collection after partial consumption with an independent clone, fuse collection and repeated empty next calls, empty fuse, peek before collection without consumption, peek after collection, and empty peekable.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_adapter_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10752+.
