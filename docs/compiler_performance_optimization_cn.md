@@ -685,8 +685,6 @@ lock_owner_failed | bypassed_untrusted | unknown
 
 2026-07-17 补充检查点：store-event 现在还会写入 source-free per-key history 记录，并在 `sa cache status/why` 暴露 `last_store_event_count`。focused single-flight 证据覆盖失败 `copy_output` 后计数为 `1`，以及后续 waiter 成功发布后最新事件为 `published/publish` 且历史计数为 `2`。同一 focused gate 还验证失败和成功两种 `sa cache why --json` 输出只暴露 12 字符 `key_prefix`，不包含完整 64 字符 cache key；最近 store-event 的 source-free `event_ns` 现在以 `last_store_event_ns` 暴露，和 `.stores` marker 的 mtime 分离；Linux store-event 还记录 `/proc/self/stat` 的 source-free writer process start ticks，并以 `last_store_writer_start_ticks` 暴露，旧 marker 或非 Linux 输出 `null`。这只收窄“事件历史”、key 脱敏和 Linux process-start identity 缺口；跨进程 owner 生命周期、完整脱敏审计和跨平台证据仍未完成。
 
-2026-07-17 脱敏补充检查点：`sa cache status --json` 与 `sa cache why --json` 现在有 focused smoke 锁住动态依赖首差输出。合成环境依赖 entry 覆盖 absent→present mismatch 和 present SHA-256 mismatch 两类 `dependency_changed`，输出只暴露 `first_difference="dynamic_dependencies.present"` 或 `first_difference="dynamic_dependencies.sha256"`，并断言环境变量名、旧值、新值、环境值摘要和完整 key 都不会出现在 JSON 中。这补强了 P0.6 动态依赖解释面的脱敏证据；完整脱敏审计、细粒度候选 key 输入差异、跨进程 owner 生命周期和跨平台 evidence 仍未完成。
-
 ---
 
 ## 10. 统一并发与内存预算
