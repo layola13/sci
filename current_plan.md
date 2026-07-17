@@ -273,7 +273,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - cover handle ownership, fs/dir/metadata, env/time, threads, exact small-output process capture, and dynamic loading in `test-runtime-basic`, with raw timestamps and waitpid-path behavior in `test-runtime-darwin`;
    - wire macOS to both gates and Windows to the shared basic gate, with explicit native OS/architecture guards that fail rather than skip;
    - validate Linux native basic `6/6`, `portability-check` `40/40`, `test-portable` `9/9` steps and `49/49` tests, contracts `3/3` and `4/4`, dual-architecture Mach-O links, and an x86_64 PE/DLL cross link without claiming native macOS/Windows execution.
-12. [ ] Harden POSIX process capture: drain both pipes while the child runs to avoid wait-before-drain deadlock, and loop beyond the current one-shot 8192-byte read per stream.
+12. [x] Harden POSIX process capture: drain both pipes while the child runs to avoid wait-before-drain deadlock, and loop beyond the current one-shot 8192-byte read per stream.
 13. [x] Platformize Darwin sockets and define the native socket gate:
    - route initialized-length socket option calls through the target system ABI and use Darwin/Linux constants for TTL/hop limit, multicast, keepalive, `SO.TYPE`, and `SO.ACCEPTCONN`;
    - fix Darwin pathname UDS NUL/length handling and make abstract UDS, PASSCRED/peer credentials, QUICKACK/DEFER_ACCEPT, epoll, pidfd, and netx deterministically unsupported with cleared outputs;
