@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence schema pinning
+
+1. [x] Preserve unrelated `src/cli.zig` and `tests/cli_smoke.zig` worktree changes without staging them.
+2. [x] Add `evidence_schema_version: 1` to macOS/Windows native smoke and runtime evidence.
+3. [x] Validate the schema version through the shared native evidence validator, including a schema-drift rejection test.
+4. [x] Lock the schema field with macOS/Windows source contracts and architecture docs.
+5. [x] Run focused validator/CI contract validation, syntax/YAML/format/diff checks, then commit and push the batch.
+
 ## Current turn: native evidence toolchain provenance
 
 1. [x] Confirm this Linux host cannot trigger or read private GitHub native workflow runs because `gh` is unauthenticated and public Actions API access is unavailable.

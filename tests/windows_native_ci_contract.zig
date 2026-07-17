@@ -64,6 +64,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "zig build test-runtime-netx -Doptimize=ReleaseSafe",
         "zig build test-runtime-windows -Doptimize=ReleaseSafe",
         "windows-runtime-gates-x86_64.json",
+        "evidence_schema_version = 1",
         "runtime_evidence = \"passed\"",
         "zig_version = $env:ZIG_VERSION",
         "llvm_version = $env:LLVM_VERSION",
@@ -185,6 +186,7 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "installed sa.exe check",
         "ConvertTo-Json -Depth 4",
         "Set-Content -LiteralPath $EvidencePath",
+        "evidence_schema_version = 1",
         "platform = \"windows\"",
         "archive = \"$archivePayloadName.zip\"",
         "github_sha = $env:GITHUB_SHA",
@@ -264,6 +266,8 @@ test "build graph exposes focused Windows CI entry points" {
     try expectContains(plugins_runtime_source, "normalizeUndefinedImportSymbolFor");
     try expectContains(plugins_runtime_source, "--undefined-only");
     try expectContains(evidence_validator_source, "fn expectedArchive");
+    try expectContains(evidence_validator_source, "const evidence_schema_version: i64 = 1;");
+    try expectContains(evidence_validator_source, "try expectInteger(root, \"evidence_schema_version\", evidence_schema_version);");
     try expectContains(evidence_validator_source, "\"sa-windows-x86_64.zip\"");
     try expectContains(evidence_validator_source, "fn validatePassedGates");
     try expectContains(evidence_validator_source, "fn validateInstallerTransports");

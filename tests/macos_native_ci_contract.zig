@@ -89,6 +89,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "runtime_evidence_path=\"$RUNNER_TEMP/macos-runtime-gates-$EXPECTED_ARCH.json\"",
+        "\"evidence_schema_version\": 1",
         "\"runtime_evidence\": \"passed\"",
         "\"zig_version\": os.environ[\"ZIG_VERSION\"]",
         "\"llvm_version\": os.environ[\"LLVM_VERSION\"]",
@@ -263,6 +264,7 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "installed_version_output=$captured_output",
         "if [ -n \"$evidence_path\" ]; then",
         "mkdir -p \"$evidence_dir\"",
+        "\"evidence_schema_version\": 1",
         "\"platform\": \"macos\"",
         "\"archive\": \"%s.tar.gz\"",
         "\"github_sha\": \"%s\"",
@@ -367,6 +369,8 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     const evidence_validator_source = try readSource("tools/ci/validate_native_evidence.zig");
     defer std.testing.allocator.free(evidence_validator_source);
     try expectContains(evidence_validator_source, "const EvidenceKind = enum");
+    try expectContains(evidence_validator_source, "const evidence_schema_version: i64 = 1;");
+    try expectContains(evidence_validator_source, "try expectInteger(root, \"evidence_schema_version\", evidence_schema_version);");
     try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
     try expectContains(evidence_validator_source, "fn validateInstallerTransports");
     try expectContains(evidence_validator_source, "--zig-version");

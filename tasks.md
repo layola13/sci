@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native evidence schema pinning batch (2026-07-17)
+
+- [x] Preserve unrelated `src/cli.zig` and `tests/cli_smoke.zig` worktree changes out of this portability batch.
+- [x] Add `evidence_schema_version: 1` to native smoke/runtime evidence artifacts for macOS/Windows.
+- [x] Validate the schema version with the shared native evidence validator, including a schema-drift rejection test.
+- [x] Lock workflow/runtime evidence, smoke JSON fields, and validator checks with Linux-runnable macOS/Windows source contracts.
+- [x] Run focused validator/CI contract validation, syntax/YAML/format/diff checks, then commit/push the selected portability files.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is schema/source-contract evidence only until then.
+
 ## Current native evidence toolchain provenance batch (2026-07-17)
 
 - [x] Confirm local GitHub Actions execution remains unavailable from this host: `gh` is unauthenticated and unauthenticated API access to workflow runs returns 404.

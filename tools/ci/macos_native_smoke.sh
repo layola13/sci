@@ -375,6 +375,7 @@ if [ -n "$evidence_path" ]; then
     mkdir -p "$evidence_dir"
     {
         printf '{\n'
+        printf '  "evidence_schema_version": 1,\n'
         printf '  "platform": "macos",\n'
         printf '  "arch": "%s",\n' "$expected_arch"
         printf '  "zig_target": "%s",\n' "${ZIG_TARGET:-}"

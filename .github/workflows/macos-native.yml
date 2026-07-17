@@ -151,6 +151,7 @@ jobs:
 
           evidence_path = sys.argv[1]
           evidence = {
+              "evidence_schema_version": 1,
               "platform": "macos",
               "arch": os.environ["EXPECTED_ARCH"],
               "target": os.environ["ZIG_TARGET"],

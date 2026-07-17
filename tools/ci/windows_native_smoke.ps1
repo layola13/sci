@@ -360,6 +360,7 @@ try {
             [void][IO.Directory]::CreateDirectory($evidenceParent)
         }
         [pscustomobject]@{
+            evidence_schema_version = 1
             platform = "windows"
             arch = $archiveArch
             archive = "$archivePayloadName.zip"

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const max_evidence_size = 64 * 1024;
+const evidence_schema_version: i64 = 1;
 
 const EvidenceKind = enum {
     smoke,
@@ -107,6 +108,15 @@ fn jsonString(root: std.json.Value, key: []const u8) ![]const u8 {
     return value.string;
 }
 
+fn expectInteger(root: std.json.Value, key: []const u8, expected: i64) !void {
+    const value = try jsonObjectGet(root, key);
+    if (value != .integer) return error.ExpectedInteger;
+    if (value.integer != expected) {
+        std.debug.print("native evidence mismatch for {s}: expected {}, got {}\n", .{ key, expected, value.integer });
+        return error.EvidenceMismatch;
+    }
+}
+
 fn expectString(root: std.json.Value, key: []const u8, expected: []const u8) !void {
     const actual = try jsonString(root, key);
     if (!std.mem.eql(u8, actual, expected)) {
@@ -191,6 +201,7 @@ fn validateInstallerTransports(root: std.json.Value) !void {
 }
 
 fn validateEvidence(root: std.json.Value, options: Options) !void {
+    try expectInteger(root, "evidence_schema_version", evidence_schema_version);
     try expectString(root, "platform", options.platform);
     try expectString(root, "arch", options.arch);
     try expectString(root, "zig_version", options.zig_version);
@@ -241,6 +252,7 @@ test "validates macOS runtime evidence" {
     const source =
         \\{
         \\  "arch": "arm64",
+        \\  "evidence_schema_version": 1,
         \\  "github_run_attempt": "1",
         \\  "github_run_id": "99",
         \\  "github_sha": "abc",
@@ -271,6 +283,7 @@ test "validates Windows smoke evidence" {
         \\{
         \\  "arch": "x86_64",
         \\  "archive": "sa-windows-x86_64.zip",
+        \\  "evidence_schema_version": 1,
         \\  "github_run_attempt": "2",
         \\  "github_run_id": "100",
         \\  "github_sha": "def",
@@ -302,6 +315,7 @@ test "rejects runtime gate drift" {
     const source =
         \\{
         \\  "arch": "x86_64",
+        \\  "evidence_schema_version": 1,
         \\  "github_run_attempt": "1",
         \\  "github_run_id": "99",
         \\  "github_sha": "abc",
@@ -323,6 +337,39 @@ test "rejects runtime gate drift" {
         .github_sha = "abc",
         .github_run_id = "99",
         .github_run_attempt = "1",
+        .path = "unused",
+    }));
+}
+
+test "rejects native evidence schema drift" {
+    const source =
+        \\{
+        \\  "arch": "x86_64",
+        \\  "archive": "sa-windows-x86_64.zip",
+        \\  "evidence_schema_version": 2,
+        \\  "github_run_attempt": "2",
+        \\  "github_run_id": "100",
+        \\  "github_sha": "def",
+        \\  "http_installed_version": "sa 0.0.4",
+        \\  "installed_version": "sa 0.0.4",
+        \\  "installer_transports": ["file", "http"],
+        \\  "llvm_version": "14.0.6",
+        \\  "native_smoke": "passed",
+        \\  "platform": "windows",
+        \\  "staged_version": "sa 0.0.4",
+        \\  "wasm_magic": "0061736d",
+        \\  "zig_version": "0.14.1"
+        \\}
+    ;
+    try std.testing.expectError(error.EvidenceMismatch, validateEvidenceSource(std.testing.allocator, source, .{
+        .kind = .smoke,
+        .platform = "windows",
+        .arch = "x86_64",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
+        .github_sha = "def",
+        .github_run_id = "100",
+        .github_run_attempt = "2",
         .path = "unused",
     }));
 }

@@ -216,6 +216,7 @@ jobs:
           }
           $runtimeEvidencePath = Join-Path $env:RUNNER_TEMP "windows-runtime-gates-x86_64.json"
           $runtimeEvidence = @{
+            evidence_schema_version = 1
             platform = "windows"
             arch = "x86_64"
             target = "native"
