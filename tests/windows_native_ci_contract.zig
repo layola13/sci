@@ -65,8 +65,11 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "\"test-runtime-basic\"",
         "\"test-runtime-windows\"",
         "Validate native runtime evidence",
-        "native runtime evidence mismatch",
-        "native runtime evidence gate mismatch",
+        "zig run tools/ci/validate_native_evidence.zig --",
+        "--kind runtime",
+        "--platform windows",
+        "--target native",
+        "--github-sha \"${{ github.sha }}\"",
         "Upload native runtime evidence",
         "name: windows-native-runtime-x86_64",
         "path: ${{ runner.temp }}\\windows-runtime-gates-x86_64.json",
@@ -81,16 +84,10 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         ".\\tools\\ci\\windows_native_smoke.ps1 -RuntimeRoot $env:SA_STATIC_ROOT -EvidencePath",
         "windows-native-smoke-x86_64.json",
         "Validate native smoke evidence",
-        "Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json",
-        "platform = \"windows\"",
-        "archive = \"sa-windows-x86_64.zip\"",
-        "native_smoke = \"passed\"",
-        "wasm_magic = \"0061736d\"",
-        "github_sha = \"${{ github.sha }}\"",
-        "github_run_id = \"${{ github.run_id }}\"",
-        "github_run_attempt = \"${{ github.run_attempt }}\"",
-        "native smoke evidence mismatch",
-        "native smoke evidence has invalid",
+        "zig run tools/ci/validate_native_evidence.zig --",
+        "--kind smoke",
+        "--platform windows",
+        "--github-run-attempt \"${{ github.run_attempt }}\"",
         "Upload native smoke evidence",
         "uses: actions/upload-artifact@v4",
         "name: windows-native-smoke-x86_64",
@@ -207,6 +204,8 @@ test "build graph exposes focused Windows CI entry points" {
     defer std.testing.allocator.free(plugin_source);
     const plugins_runtime_source = try readSource("src/plugins.zig");
     defer std.testing.allocator.free(plugins_runtime_source);
+    const evidence_validator_source = try readSource("tools/ci/validate_native_evidence.zig");
+    defer std.testing.allocator.free(evidence_validator_source);
 
     try expectContains(build_source, "b.step(\"sa-cli\"");
     try expectContains(build_source, "b.step(\"test-portable\"");
@@ -237,6 +236,10 @@ test "build graph exposes focused Windows CI entry points" {
     try expectContains(plugins_runtime_source, "__imp_");
     try expectContains(plugins_runtime_source, "normalizeUndefinedImportSymbolFor");
     try expectContains(plugins_runtime_source, "--undefined-only");
+    try expectContains(evidence_validator_source, "fn expectedArchive");
+    try expectContains(evidence_validator_source, "\"sa-windows-x86_64.zip\"");
+    try expectContains(evidence_validator_source, "fn validatePassedGates");
+    try expectContains(evidence_validator_source, "\"test-runtime-windows\"");
     try expectContains(build_source, "requires a native Windows x86_64 host and target");
     try expectContains(build_source, "windows process spawn failure leaves no live child handle");
     try expectContains(build_source, "b.step(\"windows-ci-contract\"");

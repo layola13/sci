@@ -93,8 +93,11 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "\"test-runtime-darwin-pty\"",
         "\"github_sha\": os.environ[\"GITHUB_SHA\"]",
         "Validate native runtime evidence",
-        "python3 - \"$evidence_path\" \"$EXPECTED_ARCH\" \"$ZIG_TARGET\" <<'PY'",
-        "native runtime evidence mismatch",
+        "zig run tools/ci/validate_native_evidence.zig --",
+        "--kind runtime",
+        "--platform macos",
+        "--target \"$ZIG_TARGET\"",
+        "--github-sha \"${{ github.sha }}\"",
         "Upload native runtime evidence",
         "name: macos-native-runtime-${{ matrix.expected_arch }}",
         "path: ${{ runner.temp }}/macos-runtime-gates-${{ matrix.expected_arch }}.json",
@@ -107,16 +110,10 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "/bin/bash tools/ci/macos_native_smoke.sh",
         "--evidence-path \"$RUNNER_TEMP/macos-native-smoke-$EXPECTED_ARCH.json\"",
         "Validate native smoke evidence",
-        "python3 - \"$evidence_path\" \"$EXPECTED_ARCH\" <<'PY'",
-        "\"platform\": \"macos\"",
-        "\"archive\": f\"sa-macos-{expected_arch}.tar.gz\"",
-        "\"native_smoke\": \"passed\"",
-        "\"wasm_magic\": \"0061736d\"",
-        "\"github_sha\": \"${{ github.sha }}\"",
-        "\"github_run_id\": \"${{ github.run_id }}\"",
-        "\"github_run_attempt\": \"${{ github.run_attempt }}\"",
-        "native smoke evidence mismatch",
-        "native smoke evidence has invalid",
+        "zig run tools/ci/validate_native_evidence.zig --",
+        "--kind smoke",
+        "--platform macos",
+        "--github-run-id \"${{ github.run_id }}\"",
         "Upload native smoke evidence",
         "uses: actions/upload-artifact@v4",
         "name: macos-native-smoke-${{ matrix.expected_arch }}",
@@ -336,6 +333,14 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(plugin_source, "normalized = normalized[1..]");
     try expectContains(plugin_source, "symbol = normalizeUndefinedImportSymbolFor(builtin.os.tag, symbol)");
     try expectContains(plugin_source, "normalizeUndefinedImportSymbolFor(.macos, \"_connect\")");
+    const evidence_validator_source = try readSource("tools/ci/validate_native_evidence.zig");
+    defer std.testing.allocator.free(evidence_validator_source);
+    try expectContains(evidence_validator_source, "const EvidenceKind = enum");
+    try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
+    try expectContains(evidence_validator_source, "\"plugin-host-smoke\"");
+    try expectContains(evidence_validator_source, "\"daemon-smoke\"");
+    try expectContains(evidence_validator_source, "\"test-runtime-darwin-socket\"");
+    try expectContains(evidence_validator_source, "\"sa-macos-arm64.tar.gz\"");
     try expectContains(build_source, "test-runtime-darwin requires a native macOS x86_64 or aarch64 host and target");
     try expectContains(build_source, "test-runtime-pal requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "test-runtime-netx requires a native Linux, macOS, or Windows host and target");

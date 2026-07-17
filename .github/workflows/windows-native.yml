@@ -229,36 +229,15 @@ jobs:
       - name: Validate native runtime evidence
         run: |
           $evidencePath = Join-Path $env:RUNNER_TEMP "windows-runtime-gates-x86_64.json"
-          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
-          $expected = @{
-            platform = "windows"
-            arch = "x86_64"
-            target = "native"
-            runtime_evidence = "passed"
-            github_sha = "${{ github.sha }}"
-            github_run_id = "${{ github.run_id }}"
-            github_run_attempt = "${{ github.run_attempt }}"
-          }
-          foreach ($key in $expected.Keys) {
-            if ($evidence.$key -ne $expected[$key]) {
-              throw "native runtime evidence mismatch for ${key}: expected '$($expected[$key])', got '$($evidence.$key)'"
-            }
-          }
-          $expectedGates = @(
-            "test-runtime-basic",
-            "test-runtime-pal",
-            "test-runtime-netx",
-            "test-runtime-windows"
-          )
-          $actualGates = @($evidence.passed_gates)
-          if ($actualGates.Count -ne $expectedGates.Count) {
-            throw "native runtime evidence has $($actualGates.Count) gates; expected $($expectedGates.Count)"
-          }
-          for ($i = 0; $i -lt $expectedGates.Count; $i++) {
-            if ($actualGates[$i] -ne $expectedGates[$i]) {
-              throw "native runtime evidence gate mismatch at ${i}: expected '$($expectedGates[$i])', got '$($actualGates[$i])'"
-            }
-          }
+          zig run tools/ci/validate_native_evidence.zig -- `
+            --kind runtime `
+            --platform windows `
+            --arch x86_64 `
+            --target native `
+            --github-sha "${{ github.sha }}" `
+            --github-run-id "${{ github.run_id }}" `
+            --github-run-attempt "${{ github.run_attempt }}" `
+            $evidencePath
 
       - name: Upload native runtime evidence
         if: always()
@@ -335,27 +314,14 @@ jobs:
       - name: Validate native smoke evidence
         run: |
           $evidencePath = Join-Path $env:RUNNER_TEMP "windows-native-smoke-x86_64.json"
-          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
-          $expected = @{
-            platform = "windows"
-            arch = "x86_64"
-            archive = "sa-windows-x86_64.zip"
-            native_smoke = "passed"
-            wasm_magic = "0061736d"
-            github_sha = "${{ github.sha }}"
-            github_run_id = "${{ github.run_id }}"
-            github_run_attempt = "${{ github.run_attempt }}"
-          }
-          foreach ($key in $expected.Keys) {
-            if ($evidence.$key -ne $expected[$key]) {
-              throw "native smoke evidence mismatch for ${key}: expected '$($expected[$key])', got '$($evidence.$key)'"
-            }
-          }
-          foreach ($key in @("staged_version", "installed_version")) {
-            if ($evidence.$key -notmatch '^sa\s+\S+$') {
-              throw "native smoke evidence has invalid ${key}: '$($evidence.$key)'"
-            }
-          }
+          zig run tools/ci/validate_native_evidence.zig -- `
+            --kind smoke `
+            --platform windows `
+            --arch x86_64 `
+            --github-sha "${{ github.sha }}" `
+            --github-run-id "${{ github.run_id }}" `
+            --github-run-attempt "${{ github.run_attempt }}" `
+            $evidencePath
 
       - name: Upload native smoke evidence
         if: always()

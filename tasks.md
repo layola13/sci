@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native evidence validator batch (2026-07-17)
+
+- [x] Keep unrelated `src/cli.zig` worktree changes out of this portability batch.
+- [x] Add `tools/ci/validate_native_evidence.zig` to validate native smoke/runtime evidence JSON with one Linux-runnable implementation.
+- [x] Use the shared validator from both macOS and Windows native workflows for smoke and runtime evidence artifacts.
+- [x] Lock the validator and workflow calls with macOS/Windows source contracts.
+- [x] Run the validator unit tests, focused CI contracts, workflow YAML parsing, formatting, and diff checks.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is validator/source-contract evidence only until then.
+
 ## Current native runtime evidence artifact batch (2026-07-17)
 
 - [x] Keep unrelated compiler/cache worktree changes out of this portability batch.
