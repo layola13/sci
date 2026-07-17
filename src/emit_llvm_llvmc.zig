@@ -39,6 +39,7 @@ const COperand = extern struct { kind: COperandKind, reg: u32, i64_value: i64, u
 const CInstruction = extern struct {
     op: COp,
     dst: u32,
+    dst2: u32 = 0,
     operand0: COperand,
     operand1: COperand,
     operand2: COperand,
@@ -52,6 +53,7 @@ const CInstruction = extern struct {
     indirect_param_tys: [*]const CType,
     indirect_param_count: usize,
     has_dst: bool,
+    has_dst2: bool = false,
     atomic_ordering: CAtomicOrdering,
     atomic_second_ordering: CAtomicOrdering,
     atomic_rmw_op: CAtomicRmwOp,

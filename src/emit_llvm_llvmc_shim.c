@@ -32,6 +32,7 @@ typedef struct { SaOperandKind kind; unsigned int reg; long long i64_value; unsi
 typedef struct {
     SaOp op;
     unsigned int dst;
+    unsigned int dst2;
     SaOperand operand0;
     SaOperand operand1;
     SaOperand operand2;
@@ -45,6 +46,7 @@ typedef struct {
     const SaType *indirect_param_tys;
     size_t indirect_param_count;
     unsigned char has_dst;
+    unsigned char has_dst2;
     SaAtomicOrdering atomic_ordering;
     SaAtomicOrdering atomic_second_ordering;
     SaAtomicRmwOp atomic_rmw_op;
