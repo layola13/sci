@@ -2,6 +2,15 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native runtime evidence artifacts
+
+- `.github/workflows/macos-native.yml` now writes `macos-runtime-gates-<arch>.json` only after the plugin smoke, daemon smoke, shared runtime basic/PAL/NetX gates, and Darwin runtime/socket/PTY gates have all passed on the native job.
+- `.github/workflows/windows-native.yml` now writes `windows-runtime-gates-x86_64.json` only after the reviewed Windows runtime subset (`test-runtime-basic`, `test-runtime-pal`, `test-runtime-netx`, and `test-runtime-windows`) has passed.
+- Both workflows validate platform, architecture, target, passed gate list, `runtime_evidence="passed"`, and GitHub SHA/run id/run attempt before uploading deterministic native-runtime evidence artifacts.
+- The macOS/Windows CI source contracts lock the new runtime evidence generation, validation, and upload behavior.
+- Validation passed on Linux: `zig build macos-ci-contract --summary all` -> `3/3`; `zig build windows-ci-contract --summary all` -> `5/5`; `zig fmt --check tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; Python YAML parsing for both native workflows; `git diff --check`.
+- Evidence boundary: this records future native runtime gate results when GitHub runners execute the workflows. It is still workflow/source-contract evidence on this Linux host and does not claim native macOS/Windows runtime success.
+
 ## Focused verified: 2026-07-17 native smoke evidence provenance
 
 - Unrelated cache/compiler worktree changes are preserved and intentionally left out of this portability batch.

@@ -208,6 +208,65 @@ jobs:
           if ($exitCode -ne 0) {
             throw "test-runtime-windows failed with exit code $exitCode"
           }
+          $runtimeEvidencePath = Join-Path $env:RUNNER_TEMP "windows-runtime-gates-x86_64.json"
+          $runtimeEvidence = @{
+            platform = "windows"
+            arch = "x86_64"
+            target = "native"
+            runtime_evidence = "passed"
+            passed_gates = @(
+              "test-runtime-basic",
+              "test-runtime-pal",
+              "test-runtime-netx",
+              "test-runtime-windows"
+            )
+            github_sha = $env:GITHUB_SHA
+            github_run_id = $env:GITHUB_RUN_ID
+            github_run_attempt = $env:GITHUB_RUN_ATTEMPT
+          }
+          $runtimeEvidence | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $runtimeEvidencePath -Encoding utf8NoBOM
+
+      - name: Validate native runtime evidence
+        run: |
+          $evidencePath = Join-Path $env:RUNNER_TEMP "windows-runtime-gates-x86_64.json"
+          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          $expected = @{
+            platform = "windows"
+            arch = "x86_64"
+            target = "native"
+            runtime_evidence = "passed"
+            github_sha = "${{ github.sha }}"
+            github_run_id = "${{ github.run_id }}"
+            github_run_attempt = "${{ github.run_attempt }}"
+          }
+          foreach ($key in $expected.Keys) {
+            if ($evidence.$key -ne $expected[$key]) {
+              throw "native runtime evidence mismatch for ${key}: expected '$($expected[$key])', got '$($evidence.$key)'"
+            }
+          }
+          $expectedGates = @(
+            "test-runtime-basic",
+            "test-runtime-pal",
+            "test-runtime-netx",
+            "test-runtime-windows"
+          )
+          $actualGates = @($evidence.passed_gates)
+          if ($actualGates.Count -ne $expectedGates.Count) {
+            throw "native runtime evidence has $($actualGates.Count) gates; expected $($expectedGates.Count)"
+          }
+          for ($i = 0; $i -lt $expectedGates.Count; $i++) {
+            if ($actualGates[$i] -ne $expectedGates[$i]) {
+              throw "native runtime evidence gate mismatch at ${i}: expected '$($expectedGates[$i])', got '$($actualGates[$i])'"
+            }
+          }
+
+      - name: Upload native runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-runtime-x86_64
+          if-no-files-found: warn
+          path: ${{ runner.temp }}\windows-runtime-gates-x86_64.json
 
       - name: Build isolated native runtime artifacts
         run: |

@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native runtime evidence artifact batch (2026-07-17)
+
+- [x] Keep unrelated compiler/cache worktree changes out of this portability batch.
+- [x] Emit macOS native runtime evidence JSON after plugin, daemon, shared runtime, PAL, NetX, Darwin, Darwin socket, and Darwin PTY gates all pass.
+- [x] Emit Windows native runtime evidence JSON after shared basic, PAL, NetX, and Windows runtime gates all pass.
+- [x] Validate the runtime evidence JSON fields before upload and lock the artifact names/fields with Linux-runnable source contracts.
+- [x] Run focused macOS/Windows CI contract validation, workflow YAML parsing, formatting/diff checks, then commit/push the selected portability files.
+- [ ] Execute the updated macOS/Windows workflows on native runners; this batch is workflow/source-contract evidence only until then.
+
 ## Current native smoke evidence provenance batch (2026-07-17)
 
 - [x] Keep unrelated cache/compiler worktree changes out of this portability batch.

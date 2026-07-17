@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native runtime evidence artifacts
+
+1. [x] Preserve unrelated compiler/cache worktree changes without staging them.
+2. [x] Add macOS runtime evidence JSON after plugin, daemon, shared runtime, PAL, NetX, Darwin, Darwin socket, and Darwin PTY gates pass.
+3. [x] Add Windows runtime evidence JSON after shared basic, PAL, NetX, and Windows runtime gates pass.
+4. [x] Validate those runtime evidence files before upload and lock them with source contracts.
+5. [x] Run focused macOS/Windows CI contract validation, workflow YAML parsing, formatting/diff checks, then commit and push only the coherent portability batch.
+
 ## Current turn: native smoke evidence provenance
 
 1. [x] Preserve unrelated cache/compiler worktree changes without staging them.

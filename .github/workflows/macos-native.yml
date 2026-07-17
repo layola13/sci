@@ -136,6 +136,80 @@ jobs:
           zig build test-runtime-darwin -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
           zig build test-runtime-darwin-socket -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
           zig build test-runtime-darwin-pty -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe --summary all
+          runtime_evidence_path="$RUNNER_TEMP/macos-runtime-gates-$EXPECTED_ARCH.json"
+          python3 - "$runtime_evidence_path" <<'PY'
+          import json
+          import os
+          import sys
+
+          evidence_path = sys.argv[1]
+          evidence = {
+              "platform": "macos",
+              "arch": os.environ["EXPECTED_ARCH"],
+              "target": os.environ["ZIG_TARGET"],
+              "runtime_evidence": "passed",
+              "passed_gates": [
+                  "plugin-host-smoke",
+                  "daemon-smoke",
+                  "test-runtime-basic",
+                  "test-runtime-pal",
+                  "test-runtime-netx",
+                  "test-runtime-darwin",
+                  "test-runtime-darwin-socket",
+                  "test-runtime-darwin-pty",
+              ],
+              "github_sha": os.environ["GITHUB_SHA"],
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+          }
+          with open(evidence_path, "w", encoding="utf-8") as handle:
+              json.dump(evidence, handle, sort_keys=True)
+              handle.write("\n")
+          PY
+
+      - name: Validate native runtime evidence
+        run: |
+          set -euo pipefail
+          evidence_path="$RUNNER_TEMP/macos-runtime-gates-$EXPECTED_ARCH.json"
+          python3 - "$evidence_path" "$EXPECTED_ARCH" "$ZIG_TARGET" <<'PY'
+          import json
+          import sys
+
+          evidence_path, expected_arch, expected_target = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(evidence_path, "r", encoding="utf-8") as handle:
+              evidence = json.load(handle)
+          expected_gates = [
+              "plugin-host-smoke",
+              "daemon-smoke",
+              "test-runtime-basic",
+              "test-runtime-pal",
+              "test-runtime-netx",
+              "test-runtime-darwin",
+              "test-runtime-darwin-socket",
+              "test-runtime-darwin-pty",
+          ]
+          expected = {
+              "platform": "macos",
+              "arch": expected_arch,
+              "target": expected_target,
+              "runtime_evidence": "passed",
+              "passed_gates": expected_gates,
+              "github_sha": "${{ github.sha }}",
+              "github_run_id": "${{ github.run_id }}",
+              "github_run_attempt": "${{ github.run_attempt }}",
+          }
+          for key, value in expected.items():
+              if evidence.get(key) != value:
+                  raise SystemExit(f"native runtime evidence mismatch for {key}: {evidence.get(key)!r} != {value!r}")
+          PY
+
+      - name: Upload native runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-native-runtime-${{ matrix.expected_arch }}
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/macos-runtime-gates-${{ matrix.expected_arch }}.json
 
       - name: Build isolated native compiler and runtime artifacts
         run: |

@@ -84,6 +84,20 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build test-runtime-darwin -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
+        "runtime_evidence_path=\"$RUNNER_TEMP/macos-runtime-gates-$EXPECTED_ARCH.json\"",
+        "\"runtime_evidence\": \"passed\"",
+        "\"passed_gates\": [",
+        "\"plugin-host-smoke\"",
+        "\"daemon-smoke\"",
+        "\"test-runtime-darwin-socket\"",
+        "\"test-runtime-darwin-pty\"",
+        "\"github_sha\": os.environ[\"GITHUB_SHA\"]",
+        "Validate native runtime evidence",
+        "python3 - \"$evidence_path\" \"$EXPECTED_ARCH\" \"$ZIG_TARGET\" <<'PY'",
+        "native runtime evidence mismatch",
+        "Upload native runtime evidence",
+        "name: macos-native-runtime-${{ matrix.expected_arch }}",
+        "path: ${{ runner.temp }}/macos-runtime-gates-${{ matrix.expected_arch }}.json",
         "zig build sa-cli -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe --prefix \"$compiler_root\"",
         "zig build sa-std-static -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe --prefix \"$static_root\"",
         "lib/libsa_std.a",
@@ -130,6 +144,13 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "Validate native smoke evidence",
         "Upload native smoke evidence",
         "Check source artifact cleanliness",
+    });
+    try expectInOrder(workflow, &.{
+        "Run portability contracts",
+        "runtime_evidence_path=\"$RUNNER_TEMP/macos-runtime-gates-$EXPECTED_ARCH.json\"",
+        "Validate native runtime evidence",
+        "Upload native runtime evidence",
+        "Build isolated native compiler and runtime artifacts",
     });
 
     const forbidden = [_][]const u8{
