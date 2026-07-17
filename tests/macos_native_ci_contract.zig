@@ -379,6 +379,13 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(evidence_validator_source, "try expectInteger(root, \"evidence_schema_version\", evidence_schema_version);");
     try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
     try expectContains(evidence_validator_source, "fn validateInstallerTransports");
+    try expectContains(evidence_validator_source, "fn validateRequiredEvidenceArgument");
+    try expectContains(evidence_validator_source, "error.InvalidEvidenceArgument");
+    try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"zig_version\", options.zig_version);");
+    try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"llvm_version\", options.llvm_version);");
+    try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"github_sha\", options.github_sha);");
+    try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"github_run_id\", options.github_run_id);");
+    try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"github_run_attempt\", options.github_run_attempt);");
     try expectContains(evidence_validator_source, "--zig-version");
     try expectContains(evidence_validator_source, "--llvm-version");
     try expectContains(evidence_validator_source, "try expectString(root, \"zig_version\", options.zig_version);");

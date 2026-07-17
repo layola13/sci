@@ -1,5 +1,13 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native evidence required-field hardening batch (2026-07-17)
+
+- [x] Keep the worktree clean before starting the batch.
+- [x] Reject empty or `unknown` toolchain/provenance arguments in `tools/ci/validate_native_evidence.zig` before accepting native evidence.
+- [x] Lock the stricter validator behavior with Linux-runnable macOS/Windows source contracts and focused validator tests.
+- [x] Run focused validator/CI contract validation, then commit/push the selected portability files.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is validator/source-contract evidence only until then.
+
 ## Current native smoke toolchain fallback batch (2026-07-17)
 
 - [x] Keep the worktree clean before starting the batch.

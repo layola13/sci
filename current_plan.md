@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence required-field hardening
+
+1. [x] Keep the worktree clean before starting the batch.
+2. [x] Reject empty or `unknown` native evidence toolchain/provenance arguments in the shared validator.
+3. [x] Lock the stricter validator behavior with macOS/Windows source contracts and focused validator tests.
+4. [x] Run focused validator/CI contract validation, then commit and push the batch.
+
 ## Current turn: native smoke toolchain fallback
 
 1. [x] Keep the worktree clean before the batch and preserve unrelated changes.

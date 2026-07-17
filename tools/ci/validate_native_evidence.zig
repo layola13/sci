@@ -125,6 +125,14 @@ fn expectString(root: std.json.Value, key: []const u8, expected: []const u8) !vo
     }
 }
 
+fn validateRequiredEvidenceArgument(name: []const u8, value: []const u8) !void {
+    const trimmed = std.mem.trim(u8, value, " \t\r\n");
+    if (trimmed.len == 0 or std.ascii.eqlIgnoreCase(trimmed, "unknown")) {
+        std.debug.print("native evidence argument {s} must be concrete, got '{s}'\n", .{ name, value });
+        return error.InvalidEvidenceArgument;
+    }
+}
+
 fn expectedArchive(platform: []const u8, arch: []const u8) ![]const u8 {
     if (std.mem.eql(u8, platform, "macos")) {
         if (std.mem.eql(u8, arch, "x86_64")) return "sa-macos-x86_64.tar.gz";
@@ -201,6 +209,12 @@ fn validateInstallerTransports(root: std.json.Value) !void {
 }
 
 fn validateEvidence(root: std.json.Value, options: Options) !void {
+    try validateRequiredEvidenceArgument("zig_version", options.zig_version);
+    try validateRequiredEvidenceArgument("llvm_version", options.llvm_version);
+    try validateRequiredEvidenceArgument("github_sha", options.github_sha);
+    try validateRequiredEvidenceArgument("github_run_id", options.github_run_id);
+    try validateRequiredEvidenceArgument("github_run_attempt", options.github_run_attempt);
+
     try expectInteger(root, "evidence_schema_version", evidence_schema_version);
     try expectString(root, "platform", options.platform);
     try expectString(root, "arch", options.arch);
@@ -369,6 +383,50 @@ test "rejects native evidence schema drift" {
         .llvm_version = "14.0.6",
         .github_sha = "def",
         .github_run_id = "100",
+        .github_run_attempt = "2",
+        .path = "unused",
+    }));
+}
+
+test "rejects weak required evidence arguments" {
+    const source =
+        \\{
+        \\  "arch": "x86_64",
+        \\  "archive": "sa-windows-x86_64.zip",
+        \\  "evidence_schema_version": 1,
+        \\  "github_run_attempt": "2",
+        \\  "github_run_id": "100",
+        \\  "github_sha": "def",
+        \\  "http_installed_version": "sa 0.0.4",
+        \\  "installed_version": "sa 0.0.4",
+        \\  "installer_transports": ["file", "http"],
+        \\  "llvm_version": "unknown",
+        \\  "native_smoke": "passed",
+        \\  "platform": "windows",
+        \\  "staged_version": "sa 0.0.4",
+        \\  "wasm_magic": "0061736d",
+        \\  "zig_version": "0.14.1"
+        \\}
+    ;
+    try std.testing.expectError(error.InvalidEvidenceArgument, validateEvidenceSource(std.testing.allocator, source, .{
+        .kind = .smoke,
+        .platform = "windows",
+        .arch = "x86_64",
+        .zig_version = "0.14.1",
+        .llvm_version = "unknown",
+        .github_sha = "def",
+        .github_run_id = "100",
+        .github_run_attempt = "2",
+        .path = "unused",
+    }));
+    try std.testing.expectError(error.InvalidEvidenceArgument, validateEvidenceSource(std.testing.allocator, source, .{
+        .kind = .smoke,
+        .platform = "windows",
+        .arch = "x86_64",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
+        .github_sha = "def",
+        .github_run_id = " \t",
         .github_run_attempt = "2",
         .path = "unused",
     }));
