@@ -9407,6 +9407,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     owned_link_inputs.deinit();
                 }
                 try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                if (owned_link_inputs.items.len != 0) {
+                    cache_miss_reason = .bypassed_untrusted;
+                    releaseProjectCacheOwner(&cache_owner);
+                }
                 driver.compileExe(allocator, output_stage.artifact_path, output_stage.output_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
