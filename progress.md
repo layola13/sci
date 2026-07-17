@@ -2,6 +2,31 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 final-component no_follow cache file opens
+
+- Added `openFileNoFollowFinal` / `openDirFileNoFollowFinal` for project-cache file IO: parent dir open uses `no_follow`, final component uses POSIX `O_NOFOLLOW` (Windows opens reparse points without following and rejects symlink kind).
+- Cache integrity paths now use that open for `hashFileHex`, `hashDirFileHex`, `syncCacheFile`, `copyCacheFileSynced` source reads, manifest/test-metadata cache text reads, artifact match/first-difference, and incremental object match.
+- Symlink final components fail closed (`SymLinkLoop` / incomplete lookup) instead of hashing or syncing through a followed target.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache"` -> `31/31`
+  - including `project cache hash and sync refuse final symlink files` `1/1`
+  - `project cache copy refuses source symlink payloads` `1/1`
+  - `project cache lookup refuses symlink after regular-file probe path` `1/1`
+  - `zig fmt --check src/cli.zig`; `git diff --check`
+- Evidence boundary: Linux unit coverage for final-component no_follow file opens on project-cache hash/sync/copy/lookup paths. Full parent-chain openat authorization, emit/link external-tool injection, broader cross-process recovery, and native macOS/Windows validation remain open.
+
+## Focused verified: 2026-07-17 copy IO injection and incremental functions no_follow
+
+- Extended low-level project-cache IO injection to `copy` in `copyCacheFileSynced` (still with `sync`/`rename`).
+- First copy fail records stage `copy_artifact`; second copy fail records `copy_output`; both leave no partial final or staging entry.
+- Incremental `functions` directories must be real dirs opened with `no_follow`; symlink `functions` trees fail completeness/allowlist/validity checks.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache"` -> `28/28`
+  - including `project cache injects copy/sync/rename IO failures without partial entries` `1/1`
+  - `project cache rejects symlink incremental functions directories` `1/1`
+  - `zig fmt --check src/cli.zig`; `git diff --check`
+- Evidence boundary: Linux unit coverage for copy/sync/rename IO injection and incremental functions no_follow authorization. Full openat/O_NOFOLLOW path authorization, emit/link external-tool injection, broader cross-process recovery, and native macOS/Windows validation remain open.
+
 ## Focused verified: 2026-07-17 sync/rename IO failure injection and entry authorization
 
 - Added test-only low-level IO failure injection for project-cache `sync`/`rename` helpers (`projectCacheIoTestArm` / `TestInjectedIoFailure`).

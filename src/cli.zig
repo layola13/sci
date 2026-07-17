@@ -951,6 +951,62 @@ fn readTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
+/// Open a path for reading/writing without following a final-component symlink.
+/// Parent directory open uses `no_follow`; intermediate path components may still
+/// be traversed by the host openDir implementation. Full parent-chain openat
+/// authorization remains a later hardening step.
+fn openFileNoFollowFinal(path: []const u8, mode: std.fs.File.OpenMode) !std.fs.File {
+    const parent = std.fs.path.dirname(path) orelse ".";
+    const basename = std.fs.path.basename(path);
+    if (basename.len == 0) return error.IsDir;
+    var dir = try std.fs.cwd().openDir(parent, .{ .no_follow = true });
+    defer dir.close();
+    return try openDirFileNoFollowFinal(dir, basename, mode);
+}
+
+fn openDirFileNoFollowFinal(dir: std.fs.Dir, name: []const u8, mode: std.fs.File.OpenMode) !std.fs.File {
+    if (builtin.os.tag == .windows) {
+        const w = std.os.windows;
+        const path_w = try w.sliceToPrefixedFileW(dir.fd, name);
+        const handle = try w.OpenFile(path_w.span(), .{
+            .dir = dir.fd,
+            .access_mask = w.SYNCHRONIZE |
+                (if (mode != .write_only) @as(u32, w.GENERIC_READ) else 0) |
+                (if (mode != .read_only) @as(u32, w.GENERIC_WRITE) else 0),
+            .creation = w.FILE_OPEN,
+            .follow_symlinks = false,
+        });
+        const file: std.fs.File = .{ .handle = handle };
+        errdefer file.close();
+        // Opening a reparse point without following still yields a handle; reject
+        // name-surrogate symlinks before any cache payload is trusted.
+        const stat = try file.stat();
+        if (stat.kind == .sym_link) return error.SymLinkLoop;
+        return file;
+    }
+
+    var os_flags: std.posix.O = .{
+        .ACCMODE = switch (mode) {
+            .read_only => .RDONLY,
+            .write_only => .WRONLY,
+            .read_write => .RDWR,
+        },
+    };
+    if (@hasField(std.posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
+    if (@hasField(std.posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
+    if (@hasField(std.posix.O, "NOFOLLOW")) os_flags.NOFOLLOW = true;
+    if (@hasField(std.posix.O, "NOCTTY")) os_flags.NOCTTY = true;
+    const path_c = try std.posix.toPosixPath(name);
+    const fd = try std.posix.openatZ(dir.fd, &path_c, os_flags, 0);
+    return .{ .handle = fd };
+}
+
+fn readCacheTextFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
+    var file = try openFileNoFollowFinal(path, .read_only);
+    defer file.close();
+    return try file.readToEndAlloc(allocator, max_bytes);
+}
+
 fn readManifestTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -1076,13 +1132,13 @@ fn setProcessEnvironmentVariable(allocator: std.mem.Allocator, name: []const u8,
 
 fn hashFileHex(allocator: std.mem.Allocator, path: []const u8) ![64]u8 {
     _ = allocator;
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try openFileNoFollowFinal(path, .read_only);
     defer file.close();
     return try hashOpenFileHex(&file);
 }
 
 fn hashDirFileHex(dir: std.fs.Dir, name: []const u8) ![64]u8 {
-    var file = try dir.openFile(name, .{});
+    var file = try openDirFileNoFollowFinal(dir, name, .read_only);
     defer file.close();
     return try hashOpenFileHex(&file);
 }
@@ -6456,7 +6512,7 @@ fn renameCachePath(old_path: []const u8, new_path: []const u8) !void {
 
 fn syncCacheFile(path: []const u8) !void {
     try projectCacheIoTestMaybeFail("sync");
-    var file = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
+    var file = try openFileNoFollowFinal(path, .read_write);
     defer file.close();
     try file.sync();
 }
@@ -6464,7 +6520,22 @@ fn syncCacheFile(path: []const u8) !void {
 fn copyCacheFileSynced(src_path: []const u8, dst_path: []const u8) !void {
     try projectCacheIoTestMaybeFail("copy");
     try ensureParentDir(dst_path);
-    try std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{ .override_mode = std.fs.File.default_mode });
+    // Manual copy keeps the source open with final-component NOFOLLOW so a
+    // symlink cannot replace a regular file between existence checks and IO.
+    var src = try openFileNoFollowFinal(src_path, .read_only);
+    defer src.close();
+    var dest = try std.fs.cwd().createFile(dst_path, .{
+        .read = true,
+        .truncate = true,
+        .mode = std.fs.File.default_mode,
+    });
+    defer dest.close();
+    var buf: [64 * 1024]u8 = undefined;
+    while (true) {
+        const n = try src.read(&buf);
+        if (n == 0) break;
+        try dest.writeAll(buf[0..n]);
+    }
     try syncCacheFile(dst_path);
 }
 
@@ -6752,11 +6823,15 @@ fn projectCacheDynamicDependenciesValid(allocator: std.mem.Allocator, value: std
 }
 
 fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) !bool {
-    if (!cachePathIsRegularFile(path)) return false;
-    const stat = std.fs.cwd().statFile(path) catch return false;
+    _ = allocator;
+    // Open with final-component NOFOLLOW so a symlink swap after the regular-file
+    // probe cannot be hashed as a reusable artifact payload.
+    var file = openFileNoFollowFinal(path, .read_only) catch return false;
+    defer file.close();
+    const stat = file.stat() catch return false;
     if (stat.kind != .file or stat.size == 0) return false;
     if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
-    const hash_hex = try hashFileHex(allocator, path);
+    const hash_hex = try hashOpenFileHex(&file);
     return jsonStringEquals(try jsonGetObject(artifact_value, "sha256"), hash_hex[0..]);
 }
 
@@ -6835,7 +6910,7 @@ fn projectCacheManifestLookupReason(
         defer entry_dir.close();
         if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return .artifact_corrupt;
     }
-    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return .manifest_invalid;
+    const manifest_bytes = readCacheTextFileAlloc(allocator, manifest_path, project_cache_manifest_max_bytes) catch return .manifest_invalid;
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return .manifest_invalid;
     defer parsed.deinit();
@@ -7600,7 +7675,7 @@ fn projectCacheReadTestMetadata(
     const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
     defer allocator.free(metadata_path);
     if (!cachePathIsRegularFile(metadata_path)) return error.InvalidCacheManifest;
-    const metadata_bytes = try readTextFileAlloc(allocator, metadata_path);
+    const metadata_bytes = try readCacheTextFileAlloc(allocator, metadata_path, 16 * 1024 * 1024);
     defer allocator.free(metadata_bytes);
     return try parseProjectCacheTestMetadata(allocator, metadata_bytes);
 }
@@ -8230,13 +8305,15 @@ fn projectCacheArtifactFirstDifference(
     size_field: []const u8,
     sha_field: []const u8,
 ) ?[]const u8 {
-    if (!cachePathIsRegularFile(path)) return file_field;
-    const stat = std.fs.cwd().statFile(path) catch return file_field;
+    _ = allocator;
+    var file = openFileNoFollowFinal(path, .read_only) catch return file_field;
+    defer file.close();
+    const stat = file.stat() catch return file_field;
     if (stat.kind != .file or stat.size == 0) return file_field;
     if (!jsonIntEquals(jsonGetObject(artifact_value, "size") catch return size_field, stat.size)) return size_field;
     const sha_value = jsonGetObject(artifact_value, "sha256") catch return sha_field;
     if (!(jsonSha256(sha_value) catch return sha_field)) return sha_field;
-    const hash_hex = hashFileHex(allocator, path) catch return sha_field;
+    const hash_hex = hashOpenFileHex(&file) catch return sha_field;
     if (!jsonStringEquals(sha_value, hash_hex[0..])) return sha_field;
     return null;
 }
@@ -8265,7 +8342,7 @@ fn projectCacheManifestFirstDifference(
         defer entry_dir.close();
         if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return "entry.extra_file";
     }
-    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return "manifest";
+    const manifest_bytes = readCacheTextFileAlloc(allocator, manifest_path, project_cache_manifest_max_bytes) catch return "manifest";
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return "manifest.json";
     defer parsed.deinit();
@@ -9503,10 +9580,12 @@ fn incrementalObjectMatches(
     expected_size: u64,
     expected_sha256: []const u8,
 ) bool {
-    if (!cachePathIsRegularFile(path)) return false;
-    const stat = std.fs.cwd().statFile(path) catch return false;
+    _ = allocator;
+    var file = openFileNoFollowFinal(path, .read_only) catch return false;
+    defer file.close();
+    const stat = file.stat() catch return false;
     if (stat.kind != .file or stat.size != expected_size) return false;
-    const hash_hex = hashFileHex(allocator, path) catch return false;
+    const hash_hex = hashOpenFileHex(&file) catch return false;
     return std.mem.eql(u8, expected_sha256, hash_hex[0..]);
 }
 
@@ -14050,6 +14129,104 @@ test "project cache clean pins an active staging writer" {
     project_cache_store_test_pause = null;
     if (writer.failure) |err| return err;
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+}
+
+test "project cache hash and sync refuse final symlink files" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeAllFile("payload.bin", "payload-bytes");
+    try std.fs.cwd().symLink("payload.bin", "payload.link", .{});
+
+    try std.testing.expectError(error.SymLinkLoop, hashFileHex(std.testing.allocator, "payload.link"));
+    try std.testing.expectError(error.SymLinkLoop, syncCacheFile("payload.link"));
+    try std.testing.expectError(error.SymLinkLoop, openFileNoFollowFinal("payload.link", .read_only));
+
+    // Regular files still open and hash under the no_follow final open path.
+    const digest = try hashFileHex(std.testing.allocator, "payload.bin");
+    try std.testing.expect(digest.len == 64);
+    try syncCacheFile("payload.bin");
+}
+
+test "project cache copy refuses source symlink payloads" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeAllFile("real-artifact.bin", "artifact-bytes");
+    try std.fs.cwd().symLink("real-artifact.bin", "artifact.link", .{});
+    try std.testing.expectError(error.SymLinkLoop, copyCacheFileSynced("artifact.link", "copied.bin"));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("copied.bin", .{}));
+    try copyCacheFileSynced("real-artifact.bin", "copied.bin");
+    const copied = try readTextFileAlloc(std.testing.allocator, "copied.bin");
+    defer std.testing.allocator.free(copied);
+    try std.testing.expectEqualStrings("artifact-bytes", copied);
+}
+
+test "project cache lookup refuses symlink after regular-file probe path" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'b'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile("outside-output.bin", "output");
+    try writeAllFile(output_path, "output");
+    try projectCacheWriteManifestAt(
+        std.testing.allocator,
+        manifest_path,
+        .build_exe,
+        key,
+        artifact_path,
+        output_path,
+        null,
+        &.{},
+    );
+
+    // Replace the regular output with a same-basename symlink. Cache lookup must
+    // not follow it via hash/open even though a naive openFile would.
+    try std.fs.cwd().deleteFile(output_path);
+    try std.fs.cwd().symLink("../../outside-output.bin", output_path, .{});
+
+    try std.testing.expect(!cachePathIsRegularFile(output_path));
+    try std.testing.expectError(error.SymLinkLoop, hashFileHex(std.testing.allocator, output_path));
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "output.file",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
 }
 
 test "project cache rejects symlink entry directories" {
