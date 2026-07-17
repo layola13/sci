@@ -7402,6 +7402,9 @@ fn projectCacheStoreEntryLocked(
     try projectCacheStoreTestMaybeFail(store_failure_stage);
     const final_dir = try projectCacheDir(allocator, project_root, kind, key);
     defer allocator.free(final_dir);
+    // Exclusive entry lock is already held by the caller; retire crash-left
+    // staging siblings for this key before deciding whether to reuse/publish.
+    _ = try projectCacheRecoverOrphanedStagingLocked(allocator, project_root, kind, key);
     if (projectCacheEntryReusableNow(allocator, project_root, kind, key)) return;
     if (projectPathExists(final_dir)) {
         // The exclusive key lock pins readers and other writers while an old
@@ -7707,6 +7710,43 @@ fn cacheStagingKey(name: []const u8) ?[]const u8 {
         }
     }
     return name[0..64];
+}
+
+/// Remove crash-left staging directories for one key while the exclusive entry
+/// lock is held. Active writers keep their lock, so clean/store recovery cannot
+/// delete an in-flight staging directory they still own.
+fn projectCacheRecoverOrphanedStagingLocked(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+) !usize {
+    const kind_dir_path = try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName() });
+    defer allocator.free(kind_dir_path);
+    var kind_dir = std.fs.cwd().openDir(kind_dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return 0,
+        else => return err,
+    };
+    defer kind_dir.close();
+
+    var removed: usize = 0;
+    var names = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (names.items) |name| allocator.free(name);
+        names.deinit();
+    }
+    var iter = kind_dir.iterate();
+    while (try iter.next()) |entry| {
+        const staging_key = cacheStagingKey(entry.name) orelse continue;
+        if (!std.mem.eql(u8, staging_key, key.slice())) continue;
+        if (entry.kind != .directory and entry.kind != .sym_link) continue;
+        try names.append(try allocator.dupe(u8, entry.name));
+    }
+    for (names.items) |name| {
+        kind_dir.deleteTree(name) catch continue;
+        removed += 1;
+    }
+    return removed;
 }
 
 fn cacheEntryExpired(stat: std.fs.File.Stat, max_age_days: u64) bool {
@@ -13757,6 +13797,84 @@ test "project cache clean pins an active staging writer" {
     project_cache_store_test_pause = null;
     if (writer.failure) |err| return err;
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+}
+
+test "project cache clean recovers orphaned crash staging entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'c');
+
+    const final_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(final_dir);
+    const orphan_staging = try std.fmt.allocPrint(std.testing.allocator, "{s}.tmp.0123456789abcdef", .{final_dir});
+    defer std.testing.allocator.free(orphan_staging);
+    try std.fs.cwd().makePath(orphan_staging);
+    const orphan_artifact = try projectCacheEntryPath(std.testing.allocator, orphan_staging, "artifact.sa.bc");
+    defer std.testing.allocator.free(orphan_artifact);
+    try writeAllFile(orphan_artifact, "crash-left-artifact");
+    try std.testing.expect(projectPathExists(orphan_staging));
+
+    const clean_stats = try cleanProjectCache(std.testing.allocator, project_root, .{ .max_age_days = 0 });
+    try std.testing.expectEqual(@as(usize, 1), clean_stats.removed);
+    try std.testing.expect(!projectPathExists(orphan_staging));
+}
+
+test "project cache store recovers orphaned crash staging for the same key" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "store-recover-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "store-recover-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'd');
+    const final_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(final_dir);
+    const orphan_staging = try std.fmt.allocPrint(std.testing.allocator, "{s}.tmp.fedcba9876543210", .{final_dir});
+    defer std.testing.allocator.free(orphan_staging);
+    try std.fs.cwd().makePath(orphan_staging);
+    const orphan_artifact = try projectCacheEntryPath(std.testing.allocator, orphan_staging, "artifact.sa.bc");
+    defer std.testing.allocator.free(orphan_artifact);
+    try writeAllFile(orphan_artifact, "orphan-staging");
+    try std.testing.expect(projectPathExists(orphan_staging));
+
+    try projectCacheStoreWithOwnerMissReason(
+        std.testing.allocator,
+        project_root,
+        .build_exe,
+        key,
+        artifact_path,
+        output_path,
+        &.{},
+        .absent,
+    );
+    try std.testing.expect(!projectPathExists(orphan_staging));
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+
+    var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
+    defer kind_dir.close();
+    var entries = kind_dir.iterate();
+    while (try entries.next()) |entry| {
+        try std.testing.expect(cacheStagingKey(entry.name) == null);
+    }
 }
 
 test "project cache clean preserves structurally valid stale dynamic entry" {

@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: orphaned staging crash recovery
+
+1. [x] Keep the worktree scoped to staging crash-recovery only.
+2. [x] Recover same-key orphan staging directories under the exclusive store lock.
+3. [x] Keep active staging writers pinned while unpinned orphans are cleaned.
+4. [x] Focused verify unit filters, format/diff, then commit/push.
+
+
 ## Current turn: invalid-entry republish repair and manifest/publish failure injection
 
 1. [x] Keep the worktree scoped to cache store repair/injection only.

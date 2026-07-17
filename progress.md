@@ -2,6 +2,17 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 orphaned staging crash recovery
+
+- Project-cache store now recovers crash-left staging siblings for the same key under the exclusive entry lock before reuse/publish decisions.
+- `sa cache clean` continues to remove unpinned orphan staging directories while active writers keep their lock and remain pinned.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache clean recovers orphaned crash staging entries"` -> `1/1`
+  - `zig test ... --test-filter "project cache store recovers orphaned crash staging for the same key"` -> `1/1`
+  - `zig test ... --test-filter "project cache clean pins an active staging writer"` -> `1/1`
+  - `zig fmt --check src/cli.zig`; `git diff --check`
+- Evidence boundary: this is Linux unit coverage for orphaned staging recovery after crash/store interruption. Emit/sync/rename/link external-tool injection, broader cross-process crash recovery, TOCTOU-hard path authorization, and native macOS/Windows validation remain open.
+
 ## Focused verified: 2026-07-17 invalid-entry republish repair and manifest/publish failure injection
 
 - `publishProjectCacheEntry` now retires an unusable final entry under the exclusive store lock and retries the atomic rename once, so a partial/corrupt on-disk entry can be repaired by a later successful store.
