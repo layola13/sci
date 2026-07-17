@@ -56,6 +56,7 @@ typedef struct {
     const char *name;
     SaFuncKind kind;
     SaType ret_ty;
+    SaType ret_ty2;
     unsigned char return_fallible;
     unsigned char return_owned;
     const SaParam *params;
@@ -356,8 +357,14 @@ static LLVMTypeRef fallible_type_of(EmitCtx *e, SaType payload_ty) {
     return LLVMStructTypeInContext(e->ctx, fields, 2, 0);
 }
 
+static LLVMTypeRef pair_return_type_of(EmitCtx *e, SaType first, SaType second) {
+    LLVMTypeRef fields[2] = { type_of(e, first), type_of(e, second) };
+    return LLVMStructTypeInContext(e->ctx, fields, 2, 0);
+}
+
 static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
     if (f->return_fallible) return fallible_type_of(e, f->ret_ty);
+    if (f->ret_ty2 != SA_T_VOID) return pair_return_type_of(e, f->ret_ty, f->ret_ty2);
     return type_of(e, f->ret_ty);
 }
 
@@ -1306,7 +1313,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
             }
             case SA_OP_RET:
                 if (f->return_fallible) {
-                    if (!in->has_dst || f->ret_ty == SA_T_VOID) { free(regs); free(labels); return 1; }
+                    if (!in->has_dst || f->ret_ty == SA_T_VOID || f->ret_ty2 != SA_T_VOID) { free(regs); free(labels); return 1; }
                     if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                     if (in->operand0.kind == SA_OPER_REG && regs[in->operand0.reg].fallible) {
                         LLVMBuildRet(e->builder, v0);
@@ -1315,6 +1322,20 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     }
                 } else if (!in->has_dst || f->ret_ty == SA_T_VOID) {
                     LLVMBuildRetVoid(e->builder);
+                } else if (f->ret_ty2 != SA_T_VOID) {
+                    LLVMValueRef v1 = NULL;
+                    SaType t1;
+                    if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
+                    if (operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }
+                    v0 = coerce(e, v0, t0, f->ret_ty);
+                    v1 = coerce(e, v1, t1, f->ret_ty2);
+                    {
+                        LLVMTypeRef pair_ty = pair_return_type_of(e, f->ret_ty, f->ret_ty2);
+                        LLVMValueRef agg = LLVMGetUndef(pair_ty);
+                        agg = LLVMBuildInsertValue(e->builder, agg, v0, 0, "pair_ret0");
+                        agg = LLVMBuildInsertValue(e->builder, agg, v1, 1, "pair_ret1");
+                        LLVMBuildRet(e->builder, agg);
+                    }
                 } else {
                     if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                     v0 = coerce(e, v0, t0, f->ret_ty);
