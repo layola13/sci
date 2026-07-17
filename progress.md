@@ -2,20 +2,23 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
-## Focused verified: 2026-07-17 entry-dir no_follow authorization and stale lock accounting
+## Focused verified: 2026-07-17 sync/rename IO failure injection and entry authorization
 
-- Project-cache entry directories now open with `.iterate = true, .no_follow = true` through `openProjectCacheEntryDir`.
-- Symlinked entry directories are rejected as `incomplete` with `first_difference=entry.symlink` before nested manifest/file probes.
-- `sa cache clean` reclaims unowned stale `.locks/*.lock` and `*.build.lock` files after entry cleanup while active writers remain pinned.
+- Added test-only low-level IO failure injection for project-cache `sync`/`rename` helpers (`projectCacheIoTestArm` / `TestInjectedIoFailure`).
+- First sync fail records stage `copy_artifact`; first rename fail records `manifest`; second rename fail records `publish`; all leave no partial final or staging entry.
+- Entry directories open through `openProjectCacheEntryDir` with `.iterate = true, .no_follow = true`; symlink entry dirs reject as `incomplete` / `entry.symlink` before nested probes.
+- `sa cache clean` reclaims unowned stale `.locks/*.lock` and `*.build.lock` without counting lock bookkeeping in entry kept/removed stats; active writers remain pinned.
+- Symlink test-metadata fixture keeps the real payload outside the entry so the only entry-side violation is the metadata symlink.
 - Focused validation passed on Linux:
-  - `zig test ... --test-filter "project cache rejects symlink entry directories"` -> `1/1`
-  - `zig test ... --test-filter "project cache clean reclaims stale unowned lock files"` -> `1/1`
-  - `zig test ... --test-filter "project cache clean pins an active staging writer"` -> `1/1`
-  - `zig test ... --test-filter "project cache clean recovers orphaned crash staging entries"` -> `1/1`
-  - `zig test ... --test-filter "project cache entry rejects unexpected extra files"` -> `1/1`
-  - `zig test ... --test-filter "project cache manifest rejects symlink artifact entries"` -> `1/1`
+  - `zig test ... --test-filter "project cache"` -> `27/27`
+  - including `project cache injects sync and rename IO failures without partial entries` `1/1`
+  - `project cache rejects symlink entry directories` `1/1`
+  - `project cache clean reclaims stale unowned lock files` `1/1`
+  - `project cache clean pins an active staging writer` `1/1`
+  - `project cache clean recovers orphaned crash staging entries` `1/1`
+  - `project cache manifest rejects symlink test metadata entries` `1/1`
   - `zig fmt --check src/cli.zig`; `git diff --check`
-- Evidence boundary: this is Linux unit coverage for entry-dir no_follow authorization and persistent lock reclaim. Full openat/O_NOFOLLOW path authorization, emit/sync/rename/link external-tool injection, broader cross-process recovery, and native macOS/Windows validation remain open.
+- Evidence boundary: Linux unit coverage for sync/rename IO injection, entry-dir no_follow authorization, and persistent lock reclaim. Full openat/O_NOFOLLOW path authorization, emit/link external-tool injection, broader cross-process recovery, and native macOS/Windows validation remain open.
 
 ## Focused verified: 2026-07-17 orphaned staging crash recovery
 

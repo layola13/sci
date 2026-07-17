@@ -2,13 +2,14 @@
 
 Date: 2026-07-17
 
-## Current turn: entry-dir no_follow authorization and stale lock accounting
+## Current turn: sync/rename IO injection, entry no_follow, and stale lock reclaim
 
-1. [x] Keep the worktree scoped to cache path-authorization/lock accounting only.
-2. [x] Open project-cache entry directories with `no_follow` and reject symlink entry dirs.
-3. [x] Reclaim unowned stale entry/build lock files during `sa cache clean`.
-4. [x] Keep active staging writers pinned under exclusive locks.
-5. [x] Focused verify unit filters, format/diff, then commit/push.
+1. [x] Keep the worktree scoped to project-cache store failure/authorization/lock work only.
+2. [x] Inject low-level `sync`/`rename` IO failures on store paths with stage telemetry and no partial entries.
+3. [x] Open entry directories with `no_follow` and reject symlink entry dirs before nested probes.
+4. [x] Reclaim unowned stale entry/build lock files during clean without polluting entry kept/removed stats.
+5. [x] Fix symlink test-metadata fixture layout so the real payload stays outside the entry.
+6. [x] Focused verify project-cache unit filters (`27/27`), format/diff, then commit/push.
 
 
 ## Current turn: orphaned staging crash recovery
@@ -263,7 +264,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] close the focused incremental function-object integrity checkpoint: manifest v2 digest-authorized reuse; function key v8 with global/local lowering-context separation and numeric local slots for body `.reg` operands plus verifier `change.reg`; backend ABI v11; synced sibling-temp emission; link-before-manifest, manifest-last commit, and post-commit cleanup; non-cacheable dependency bypass; `DT_UNKNOWN` fallback; DCE-selected global owner; full indirect-provenance signature ordering; function-local collision-safe anonymous strings; Linux ELF hidden-symbol localization; and direct/indirect owned-return release correctness are focused verified;
    - [x] add focused project-cache manifest symlink artifact/output rejection with `incomplete` lookup and redacted `output.file` first-difference evidence;
    - [x] extend focused symlink rejection to project-cache `manifest.json` and `test-metadata.json`, including invalid status and metadata-parse rejection evidence;
-   - [ ] add remaining emit/sync/rename/link injection beyond publish rename, broader malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting (focused stale unowned lock reclaim landed), same-key cross-process coverage, and native macOS/Windows validation;
+   - [ ] add remaining emit/link external-tool injection beyond focused sync/rename/manifest/publish injection, broader malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, full openat/O_NOFOLLOW path authorization, crash recovery, richer lock accounting beyond focused unowned reclaim, same-key cross-process coverage, and native macOS/Windows validation;
    - [x] add focused multi-stage store failure injection for `copy_artifact`/`copy_output`/`validate` with no partial entry (`1/1` on Linux);
    - [x] add focused invalid-entry republish repair plus `manifest`/`publish` store failure injection with no partial entry (`1/1` each on Linux);
    - [x] add focused empty-artifact, legacy version-1, malformed artifact-digest, kind-mismatch, artifact size-mutation, and missing-output project-cache corruption regressions (`1/1` each on Linux);
