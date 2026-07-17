@@ -8777,3 +8777,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_partition_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10727+.
+
+## Completed: 2026-07-16 Vec IntoIter array/window collect ops
+
+- `sa_std/vec.sa`: Added `VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64` and `VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64`.
+- Semantics: these helpers lower supportable Rust nightly array/window adapter-then-collect shapes for concrete `vec::IntoIter<u64>` by delegating to existing eager slice-backed cursor primitives over explicit backing Vecs. Array chunks are flattened into `Vec<u64>` values and leave incomplete tails; map_windows calls a concrete `(window_ptr, window_len) -> u64` mapper and consumes finite cursors for valid nonzero window sizes.
+- Test: `tests/unit_framework/std_vec_into_iter_array_window_collect_macro_surface.sa` — 1 test (panic ID 10727) covering array chunks, partial chunk tail, zero chunk size failure without advancement, map_windows sums, short-input empty output, zero window size failure without advancement, and empty input.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_array_window_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10728+.

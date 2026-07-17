@@ -4166,3 +4166,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10727+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust generic `Default + Extend` partition collection, tuple ABI, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, closure capture/unwind/drop cleanup, nightly trait wiring for is_partitioned, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-16 Vec IntoIter array/window collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter nightly array/window eager collect aliases in vec.sa: VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 and VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64, delegating to existing concrete u64 cursor collect helpers over explicit backing Vecs.
+- Test file std_vec_into_iter_array_window_collect_macro_surface.sa (panic ID 10727).
+
+Panic IDs next free: 10728+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust const-generic array item/reference ABI, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy ArrayChunks/MapWindows adapter object identity/state, closure capture/unwind/drop cleanup, nightly trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

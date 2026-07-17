@@ -427,6 +427,14 @@
     EXPAND ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
+    EXPAND ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
+[END_MACRO]
+
+[MACRO] VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+    EXPAND ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
