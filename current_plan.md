@@ -4356,3 +4356,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10748+.
 Still blocked without redesign: Rust lazy adapter identity/state types, generic `Iterator<Item = T>` object composition, Rust panic object for `step_by(0)`, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter transform collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter transform/filter eager collect aliases in array.sa: ARRAY_INTO_ITER_MAP_COLLECT_U64, ARRAY_INTO_ITER_INSPECT_COLLECT_U64, ARRAY_INTO_ITER_SCAN_COLLECT_U64, ARRAY_INTO_ITER_FILTER_COLLECT_U64, ARRAY_INTO_ITER_FILTER_MAP_COLLECT_U64, and ARRAY_INTO_ITER_MAP_WHILE_COLLECT_U64.
+- Test file std_array_into_iter_transform_collect_macro_surface.sa (panic ID 10748).
+
+Panic IDs next free: 10749+.
+Still blocked without redesign: Rust lazy adapter identity/state types, closure capture/call ABI, generic `Option` ABI, generic `Iterator<Item = T>` object composition, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

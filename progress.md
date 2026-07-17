@@ -8966,3 +8966,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10748+.
+
+## Completed: 2026-07-17 Array IntoIter transform collect ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_MAP_COLLECT_U64`, `ARRAY_INTO_ITER_INSPECT_COLLECT_U64`, `ARRAY_INTO_ITER_SCAN_COLLECT_U64`, `ARRAY_INTO_ITER_FILTER_COLLECT_U64`, `ARRAY_INTO_ITER_FILTER_MAP_COLLECT_U64`, and `ARRAY_INTO_ITER_MAP_WHILE_COLLECT_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` transform/filter eager collection shapes by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They materialize concrete `map(...).collect`, `inspect(...).collect`, `scan(...).collect`, `filter(...).collect`, `filter_map(...).collect`, and `map_while(...).collect` into caller-owned `Vec<u64>` outputs, with scan/map_while short-circuiting through the cursor and leaving the suffix after the stopping item available. They do not model Rust lazy adapter identity/state types, closure capture, generic `Option` ABI, generic iterator composition, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_transform_collect_macro_surface.sa` — 1 test (panic ID 10748) covering map, inspect, scan short-circuit with remaining suffix, filter, filter_map, and map_while short-circuit with remaining suffix.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_transform_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10749+.
