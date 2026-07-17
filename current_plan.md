@@ -4184,3 +4184,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10729+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust const-generic array ABI, `Result<[T; N], array::IntoIter<T, N>>` remainder object, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 BinaryHeap IntoIter trait ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap IntoIter default/cursor/size aliases in binary_heap.sa: BINARY_HEAP_INTO_ITER_DEFAULT_U64, BINARY_HEAP_INTO_ITER_NEXT_U64, BINARY_HEAP_INTO_ITER_NEXT_BACK_U64, BINARY_HEAP_INTO_ITER_SIZE_HINT_U64, BINARY_HEAP_INTO_ITER_EXACT_SIZE_LEN_U64, and BINARY_HEAP_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64.
+- Test file std_binary_heap_into_iter_trait_macro_surface.sa (panic ID 10729).
+
+Panic IDs next free: 10730+.
+Still blocked without redesign: generic BinaryHeap<T> ordering/item semantics, Rust owned binary_heap::IntoIter<T,A> object layout/drop glue, allocator access/parameters, marker trait wiring, generic Clone, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

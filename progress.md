@@ -8795,3 +8795,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_into_iter_next_chunk_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10729+.
+
+## Completed: 2026-07-17 BinaryHeap IntoIter trait ops
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_INTO_ITER_DEFAULT_U64`, `BINARY_HEAP_INTO_ITER_NEXT_U64`, `BINARY_HEAP_INTO_ITER_NEXT_BACK_U64`, `BINARY_HEAP_INTO_ITER_SIZE_HINT_U64`, `BINARY_HEAP_INTO_ITER_EXACT_SIZE_LEN_U64`, and `BINARY_HEAP_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers expose the supportable concrete `binary_heap::IntoIter<u64>` Default, Iterator, DoubleEndedIterator, and ExactSizeIterator shapes over the existing explicit backing `Vec<u64>` cursor. The default helper creates an empty backing Vec; cursor operations preserve arbitrary internal heap-array order and exact remaining length.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_trait_macro_surface.sa` — 1 test (panic ID 10729) covering initial/remaining size hints, forward/back consumption, repeated fused exhaustion behavior, and default empty iterator state.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10730+.
