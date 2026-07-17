@@ -2524,7 +2524,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(run_json_second_cache, "reason")));
 }
 
-test "sa test plugin link inputs report bypassed project cache" {
+test "plugin link inputs report bypassed project cache" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var original_cwd = try std.fs.cwd().openDir(".", .{});
@@ -2604,6 +2604,13 @@ test "sa test plugin link inputs report bypassed project cache" {
         \\    !ok
         \\    panic(902)
     );
+    try writeSource(tmp.dir, "plugin_cache_main.sa",
+        \\@extern sa_cache_plugin_probe() -> u32
+        \\
+        \\@main() -> i32:
+        \\    status = call @sa_cache_plugin_probe()
+        \\    return status
+    );
 
     const build_plugin = try runCommandAnyExit(std.testing.allocator, &.{
         "zig",
@@ -2643,6 +2650,37 @@ test "sa test plugin link inputs report bypassed project cache" {
     defer stdout_buf.deinit();
     var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
+
+    const build_argv = [_][]const u8{ "sa", "build-exe", "plugin_cache_main.sa", "-o", "plugin_cache_main.out", "--jobs", "1", "--json" };
+    const first_build_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    if (first_build_code != 0) std.debug.print("plugin cache build-exe failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buf.items, stderr_buf.items });
+    try std.testing.expectEqual(@as(u8, 0), first_build_code);
+    var first_build_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer first_build_json.deinit();
+    const first_build_cache = try jsonObjectGetValue(try jsonObjectGet(&first_build_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(first_build_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_build_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(first_build_cache, "reason")));
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const second_build_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), second_build_code);
+    var second_build_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer second_build_json.deinit();
+    const second_build_cache = try jsonObjectGetValue(try jsonObjectGet(&second_build_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(second_build_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(second_build_cache, "hit")));
+    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(second_build_cache, "reason")));
+
+    const build_cache_entries = cacheEntryCount(tmp.dir, ".sa_cache/build-exe") catch |err| switch (err) {
+        error.FileNotFound => 0,
+        else => return err,
+    };
+    try std.testing.expectEqual(@as(usize, 0), build_cache_entries);
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
     const test_argv = [_][]const u8{ "sa", "test", "plugin_cache_test.sa", "--jobs", "1", "--json" };
 
     const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
