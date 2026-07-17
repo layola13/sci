@@ -14,6 +14,12 @@
 - [x] Lock both script contracts with Linux-runnable macOS/Windows CI source tests and shell syntax validation for the macOS script.
 - [ ] Execute those archive smokes on native macOS/Windows runners; this batch is gate definition and static/source-contract evidence only.
 
+## Current project-cache manifest symlink hardening batch (2026-07-17)
+
+- [x] Reject symlinked project-cache `manifest.json` before manifest parsing, status, or first-difference reporting treats it as reusable.
+- [x] Reject symlinked `test-metadata.json` before cached test metadata is parsed or accepted through manifest validation.
+- [x] Preserve Linux-focused evidence boundaries with direct unit coverage; this is not TOCTOU-hard path authorization or native macOS/Windows cache validation.
+
 ## Current macOS native plugin-smoke batch (2026-07-17)
 
 - [x] Replace Linux-only plugin smoke artifact names with host-specific `linux|macos|windows` manifest keys and `.so/.dylib/.dll` library paths.

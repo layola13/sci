@@ -6435,6 +6435,7 @@ fn projectCacheManifestLookupReason(
 ) ProjectCacheLookupReason {
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return .unknown;
     defer allocator.free(manifest_path);
+    if (!cachePathIsRegularFile(manifest_path)) return .incomplete;
     const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch |err| switch (err) {
         error.FileNotFound => return .absent,
         else => return .manifest_invalid,
@@ -7045,6 +7046,7 @@ fn projectCacheReadTestMetadata(
 ) !test_meta.TestList {
     const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
     defer allocator.free(metadata_path);
+    if (!cachePathIsRegularFile(metadata_path)) return error.InvalidCacheManifest;
     const metadata_bytes = try readTextFileAlloc(allocator, metadata_path);
     defer allocator.free(metadata_bytes);
     return try parseProjectCacheTestMetadata(allocator, metadata_bytes);
@@ -7208,7 +7210,20 @@ fn cacheEntryExpired(stat: std.fs.File.Stat, max_age_days: u64) bool {
     return now - stat.mtime > max_age_ns;
 }
 
+fn cacheDirFileIsRegularFile(dir: std.fs.Dir, name: []const u8) bool {
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    _ = dir.readLink(name, &link_buf) catch |err| switch (err) {
+        error.NotLink => {
+            const stat = dir.statFile(name) catch return false;
+            return stat.kind == .file;
+        },
+        else => return false,
+    };
+    return false;
+}
+
 fn cacheFilePresentNonEmpty(dir: std.fs.Dir, name: []const u8) bool {
+    if (!cacheDirFileIsRegularFile(dir, name)) return false;
     const stat = dir.statFile(name) catch return false;
     return stat.kind == .file and stat.size != 0;
 }
@@ -7227,6 +7242,7 @@ fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
 }
 
 fn cacheEntryArtifactMatchesManifest(entry_dir: std.fs.Dir, artifact_value: std.json.Value, name: []const u8) !bool {
+    if (!cacheDirFileIsRegularFile(entry_dir, name)) return false;
     const stat = entry_dir.statFile(name) catch return false;
     if (stat.kind != .file or stat.size == 0) return false;
     if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
@@ -7235,6 +7251,7 @@ fn cacheEntryArtifactMatchesManifest(entry_dir: std.fs.Dir, artifact_value: std.
 }
 
 fn cacheEntryTestMetadataValid(entry_dir: std.fs.Dir) bool {
+    if (!cacheDirFileIsRegularFile(entry_dir, "test-metadata.json")) return false;
     const metadata_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "test-metadata.json", 16 * 1024 * 1024) catch return false;
     defer std.heap.page_allocator.free(metadata_bytes);
     var test_list = parseProjectCacheTestMetadata(std.heap.page_allocator, metadata_bytes) catch return false;
@@ -7248,6 +7265,7 @@ fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir
         defer incremental_manifest.deinit(std.heap.page_allocator);
         return incremental_manifest.complete();
     }
+    if (!cacheDirFileIsRegularFile(entry_dir, "manifest.json")) return false;
     const manifest_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "manifest.json", project_cache_manifest_max_bytes) catch return false;
     defer std.heap.page_allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, manifest_bytes, .{}) catch return false;
@@ -7411,6 +7429,7 @@ fn projectCacheManifestPathForKind(allocator: std.mem.Allocator, project_root: [
 fn projectCacheManifestStatusName(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, reason: ProjectCacheLookupReason) []const u8 {
     const manifest_path = projectCacheManifestPathForKind(allocator, project_root, kind, key) catch return "unknown";
     defer allocator.free(manifest_path);
+    if (!cachePathIsRegularFile(manifest_path)) return "invalid";
     const stat = std.fs.cwd().statFile(manifest_path) catch |err| switch (err) {
         error.FileNotFound => return "missing",
         else => return "unknown",
@@ -7543,6 +7562,7 @@ fn projectCacheManifestFirstDifference(
 
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return "manifest.path";
     defer allocator.free(manifest_path);
+    if (!cachePathIsRegularFile(manifest_path)) return "manifest";
     const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return "manifest";
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return "manifest.json";
@@ -11652,6 +11672,97 @@ test "project cache manifest rejects symlink artifact entries" {
     try std.testing.expectEqualStrings(
         "output.file",
         projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects symlink manifest entries" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'d'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const real_manifest_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "manifest-real.json");
+    defer std.testing.allocator.free(real_manifest_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try projectCacheWriteManifestAt(std.testing.allocator, real_manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+    try std.fs.cwd().symLink("manifest-real.json", manifest_path, .{});
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "manifest",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+    try std.testing.expectEqualStrings(
+        "invalid",
+        projectCacheManifestStatusName(std.testing.allocator, project_root, .build_exe, key, .incomplete),
+    );
+}
+
+test "project cache manifest rejects symlink test metadata entries" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'c'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .test_cache, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .test_cache, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .test_cache, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const real_metadata_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .test_cache, key, "test-metadata-real.json");
+    defer std.testing.allocator.free(real_metadata_path);
+    const metadata_path = try projectCacheTestMetadataPath(std.testing.allocator, project_root, key);
+    defer std.testing.allocator.free(metadata_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .test_cache, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try writeAllFile(real_metadata_path, "{\"version\":1,\"tests\":[]}\n");
+    try std.fs.cwd().symLink("test-metadata-real.json", metadata_path, .{});
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .test_cache, key, artifact_path, output_path, real_metadata_path, &.{});
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .test_cache, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "test_metadata.file",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .test_cache, key).?,
+    );
+    try std.testing.expectError(
+        error.InvalidCacheManifest,
+        projectCacheReadTestMetadata(std.testing.allocator, project_root, key),
     );
 }
 
