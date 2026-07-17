@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence success-only upload hardening
+
+1. [x] Keep the worktree clean before starting the batch.
+2. [x] Require macOS/Windows native runtime evidence uploads to run only after prior steps and validation succeed.
+3. [x] Require macOS/Windows native smoke evidence uploads to run only after prior steps and validation succeed.
+4. [x] Lock the upload condition with Linux-runnable macOS/Windows source contracts.
+5. [x] Run focused workflow/CI contract validation, then commit and push the batch.
+
 ## Current turn: native evidence exact-schema hardening
 
 1. [x] Keep the worktree clean before starting the batch.

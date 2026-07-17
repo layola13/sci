@@ -108,6 +108,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "--llvm-version \"$LLVM_VERSION\"",
         "--github-sha \"${{ github.sha }}\"",
         "Upload native runtime evidence",
+        "if: success()",
         "name: macos-native-runtime-${{ matrix.expected_arch }}",
         "path: ${{ runner.temp }}/macos-runtime-gates-${{ matrix.expected_arch }}.json",
         "zig build sa-cli -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe --prefix \"$compiler_root\"",
@@ -124,6 +125,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "--platform macos",
         "--github-run-id \"${{ github.run_id }}\"",
         "Upload native smoke evidence",
+        "if: success()",
         "uses: actions/upload-artifact@v4",
         "name: macos-native-smoke-${{ matrix.expected_arch }}",
         "if-no-files-found: warn",
@@ -176,6 +178,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "/opt/homebrew",
         "/usr/local",
         "LLVM_LIB_NAME=",
+        "if: always()",
     };
     for (forbidden) |fragment| try expectNotContains(workflow, fragment);
 }

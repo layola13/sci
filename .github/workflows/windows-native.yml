@@ -251,7 +251,7 @@ jobs:
             $evidencePath
 
       - name: Upload native runtime evidence
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: windows-native-runtime-x86_64
@@ -337,7 +337,7 @@ jobs:
             $evidencePath
 
       - name: Upload native smoke evidence
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: windows-native-smoke-x86_64

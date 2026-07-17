@@ -2330,6 +2330,26 @@ test "cli cache status and why explain project cache entries" {
     const candidate_key_input_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/.key-inputs/build-exe/{s}.json", .{candidate_miss_key});
     defer std.testing.allocator.free(candidate_key_input_path);
     try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"0101010101010101010101010101010101010101010101010101010101010101"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"0202020202020202020202020202020202020202020202020202020202020202"}]}
+        \\
+    );
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_candidate_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", candidate_miss_key, "--json" };
+    const why_schema_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_schema_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.schema\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0101010101010101010101010101010101010101010101010101010101010101") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0202020202020202020202020202020202020202020202020202020202020202") == null);
+
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
         \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]}
         \\
     );
@@ -2339,7 +2359,6 @@ test "cli cache status and why explain project cache entries" {
     );
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
-    const why_candidate_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", candidate_miss_key, "--json" };
     const why_compiler_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), why_compiler_candidate_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -2348,6 +2367,25 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd") == null);
+
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"0303030303030303030303030303030303030303030303030303030303030303"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"0404040404040404040404040404040404040404040404040404040404040404"}]}
+        \\
+    );
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_backend_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_backend_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.backend\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0303030303030303030303030303030303030303030303030303030303030303") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0404040404040404040404040404040404040404040404040404040404040404") == null);
 
     try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
         \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},{"name":"toolchain","sha256":"9999999999999999999999999999999999999999999999999999999999999999"}]}
@@ -2369,6 +2407,44 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") == null);
 
     try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},{"name":"toolchain","sha256":"9999999999999999999999999999999999999999999999999999999999999999"},{"name":"host_target","sha256":"0505050505050505050505050505050505050505050505050505050505050505"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},{"name":"toolchain","sha256":"9999999999999999999999999999999999999999999999999999999999999999"},{"name":"host_target","sha256":"0606060606060606060606060606060606060606060606060606060606060606"}]}
+        \\
+    );
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_host_target_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_host_target_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.host_target\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0505050505050505050505050505050505050505050505050505050505050505") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0606060606060606060606060606060606060606060606060606060606060606") == null);
+
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},{"name":"toolchain","sha256":"9999999999999999999999999999999999999999999999999999999999999999"},{"name":"host_target","sha256":"0505050505050505050505050505050505050505050505050505050505050505"},{"name":"project","sha256":"0707070707070707070707070707070707070707070707070707070707070707"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"compiler","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"name":"backend","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},{"name":"toolchain","sha256":"9999999999999999999999999999999999999999999999999999999999999999"},{"name":"host_target","sha256":"0505050505050505050505050505050505050505050505050505050505050505"},{"name":"project","sha256":"0808080808080808080808080808080808080808080808080808080808080808"}]}
+        \\
+    );
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_project_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_project_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.project\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0707070707070707070707070707070707070707070707070707070707070707") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0808080808080808080808080808080808080808080808080808080808080808") == null);
+
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
         \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"2222222222222222222222222222222222222222222222222222222222222222"}]}
         \\
     );
@@ -2387,6 +2463,25 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "2222222222222222222222222222222222222222222222222222222222222222") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "3333333333333333333333333333333333333333333333333333333333333333") == null);
+
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},{"name":"wasm_target","sha256":"0909090909090909090909090909090909090909090909090909090909090909"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},{"name":"wasm_target","sha256":"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"}]}
+        \\
+    );
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_wasm_target_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_wasm_target_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.wasm_target\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0909090909090909090909090909090909090909090909090909090909090909") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a") == null);
 
     try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
         \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},{"name":"source_tree","sha256":"5555555555555555555555555555555555555555555555555555555555555555"}]}

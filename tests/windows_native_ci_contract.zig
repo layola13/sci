@@ -80,6 +80,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "--llvm-version $env:LLVM_VERSION",
         "--github-sha \"${{ github.sha }}\"",
         "Upload native runtime evidence",
+        "if: success()",
         "name: windows-native-runtime-x86_64",
         "path: ${{ runner.temp }}\\windows-runtime-gates-x86_64.json",
         "zig build sa-std-static -Doptimize=ReleaseSafe --prefix",
@@ -98,6 +99,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "--platform windows",
         "--github-run-attempt \"${{ github.run_attempt }}\"",
         "Upload native smoke evidence",
+        "if: success()",
         "uses: actions/upload-artifact@v4",
         "name: windows-native-smoke-x86_64",
         "if-no-files-found: warn",
@@ -116,6 +118,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "sa-std-runtime",
         "sa-net-uring",
         "test-runtime-darwin",
+        "if: always()",
     };
     for (forbidden) |fragment| try expectNotContains(workflow, fragment);
 }
