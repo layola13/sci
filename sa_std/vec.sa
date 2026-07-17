@@ -171,6 +171,10 @@
     EXPAND ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+[MACRO] VEC_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_COUNT_U64 %out_count, %iter_reg
     EXPAND ITER_COUNT %out_count, %iter_reg
 [END_MACRO]

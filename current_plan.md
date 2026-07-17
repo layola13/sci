@@ -4175,3 +4175,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10728+.
 Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust const-generic array item/reference ABI, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, lazy ArrayChunks/MapWindows adapter object identity/state, closure capture/unwind/drop cleanup, nightly trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Vec IntoIter next_chunk)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Vec IntoIter nightly next_chunk alias in vec.sa: VEC_INTO_ITER_TRY_NEXT_CHUNK_U64, delegating to the existing concrete u64 cursor helper with caller-provided output storage.
+- Test file std_vec_into_iter_next_chunk_macro_surface.sa (panic ID 10728).
+
+Panic IDs next free: 10729+.
+Still blocked without redesign: generic Vec<T> iterator item/reference/lifetime semantics, Rust const-generic array ABI, `Result<[T; N], array::IntoIter<T, N>>` remainder object, Rust owned IntoIter<T,A> object layout/drop glue, allocator-aware iterator state/cloning, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
