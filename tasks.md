@@ -1,5 +1,19 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current Windows native plugin-smoke batch (2026-07-17)
+
+- [x] Replace Linux-only plugin smoke artifact names with host-specific `linux|macos|windows` manifest keys and `.so/.dylib/.dll` library paths.
+- [x] Make plugin artifact import scanning normalize Windows COFF `__imp_` prefixes alongside the existing Mach-O underscore handling.
+- [x] Wire `plugin-host-smoke` into the Windows native workflow and lock the workflow/source contract for the reviewed subset.
+- [x] Run Linux plugin smoke plus the Windows CI/source contracts and keep the evidence boundary explicit: this is Linux executable evidence and Windows workflow/source-contract evidence, not native Windows runner execution yet.
+
+## Current macOS native plugin-smoke batch (2026-07-17)
+
+- [x] Replace Linux-only plugin smoke artifact names with host-specific `linux|macos|windows` manifest keys and `.so/.dylib/.dll` library paths.
+- [x] Make plugin artifact import scanning use Mach-O-compatible `nm -u` / `llvm-nm --undefined-only` on macOS and normalize Mach-O C symbol underscores before permission matching.
+- [x] Wire `plugin-host-smoke` into the macOS native workflow after `test-portable`, and lock the workflow/source contract.
+- [x] Run Linux executable plugin smoke plus plugin/macOS/portability gates while preserving the evidence boundary: this is not macOS native runner execution and does not complete Windows plugin smoke.
+
 ## Current Windows PAL network-interface batch (2026-07-16)
 
 - [x] Audit the Windows IP Helper API structures and confirm the required x86_64/aarch64 field offsets.

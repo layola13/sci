@@ -2793,6 +2793,23 @@ fn currentArtifactTarget() ![]const u8 {
     return artifactTargetFor(builtin.os.tag, builtin.cpu.arch);
 }
 
+fn normalizeUndefinedImportSymbolFor(os_tag: std.Target.Os.Tag, symbol: []const u8) []const u8 {
+    var normalized = symbol;
+    switch (os_tag) {
+        .macos => {
+            if (std.mem.startsWith(u8, normalized, "_") and normalized.len > 1) normalized = normalized[1..];
+        },
+        .windows => {
+            if (std.mem.startsWith(u8, normalized, "__imp_")) {
+                normalized = normalized["__imp_".len..];
+                if (std.mem.startsWith(u8, normalized, "_") and normalized.len > 1) normalized = normalized[1..];
+            }
+        },
+        else => {},
+    }
+    return normalized;
+}
+
 fn artifactFromValue(value: std.json.Value) !SelectedArtifact {
     return switch (value) {
         .string => |s| .{ .path = s, .sha256 = null },
@@ -3232,9 +3249,17 @@ fn verifyArtifactStaticPolicy(
 fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: []const u8, out: *std.ArrayList([]u8)) !void {
     const tools = [_][]const u8{ "nm", "llvm-nm" };
     for (tools) |tool| {
+        const argv = if (builtin.os.tag == .macos and std.mem.eql(u8, tool, "nm"))
+            &[_][]const u8{ tool, "-u", artifact_abs }
+        else if (builtin.os.tag == .macos)
+            &[_][]const u8{ tool, "--undefined-only", artifact_abs }
+        else if (builtin.os.tag == .windows)
+            &[_][]const u8{ tool, "--undefined-only", artifact_abs }
+        else
+            &[_][]const u8{ tool, "-D", "--undefined-only", artifact_abs };
         const result = std.process.Child.run(.{
             .allocator = allocator,
-            .argv = &.{ tool, "-D", "--undefined-only", artifact_abs },
+            .argv = argv,
         }) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return err,
@@ -3256,6 +3281,7 @@ fn parseUndefinedImportList(allocator: std.mem.Allocator, text: []const u8, out:
         const last_delim = std.mem.lastIndexOfAny(u8, line, " \t") orelse continue;
         var symbol = std.mem.trim(u8, line[last_delim + 1 ..], " \t");
         if (std.mem.indexOfScalar(u8, symbol, '@')) |version_idx| symbol = symbol[0..version_idx];
+        symbol = normalizeUndefinedImportSymbolFor(builtin.os.tag, symbol);
         if (symbol.len == 0 or externSymbolExists(out.items, symbol)) continue;
         try out.append(try allocator.dupe(u8, symbol));
     }
@@ -3724,6 +3750,13 @@ test "plugin native artifact mapping is host specific" {
     try std.testing.expectEqualStrings("windows-x86_64", try artifactTargetFor(.windows, .x86_64));
     try std.testing.expectEqualStrings("windows-aarch64", try artifactTargetFor(.windows, .aarch64));
     try std.testing.expectError(error.PluginTargetUnsupported, artifactTargetFor(.windows, .wasm32));
+}
+
+test "plugin undefined import normalization trims macOS and Windows prefixes" {
+    try std.testing.expectEqualStrings("connect", normalizeUndefinedImportSymbolFor(.linux, "connect"));
+    try std.testing.expectEqualStrings("connect", normalizeUndefinedImportSymbolFor(.macos, "_connect"));
+    try std.testing.expectEqualStrings("connect", normalizeUndefinedImportSymbolFor(.windows, "__imp_connect"));
+    try std.testing.expectEqualStrings("connect", normalizeUndefinedImportSymbolFor(.windows, "__imp__connect"));
 }
 
 fn pluginDevMode(allocator: std.mem.Allocator) bool {

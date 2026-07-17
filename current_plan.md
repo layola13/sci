@@ -1,6 +1,14 @@
 # Current Plan
 
-Date: 2026-07-16
+Date: 2026-07-17
+
+## Current turn: Windows native plugin-smoke contract
+
+1. [x] Platformize `tests/plugin_host_smoke.zig` for native Windows by using host-specific `linux|macos|windows` artifact keys, `.so/.dylib/.dll` names, and Windows-safe environment handling.
+2. [x] Make plugin artifact undefined-import scanning compatible with COFF/Windows by normalizing `__imp_` prefixes alongside the existing ELF/Mach-O handling.
+3. [x] Wire `plugin-host-smoke` into `.github/workflows/windows-native.yml` and lock the Windows CI/source contract around the reviewed subset.
+4. [x] Validate on Linux with plugin smoke `12/12`, plugin unit `3/3`, Windows CI contract `4/4`, Windows cross-build evidence, and `git diff --check`.
+5. [ ] Execute the Windows workflow on the native runner and record installed `sa_std.lib` consumption plus the shared runtime gate; continue the remaining macOS native runner execution separately.
 
 ## Current turn: Windows PAL network-interface backend
 

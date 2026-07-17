@@ -76,6 +76,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build macos-ci-contract --summary all",
         "zig build portability-check -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-portable -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
+        "zig build plugin-host-smoke -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-basic -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-pal -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "zig build test-runtime-netx -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
@@ -97,6 +98,7 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build macos-ci-contract --summary all",
         "zig build portability-check -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-portable -Dtarget=\"$ZIG_TARGET\"",
+        "zig build plugin-host-smoke -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-basic -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-pal -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-netx -Dtarget=\"$ZIG_TARGET\"",
@@ -115,7 +117,6 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "sa-net-uring",
         "sa-term-runtime",
         "native-sys-runtime",
-        "plugin-host-smoke",
         "sa-std-artifact-abi",
         "sa-std-shared",
         "libsa_std.dylib",
@@ -220,6 +221,8 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
 test "build graph exposes macOS dual-architecture portability entry points" {
     const build_source = try readSource("build.zig");
     defer std.testing.allocator.free(build_source);
+    const plugin_source = try readSource("src/plugins.zig");
+    defer std.testing.allocator.free(plugin_source);
 
     try expectContains(build_source, "b.step(\"macos-ci-contract\"");
     try expectContains(build_source, "tests/macos_native_ci_contract.zig");
@@ -228,6 +231,7 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(build_source, "b.step(\"test-runtime-basic\"");
     try expectContains(build_source, "b.step(\"test-runtime-pal\"");
     try expectContains(build_source, "b.step(\"test-runtime-netx\"");
+    try expectContains(build_source, "b.step(\"plugin-host-smoke\"");
     try expectContains(build_source, "b.step(\"test-runtime-darwin\"");
     try expectContains(build_source, "b.step(\"test-runtime-darwin-socket\"");
     try expectContains(build_source, "b.step(\"runtime-darwin-pty-link\"");
@@ -237,6 +241,10 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(build_source, "tests/runtime_darwin_socket_contract.c");
     try expectContains(build_source, "tests/runtime_darwin_pty_contract.c");
     try expectContains(build_source, "tests/runtime_contract_fixture.c");
+    try expectContains(plugin_source, "tool, \"-u\", artifact_abs");
+    try expectContains(plugin_source, "tool, \"--undefined-only\", artifact_abs");
+    try expectContains(plugin_source, "builtin.os.tag == .macos");
+    try expectContains(plugin_source, "symbol = symbol[1..]");
     try expectContains(build_source, "test-runtime-darwin requires a native macOS x86_64 or aarch64 host and target");
     try expectContains(build_source, "test-runtime-pal requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "test-runtime-netx requires a native Linux, macOS, or Windows host and target");

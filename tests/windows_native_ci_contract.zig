@@ -54,6 +54,7 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "LLVM_LIB_NAME=LLVM-C",
         "zig build sa-cli -Doptimize=ReleaseSafe",
         "zig build test-portable -Doptimize=ReleaseSafe",
+        "zig build plugin-host-smoke -Doptimize=ReleaseSafe",
         "zig build test-runtime-basic -Doptimize=ReleaseSafe",
         "zig build test-runtime-pal -Doptimize=ReleaseSafe",
         "zig build test-runtime-netx -Doptimize=ReleaseSafe",
@@ -79,7 +80,6 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "zig build sa-std-unit",
         "zig build pkg-core-test",
         "sa-std-runtime",
-        "plugin-host-smoke",
         "sa-net-uring",
         "test-runtime-darwin",
     };
@@ -129,24 +129,40 @@ test "build graph exposes focused Windows CI entry points" {
     defer std.testing.allocator.free(build_source);
     const driver_source = try readSource("src/driver/zigcc.zig");
     defer std.testing.allocator.free(driver_source);
+    const plugin_source = try readSource("tests/plugin_host_smoke.zig");
+    defer std.testing.allocator.free(plugin_source);
+    const plugins_runtime_source = try readSource("src/plugins.zig");
+    defer std.testing.allocator.free(plugins_runtime_source);
 
     try expectContains(build_source, "b.step(\"sa-cli\"");
     try expectContains(build_source, "b.step(\"test-portable\"");
     try expectContains(build_source, "b.step(\"test-runtime-basic\"");
     try expectContains(build_source, "b.step(\"test-runtime-pal\"");
     try expectContains(build_source, "b.step(\"test-runtime-netx\"");
+    try expectContains(build_source, "b.step(\"plugin-host-smoke\"");
     try expectContains(build_source, "b.step(\"test-runtime-windows\"");
     try expectContains(build_source, "test-runtime-basic requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "test-runtime-pal requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "test-runtime-netx requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "tests/runtime_basic_contract.c");
     try expectContains(build_source, "tests/runtime_contract_fixture.c");
+    try expectContains(build_source, "tests/plugin_host_smoke.zig");
     try expectContains(build_source, "linkSystemLibrary(\"ws2_32\"");
     try expectContains(build_source, "linkSystemLibrary(\"mswsock\"");
     try expectContains(build_source, "linkSystemLibrary(\"iphlpapi\"");
     try expectContains(driver_source, "try argv.items.append(\"-lws2_32\");");
     try expectContains(driver_source, "try argv.items.append(\"-lmswsock\");");
     try expectContains(driver_source, "try argv.items.append(\"-liphlpapi\");");
+    try expectContains(plugin_source, "SetEnvironmentVariableW");
+    try expectContains(plugin_source, "writeBrokerRunnerAlloc");
+    try expectContains(plugin_source, "nativeExecutableNameAlloc");
+    try expectContains(plugin_source, "denied_runner_abs");
+    try expectContains(plugin_source, "windows-x86_64");
+    try expectContains(plugin_source, ".dll");
+    try expectContains(plugins_runtime_source, "builtin.os.tag == .windows");
+    try expectContains(plugins_runtime_source, "__imp_");
+    try expectContains(plugins_runtime_source, "normalizeUndefinedImportSymbolFor");
+    try expectContains(plugins_runtime_source, "--undefined-only");
     try expectContains(build_source, "requires a native Windows x86_64 host and target");
     try expectContains(build_source, "windows process spawn failure leaves no live child handle");
     try expectContains(build_source, "b.step(\"windows-ci-contract\"");

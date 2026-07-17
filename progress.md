@@ -2,6 +2,22 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 Windows native plugin-smoke contract
+
+- `tests/plugin_host_smoke.zig` now uses host-specific artifact keys and dynamic-library paths for `.dll` as well as `.so/.dylib`, avoids POSIX-only `setenv`/`unsetenv` on Windows by using `SetEnvironmentVariableW`, and replaces the broker process runner shell script with a tiny native Zig executable.
+- `src/plugins.zig` now treats Windows artifact scanning as COFF-compatible `nm --undefined-only` / `llvm-nm --undefined-only` work and normalizes `__imp_` / `__imp__` import prefixes before permission matching.
+- `.github/workflows/windows-native.yml` now runs `zig build plugin-host-smoke -Doptimize=ReleaseSafe` after `test-portable`, and `tests/windows_native_ci_contract.zig` locks the workflow plus the Windows plugin-smoke source contract.
+- Validation passed on Linux: `PATH=/root/projects/zig-compiler:$PATH /root/projects/zig-compiler/zig build plugin-host-smoke --summary all` -> `12/12`; `PATH=/root/projects/zig-compiler:$PATH /root/projects/zig-compiler/zig test src/plugins.zig` -> `3/3`; `PATH=/root/projects/zig-compiler:$PATH /root/projects/zig-compiler/zig build windows-ci-contract --summary all` -> `4/4`; `git diff --check`.
+- Evidence boundary: this is Linux executable evidence plus Windows workflow/static/source-contract evidence. The Windows runner has not executed the plugin smoke natively, and clean-machine PowerShell installer/archive/release smoke remains open.
+
+## Focused verified: 2026-07-17 macOS native plugin-smoke contract
+
+- `tests/plugin_host_smoke.zig` now generates native plugin manifest keys and dynamic-library names from the host platform instead of hard-coding `linux-x86_64` and `.so`; the real descriptor load, sha256, install, archive install, optional dependency, privileged-blocking, and broker permission smokes now exercise the same helper surface.
+- `src/plugins.zig` now uses Mach-O-compatible undefined-import scanning on macOS (`nm -u` / `llvm-nm --undefined-only`) and normalizes Mach-O's leading C-symbol underscore before matching artifact permission rules.
+- `.github/workflows/macos-native.yml` now runs `zig build plugin-host-smoke -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe` in the native macOS job, and `tests/macos_native_ci_contract.zig` locks the workflow plus the macOS artifact-scan source contract.
+- Validation passed on Linux: `PATH=/root/projects/zig-compiler:$PATH /root/projects/zig-compiler/zig build plugin-host-smoke --summary all` -> `12/12`; `/root/projects/zig-compiler/zig test src/plugins.zig` -> `2/2`; `/root/projects/zig-compiler/zig build macos-ci-contract --summary all` -> `3/3`; `/root/projects/zig-compiler/zig build portability-check --summary all` -> `66/66`; `git diff --check`.
+- Evidence boundary: this is Linux executable evidence plus macOS workflow/static contract evidence. It does not prove macOS native plugin execution until the macOS runners execute it, and Windows `.dll` plugin/PowerShell clean-machine smoke remains open.
+
 ## Focused verified: 2026-07-16 Windows PAL network interfaces
 
 - Windows PAL now replaces the `network_interfaces_json_alloc` placeholder with `GetAdaptersAddresses` enumeration while preserving the existing network-interface JSON schema: name, family, address, netmask, scopeid, CIDR, and MAC.

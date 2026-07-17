@@ -180,6 +180,11 @@ jobs:
           if ($exitCode -ne 0) {
             throw "test-portable failed with exit code $exitCode"
           }
+          zig build plugin-host-smoke -Doptimize=ReleaseSafe --summary all
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "plugin-host-smoke failed with exit code $exitCode"
+          }
 
       - name: Run reviewed Windows runtime subset
         run: |
