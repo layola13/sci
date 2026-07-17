@@ -217,12 +217,37 @@ pub fn toolchainCacheIdentity(allocator: std.mem.Allocator, options: ToolchainCa
     return try out.toOwnedSlice();
 }
 
-fn hostRpathArgument(os_tag: std.Target.Os.Tag) ?[]const u8 {
+pub fn hostRpathArgument(os_tag: std.Target.Os.Tag) ?[]const u8 {
     return switch (os_tag) {
         .linux => "-Wl,-rpath,$ORIGIN",
         .macos => "-Wl,-rpath,@loader_path",
         else => null,
     };
+}
+
+/// Stable native link-flag identity for project artifact keys.
+/// Captures host rpath, platform system libraries, and the current
+/// export-dynamic policy used by `argvForExe` / native plugin linking.
+pub fn hostLinkPolicyIdentity(allocator: std.mem.Allocator, os_tag: std.Target.Os.Tag) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    const writer = out.writer();
+    try writer.writeAll("host-link-policy-v1;");
+    if (hostRpathArgument(os_tag)) |rpath| {
+        try writer.print("rpath={s};", .{rpath});
+    } else {
+        try writer.writeAll("rpath=none;");
+    }
+    switch (os_tag) {
+        .windows => try writer.writeAll("system_libs=ws2_32,mswsock,iphlpapi;"),
+        else => try writer.writeAll("system_libs=none;"),
+    }
+    // Native executables currently rely on default dynamic-symbol export
+    // behavior (no explicit -rdynamic / --export-dynamic). Keep the policy
+    // explicit so future export-flag changes invalidate artifact keys.
+    try writer.writeAll("export_dynamic=default-none;");
+    try writer.writeAll("plugin_rpath=Wl,-rpath,<libdir>;");
+    return try out.toOwnedSlice();
 }
 
 pub fn argvForExe(
@@ -590,6 +615,18 @@ test "native executable rpath follows host loader semantics" {
     try std.testing.expectEqualStrings("-Wl,-rpath,$ORIGIN", hostRpathArgument(.linux).?);
     try std.testing.expectEqualStrings("-Wl,-rpath,@loader_path", hostRpathArgument(.macos).?);
     try std.testing.expectEqual(@as(?[]const u8, null), hostRpathArgument(.windows));
+
+    const linux_policy = try hostLinkPolicyIdentity(std.testing.allocator, .linux);
+    defer std.testing.allocator.free(linux_policy);
+    try std.testing.expect(std.mem.indexOf(u8, linux_policy, "host-link-policy-v1;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, linux_policy, "rpath=-Wl,-rpath,$ORIGIN;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, linux_policy, "system_libs=none;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, linux_policy, "export_dynamic=default-none;") != null);
+
+    const windows_policy = try hostLinkPolicyIdentity(std.testing.allocator, .windows);
+    defer std.testing.allocator.free(windows_policy);
+    try std.testing.expect(std.mem.indexOf(u8, windows_policy, "rpath=none;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, windows_policy, "system_libs=ws2_32,mswsock,iphlpapi;") != null);
 }
 
 test "argv helpers preserve input and link flag order" {

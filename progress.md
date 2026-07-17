@@ -2,6 +2,33 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 host link-policy and host-target artifact-key inputs
+
+- Project artifact keys for `build-exe` and `test` now include host link-policy identity under field `link_flags` (`host-link-policy-v1` with host rpath, platform system libs, explicit `export_dynamic=default-none`, and plugin rpath shape).
+- Host-target key inputs now also cover object format, pointer width, and the pinned `cpu_policy=generic-v1` / `features_policy=none` contract already used by backend ABI v11.
+- `src/driver/zigcc.zig` exposes `hostLinkPolicyIdentity` for stable native link-flag keying and keeps host rpath argv placement under the same policy.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project build key tracks host link policy identity"` -> `1/1`
+  - `zig test ... --test-filter "project build key tracks ordered plugin link inputs"` -> `1/1`
+  - `zig test src/driver/zigcc.zig --test-filter "argv helpers preserve input and link flag order"` -> `1/1`
+  - `zig fmt --check src/cli.zig src/driver/zigcc.zig`; `git diff --check`
+- Evidence boundary: this is Linux unit coverage for host link-policy/export-dynamic default and richer host-target identity. Complete CPU feature matrices beyond the pinned generic/none policy, broader failure injection, TOCTOU-hard path authorization, crash recovery, and native macOS/Windows validation remain open.
+
+## Focused verified: 2026-07-17 host link policy / export-flag keying
+
+- Project artifact keys for `build-exe` and `test` now publish a stable `link_flags` field from `driver.hostLinkPolicyIdentity` under schema `sa-build-cache-v4`.
+- Host link-policy identity covers host rpath (`$ORIGIN` / `@loader_path` / none), Windows system libraries, explicit `export_dynamic=default-none`, and plugin rpath shape so future export-flag or link-policy changes invalidate keys.
+- Host-target key inputs now also include object format, pointer width, and pinned `cpu_policy=generic-v1` / `features_policy=none` so policy drift remains visible beside backend ABI identity.
+- Obj/wasm keys intentionally omit native `link_flags` / plugin-link identity.
+- Focused validation passed on Linux:
+  - `zig test src/driver/zigcc.zig -ODebug --test-filter "native executable rpath follows host loader semantics"` -> `1/1`
+  - `zig test src/driver/zigcc.zig -ODebug --test-filter "argv helpers preserve input and link flag order"` -> `1/1`
+  - `zig test ... --test-filter "project build key tracks host link policy identity"` -> `1/1`
+  - `zig test ... --test-filter "project build key tracks ordered plugin link inputs"` -> `1/1`
+  - `zig test ... --test-filter "project build key tracks runtime archive content"` -> `1/1`
+  - `zig fmt --check src/cli.zig src/driver/zigcc.zig`; `git diff --check`; `zig build sa-cli --summary all` -> `5/5`
+- Evidence boundary: this is Linux unit coverage for host link-policy / export-dynamic policy keying and host-target object-format/pointer-width/CPU-policy identity. Complete target-feature matrix expansion, failure injection, TOCTOU-hard path authorization, crash recovery, cross-process, and native macOS/Windows validation remain open.
+
 ## Focused verified: 2026-07-17 project cache extra-file/oversize/content-flip corruption regressions
 
 - Project cache entry validation now rejects unexpected files outside the kind allowlist (`artifact.sa.bc`, `output.bin`, `manifest.json`, plus `test-metadata.json` for test cache / `functions` for incremental).

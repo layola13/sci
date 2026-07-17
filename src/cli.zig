@@ -5709,6 +5709,7 @@ const ProjectCacheKeyInputField = enum {
     wasm_target,
     semantic_file_inputs,
     plugin_link_inputs,
+    link_flags,
     project_manifests,
     source_tree,
 
@@ -5724,6 +5725,7 @@ const ProjectCacheKeyInputField = enum {
             .wasm_target => "wasm_target",
             .semantic_file_inputs => "semantic_file_inputs",
             .plugin_link_inputs => "plugin_link_inputs",
+            .link_flags => "link_flags",
             .project_manifests => "project_manifests",
             .source_tree => "source_tree",
         };
@@ -5741,6 +5743,7 @@ const project_cache_key_input_fields = [_]ProjectCacheKeyInputField{
     .wasm_target,
     .semantic_file_inputs,
     .plugin_link_inputs,
+    .link_flags,
     .project_manifests,
     .source_tree,
 };
@@ -6254,6 +6257,12 @@ fn computeProjectBuildKeyWithTrace(
     cacheTraceBytes(&hasher, trace, .host_target, builtin.target.cpu.model.name);
     cacheTraceBytes(&hasher, trace, .host_target, @tagName(builtin.target.os.tag));
     cacheTraceBytes(&hasher, trace, .host_target, @tagName(builtin.target.abi));
+    cacheTraceBytes(&hasher, trace, .host_target, @tagName(builtin.target.ofmt));
+    cacheTraceU64(&hasher, trace, .host_target, @intCast(builtin.target.ptrBitWidth()));
+    // Backend currently pins generic CPU/features for object identity; keep the
+    // project host-target field aligned so policy drift remains visible in keys.
+    cacheTraceBytes(&hasher, trace, .host_target, "cpu_policy=generic-v1");
+    cacheTraceBytes(&hasher, trace, .host_target, "features_policy=none");
     cacheTraceBytes(&hasher, trace, .project, project_root);
     cacheTraceBytes(&hasher, trace, .command, kind.dirName());
     cacheTraceBytes(&hasher, trace, .command, source_path);
@@ -6282,6 +6291,9 @@ fn computeProjectBuildKeyWithTrace(
     }
     if (kind == .build_exe or kind == .test_cache) {
         try hashOrderedPluginLinkInputs(allocator, &hasher, trace);
+        const link_policy = try driver.hostLinkPolicyIdentity(allocator, builtin.os.tag);
+        defer allocator.free(link_policy);
+        cacheTraceBytes(&hasher, trace, .link_flags, link_policy);
     }
 
     const project_manifest = project_context.manifest;
@@ -8242,6 +8254,7 @@ fn projectCacheKeyInputFirstDifference(
                 .wasm_target => "key.wasm_target",
                 .semantic_file_inputs => "key.semantic_file_inputs",
                 .plugin_link_inputs => "key.plugin_link_inputs",
+                .link_flags => "key.link_flags",
                 .project_manifests => "key.project_manifests",
                 .source_tree => "key.source_tree",
             };
@@ -12310,6 +12323,132 @@ test "project build key tracks ordered plugin link inputs" {
         &.{archive_path},
     )) orelse unreachable;
     try std.testing.expect(!std.mem.eql(u8, first.slice(), third.slice()));
+}
+
+test "project build key tracks host link policy identity" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeAllFile("libsa_std.a", "runtime-v1");
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const archive_path = try tmp.dir.realpathAlloc(std.testing.allocator, "libsa_std.a");
+    defer std.testing.allocator.free(archive_path);
+    const missing_manifest = try std.fs.path.join(std.testing.allocator, &.{ project_root, "missing.sa.mod" });
+    defer std.testing.allocator.free(missing_manifest);
+
+    const project_context = ProjectContext{
+        .root_path = project_root,
+        .member_root_path = project_root,
+        .workspace_manifest_path = missing_manifest,
+        .member_manifest_path = missing_manifest,
+        .manifest = null,
+        .workspace_manifest = null,
+        .member_manifest = null,
+        .lock_file = null,
+        .sum_file = null,
+    };
+
+    var first_trace = ProjectCacheKeyInputTrace.init();
+    const first = (try computeProjectBuildKeyWithTrace(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+        &first_trace,
+    )) orelse unreachable;
+    try std.testing.expect(first_trace.seen[@intFromEnum(ProjectCacheKeyInputField.link_flags)]);
+    try std.testing.expect(first_trace.seen[@intFromEnum(ProjectCacheKeyInputField.host_target)]);
+
+    // Obj/wasm keys must not absorb native host link-policy identity.
+    var obj_trace = ProjectCacheKeyInputTrace.init();
+    _ = (try computeProjectBuildKeyWithTrace(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "obj",
+        "",
+        .build_obj,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{},
+        &obj_trace,
+    )) orelse unreachable;
+    try std.testing.expect(!obj_trace.seen[@intFromEnum(ProjectCacheKeyInputField.link_flags)]);
+    try std.testing.expect(!obj_trace.seen[@intFromEnum(ProjectCacheKeyInputField.plugin_link_inputs)]);
+
+    // Host-target identity must include object format, pointer width, and pinned
+    // CPU/features policy so cross-host reuse remains conservative.
+    // Field digests must include the host-target and link-flag policy tokens used
+    // by computeProjectBuildKeyWithTrace; rebuild with the same field hasher API.
+    var expected_host_trace = ProjectCacheKeyInputTrace.init();
+    expected_host_trace.addBytes(.host_target, @tagName(builtin.target.cpu.arch));
+    expected_host_trace.addBytes(.host_target, builtin.target.cpu.model.name);
+    expected_host_trace.addBytes(.host_target, @tagName(builtin.target.os.tag));
+    expected_host_trace.addBytes(.host_target, @tagName(builtin.target.abi));
+    expected_host_trace.addBytes(.host_target, @tagName(builtin.target.ofmt));
+    expected_host_trace.addU64(.host_target, @intCast(builtin.target.ptrBitWidth()));
+    expected_host_trace.addBytes(.host_target, "cpu_policy=generic-v1");
+    expected_host_trace.addBytes(.host_target, "features_policy=none");
+    const expected_host_hex = expected_host_trace.digestHex(.host_target);
+    const host_digest = first_trace.digestHex(.host_target);
+    try std.testing.expectEqualStrings(expected_host_hex[0..], host_digest[0..]);
+
+    const policy = try driver.hostLinkPolicyIdentity(std.testing.allocator, builtin.os.tag);
+    defer std.testing.allocator.free(policy);
+    var expected_link_trace = ProjectCacheKeyInputTrace.init();
+    expected_link_trace.addBytes(.link_flags, policy);
+    const expected_link_hex = expected_link_trace.digestHex(.link_flags);
+    const link_digest = first_trace.digestHex(.link_flags);
+    try std.testing.expectEqualStrings(expected_link_hex[0..], link_digest[0..]);
+    try std.testing.expect(std.mem.indexOf(u8, policy, "export_dynamic=default-none;") != null);
+
+    // Sanity: different keys for exe vs test still compute, and exe key is stable.
+    const second = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+    try std.testing.expectEqualStrings(first.slice(), second.slice());
 }
 
 test "project build key tracks zigcc toolchain identity" {

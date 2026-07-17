@@ -2,6 +2,22 @@
 
 Date: 2026-07-17
 
+## Current turn: host link-policy and host-target artifact-key inputs
+
+1. [x] Keep the worktree scoped to cache-key identity work only.
+2. [x] Publish host link-policy identity (`export_dynamic`/rpath/system libs) into `build-exe`/`test` keys as `link_flags`.
+3. [x] Expand host-target keying with object format, pointer width, and pinned CPU/features policy.
+4. [x] Focused verify unit filters, format/diff, then commit/push.
+
+
+## Current turn: host link policy / export-flag keying
+
+1. [x] Keep the worktree scoped to project key/link-policy identity changes.
+2. [x] Add `driver.hostLinkPolicyIdentity` covering host rpath, system libs, and export-dynamic policy.
+3. [x] Publish `link_flags` into `build-exe`/`test` project keys and extend host-target with ofmt/pointer-width/CPU-policy pins.
+4. [x] Focused verify unit filters, format/diff, Debug `sa-cli`, then commit/push.
+
+
 ## Current turn: project cache extra-file/oversize/content-flip corruption regressions
 
 1. [x] Keep the worktree scoped to `src/cli.zig` corruption guards only.
@@ -278,9 +294,11 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] add focused project-key coverage for resolved `zig cc` driver and Linux `objcopy` candidate identity, including canonical path, size, SHA-256, and `--version` first line;
    - [x] lock ordered extra link inputs/host rpath argv placement, backend `cpu=generic-v1;features=none` identity, and ordered `plugin_import_roots` source-tree hashing with focused Linux unit regressions `1/1` each;
    - [x] publish ordered native plugin library/rpath identity into `build-exe`/`test` keys and remove the plugin-only `bypassed_untrusted` short-circuit, with focused unit content/extra-library miss and smoke warm-hit evidence `1/1` each;
+   - [x] publish host link-policy identity (rpath/system libs/`export_dynamic=default-none`) and expanded host-target identity (object format/pointer width/pinned CPU features policy) into `build-exe`/`test` keys, with focused unit evidence `1/1`;
    - [x] add focused empty/legacy/malformed/kind/size/missing project-cache corruption regressions (`1/1` each on Linux);
    - [x] add focused extra-entry-file/oversize-manifest/same-size content-flip project-cache corruption regressions (`1/1` each on Linux);
-   - [ ] finish export-flag keying, complete target-feature matrix, broader failure-injection/TOCTOU/cross-process corruption, authorization inputs/tests beyond hit revalidation, and native macOS/Windows validation for the artifact-key boundary.
+   - [x] publish host link-policy / export-dynamic identity into `build-exe`/`test` keys (`link_flags`) and extend host-target with object format, pointer width, and pinned CPU/features policy identity (focused Linux unit evidence).
+   - [ ] finish complete target-feature matrix expansion, broader failure-injection/TOCTOU/cross-process corruption, authorization inputs/tests beyond hit revalidation, and native macOS/Windows validation for the artifact-key boundary.
 8. [ ] Continue the combined-worktree gates without turning focused evidence into a full-suite claim:
    - [x] pass a fresh `/opt/zig/zig build -Doptimize=Debug -j1` for the final v11 snapshot;
    - [x] pass incremental CLI `10/10`, `DT_UNKNOWN` and non-cacheable safety `1/1 + 1/1`, split-module emitter `2/2`, local owned-pointer delta `1/1`, and anonymous-name collision `1/1`;
