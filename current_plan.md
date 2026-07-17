@@ -4211,3 +4211,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10732+.
 Still blocked without redesign: generic BinaryHeap<T: Ord> ordering/item semantics, Rust owned binary_heap::IntoIterSorted<T,A> lazy pop-on-next object layout/drop glue, allocator access/parameters, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 BinaryHeap IntoIterSorted clone)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap IntoIterSorted clone helper in binary_heap.sa: BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64, cloning the current materialized descending remainder into a new explicit backing Vec and fresh cursor.
+- Test file std_binary_heap_into_iter_sorted_clone_macro_surface.sa (panic ID 10732).
+
+Panic IDs next free: 10733+.
+Still blocked without redesign: generic BinaryHeap<T: Ord + Clone> ordering/item semantics, Rust owned binary_heap::IntoIterSorted<T,A> lazy pop-on-next object layout/drop glue, allocator cloning/access/parameters, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
