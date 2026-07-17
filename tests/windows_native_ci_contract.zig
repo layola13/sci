@@ -52,6 +52,10 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "LLVM-C shim header syntax check failed",
         "LLVM-C.dll",
         "LLVM_LIB_NAME=LLVM-C",
+        "$zigVersion = (zig version).Trim()",
+        "Expected Zig 0.14.1",
+        "LLVM_VERSION=14.0.6",
+        "ZIG_VERSION=$zigVersion",
         "zig build sa-cli -Doptimize=ReleaseSafe",
         "zig build test-portable -Doptimize=ReleaseSafe",
         "zig build plugin-host-smoke -Doptimize=ReleaseSafe",
@@ -61,6 +65,8 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "zig build test-runtime-windows -Doptimize=ReleaseSafe",
         "windows-runtime-gates-x86_64.json",
         "runtime_evidence = \"passed\"",
+        "zig_version = $env:ZIG_VERSION",
+        "llvm_version = $env:LLVM_VERSION",
         "passed_gates = @(",
         "\"test-runtime-basic\"",
         "\"test-runtime-windows\"",
@@ -69,6 +75,8 @@ test "Windows native workflow pins toolchains and runs only the reviewed subset"
         "--kind runtime",
         "--platform windows",
         "--target native",
+        "--zig-version $env:ZIG_VERSION",
+        "--llvm-version $env:LLVM_VERSION",
         "--github-sha \"${{ github.sha }}\"",
         "Upload native runtime evidence",
         "name: windows-native-runtime-x86_64",
@@ -119,6 +127,8 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "staged sa.exe version",
         "Invoke-NativeCapture",
         "[string]$EvidencePath = $env:SA_NATIVE_SMOKE_EVIDENCE",
+        "$zigVersion = if ([string]::IsNullOrWhiteSpace($env:ZIG_VERSION)) { \"unknown\" } else { $env:ZIG_VERSION }",
+        "$llvmVersion = if ([string]::IsNullOrWhiteSpace($env:LLVM_VERSION)) { \"unknown\" } else { $env:LLVM_VERSION }",
         "$archivePayloadName = \"sa-windows-$archiveArch\"",
         "$archivePath = Join-Path $tempRoot \"$archivePayloadName.zip\"",
         "$installerReleaseRoot = Join-Path $tempRoot \"installer release\"",
@@ -180,6 +190,8 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "github_sha = $env:GITHUB_SHA",
         "github_run_id = $env:GITHUB_RUN_ID",
         "github_run_attempt = $env:GITHUB_RUN_ATTEMPT",
+        "zig_version = $zigVersion",
+        "llvm_version = $llvmVersion",
         "installer_transports = @(\"file\", \"http\")",
         "staged_version = $versionResult.Output",
         "installed_version = $installedVersion.Output",
@@ -255,6 +267,10 @@ test "build graph exposes focused Windows CI entry points" {
     try expectContains(evidence_validator_source, "\"sa-windows-x86_64.zip\"");
     try expectContains(evidence_validator_source, "fn validatePassedGates");
     try expectContains(evidence_validator_source, "fn validateInstallerTransports");
+    try expectContains(evidence_validator_source, "--zig-version");
+    try expectContains(evidence_validator_source, "--llvm-version");
+    try expectContains(evidence_validator_source, "try expectString(root, \"zig_version\", options.zig_version);");
+    try expectContains(evidence_validator_source, "try expectString(root, \"llvm_version\", options.llvm_version);");
     try expectContains(evidence_validator_source, "\"test-runtime-windows\"");
     try expectContains(build_source, "requires a native Windows x86_64 host and target");
     try expectContains(build_source, "windows process spawn failure leaves no live child handle");

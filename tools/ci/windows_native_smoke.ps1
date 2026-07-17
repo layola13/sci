@@ -8,6 +8,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+$zigVersion = if ([string]::IsNullOrWhiteSpace($env:ZIG_VERSION)) { "unknown" } else { $env:ZIG_VERSION }
+$llvmVersion = if ([string]::IsNullOrWhiteSpace($env:LLVM_VERSION)) { "unknown" } else { $env:LLVM_VERSION }
 
 function Resolve-InputPath {
     param(
@@ -364,6 +366,8 @@ try {
             github_sha = $env:GITHUB_SHA
             github_run_id = $env:GITHUB_RUN_ID
             github_run_attempt = $env:GITHUB_RUN_ATTEMPT
+            zig_version = $zigVersion
+            llvm_version = $llvmVersion
             installer_transports = @("file", "http")
             staged_version = $versionResult.Output
             installed_version = $installedVersion.Output

@@ -143,6 +143,10 @@ jobs:
           if ($clangVersion -notmatch "version 14\.") {
             throw "Expected LLVM/Clang 14.x, got: $clangVersion"
           }
+          $zigVersion = (zig version).Trim()
+          if ($zigVersion -ne "0.14.1") {
+            throw "Expected Zig 0.14.1, got: $zigVersion"
+          }
 
           & $clang -fsyntax-only "-I$includeDir" src\emit_llvm_llvmc_shim.c
           if ($LASTEXITCODE -ne 0) {
@@ -153,6 +157,8 @@ jobs:
           [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_INCLUDE_DIR=$includeDir`n", $utf8NoBom)
           [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_LIB_DIR=$libDir`n", $utf8NoBom)
           [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_LIB_NAME=LLVM-C`n", $utf8NoBom)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "LLVM_VERSION=14.0.6`n", $utf8NoBom)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "ZIG_VERSION=$zigVersion`n", $utf8NoBom)
           [IO.File]::AppendAllText($env:GITHUB_PATH, "$binDir`n", $utf8NoBom)
 
       - name: Cache Zig build artifacts
@@ -214,6 +220,8 @@ jobs:
             arch = "x86_64"
             target = "native"
             runtime_evidence = "passed"
+            zig_version = $env:ZIG_VERSION
+            llvm_version = $env:LLVM_VERSION
             passed_gates = @(
               "test-runtime-basic",
               "test-runtime-pal",
@@ -234,6 +242,8 @@ jobs:
             --platform windows `
             --arch x86_64 `
             --target native `
+            --zig-version $env:ZIG_VERSION `
+            --llvm-version $env:LLVM_VERSION `
             --github-sha "${{ github.sha }}" `
             --github-run-id "${{ github.run_id }}" `
             --github-run-attempt "${{ github.run_attempt }}" `
@@ -318,6 +328,8 @@ jobs:
             --kind smoke `
             --platform windows `
             --arch x86_64 `
+            --zig-version $env:ZIG_VERSION `
+            --llvm-version $env:LLVM_VERSION `
             --github-sha "${{ github.sha }}" `
             --github-run-id "${{ github.run_id }}" `
             --github-run-attempt "${{ github.run_attempt }}" `

@@ -2,6 +2,15 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native evidence toolchain provenance
+
+- Native smoke/runtime evidence now records the pinned Zig and LLVM versions used by the macOS/Windows native workflows.
+- `.github/workflows/macos-native.yml` exports `ZIG_VERSION=0.14.1` and `LLVM_VERSION=14.0.6` after checking the installed tools; `.github/workflows/windows-native.yml` does the same after the pinned LLVM installer/header setup and Zig setup.
+- `tools/ci/validate_native_evidence.zig` now requires `--zig-version` and `--llvm-version` and rejects evidence whose `zig_version` or `llvm_version` fields do not match the workflow's expected toolchain values.
+- The macOS/Windows source contracts lock the workflow exports, validator arguments, smoke JSON fields, and shared validator checks.
+- Validation passed on Linux: `zig build native-evidence-validator --summary all` -> `3/3`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `3/3`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `3/3`; `zig build release-contract --summary all` -> release contract `7/7` plus validator `3/3`; `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `bash -n tools/ci/macos_native_smoke.sh`; Python YAML parsing for macOS/Windows/release workflows; `git diff --check`.
+- Evidence boundary: this strengthens future native artifacts, but it remains source-contract evidence until the native GitHub runners execute the updated workflows.
+
 ## Focused verified: 2026-07-17 native smoke HTTP installer evidence field
 
 - Native-smoke evidence now records `http_installed_version` from the executable installed through the loopback HTTP release-download path.

@@ -12,6 +12,8 @@ const Options = struct {
     platform: []const u8,
     arch: []const u8,
     target: ?[]const u8 = null,
+    zig_version: []const u8,
+    llvm_version: []const u8,
     github_sha: []const u8,
     github_run_id: []const u8,
     github_run_attempt: []const u8,
@@ -20,7 +22,7 @@ const Options = struct {
 
 fn usageAndExit() noreturn {
     std.debug.print(
-        \\usage: validate_native_evidence --kind smoke|runtime --platform macos|windows --arch ARCH [--target TARGET] --github-sha SHA --github-run-id ID --github-run-attempt ATTEMPT PATH
+        \\usage: validate_native_evidence --kind smoke|runtime --platform macos|windows --arch ARCH [--target TARGET] --zig-version VERSION --llvm-version VERSION --github-sha SHA --github-run-id ID --github-run-attempt ATTEMPT PATH
         \\
     , .{});
     std.process.exit(2);
@@ -43,6 +45,8 @@ fn parseOptions(args: []const []const u8) !Options {
     var platform: ?[]const u8 = null;
     var arch: ?[]const u8 = null;
     var target: ?[]const u8 = null;
+    var zig_version: ?[]const u8 = null;
+    var llvm_version: ?[]const u8 = null;
     var github_sha: ?[]const u8 = null;
     var github_run_id: ?[]const u8 = null;
     var github_run_attempt: ?[]const u8 = null;
@@ -59,6 +63,10 @@ fn parseOptions(args: []const []const u8) !Options {
             arch = nextArg(args, &i);
         } else if (std.mem.eql(u8, arg, "--target")) {
             target = nextArg(args, &i);
+        } else if (std.mem.eql(u8, arg, "--zig-version")) {
+            zig_version = nextArg(args, &i);
+        } else if (std.mem.eql(u8, arg, "--llvm-version")) {
+            llvm_version = nextArg(args, &i);
         } else if (std.mem.eql(u8, arg, "--github-sha")) {
             github_sha = nextArg(args, &i);
         } else if (std.mem.eql(u8, arg, "--github-run-id")) {
@@ -79,6 +87,8 @@ fn parseOptions(args: []const []const u8) !Options {
         .platform = platform orelse usageAndExit(),
         .arch = arch orelse usageAndExit(),
         .target = target,
+        .zig_version = zig_version orelse usageAndExit(),
+        .llvm_version = llvm_version orelse usageAndExit(),
         .github_sha = github_sha orelse usageAndExit(),
         .github_run_id = github_run_id orelse usageAndExit(),
         .github_run_attempt = github_run_attempt orelse usageAndExit(),
@@ -183,6 +193,8 @@ fn validateInstallerTransports(root: std.json.Value) !void {
 fn validateEvidence(root: std.json.Value, options: Options) !void {
     try expectString(root, "platform", options.platform);
     try expectString(root, "arch", options.arch);
+    try expectString(root, "zig_version", options.zig_version);
+    try expectString(root, "llvm_version", options.llvm_version);
     try expectString(root, "github_sha", options.github_sha);
     try expectString(root, "github_run_id", options.github_run_id);
     try expectString(root, "github_run_attempt", options.github_run_attempt);
@@ -232,10 +244,12 @@ test "validates macOS runtime evidence" {
         \\  "github_run_attempt": "1",
         \\  "github_run_id": "99",
         \\  "github_sha": "abc",
+        \\  "llvm_version": "14.0.6",
         \\  "passed_gates": ["plugin-host-smoke", "daemon-smoke", "test-runtime-basic", "test-runtime-pal", "test-runtime-netx", "test-runtime-darwin", "test-runtime-darwin-socket", "test-runtime-darwin-pty"],
         \\  "platform": "macos",
         \\  "runtime_evidence": "passed",
-        \\  "target": "aarch64-macos"
+        \\  "target": "aarch64-macos",
+        \\  "zig_version": "0.14.1"
         \\}
     ;
     try validateEvidenceSource(std.testing.allocator, source, .{
@@ -243,6 +257,8 @@ test "validates macOS runtime evidence" {
         .platform = "macos",
         .arch = "arm64",
         .target = "aarch64-macos",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
         .github_sha = "abc",
         .github_run_id = "99",
         .github_run_attempt = "1",
@@ -261,16 +277,20 @@ test "validates Windows smoke evidence" {
         \\  "http_installed_version": "sa 0.0.4",
         \\  "installed_version": "sa 0.0.4",
         \\  "installer_transports": ["file", "http"],
+        \\  "llvm_version": "14.0.6",
         \\  "native_smoke": "passed",
         \\  "platform": "windows",
         \\  "staged_version": "sa 0.0.4",
-        \\  "wasm_magic": "0061736d"
+        \\  "wasm_magic": "0061736d",
+        \\  "zig_version": "0.14.1"
         \\}
     ;
     try validateEvidenceSource(std.testing.allocator, source, .{
         .kind = .smoke,
         .platform = "windows",
         .arch = "x86_64",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
         .github_sha = "def",
         .github_run_id = "100",
         .github_run_attempt = "2",
@@ -285,10 +305,12 @@ test "rejects runtime gate drift" {
         \\  "github_run_attempt": "1",
         \\  "github_run_id": "99",
         \\  "github_sha": "abc",
+        \\  "llvm_version": "14.0.6",
         \\  "passed_gates": ["test-runtime-basic", "test-runtime-windows"],
         \\  "platform": "windows",
         \\  "runtime_evidence": "passed",
-        \\  "target": "native"
+        \\  "target": "native",
+        \\  "zig_version": "0.14.1"
         \\}
     ;
     try std.testing.expectError(error.EvidenceMismatch, validateEvidenceSource(std.testing.allocator, source, .{
@@ -296,6 +318,8 @@ test "rejects runtime gate drift" {
         .platform = "windows",
         .arch = "x86_64",
         .target = "native",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
         .github_sha = "abc",
         .github_run_id = "99",
         .github_run_attempt = "1",

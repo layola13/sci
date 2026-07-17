@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native evidence toolchain provenance batch (2026-07-17)
+
+- [x] Confirm local GitHub Actions execution remains unavailable from this host: `gh` is unauthenticated and unauthenticated API access to workflow runs returns 404.
+- [x] Record `zig_version` and `llvm_version` in native smoke and runtime evidence for macOS/Windows.
+- [x] Validate those toolchain fields with the shared native evidence validator.
+- [x] Lock workflow exports, validator arguments, smoke JSON fields, and validator checks with Linux-runnable macOS/Windows source contracts.
+- [x] Run focused validator/CI contract validation, syntax/YAML/format/diff checks, then commit/push the selected portability files.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is provenance/source-contract evidence only until then.
+
 ## Current native smoke HTTP installer evidence field batch (2026-07-17)
 
 - [x] Preserve unrelated `src/cli.zig` worktree changes out of this portability batch.

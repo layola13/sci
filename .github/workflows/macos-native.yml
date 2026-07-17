@@ -87,6 +87,11 @@ jobs:
             printf 'Expected LLVM 14.0.6, got %s\n' "$llvm_version" >&2
             exit 1
           fi
+          zig_version=$(zig version)
+          if [ "$zig_version" != "0.14.1" ]; then
+            printf 'Expected Zig 0.14.1, got %s\n' "$zig_version" >&2
+            exit 1
+          fi
           shared_mode=$("$llvm_config" --shared-mode)
           if [ "$shared_mode" != "shared" ]; then
             printf 'Expected shared LLVM linkage, got %s\n' "$shared_mode" >&2
@@ -110,6 +115,8 @@ jobs:
           done
           printf 'LLVM_CONFIG=%s\n' "$llvm_config" >> "$GITHUB_ENV"
           printf 'LLVM_PREFIX=%s\n' "$llvm_prefix" >> "$GITHUB_ENV"
+          printf 'LLVM_VERSION=%s\n' "$llvm_version" >> "$GITHUB_ENV"
+          printf 'ZIG_VERSION=%s\n' "$zig_version" >> "$GITHUB_ENV"
           printf '%s\n' "$llvm_prefix/bin" >> "$GITHUB_PATH"
 
       - name: Cache Zig build artifacts
@@ -148,6 +155,8 @@ jobs:
               "arch": os.environ["EXPECTED_ARCH"],
               "target": os.environ["ZIG_TARGET"],
               "runtime_evidence": "passed",
+              "zig_version": os.environ["ZIG_VERSION"],
+              "llvm_version": os.environ["LLVM_VERSION"],
               "passed_gates": [
                   "plugin-host-smoke",
                   "daemon-smoke",
@@ -176,6 +185,8 @@ jobs:
             --platform macos \
             --arch "$EXPECTED_ARCH" \
             --target "$ZIG_TARGET" \
+            --zig-version "$ZIG_VERSION" \
+            --llvm-version "$LLVM_VERSION" \
             --github-sha "${{ github.sha }}" \
             --github-run-id "${{ github.run_id }}" \
             --github-run-attempt "${{ github.run_attempt }}" \
@@ -239,6 +250,8 @@ jobs:
             --kind smoke \
             --platform macos \
             --arch "$EXPECTED_ARCH" \
+            --zig-version "$ZIG_VERSION" \
+            --llvm-version "$LLVM_VERSION" \
             --github-sha "${{ github.sha }}" \
             --github-run-id "${{ github.run_id }}" \
             --github-run-attempt "${{ github.run_attempt }}" \

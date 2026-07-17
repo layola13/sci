@@ -68,11 +68,15 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "brew install --force-bottle llvm@14",
         "llvm_config=\"$llvm_prefix/bin/llvm-config\"",
         "14.0.6",
+        "zig_version=$(zig version)",
+        "Expected Zig 0.14.1",
         "--shared-mode",
         "llvm-c/Core.h",
         "--link-shared --libfiles",
         "LLVM_CONFIG=%s",
         "LLVM_PREFIX=%s",
+        "LLVM_VERSION=%s",
+        "ZIG_VERSION=%s",
         "zig build macos-ci-contract --summary all",
         "zig build portability-check -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-portable -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
@@ -86,6 +90,8 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\" -Doptimize=ReleaseSafe",
         "runtime_evidence_path=\"$RUNNER_TEMP/macos-runtime-gates-$EXPECTED_ARCH.json\"",
         "\"runtime_evidence\": \"passed\"",
+        "\"zig_version\": os.environ[\"ZIG_VERSION\"]",
+        "\"llvm_version\": os.environ[\"LLVM_VERSION\"]",
         "\"passed_gates\": [",
         "\"plugin-host-smoke\"",
         "\"daemon-smoke\"",
@@ -97,6 +103,8 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "--kind runtime",
         "--platform macos",
         "--target \"$ZIG_TARGET\"",
+        "--zig-version \"$ZIG_VERSION\"",
+        "--llvm-version \"$LLVM_VERSION\"",
         "--github-sha \"${{ github.sha }}\"",
         "Upload native runtime evidence",
         "name: macos-native-runtime-${{ matrix.expected_arch }}",
@@ -180,6 +188,8 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "set -euo pipefail",
         "[--evidence-path PATH]",
         "evidence_path=${SA_NATIVE_SMOKE_EVIDENCE:-}",
+        "zig_version=${ZIG_VERSION:-unknown}",
+        "llvm_version=${LLVM_VERSION:-unknown}",
         "--evidence-path)",
         "sa macOS smoke",
         "release payload",
@@ -258,6 +268,8 @@ test "macOS compiler smoke stages native and wasm outputs in an isolated path" {
         "\"github_sha\": \"%s\"",
         "\"github_run_id\": \"%s\"",
         "\"github_run_attempt\": \"%s\"",
+        "\"zig_version\": \"%s\"",
+        "\"llvm_version\": \"%s\"",
         "\"installer_transports\": [\"file\", \"http\"]",
         "\"staged_version\": \"%s\"",
         "\"installed_version\": \"%s\"",
@@ -357,6 +369,10 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(evidence_validator_source, "const EvidenceKind = enum");
     try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
     try expectContains(evidence_validator_source, "fn validateInstallerTransports");
+    try expectContains(evidence_validator_source, "--zig-version");
+    try expectContains(evidence_validator_source, "--llvm-version");
+    try expectContains(evidence_validator_source, "try expectString(root, \"zig_version\", options.zig_version);");
+    try expectContains(evidence_validator_source, "try expectString(root, \"llvm_version\", options.llvm_version);");
     try expectContains(evidence_validator_source, "\"plugin-host-smoke\"");
     try expectContains(evidence_validator_source, "\"daemon-smoke\"");
     try expectContains(evidence_validator_source, "\"test-runtime-darwin-socket\"");

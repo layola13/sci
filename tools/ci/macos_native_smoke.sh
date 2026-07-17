@@ -12,6 +12,8 @@ sa_path="zig-out/bin/sa"
 runtime_root=${SA_STATIC_ROOT:-zig-out}
 demo_path="demos/rosetta/01_hello_world/main.sa"
 evidence_path=${SA_NATIVE_SMOKE_EVIDENCE:-}
+zig_version=${ZIG_VERSION:-unknown}
+llvm_version=${LLVM_VERSION:-unknown}
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -380,6 +382,8 @@ if [ -n "$evidence_path" ]; then
         printf '  "github_sha": "%s",\n' "${GITHUB_SHA:-}"
         printf '  "github_run_id": "%s",\n' "${GITHUB_RUN_ID:-}"
         printf '  "github_run_attempt": "%s",\n' "${GITHUB_RUN_ATTEMPT:-}"
+        printf '  "zig_version": "%s",\n' "$zig_version"
+        printf '  "llvm_version": "%s",\n' "$llvm_version"
         printf '  "installer_transports": ["file", "http"],\n'
         printf '  "staged_version": "%s",\n' "$staged_version_output"
         printf '  "installed_version": "%s",\n' "$installed_version_output"

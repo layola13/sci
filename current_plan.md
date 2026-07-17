@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence toolchain provenance
+
+1. [x] Confirm this Linux host cannot trigger or read private GitHub native workflow runs because `gh` is unauthenticated and public Actions API access is unavailable.
+2. [x] Add Zig/LLVM version provenance to macOS and Windows native smoke/runtime evidence.
+3. [x] Validate those toolchain fields through the shared native evidence validator.
+4. [x] Lock the fields and validator arguments with macOS/Windows source contracts.
+5. [x] Run focused validator/CI contract validation, syntax/YAML/format/diff checks, then commit and push the batch.
+
 ## Current turn: native smoke HTTP installer evidence field
 
 1. [x] Preserve unrelated `src/cli.zig` worktree changes without staging them.
