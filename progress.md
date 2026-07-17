@@ -6,8 +6,9 @@ Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
 - Added `tools/ci/validate_native_evidence.zig`, a shared validator for native smoke and runtime evidence JSON. It checks platform, arch, GitHub SHA/run id/run attempt, smoke archive/wasm/version fields, and exact runtime gate lists for macOS and Windows.
 - `.github/workflows/macos-native.yml` and `.github/workflows/windows-native.yml` now call the shared validator for both native-smoke and native-runtime evidence instead of maintaining separate inline Python/PowerShell validation logic.
+- `build.zig` exposes the validator as `native-evidence-validator`, and the macOS/Windows CI contract steps depend on it so workflow contract runs also exercise the validator tests.
 - The macOS/Windows CI source contracts now lock the validator calls and key validator rules, including macOS daemon/Darwin socket/PTY gates and Windows runtime subset gates.
-- Validation passed on Linux: `zig test tools/ci/validate_native_evidence.zig` -> `3/3`; `zig build macos-ci-contract --summary all` -> `3/3`; `zig build windows-ci-contract --summary all` -> `5/5`; `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; Python YAML parsing for both native workflows; `git diff --check`.
+- Validation passed on Linux: `zig build native-evidence-validator --summary all` -> `3/3`; `zig build macos-ci-contract --summary all` -> `3/3` plus validator `3/3`; `zig build windows-ci-contract --summary all` -> `5/5` plus validator `3/3`; `zig fmt --check build.zig tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; Python YAML parsing for both native workflows; `git diff --check`.
 - Evidence boundary: this makes future native evidence validation auditable and reusable. It is still Linux-run validator/source-contract evidence and does not claim macOS/Windows native workflow execution.
 
 ## Focused verified: 2026-07-17 native runtime evidence artifacts

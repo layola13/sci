@@ -311,6 +311,9 @@ test "build graph exposes macOS dual-architecture portability entry points" {
 
     try expectContains(build_source, "b.step(\"macos-ci-contract\"");
     try expectContains(build_source, "tests/macos_native_ci_contract.zig");
+    try expectContains(build_source, "b.step(\"native-evidence-validator\"");
+    try expectContains(build_source, "tools/ci/validate_native_evidence.zig");
+    try expectContains(build_source, "macos_ci_contract_step.dependOn(&native_evidence_validator_tests.step);");
     try expectContains(build_source, "b.step(\"portable-runtime-typecheck\"");
     try expectContains(build_source, "b.step(\"portability-check\"");
     try expectContains(build_source, "b.step(\"test-runtime-basic\"");

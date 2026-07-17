@@ -208,6 +208,9 @@ test "build graph exposes focused Windows CI entry points" {
     defer std.testing.allocator.free(evidence_validator_source);
 
     try expectContains(build_source, "b.step(\"sa-cli\"");
+    try expectContains(build_source, "b.step(\"native-evidence-validator\"");
+    try expectContains(build_source, "tools/ci/validate_native_evidence.zig");
+    try expectContains(build_source, "windows_ci_contract_step.dependOn(&native_evidence_validator_tests.step);");
     try expectContains(build_source, "b.step(\"test-portable\"");
     try expectContains(build_source, "b.step(\"test-runtime-basic\"");
     try expectContains(build_source, "b.step(\"test-runtime-pal\"");

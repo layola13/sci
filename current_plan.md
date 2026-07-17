@@ -7,8 +7,9 @@ Date: 2026-07-17
 1. [x] Preserve unrelated `src/cli.zig` worktree changes without staging them.
 2. [x] Add a shared Zig validator for native smoke/runtime evidence JSON.
 3. [x] Route macOS and Windows native-smoke/native-runtime evidence validation through the shared validator.
-4. [x] Lock the validator calls and platform gate lists with source contracts.
-5. [x] Run validator unit tests, focused macOS/Windows CI contract validation, workflow YAML parsing, formatting/diff checks, then commit and push only the coherent portability batch.
+4. [x] Expose the validator as a named `native-evidence-validator` build step and make macOS/Windows CI contracts depend on it.
+5. [x] Lock the validator calls and platform gate lists with source contracts.
+6. [x] Run validator build step, focused macOS/Windows CI contract validation, workflow YAML parsing, formatting/diff checks, then commit and push only the coherent portability batch.
 
 ## Current turn: native runtime evidence artifacts
 

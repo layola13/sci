@@ -6,6 +6,7 @@
 - [x] Add `tools/ci/validate_native_evidence.zig` to validate native smoke/runtime evidence JSON with one Linux-runnable implementation.
 - [x] Use the shared validator from both macOS and Windows native workflows for smoke and runtime evidence artifacts.
 - [x] Lock the validator and workflow calls with macOS/Windows source contracts.
+- [x] Expose the validator as a named `native-evidence-validator` build step and make macOS/Windows CI contracts depend on it.
 - [x] Run the validator unit tests, focused CI contracts, workflow YAML parsing, formatting, and diff checks.
 - [ ] Execute the updated native workflows on macOS/Windows runners; this batch is validator/source-contract evidence only until then.
 

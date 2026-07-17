@@ -605,6 +605,16 @@ pub fn build(b: *std.Build) void {
     const linux_ci_contract_step = b.step("linux-ci-contract", "Check the Linux native runtime CI contract");
     linux_ci_contract_step.dependOn(&linux_ci_contract_tests.step);
 
+    const native_evidence_validator_tests = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "test",
+        "tools/ci/validate_native_evidence.zig",
+    });
+    native_evidence_validator_tests.setCwd(repo_root_lazy);
+    test_step.dependOn(&native_evidence_validator_tests.step);
+    const native_evidence_validator_step = b.step("native-evidence-validator", "Check native CI evidence JSON validation rules");
+    native_evidence_validator_step.dependOn(&native_evidence_validator_tests.step);
+
     const windows_ci_contract_tests = b.addSystemCommand(&.{
         b.graph.zig_exe,
         "test",
@@ -614,6 +624,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&windows_ci_contract_tests.step);
     const windows_ci_contract_step = b.step("windows-ci-contract", "Check the Windows native CI and compiler smoke contracts");
     windows_ci_contract_step.dependOn(&windows_ci_contract_tests.step);
+    windows_ci_contract_step.dependOn(&native_evidence_validator_tests.step);
 
     const macos_ci_contract_tests = b.addSystemCommand(&.{
         b.graph.zig_exe,
@@ -624,6 +635,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&macos_ci_contract_tests.step);
     const macos_ci_contract_step = b.step("macos-ci-contract", "Check the macOS native CI and compiler smoke contracts");
     macos_ci_contract_step.dependOn(&macos_ci_contract_tests.step);
+    macos_ci_contract_step.dependOn(&native_evidence_validator_tests.step);
 
     const portable_host_typecheck = b.step("portable-host-typecheck", "Type-check host CLI and package code for macOS and Windows");
     const portable_targets = [_][]const u8{ "x86_64-macos", "aarch64-macos", "x86_64-windows-gnu" };
