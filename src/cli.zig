@@ -951,15 +951,58 @@ fn readTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
-/// Open a path for reading/writing without following a final-component symlink.
-/// Parent directory open uses `no_follow`; intermediate path components may still
-/// be traversed by the host openDir implementation. Full parent-chain openat
-/// authorization remains a later hardening step.
+/// Open a directory by walking each path component with `no_follow`.
+/// Unlike a single `openDir(path, .{ .no_follow = true })` call, this rejects
+/// intermediate symlink parents as well as a final symlink component.
+fn openDirNoFollowPath(path: []const u8, options: std.fs.Dir.OpenOptions) !std.fs.Dir {
+    if (path.len == 0) return error.BadPathName;
+    if (std.mem.eql(u8, path, ".")) {
+        return try std.fs.cwd().openDir(".", .{ .no_follow = true, .iterate = options.iterate });
+    }
+
+    var it = std.fs.path.componentIterator(path) catch return error.BadPathName;
+    var current: std.fs.Dir = undefined;
+    var owned = false;
+    errdefer if (owned) current.close();
+
+    if (it.root()) |root| {
+        const root_path = if (root.len == 0) "/" else root;
+        const only_root = it.peekNext() == null;
+        current = try std.fs.openDirAbsolute(root_path, .{
+            .no_follow = true,
+            .iterate = only_root and options.iterate,
+        });
+        owned = true;
+    } else {
+        current = try std.fs.cwd().openDir(".", .{
+            .no_follow = true,
+            .iterate = false,
+        });
+        owned = true;
+    }
+
+    while (it.next()) |component| {
+        if (std.mem.eql(u8, component.name, ".")) continue;
+        const is_last = it.peekNext() == null;
+        const child = try current.openDir(component.name, .{
+            .no_follow = true,
+            .iterate = is_last and options.iterate,
+        });
+        current.close();
+        current = child;
+    }
+
+    return current;
+}
+
+/// Open a path for reading/writing without following any symlink component.
+/// Each parent directory component is opened with `no_follow`, and the final
+/// file open uses POSIX `O_NOFOLLOW` (or Windows reparse-point rejection).
 fn openFileNoFollowFinal(path: []const u8, mode: std.fs.File.OpenMode) !std.fs.File {
     const parent = std.fs.path.dirname(path) orelse ".";
     const basename = std.fs.path.basename(path);
-    if (basename.len == 0) return error.IsDir;
-    var dir = try std.fs.cwd().openDir(parent, .{ .no_follow = true });
+    if (basename.len == 0 or std.mem.eql(u8, basename, ".") or std.mem.eql(u8, basename, "..")) return error.IsDir;
+    var dir = try openDirNoFollowPath(parent, .{ .iterate = false });
     defer dir.close();
     return try openDirFileNoFollowFinal(dir, basename, mode);
 }
@@ -9524,27 +9567,26 @@ fn cacheDirEntryIsRegularFile(dir: std.fs.Dir, entry: std.fs.Dir.Entry) bool {
 }
 
 fn cachePathIsRegularFile(path: []const u8) bool {
-    const parent = std.fs.path.dirname(path) orelse ".";
-    const basename = std.fs.path.basename(path);
-    var dir = std.fs.cwd().openDir(parent, .{ .iterate = true, .no_follow = true }) catch return false;
-    defer dir.close();
-    var iter = dir.iterate();
-    while (iter.next() catch return false) |entry| {
-        if (std.mem.eql(u8, entry.name, basename)) return cacheDirEntryIsRegularFile(dir, entry);
-    }
-    return false;
+    // Component-walk open fails closed on intermediate symlink parents; final
+    // open uses O_NOFOLLOW so a trailing symlink is never treated as a file.
+    var file = openFileNoFollowFinal(path, .read_only) catch return false;
+    defer file.close();
+    const stat = file.stat() catch return false;
+    return stat.kind == .file;
 }
 
-/// Open a project-cache entry directory without following a final symlink.
+/// Open a project-cache entry directory without following any symlink component.
 /// Callers that only need a presence check still fail closed on symlink dirs.
 fn openProjectCacheEntryDir(entry_path: []const u8) !std.fs.Dir {
-    return std.fs.cwd().openDir(entry_path, .{ .iterate = true, .no_follow = true });
+    return openDirNoFollowPath(entry_path, .{ .iterate = true });
 }
 
 fn projectCacheEntryPathIsSymlinkDir(entry_path: []const u8) bool {
     const parent = std.fs.path.dirname(entry_path) orelse ".";
     const basename = std.fs.path.basename(entry_path);
-    var dir = std.fs.cwd().openDir(parent, .{ .iterate = true, .no_follow = true }) catch return false;
+    // Fail closed only reports a final symlink entry when the parent chain itself
+    // can be authorized without following intermediate symlink parents.
+    var dir = openDirNoFollowPath(parent, .{ .iterate = false }) catch return false;
     defer dir.close();
     var link_buf: [std.fs.max_path_bytes]u8 = undefined;
     _ = dir.readLink(basename, &link_buf) catch return false;
@@ -14152,6 +14194,92 @@ test "project cache hash and sync refuse final symlink files" {
     const digest = try hashFileHex(std.testing.allocator, "payload.bin");
     try std.testing.expect(digest.len == 64);
     try syncCacheFile("payload.bin");
+}
+
+test "project cache rejects intermediate symlink parent path components" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try std.fs.cwd().makePath("real-root/nested");
+    try writeAllFile("real-root/nested/payload.bin", "payload-bytes");
+    // Intermediate symlink parent: a single openDir(path, no_follow) still follows
+    // outer.link, but component-walk authorization must reject it.
+    try std.fs.cwd().symLink("real-root", "outer.link", .{ .is_directory = true });
+
+    const linked_payload = "outer.link/nested/payload.bin";
+    try std.testing.expectError(error.SymLinkLoop, openDirNoFollowPath("outer.link/nested", .{ .iterate = false }));
+    try std.testing.expectError(error.SymLinkLoop, openFileNoFollowFinal(linked_payload, .read_only));
+    try std.testing.expectError(error.SymLinkLoop, hashFileHex(std.testing.allocator, linked_payload));
+    try std.testing.expectError(error.SymLinkLoop, syncCacheFile(linked_payload));
+    try std.testing.expect(!cachePathIsRegularFile(linked_payload));
+
+    const real_payload = "real-root/nested/payload.bin";
+    const digest = try hashFileHex(std.testing.allocator, real_payload);
+    try std.testing.expect(digest.len == 64);
+    try std.testing.expect(cachePathIsRegularFile(real_payload));
+}
+
+test "project cache lookup rejects intermediate symlink parents under entry paths" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'9'} ** 64 };
+    const key_name = "9" ** 64;
+
+    try std.fs.cwd().makePath("real-cache/build-exe/" ++ key_name);
+    const real_artifact = "real-cache/build-exe/" ++ key_name ++ "/artifact.sa.bc";
+    const real_output = "real-cache/build-exe/" ++ key_name ++ "/output.bin";
+    const real_manifest = "real-cache/build-exe/" ++ key_name ++ "/manifest.json";
+    try writeAllFile(real_artifact, "artifact");
+    try writeAllFile(real_output, "output");
+    try projectCacheWriteManifestAt(
+        std.testing.allocator,
+        real_manifest,
+        .build_exe,
+        key,
+        real_artifact,
+        real_output,
+        null,
+        &.{},
+    );
+
+    try std.fs.cwd().makePath(".sa_cache");
+    try std.fs.cwd().symLink("../real-cache", ".sa_cache/build-exe", .{ .is_directory = true });
+
+    const entry_path = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_path);
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    try std.testing.expectError(error.SymLinkLoop, openProjectCacheEntryDir(entry_path));
+    try std.testing.expectError(error.SymLinkLoop, openFileNoFollowFinal(artifact_path, .read_only));
+    try std.testing.expect(!cachePathIsRegularFile(artifact_path));
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    // Intermediate parent symlink is an entry-path authorization failure, not a
+    // final entry.symlink (the entry basename itself is not the symlink).
+    try std.testing.expectEqualStrings(
+        "entry.path",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
 }
 
 test "project cache copy refuses source symlink payloads" {
