@@ -6462,6 +6462,7 @@ fn syncCacheFile(path: []const u8) !void {
 }
 
 fn copyCacheFileSynced(src_path: []const u8, dst_path: []const u8) !void {
+    try projectCacheIoTestMaybeFail("copy");
     try ensureParentDir(dst_path);
     try std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{ .override_mode = std.fs.File.default_mode });
     try syncCacheFile(dst_path);
@@ -6935,7 +6936,12 @@ fn projectCacheEntryContainsOnlyAllowedNames(kind: BuildCacheKind, entry_dir: st
     while (it.next() catch return false) |entry| {
         if (!projectCacheEntryNameIsAllowed(kind, entry.name)) return false;
         if (kind == .build_obj_incremental and std.mem.eql(u8, entry.name, "functions")) {
-            if (entry.kind != .directory and entry.kind != .sym_link) return false;
+            // Real directories only; a functions symlink is never a reusable
+            // incremental object tree.
+            if (entry.kind != .directory) return false;
+            // no_follow open rejects a final symlink even if readdir reports directory.
+            var functions_dir = entry_dir.openDir(entry.name, .{ .iterate = true, .no_follow = true }) catch return false;
+            functions_dir.close();
             continue;
         }
         if (entry.kind != .file and entry.kind != .sym_link) return false;
@@ -7813,8 +7819,10 @@ fn cacheFilePresentNonEmpty(dir: std.fs.Dir, name: []const u8) bool {
 }
 
 fn cacheDirPresent(dir: std.fs.Dir, name: []const u8) bool {
-    const stat = dir.statFile(name) catch return false;
-    return stat.kind == .directory;
+    // Open with no_follow so a functions symlink cannot satisfy completeness.
+    var child = dir.openDir(name, .{ .iterate = false, .no_follow = true }) catch return false;
+    child.close();
+    return true;
 }
 
 fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
@@ -13623,7 +13631,7 @@ test "project cache injects manifest and publish store failures without partial 
     try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, publish_key).?);
 }
 
-test "project cache injects sync and rename IO failures without partial entries" {
+test "project cache injects copy/sync/rename IO failures without partial entries" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -13703,6 +13711,48 @@ test "project cache injects sync and rename IO failures without partial entries"
     try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, publish_rename_key);
     try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, publish_rename_key).?);
     try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, publish_rename_key).?);
+
+    // First copy is artifact population; fail closed with copy_artifact stage.
+    var copy_artifact_key = ProjectCacheKey{ .hex = undefined };
+    @memset(copy_artifact_key.hex[0..], '4');
+    projectCacheIoTestArm("copy", 0);
+    try std.testing.expectError(
+        error.TestInjectedIoFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            copy_artifact_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, copy_artifact_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, copy_artifact_key).?);
+    try std.testing.expectEqualStrings("copy_artifact", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, copy_artifact_key).?);
+
+    // Second copy is output population; fail closed with copy_output stage.
+    var copy_output_key = ProjectCacheKey{ .hex = undefined };
+    @memset(copy_output_key.hex[0..], '5');
+    projectCacheIoTestArm("copy", 1);
+    try std.testing.expectError(
+        error.TestInjectedIoFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            copy_output_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, copy_output_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, copy_output_key).?);
+    try std.testing.expectEqualStrings("copy_output", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, copy_output_key).?);
 }
 
 test "project cache single flight hands a failed owner to one waiter" {
@@ -14048,6 +14098,43 @@ test "project cache rejects symlink entry directories" {
         "entry.symlink",
         projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
     );
+}
+
+test "project cache rejects symlink incremental functions directories" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'f'} ** 64 };
+    const entry_path = try projectCacheDir(std.testing.allocator, project_root, .build_obj_incremental, key);
+    defer std.testing.allocator.free(entry_path);
+    try std.fs.cwd().makePath(entry_path);
+
+    try std.fs.cwd().makePath("real-functions");
+    try writeAllFile("real-functions/placeholder.o", "object");
+    const functions_path = try pathJoinAlloc(std.testing.allocator, &.{ entry_path, "functions" });
+    defer std.testing.allocator.free(functions_path);
+    try std.fs.cwd().symLink("../../real-functions", functions_path, .{ .is_directory = true });
+
+    const manifest_path = try pathJoinAlloc(std.testing.allocator, &.{ entry_path, "manifest.json" });
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(
+        manifest_path,
+        "{\"version\":2,\"kind\":\"build-obj-incremental\",\"key\":\"" ++ ("f" ** 64) ++ "\",\"source\":\"main.sa\",\"backend_abi\":\"v11\",\"functions\":[]}\n",
+    );
+
+    var entry_dir = try openProjectCacheEntryDir(entry_path);
+    defer entry_dir.close();
+    try std.testing.expect(!cacheEntryComplete(.build_obj_incremental, entry_dir));
+    try std.testing.expect(!projectCacheEntryContainsOnlyAllowedNames(.build_obj_incremental, entry_dir));
+    try std.testing.expect(!projectCacheEntryValidAtPath(.build_obj_incremental, key, entry_path));
 }
 
 test "project cache clean reclaims stale unowned lock files" {
