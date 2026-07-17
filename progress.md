@@ -8894,3 +8894,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_fold_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10740+.
+
+## Completed: 2026-07-17 Array IntoIter aggregate/reduce ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_SUM_U64`, `ARRAY_INTO_ITER_PRODUCT_U64`, `ARRAY_INTO_ITER_MIN_U64`, `ARRAY_INTO_ITER_MAX_U64`, `ARRAY_INTO_ITER_REDUCE_U64`, and `ARRAY_INTO_ITER_TRY_REDUCE_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` aggregate and reduce operations by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They use concrete scalar `u64` math/callback ABIs and explicit `(has, value)` / `(ok, has, value)` scalars, not Rust `Sum` / `Product` / `Ord` trait dispatch, `Option<T>` ABI, generic `Try` residuals, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_aggregate_macro_surface.sa` — 1 test (panic ID 10740) covering sum, product, min, max, reduce, empty iterator aggregate identities, empty min/reduce, try_reduce success, and try_reduce short-circuit cursor state.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10741+.
