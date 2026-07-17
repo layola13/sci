@@ -4374,3 +4374,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10750+.
 Still blocked without redesign: Rust lazy `Cycle` / `Intersperse` / `TakeWhile` / `SkipWhile` adapter identity/state types, generic closure capture/call ABI, generic `Iterator<Item = T>` object composition, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter pair collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter pair/composition eager collect aliases in array.sa: ARRAY_INTO_ITER_ENUMERATE_COLLECT_U64, ARRAY_INTO_ITER_ZIP_COLLECT_U64, and ARRAY_INTO_ITER_CHAIN_COLLECT_U64.
+- Test file std_array_into_iter_pair_collect_macro_surface.sa (panic ID 10750).
+
+Panic IDs next free: 10751+.
+Still blocked without redesign: Rust tuple ABI, generic `IntoIterator` conversion, lazy `Enumerate` / `Zip` / `Chain` adapter identity/state types, generic `Iterator<Item = T>` object composition, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

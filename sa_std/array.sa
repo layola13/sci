@@ -386,6 +386,18 @@
     EXPAND ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+[MACRO] ARRAY_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+    EXPAND ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+    EXPAND ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]

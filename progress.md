@@ -8984,3 +8984,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_sequence_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10750+.
+
+## Completed: 2026-07-17 Array IntoIter pair collect ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_ENUMERATE_COLLECT_U64`, `ARRAY_INTO_ITER_ZIP_COLLECT_U64`, and `ARRAY_INTO_ITER_CHAIN_COLLECT_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` pair/composition eager collection shapes by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. Pair-producing helpers write interleaved `u64` fields into the output vector (`index,value` or `left,right`), while chain materializes the left cursor remainder followed by the right cursor remainder. They do not model Rust tuple ABI, generic `IntoIterator` conversion, lazy adapter identity/state types, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_pair_collect_macro_surface.sa` — 1 test (panic ID 10750) covering enumerate after partial consumption, zip with a longer left iterator and remaining suffix, and chain over two array into_iter cursors.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_pair_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10751+.
