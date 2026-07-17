@@ -8831,3 +8831,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10733+.
+
+## Completed: 2026-07-17 BinaryHeap Iter trait/clone
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_ITER_CLONE_U64`, `BINARY_HEAP_ITER_NEXT_U64`, `BINARY_HEAP_ITER_NEXT_BACK_U64`, `BINARY_HEAP_ITER_SIZE_HINT_U64`, `BINARY_HEAP_ITER_EXACT_SIZE_LEN_U64`, and `BINARY_HEAP_ITER_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers expose the supportable concrete borrowed `binary_heap::Iter<u64>` Clone, Iterator, DoubleEndedIterator, ExactSizeIterator, and fused exhaustion shapes over the existing heap-array slice-backed cursor. Cloning copies cursor state over the same borrowed heap storage; it does not clone heap elements into new owned storage.
+- Test: `tests/unit_framework/std_binary_heap_iter_trait_clone_macro_surface.sa` — 1 test (panic ID 10733) covering initial/remaining size hints, clone after partial consumption, independent cursor advancement, repeated exhaustion, and default empty clone.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_trait_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10734+.

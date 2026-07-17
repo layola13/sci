@@ -4220,3 +4220,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10733+.
 Still blocked without redesign: generic BinaryHeap<T: Ord + Clone> ordering/item semantics, Rust owned binary_heap::IntoIterSorted<T,A> lazy pop-on-next object layout/drop glue, allocator cloning/access/parameters, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 BinaryHeap Iter trait/clone)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap borrowed Iter clone/cursor/size aliases in binary_heap.sa: BINARY_HEAP_ITER_CLONE_U64, BINARY_HEAP_ITER_NEXT_U64, BINARY_HEAP_ITER_NEXT_BACK_U64, BINARY_HEAP_ITER_SIZE_HINT_U64, BINARY_HEAP_ITER_EXACT_SIZE_LEN_U64, and BINARY_HEAP_ITER_EXACT_SIZE_IS_EMPTY_U64.
+- Test file std_binary_heap_iter_trait_clone_macro_surface.sa (panic ID 10733).
+
+Panic IDs next free: 10734+.
+Still blocked without redesign: generic BinaryHeap<T> borrowed reference item semantics, Rust lifetime enforcement, iterator object layout/debug formatting, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
