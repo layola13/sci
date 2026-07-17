@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native smoke HTTP installer evidence field batch (2026-07-17)
+
+- [x] Preserve unrelated `src/cli.zig` worktree changes out of this portability batch.
+- [x] Add `http_installed_version` to native-smoke evidence after the loopback HTTP installer path succeeds.
+- [x] Validate `http_installed_version` with the shared evidence validator.
+- [x] Lock the field in macOS/Windows CI source contracts.
+- [x] Run focused validator/CI contract validation, syntax/format/diff checks, then commit/push the selected portability files.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is source-contract evidence only until then.
+
 ## Current native installer HTTP release-download batch (2026-07-17)
 
 - [x] Preserve unrelated worktree changes out of this portability batch.

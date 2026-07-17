@@ -194,6 +194,7 @@ fn validateEvidence(root: std.json.Value, options: Options) !void {
             try expectString(root, "wasm_magic", "0061736d");
             try validateVersionString(try jsonString(root, "staged_version"));
             try validateVersionString(try jsonString(root, "installed_version"));
+            try validateVersionString(try jsonString(root, "http_installed_version"));
             try validateInstallerTransports(root);
         },
         .runtime => {
@@ -257,6 +258,7 @@ test "validates Windows smoke evidence" {
         \\  "github_run_attempt": "2",
         \\  "github_run_id": "100",
         \\  "github_sha": "def",
+        \\  "http_installed_version": "sa 0.0.4",
         \\  "installed_version": "sa 0.0.4",
         \\  "installer_transports": ["file", "http"],
         \\  "native_smoke": "passed",

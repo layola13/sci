@@ -2,6 +2,15 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native smoke HTTP installer evidence field
+
+- Native-smoke evidence now records `http_installed_version` from the executable installed through the loopback HTTP release-download path.
+- `tools/ci/validate_native_evidence.zig` validates `http_installed_version` with the same `sa <version>` shape check used for staged and file-installed versions.
+- The macOS/Windows CI source contracts lock the new evidence field and HTTP installed-version validation.
+- Validation passed on Linux: `zig build native-evidence-validator --summary all` -> `3/3`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `3/3`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `3/3`; `zig build release-contract --summary all`; `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `bash -n tools/ci/macos_native_smoke.sh`; Python YAML parsing for macOS/Windows/release workflows; `git diff --check`.
+- `pwsh` is not installed on this Linux host, so the Windows PowerShell smoke still requires native runner execution for script/runtime evidence.
+- Evidence boundary: this strengthens future native-smoke artifacts, but it is still source-contract evidence until the native GitHub runners execute the workflows.
+
 ## Focused verified: 2026-07-17 native installer HTTP release-download evidence
 
 - `tools/ci/macos_native_smoke.sh` now starts a loopback Python HTTP server over the staged release archive/checksum directory and runs `install.sh` against `http://127.0.0.1:<port>` after the existing local `file://` install.

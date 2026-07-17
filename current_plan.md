@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native smoke HTTP installer evidence field
+
+1. [x] Preserve unrelated `src/cli.zig` worktree changes without staging them.
+2. [x] Add `http_installed_version` to macOS/Windows native-smoke evidence after the loopback HTTP installer succeeds.
+3. [x] Validate `http_installed_version` through the shared native evidence validator.
+4. [x] Lock the new evidence field with macOS/Windows source contracts.
+5. [x] Run focused validator/CI contract validation, syntax/format/diff checks, then commit and push the batch.
+
 ## Current turn: native installer HTTP release-download evidence
 
 1. [x] Keep the worktree clean before starting the batch and preserve unrelated changes.

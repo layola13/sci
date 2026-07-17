@@ -345,6 +345,9 @@ try {
     }
     $httpInstalledVersion = Invoke-NativeCapture -FilePath $httpInstalledSa -Arguments @("version")
     Assert-Success -Action "HTTP installed sa.exe version" -Result $httpInstalledVersion
+    if ($httpInstalledVersion.Output -notmatch '^sa\s+\S+$') {
+        throw "Unexpected HTTP installed version output: $($httpInstalledVersion.Output)"
+    }
     [Environment]::SetEnvironmentVariable("SA_STD_DIR", $httpInstalledStdRoot, "Process")
     $httpInstalledCheck = Invoke-NativeCapture -FilePath $httpInstalledSa -Arguments @("check", $tempDemo)
     Assert-Success -Action "HTTP installed sa.exe check" -Result $httpInstalledCheck
@@ -364,6 +367,7 @@ try {
             installer_transports = @("file", "http")
             staged_version = $versionResult.Output
             installed_version = $installedVersion.Output
+            http_installed_version = $httpInstalledVersion.Output
             wasm_magic = "0061736d"
             native_smoke = "passed"
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $EvidencePath -Encoding utf8

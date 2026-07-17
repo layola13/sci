@@ -361,6 +361,11 @@ for required_path in "$http_installed_sa" "$http_installed_std_root/libsa_std.a"
     fi
 done
 capture_success "HTTP installed sa version" "$http_installed_sa" version
+if ! printf '%s\n' "$captured_output" | grep -Eq '^sa[[:space:]]+[^[:space:]]+$'; then
+    printf 'Unexpected HTTP installed version output: %s\n' "$captured_output" >&2
+    exit 1
+fi
+http_installed_version_output=$captured_output
 capture_success "HTTP installed sa check" env SA_STD_DIR="$http_installed_std_root" "$http_installed_sa" check "$temp_demo"
 
 if [ -n "$evidence_path" ]; then
@@ -378,6 +383,7 @@ if [ -n "$evidence_path" ]; then
         printf '  "installer_transports": ["file", "http"],\n'
         printf '  "staged_version": "%s",\n' "$staged_version_output"
         printf '  "installed_version": "%s",\n' "$installed_version_output"
+        printf '  "http_installed_version": "%s",\n' "$http_installed_version_output"
         printf '  "wasm_magic": "%s",\n' "$wasm_magic"
         printf '  "native_smoke": "passed"\n'
         printf '}\n'
