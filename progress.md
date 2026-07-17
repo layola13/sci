@@ -8975,3 +8975,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_transform_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10749+.
+
+## Completed: 2026-07-17 Array IntoIter sequence collect ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_INTERSPERSE_COLLECT_U64`, `ARRAY_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64`, `ARRAY_INTO_ITER_CYCLE_TAKE_COLLECT_U64`, `ARRAY_INTO_ITER_TAKE_WHILE_COLLECT_U64`, and `ARRAY_INTO_ITER_SKIP_WHILE_COLLECT_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` sequence eager collection shapes by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They materialize concrete `intersperse(...).collect`, `intersperse_with(...).collect`, finite `cycle().take(...).collect`, `take_while(...).collect`, and `skip_while(...).collect` into caller-owned `Vec<u64>` outputs. They do not model Rust lazy adapter identity/state types, generic closure capture, infinite `Cycle` objects, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_sequence_collect_macro_surface.sa` — 1 test (panic ID 10749) covering intersperse, intersperse_with, finite cycle+take, zero cycle-take without cursor advancement, take_while's consumed failing element, take-all, skip_while, and skip-all.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_sequence_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10750+.
