@@ -4410,3 +4410,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10754+.
 Still blocked without redesign: Rust const-generic array item/reference ABI, lazy `ArrayChunks` / `MapWindows` adapter identity/state types, generic closure capture/call ABI, generic `Iterator<Item = T>` object composition, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 BinaryHeap IntoIter collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap IntoIter materializing collect aliases in binary_heap.sa: BINARY_HEAP_INTO_ITER_COLLECT_U64, BINARY_HEAP_INTO_ITER_TRY_COLLECT_U64, and BINARY_HEAP_INTO_ITER_COLLECT_INTO_U64.
+- Test file std_binary_heap_into_iter_collect_macro_surface.sa (panic ID 10754).
+
+Panic IDs next free: 10755+.
+Still blocked without redesign: Rust generic `FromIterator` / `Extend` dispatch, generic `Try` residual conversion, Rust tuple/`Result` ABI, allocator-parametric collection, Rust owned `IntoIter<T,A>` object layout/drop glue, allocator-aware iterator state, generic item move/drop semantics, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
