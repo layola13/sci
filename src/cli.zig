@@ -6435,11 +6435,13 @@ fn projectCacheManifestLookupReason(
 ) ProjectCacheLookupReason {
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return .unknown;
     defer allocator.free(manifest_path);
-    if (!cachePathIsRegularFile(manifest_path)) return .incomplete;
-    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch |err| switch (err) {
+    const manifest_stat = std.fs.cwd().statFile(manifest_path) catch |err| switch (err) {
         error.FileNotFound => return .absent,
         else => return .manifest_invalid,
     };
+    if (manifest_stat.kind != .file or manifest_stat.size == 0) return .incomplete;
+    if (!cachePathIsRegularFile(manifest_path)) return .incomplete;
+    const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return .manifest_invalid;
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return .manifest_invalid;
     defer parsed.deinit();
@@ -7429,11 +7431,11 @@ fn projectCacheManifestPathForKind(allocator: std.mem.Allocator, project_root: [
 fn projectCacheManifestStatusName(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, reason: ProjectCacheLookupReason) []const u8 {
     const manifest_path = projectCacheManifestPathForKind(allocator, project_root, kind, key) catch return "unknown";
     defer allocator.free(manifest_path);
-    if (!cachePathIsRegularFile(manifest_path)) return "invalid";
     const stat = std.fs.cwd().statFile(manifest_path) catch |err| switch (err) {
         error.FileNotFound => return "missing",
         else => return "unknown",
     };
+    if (!cachePathIsRegularFile(manifest_path)) return "invalid";
     if (stat.kind != .file) return "invalid";
     if (reason == .manifest_invalid) return "invalid";
     return "valid";
