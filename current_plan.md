@@ -4419,3 +4419,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10755+.
 Still blocked without redesign: Rust generic `FromIterator` / `Extend` dispatch, generic `Try` residual conversion, Rust tuple/`Result` ABI, allocator-parametric collection, Rust owned `IntoIter<T,A>` object layout/drop glue, allocator-aware iterator state, generic item move/drop semantics, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 BinaryHeap IntoIterSorted collect ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap IntoIterSorted materializing collect aliases in binary_heap.sa: BINARY_HEAP_INTO_ITER_SORTED_COLLECT_U64, BINARY_HEAP_INTO_ITER_SORTED_TRY_COLLECT_U64, and BINARY_HEAP_INTO_ITER_SORTED_COLLECT_INTO_U64.
+- Test file std_binary_heap_into_iter_sorted_collect_macro_surface.sa (panic ID 10755).
+
+Panic IDs next free: 10756+.
+Still blocked without redesign: Rust generic `FromIterator` / `Extend` dispatch, generic `Try` residual conversion, Rust tuple/`Result` ABI, allocator-parametric collection, Rust owned `IntoIterSorted<T,A>` object layout/drop glue, allocator-aware iterator state, generic item move/drop semantics, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

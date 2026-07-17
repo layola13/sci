@@ -9029,3 +9029,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10755+.
+
+## Completed: 2026-07-17 BinaryHeap IntoIterSorted collect ops
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_INTO_ITER_SORTED_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_TRY_COLLECT_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_COLLECT_INTO_U64`.
+- Semantics: these helpers expose supportable concrete `binary_heap::IntoIterSorted<u64>` materializing collection operations by delegating to existing slice-backed cursor primitives over the explicit descending backing Vec produced by `BINARY_HEAP_INTO_ITER_SORTED_U64`. They consume the iterator in greatest-first order, materialize caller-owned `Vec<u64>` outputs, and `TRY_COLLECT` uses a concrete mapper with an explicit success scalar. They do not model Rust generic `FromIterator` / `Extend`, generic `Try` residual conversion, tuple/`Result` ABI, allocator-parametric collection, or owned `IntoIterSorted<T,A>` object layout/drop glue.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_collect_macro_surface.sa` — 1 test (panic ID 10755) covering collect in descending order, try_collect success, try_collect failure with remaining cursor state, and collect_into appending to an existing Vec.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10756+.
