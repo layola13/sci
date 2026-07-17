@@ -8957,3 +8957,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10747+.
+
+## Completed: 2026-07-17 Array IntoIter adapter collect ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_TAKE_COLLECT_U64`, `ARRAY_INTO_ITER_SKIP_COLLECT_U64`, `ARRAY_INTO_ITER_REV_COLLECT_U64`, `ARRAY_INTO_ITER_TRY_STEP_BY_COLLECT_U64`, and `ARRAY_INTO_ITER_STEP_BY_COLLECT_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` eager adapter collection shapes by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They materialize `take(...).collect`, `skip(...).collect`, `rev().collect`, and `step_by(...).collect` into caller-owned `Vec<u64>` outputs; `TRY_STEP_BY` returns an explicit success scalar for zero-step rejection instead of Rust panic object behavior. They do not model Rust lazy adapter identity/state types, generic `Iterator<Item = T>` object composition, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_adapter_collect_macro_surface.sa` — 1 test (panic ID 10747) covering take, oversized take, skip, oversized skip, rev, step_by, try_step_by success, and `try_step_by(0)` failure without cursor advancement.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10748+.
