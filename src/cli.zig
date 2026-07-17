@@ -6735,7 +6735,20 @@ fn projectCacheStore(
     out_path: []const u8,
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
-    try projectCacheStoreEntry(allocator, project_root, kind, key, artifact_path, out_path, null, dynamic_dependencies);
+    try projectCacheStoreWithOwnerMissReason(allocator, project_root, kind, key, artifact_path, out_path, dynamic_dependencies, null);
+}
+
+fn projectCacheStoreWithOwnerMissReason(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    dynamic_dependencies: []const flattener.DynamicDependency,
+    owner_miss_reason: ?ProjectCacheLookupReason,
+) !void {
+    try projectCacheStoreEntry(allocator, project_root, kind, key, artifact_path, out_path, null, dynamic_dependencies, owner_miss_reason);
 }
 
 fn projectCacheTestMetadataPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
@@ -6799,7 +6812,7 @@ fn projectCacheStoreEventWriterStartTicks() ?u64 {
     return std.fmt.parseInt(u64, start_ticks_text, 10) catch null;
 }
 
-fn writeProjectCacheStoreEventJson(writer: anytype, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8, stage: []const u8, event_ns: i128, writer_pid: ?u64, writer_start_ticks: ?u64) !void {
+fn writeProjectCacheStoreEventJson(writer: anytype, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8, stage: []const u8, event_ns: i128, writer_pid: ?u64, writer_start_ticks: ?u64, owner_miss_reason: ?ProjectCacheLookupReason) !void {
     try writer.writeAll("{\"version\":1,\"result\":");
     try writeJsonString(writer, result);
     try writer.writeAll(",\"kind\":");
@@ -6822,10 +6835,16 @@ fn writeProjectCacheStoreEventJson(writer: anytype, kind: BuildCacheKind, key: P
     } else {
         try writer.writeAll("null");
     }
+    try writer.writeAll(",\"owner_miss_reason\":");
+    if (owner_miss_reason) |reason| {
+        try writeJsonString(writer, reason.jsonName());
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll("}\n");
 }
 
-fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8, stage: []const u8) !void {
+fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8, stage: []const u8, owner_miss_reason: ?ProjectCacheLookupReason) !void {
     const event_ns = std.time.nanoTimestamp();
     const writer_pid = projectCacheStoreEventWriterPid();
     const writer_start_ticks = projectCacheStoreEventWriterStartTicks();
@@ -6835,7 +6854,7 @@ fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_ro
     try ensureParentDir(event_path);
     var event_file = try std.fs.cwd().createFile(event_path, .{ .truncate = true });
     defer event_file.close();
-    try writeProjectCacheStoreEventJson(event_file.writer(), kind, key, result, stage, event_ns, writer_pid, writer_start_ticks);
+    try writeProjectCacheStoreEventJson(event_file.writer(), kind, key, result, stage, event_ns, writer_pid, writer_start_ticks, owner_miss_reason);
     try event_file.sync();
 
     const history_dir = try projectCacheStoreEventHistoryDirPath(allocator, project_root, kind, key);
@@ -6850,19 +6869,19 @@ fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_ro
     defer allocator.free(history_path);
     var history_file = try std.fs.cwd().createFile(history_path, .{ .exclusive = true });
     defer history_file.close();
-    try writeProjectCacheStoreEventJson(history_file.writer(), kind, key, result, stage, event_ns, writer_pid, writer_start_ticks);
+    try writeProjectCacheStoreEventJson(history_file.writer(), kind, key, result, stage, event_ns, writer_pid, writer_start_ticks, owner_miss_reason);
     try history_file.sync();
 }
 
-fn projectCacheTouchStoreTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+fn projectCacheTouchStoreTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, owner_miss_reason: ?ProjectCacheLookupReason) !void {
     const marker_path = try projectCacheStoreMarkerPath(allocator, project_root, kind, key);
     defer allocator.free(marker_path);
     try projectCacheTouchTelemetryMarker(allocator, marker_path);
-    try projectCacheWriteStoreEventTelemetry(allocator, project_root, kind, key, "published", "publish");
+    try projectCacheWriteStoreEventTelemetry(allocator, project_root, kind, key, "published", "publish", owner_miss_reason);
 }
 
-fn projectCacheTouchStoreFailureTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, stage: []const u8) !void {
-    try projectCacheWriteStoreEventTelemetry(allocator, project_root, kind, key, "failed", stage);
+fn projectCacheTouchStoreFailureTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, stage: []const u8, owner_miss_reason: ?ProjectCacheLookupReason) !void {
+    try projectCacheWriteStoreEventTelemetry(allocator, project_root, kind, key, "failed", stage, owner_miss_reason);
 }
 
 fn projectCacheTouchEvictionTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) !void {
@@ -6932,9 +6951,10 @@ fn projectCacheStoreEntryLocked(
     out_path: []const u8,
     test_list: ?test_meta.TestList,
     dynamic_dependencies: []const flattener.DynamicDependency,
+    owner_miss_reason: ?ProjectCacheLookupReason,
 ) !void {
     var store_failure_stage: []const u8 = "validate";
-    errdefer projectCacheTouchStoreFailureTelemetry(std.heap.page_allocator, project_root, kind, key, store_failure_stage) catch |err| {
+    errdefer projectCacheTouchStoreFailureTelemetry(std.heap.page_allocator, project_root, kind, key, store_failure_stage, owner_miss_reason) catch |err| {
         _ = @errorName(err);
     };
 
@@ -6995,7 +7015,7 @@ fn projectCacheStoreEntryLocked(
             projectCacheClearEvictionTelemetry(std.heap.page_allocator, project_root, kind, key) catch |err| {
                 _ = @errorName(err);
             };
-            projectCacheTouchStoreTelemetry(std.heap.page_allocator, project_root, kind, key) catch |err| {
+            projectCacheTouchStoreTelemetry(std.heap.page_allocator, project_root, kind, key, owner_miss_reason) catch |err| {
                 _ = @errorName(err);
             };
         },
@@ -7012,15 +7032,16 @@ fn projectCacheStoreEntry(
     out_path: []const u8,
     test_list: ?test_meta.TestList,
     dynamic_dependencies: []const flattener.DynamicDependency,
+    owner_miss_reason: ?ProjectCacheLookupReason,
 ) !void {
     var entry_lock = acquireProjectCacheEntryLock(allocator, project_root, kind, key, .exclusive) catch |err| {
-        projectCacheTouchStoreFailureTelemetry(std.heap.page_allocator, project_root, kind, key, "lock") catch |telemetry_err| {
+        projectCacheTouchStoreFailureTelemetry(std.heap.page_allocator, project_root, kind, key, "lock", owner_miss_reason) catch |telemetry_err| {
             _ = @errorName(telemetry_err);
         };
         return err;
     };
     defer entry_lock.deinit();
-    try projectCacheStoreEntryLocked(allocator, project_root, kind, key, artifact_path, out_path, test_list, dynamic_dependencies);
+    try projectCacheStoreEntryLocked(allocator, project_root, kind, key, artifact_path, out_path, test_list, dynamic_dependencies, owner_miss_reason);
 }
 
 fn projectCacheStoreTest(
@@ -7032,7 +7053,20 @@ fn projectCacheStoreTest(
     test_list: test_meta.TestList,
     dynamic_dependencies: []const flattener.DynamicDependency,
 ) !void {
-    try projectCacheStoreEntry(allocator, project_root, .test_cache, key, artifact_path, out_path, test_list, dynamic_dependencies);
+    try projectCacheStoreTestWithOwnerMissReason(allocator, project_root, key, artifact_path, out_path, test_list, dynamic_dependencies, null);
+}
+
+fn projectCacheStoreTestWithOwnerMissReason(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    test_list: test_meta.TestList,
+    dynamic_dependencies: []const flattener.DynamicDependency,
+    owner_miss_reason: ?ProjectCacheLookupReason,
+) !void {
+    try projectCacheStoreEntry(allocator, project_root, .test_cache, key, artifact_path, out_path, test_list, dynamic_dependencies, owner_miss_reason);
 }
 
 fn jsonBool(value: std.json.Value) !bool {
@@ -7398,6 +7432,26 @@ fn projectCacheEntryLastStoreStage(allocator: std.mem.Allocator, project_root: [
     return "unknown";
 }
 
+fn projectCacheStoreReasonNameFromText(text: []const u8) []const u8 {
+    if (std.meta.stringToEnum(ProjectCacheLookupReason, text)) |reason| return reason.jsonName();
+    return "unknown";
+}
+
+fn projectCacheEntryLastStoreOwnerMissReason(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?[]const u8 {
+    const marker_path = projectCacheStoreEventMarkerPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(marker_path);
+    const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
+    defer allocator.free(bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return "unknown";
+    defer parsed.deinit();
+    const value = jsonGetObject(parsed.value, "owner_miss_reason") catch return null;
+    return switch (value) {
+        .null => null,
+        .string => |text| projectCacheStoreReasonNameFromText(text),
+        else => "unknown",
+    };
+}
+
 fn projectCacheEntryLastStoreEventNs(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?i128 {
     const marker_path = projectCacheStoreEventMarkerPath(allocator, project_root, kind, key) catch return null;
     defer allocator.free(marker_path);
@@ -7678,6 +7732,7 @@ fn writeCacheStatusEntryJson(
     last_store_ns: ?i128,
     last_store_result: ?[]const u8,
     last_store_stage: ?[]const u8,
+    last_store_owner_miss_reason: ?[]const u8,
     last_store_event_ns: ?i128,
     last_store_writer_pid: ?u64,
     last_store_writer_start_ticks: ?u64,
@@ -7721,6 +7776,12 @@ fn writeCacheStatusEntryJson(
     try writer.writeAll(",\"last_store_stage\":");
     if (last_store_stage) |stage| {
         try writeJsonString(writer, stage);
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"last_store_owner_miss_reason\":");
+    if (last_store_owner_miss_reason) |owner_miss_reason| {
+        try writeJsonString(writer, owner_miss_reason);
     } else {
         try writer.writeAll("null");
     }
@@ -7770,6 +7831,7 @@ fn writeCacheStatusEntryText(
     last_store_ns: ?i128,
     last_store_result: ?[]const u8,
     last_store_stage: ?[]const u8,
+    last_store_owner_miss_reason: ?[]const u8,
     last_store_event_ns: ?i128,
     last_store_writer_pid: ?u64,
     last_store_writer_start_ticks: ?u64,
@@ -7801,6 +7863,11 @@ fn writeCacheStatusEntryText(
         try writer.print(" last_store_stage={s}", .{stage});
     } else {
         try writer.writeAll(" last_store_stage=null");
+    }
+    if (last_store_owner_miss_reason) |owner_miss_reason| {
+        try writer.print(" last_store_owner_miss_reason={s}", .{owner_miss_reason});
+    } else {
+        try writer.writeAll(" last_store_owner_miss_reason=null");
     }
     if (last_store_event_ns) |ns| {
         try writer.print(" last_store_event_ns={d}", .{ns});
@@ -7854,6 +7921,7 @@ fn writeCacheStatusEntry(
     const last_store_ns = if (stat != null) projectCacheEntryLastStoreNs(allocator, project_root, kind, key) else null;
     const last_store_result = projectCacheEntryLastStoreResult(allocator, project_root, kind, key);
     const last_store_stage = projectCacheEntryLastStoreStage(allocator, project_root, kind, key);
+    const last_store_owner_miss_reason = projectCacheEntryLastStoreOwnerMissReason(allocator, project_root, kind, key);
     const last_store_event_ns = projectCacheEntryLastStoreEventNs(allocator, project_root, kind, key);
     const last_store_writer_pid = projectCacheEntryLastStoreWriterPid(allocator, project_root, kind, key);
     const last_store_writer_start_ticks = projectCacheEntryLastStoreWriterStartTicks(allocator, project_root, kind, key);
@@ -7869,9 +7937,9 @@ fn writeCacheStatusEntry(
     if (json) {
         if (!json_first.*) try writer.writeByte(',');
         json_first.* = false;
-        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
+        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_owner_miss_reason, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
     } else {
-        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
+        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_owner_miss_reason, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
     }
 }
 
@@ -9527,7 +9595,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
                 if (cache_key) |key| {
                     if (owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
-                        projectCacheStore(allocator, project_root, .build_exe, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies) catch |err| {
+                        projectCacheStoreWithOwnerMissReason(allocator, project_root, .build_exe, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies, cache_miss_reason) catch |err| {
                             _ = @errorName(err);
                         };
                         releaseProjectCacheOwner(&cache_owner);
@@ -9625,7 +9693,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key) |key| {
                 if (owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
-                    projectCacheStore(allocator, project_root, .build_obj, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies) catch |err| {
+                    projectCacheStoreWithOwnerMissReason(allocator, project_root, .build_obj, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies, cache_miss_reason) catch |err| {
                         _ = @errorName(err);
                     };
                     releaseProjectCacheOwner(&cache_owner);
@@ -9721,7 +9789,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key) |key| {
                 if (owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
-                    projectCacheStore(allocator, project_root, .build_wasm, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies) catch |err| {
+                    projectCacheStoreWithOwnerMissReason(allocator, project_root, .build_wasm, key, output_stage.artifact_path, output_stage.output_path, owned.flat.dynamic_dependencies, cache_miss_reason) catch |err| {
                         _ = @errorName(err);
                     };
                     releaseProjectCacheOwner(&cache_owner);
@@ -10724,7 +10792,7 @@ fn executeTestInner(
 
             if (cache_key) |key| {
                 if (!has_explicit_test_selection and link_inputs.items.len == 0 and owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
-                    projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*, owned.flat.dynamic_dependencies) catch |err| {
+                    projectCacheStoreTestWithOwnerMissReason(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*, owned.flat.dynamic_dependencies, cache_miss_reason) catch |err| {
                         _ = @errorName(err);
                     };
                     releaseProjectCacheOwner(&cache_owner);
@@ -11897,6 +11965,7 @@ test "project cache single flight hands a failed owner to one waiter" {
 
     const null_writer = std.io.null_writer;
     var first_owner: ?ProjectCacheEntryLock = null;
+    var first_owner_miss_reason: ?ProjectCacheLookupReason = null;
     defer releaseProjectCacheOwner(&first_owner);
     switch (try projectCacheClaim(
         std.testing.allocator,
@@ -11910,7 +11979,10 @@ test "project cache single flight hands a failed owner to one waiter" {
         null_writer,
         .human,
     )) {
-        .owner => |owner| first_owner = owner.lock,
+        .owner => |owner| {
+            first_owner = owner.lock;
+            first_owner_miss_reason = owner.miss_reason;
+        },
         else => return error.TestUnexpectedResult,
     }
 
@@ -11923,6 +11995,7 @@ test "project cache single flight hands a failed owner to one waiter" {
         started: std.Thread.ResetEvent = .{},
         done: std.Thread.ResetEvent = .{},
         became_owner: bool = false,
+        owner_miss_reason: ?ProjectCacheLookupReason = null,
         failure: ?anyerror = null,
 
         fn run(self: *@This()) void {
@@ -11947,13 +12020,16 @@ test "project cache single flight hands a failed owner to one waiter" {
                 return;
             };
             switch (claim) {
-                .owner => |owner_value| owner = owner_value.lock,
+                .owner => |owner_value| {
+                    owner = owner_value.lock;
+                    self.owner_miss_reason = owner_value.miss_reason;
+                },
                 else => {
                     self.failure = error.TestUnexpectedResult;
                     return;
                 },
             }
-            projectCacheStore(std.heap.page_allocator, self.project_root, .build_exe, self.key, self.artifact_path, self.output_path, &.{}) catch |err| {
+            projectCacheStoreWithOwnerMissReason(std.heap.page_allocator, self.project_root, .build_exe, self.key, self.artifact_path, self.output_path, &.{}, self.owner_miss_reason) catch |err| {
                 self.failure = err;
                 return;
             };
@@ -11975,11 +12051,12 @@ test "project cache single flight hands a failed owner to one waiter" {
 
     try std.testing.expectError(
         error.FileNotFound,
-        projectCacheStore(std.testing.allocator, project_root, .build_exe, key, artifact_path, "missing-output.bin", &.{}),
+        projectCacheStoreWithOwnerMissReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, "missing-output.bin", &.{}, first_owner_miss_reason),
     );
     try ProjectCacheFailureTest.expectNoEntryOrStaging(tmp.dir, key);
     try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expectEqualStrings("copy_output", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expectEqualStrings("absent", projectCacheEntryLastStoreOwnerMissReason(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expect(projectCacheEntryLastStoreEventNs(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) != null);
@@ -11993,6 +12070,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, key.slice()) == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"failed\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"copy_output\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_owner_miss_reason\":\"absent\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_ns\":"));
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_event_ns\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_pid\":"));
@@ -12006,12 +12084,14 @@ test "project cache single flight hands a failed owner to one waiter" {
     joined = true;
     if (waiter.failure) |err| return err;
     try std.testing.expect(waiter.became_owner);
+    try std.testing.expectEqual(ProjectCacheLookupReason.absent, waiter.owner_miss_reason.?);
 
     const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
     defer std.testing.allocator.free(entry_dir);
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
     try std.testing.expectEqualStrings("published", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expectEqualStrings("absent", projectCacheEntryLastStoreOwnerMissReason(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expect(projectCacheEntryLastStoreEventNs(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) != null);
@@ -12023,6 +12103,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, key.slice()) == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"published\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"publish\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_owner_miss_reason\":\"absent\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_ns\":"));
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_event_ns\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_start_ticks\":"));

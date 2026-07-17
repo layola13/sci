@@ -687,6 +687,8 @@ lock_owner_failed | bypassed_untrusted | unknown
 
 2026-07-17 脱敏补充检查点：`sa cache status --json` 与 `sa cache why --json` 现在有 focused smoke 锁住动态依赖首差输出。合成环境依赖 entry 覆盖 absent→present mismatch 和 present SHA-256 mismatch 两类 `dependency_changed`，输出只暴露 `first_difference="dynamic_dependencies.present"` 或 `first_difference="dynamic_dependencies.sha256"`，并断言环境变量名、旧值、新值、环境值摘要和完整 key 都不会出现在 JSON 中。这补强了 P0.6 动态依赖解释面的脱敏证据；完整脱敏审计、细粒度候选 key 输入差异、跨进程 owner 生命周期和跨平台 evidence 仍未完成。
 
+2026-07-17 owner telemetry 补充检查点：store-event JSON 现在记录 source-free `owner_miss_reason`，`sa cache status/why` 以 `last_store_owner_miss_reason` 暴露。focused single-flight 证据覆盖第一个 owner 因缺失输出在 `copy_output` 失败时报告 `absent`，以及 waiter 接管并成功 `publish` 后继续报告 `absent`；旧 marker 或直接 store 输出 `null`。这只补充“owner 接手时看到的 miss reason”，不等于完整跨进程 owner 生命周期审计；细粒度候选 key 输入差异、完整脱敏审计和跨平台 evidence 仍未完成。
+
 ---
 
 ## 10. 统一并发与内存预算

@@ -1703,6 +1703,7 @@ test "cli build project cache is default and can be disabled" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_ns\":"));
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"last_store_ns\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_result\":\"published\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_owner_miss_reason\":\"absent\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_event_ns\":"));
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"last_store_event_ns\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_writer_pid\":"));
@@ -2251,6 +2252,7 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "key=dddddddddddd reason=manifest_invalid manifest=invalid"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_hit_ns=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_ns=null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_owner_miss_reason=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_event_ns=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_writer_pid=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_writer_start_ticks=null"));
@@ -2290,6 +2292,7 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"key_prefix\":\"dddddddddddd\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_hit_ns\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_ns\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_owner_miss_reason\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_event_ns\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_writer_pid\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_writer_start_ticks\":null"));
