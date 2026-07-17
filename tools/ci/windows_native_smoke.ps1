@@ -8,8 +8,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-$zigVersion = if ([string]::IsNullOrWhiteSpace($env:ZIG_VERSION)) { "unknown" } else { $env:ZIG_VERSION }
-$llvmVersion = if ([string]::IsNullOrWhiteSpace($env:LLVM_VERSION)) { "unknown" } else { $env:LLVM_VERSION }
 
 function Resolve-InputPath {
     param(
@@ -49,6 +47,29 @@ function Assert-Success {
     if ($Result.ExitCode -ne 0) {
         throw "$Action failed with exit code $($Result.ExitCode).`n$($Result.Output)"
     }
+}
+
+function Get-ZigVersion {
+    if (-not [string]::IsNullOrWhiteSpace($env:ZIG_VERSION)) {
+        return $env:ZIG_VERSION
+    }
+    return (zig version).Trim()
+}
+
+function Get-LlvmVersion {
+    if (-not [string]::IsNullOrWhiteSpace($env:LLVM_VERSION)) {
+        return $env:LLVM_VERSION
+    }
+    $clangLines = @(& clang --version)
+    if ($LASTEXITCODE -ne 0 -or $clangLines.Count -eq 0) {
+        return "unknown"
+    }
+    $firstLine = ($clangLines | Select-Object -First 1).ToString()
+    $match = [regex]::Match($firstLine, "version\s+([^\s]+)")
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+    return "unknown"
 }
 
 function Start-ReleaseHttpServer {
@@ -127,6 +148,9 @@ function Start-ReleaseHttpServer {
         Url = "http://127.0.0.1:$port"
     }
 }
+
+$zigVersion = Get-ZigVersion
+$llvmVersion = Get-LlvmVersion
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
 if ([string]::IsNullOrWhiteSpace($RuntimeRoot)) {

@@ -2,6 +2,15 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native smoke toolchain fallback
+
+- `tools/ci/macos_native_smoke.sh` now derives `zig_version` from `zig version` and `llvm_version` from `LLVM_CONFIG --version` when the workflow has not injected `ZIG_VERSION` / `LLVM_VERSION`; workflow-provided values still take precedence.
+- `tools/ci/windows_native_smoke.ps1` now derives `zig_version` from `zig version` and parses `llvm_version` from `clang --version` when the workflow has not injected those values; workflow-provided values still take precedence.
+- The macOS/Windows source contracts lock the fallback logic so native smoke evidence does not silently regress to `unknown` on local or manually replayed runs.
+- Validation passed on Linux: `bash -n tools/ci/macos_native_smoke.sh`; `zig fmt --check tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `4/4`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `4/4`; `zig build native-evidence-validator --summary all` -> `4/4`; `git diff --check`.
+- `pwsh` is not installed on this Linux host, so the Windows PowerShell smoke remains source-contract evidence until a Windows runner executes it.
+- Evidence boundary: this strengthens the native smoke evidence producer scripts, but it is still Linux source-contract evidence until macOS/Windows runners execute the updated scripts.
+
 ## Focused in progress: 2026-07-17 native evidence schema pinning
 
 - Native smoke/runtime evidence now includes `evidence_schema_version: 1` for macOS/Windows artifacts.

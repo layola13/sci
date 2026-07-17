@@ -12,8 +12,6 @@ sa_path="zig-out/bin/sa"
 runtime_root=${SA_STATIC_ROOT:-zig-out}
 demo_path="demos/rosetta/01_hello_world/main.sa"
 evidence_path=${SA_NATIVE_SMOKE_EVIDENCE:-}
-zig_version=${ZIG_VERSION:-unknown}
-llvm_version=${LLVM_VERSION:-unknown}
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -85,6 +83,24 @@ capture_success() {
     return "$status"
 }
 
+resolve_zig_version() {
+    if [ -n "${ZIG_VERSION:-}" ]; then
+        printf '%s\n' "$ZIG_VERSION"
+    else
+        zig version
+    fi
+}
+
+resolve_llvm_version() {
+    if [ -n "${LLVM_VERSION:-}" ]; then
+        printf '%s\n' "$LLVM_VERSION"
+    elif [ -n "${LLVM_CONFIG:-}" ] && [ -x "$LLVM_CONFIG" ]; then
+        "$LLVM_CONFIG" --version
+    else
+        printf 'unknown\n'
+    fi
+}
+
 assert_macho() {
     artifact=$1
     expected_arch=$2
@@ -109,6 +125,8 @@ runtime_root_path=$(resolve_dir "$repo_root" "$runtime_root")
 runtime_archive=$(resolve_file "$runtime_root_path" "lib/libsa_std.a")
 runtime_header=$(resolve_file "$runtime_root_path" "include/sa_std.h")
 source_std_root=$(resolve_dir "$repo_root" "sa_std")
+zig_version=$(resolve_zig_version)
+llvm_version=$(resolve_llvm_version)
 
 if ! /usr/bin/ar -t "$runtime_archive" >/dev/null; then
     printf 'Static runtime archive is unreadable: %s\n' "$runtime_archive" >&2

@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native smoke toolchain fallback
+
+1. [x] Keep the worktree clean before the batch and preserve unrelated changes.
+2. [x] Make macOS native smoke derive Zig/LLVM versions from `zig version` and `LLVM_CONFIG --version` when workflow env vars are absent.
+3. [x] Make Windows native smoke derive Zig/LLVM versions from `zig version` and `clang --version` when workflow env vars are absent.
+4. [x] Lock the fallback logic with macOS/Windows source contracts.
+5. [x] Run focused syntax/format/contract validation, then commit and push the batch.
+
 ## Current turn: native evidence schema pinning
 
 1. [x] Preserve unrelated `src/cli.zig` and `tests/cli_smoke.zig` worktree changes without staging them.
