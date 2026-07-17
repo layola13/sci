@@ -1,5 +1,13 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native evidence exact-schema hardening batch (2026-07-17)
+
+- [x] Keep the worktree clean before starting the batch.
+- [x] Reject unexpected top-level fields in native smoke/runtime evidence JSON.
+- [x] Lock the exact-schema behavior with Linux-runnable validator tests and macOS/Windows source contracts.
+- [x] Run focused validator/CI contract validation, then commit/push the selected portability files.
+- [ ] Execute the updated native workflows on macOS/Windows runners; this batch is validator/source-contract evidence only until then.
+
 ## Current native evidence platform-target matrix hardening batch (2026-07-17)
 
 - [x] Keep the worktree clean before starting the batch.
