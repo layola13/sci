@@ -34,6 +34,17 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
   - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
 - Panic IDs next free: 10762+.
 
+## Completed: 2026-07-17 BinaryHeap Iter aggregate aliases
+
+- Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` and `library/core/src/iter/traits/iterator.rs` for `sum`, `product`, `min`, `max`, `reduce`, and `try_reduce`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_ITER_SUM_U64`, `BINARY_HEAP_ITER_PRODUCT_U64`, `BINARY_HEAP_ITER_MIN_U64`, `BINARY_HEAP_ITER_MAX_U64`, `BINARY_HEAP_ITER_REDUCE_U64`, and `BINARY_HEAP_ITER_TRY_REDUCE_U64`.
+- Semantics: helpers consume the concrete borrowed slice-backed cursor in heap-array order while leaving the heap itself intact. Aggregate outputs use concrete `u64` arithmetic and explicit scalar `(has, value)` / `(ok, has, value)` status channels.
+- Test: `tests/unit_framework/std_binary_heap_iter_aggregate_macro_surface.sa` - 1 test (panic ID 10762) covering sum, product, min, max, reduce, empty aggregate identities, try_reduce success/failure, cursor remainders, and heap non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10763+.
+
 ## Completed: 2026-07-17 BinaryHeap Iter advance/chunk aliases
 
 - Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` over the backing slice, `library/core/src/iter/traits/iterator.rs` for `next_chunk` / `advance_by`, and `library/core/src/iter/traits/double_ended.rs` for `advance_back_by`.
