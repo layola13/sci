@@ -257,7 +257,8 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] pass an isolated same-path/same-size archive content-flip key test `1/1`;
    - [x] include LLVM version, target triple, generic CPU policy, backend pipeline, and partial-link policy through backend ABI v11 in artifact key v3 and function key v8;
    - [x] add focused project-key coverage for resolved `zig cc` driver and Linux `objcopy` candidate identity, including canonical path, size, SHA-256, and `--version` first line;
-   - [ ] finish ordered plugin/export/rpath/link flags, target CPU/features policy, corruption, authorization inputs/tests, and native macOS/Windows validation for the artifact-key boundary.
+   - [x] lock ordered extra link inputs/host rpath argv placement, backend `cpu=generic-v1;features=none` identity, and ordered `plugin_import_roots` source-tree hashing with focused Linux unit regressions `1/1` each;
+   - [ ] finish full ordered plugin/export/rpath/link flag key publication beyond current bypass/argv/order regressions, complete target-feature matrix, corruption, authorization inputs/tests, and native macOS/Windows validation for the artifact-key boundary.
 8. [ ] Continue the combined-worktree gates without turning focused evidence into a full-suite claim:
    - [x] pass a fresh `/opt/zig/zig build -Doptimize=Debug -j1` for the final v11 snapshot;
    - [x] pass incremental CLI `10/10`, `DT_UNKNOWN` and non-cacheable safety `1/1 + 1/1`, split-module emitter `2/2`, local owned-pointer delta `1/1`, and anonymous-name collision `1/1`;

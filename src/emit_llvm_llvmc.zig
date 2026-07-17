@@ -2358,3 +2358,17 @@ test "llvmc backend can construct and write bitcode in memory" {
     try std.testing.expect(out_bytes != null);
     try std.testing.expect(out_len > 0);
 }
+
+test "backend cache identity pins cpu and feature policy" {
+    const identity = try backendCacheIdentity(std.testing.allocator);
+    defer std.testing.allocator.free(identity);
+
+    try std.testing.expect(std.mem.indexOf(u8, identity, "llvmc-object-cache-abi/v11;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, identity, "cpu=generic-v1;features=none;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, identity, "pipeline=legacy-pmb-v1;") != null);
+    if (builtin.os.tag == .linux) {
+        try std.testing.expect(std.mem.indexOf(u8, identity, "partial-link=elf-objcopy-localize-hidden-v1") != null);
+    } else {
+        try std.testing.expect(std.mem.indexOf(u8, identity, "partial-link=namespaced-hidden-strong-v1") != null);
+    }
+}

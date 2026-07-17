@@ -592,6 +592,45 @@ test "native executable rpath follows host loader semantics" {
     try std.testing.expectEqual(@as(?[]const u8, null), hostRpathArgument(.windows));
 }
 
+test "argv helpers preserve input and link flag order" {
+    var exe = try argvForExe(
+        std.testing.allocator,
+        "input.bc",
+        "out.exe",
+        .release_small,
+        "/repo/artifacts/sa_std/libsa_std.a",
+        &.{ "first.o", "second.o" },
+        false,
+    );
+    defer exe.deinit();
+    const exe_args = exe.slice();
+    try std.testing.expectEqualStrings("first.o", exe_args[5]);
+    try std.testing.expectEqualStrings("second.o", exe_args[6]);
+    if (hostRpathArgument(builtin.os.tag)) |rpath| {
+        try std.testing.expectEqualStrings(rpath, exe_args[7]);
+        try std.testing.expectEqualStrings("-o", exe_args[8]);
+    } else {
+        try std.testing.expectEqualStrings("-o", exe_args[7]);
+    }
+
+    var wasm = try argvForWasm(
+        std.testing.allocator,
+        "input.bc",
+        "out.wasm",
+        .{ .triple = "wasm32-wasi", .no_entry = true },
+        .release_fast,
+        false,
+    );
+    defer wasm.deinit();
+    const wasm_args = wasm.slice();
+    try std.testing.expectEqualStrings("-target", wasm_args[2]);
+    try std.testing.expectEqualStrings("wasm32-wasi", wasm_args[3]);
+    try std.testing.expectEqualStrings("-Wl,--no-entry", wasm_args[4]);
+    try std.testing.expectEqualStrings("-O3", wasm_args[5]);
+    try std.testing.expectEqualStrings("input.bc", wasm_args[6]);
+    try std.testing.expectEqualStrings("-o", wasm_args[7]);
+}
+
 fn writeFakeTool(dir: std.fs.Dir, path: []const u8, version: []const u8) !void {
     const source = try std.fmt.allocPrint(std.testing.allocator, "#!/bin/sh\necho {s}\n", .{version});
     defer std.testing.allocator.free(source);

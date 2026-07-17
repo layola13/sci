@@ -11813,6 +11813,67 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try std.testing.expect(!std.mem.eql(u8, first_digest[0..], third_digest[0..]));
 }
 
+test "source tree hash keeps plugin import root order" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("plugins_a/plugin");
+    try tmp.dir.makePath("plugins_b/plugin");
+    try writeAllFile("main.sa",
+        \\@import "plugin/order.sai"
+        \\@main() -> i32:
+        \\    return 0
+    );
+    try writeAllFile("plugins_a/plugin/order.sai", "#def ORDER = 1\n");
+    try writeAllFile("plugins_b/plugin/order.sai", "#def ORDER = 2\n");
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const plugin_root_a = try std.fs.cwd().realpathAlloc(std.testing.allocator, "plugins_a");
+    defer std.testing.allocator.free(plugin_root_a);
+    const plugin_root_b = try std.fs.cwd().realpathAlloc(std.testing.allocator, "plugins_b");
+    defer std.testing.allocator.free(plugin_root_b);
+
+    var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    const first_cacheable = try hashResolvedSourceTree(
+        std.testing.allocator,
+        &first_hasher,
+        null,
+        &.{},
+        &.{ plugin_root_a, plugin_root_b },
+        project_root,
+        project_root,
+        false,
+        "main.sa",
+    );
+    try std.testing.expect(first_cacheable);
+    var first_digest: [32]u8 = undefined;
+    first_hasher.final(&first_digest);
+
+    var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    const second_cacheable = try hashResolvedSourceTree(
+        std.testing.allocator,
+        &second_hasher,
+        null,
+        &.{},
+        &.{ plugin_root_b, plugin_root_a },
+        project_root,
+        project_root,
+        false,
+        "main.sa",
+    );
+    try std.testing.expect(second_cacheable);
+    var second_digest: [32]u8 = undefined;
+    second_hasher.final(&second_digest);
+
+    try std.testing.expect(!std.mem.eql(u8, first_digest[0..], second_digest[0..]));
+}
+
 test "source tree with dynamic compile inputs remains keyable for manifest depfile validation" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
