@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIterSorted fold/aggregate aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `fold`, `try_fold`, `sum`, `product`, `min`, `max`, `reduce`, and `try_reduce`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_FOLD_U64`, `BINARY_HEAP_INTO_ITER_SORTED_TRY_FOLD_U64`, `BINARY_HEAP_INTO_ITER_SORTED_SUM_U64`, `BINARY_HEAP_INTO_ITER_SORTED_PRODUCT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_MIN_U64`, `BINARY_HEAP_INTO_ITER_SORTED_MAX_U64`, `BINARY_HEAP_INTO_ITER_SORTED_REDUCE_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_TRY_REDUCE_U64`.
+- Semantics: aliases consume the existing materialized descending cursor greatest-first and reuse concrete `u64` iterator fold/aggregate helpers. Reverse fold aliases are intentionally not added because Rust `IntoIterSorted` is not a `DoubleEndedIterator`.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_fold_aggregate_macro_surface.sa` - 1 test (panic ID 10776) covering fold, try_fold success/failure, sum/product/min/max, reduce, empty aggregate identities, try_reduce success/failure, cursor remainders, and backing Vec ownership.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_fold_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10777+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIterSorted any/all/for_each aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `any`, `all`, `for_each`, and `try_for_each`.

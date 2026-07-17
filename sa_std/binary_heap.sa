@@ -1467,6 +1467,38 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SUM_U64 %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PRODUCT_U64 %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_U64 %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_U64 %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
