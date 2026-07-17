@@ -310,6 +310,18 @@
     EXPAND ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
+[MACRO] ARRAY_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+    EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]

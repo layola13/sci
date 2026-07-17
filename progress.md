@@ -8948,3 +8948,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10746+.
+
+## Completed: 2026-07-17 Array IntoIter collect ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_COLLECT_U64`, `ARRAY_INTO_ITER_TRY_COLLECT_U64`, and `ARRAY_INTO_ITER_COLLECT_INTO_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` materializing collection operations by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They consume the cursor and materialize caller-owned `Vec<u64>` outputs; `TRY_COLLECT` calls a concrete `(value, out_value_ptr) -> ok` mapper, returns an explicit success scalar, and leaves any suffix after the failing item available. They do not model Rust generic `FromIterator` / `Extend`, generic `Try` residual conversion, `Result` / `Option` ABI, or allocator-parametric collection.
+- Test: `tests/unit_framework/std_array_into_iter_collect_macro_surface.sa` — 1 test (panic ID 10746) covering collect, try_collect success, try_collect failure with mapped prefix and remaining cursor state, and collect_into appending to an existing Vec.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10747+.
