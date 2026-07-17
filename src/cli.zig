@@ -11908,6 +11908,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     const why_args = [_][]const u8{ "--kind", "build-exe", "--key", key.slice(), "--json" };
     try std.testing.expectEqual(@as(u8, 0), try executeCacheWhyCommand(std.testing.allocator, why_args[0..], why_json.writer(), false));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"key_prefix\":\"dddddddddddd\""));
+    try std.testing.expect(std.mem.indexOf(u8, why_json.items, key.slice()) == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"failed\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"copy_output\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_pid\":"));
@@ -11930,6 +11932,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     why_json.clearRetainingCapacity();
     try std.testing.expectEqual(@as(u8, 0), try executeCacheWhyCommand(std.testing.allocator, why_args[0..], why_json.writer(), false));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"reason\":\"hit\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"key_prefix\":\"dddddddddddd\""));
+    try std.testing.expect(std.mem.indexOf(u8, why_json.items, key.slice()) == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"published\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"publish\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_count\":2"));
