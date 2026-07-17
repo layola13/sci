@@ -44,6 +44,8 @@ pub const FunctionSig = struct {
     kind: FunctionKind,
     return_cap: ?instr.CapPrefix,
     return_ty: PrimType,
+    /// Optional second scalar return. `.void` means single/void return.
+    return_ty2: PrimType = .void,
     return_fallible: bool = false,
     entry_inst_idx: u32,
     is_ffi_wrapper: bool,
@@ -260,6 +262,32 @@ fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
     };
 }
 
+
+fn parseReturnTypeList(text: []const u8) ParseError!struct { first: PrimType, second: PrimType } {
+    const trimmed = std.mem.trim(u8, text, " \t\r");
+    if (trimmed.len == 0) return ParseError.InvalidFunctionSig;
+    if (std.mem.indexOfScalar(u8, trimmed, ',')) |comma| {
+        const left = std.mem.trim(u8, trimmed[0..comma], " \t\r");
+        const right = std.mem.trim(u8, trimmed[comma + 1 ..], " \t\r");
+        if (left.len == 0 or right.len == 0) return ParseError.InvalidFunctionSig;
+        if (std.mem.indexOfScalar(u8, right, ',') != null) return ParseError.InvalidFunctionSig;
+        const first = blk: {
+            if (left.len != 0 and (left[0] == '*' or left[0] == '&' or left[0] == '^')) break :blk PrimType.ptr;
+            break :blk try parsePrimType(left);
+        };
+        const second = blk: {
+            if (right.len != 0 and (right[0] == '*' or right[0] == '&' or right[0] == '^')) break :blk PrimType.ptr;
+            break :blk try parsePrimType(right);
+        };
+        if (first == .void or second == .void) return ParseError.InvalidFunctionSig;
+        return .{ .first = first, .second = second };
+    }
+    if (trimmed.len != 0 and (trimmed[0] == '*' or trimmed[0] == '&' or trimmed[0] == '^')) {
+        return .{ .first = .ptr, .second = .void };
+    }
+    return .{ .first = try parsePrimType(trimmed), .second = .void };
+}
+
 pub fn parseFunctionSig(
     allocator: std.mem.Allocator,
     text: []const u8,
@@ -287,6 +315,7 @@ pub fn parseFunctionSig(
 
     var return_cap: ?instr.CapPrefix = null;
     var return_ty: PrimType = .void;
+    var return_ty2: PrimType = .void;
     var return_fallible = false;
     if (tail.len != 0) {
         if (!std.mem.startsWith(u8, tail, "->")) return ParseError.InvalidFunctionSig;
@@ -297,14 +326,21 @@ pub fn parseFunctionSig(
             return_text = std.mem.trimRight(u8, return_text[0 .. return_text.len - 1], " \t\r");
             if (return_text.len == 0) return ParseError.InvalidFunctionSig;
         }
-        const cap_split = parseOptionalCap(return_text);
-        return_cap = cap_split.cap;
-        const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
-        if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
-        if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
-            return_ty = .ptr;
+        // Multi-scalar returns currently disallow capability prefixes and fallible.
+        if (std.mem.indexOfScalar(u8, return_text, ',') != null) {
+            if (return_fallible) return ParseError.InvalidFunctionSig;
+            const types = try parseReturnTypeList(return_text);
+            return_cap = null;
+            return_ty = types.first;
+            return_ty2 = types.second;
         } else {
-            return_ty = try parsePrimType(ty_text);
+            const cap_split = parseOptionalCap(return_text);
+            return_cap = cap_split.cap;
+            const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
+            if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
+            const types = try parseReturnTypeList(ty_text);
+            return_ty = types.first;
+            return_ty2 = types.second;
         }
     }
 
@@ -332,6 +368,7 @@ pub fn parseFunctionSig(
         .kind = .normal,
         .return_cap = return_cap,
         .return_ty = return_ty,
+        .return_ty2 = return_ty2,
         .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = false,
@@ -400,6 +437,7 @@ pub fn parseFunctionHeader(
 
     var return_cap: ?instr.CapPrefix = null;
     var return_ty: PrimType = .void;
+    var return_ty2: PrimType = .void;
     var return_fallible = false;
     if (tail.len != 0) {
         if (!std.mem.startsWith(u8, tail, "->")) return ParseError.InvalidFunctionSig;
@@ -410,14 +448,21 @@ pub fn parseFunctionHeader(
             return_text = std.mem.trimRight(u8, return_text[0 .. return_text.len - 1], " \t\r");
             if (return_text.len == 0) return ParseError.InvalidFunctionSig;
         }
-        const cap_split = parseOptionalCap(return_text);
-        return_cap = cap_split.cap;
-        const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
-        if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
-        if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
-            return_ty = .ptr;
+        // Multi-scalar returns currently disallow capability prefixes and fallible.
+        if (std.mem.indexOfScalar(u8, return_text, ',') != null) {
+            if (return_fallible) return ParseError.InvalidFunctionSig;
+            const types = try parseReturnTypeList(return_text);
+            return_cap = null;
+            return_ty = types.first;
+            return_ty2 = types.second;
         } else {
-            return_ty = try parsePrimType(ty_text);
+            const cap_split = parseOptionalCap(return_text);
+            return_cap = cap_split.cap;
+            const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
+            if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
+            const types = try parseReturnTypeList(ty_text);
+            return_ty = types.first;
+            return_ty2 = types.second;
         }
     }
 
@@ -446,6 +491,7 @@ pub fn parseFunctionHeader(
         .kind = kind,
         .return_cap = return_cap,
         .return_ty = return_ty,
+        .return_ty2 = return_ty2,
         .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = kind == .ffi_wrapper,
@@ -666,9 +712,15 @@ pub fn writeFunctionHeader(writer: anytype, sig: FunctionSig) !void {
     try writer.writeByte(')');
     if (sig.return_ty != .void) {
         try writer.writeAll(" -> ");
-        if (sig.return_cap) |cap| try writer.writeAll(capText(cap));
-        try writer.writeAll(primTypeName(sig.return_ty));
-        if (sig.return_fallible) try writer.writeByte('!');
+        if (sig.return_ty2 == .void) {
+            if (sig.return_cap) |cap| try writer.writeAll(capText(cap));
+            try writer.writeAll(primTypeName(sig.return_ty));
+            if (sig.return_fallible) try writer.writeByte('!');
+        } else {
+            try writer.writeAll(primTypeName(sig.return_ty));
+            try writer.writeAll(", ");
+            try writer.writeAll(primTypeName(sig.return_ty2));
+        }
     }
     if (sig.kind != .external) try writer.writeByte(':');
 }
@@ -678,6 +730,7 @@ fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
     try std.testing.expectEqual(expected.kind, actual.kind);
     try std.testing.expectEqual(expected.return_cap, actual.return_cap);
     try std.testing.expectEqual(expected.return_ty, actual.return_ty);
+    try std.testing.expectEqual(expected.return_ty2, actual.return_ty2);
     try std.testing.expectEqual(expected.return_fallible, actual.return_fallible);
     try std.testing.expectEqual(expected.entry_inst_idx, actual.entry_inst_idx);
     try std.testing.expectEqual(expected.is_ffi_wrapper, actual.is_ffi_wrapper);
@@ -798,4 +851,13 @@ test "type literal PBT accepts supported names and rejects near misses" {
         defer std.testing.allocator.free(invalid);
         try std.testing.expectError(ParseError.UnsupportedType, parsePrimType(invalid));
     }
+}
+
+
+test "two-scalar return signature parses" {
+    var parsed = try parseFunctionHeader(std.testing.allocator, "@export pair(left: u64, right: u64) -> u64, u64:", 0, 0, .exported);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqual(PrimType.u64, parsed.return_ty);
+    try std.testing.expectEqual(PrimType.u64, parsed.return_ty2);
+    try std.testing.expect(!parsed.return_fallible);
 }
