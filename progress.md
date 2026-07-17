@@ -8858,3 +8858,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_iter_mut_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10736+.
+
+## Completed: 2026-07-17 Array Iter trait ops
+
+- `sa_std/array.sa`: Added `ARRAY_ITER_AS_REF_SLICE_U64`, `ARRAY_ITER_CLONE_U64`, `ARRAY_ITER_NEXT_U64`, `ARRAY_ITER_NEXT_BACK_U64`, `ARRAY_ITER_SIZE_HINT_U64`, `ARRAY_ITER_EXACT_SIZE_LEN_U64`, `ARRAY_ITER_EXACT_SIZE_IS_EMPTY_U64`, `ARRAY_ITER_MUT_AS_REF_SLICE_U64`, `ARRAY_ITER_MUT_AS_MUT_SLICE_U64`, `ARRAY_ITER_MUT_NEXT_U64`, `ARRAY_ITER_MUT_NEXT_BACK_U64`, `ARRAY_ITER_MUT_SIZE_HINT_U64`, `ARRAY_ITER_MUT_EXACT_SIZE_LEN_U64`, and `ARRAY_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers expose the supportable concrete borrowed `[u64; N]` iterator trait surface by reusing the existing slice-backed `Iter` cursor over caller-owned contiguous array storage. Immutable iterator clone copies cursor state only and does not clone array storage. Mutable iterator helpers expose concrete scalar values plus remaining `Slice` views/raw mutable storage; they do not model Rust `&mut T` item ABI, lifetimes, aliasing rules, or `IterMut: Clone`.
+- Test: `tests/unit_framework/std_array_iter_trait_macro_surface.sa` — 1 test (panic ID 10736) covering initial/remaining size hints, exact-size state, remaining-slice view, immutable clone cursor independence, mutable remaining-slice mutation, forward/back consumption, repeated exhaustion, and borrowed array into-iterator aliases.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_iter_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10737+.

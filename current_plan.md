@@ -4247,3 +4247,13 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10736+.
 Still blocked without redesign: generic Vec<T> mutable reference item semantics, Rust lifetime/aliasing enforcement, iterator object layout/debug formatting, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array Iter trait ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array borrowed Iter as-ref/clone/cursor/size aliases in array.sa: ARRAY_ITER_AS_REF_SLICE_U64, ARRAY_ITER_CLONE_U64, ARRAY_ITER_NEXT_U64, ARRAY_ITER_NEXT_BACK_U64, ARRAY_ITER_SIZE_HINT_U64, ARRAY_ITER_EXACT_SIZE_LEN_U64, and ARRAY_ITER_EXACT_SIZE_IS_EMPTY_U64.
+- Concrete Array borrowed IterMut as-ref/as-mut/cursor/size aliases in array.sa: ARRAY_ITER_MUT_AS_REF_SLICE_U64, ARRAY_ITER_MUT_AS_MUT_SLICE_U64, ARRAY_ITER_MUT_NEXT_U64, ARRAY_ITER_MUT_NEXT_BACK_U64, ARRAY_ITER_MUT_SIZE_HINT_U64, ARRAY_ITER_MUT_EXACT_SIZE_LEN_U64, and ARRAY_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64.
+- Test file std_array_iter_trait_macro_surface.sa (panic ID 10736).
+
+Panic IDs next free: 10737+.
+Still blocked without redesign: generic [T; N] iterator item/reference semantics, Rust lifetime/aliasing enforcement, mutable slice::IterMut Clone support, iterator object layout/debug formatting, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
