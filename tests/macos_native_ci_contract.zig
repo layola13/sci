@@ -92,6 +92,14 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "grep -F \"$LLVM_PREFIX/lib/libLLVM\"",
         "/bin/bash tools/ci/macos_native_smoke.sh",
         "--evidence-path \"$RUNNER_TEMP/macos-native-smoke-$EXPECTED_ARCH.json\"",
+        "Validate native smoke evidence",
+        "python3 - \"$evidence_path\" \"$EXPECTED_ARCH\" <<'PY'",
+        "\"platform\": \"macos\"",
+        "\"archive\": f\"sa-macos-{expected_arch}.tar.gz\"",
+        "\"native_smoke\": \"passed\"",
+        "\"wasm_magic\": \"0061736d\"",
+        "native smoke evidence mismatch",
+        "native smoke evidence has invalid",
         "Upload native smoke evidence",
         "uses: actions/upload-artifact@v4",
         "name: macos-native-smoke-${{ matrix.expected_arch }}",
@@ -113,6 +121,12 @@ test "macOS native workflow covers both architectures without Linux-only aggrega
         "zig build test-runtime-darwin -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin-socket -Dtarget=\"$ZIG_TARGET\"",
         "zig build test-runtime-darwin-pty -Dtarget=\"$ZIG_TARGET\"",
+    });
+    try expectInOrder(workflow, &.{
+        "Run compiler and release-layout smoke",
+        "Validate native smoke evidence",
+        "Upload native smoke evidence",
+        "Check source artifact cleanliness",
     });
 
     const forbidden = [_][]const u8{

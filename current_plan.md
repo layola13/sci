@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: native smoke evidence validation
+
+1. [x] Confirm remote GitHub workflow execution cannot be triggered from this host because `gh` is not authenticated.
+2. [x] Add macOS/Windows workflow steps that parse native-smoke evidence JSON and validate platform, architecture, archive name, wasm magic, pass marker, and staged/installed version strings before upload.
+3. [x] Lock the validation steps with Linux-runnable source contracts.
+4. [x] Run focused macOS/Windows CI contract validation, formatting/diff checks, then commit and push the coherent batch.
+
 ## Current turn: native smoke evidence artifact capture
 
 1. [x] Audit macOS/Windows native compiler smoke scripts and workflow upload behavior.
@@ -220,6 +227,7 @@ Reference: `docs/macos_windows_portability_evaluation_cn.md`.
    - [x] add a Linux-verifiable native `daemon-smoke` gate that starts a real Unix-socket daemon, verifies ping metrics, forwards `sa version` through `SA_DAEMON_SOCKET`, shuts down, and checks socket cleanup; wire it into macOS native CI for future runner evidence;
    - [x] lock the GitHub release matrix so macOS/Windows archive rows remain disabled until matching native compiler/runtime/installer/archive evidence exists;
    - [x] emit and upload native smoke evidence JSON artifacts from macOS/Windows workflows after the archive, installer, wasm, package, and installed-check smokes pass;
+   - [x] validate native smoke evidence JSON contents in macOS/Windows workflows before artifact upload;
    - [ ] execute those archive smokes on native macOS/Windows runners and add remote installer/release-download evidence before claiming installer/archive support.
 
 Evidence rule: the active host is Linux. Cross type-check/link/ABI and static workflow/PowerShell checks are recorded as such and never promoted to native Windows/macOS runtime success or L2 support. The current process contract proves exact small-output capture only, not arbitrary-size capture; the Darwin socket and PTY contracts have not run natively, and socket multicast join/leave paths remain uncovered.

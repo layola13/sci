@@ -179,6 +179,33 @@ jobs:
       - name: Run compiler and release-layout smoke
         run: /bin/bash tools/ci/macos_native_smoke.sh --sa-path "$SA_COMPILER_ROOT/bin/sa" --runtime-root "$SA_STATIC_ROOT" --evidence-path "$RUNNER_TEMP/macos-native-smoke-$EXPECTED_ARCH.json"
 
+      - name: Validate native smoke evidence
+        run: |
+          set -euo pipefail
+          evidence_path="$RUNNER_TEMP/macos-native-smoke-$EXPECTED_ARCH.json"
+          python3 - "$evidence_path" "$EXPECTED_ARCH" <<'PY'
+          import json
+          import re
+          import sys
+
+          evidence_path, expected_arch = sys.argv[1], sys.argv[2]
+          with open(evidence_path, "r", encoding="utf-8") as handle:
+              evidence = json.load(handle)
+          expected = {
+              "platform": "macos",
+              "arch": expected_arch,
+              "archive": f"sa-macos-{expected_arch}.tar.gz",
+              "native_smoke": "passed",
+              "wasm_magic": "0061736d",
+          }
+          for key, value in expected.items():
+              if evidence.get(key) != value:
+                  raise SystemExit(f"native smoke evidence mismatch for {key}: {evidence.get(key)!r} != {value!r}")
+          for key in ("staged_version", "installed_version"):
+              if not re.fullmatch(r"sa\s+\S+", evidence.get(key, "")):
+                  raise SystemExit(f"native smoke evidence has invalid {key}: {evidence.get(key)!r}")
+          PY
+
       - name: Upload native smoke evidence
         if: always()
         uses: actions/upload-artifact@v4

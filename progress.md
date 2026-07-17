@@ -2,6 +2,15 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native smoke evidence validation
+
+- `gh` is present but unauthenticated on this host, so the macOS/Windows workflows could not be triggered from here for native runner evidence.
+- `.github/workflows/macos-native.yml` now parses the native-smoke JSON with `python3` before artifact upload and validates platform, runner architecture, archive name, wasm magic, pass marker, and staged/installed version strings.
+- `.github/workflows/windows-native.yml` now parses the native-smoke JSON with PowerShell before artifact upload and validates the same evidence fields for the Windows x86_64 smoke.
+- The macOS/Windows CI source contracts lock the validation steps and required fields.
+- Validation passed on Linux: `zig build macos-ci-contract --summary all` -> `3/3`; `zig build windows-ci-contract --summary all` -> `5/5`; `zig fmt --check tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; Python YAML parsing for both native workflows; `git diff --check`.
+- Evidence boundary: this improves future native-run evidence integrity. It is still source/static evidence on this Linux host and does not claim native macOS/Windows execution.
+
 ## Focused verified: 2026-07-17 native smoke evidence artifact capture
 
 - `tools/ci/macos_native_smoke.sh` and `tools/ci/windows_native_smoke.ps1` now accept an evidence-path option/env var and write a small JSON evidence file only after staged archive, compiler, wasm, offline package, local installer, installed version, and installed check smokes pass.

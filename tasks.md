@@ -1,5 +1,13 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current native smoke evidence validation batch (2026-07-17)
+
+- [x] Check whether the GitHub workflows can be triggered from this host; `gh` is installed but not authenticated.
+- [x] Add native workflow validation steps that parse evidence JSON before upload.
+- [x] Validate platform, architecture, archive name, wasm magic, pass marker, and staged/installed version strings.
+- [x] Lock those validation steps with Linux-runnable source contracts.
+- [x] Run focused contracts/format checks and commit/push the batch.
+
 ## Current native smoke evidence artifact batch (2026-07-17)
 
 - [x] Add optional evidence JSON output to macOS and Windows native smoke scripts.

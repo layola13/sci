@@ -273,6 +273,28 @@ jobs:
       - name: Run compiler and release-layout smoke
         run: .\tools\ci\windows_native_smoke.ps1 -RuntimeRoot $env:SA_STATIC_ROOT -EvidencePath (Join-Path $env:RUNNER_TEMP "windows-native-smoke-x86_64.json")
 
+      - name: Validate native smoke evidence
+        run: |
+          $evidencePath = Join-Path $env:RUNNER_TEMP "windows-native-smoke-x86_64.json"
+          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          $expected = @{
+            platform = "windows"
+            arch = "x86_64"
+            archive = "sa-windows-x86_64.zip"
+            native_smoke = "passed"
+            wasm_magic = "0061736d"
+          }
+          foreach ($key in $expected.Keys) {
+            if ($evidence.$key -ne $expected[$key]) {
+              throw "native smoke evidence mismatch for ${key}: expected '$($expected[$key])', got '$($evidence.$key)'"
+            }
+          }
+          foreach ($key in @("staged_version", "installed_version")) {
+            if ($evidence.$key -notmatch '^sa\s+\S+$') {
+              throw "native smoke evidence has invalid ${key}: '$($evidence.$key)'"
+            }
+          }
+
       - name: Upload native smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
