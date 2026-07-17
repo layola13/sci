@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence exact-schema hardening
+
+1. [x] Keep the worktree clean before starting the batch.
+2. [x] Reject unexpected top-level fields in native smoke/runtime evidence JSON.
+3. [x] Lock the exact-schema behavior with validator tests and macOS/Windows source contracts.
+4. [x] Run focused validator/CI contract validation, then commit and push the batch.
+
 ## Current turn: native evidence platform-target matrix hardening
 
 1. [x] Keep the worktree clean before starting the batch.

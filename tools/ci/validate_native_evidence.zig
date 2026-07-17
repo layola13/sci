@@ -125,6 +125,65 @@ fn expectString(root: std.json.Value, key: []const u8, expected: []const u8) !vo
     }
 }
 
+fn containsField(fields: []const []const u8, needle: []const u8) bool {
+    for (fields) |field| {
+        if (std.mem.eql(u8, field, needle)) return true;
+    }
+    return false;
+}
+
+fn expectedFields(kind: EvidenceKind) []const []const u8 {
+    return switch (kind) {
+        .smoke => &.{
+            "arch",
+            "archive",
+            "evidence_schema_version",
+            "github_run_attempt",
+            "github_run_id",
+            "github_sha",
+            "http_installed_version",
+            "installed_version",
+            "installer_transports",
+            "llvm_version",
+            "native_smoke",
+            "platform",
+            "staged_version",
+            "wasm_magic",
+            "zig_version",
+        },
+        .runtime => &.{
+            "arch",
+            "evidence_schema_version",
+            "github_run_attempt",
+            "github_run_id",
+            "github_sha",
+            "llvm_version",
+            "passed_gates",
+            "platform",
+            "runtime_evidence",
+            "target",
+            "zig_version",
+        },
+    };
+}
+
+fn validateExactSchema(root: std.json.Value, kind: EvidenceKind) !void {
+    if (root != .object) return error.ExpectedObject;
+    const expected = expectedFields(kind);
+    if (root.object.count() != expected.len) {
+        std.debug.print("native evidence field count mismatch: expected {}, got {}\n", .{ expected.len, root.object.count() });
+        return error.EvidenceMismatch;
+    }
+    var iterator = root.object.iterator();
+    while (iterator.next()) |entry| {
+        const key = entry.key_ptr.*;
+        if (!containsField(expected, key)) {
+            std.debug.print("native evidence contains unexpected field: {s}\n", .{key});
+            return error.EvidenceMismatch;
+        }
+    }
+}
+
 fn validateRequiredEvidenceArgument(name: []const u8, value: []const u8) !void {
     const trimmed = std.mem.trim(u8, value, " \t\r\n");
     if (trimmed.len == 0 or std.ascii.eqlIgnoreCase(trimmed, "unknown")) {
@@ -290,6 +349,7 @@ fn validateEvidence(root: std.json.Value, options: Options) !void {
     try validateGitHubRunNumber("github_run_id", options.github_run_id);
     try validateGitHubRunNumber("github_run_attempt", options.github_run_attempt);
     try validatePlatformArchTarget(options);
+    try validateExactSchema(root, options.kind);
 
     try expectInteger(root, "evidence_schema_version", evidence_schema_version);
     try expectString(root, "platform", options.platform);
@@ -437,6 +497,40 @@ test "rejects native evidence schema drift" {
         \\  "arch": "x86_64",
         \\  "archive": "sa-windows-x86_64.zip",
         \\  "evidence_schema_version": 2,
+        \\  "github_run_attempt": "2",
+        \\  "github_run_id": "100",
+        \\  "github_sha": "fedcba9876543210fedcba9876543210fedcba98",
+        \\  "http_installed_version": "sa 0.0.4",
+        \\  "installed_version": "sa 0.0.4",
+        \\  "installer_transports": ["file", "http"],
+        \\  "llvm_version": "14.0.6",
+        \\  "native_smoke": "passed",
+        \\  "platform": "windows",
+        \\  "staged_version": "sa 0.0.4",
+        \\  "wasm_magic": "0061736d",
+        \\  "zig_version": "0.14.1"
+        \\}
+    ;
+    try std.testing.expectError(error.EvidenceMismatch, validateEvidenceSource(std.testing.allocator, source, .{
+        .kind = .smoke,
+        .platform = "windows",
+        .arch = "x86_64",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
+        .github_sha = "fedcba9876543210fedcba9876543210fedcba98",
+        .github_run_id = "100",
+        .github_run_attempt = "2",
+        .path = "unused",
+    }));
+}
+
+test "rejects unexpected native evidence fields" {
+    const source =
+        \\{
+        \\  "arch": "x86_64",
+        \\  "archive": "sa-windows-x86_64.zip",
+        \\  "debug_note": "not part of schema v1",
+        \\  "evidence_schema_version": 1,
         \\  "github_run_attempt": "2",
         \\  "github_run_id": "100",
         \\  "github_sha": "fedcba9876543210fedcba9876543210fedcba98",

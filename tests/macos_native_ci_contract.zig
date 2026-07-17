@@ -378,6 +378,8 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(evidence_validator_source, "const evidence_schema_version: i64 = 1;");
     try expectContains(evidence_validator_source, "try expectInteger(root, \"evidence_schema_version\", evidence_schema_version);");
     try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
+    try expectContains(evidence_validator_source, "fn expectedFields");
+    try expectContains(evidence_validator_source, "fn validateExactSchema");
     try expectContains(evidence_validator_source, "fn validateInstallerTransports");
     try expectContains(evidence_validator_source, "fn validateRequiredEvidenceArgument");
     try expectContains(evidence_validator_source, "fn validateGitHubSha");
@@ -394,6 +396,9 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(evidence_validator_source, "try validateGitHubRunNumber(\"github_run_id\", options.github_run_id);");
     try expectContains(evidence_validator_source, "try validateGitHubRunNumber(\"github_run_attempt\", options.github_run_attempt);");
     try expectContains(evidence_validator_source, "try validatePlatformArchTarget(options);");
+    try expectContains(evidence_validator_source, "try validateExactSchema(root, options.kind);");
+    try expectContains(evidence_validator_source, "\"http_installed_version\"");
+    try expectContains(evidence_validator_source, "\"passed_gates\"");
     try expectContains(evidence_validator_source, "return \"x86_64-macos\";");
     try expectContains(evidence_validator_source, "return \"aarch64-macos\";");
     try expectContains(evidence_validator_source, "--zig-version");
