@@ -10,8 +10,18 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 - Test: `tests/unit_framework/std_binary_heap_iter_search_macro_surface.sa` - 1 test (panic ID 10759) covering find hit/miss, try_find success/failure, find_map, position, rposition, rfind, cursor remainders, and heap non-consumption.
 - Validation status:
   - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_search_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
-  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
 - Panic IDs next free: 10760+.
+
+## Completed: 2026-07-17 BinaryHeap Iter any/all aliases
+
+- Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` and `library/core/src/iter/traits/iterator.rs` for `any` / `all`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_ITER_ANY_U64` and `BINARY_HEAP_ITER_ALL_U64`.
+- Semantics: helpers consume the concrete borrowed slice-backed cursor in heap-array order and return explicit bool scalars; they leave the heap itself intact and short-circuit through the existing iterator helper machinery.
+- Test: `tests/unit_framework/std_binary_heap_iter_any_all_macro_surface.sa` - 1 test (panic ID 10760) covering any hit, all miss, empty any/all, cursor remainders, and heap non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_any_all_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10761+.
 
 ## Completed: 2026-07-17 BinaryHeap Iter advance/chunk aliases
 
