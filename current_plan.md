@@ -4257,3 +4257,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10737+.
 Still blocked without redesign: generic [T; N] iterator item/reference semantics, Rust lifetime/aliasing enforcement, mutable slice::IterMut Clone support, iterator object layout/debug formatting, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter constructor/default/slice/clone/cursor/size aliases in array.sa: ARRAY_INTO_ITER_U64, ARRAY_INTO_ITER_NEW_U64, ARRAY_INTO_ITER_EMPTY_U64, ARRAY_INTO_ITER_DEFAULT_U64, ARRAY_INTO_ITER_AS_SLICE_U64, ARRAY_INTO_ITER_AS_MUT_SLICE_U64, ARRAY_INTO_ITER_AS_REF_SLICE_U64, ARRAY_INTO_ITER_CLONE_U64, ARRAY_INTO_ITER_NEXT_U64, ARRAY_INTO_ITER_NEXT_BACK_U64, ARRAY_INTO_ITER_SIZE_HINT_U64, ARRAY_INTO_ITER_EXACT_SIZE_LEN_U64, and ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64.
+- Test file std_array_into_iter_macro_surface.sa (panic ID 10737).
+
+Panic IDs next free: 10738+.
+Still blocked without redesign: generic [T; N] move/drop semantics, Rust array::IntoIter<T,N> MaybeUninit alive-range object layout, const-generic type identity for empty/default iterators, allocator-free inline array storage, drop glue/unwind cleanup, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

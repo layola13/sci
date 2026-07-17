@@ -3,6 +3,7 @@
 @import "core/iter.sa"
 @import "core/mem.sa"
 @import "hash.sa"
+@import "vec.sa"
 
 [MACRO] ARRAY_LEN %out_len, %length
     %out_len = add %length, 0
@@ -70,6 +71,63 @@
 
 [MACRO] ARRAY_MUT_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
     EXPAND ARRAY_ITER_MUT_U64 %out_iter, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_U64 %out_iter, %out_vec, %array_ptr, %length
+    __array_into_iter_slice_%out_iter = stack_alloc Slice_SIZE
+    EXPAND ARRAY_AS_SLICE_U64 __array_into_iter_slice_%out_iter, %array_ptr, %length
+    EXPAND VEC_FROM_SLICE_U64 %out_vec, __array_into_iter_slice_%out_iter
+    EXPAND VEC_AS_SLICE __array_into_iter_backing_slice_%out_iter, %out_vec
+    EXPAND ITER_FROM_SLICE %out_iter, __array_into_iter_backing_slice_%out_iter
+    !__array_into_iter_backing_slice_%out_iter
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_NEW_U64 %out_iter, %out_vec, %array_ptr, %length
+    EXPAND ARRAY_INTO_ITER_U64 %out_iter, %out_vec, %array_ptr, %length
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_EMPTY_U64 %out_iter, %out_vec
+    EXPAND VEC_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
+    EXPAND ARRAY_INTO_ITER_EMPTY_U64 %out_iter, %out_vec
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
+    EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_AS_MUT_SLICE_U64 %out_slice, %iter_reg
+    EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
+    EXPAND ARRAY_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+    EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
+    EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+    EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg

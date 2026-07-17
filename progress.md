@@ -8867,3 +8867,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_iter_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10737+.
+
+## Completed: 2026-07-17 Array IntoIter ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_U64`, `ARRAY_INTO_ITER_NEW_U64`, `ARRAY_INTO_ITER_EMPTY_U64`, `ARRAY_INTO_ITER_DEFAULT_U64`, `ARRAY_INTO_ITER_AS_SLICE_U64`, `ARRAY_INTO_ITER_AS_MUT_SLICE_U64`, `ARRAY_INTO_ITER_AS_REF_SLICE_U64`, `ARRAY_INTO_ITER_CLONE_U64`, `ARRAY_INTO_ITER_NEXT_U64`, `ARRAY_INTO_ITER_NEXT_BACK_U64`, `ARRAY_INTO_ITER_SIZE_HINT_U64`, `ARRAY_INTO_ITER_EXACT_SIZE_LEN_U64`, and `ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers lower the supportable concrete owned `array::IntoIter<u64, N>` surface by copying caller-provided array storage into an explicit backing `Vec<u64>` and building a slice-backed cursor over that owned backing. `new` is an alias for the owned constructor, empty/default produce empty backing Vec cursors, `as_mut_slice` exposes the remaining owned backing, and clone copies the current remaining range into a new backing Vec. This does not model Rust generic `T`, `MaybeUninit` alive-range layout, const-generic type identity, or drop glue.
+- Test: `tests/unit_framework/std_array_into_iter_macro_surface.sa` — 1 test (panic ID 10737) covering owned backing copy independence from source storage, remaining slice views, mutation through `as_mut_slice`, clone backing independence, forward/back consumption, `new`, and empty/default paths.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10738+.
