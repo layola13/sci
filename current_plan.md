@@ -4193,3 +4193,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10730+.
 Still blocked without redesign: generic BinaryHeap<T> ordering/item semantics, Rust owned binary_heap::IntoIter<T,A> object layout/drop glue, allocator access/parameters, marker trait wiring, generic Clone, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 BinaryHeap IntoIter clone)
+
+Completed supportable defaults/aliases/macros:
+- Concrete BinaryHeap IntoIter clone helper in binary_heap.sa: BINARY_HEAP_INTO_ITER_CLONE_U64, cloning the current remainder into a new explicit backing Vec and fresh cursor.
+- Test file std_binary_heap_into_iter_clone_macro_surface.sa (panic ID 10730).
+
+Panic IDs next free: 10731+.
+Still blocked without redesign: generic BinaryHeap<T> ordering/item semantics, generic `T: Clone`, Rust owned binary_heap::IntoIter<T,A> object layout/drop glue, allocator cloning/access/parameters, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

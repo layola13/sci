@@ -1029,6 +1029,10 @@ L_APPEND_DONE:
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_SORTED_VEC %out_vec, %heap_reg
     %out_vec = call @sa_binary_heap_into_sorted_vec(^%heap_reg)
 [END_MACRO]

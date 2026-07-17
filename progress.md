@@ -8804,3 +8804,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10730+.
+
+## Completed: 2026-07-17 BinaryHeap IntoIter clone
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_INTO_ITER_CLONE_U64`.
+- Semantics: the helper lowers the supportable concrete `Clone for binary_heap::IntoIter<u64>` shape by copying the current remaining cursor range into a new caller-owned backing `Vec<u64>` and fresh cursor. Clone mutation/consumption does not alter the original iterator or backing Vec.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_clone_macro_surface.sa` — 1 test (panic ID 10730) covering clone after partial consumption, clone backing mutation independence, double-ended clone consumption, original cursor non-advancement, and default empty clone.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10731+.
