@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIterSorted search aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `find`, `try_find`, `find_map`, and `position`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_FIND_U64`, `BINARY_HEAP_INTO_ITER_SORTED_TRY_FIND_U64`, `BINARY_HEAP_INTO_ITER_SORTED_FIND_MAP_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_POSITION_U64`.
+- Semantics: aliases consume the existing materialized descending cursor greatest-first and reuse concrete `u64` iterator search helpers. Reverse search aliases are intentionally not added because Rust `IntoIterSorted` is not a `DoubleEndedIterator`.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_search_macro_surface.sa` - 1 test (panic ID 10774) covering find hit/miss, try_find success/failure, find_map, position hit/miss, cursor remainders, and backing Vec ownership.
+- Validation status:
+  - Pending focused run: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_search_macro_surface.sa --jobs 1 --trace-panic`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10775+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIterSorted advance/chunk aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `next_chunk` and `advance_by`.
