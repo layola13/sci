@@ -3530,37 +3530,40 @@ fn verifyBody(
                     }
                 }
 
-                if (parsed.dest) |dest| {
-                    if (isIdentLike(dest)) {
-                        if (current_scope) |scope| {
-                            if (resolveScopedRegId(&scope, &metadata.symbols, dest)) |dest_id| {
-                                const idx: usize = @intCast(dest_id);
-                                if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
-                                    return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
-                                }
-                                if (isImmutableConst(state, flags, dest_id)) {
-                                    return constTrap(item, current_function_text, current_is_ffi_wrapper, dest, state[idx], "immutable registers cannot be overwritten");
-                                }
-                                const ret_cap = if (parsed.is_indirect) null else if (sig_match) |resolved| resolved.return_cap else builtinReturnCap(parsed.callee);
-                                const ret_state = if (!parsed.is_indirect) blk: {
-                                    if (sig_match) |resolved| {
-                                        if (resolved.return_fallible) break :blk maskOf(.fallible);
-                                    }
-                                    break :blk switch (ret_cap orelse .move) {
-                                        .raw => maskOf(.untracked),
-                                        .borrow => maskOf(.active) | maskOf(.borrow_view),
-                                        .move, .by_value => maskOf(.active),
-                                    };
-                                } else blk: {
-                                    break :blk switch (ret_cap orelse .move) {
-                                        .raw => maskOf(.untracked),
-                                        .borrow => maskOf(.active) | maskOf(.borrow_view),
-                                        .move, .by_value => maskOf(.active),
-                                    };
-                                };
-                                state[idx] = ret_state;
-                                flags[idx] = 0;
+                const ret_cap = if (parsed.is_indirect) null else if (sig_match) |resolved| resolved.return_cap else builtinReturnCap(parsed.callee);
+                const ret_state = if (!parsed.is_indirect) blk: {
+                    if (sig_match) |resolved| {
+                        if (resolved.return_fallible) break :blk maskOf(.fallible);
+                    }
+                    break :blk switch (ret_cap orelse .move) {
+                        .raw => maskOf(.untracked),
+                        .borrow => maskOf(.active) | maskOf(.borrow_view),
+                        .move, .by_value => maskOf(.active),
+                    };
+                } else blk: {
+                    break :blk switch (ret_cap orelse .move) {
+                        .raw => maskOf(.untracked),
+                        .borrow => maskOf(.active) | maskOf(.borrow_view),
+                        .move, .by_value => maskOf(.active),
+                    };
+                };
+                const second_ret_state = if (ret_state == maskOf(.fallible)) maskOf(.active) else ret_state;
+                const dests = [_]?[]const u8 parsed.dest, parsed.dest2 };
+                const dest_states = [_]u64 ret_state, second_ret_state };
+                for (dests, dest_states) |maybe_dest, dest_state| {
+                    const dest = maybe_dest orelse continue;
+                    if (!isIdentLike(dest)) continue;
+                    if (current_scope) |scope| {
+                        if (resolveScopedRegId(&scope, &metadata.symbols, dest)) |dest_id| {
+                            const idx: usize = @intCast(dest_id);
+                            if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
+                                return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                             }
+                            if (isImmutableConst(state, flags, dest_id)) {
+                                return constTrap(item, current_function_text, current_is_ffi_wrapper, dest, state[idx], "immutable registers cannot be overwritten");
+                            }
+                            state[idx] = dest_state;
+                            flags[idx] = 0;
                         }
                     }
                 }
