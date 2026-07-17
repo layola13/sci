@@ -38,13 +38,13 @@ fn externalToolTestMaybeFail(op: []const u8) !void {
     return error.TestInjectedExternalToolFailure;
 }
 
-fn externalToolTestArm(op: []const u8, fail_after: usize) void {
+pub fn externalToolTestArm(op: []const u8, fail_after: usize) void {
     external_tool_test_fail_op = op;
     external_tool_test_fail_after = fail_after;
     external_tool_test_fail_seen = 0;
 }
 
-fn externalToolTestDisarm() void {
+pub fn externalToolTestDisarm() void {
     external_tool_test_fail_op = null;
     external_tool_test_fail_after = 0;
     external_tool_test_fail_seen = 0;
