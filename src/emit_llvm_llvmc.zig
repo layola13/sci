@@ -63,6 +63,7 @@ const CFunction = extern struct {
     name: [*:0]const u8,
     kind: CFuncKind,
     ret_ty: CType,
+    ret_ty2: CType = .void,
     return_fallible: bool,
     return_owned: bool,
     params: [*]const CParam,
@@ -1101,7 +1102,7 @@ fn ownsProcessGlobals(options: EmitOptions, annotated: anytype) bool {
 }
 
 fn functionSigShapeEqual(lhs: sig.FunctionSig, rhs: sig.FunctionSig) bool {
-    if (lhs.return_cap != rhs.return_cap or lhs.return_ty != rhs.return_ty or lhs.return_fallible != rhs.return_fallible) return false;
+    if (lhs.return_cap != rhs.return_cap or lhs.return_ty != rhs.return_ty or lhs.return_ty2 != rhs.return_ty2 or lhs.return_fallible != rhs.return_fallible) return false;
     if (lhs.params.len != rhs.params.len) return false;
     for (lhs.params, rhs.params) |lparam, rparam| {
         if (lparam.cap != rparam.cap or lparam.ty != rparam.ty) return false;
@@ -1415,7 +1416,31 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
             const is_malloc_val = is_ptr and deltaMarksMalloc(body_item.delta.changes, dst);
             break :blk .{ .op = .assign, .dst = dst, .operand0 = value, .operand1 = none, .operand2 = none, .ty = assign_ty, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
         },
-        .return_ => .{ .op = .ret, .dst = 0, .operand0 = if (base.operands[0] == .none) none else try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = base.operands[0] != .none, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .return_ => blk: {
+            const has_second = state.fsig.return_ty2 != .void and base.operands[1] != .none;
+            break :blk .{
+                .op = .ret,
+                .dst = 0,
+                .operand0 = if (base.operands[0] == .none) none else try state.operand(base.operands[0]),
+                .operand1 = if (has_second) try state.operand(base.operands[1]) else none,
+                .operand2 = none,
+                .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)),
+                .binary_op = .add,
+                .label = null,
+                .false_label = null,
+                .callee = null,
+                .args = &.{},
+                .arg_count = 0,
+                .indirect_param_tys = &.{},
+                .indirect_param_count = 0,
+                .has_dst = base.operands[0] != .none,
+                .atomic_ordering = default_ordering,
+                .atomic_second_ordering = default_ordering,
+                .atomic_rmw_op = default_rmw,
+                .return_fallible = false,
+                .indirect_sig_index = std.math.maxInt(u32),
+            };
+        },
         .move_ => null,
         .release => .{
             .op = .release,
@@ -1701,11 +1726,16 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             job.err = err;
             return;
         };
+        const ret_ty2 = if (fsig.return_ty2 == .void) CType.void else (cType(fsig.return_ty2) catch |err| {
+            job.err = err;
+            return;
+        });
 
         job.result = .{
             .name = context.function_names[task.sig_index],
             .kind = task.kind,
             .ret_ty = ret_ty,
+            .ret_ty2 = ret_ty2,
             .return_fallible = fsig.return_fallible,
             .return_owned = fsig.return_cap == .move,
             .params = params.ptr,
