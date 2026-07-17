@@ -1,5 +1,12 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current multi-stage project-cache store failure injection batch (2026-07-17)
+
+- [x] Keep the worktree scoped to store-stage failure injection only.
+- [x] Record `copy_artifact`/`copy_output`/`validate` store failures without leaving partial entries.
+- [x] Run focused unit filters, format/diff checks, then commit/push the selected cache files.
+- [ ] Broaden remaining emit/sync/rename/link injection, crash recovery, TOCTOU-hard path authorization, cross-process, and native macOS/Windows validation beyond this Linux unit batch.
+
 ## Current host link-policy and host-target artifact-key batch (2026-07-17)
 
 - [x] Keep the worktree scoped to cache-key identity work only.
@@ -7,14 +14,6 @@
 - [x] Expand host-target keying with object format, pointer width, and pinned CPU/features policy.
 - [x] Run focused unit filters, format/diff checks, then commit/push the selected cache-key files.
 - [ ] Complete remaining target-feature matrix, failure-injection/TOCTOU/crash-recovery/cross-process, and native macOS/Windows validation beyond this Linux unit batch.
-
-## Current project cache host link policy / export-flag keying batch (2026-07-17)
-
-- [x] Keep the worktree scoped to project key/link-policy identity changes.
-- [x] Add `driver.hostLinkPolicyIdentity` covering host rpath, system libs, and export-dynamic policy.
-- [x] Publish `link_flags` into `build-exe`/`test` project keys and extend host-target with ofmt/pointer-width/CPU-policy pins.
-- [x] Run focused unit filters, format/diff, Debug `sa-cli`, then commit/push the selected cache/driver files.
-- [ ] Finish complete target-feature matrix expansion, broader failure-injection/TOCTOU/cross-process corruption, authorization beyond hit revalidation, and native macOS/Windows validation.
 
 ## Current project cache extra-file/oversize/content-flip corruption batch (2026-07-17)
 
@@ -253,7 +252,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of sc
 
 - [ ] **[FOCUSED VERIFIED] P0.2 VerificationInputDigest v2 verdict-only checkpoint**: `src/verification_input.zig` defines a schema-namespaced, strongly typed v2 digest over instructions, const declarations, package grants, SAX component, metadata mode/predecoded symbols/signatures, and `check_exit_leaks`. The verdict cache is process-local, success-only, capped by a coarse 4096-entry generation rollover, and requires an explicit `.verdict_only` consumer. `sa check` for text and SAB now uses the dedicated verdict-only result API and reports `verify-verdict-v2` miss/hit metrics; SAB check uses predecoded metadata instead of delegating to normal compile. Compile/emit paths continue to run the full Referee and never construct an empty `VerifyOk` shell. Focused evidence passes for field digest coverage, trap-not-cached, text and SAB check miss→hit, codegen containment, formatting, `git diff --check`, and fresh Debug `sa-cli` build. This is not full P0.2: no owned `VerifySnapshot` restore/source-map rebind exists, the cache is not persistent, and full field differential, daemon/cross-process, cross-platform, and long-run pressure coverage remain.
 - [x] **[FOCUSED VERIFIED] P0.3 dynamic dependency depfile**: request-local recording now covers `ENV!`, `OPTION_ENV!`, `INCLUDE!`, `INCLUDE_STR!`, and `INCLUDE_BYTES!`; manifest v2 persists and prevalidates presence/value or canonical path/size/SHA-256 before a hit, and incomplete/changing captures remain non-cacheable. Focused gates pass: INCLUDE `2/2`, absent `OPTION_ENV!` `1/1`, dependency validator `1/1`, top-level INCLUDE_STR miss→hit→content-flip miss `1/1`, nested relative `INCLUDE!` → `INCLUDE_STR!` miss→hit→content-flip miss `1/1`, and `OPTION_ENV!` absent miss→hit→present miss→hit `1/1`. The final manifest records `present:true` plus SHA-256 without the raw value. This is still not full P0.3 cache-contract completion because native/link key completion, failure injection, crash recovery, cross-process, and cross-platform coverage remain open.
-- [ ] **[FOCUSED VERIFIED] P0.3 whole-entry publication and single-flight**: artifact/output/test metadata are copied and synced inside a sibling staging directory, manifest is written last, and one directory rename publishes the entry. Per-key entry locks pin readers/store/cleanup while a separate build-owner lock serializes compilation; a failed owner hands control to one waiter. Build exe/obj/wasm use private sibling output stages so cache population never reads a shared `-o`, and build/test cache claim/store failures fall back to normal compilation or best-effort population. Final publication for different keys sharing one `-o` is serialized through persistent `.sa-output-locks/<basename>` locks; stage files are renamed artifact-first and output-last, with the primary output acting as the successful commit marker. Direct same-output pairing, owner-handoff, and OOM no-partial-entry gates pass `1/1` each; the earlier concurrency/cleanup/dynamic-shape gates pass `4/4` and cache CLI closure passes `3/3`. Failed artifact/output repair, persistent-lock accounting, and broader corruption coverage remain.
+- [ ] **[FOCUSED VERIFIED] P0.3 whole-entry publication and single-flight**: artifact/output/test metadata are copied and synced inside a sibling staging directory, manifest is written last, and one directory rename publishes the entry. Per-key entry locks pin readers/store/cleanup while a separate build-owner lock serializes compilation; a failed owner hands control to one waiter. Build exe/obj/wasm use private sibling output stages so cache population never reads a shared `-o`, and build/test cache claim/store failures fall back to normal compilation or best-effort population. Final publication for different keys sharing one `-o` is serialized through persistent `.sa-output-locks/<basename>` locks; stage files are renamed artifact-first and output-last, with the primary output acting as the successful commit marker. Direct same-output pairing, owner-handoff, and OOM no-partial-entry gates pass `1/1` each; the earlier concurrency/cleanup/dynamic-shape gates pass `4/4` and cache CLI closure passes `3/3`. Focused multi-stage store failure injection for `copy_artifact`/`copy_output`/`validate` now passes `1/1` with no partial entry. Failed artifact/output repair, persistent-lock accounting, emit/sync/rename/link injection, and broader corruption coverage remain.
 - [x] **[FOCUSED VERIFIED] P0.3 project artifact regular-file guard**: project cache manifest validation now rejects symlinked `artifact.sa.bc`/`output.bin` entries before stat/hash comparison, and `first_difference` reports the affected file field. Focused symlink artifact/output coverage passes `1/1`. Focused empty-artifact, legacy version-1, malformed artifact-digest, kind-mismatch, artifact size-mutation, missing-output, unexpected extra-entry-file, oversize-manifest, and same-size output content-flip regressions also pass `1/1` each. This is still not the full failure-injection/TOCTOU-hard/native coverage requested by P0.3.
 - [x] **[FOCUSED VERIFIED] P0.3 incremental function-object integrity subset**: manifest schema v2 authorizes reuse only for its exact ordinary, nonempty object path after size and SHA-256 validation. Misses use synced sibling temporary objects; linking succeeds before the manifest is atomically replaced, the manifest is the last commit, and stale/temp cleanup follows that commit. An object-publication failure links the validated transient object and leaves the prior manifest unchanged. `DT_UNKNOWN` entries fall back to a metadata check that rejects the tested stable symlink, while non-cacheable dynamic dependencies neither consult nor publish function objects.
   - Function key v8 and backend ABI v11 split one-time global lowering context from per-function context. Body `.reg` operands and verifier `change.reg` entries hash numeric local slots, while global symbol/label/function and signature identities remain canonical and name-based. The key preserves full signature ordering for indirect provenance and includes the DCE-selected process-global owner bit. Backend identity covers LLVM, target triple, generic CPU policy, pipeline, and partial-link policy.
@@ -701,7 +700,6 @@ Verification boundary: the active host is Linux. Linux tests are executable evid
 ### 验收口径
 - 只接受“宏 + 布局 + Referee 校验”路线，不接受新增 ISA
 - 前端降级失配必须通过结构化 Trap 暴露，不接受运行时静默容错
-
 
 ## 当前执行顺序
 

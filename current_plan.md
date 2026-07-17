@@ -2,21 +2,20 @@
 
 Date: 2026-07-17
 
+## Current turn: multi-stage project-cache store failure injection
+
+1. [x] Keep the worktree scoped to store-stage failure injection only.
+2. [x] Cover missing artifact (`copy_artifact`) and missing output (`copy_output`) store failures with no partial entry.
+3. [x] Cover test-cache kind/metadata validate mismatch before staging.
+4. [x] Focused verify unit filter, format/diff, then commit/push.
+
+
 ## Current turn: host link-policy and host-target artifact-key inputs
 
 1. [x] Keep the worktree scoped to cache-key identity work only.
 2. [x] Publish host link-policy identity (`export_dynamic`/rpath/system libs) into `build-exe`/`test` keys as `link_flags`.
 3. [x] Expand host-target keying with object format, pointer width, and pinned CPU/features policy.
 4. [x] Focused verify unit filters, format/diff, then commit/push.
-
-
-## Current turn: host link policy / export-flag keying
-
-1. [x] Keep the worktree scoped to project key/link-policy identity changes.
-2. [x] Add `driver.hostLinkPolicyIdentity` covering host rpath, system libs, and export-dynamic policy.
-3. [x] Publish `link_flags` into `build-exe`/`test` project keys and extend host-target with ofmt/pointer-width/CPU-policy pins.
-4. [x] Focused verify unit filters, format/diff, Debug `sa-cli`, then commit/push.
-
 
 ## Current turn: project cache extra-file/oversize/content-flip corruption regressions
 
@@ -26,14 +25,12 @@ Date: 2026-07-17
 4. [x] Keep same-size output content flips as `artifact_corrupt` / `output.sha256`.
 5. [x] Focused verify three unit filters, format/diff, then commit/push.
 
-
 ## Current turn: ordered plugin/rpath artifact-key publication
 
 1. [x] Keep corruption regressions already staged with this worktree.
 2. [x] Add ordered plugin library + rpath key inputs for build-exe/test under schema v4.
 3. [x] Remove plugin-link-only `bypassed_untrusted` on build-exe/test publication paths.
 4. [x] Focused verify unit + smoke, format/diff, Debug `sa-cli`, then commit/push.
-
 
 ## Current turn: native evidence success-only upload hardening
 
@@ -243,6 +240,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] add focused project-cache manifest symlink artifact/output rejection with `incomplete` lookup and redacted `output.file` first-difference evidence;
    - [x] extend focused symlink rejection to project-cache `manifest.json` and `test-metadata.json`, including invalid status and metadata-parse rejection evidence;
    - [ ] add emit/sync/rename/link/manifest failure injection, malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
+   - [x] add focused multi-stage store failure injection for `copy_artifact`/`copy_output`/`validate` with no partial entry (`1/1` on Linux);
    - [x] add focused empty-artifact, legacy version-1, malformed artifact-digest, kind-mismatch, artifact size-mutation, and missing-output project-cache corruption regressions (`1/1` each on Linux);
    - [x] add focused extra-entry-file, oversize-manifest, and same-size output content-flip project-cache corruption regressions (`1/1` each on Linux);
    - [ ] repair remaining failed artifact/output publication cases and broaden corruption recovery beyond the focused empty/legacy/malformed/symlink guards.
@@ -388,7 +386,6 @@ Evidence rule: the active host is Linux. Cross type-check/link/ABI and static wo
 
 Commit rule: commit each coherent, verified portability batch promptly. Do not stage unrelated concurrent worktree changes.
 
-
 ## Active std parity batch (2026-07-13 n)
 
 Completed supportable defaults/aliases/macros:
@@ -441,7 +438,6 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10463+.
 Still blocked without redesign: true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
-
 
 ## Active std parity batch (2026-07-13)
 
@@ -1164,7 +1160,6 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 - Fixed env free-status assertion and cross-file diagnostic IDs 1006/1007 -> 10417/10418.
 - Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
 
-
 ## Notes (2026-07-12 path rename/link + io handle batch)
 - Landed Path/PathBuf rename/hard_link/symlink/read_to_string/create_dir_all/remove_dir_all/set_permissions/set_times_ms wrappers.
 - Landed handle-level `IO_READ`/`READ_EXACT`/`WRITE`/`WRITE_ALL`/`FLUSH`/`CLOSE` status aliases.
@@ -1178,16 +1173,13 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 - Landed `THREAD_CURRENT`/`THREAD_YIELD`, `ENV_SET_VAR_OS`/`ENV_REMOVE_VAR_OS`, and Path/PathBuf read_dir wrappers.
 - Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
 
-
 ## Notes (2026-07-12 time defaults + OsString default)
 - Landed `TIME_DURATION_DEFAULT`/`TIME_SYSTEM_TIME_UNIX_EPOCH`/`TIME_INSTANT_SATURATING_DURATION_SINCE` and `OS_STRING_DEFAULT`.
 - Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
 
-
 ## Notes (2026-07-12 path DirBuilder/OpenOptions facades)
 - Landed Path/PathBuf wrappers for FS DirBuilder create and OpenOptions builder open.
 - Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
-
 
 ## Notes (2026-07-12 collections/atomic defaults + path perm/filetimes)
 - Landed Default constructors for Map/Set/BTree/VecDeque/BinaryHeap and zero-init Atomic defaults; Path/PathBuf permissions-object and FileTimes set wrappers.
@@ -1209,7 +1201,6 @@ Active follow-up: reduce the slowest full-test runtime owners and improve full-t
 ## Notes (2026-07-13 time defaults/sleep + process naming + IO_COPY_N)
 - Landed TIME_SLEEP_DURATION_NS/INSTANT_DEFAULT/SYSTEM_TIME_DEFAULT, PROCESS_IS_SUCCESS/CODE/OUTPUT_STATUS, and IO_COPY_N bounded handle copy.
 - Still blocked without redesign: true `format!`, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
-
 
 ## Notes (2026-07-13 BOOL/F32/F64/CHAR Default constants + RESULT_DEFAULT)
 - Landed `BOOL_DEFAULT`, `NUM_F32_DEFAULT`, `NUM_F64_DEFAULT` in `sa_std/num.sal`; `CHAR_DEFAULT` in `sa_std/char.sal`; `RESULT_DEFAULT` macro (Ok(0)) in `sa_std/core/result.sa`.
