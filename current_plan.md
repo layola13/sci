@@ -10,14 +10,12 @@ Date: 2026-07-17
 4. [x] Open entry validity/complete/clean paths with iterate permissions for allowlist checks.
 5. [x] Focused verify unit filters, format/diff, then commit/push.
 
-
 ## Current turn: multi-stage project-cache store failure injection
 
 1. [x] Keep the worktree scoped to store-stage failure injection only.
 2. [x] Cover missing artifact (`copy_artifact`) and missing output (`copy_output`) store failures with no partial entry.
 3. [x] Cover test-cache kind/metadata validate mismatch before staging.
 4. [x] Focused verify unit filter, format/diff, then commit/push.
-
 
 ## Current turn: host link-policy and host-target artifact-key inputs
 
@@ -248,7 +246,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] close the focused incremental function-object integrity checkpoint: manifest v2 digest-authorized reuse; function key v8 with global/local lowering-context separation and numeric local slots for body `.reg` operands plus verifier `change.reg`; backend ABI v11; synced sibling-temp emission; link-before-manifest, manifest-last commit, and post-commit cleanup; non-cacheable dependency bypass; `DT_UNKNOWN` fallback; DCE-selected global owner; full indirect-provenance signature ordering; function-local collision-safe anonymous strings; Linux ELF hidden-symbol localization; and direct/indirect owned-return release correctness are focused verified;
    - [x] add focused project-cache manifest symlink artifact/output rejection with `incomplete` lookup and redacted `output.file` first-difference evidence;
    - [x] extend focused symlink rejection to project-cache `manifest.json` and `test-metadata.json`, including invalid status and metadata-parse rejection evidence;
-   - [ ] add emit/sync/rename/link/manifest failure injection, malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
+   - [ ] add remaining emit/sync/rename/link injection beyond publish rename, broader malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
    - [x] add focused multi-stage store failure injection for `copy_artifact`/`copy_output`/`validate` with no partial entry (`1/1` on Linux);
    - [x] add focused invalid-entry republish repair plus `manifest`/`publish` store failure injection with no partial entry (`1/1` each on Linux);
    - [x] add focused empty-artifact, legacy version-1, malformed artifact-digest, kind-mismatch, artifact size-mutation, and missing-output project-cache corruption regressions (`1/1` each on Linux);
