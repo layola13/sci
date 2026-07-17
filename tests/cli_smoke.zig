@@ -2928,7 +2928,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(run_json_second_cache, "reason")));
 }
 
-test "plugin link inputs report bypassed project cache" {
+test "plugin link inputs participate in project cache keys" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var original_cwd = try std.fs.cwd().openDir(".", .{});
@@ -2993,7 +2993,7 @@ test "plugin link inputs report bypassed project cache" {
     try writeSource(tmp.dir, "plugin_cache_test.sa",
         \\@extern sa_cache_plugin_probe() -> u32
         \\
-        \\@test "plugin cache bypass"():
+        \\@test "plugin cache hit"():
         \\L_ENTRY:
         \\    status = call @sa_cache_plugin_probe()
         \\    ok = eq status, 0
@@ -3064,7 +3064,7 @@ test "plugin link inputs report bypassed project cache" {
     const first_build_cache = try jsonObjectGetValue(try jsonObjectGet(&first_build_json, "metrics"), "cache");
     try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(first_build_cache, "kind")));
     try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_build_cache, "hit")));
-    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(first_build_cache, "reason")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(first_build_cache, "reason")));
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
@@ -3074,19 +3074,33 @@ test "plugin link inputs report bypassed project cache" {
     defer second_build_json.deinit();
     const second_build_cache = try jsonObjectGetValue(try jsonObjectGet(&second_build_json, "metrics"), "cache");
     try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(second_build_cache, "kind")));
-    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(second_build_cache, "hit")));
-    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(second_build_cache, "reason")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(second_build_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(second_build_cache, "reason")));
 
-    const build_cache_entries = cacheEntryCount(tmp.dir, ".sa_cache/build-exe") catch |err| switch (err) {
-        error.FileNotFound => 0,
-        else => return err,
-    };
-    try std.testing.expectEqual(@as(usize, 0), build_cache_entries);
+    const build_cache_entries = try cacheEntryCount(tmp.dir, ".sa_cache/build-exe");
+    try std.testing.expectEqual(@as(usize, 1), build_cache_entries);
+
+    // Ordered plugin search-path identity participates in the key: an extra
+    // unused library in SA_PLUGINS_PATH must miss without breaking the linked plugin.
+    try writeBytes(tmp.dir, "libcache_link_plugin_extra.so", "unused-plugin-bytes-v1");
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const third_build_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), third_build_code);
+    var third_build_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
+    defer third_build_json.deinit();
+    const third_build_cache = try jsonObjectGetValue(try jsonObjectGet(&third_build_json, "metrics"), "cache");
+    try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(third_build_cache, "kind")));
+    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(third_build_cache, "hit")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(third_build_cache, "reason")));
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
     const test_argv = [_][]const u8{ "sa", "test", "plugin_cache_test.sa", "--jobs", "1", "--json" };
 
+    // Keep the original linked plugin intact and verify cold miss -> warm hit
+    // for the ordered plugin-aware test cache under the same search path.
     const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     if (first_code != 0) std.debug.print("plugin cache test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buf.items, stderr_buf.items });
     try std.testing.expectEqual(@as(u8, 0), first_code);
@@ -3096,7 +3110,7 @@ test "plugin link inputs report bypassed project cache" {
     const first_cache = try jsonObjectGetValue(try jsonObjectGet(&first_json, "metrics"), "cache");
     try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
     try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
-    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
+    try std.testing.expectEqualStrings("absent", try jsonStringValue(try jsonObjectGetValue(first_cache, "reason")));
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
@@ -3106,14 +3120,11 @@ test "plugin link inputs report bypassed project cache" {
     defer second_json.deinit();
     const second_cache = try jsonObjectGetValue(try jsonObjectGet(&second_json, "metrics"), "cache");
     try std.testing.expectEqualStrings("test", try jsonStringValue(try jsonObjectGetValue(second_cache, "kind")));
-    try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
-    try std.testing.expectEqualStrings("bypassed_untrusted", try jsonStringValue(try jsonObjectGetValue(second_cache, "reason")));
+    try std.testing.expectEqual(true, try jsonBoolValue(try jsonObjectGetValue(second_cache, "hit")));
+    try std.testing.expectEqualStrings("hit", try jsonStringValue(try jsonObjectGetValue(second_cache, "reason")));
 
-    const test_cache_entries = cacheEntryCount(tmp.dir, ".sa_cache/test") catch |err| switch (err) {
-        error.FileNotFound => 0,
-        else => return err,
-    };
-    try std.testing.expectEqual(@as(usize, 0), test_cache_entries);
+    const test_cache_entries = try cacheEntryCount(tmp.dir, ".sa_cache/test");
+    try std.testing.expectEqual(@as(usize, 1), test_cache_entries);
 }
 
 test "artifact cache hits revalidate the current package permission request before restore" {

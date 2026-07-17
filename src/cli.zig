@@ -1048,6 +1048,32 @@ fn hashBytes(bytes: []const u8) [32]u8 {
     return out;
 }
 
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+
+fn setProcessEnvironmentVariable(allocator: std.mem.Allocator, name: []const u8, value: ?[]const u8) !void {
+    if (builtin.os.tag == .windows) {
+        const name_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, name);
+        defer allocator.free(name_w);
+        const value_w = if (value) |bytes| try std.unicode.utf8ToUtf16LeAllocZ(allocator, bytes) else null;
+        defer if (value_w) |bytes| allocator.free(bytes);
+
+        if (std.os.windows.kernel32.SetEnvironmentVariableW(name_w.ptr, if (value_w) |bytes| bytes.ptr else null) != 0) return;
+        if (value == null and std.os.windows.kernel32.GetLastError() == .ENVVAR_NOT_FOUND) return;
+        return error.SetEnvironmentVariableFailed;
+    }
+
+    const name_z = try allocator.dupeZ(u8, name);
+    defer allocator.free(name_z);
+    if (value) |bytes| {
+        const value_z = try allocator.dupeZ(u8, bytes);
+        defer allocator.free(value_z);
+        if (setenv(name_z.ptr, value_z.ptr, 1) != 0) return error.SetEnvironmentVariableFailed;
+    } else if (unsetenv(name_z.ptr) != 0) {
+        return error.SetEnvironmentVariableFailed;
+    }
+}
+
 fn hashFileHex(allocator: std.mem.Allocator, path: []const u8) ![64]u8 {
     _ = allocator;
     var file = try std.fs.cwd().openFile(path, .{});
@@ -5552,6 +5578,11 @@ fn appendNativePluginLinkInputs(
     var plugin_libs = std.ArrayList([]const u8).init(allocator);
     defer plugin_libs.deinit();
     try plugin_runtime.appendLibrariesExportingAny(&plugin_libs, extern_names);
+    std.mem.sort([]const u8, plugin_libs.items, {}, struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lessThan);
 
     for (plugin_libs.items) |lib_path| {
         const owned_lib_path = try allocator.dupe(u8, lib_path);
@@ -5677,6 +5708,7 @@ const ProjectCacheKeyInputField = enum {
     command,
     wasm_target,
     semantic_file_inputs,
+    plugin_link_inputs,
     project_manifests,
     source_tree,
 
@@ -5691,6 +5723,7 @@ const ProjectCacheKeyInputField = enum {
             .command => "command",
             .wasm_target => "wasm_target",
             .semantic_file_inputs => "semantic_file_inputs",
+            .plugin_link_inputs => "plugin_link_inputs",
             .project_manifests => "project_manifests",
             .source_tree => "source_tree",
         };
@@ -5707,6 +5740,7 @@ const project_cache_key_input_fields = [_]ProjectCacheKeyInputField{
     .command,
     .wasm_target,
     .semantic_file_inputs,
+    .plugin_link_inputs,
     .project_manifests,
     .source_tree,
 };
@@ -6049,6 +6083,136 @@ fn hashResolvedSourceTree(
     return project_cacheable;
 }
 
+fn nativePluginLibraryExtension() []const u8 {
+    return switch (builtin.os.tag) {
+        .macos => ".dylib",
+        .windows => ".dll",
+        else => ".so",
+    };
+}
+
+fn isNativePluginLibraryPath(path: []const u8) bool {
+    return std.ascii.endsWithIgnoreCase(path, nativePluginLibraryExtension());
+}
+
+fn appendUniquePluginLibraryPath(allocator: std.mem.Allocator, libs: *std.ArrayList([]const u8), path: []const u8) !void {
+    const canonical_path = std.fs.cwd().realpathAlloc(allocator, path) catch return;
+    errdefer allocator.free(canonical_path);
+    const stat = std.fs.cwd().statFile(canonical_path) catch {
+        allocator.free(canonical_path);
+        return;
+    };
+    if (stat.kind != .file) {
+        allocator.free(canonical_path);
+        return;
+    }
+    for (libs.items) |existing| {
+        if (std.mem.eql(u8, existing, canonical_path)) {
+            allocator.free(canonical_path);
+            return;
+        }
+    }
+    try libs.append(canonical_path);
+}
+
+fn collectPluginLibraryPathsFromDirectory(allocator: std.mem.Allocator, libs: *std.ArrayList([]const u8), dir_path: []const u8) !void {
+    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return,
+        else => return err,
+    };
+    defer dir.close();
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .file and entry.kind != .sym_link) continue;
+        if (!isNativePluginLibraryPath(entry.name)) continue;
+        const lib_path = try std.fs.path.join(allocator, &.{ dir_path, entry.name });
+        defer allocator.free(lib_path);
+        try appendUniquePluginLibraryPath(allocator, libs, lib_path);
+    }
+}
+
+fn collectPluginLibraryPathsFromInstalledRoot(allocator: std.mem.Allocator, libs: *std.ArrayList([]const u8), root_path: []const u8) !void {
+    var root = std.fs.cwd().openDir(root_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return,
+        else => return err,
+    };
+    defer root.close();
+    var it = root.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .directory and entry.kind != .sym_link) continue;
+        const current = try std.fs.path.join(allocator, &.{ root_path, entry.name, "current" });
+        defer allocator.free(current);
+        try collectPluginLibraryPathsFromDirectory(allocator, libs, current);
+    }
+}
+
+fn collectPluginLibraryPathsFromPath(allocator: std.mem.Allocator, libs: *std.ArrayList([]const u8), path: []const u8) !void {
+    if (isNativePluginLibraryPath(path)) {
+        try appendUniquePluginLibraryPath(allocator, libs, path);
+        return;
+    }
+    try collectPluginLibraryPathsFromDirectory(allocator, libs, path);
+}
+
+fn collectOrderedPluginLibraryPaths(allocator: std.mem.Allocator) ![]const []const u8 {
+    var libs = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (libs.items) |path| allocator.free(path);
+        libs.deinit();
+    }
+
+    if (std.process.getEnvVarOwned(allocator, "SA_PLUGINS_PATH")) |path_list| {
+        defer allocator.free(path_list);
+        var it = std.mem.splitScalar(u8, path_list, std.fs.path.delimiter);
+        while (it.next()) |raw_entry| {
+            const entry = std.mem.trim(u8, raw_entry, " \t\r\n");
+            if (entry.len == 0) continue;
+            try collectPluginLibraryPathsFromPath(allocator, &libs, entry);
+        }
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => {
+            const home = try plugins.pluginsHomePath(allocator);
+            defer allocator.free(home);
+            const installed = try std.fs.path.join(allocator, &.{ home, "installed" });
+            defer allocator.free(installed);
+            try collectPluginLibraryPathsFromInstalledRoot(allocator, &libs, installed);
+        },
+        else => return err,
+    }
+
+    std.mem.sort([]const u8, libs.items, {}, struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lessThan);
+    return try libs.toOwnedSlice();
+}
+
+fn hashOrderedPluginLinkInputs(
+    allocator: std.mem.Allocator,
+    hasher: *std.crypto.hash.sha2.Sha256,
+    trace: ?*ProjectCacheKeyInputTrace,
+) !void {
+    const libs = try collectOrderedPluginLibraryPaths(allocator);
+    defer freeOwnedStringSlice(allocator, libs);
+
+    // Stable empty marker so absent plugin search paths still participate in the key.
+    cacheTraceBytes(hasher, trace, .plugin_link_inputs, "plugin-link-v1");
+    for (libs) |lib_path| {
+        const stat = try std.fs.cwd().statFile(lib_path);
+        if (stat.kind != .file) return error.InvalidCacheInput;
+        const digest_hex = try hashFileHex(allocator, lib_path);
+        cacheTraceBytes(hasher, trace, .plugin_link_inputs, lib_path);
+        cacheTraceU64(hasher, trace, .plugin_link_inputs, stat.size);
+        cacheTraceBytes(hasher, trace, .plugin_link_inputs, digest_hex[0..]);
+        if (std.fs.path.dirname(lib_path)) |dir| {
+            const rpath_arg = try std.fmt.allocPrint(allocator, "-Wl,-rpath,{s}", .{dir});
+            defer allocator.free(rpath_arg);
+            cacheTraceBytes(hasher, trace, .plugin_link_inputs, rpath_arg);
+        }
+    }
+}
+
 fn computeProjectBuildKeyWithTrace(
     allocator: std.mem.Allocator,
     project_context: *const ProjectContext,
@@ -6074,7 +6238,7 @@ fn computeProjectBuildKeyWithTrace(
 
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var project_cacheable = true;
-    cacheTraceBytes(&hasher, trace, .schema, "sa-build-cache-v3");
+    cacheTraceBytes(&hasher, trace, .schema, "sa-build-cache-v4");
     cacheTraceBytes(&hasher, trace, .compiler, cacheCompilerVersion());
     const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
     defer allocator.free(backend_identity);
@@ -6115,6 +6279,9 @@ fn computeProjectBuildKeyWithTrace(
         cacheTraceBytes(&hasher, trace, .semantic_file_inputs, canonical_path);
         cacheTraceU64(&hasher, trace, .semantic_file_inputs, stat.size);
         cacheTraceBytes(&hasher, trace, .semantic_file_inputs, digest_hex[0..]);
+    }
+    if (kind == .build_exe or kind == .test_cache) {
+        try hashOrderedPluginLinkInputs(allocator, &hasher, trace);
     }
 
     const project_manifest = project_context.manifest;
@@ -8027,6 +8194,7 @@ fn projectCacheKeyInputFirstDifference(
                 .command => "key.command",
                 .wasm_target => "key.wasm_target",
                 .semantic_file_inputs => "key.semantic_file_inputs",
+                .plugin_link_inputs => "key.plugin_link_inputs",
                 .project_manifests => "key.project_manifests",
                 .source_tree => "key.source_tree",
             };
@@ -9951,10 +10119,6 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     owned_link_inputs.deinit();
                 }
                 try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
-                if (owned_link_inputs.items.len != 0) {
-                    cache_miss_reason = .bypassed_untrusted;
-                    releaseProjectCacheOwner(&cache_owner);
-                }
                 driver.compileExe(allocator, output_stage.artifact_path, output_stage.output_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
@@ -11110,10 +11274,6 @@ fn executeTestInner(
                 owned_link_inputs.deinit();
             }
             try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
-            if (link_inputs.items.len != 0) {
-                cache_miss_reason = .bypassed_untrusted;
-                releaseProjectCacheOwner(&cache_owner);
-            }
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
@@ -11163,7 +11323,7 @@ fn executeTestInner(
             }
 
             if (cache_key) |key| {
-                if (!has_explicit_test_selection and link_inputs.items.len == 0 and owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
+                if (!has_explicit_test_selection and owned.flat.dynamic_dependencies_cacheable and cache_owner != null) {
                     projectCacheStoreTestWithOwnerMissReason(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*, owned.flat.dynamic_dependencies, cache_miss_reason) catch |err| {
                         _ = @errorName(err);
                     };
@@ -11986,6 +12146,125 @@ test "project build key tracks runtime archive content" {
     try std.testing.expect(!std.mem.eql(u8, first.slice(), second.slice()));
 }
 
+test "project build key tracks ordered plugin link inputs" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("plugins");
+    try writeAllFile("plugins/liba_plugin.so", "plugin-a-v1");
+    try writeAllFile("plugins/libb_plugin.so", "plugin-b-v1");
+    try writeAllFile("libsa_std.a", "runtime-v1");
+
+    const env_name = "SA_PLUGINS_PATH";
+    const saved_env = std.process.getEnvVarOwned(std.testing.allocator, env_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    defer {
+        if (saved_env) |value| {
+            setProcessEnvironmentVariable(std.testing.allocator, env_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            setProcessEnvironmentVariable(std.testing.allocator, env_name, null) catch {};
+        }
+    }
+    const plugins_path = try tmp.dir.realpathAlloc(std.testing.allocator, "plugins");
+    defer std.testing.allocator.free(plugins_path);
+    try setProcessEnvironmentVariable(std.testing.allocator, env_name, plugins_path);
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const archive_path = try tmp.dir.realpathAlloc(std.testing.allocator, "libsa_std.a");
+    defer std.testing.allocator.free(archive_path);
+    const missing_manifest = try std.fs.path.join(std.testing.allocator, &.{ project_root, "missing.sa.mod" });
+    defer std.testing.allocator.free(missing_manifest);
+
+    const project_context = ProjectContext{
+        .root_path = project_root,
+        .member_root_path = project_root,
+        .workspace_manifest_path = missing_manifest,
+        .member_manifest_path = missing_manifest,
+        .manifest = null,
+        .workspace_manifest = null,
+        .member_manifest = null,
+        .lock_file = null,
+        .sum_file = null,
+    };
+
+    const first = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+
+    // Reverse library names would sort the same; flip content of the first
+    // sorted path so ordered plugin identity, not discovery noise, changes the key.
+    try writeAllFile("plugins/liba_plugin.so", "plugin-a-v2");
+    const second = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+    try std.testing.expect(!std.mem.eql(u8, first.slice(), second.slice()));
+
+    try writeAllFile("plugins/liba_plugin.so", "plugin-a-v1");
+    try writeAllFile("plugins/libz_extra.so", "plugin-z-v1");
+    const third = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+    try std.testing.expect(!std.mem.eql(u8, first.slice(), third.slice()));
+}
+
 test "project build key tracks zigcc toolchain identity" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
@@ -12456,6 +12735,114 @@ test "project cache manifest rejects malformed artifact digests" {
     );
     try std.testing.expectEqualStrings(
         "artifact.sha256",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects kind mismatch entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'1'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    // Write a structurally valid build-obj manifest under the build-exe key path.
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_obj, key, artifact_path, output_path, null, &.{});
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.manifest_invalid,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "manifest.kind",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects artifact size mismatch as corrupt" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'2'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+    try writeAllFile(artifact_path, "artifact-mutated");
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.artifact_corrupt,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "artifact.size",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects missing output as incomplete" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'3'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+    try std.fs.cwd().deleteFile(output_path);
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "output.file",
         projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
     );
 }
