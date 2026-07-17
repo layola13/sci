@@ -2,6 +2,16 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 project cache corruption regressions
+
+- Added focused project-cache corruption regressions for empty artifact files, legacy manifest version `1`, and malformed artifact digests.
+- Focused validation passed:
+  - `zig test src/cli.zig -ODebug -lc --test-filter "project cache manifest rejects empty artifact entries"` -> `1/1`
+  - `zig test src/cli.zig -ODebug -lc --test-filter "project cache manifest rejects legacy version one entries"` -> `1/1`
+  - `zig test src/cli.zig -ODebug -lc --test-filter "project cache manifest rejects malformed artifact digests"` -> `1/1`
+  - `zig fmt --check src/cli.zig`
+- Evidence boundary: this broadens Linux unit coverage for incomplete/malformed project-cache entries beyond the earlier symlink regular-file guards. It does not claim failure injection, crash recovery, TOCTOU-hard path authorization, or native macOS/Windows validation.
+
 ## Focused verified: 2026-07-17 artifact-key boundary order/policy regressions
 
 - Added Linux-runnable regressions that lock three remaining artifact-key boundary fragments:

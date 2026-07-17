@@ -210,7 +210,8 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] add focused project-cache manifest symlink artifact/output rejection with `incomplete` lookup and redacted `output.file` first-difference evidence;
    - [x] extend focused symlink rejection to project-cache `manifest.json` and `test-metadata.json`, including invalid status and metadata-parse rejection evidence;
    - [ ] add emit/sync/rename/link/manifest failure injection, malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
-   - [ ] repair remaining failed artifact/output publication cases and broaden corruption recovery.
+   - [x] add focused empty-artifact, legacy version-1, and malformed artifact-digest project-cache corruption regressions (`1/1` each on Linux);
+   - [ ] repair remaining failed artifact/output publication cases and broaden corruption recovery beyond the focused empty/legacy/malformed/symlink guards.
 4. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
    - [x] index function body ranges once and process every reachable function body at most once;
    - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;

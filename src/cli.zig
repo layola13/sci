@@ -12348,6 +12348,118 @@ test "project cache manifest rejects symlink test metadata entries" {
     );
 }
 
+test "project cache manifest rejects empty artifact entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'a'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "");
+    try writeAllFile(output_path, "output");
+    // Empty artifacts are incomplete even when the manifest records size 0.
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "artifact.file",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects legacy version one entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'b'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try writeAllFile(manifest_path,
+        \\{"version":1,"kind":"build-exe","key":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","dynamic_dependencies":[],"artifact":{"size":8,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"output":{"size":6,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        \\
+    );
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.manifest_invalid,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "manifest.version",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects malformed artifact digests" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'e'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try writeAllFile(manifest_path,
+        \\{"version":2,"kind":"build-exe","key":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","dynamic_dependencies":[],"artifact":{"size":8,"sha256":"not-a-sha256"},"output":{"size":6,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        \\
+    );
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.artifact_corrupt,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "artifact.sha256",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
 test "project cache store-event telemetry ignores mismatched marker headers" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
