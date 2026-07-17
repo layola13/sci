@@ -2,6 +2,17 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 zigcc external-tool failure injection
+
+- Added test-only external tool failure injection in `src/driver/zigcc.zig` for `runProcessFast` (`spawn`) and `runProcess` (`run`).
+- `compileExe` launch failure and `compileObj` diagnostic rerun failure now have focused coverage returning `ChildProcessFailed`, emitting diagnostics, and leaving no output file.
+- `localizeElfHiddenSymbols` now uses the same `runProcess` wrapper for objcopy candidates, so the external-tool injection hook covers that path too.
+- Focused validation passed on Linux:
+  - `zig test src/driver/zigcc.zig -ODebug --test-filter "external tool injection fails compile paths before output publication"` -> `1/1`
+  - `zig test src/driver/zigcc.zig -ODebug` -> `6/6`
+  - `zig fmt --check src/driver/zigcc.zig`; `git diff --check src/driver/zigcc.zig`
+- Evidence boundary: Linux driver-unit coverage for deterministic external-tool launch/rerun injection. End-to-end CLI link failure injection, native macOS/Windows validation, and project-cache cross-process behavior remain open.
+
 ## Focused verified: 2026-07-17 final-component no_follow cache file opens
 
 - Added `openFileNoFollowFinal` / `openDirFileNoFollowFinal` for project-cache file IO: parent dir open uses `no_follow`, final component uses POSIX `O_NOFOLLOW` (Windows opens reparse points without following and rejects symlink kind).
