@@ -3673,7 +3673,7 @@ fn verifyBody(
                         return trapReport(.unknown_register, item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, null, null, "register is not declared in the current scope", null);
                     }
                 }
-                
+
                 if (item.operands[1] == .reg) {
                     const ret2_id = item.operands[1].reg;
                     const ret2_name = current_scope.?.nameOf(&metadata.symbols, ret2_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(ret2_id)) orelse item.operands[1].text;
