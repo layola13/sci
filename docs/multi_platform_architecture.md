@@ -113,7 +113,7 @@ sa_std_module.addExtraSourceFile(.{ .file = b.path(pal_file) });
 
 ### 4.1 当前原生门禁状态
 
-当前分支已经把 macOS/Windows 的原生 CI 定义拆成可审计的命名门禁，避免 Linux-only aggregate gate 被误当成跨平台证据。Unix-socket daemon 目前有一个独立的 `daemon-smoke` gate：Linux 主机可执行地启动真实 `sa daemon`，通过 `SA_DAEMON_SOCKET` 转发一次 `sa version`，再验证 shutdown 和 socket 清理；macOS workflow 已接入该 gate，等待 x86_64/arm64 GitHub runner 产生原生执行证据。macOS/Windows native smoke 还会把本地 release archive 和 checksum sidecar 暴露为 release URL，再分别通过 `install.sh` / `install.ps1` 执行 clean install roundtrip。Windows 仍不声明 Unix-socket daemon gate，因为 daemon transport 当前按设计只支持非 Windows 平台。
+当前分支已经把 macOS/Windows 的原生 CI 定义拆成可审计的命名门禁，避免 Linux-only aggregate gate 被误当成跨平台证据。Unix-socket daemon 目前有一个独立的 `daemon-smoke` gate：Linux 主机可执行地启动真实 `sa daemon`，通过 `SA_DAEMON_SOCKET` 转发一次 `sa version`，再验证 shutdown 和 socket 清理；macOS workflow 已接入该 gate，等待 x86_64/arm64 GitHub runner 产生原生执行证据。macOS/Windows native smoke 还会把本地 release archive 和 checksum sidecar 暴露为 release URL，再分别通过 `install.sh` / `install.ps1` 执行 clean install roundtrip。GitHub release matrix 仍只启用 Linux archive rows，并由 source contract 锁定：macOS/Windows release artifacts 必须等对应 native workflow 记录 compiler、runtime、installer、archive smoke 成功后才能打开。Windows 仍不声明 Unix-socket daemon gate，因为 daemon transport 当前按设计只支持非 Windows 平台。
 
 ## 5. 结论与排期
 当前我们虽然带有明显的“Linux 优先”特征，但底层引擎 `src/runtime` 和上层编译器完全是解耦的。只要完成了 `pal.zig` 接口层的设计（大约需要替换 15 个底层的 OS API 调用），SA 就可以无缝实现全平台原生运行，无需为跨平台妥协任何运行效率。

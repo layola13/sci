@@ -38,7 +38,9 @@ jobs:
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
             allow_failure: true
-          # Non-Linux release archives are disabled until those targets are supported.
+          # Non-Linux release archives stay disabled until the native macOS/Windows
+          # workflows have recorded successful compiler, runtime, installer, and
+          # archive smoke evidence for the matching target.
           # - name: macos-x86_64
           #   runner: macos-15-intel
           #   target: "macos;x86_64;x86_64-macos;tar.gz"

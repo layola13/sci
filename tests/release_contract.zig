@@ -124,6 +124,47 @@ test "release workflow aggregates and publishes archives with checksums" {
     try expectNotContains(workflow, "sha256sum sa-* > sha256sums.txt");
 }
 
+test "release workflow keeps non-Linux archives disabled pending native evidence" {
+    const workflow = try readSource(".github/workflows/release.yml");
+    defer std.testing.allocator.free(workflow);
+
+    const matrix = try sourceSection(
+        workflow,
+        "      matrix:\n        include:\n",
+        "    steps:",
+    );
+
+    try expectContains(matrix, "Non-Linux release archives stay disabled until the native macOS/Windows");
+    try expectContains(matrix, "# workflows have recorded successful compiler, runtime, installer, and");
+    try expectContains(matrix, "# archive smoke evidence for the matching target.");
+    try expectContains(matrix, "\n          - name: linux-x86_64");
+    try expectContains(matrix, "\n          - name: linux-aarch64");
+
+    const disabled_rows = [_][]const u8{
+        "# - name: macos-x86_64",
+        "# - name: macos-aarch64",
+        "# - name: windows-x86_64",
+        "# - name: windows-aarch64",
+        "#   runner: macos-15-intel",
+        "#   runner: macos-15",
+        "#   runner: windows-2025",
+        "#   runner: windows-11-arm",
+    };
+    for (disabled_rows) |row| try expectContains(matrix, row);
+
+    const forbidden_active_rows = [_][]const u8{
+        "\n          - name: macos-x86_64",
+        "\n          - name: macos-aarch64",
+        "\n          - name: windows-x86_64",
+        "\n          - name: windows-aarch64",
+        "\n            runner: macos-15-intel",
+        "\n            runner: macos-15",
+        "\n            runner: windows-2025",
+        "\n            runner: windows-11-arm",
+    };
+    for (forbidden_active_rows) |row| try expectNotContains(matrix, row);
+}
+
 test "compiler release checksum verification is mandatory" {
     const shell_installer = try readSource("tools/install.sh");
     defer std.testing.allocator.free(shell_installer);

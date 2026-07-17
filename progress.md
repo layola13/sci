@@ -2,6 +2,13 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 release matrix native-evidence guard
+
+- `.github/workflows/release.yml` now states that non-Linux release archive rows stay disabled until the matching native macOS/Windows workflows have recorded compiler, runtime, installer, and archive smoke evidence.
+- `tests/release_contract.zig` now rejects active macOS/Windows package rows and runner targets in the release matrix while still requiring the commented target rows to remain visible for future enablement.
+- Validation passed on Linux: `zig build release-contract --summary all` -> `6/6`; `zig fmt --check tests/release_contract.zig`; `bash -n tools/release.sh`; `git diff --check`.
+- Evidence boundary: this is a static release-switch guard. It does not execute macOS/Windows runners and does not claim native release artifact support.
+
 ## Focused verified: 2026-07-17 native archive-smoke gate definition
 
 - `tools/ci/macos_native_smoke.sh` now packages its staged release payload as `sa-macos-<arch>.tar.gz`, extracts it to a separate clean directory, and runs version/help/check/native Hello/wasm/offline-package/missing-package smoke from the extracted archive layout.

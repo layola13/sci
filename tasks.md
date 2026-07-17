@@ -1,5 +1,12 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current release matrix native-evidence guard batch (2026-07-17)
+
+- [x] Keep the GitHub release matrix restricted to Linux archive rows while macOS/Windows native evidence is still pending.
+- [x] Document the required evidence before enabling non-Linux release artifacts: compiler, runtime, installer, and archive smoke success on the matching native runner.
+- [x] Add a Linux-runnable release contract that rejects uncommented macOS/Windows release rows and runner targets.
+- [x] Run the focused release contract gate and commit/push the batch.
+
 ## Current Windows native plugin-smoke batch (2026-07-17)
 
 - [x] Replace Linux-only plugin smoke artifact names with host-specific `linux|macos|windows` manifest keys and `.so/.dylib/.dll` library paths.
