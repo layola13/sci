@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-17 BinaryHeap IntoIter comparison aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIter` comparison/key aggregate aliases:
+- `BINARY_HEAP_INTO_ITER_MIN_BY_U64`, `BINARY_HEAP_INTO_ITER_MAX_BY_U64`, `BINARY_HEAP_INTO_ITER_MIN_BY_KEY_U64`, `BINARY_HEAP_INTO_ITER_MAX_BY_KEY_U64`, `BINARY_HEAP_INTO_ITER_CMP_U64`, `BINARY_HEAP_INTO_ITER_CMP_BY_U64`, `BINARY_HEAP_INTO_ITER_PARTIAL_CMP_U64`, `BINARY_HEAP_INTO_ITER_PARTIAL_CMP_BY_U64`, `BINARY_HEAP_INTO_ITER_EQ_BY_U64`, `BINARY_HEAP_INTO_ITER_EQ_U64`, `BINARY_HEAP_INTO_ITER_PARTIAL_EQ_U64`, `BINARY_HEAP_INTO_ITER_NE_U64`, `BINARY_HEAP_INTO_ITER_LT_U64`, `BINARY_HEAP_INTO_ITER_LE_U64`, `BINARY_HEAP_INTO_ITER_GT_U64`, and `BINARY_HEAP_INTO_ITER_GE_U64` expose Rust `Iterator` comparison and key aggregate naming over the existing Vec-backed consuming heap cursor.
+- These helpers consume one or two explicit cursors in heap-array backing order. The heap itself has already been consumed into caller-owned backing storage.
+- This batch does not model Rust generic `Ord` / `PartialOrd` dispatch, closure capture, `Option<Ordering>` ABI, allocator-parametric owned iterator layout, or generic item move/drop semantics.
+- Test file `std_binary_heap_into_iter_comparison_macro_surface.sa` (panic ID 10764).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10765+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, Rust reference item identity, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
+
 ## Active std parity batch (2026-07-17 BinaryHeap Iter search aliases)
 
 Completed supportable `std::collections::BinaryHeap::Iter` search/predicate aliases:

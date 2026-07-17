@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIter comparison aliases
+
+- Continued Rust `BinaryHeap::IntoIter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the owned heap iterator over backing storage and `library/core/src/iter/traits/iterator.rs` for `min_by`, `max_by`, key aggregates, lexicographic comparison, and equality methods.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_MIN_BY_U64`, `BINARY_HEAP_INTO_ITER_MAX_BY_U64`, `BINARY_HEAP_INTO_ITER_MIN_BY_KEY_U64`, `BINARY_HEAP_INTO_ITER_MAX_BY_KEY_U64`, `BINARY_HEAP_INTO_ITER_CMP_U64`, `BINARY_HEAP_INTO_ITER_CMP_BY_U64`, `BINARY_HEAP_INTO_ITER_PARTIAL_CMP_U64`, `BINARY_HEAP_INTO_ITER_PARTIAL_CMP_BY_U64`, `BINARY_HEAP_INTO_ITER_EQ_BY_U64`, `BINARY_HEAP_INTO_ITER_EQ_U64`, `BINARY_HEAP_INTO_ITER_PARTIAL_EQ_U64`, `BINARY_HEAP_INTO_ITER_NE_U64`, `BINARY_HEAP_INTO_ITER_LT_U64`, `BINARY_HEAP_INTO_ITER_LE_U64`, `BINARY_HEAP_INTO_ITER_GT_U64`, and `BINARY_HEAP_INTO_ITER_GE_U64`.
+- Semantics: aliases consume the explicit owned backing-Vec cursor, or paired cursors, in heap-array backing order. They reuse the concrete `u64` iterator comparison/key aggregate helpers and return scalar status, ordering, and bool values.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_comparison_macro_surface.sa` - 1 test (panic ID 10764) covering min_by/max_by, min_by_key/max_by_key, cmp/cmp_by, partial_cmp/partial_cmp_by, eq/eq_by/partial_eq/ne, lt/le/gt/ge, empty aggregate identities, and short-circuit remainders.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10765+.
+
 ## Completed: 2026-07-17 BinaryHeap Iter search aliases
 
 - Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` over the backing slice and `library/core/src/iter/traits/iterator.rs` for `find`, `try_find`, `find_map`, and `position`.
