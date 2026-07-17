@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: parent-chain no_follow cache path authorization
+
+1. [x] Keep the worktree scoped to project-cache parent-chain authorization plus compile-unblock fixes.
+2. [x] Add component-walk `no_follow` directory authorization for cache file and entry paths.
+3. [x] Lock intermediate parent symlink rejection with focused project-cache unit filters.
+4. [x] Record the full-filter hang boundary, run format/diff checks, then commit/push.
+
 ## Current turn: zigcc external-tool failure injection
 
 1. [x] Keep the worktree scoped to driver external-tool failure injection only.

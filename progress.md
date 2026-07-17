@@ -2,6 +2,17 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 parent-chain no_follow cache path authorization
+
+- Added `openDirNoFollowPath` to walk every cache parent directory component with `no_follow`, closing the intermediate-parent symlink gap left by final-component-only `O_NOFOLLOW` file opens.
+- Project-cache file opens now authorize the parent chain before final file open; entry-directory checks use the same component-walk path and report intermediate parent symlink failures as `incomplete` / `entry.path` rather than following to a payload.
+- Fixed unrelated patrol-introduced syntax breaks in `src/verifier.zig` and `src/driver/zigcc.zig` that blocked compiling the cache test binary.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache rejects intermediate symlink parent path components"` -> `1/1`
+  - `zig test ... --test-filter "project cache lookup rejects intermediate symlink parents under entry paths"` -> `1/1`
+  - `zig fmt --check src/cli.zig src/verifier.zig src/driver/zigcc.zig`; `git diff --check`
+- Evidence boundary: focused Linux unit coverage for intermediate parent symlink rejection on project-cache path authorization. A full `--test-filter "project cache"` run was stopped after hanging beyond two minutes in the broader current test binary, so no full-filter pass is claimed for this batch.
+
 ## Focused verified: 2026-07-17 zigcc external-tool failure injection
 
 - Added test-only external tool failure injection in `src/driver/zigcc.zig` for `runProcessFast` (`spawn`) and `runProcess` (`run`).

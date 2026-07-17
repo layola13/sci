@@ -1,5 +1,14 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current parent-chain no_follow cache path authorization batch (2026-07-17)
+
+- [x] Keep the worktree scoped to project-cache parent-chain path authorization and compile-unblock fixes only.
+- [x] Walk cache parent directories component-by-component with `no_follow` via `openDirNoFollowPath`.
+- [x] Reject intermediate symlink parents for cache hash/sync/file and entry-directory lookup paths.
+- [x] Keep lookup/first-difference fail-closed as `incomplete` / `entry.path` for intermediate parent symlink authorization failures.
+- [x] Run focused intermediate-symlink project-cache unit filters, format/diff checks, then commit/push the selected docs/fixes.
+- [ ] Broaden remaining full-suite hang isolation, cross-process recovery, and native macOS/Windows validation beyond this Linux focused batch.
+
 ## Current zigcc external-tool failure injection batch (2026-07-17)
 
 - [x] Keep the worktree scoped to driver external-tool failure injection only.
