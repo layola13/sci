@@ -4266,3 +4266,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10738+.
 Still blocked without redesign: generic [T; N] move/drop semantics, Rust array::IntoIter<T,N> MaybeUninit alive-range object layout, const-generic type identity for empty/default iterators, allocator-free inline array storage, drop glue/unwind cleanup, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter cursor ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter cursor aliases in array.sa: ARRAY_INTO_ITER_NTH_U64, ARRAY_INTO_ITER_NTH_BACK_U64, ARRAY_INTO_ITER_TRY_NEXT_CHUNK_U64, ARRAY_INTO_ITER_COUNT_U64, ARRAY_INTO_ITER_LAST_U64, ARRAY_INTO_ITER_ADVANCE_BY, and ARRAY_INTO_ITER_ADVANCE_BACK_BY.
+- Test file std_array_into_iter_cursor_ops_macro_surface.sa (panic ID 10738).
+
+Panic IDs next free: 10739+.
+Still blocked without redesign: Rust `Result<(), NonZero<usize>>` ABI, Rust `Result<[T; N], array::IntoIter<T, N>>` next_chunk remainder ABI, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.

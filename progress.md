@@ -8876,3 +8876,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10738+.
+
+## Completed: 2026-07-17 Array IntoIter cursor ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_NTH_U64`, `ARRAY_INTO_ITER_NTH_BACK_U64`, `ARRAY_INTO_ITER_TRY_NEXT_CHUNK_U64`, `ARRAY_INTO_ITER_COUNT_U64`, `ARRAY_INTO_ITER_LAST_U64`, `ARRAY_INTO_ITER_ADVANCE_BY`, and `ARRAY_INTO_ITER_ADVANCE_BACK_BY`.
+- Semantics: these helpers expose the supportable concrete `array::IntoIter<u64, N>` cursor operations by delegating to the existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. `advance_by` / `advance_back_by` use explicit `(ok, remaining)` scalars, and `try_next_chunk` writes into caller-provided storage; this does not model Rust `Result<(), NonZero<usize>>`, `Result<[T; N], array::IntoIter<T, N>>`, generic item move/drop, or const-generic chunk ABI.
+- Test: `tests/unit_framework/std_array_into_iter_cursor_ops_macro_surface.sa` — 1 test (panic ID 10738) covering nth/nth_back, advance_by/advance_back_by success and short paths, count, last, full/short/zero next_chunk paths, and resulting cursor exhaustion.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_cursor_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10739+.
