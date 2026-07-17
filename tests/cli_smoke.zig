@@ -1821,6 +1821,41 @@ test "cli build project cache is default and can be disabled" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--mem-report") != null);
 }
 
+test "cli build-exe external link launch failure publishes no output or cache entry" {
+    const source =
+        \\@main() -> i32:
+        \\return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(. .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "link_fail.sa", source);
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    saasm.driver.externalToolTestArm("spawn", 0);
+    defer saasm.driver.externalToolTestDisarm();
+
+    const build_argv = [_][]const u8 "sa", "build-exe", "link_fail.sa", "-o", "link_fail.out", "--json", "--profile" };
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "TestInjectedExternalToolFailure"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "failed to launch zig cc while linking"));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("link_fail.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("link_fail.out.sa.bc", .{}));
+    try std.testing.expectEqual(@as(usize, 0), try cacheEntryCount(tmp.dir, ".sa_cache/build-exe"));
+}
+
 test "project cache manifest revalidates INCLUDE_STR dependencies" {
     const source =
         \\EXPAND INCLUDE_STR! "payload.txt"
