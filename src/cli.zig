@@ -7923,18 +7923,44 @@ fn projectCacheManifestFirstDifference(
     return null;
 }
 
+fn projectCacheKeyInputFieldFromName(name: []const u8) ?ProjectCacheKeyInputField {
+    for (project_cache_key_input_fields) |field| {
+        if (std.mem.eql(u8, name, field.jsonName())) return field;
+    }
+    return null;
+}
+
+fn projectCacheKeyInputTraceValid(value: std.json.Value, kind: BuildCacheKind, key: ProjectCacheKey) bool {
+    if (!jsonIntEquals(jsonGetObject(value, "version") catch return false, 1)) return false;
+    if (!jsonStringEquals(jsonGetObject(value, "kind") catch return false, kind.dirName())) return false;
+    if (!jsonStringEquals(jsonGetObject(value, "key_prefix") catch return false, key.slice()[0..12])) return false;
+    const fields = switch (jsonGetObject(value, "fields") catch return false) {
+        .array => |items| items.items,
+        else => return false,
+    };
+    if (fields.len > project_cache_key_input_fields.len) return false;
+    var seen = [_]bool{false} ** project_cache_key_input_fields.len;
+    for (fields) |item| {
+        const name = jsonString(jsonGetObject(item, "name") catch return false) catch return false;
+        const field = projectCacheKeyInputFieldFromName(name) orelse return false;
+        const idx = @intFromEnum(field);
+        if (seen[idx]) return false;
+        seen[idx] = true;
+        const digest_value = jsonGetObject(item, "sha256") catch return false;
+        if (!(jsonSha256(digest_value) catch return false)) return false;
+    }
+    return true;
+}
+
 fn projectCacheKeyInputFieldDigest(value: std.json.Value, field: ProjectCacheKeyInputField) ?[]const u8 {
-    if (!jsonIntEquals(jsonGetObject(value, "version") catch return null, 1)) return null;
     const fields = switch (jsonGetObject(value, "fields") catch return null) {
         .array => |items| items.items,
         else => return null,
     };
-    if (fields.len > project_cache_key_input_fields.len) return null;
     for (fields) |item| {
         const name_value = jsonGetObject(item, "name") catch return null;
         if (!jsonStringEquals(name_value, field.jsonName())) continue;
         const digest_value = jsonGetObject(item, "sha256") catch return null;
-        if (!(jsonSha256(digest_value) catch return null)) return null;
         return jsonString(digest_value) catch return null;
     }
     return null;
@@ -7960,6 +7986,8 @@ fn projectCacheKeyInputFirstDifference(
     defer requested.deinit();
     var candidate = std.json.parseFromSlice(std.json.Value, allocator, candidate_bytes, .{}) catch return null;
     defer candidate.deinit();
+    if (!projectCacheKeyInputTraceValid(requested.value, kind, requested_key)) return null;
+    if (!projectCacheKeyInputTraceValid(candidate.value, kind, candidate_key)) return null;
 
     for (project_cache_key_input_fields) |field| {
         const requested_digest = projectCacheKeyInputFieldDigest(requested.value, field);

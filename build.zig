@@ -1023,6 +1023,26 @@ pub fn build(b: *std.Build) void {
     const cli_smoke_step = b.step("bc2sa-smoke", "Run the bc2sa real bitcode smoke tests");
     cli_smoke_step.dependOn(&run_cli_smoke.step);
 
+    const cli_cache_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cli_cache_smoke_module.addImport("saasm", lib_module);
+    cli_cache_smoke_module.addOptions("build_options", build_options);
+    const cli_cache_smoke = b.addTest(.{
+        .root_module = cli_cache_smoke_module,
+        .filters = &.{
+            "cli build project cache is default and can be disabled",
+            "cli cache status and why explain project cache entries",
+            "cli cache status and why redact dynamic dependency differences",
+        },
+    });
+    const run_cli_cache_smoke = b.addRunArtifact(cli_cache_smoke);
+    run_cli_cache_smoke.setCwd(repo_root_lazy);
+    const cli_cache_smoke_step = b.step("cli-cache-smoke", "Run focused project-cache CLI smoke tests");
+    cli_cache_smoke_step.dependOn(&run_cli_cache_smoke.step);
+
     const cli_skills_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,
