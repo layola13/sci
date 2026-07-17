@@ -95,7 +95,12 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "Invoke-NativeCapture",
         "$archivePayloadName = \"sa-windows-$archiveArch\"",
         "$archivePath = Join-Path $tempRoot \"$archivePayloadName.zip\"",
+        "$installerReleaseRoot = Join-Path $tempRoot \"installer release\"",
+        "$installerRoot = Join-Path $tempRoot \"installed via install.ps1\"",
         "Compress-Archive -LiteralPath $archivePayloadRoot -DestinationPath $archivePath -Force",
+        "Copy-Item -LiteralPath $archivePath -Destination $installerArchive -Force",
+        "Get-FileHash -LiteralPath $installerArchive -Algorithm SHA256",
+        "$archivePayloadName.zip.sha256",
         "Expand-Archive -LiteralPath $archivePath -DestinationPath $archiveExtractRoot -Force",
         "$releaseRoot = Join-Path $archiveExtractRoot $archivePayloadName",
         "Extracted native archive is missing",
@@ -124,10 +129,34 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
         "--offline",
         "offline package resolve",
         "SourceNotFound",
+        "$installerReleaseRootUri = ([Uri]((Resolve-Path -LiteralPath $installerReleaseRoot).Path + [IO.Path]::DirectorySeparatorChar)).AbsoluteUri.TrimEnd(\"/\")",
+        "SetEnvironmentVariable(\"SA_RELEASE_URL\", $installerReleaseRootUri, \"Process\")",
+        "tools\\install.ps1\") -Dir $installerRoot -NoShell",
+        "$installedSa = Join-Path $installerRoot \"bin\\sa.exe\"",
+        "$installedStdRoot = Join-Path $installerRoot \"std\"",
+        "install.ps1 local release install is missing",
+        "installed sa.exe version",
+        "installed sa.exe check",
         "try {",
         "finally {",
     };
     for (required) |fragment| try expectContains(smoke, fragment);
+}
+
+test "Windows PowerShell installer supports local file release artifacts" {
+    const installer = try readSource("tools/install.ps1");
+    defer std.testing.allocator.free(installer);
+
+    try expectContains(installer, "function Get-LocalPathFromFileUri");
+    try expectContains(installer, "if ($uri.IsFile)");
+    try expectContains(installer, "return $uri.LocalPath");
+    try expectContains(installer, "function Save-ReleaseFile");
+    try expectContains(installer, "Copy-Item -LiteralPath $localPath -Destination $OutFile -Force");
+    try expectContains(installer, "function Read-ReleaseText");
+    try expectContains(installer, "Get-Content -LiteralPath $localPath -Raw");
+    try expectContains(installer, "Save-ReleaseFile -UriText $downloadUrl -OutFile $tempZip");
+    try expectContains(installer, "$checksumContent = Read-ReleaseText -UriText $checksumUrl");
+    try expectContains(installer, "Invoke-WebRequest -Uri $UriText -OutFile $OutFile -UseBasicParsing");
 }
 
 test "build graph exposes focused Windows CI entry points" {

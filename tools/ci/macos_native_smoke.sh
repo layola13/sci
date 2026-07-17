@@ -112,6 +112,7 @@ temp_parent=${temp_parent%/}
 [ -n "$temp_parent" ] || temp_parent=/tmp
 unicode_word=$(printf '\346\265\213\350\257\225')
 temp_root=$(mktemp -d "$temp_parent/sa macOS smoke $unicode_word.XXXXXX")
+installer_release_root=$(mktemp -d "$temp_parent/sa_installer_release.XXXXXX")
 
 cleanup() {
     status=$?
@@ -119,6 +120,9 @@ cleanup() {
     CDPATH= cd -- "$repo_root" 2>/dev/null || true
     if [ -n "${temp_root:-}" ] && [ -d "$temp_root" ]; then
         rm -rf -- "$temp_root"
+    fi
+    if [ -n "${installer_release_root:-}" ] && [ -d "$installer_release_root" ]; then
+        rm -rf -- "$installer_release_root"
     fi
     exit "$status"
 }
@@ -139,6 +143,7 @@ archive_extract_root="$temp_root/archive extracted"
 temp_demo="$temp_root/hello main.sa"
 native_output="$temp_root/hello output"
 wasm_output="$temp_root/hello output.wasm"
+installer_root="$temp_root/installed via install.sh"
 home_root="$temp_root/isolated home"
 process_temp_root="$temp_root/isolated temp"
 plugins_root="$temp_root/isolated plugins"
@@ -173,6 +178,8 @@ if [ ! -s "$archive_path" ]; then
     exit 1
 fi
 tar -tzf "$archive_path" >/dev/null
+cp "$archive_path" "$installer_release_root/$archive_payload_name.tar.gz"
+(cd "$installer_release_root" && shasum -a 256 "$archive_payload_name.tar.gz" > "$archive_payload_name.tar.gz.sha256")
 tar -xzf "$archive_path" -C "$archive_extract_root"
 release_root="$archive_extract_root/$archive_payload_name"
 bin_root="$release_root/bin"
@@ -255,5 +262,32 @@ if ! printf '%s\n' "$missing_output" | grep -Eq '"name"[[:space:]]*:[[:space:]]*
     printf 'Missing offline package did not report SourceNotFound.\n%s\n' "$missing_output" >&2
     exit 1
 fi
+
+capture_success "install.sh local release archive" env \
+    SA_RELEASE_URL="file://$installer_release_root" \
+    HOME="$home_root" \
+    USERPROFILE="$home_root" \
+    TMPDIR="$process_temp_root" \
+    TEMP="$process_temp_root" \
+    TMP="$process_temp_root" \
+    sh "$repo_root/tools/install.sh" --dir "$installer_root" --no-shell
+installed_sa="$installer_root/bin/sa"
+installed_std_root="$installer_root/std"
+for required_path in "$installed_sa" "$installed_std_root/libsa_std.a" "$installed_std_root/sa_std.h" "$installed_std_root/io/print.sai"; do
+    if [ ! -s "$required_path" ]; then
+        printf 'install.sh local release install is missing %s\n' "$required_path" >&2
+        exit 1
+    fi
+done
+if [ ! -L "$installer_root/bin/saasm" ]; then
+    printf 'install.sh local release install did not create the saasm symlink\n' >&2
+    exit 1
+fi
+capture_success "installed sa version" "$installed_sa" version
+if ! printf '%s\n' "$captured_output" | grep -Eq '^sa[[:space:]]+[^[:space:]]+$'; then
+    printf 'Unexpected installed version output: %s\n' "$captured_output" >&2
+    exit 1
+fi
+capture_success "installed sa check" env SA_STD_DIR="$installed_std_root" "$installed_sa" check "$temp_demo"
 
 printf 'macOS native compiler smoke passed.\n'

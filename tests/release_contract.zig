@@ -139,3 +139,16 @@ test "compiler release checksum verification is mandatory" {
     try expectContains(powershell_installer, "Checksum");
     try expectContains(remote_installer, "refusing to install an unverified release");
 }
+
+test "PowerShell installer can consume local file release artifacts" {
+    const powershell_installer = try readSource("tools/install.ps1");
+    defer std.testing.allocator.free(powershell_installer);
+
+    try expectContains(powershell_installer, "function Get-LocalPathFromFileUri");
+    try expectContains(powershell_installer, "function Save-ReleaseFile");
+    try expectContains(powershell_installer, "function Read-ReleaseText");
+    try expectContains(powershell_installer, "Copy-Item -LiteralPath $localPath -Destination $OutFile -Force");
+    try expectContains(powershell_installer, "Get-Content -LiteralPath $localPath -Raw");
+    try expectContains(powershell_installer, "Save-ReleaseFile -UriText $downloadUrl -OutFile $tempZip");
+    try expectContains(powershell_installer, "$checksumContent = Read-ReleaseText -UriText $checksumUrl");
+}

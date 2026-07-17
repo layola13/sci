@@ -60,6 +60,41 @@ function Test-StdPayload {
     }
 }
 
+function Get-LocalPathFromFileUri {
+    param([string]$UriText)
+    try {
+        $uri = [Uri]$UriText
+        if ($uri.IsFile) {
+            return $uri.LocalPath
+        }
+    } catch {
+        return $null
+    }
+    return $null
+}
+
+function Save-ReleaseFile {
+    param(
+        [string]$UriText,
+        [string]$OutFile
+    )
+    $localPath = Get-LocalPathFromFileUri $UriText
+    if ($null -ne $localPath) {
+        Copy-Item -LiteralPath $localPath -Destination $OutFile -Force
+        return
+    }
+    Invoke-WebRequest -Uri $UriText -OutFile $OutFile -UseBasicParsing
+}
+
+function Read-ReleaseText {
+    param([string]$UriText)
+    $localPath = Get-LocalPathFromFileUri $UriText
+    if ($null -ne $localPath) {
+        return (Get-Content -LiteralPath $localPath -Raw).Trim()
+    }
+    return (Invoke-WebRequest -Uri $UriText -UseBasicParsing).Content.Trim()
+}
+
 # ── Header ───────────────────────────────────────────────────────────────────
 
 function Print-Header {
@@ -154,14 +189,14 @@ if ($DryRun) {
     $releaseArchiveDownloaded = $false
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing
+        Save-ReleaseFile -UriText $downloadUrl -OutFile $tempZip
         $releaseArchiveDownloaded = $true
         Write-Ok "Download complete."
 
         # Release archives must have a valid checksum sidecar.
         Write-Step "Verifying checksum"
         try {
-            $checksumContent = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing).Content.Trim()
+            $checksumContent = Read-ReleaseText -UriText $checksumUrl
             $expectedHash = ($checksumContent -split '\s+')[0].ToUpper()
             if ($expectedHash -notmatch '^[0-9A-F]{64}$') {
                 throw "Checksum sidecar contains an invalid SHA-256 digest."

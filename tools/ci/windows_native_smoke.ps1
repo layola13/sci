@@ -75,6 +75,8 @@ $sa = Join-Path $binRoot "sa.exe"
 $archivePayloadRoot = Join-Path $tempRoot $archivePayloadName
 $archivePath = Join-Path $tempRoot "$archivePayloadName.zip"
 $archiveExtractRoot = Join-Path $tempRoot "archive extracted"
+$installerReleaseRoot = Join-Path $tempRoot "installer release"
+$installerRoot = Join-Path $tempRoot "installed via install.ps1"
 $tempDemo = Join-Path $tempRoot "hello main.sa"
 $nativeOutput = Join-Path $tempRoot "hello output.exe"
 $wasmOutput = Join-Path $tempRoot "hello output.wasm"
@@ -87,7 +89,7 @@ $packageSource = Join-Path $packageSourceRoot "index.sa"
 $packageMain = Join-Path $packageProjectRoot "main.sa"
 $vendorPackage = Join-Path $packageProjectRoot "sa_vendor\github.com\example\pkg\index.sa"
 $utf8NoBom = New-Object Text.UTF8Encoding($false)
-$environmentNames = @("HOME", "USERPROFILE", "TEMP", "TMP", "SA_PLUGINS_HOME", "SA_STD_DIR")
+$environmentNames = @("HOME", "USERPROFILE", "TEMP", "TMP", "SA_PLUGINS_HOME", "SA_STD_DIR", "SA_RELEASE_URL")
 $savedEnvironment = @{}
 $locationPushed = $false
 
@@ -96,7 +98,7 @@ foreach ($name in $environmentNames) {
 }
 
 try {
-    foreach ($path in @($binRoot, $stdRoot, $homeRoot, $processTempRoot, $pluginsRoot, $packageSourceRoot)) {
+    foreach ($path in @($binRoot, $stdRoot, $installerReleaseRoot, $homeRoot, $processTempRoot, $pluginsRoot, $packageSourceRoot)) {
         [void][IO.Directory]::CreateDirectory($path)
     }
 
@@ -128,6 +130,14 @@ try {
     if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
         throw "Native archive was not created: $archivePath"
     }
+    $installerArchive = Join-Path $installerReleaseRoot "$archivePayloadName.zip"
+    Copy-Item -LiteralPath $archivePath -Destination $installerArchive -Force
+    $installerArchiveHash = (Get-FileHash -LiteralPath $installerArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText(
+        (Join-Path $installerReleaseRoot "$archivePayloadName.zip.sha256"),
+        "$installerArchiveHash  $archivePayloadName.zip`n",
+        $utf8NoBom
+    )
     Expand-Archive -LiteralPath $archivePath -DestinationPath $archiveExtractRoot -Force
     $releaseRoot = Join-Path $archiveExtractRoot $archivePayloadName
     $binRoot = Join-Path $releaseRoot "bin"
@@ -211,6 +221,30 @@ try {
     if ($missingResult.Output -notmatch '"name"\s*:\s*"SourceNotFound"') {
         throw "missing offline package did not report SourceNotFound.`n$($missingResult.Output)"
     }
+
+    $installerReleaseRootUri = ([Uri]((Resolve-Path -LiteralPath $installerReleaseRoot).Path + [IO.Path]::DirectorySeparatorChar)).AbsoluteUri.TrimEnd("/")
+    [Environment]::SetEnvironmentVariable("SA_RELEASE_URL", $installerReleaseRootUri, "Process")
+    Write-Host "Running install.ps1 against local release archive $installerReleaseRootUri"
+    & (Join-Path $repoRoot "tools\install.ps1") -Dir $installerRoot -NoShell
+    $installedSa = Join-Path $installerRoot "bin\sa.exe"
+    $installedStdRoot = Join-Path $installerRoot "std"
+    foreach ($requiredPath in @(
+        $installedSa,
+        (Join-Path $installedStdRoot "sa_std.lib"),
+        (Join-Path $installedStdRoot "sa_std.h"),
+        (Join-Path $installedStdRoot "io\print.sai"))) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "install.ps1 local release install is missing $requiredPath"
+        }
+    }
+    $installedVersion = Invoke-NativeCapture -FilePath $installedSa -Arguments @("version")
+    Assert-Success -Action "installed sa.exe version" -Result $installedVersion
+    if ($installedVersion.Output -notmatch '^sa\s+\S+$') {
+        throw "Unexpected installed version output: $($installedVersion.Output)"
+    }
+    [Environment]::SetEnvironmentVariable("SA_STD_DIR", $installedStdRoot, "Process")
+    $installedCheck = Invoke-NativeCapture -FilePath $installedSa -Arguments @("check", $tempDemo)
+    Assert-Success -Action "installed sa.exe check" -Result $installedCheck
 } finally {
     if ($locationPushed) {
         Pop-Location
