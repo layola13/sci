@@ -93,6 +93,12 @@ test "Windows compiler smoke exercises native and wasm outputs in a portable pat
     const required = [_][]const u8{
         "staged sa.exe version",
         "Invoke-NativeCapture",
+        "$archivePayloadName = \"sa-windows-$archiveArch\"",
+        "$archivePath = Join-Path $tempRoot \"$archivePayloadName.zip\"",
+        "Compress-Archive -LiteralPath $archivePayloadRoot -DestinationPath $archivePath -Force",
+        "Expand-Archive -LiteralPath $archivePath -DestinationPath $archiveExtractRoot -Force",
+        "$releaseRoot = Join-Path $archiveExtractRoot $archivePayloadName",
+        "Extracted native archive is missing",
         "Copy-Item -LiteralPath $sourceSa -Destination $sa",
         "Copy-Item -LiteralPath $runtimeArchive -Destination (Join-Path $stdRoot \"sa_std.lib\")",
         "include\\sa_std.h",

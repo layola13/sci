@@ -127,10 +127,15 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+expected_arch=$(uname -m)
+archive_payload_name="sa-macos-$expected_arch"
 release_root="$temp_root/release payload"
 bin_root="$release_root/bin"
 std_root="$release_root/std"
 sa="$bin_root/sa"
+archive_payload_root="$temp_root/$archive_payload_name"
+archive_path="$temp_root/$archive_payload_name.tar.gz"
+archive_extract_root="$temp_root/archive extracted"
 temp_demo="$temp_root/hello main.sa"
 native_output="$temp_root/hello output"
 wasm_output="$temp_root/hello output.wasm"
@@ -160,6 +165,27 @@ printf '%s\n' '// This file exists only in the staged SA_STD_DIR.' > "$staged_st
     cat "$source_demo"
 } > "$temp_demo"
 
+mkdir -p "$archive_payload_root" "$archive_extract_root"
+cp -R "$release_root/." "$archive_payload_root/"
+(cd "$temp_root" && tar -czf "$archive_path" "$archive_payload_name")
+if [ ! -s "$archive_path" ]; then
+    printf 'Native archive was not created: %s\n' "$archive_path" >&2
+    exit 1
+fi
+tar -tzf "$archive_path" >/dev/null
+tar -xzf "$archive_path" -C "$archive_extract_root"
+release_root="$archive_extract_root/$archive_payload_name"
+bin_root="$release_root/bin"
+std_root="$release_root/std"
+sa="$bin_root/sa"
+for required_path in "$sa" "$std_root/libsa_std.a" "$std_root/sa_std.h" "$std_root/io/print.sai"; do
+    if [ ! -s "$required_path" ]; then
+        printf 'Extracted native archive is missing %s\n' "$required_path" >&2
+        exit 1
+    fi
+done
+chmod +x "$sa"
+
 export HOME="$home_root"
 export USERPROFILE="$home_root"
 export TMPDIR="$process_temp_root"
@@ -170,7 +196,6 @@ export SA_STD_DIR="$std_root"
 unset SA_DAEMON_SOCKET SA_AGENT_ID SA_AGENT_GENERATION SA_PLUGINS_PATH SA_PLUGINS_WORKSPACE
 
 cd "$package_project_root"
-expected_arch=$(uname -m)
 assert_macho "$sa" "$expected_arch"
 
 capture_success "staged sa version" "$sa" version

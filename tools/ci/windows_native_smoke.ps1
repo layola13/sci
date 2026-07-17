@@ -60,12 +60,21 @@ $runtimeArchive = (Resolve-Path -LiteralPath (Join-Path $runtimeRootPath "lib\sa
 $runtimeHeader = (Resolve-Path -LiteralPath (Join-Path $runtimeRootPath "include\sa_std.h")).Path
 $sourceStdRoot = (Resolve-Path -LiteralPath (Join-Path $repoRoot "sa_std")).Path
 
+$archiveArch = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    "X64" { "x86_64" }
+    "Arm64" { "aarch64" }
+    default { throw "Unsupported Windows architecture for archive smoke: $([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
+}
 $unicodeWord = -join @([char]0x6D4B, [char]0x8BD5)
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("sa windows smoke {0} {1}" -f $unicodeWord, [guid]::NewGuid().ToString("N"))
+$archivePayloadName = "sa-windows-$archiveArch"
 $releaseRoot = Join-Path $tempRoot "release payload"
 $binRoot = Join-Path $releaseRoot "bin"
 $stdRoot = Join-Path $releaseRoot "std"
 $sa = Join-Path $binRoot "sa.exe"
+$archivePayloadRoot = Join-Path $tempRoot $archivePayloadName
+$archivePath = Join-Path $tempRoot "$archivePayloadName.zip"
+$archiveExtractRoot = Join-Path $tempRoot "archive extracted"
 $tempDemo = Join-Path $tempRoot "hello main.sa"
 $nativeOutput = Join-Path $tempRoot "hello output.exe"
 $wasmOutput = Join-Path $tempRoot "hello output.wasm"
@@ -109,6 +118,30 @@ try {
         "@import `"github.com/example/pkg`"`n@main() -> i32:`nreturn 0`n",
         $utf8NoBom
     )
+
+    [void][IO.Directory]::CreateDirectory($archivePayloadRoot)
+    [void][IO.Directory]::CreateDirectory($archiveExtractRoot)
+    Get-ChildItem -LiteralPath $releaseRoot -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $archivePayloadRoot -Recurse -Force
+    }
+    Compress-Archive -LiteralPath $archivePayloadRoot -DestinationPath $archivePath -Force
+    if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
+        throw "Native archive was not created: $archivePath"
+    }
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $archiveExtractRoot -Force
+    $releaseRoot = Join-Path $archiveExtractRoot $archivePayloadName
+    $binRoot = Join-Path $releaseRoot "bin"
+    $stdRoot = Join-Path $releaseRoot "std"
+    $sa = Join-Path $binRoot "sa.exe"
+    foreach ($requiredPath in @(
+        $sa,
+        (Join-Path $stdRoot "sa_std.lib"),
+        (Join-Path $stdRoot "sa_std.h"),
+        (Join-Path $stdRoot "io\print.sai"))) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "Extracted native archive is missing $requiredPath"
+        }
+    }
 
     [Environment]::SetEnvironmentVariable("HOME", $homeRoot, "Process")
     [Environment]::SetEnvironmentVariable("USERPROFILE", $homeRoot, "Process")
