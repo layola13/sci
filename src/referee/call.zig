@@ -16,12 +16,14 @@ pub const ParsedArg = struct {
 
 pub const ParsedCall = struct {
     dest: ?[]const u8,
+    dest2: ?[]const u8 = null,
     callee: []const u8,
     args: []ParsedArg,
     is_indirect: bool,
 
     pub fn deinit(self: *ParsedCall, allocator: std.mem.Allocator) void {
         if (self.dest) |dest| allocator.free(dest);
+        if (self.dest2) |dest| allocator.free(dest);
         allocator.free(self.callee);
         for (self.args) |arg| {
             allocator.free(arg.text);
@@ -255,20 +257,33 @@ pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall
     }
 
     const call_start = if (findCallKeyword(trimmed, "call_indirect")) |idx| idx else if (findCallKeyword(trimmed, "call")) |idx| idx else return CallError.InvalidCallSyntax;
-    const prefix = std.mem.trim(u8, trimmed[0..call_start], " \t");
-    const dest = if (prefix.len != 0) blk: {
+    const prefix = std.mem.trim(u8, trimmed[0..call_start], " 	");
+    var dest: ?[]const u8 = null;
+    var dest2: ?[]const u8 = null;
+    if (prefix.len != 0) {
         const eq = std.mem.indexOfScalar(u8, prefix, '=') orelse return CallError.InvalidCallSyntax;
-        const name = std.mem.trim(u8, prefix[0..eq], " \t");
-        const tail = std.mem.trim(u8, prefix[eq + 1 ..], " \t");
+        const name = std.mem.trim(u8, prefix[0..eq], " 	");
+        const tail = std.mem.trim(u8, prefix[eq + 1 ..], " 	");
         if (name.len == 0 or tail.len != 0) return CallError.InvalidCallSyntax;
-        break :blk try allocator.dupe(u8, name);
-    } else null;
+        if (std.mem.indexOfScalar(u8, name, ',')) |comma| {
+            const left = std.mem.trim(u8, name[0..comma], " 	");
+            const right = std.mem.trim(u8, name[comma + 1 ..], " 	");
+            if (left.len == 0 or right.len == 0) return CallError.InvalidCallSyntax;
+            if (std.mem.indexOfScalar(u8, right, ',') != null) return CallError.InvalidCallSyntax;
+            dest = try allocator.dupe(u8, left);
+            dest2 = try allocator.dupe(u8, right);
+        } else {
+            dest = try allocator.dupe(u8, name);
+        }
+    }
     errdefer if (dest) |value| allocator.free(value);
+    errdefer if (dest2) |value| allocator.free(value);
 
     if (findCallKeyword(trimmed, "call_indirect")) |idx| {
         const body = std.mem.trimLeft(u8, trimmed[idx + "call_indirect".len ..], " \t");
         var call = try parseCallBody(allocator, body, true);
         call.dest = dest;
+        call.dest2 = dest2;
         return call;
     }
 
@@ -276,6 +291,7 @@ pub fn parseCall(allocator: std.mem.Allocator, raw_text: []const u8) !ParsedCall
         const body = std.mem.trimLeft(u8, trimmed[idx + "call".len ..], " \t");
         var call = try parseCallBody(allocator, body, false);
         call.dest = dest;
+        call.dest2 = dest2;
         return call;
     }
 

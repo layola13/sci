@@ -410,12 +410,18 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "call_indirect")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["call_indirect".len..], " \t");
+        const rest = std.mem.trimLeft(u8, simple_rhs["call_indirect".len..], " 	");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call_indirect;
-        addPart(line, 0, lhs);
-        addPart(line, 1, rest);
+        if (parseCommaPair(lhs)) |pair| {
+            addPart(line, 0, pair.left);
+            addPart(line, 1, pair.right);
+            addPart(line, 2, rest);
+        } else {
+            addPart(line, 0, lhs);
+            addPart(line, 1, rest);
+        }
         return true;
     }
 
@@ -432,12 +438,18 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "call")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["call".len..], " \t");
+        const rest = std.mem.trimLeft(u8, simple_rhs["call".len..], " 	");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call;
-        addPart(line, 0, lhs);
-        addPart(line, 1, rest);
+        if (parseCommaPair(lhs)) |pair| {
+            addPart(line, 0, pair.left);
+            addPart(line, 1, pair.right);
+            addPart(line, 2, rest);
+        } else {
+            addPart(line, 0, lhs);
+            addPart(line, 1, rest);
+        }
         return true;
     }
 
@@ -744,22 +756,36 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "return")) {
-        const rest = std.mem.trimLeft(u8, trimmed["return".len..], " \t");
+        const rest = std.mem.trimLeft(u8, trimmed["return".len..], " 	");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .return_;
-        if (rest.len != 0) addPart(line, 0, rest);
+        if (rest.len != 0) {
+            if (parseCommaPair(rest)) |pair| {
+                addPart(line, 0, pair.left);
+                addPart(line, 1, pair.right);
+            } else {
+                addPart(line, 0, rest);
+            }
+        }
         return true;
     }
 
     if (startsWithWord(trimmed, "ret")) {
-        const rest = std.mem.trimLeft(u8, trimmed["ret".len..], " \t");
+        const rest = std.mem.trimLeft(u8, trimmed["ret".len..], " 	");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .return_;
-        if (rest.len != 0) addPart(line, 0, rest);
+        if (rest.len != 0) {
+            if (parseCommaPair(rest)) |pair| {
+                addPart(line, 0, pair.left);
+                addPart(line, 1, pair.right);
+            } else {
+                addPart(line, 0, rest);
+            }
+        }
         return true;
     }
 
-    return false;
+        return false;
 }
 
 pub fn classifyLine(line: []const u8) ClassifiedLine {

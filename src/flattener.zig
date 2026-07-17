@@ -2123,6 +2123,19 @@ fn emitParsedLine(
                         } else {
                             inst.operands[0] = .{ .text = folded };
                         }
+                    } else if (classified.inst_form == .return_ and classified.part_count == 2) {
+                        const first = try ownFoldedText(allocator, dict, owned_text, classified.parts[0]);
+                        const second = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
+                        if (symbols.findId(first)) |id| {
+                            inst.operands[0] = .{ .reg = id };
+                        } else {
+                            inst.operands[0] = .{ .text = first };
+                        }
+                        if (symbols.findId(second)) |id| {
+                            inst.operands[1] = .{ .reg = id };
+                        } else {
+                            inst.operands[1] = .{ .text = second };
+                        }
                     } else if (classified.inst_form == .try_) {
                         const dst = try symbols.intern(classified.parts[0]);
                         const source = try symbols.intern(classified.parts[1]);
