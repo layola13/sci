@@ -244,7 +244,10 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(plugin_source, "tool, \"-u\", artifact_abs");
     try expectContains(plugin_source, "tool, \"--undefined-only\", artifact_abs");
     try expectContains(plugin_source, "builtin.os.tag == .macos");
-    try expectContains(plugin_source, "symbol = symbol[1..]");
+    try expectContains(plugin_source, "fn normalizeUndefinedImportSymbolFor");
+    try expectContains(plugin_source, "normalized = normalized[1..]");
+    try expectContains(plugin_source, "symbol = normalizeUndefinedImportSymbolFor(builtin.os.tag, symbol)");
+    try expectContains(plugin_source, "normalizeUndefinedImportSymbolFor(.macos, \"_connect\")");
     try expectContains(build_source, "test-runtime-darwin requires a native macOS x86_64 or aarch64 host and target");
     try expectContains(build_source, "test-runtime-pal requires a native Linux, macOS, or Windows host and target");
     try expectContains(build_source, "test-runtime-netx requires a native Linux, macOS, or Windows host and target");
