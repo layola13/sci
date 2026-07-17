@@ -2388,6 +2388,25 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "7777777777777777777777777777777777777777777777777777777777777777") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "8888888888888888888888888888888888888888888888888888888888888888") == null);
 
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},{"name":"semantic_file_inputs","sha256":"7777777777777777777777777777777777777777777777777777777777777777"},{"name":"project_manifests","sha256":"9999999999999999999999999999999999999999999999999999999999999999"},{"name":"source_tree","sha256":"5555555555555555555555555555555555555555555555555555555555555555"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},{"name":"semantic_file_inputs","sha256":"7777777777777777777777777777777777777777777777777777777777777777"},{"name":"project_manifests","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"name":"source_tree","sha256":"5555555555555555555555555555555555555555555555555555555555555555"}]}
+        \\
+    );
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const why_project_manifest_candidate_code = try saasm.cli.executeWithWriters(std.testing.allocator, why_candidate_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), why_project_manifest_candidate_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.project_manifests\""));
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "9999999999999999999999999999999999999999999999999999999999999999") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") == null);
+
     try writeBytes(tmp.dir, candidate_key_input_path,
         \\{"version":1,"kind":"build-exe","key_prefix":"aaaaaaaaaaaa","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"3333333333333333333333333333333333333333333333333333333333333333"}]}
         \\
