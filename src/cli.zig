@@ -13224,7 +13224,14 @@ test "project cache store-event telemetry ignores mismatched marker headers" {
 
 const ProjectCacheFailureTest = struct {
     fn expectNoEntryOrStaging(dir: std.fs.Dir, key: ProjectCacheKey) !void {
-        var kind_dir = dir.openDir(".sa_cache/build-exe", .{ .iterate = true }) catch |err| switch (err) {
+        try expectNoEntryOrStagingForKind(dir, .build_exe, key);
+    }
+
+    fn expectNoEntryOrStagingForKind(dir: std.fs.Dir, kind: BuildCacheKind, key: ProjectCacheKey) !void {
+        const kind_name = kind.dirName();
+        const rel = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/{s}", .{kind_name});
+        defer std.testing.allocator.free(rel);
+        var kind_dir = dir.openDir(rel, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return,
             else => return err,
         };
@@ -13237,6 +13244,86 @@ const ProjectCacheFailureTest = struct {
         }
     }
 };
+
+test "project cache store failures record stage and leave no partial entry" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "stage-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "stage-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    // Missing artifact fails at copy_artifact and must not leave a staged/final entry.
+    var missing_artifact_key = ProjectCacheKey{ .hex = undefined };
+    @memset(missing_artifact_key.hex[0..], 'a');
+    try std.testing.expectError(
+        error.FileNotFound,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            missing_artifact_key,
+            "missing-artifact.bc",
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, missing_artifact_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, missing_artifact_key).?);
+    try std.testing.expectEqualStrings("copy_artifact", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, missing_artifact_key).?);
+    try std.testing.expectEqualStrings("absent", projectCacheEntryLastStoreOwnerMissReason(std.testing.allocator, project_root, .build_exe, missing_artifact_key).?);
+
+    // Missing output fails at copy_output after artifact staging and still rolls back.
+    var missing_output_key = ProjectCacheKey{ .hex = undefined };
+    @memset(missing_output_key.hex[0..], 'b');
+    try std.testing.expectError(
+        error.FileNotFound,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            missing_output_key,
+            artifact_path,
+            "missing-output.bin",
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, missing_output_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, missing_output_key).?);
+    try std.testing.expectEqualStrings("copy_output", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, missing_output_key).?);
+
+    // Kind/metadata mismatch fails during validate before any staging work.
+    var validate_key = ProjectCacheKey{ .hex = undefined };
+    @memset(validate_key.hex[0..], 'c');
+    try std.testing.expectError(
+        error.InvalidCacheManifest,
+        projectCacheStoreEntry(
+            std.testing.allocator,
+            project_root,
+            .test_cache,
+            validate_key,
+            artifact_path,
+            output_path,
+            null,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .test_cache, validate_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .test_cache, validate_key).?);
+    try std.testing.expectEqualStrings("validate", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .test_cache, validate_key).?);
+}
 
 test "project cache single flight hands a failed owner to one waiter" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
