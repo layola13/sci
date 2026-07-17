@@ -1712,6 +1712,8 @@ test "cli build project cache is default and can be disabled" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"last_store_writer_start_ticks\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_event_count\":"));
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "\"last_store_event_count\":null") == null);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_published_event_count\":1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_failed_event_count\":0"));
 
     const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
     defer std.testing.allocator.free(cache_key);
@@ -2257,6 +2259,8 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_writer_pid=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_writer_start_ticks=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_event_count=null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_published_event_count=null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 4, "last_store_failed_event_count=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=output.file"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "first_difference=output.size"));
@@ -2297,6 +2301,8 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_writer_pid\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_writer_start_ticks\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_event_count\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_published_event_count\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"last_store_failed_event_count\":null"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"manifest.version\""));
 
     stdout_buf.clearRetainingCapacity();

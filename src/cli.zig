@@ -7512,6 +7512,39 @@ fn projectCacheEntryStoreEventHistoryCount(allocator: std.mem.Allocator, project
     return count;
 }
 
+const ProjectCacheStoreEventHistoryResultCounts = struct {
+    published: u64 = 0,
+    failed: u64 = 0,
+};
+
+fn projectCacheEntryStoreEventHistoryResultCounts(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?ProjectCacheStoreEventHistoryResultCounts {
+    const history_dir_path = projectCacheStoreEventHistoryDirPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(history_dir_path);
+    var history_dir = std.fs.cwd().openDir(history_dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        error.NotDir => return null,
+        else => return null,
+    };
+    defer history_dir.close();
+
+    var counts: ProjectCacheStoreEventHistoryResultCounts = .{};
+    var iter = history_dir.iterate();
+    while (iter.next() catch return null) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".json")) continue;
+        const bytes = history_dir.readFileAlloc(allocator, entry.name, 64 * 1024) catch continue;
+        defer allocator.free(bytes);
+        var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch continue;
+        defer parsed.deinit();
+        const result = jsonString(jsonGetObject(parsed.value, "result") catch continue) catch continue;
+        if (std.mem.eql(u8, result, "published")) {
+            counts.published += 1;
+        } else if (std.mem.eql(u8, result, "failed")) {
+            counts.failed += 1;
+        }
+    }
+    return counts;
+}
+
 fn projectCacheEntryWasEvicted(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) bool {
     const marker_path = projectCacheEvictionMarkerPath(allocator, project_root, kind, key) catch return false;
     defer allocator.free(marker_path);
@@ -7737,6 +7770,8 @@ fn writeCacheStatusEntryJson(
     last_store_writer_pid: ?u64,
     last_store_writer_start_ticks: ?u64,
     last_store_event_count: ?u64,
+    last_store_published_event_count: ?u64,
+    last_store_failed_event_count: ?u64,
     first_difference: ?[]const u8,
 ) !void {
     try writer.writeAll("{\"kind\":");
@@ -7809,6 +7844,18 @@ fn writeCacheStatusEntryJson(
     } else {
         try writer.writeAll("null");
     }
+    try writer.writeAll(",\"last_store_published_event_count\":");
+    if (last_store_published_event_count) |count| {
+        try writer.print("{d}", .{count});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"last_store_failed_event_count\":");
+    if (last_store_failed_event_count) |count| {
+        try writer.print("{d}", .{count});
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll(",\"first_difference\":");
     if (first_difference) |field| {
         try writeJsonString(writer, field);
@@ -7836,6 +7883,8 @@ fn writeCacheStatusEntryText(
     last_store_writer_pid: ?u64,
     last_store_writer_start_ticks: ?u64,
     last_store_event_count: ?u64,
+    last_store_published_event_count: ?u64,
+    last_store_failed_event_count: ?u64,
     first_difference: ?[]const u8,
 ) !void {
     try writer.print("{s}: kind={s} key={s} reason={s} manifest={s} bytes={d}", .{ prefix, kind.dirName(), key.slice()[0..12], reason.jsonName(), manifest_status, bytes });
@@ -7889,6 +7938,16 @@ fn writeCacheStatusEntryText(
     } else {
         try writer.writeAll(" last_store_event_count=null");
     }
+    if (last_store_published_event_count) |count| {
+        try writer.print(" last_store_published_event_count={d}", .{count});
+    } else {
+        try writer.writeAll(" last_store_published_event_count=null");
+    }
+    if (last_store_failed_event_count) |count| {
+        try writer.print(" last_store_failed_event_count={d}", .{count});
+    } else {
+        try writer.writeAll(" last_store_failed_event_count=null");
+    }
     if (first_difference) |field| {
         try writer.print(" first_difference={s}", .{field});
     } else {
@@ -7926,6 +7985,9 @@ fn writeCacheStatusEntry(
     const last_store_writer_pid = projectCacheEntryLastStoreWriterPid(allocator, project_root, kind, key);
     const last_store_writer_start_ticks = projectCacheEntryLastStoreWriterStartTicks(allocator, project_root, kind, key);
     const last_store_event_count = projectCacheEntryStoreEventHistoryCount(allocator, project_root, kind, key);
+    const last_store_result_counts = projectCacheEntryStoreEventHistoryResultCounts(allocator, project_root, kind, key);
+    const last_store_published_event_count = if (last_store_result_counts) |counts| counts.published else null;
+    const last_store_failed_event_count = if (last_store_result_counts) |counts| counts.failed else null;
     const first_difference = if (reason == .hit or reason == .expired)
         null
     else if (stat == null)
@@ -7937,9 +7999,9 @@ fn writeCacheStatusEntry(
     if (json) {
         if (!json_first.*) try writer.writeByte(',');
         json_first.* = false;
-        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_owner_miss_reason, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
+        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_owner_miss_reason, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, last_store_published_event_count, last_store_failed_event_count, first_difference);
     } else {
-        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_owner_miss_reason, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
+        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_owner_miss_reason, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, last_store_published_event_count, last_store_failed_event_count, first_difference);
     }
 }
 
@@ -12061,6 +12123,9 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expectEqual(@as(u64, 1), projectCacheEntryStoreEventHistoryCount(std.testing.allocator, project_root, .build_exe, key).?);
+    const failed_counts = projectCacheEntryStoreEventHistoryResultCounts(std.testing.allocator, project_root, .build_exe, key).?;
+    try std.testing.expectEqual(@as(u64, 0), failed_counts.published);
+    try std.testing.expectEqual(@as(u64, 1), failed_counts.failed);
     var why_json = std.ArrayList(u8).init(std.testing.allocator);
     defer why_json.deinit();
     const why_args = [_][]const u8{ "--kind", "build-exe", "--key", key.slice(), "--json" };
@@ -12078,6 +12143,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_start_ticks\":"));
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_writer_start_ticks\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_count\":1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_published_event_count\":0"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_failed_event_count\":1"));
 
     releaseProjectCacheOwner(&first_owner);
     thread.join();
@@ -12096,6 +12163,9 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expectEqual(@as(u64, 2), projectCacheEntryStoreEventHistoryCount(std.testing.allocator, project_root, .build_exe, key).?);
+    const published_counts = projectCacheEntryStoreEventHistoryResultCounts(std.testing.allocator, project_root, .build_exe, key).?;
+    try std.testing.expectEqual(@as(u64, 1), published_counts.published);
+    try std.testing.expectEqual(@as(u64, 1), published_counts.failed);
     why_json.clearRetainingCapacity();
     try std.testing.expectEqual(@as(u8, 0), try executeCacheWhyCommand(std.testing.allocator, why_args[0..], why_json.writer(), false));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"reason\":\"hit\""));
@@ -12109,6 +12179,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_start_ticks\":"));
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_writer_start_ticks\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_count\":2"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_published_event_count\":1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_failed_event_count\":1"));
     var kind_dir = try tmp.dir.openDir(".sa_cache/build-exe", .{ .iterate = true });
     defer kind_dir.close();
     var entries = kind_dir.iterate();

@@ -689,6 +689,8 @@ lock_owner_failed | bypassed_untrusted | unknown
 
 2026-07-17 owner telemetry 补充检查点：store-event JSON 现在记录 source-free `owner_miss_reason`，`sa cache status/why` 以 `last_store_owner_miss_reason` 暴露。focused single-flight 证据覆盖第一个 owner 因缺失输出在 `copy_output` 失败时报告 `absent`，以及 waiter 接管并成功 `publish` 后继续报告 `absent`；旧 marker 或直接 store 输出 `null`。这只补充“owner 接手时看到的 miss reason”，不等于完整跨进程 owner 生命周期审计；细粒度候选 key 输入差异、完整脱敏审计和跨平台 evidence 仍未完成。
 
+2026-07-17 历史结果计数补充检查点：`sa cache status/why` 现在从 `.sa_cache/.store-event-history/<kind>/<key>/` 读取 source-free 历史结果计数，并暴露 `last_store_published_event_count` 与 `last_store_failed_event_count`。focused single-flight 证据覆盖第一个 owner 失败后 `published=0, failed=1`，以及 waiter 成功发布后 `published=1, failed=1`。这比单一 `last_store_event_count` 更能解释 owner handoff 过程，但仍不是跨进程 owner 生命周期的完整审计。
+
 ---
 
 ## 10. 统一并发与内存预算

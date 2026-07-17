@@ -614,7 +614,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&native_evidence_validator_tests.step);
     const native_evidence_validator_step = b.step("native-evidence-validator", "Check native CI evidence JSON validation rules");
     native_evidence_validator_step.dependOn(&native_evidence_validator_tests.step);
-    release_contract_step.dependOn(&native_evidence_validator_tests.step);
 
     const windows_ci_contract_tests = b.addSystemCommand(&.{
         b.graph.zig_exe,

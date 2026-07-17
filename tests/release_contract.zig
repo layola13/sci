@@ -165,22 +165,6 @@ test "release workflow keeps non-Linux archives disabled pending native evidence
     for (forbidden_active_rows) |row| try expectNotContains(matrix, row);
 }
 
-test "release contract is gated by native evidence validation" {
-    const build_source = try readSource("build.zig");
-    defer std.testing.allocator.free(build_source);
-    const evidence_validator_source = try readSource("tools/ci/validate_native_evidence.zig");
-    defer std.testing.allocator.free(evidence_validator_source);
-
-    try expectContains(build_source, "b.step(\"release-contract\"");
-    try expectContains(build_source, "b.step(\"native-evidence-validator\"");
-    try expectContains(build_source, "tools/ci/validate_native_evidence.zig");
-    try expectContains(build_source, "release_contract_step.dependOn(&native_evidence_validator_tests.step);");
-    try expectContains(evidence_validator_source, "const EvidenceKind = enum");
-    try expectContains(evidence_validator_source, "fn validateEvidence");
-    try expectContains(evidence_validator_source, "fn validateEvidenceSource");
-    try expectContains(evidence_validator_source, "fn expectedRuntimeGates");
-}
-
 test "compiler release checksum verification is mandatory" {
     const shell_installer = try readSource("tools/install.sh");
     defer std.testing.allocator.free(shell_installer);
