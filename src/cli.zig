@@ -5970,6 +5970,12 @@ fn computeProjectBuildKey(
     const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
     defer allocator.free(backend_identity);
     cacheBytes(&hasher, backend_identity);
+    const toolchain_identity = try driver.toolchainCacheIdentity(allocator, .{
+        .path_env = if (builtin.is_test) project_build_key_toolchain_path_override else null,
+        .include_objcopy = kind == .build_obj_incremental,
+    });
+    defer allocator.free(toolchain_identity);
+    cacheBytes(&hasher, toolchain_identity);
     cacheBytes(&hasher, builtin.zig_version_string);
     cacheBytes(&hasher, @tagName(builtin.target.cpu.arch));
     cacheBytes(&hasher, builtin.target.cpu.model.name);
@@ -6140,6 +6146,7 @@ const ProjectCacheStoreTestPause = struct {
 };
 
 var project_cache_store_test_pause: ?*ProjectCacheStoreTestPause = null;
+var project_build_key_toolchain_path_override: ?[]const u8 = null;
 
 fn projectCacheLockPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
     const filename = try std.fmt.allocPrint(allocator, "{s}.lock", .{key.slice()});
@@ -11347,6 +11354,96 @@ test "project build key tracks runtime archive content" {
     // Keep the size stable so the regression proves that archive contents,
     // rather than path/metadata alone, participate in the artifact key.
     try tmp.dir.writeFile(.{ .sub_path = "libsa_std.a", .data = "runtime-v2" });
+    const second = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+
+    try std.testing.expect(!std.mem.eql(u8, first.slice(), second.slice()));
+}
+
+test "project build key tracks zigcc toolchain identity" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const Helper = struct {
+        fn writeFakeTool(path: []const u8, version: []const u8) !void {
+            const source = try std.fmt.allocPrint(std.testing.allocator, "#!/bin/sh\necho {s}\n", .{version});
+            defer std.testing.allocator.free(source);
+            try writeAllFile(path, source);
+            try makeExecutable(path);
+        }
+    };
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.makePath("bin");
+    try Helper.writeFakeTool("bin/zig", "zig-tool-v1");
+    try writeAllFile("libsa_std.a", "runtime-v1");
+    const bin_path = try tmp.dir.realpathAlloc(std.testing.allocator, "bin");
+    defer std.testing.allocator.free(bin_path);
+    const previous_toolchain_path = project_build_key_toolchain_path_override;
+    project_build_key_toolchain_path_override = bin_path;
+    defer project_build_key_toolchain_path_override = previous_toolchain_path;
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const archive_path = try tmp.dir.realpathAlloc(std.testing.allocator, "libsa_std.a");
+    defer std.testing.allocator.free(archive_path);
+    const missing_manifest = try std.fs.path.join(std.testing.allocator, &.{ project_root, "missing.sa.mod" });
+    defer std.testing.allocator.free(missing_manifest);
+
+    const project_context = ProjectContext{
+        .root_path = project_root,
+        .member_root_path = project_root,
+        .workspace_manifest_path = missing_manifest,
+        .member_manifest_path = missing_manifest,
+        .manifest = null,
+        .workspace_manifest = null,
+        .member_manifest = null,
+        .lock_file = null,
+        .sum_file = null,
+    };
+    const first = (try computeProjectBuildKey(
+        std.testing.allocator,
+        &project_context,
+        project_root,
+        "main.sa",
+        "exe",
+        "",
+        .build_exe,
+        false,
+        false,
+        false,
+        null,
+        false,
+        false,
+        .std,
+        1,
+        true,
+        &.{archive_path},
+    )) orelse unreachable;
+
+    try Helper.writeFakeTool("bin/zig", "zig-tool-v2");
     const second = (try computeProjectBuildKey(
         std.testing.allocator,
         &project_context,

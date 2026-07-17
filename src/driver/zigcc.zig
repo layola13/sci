@@ -30,6 +30,193 @@ pub const Argv = struct {
     }
 };
 
+pub const ToolchainCacheIdentityOptions = struct {
+    path_env: ?[]const u8 = null,
+    include_objcopy: bool = false,
+};
+
+fn supportedWindowsProgramExtension(ext: []const u8) bool {
+    inline for (@typeInfo(std.process.Child.WindowsExtension).@"enum".fields) |field| {
+        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
+    }
+    return false;
+}
+
+fn tryResolveProgramPath(allocator: std.mem.Allocator, full_path: []const u8, pathext: ?[]const u8) !?[]u8 {
+    if (std.fs.cwd().realpathAlloc(allocator, full_path)) |resolved| {
+        return resolved;
+    } else |err| switch (err) {
+        error.OutOfMemory => return err,
+        else => {},
+    }
+
+    if (builtin.os.tag == .windows) {
+        if (pathext) |extensions| {
+            var it = std.mem.tokenizeScalar(u8, extensions, std.fs.path.delimiter);
+            while (it.next()) |ext| {
+                if (!supportedWindowsProgramExtension(ext)) continue;
+                const extended_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ full_path, ext });
+                defer allocator.free(extended_path);
+                if (std.fs.cwd().realpathAlloc(allocator, extended_path)) |resolved| {
+                    return resolved;
+                } else |err| switch (err) {
+                    error.OutOfMemory => return err,
+                    else => continue,
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+fn pathEnvOrNull(allocator: std.mem.Allocator, explicit_path_env: ?[]const u8) !?[]const u8 {
+    if (explicit_path_env) |path_env| return path_env;
+    return std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
+}
+
+fn pathextEnvOrNull(allocator: std.mem.Allocator) !?[]u8 {
+    if (builtin.os.tag != .windows) return null;
+    return std.process.getEnvVarOwned(allocator, "PATHEXT") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
+}
+
+fn resolveProgram(allocator: std.mem.Allocator, name: []const u8, explicit_path_env: ?[]const u8) !?[]u8 {
+    var env_owned = false;
+    const path_env = try pathEnvOrNull(allocator, explicit_path_env);
+    defer if (env_owned) allocator.free(path_env.?);
+    env_owned = explicit_path_env == null and path_env != null;
+
+    const pathext = try pathextEnvOrNull(allocator);
+    defer if (pathext) |value| allocator.free(value);
+
+    if (std.fs.path.isAbsolute(name) or std.mem.indexOfAny(u8, name, "/\\") != null) {
+        return try tryResolveProgramPath(allocator, name, pathext);
+    }
+
+    if (path_env) |search_path| {
+        var it = std.mem.tokenizeScalar(u8, search_path, std.fs.path.delimiter);
+        while (it.next()) |dir| {
+            const candidate = try std.fs.path.join(allocator, &.{ dir, name });
+            defer allocator.free(candidate);
+            if (try tryResolveProgramPath(allocator, candidate, pathext)) |resolved| return resolved;
+        }
+    }
+
+    return null;
+}
+
+fn hashFileHex(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var buffer: [8192]u8 = undefined;
+    while (true) {
+        const read_count = try file.read(&buffer);
+        if (read_count == 0) break;
+        hasher.update(buffer[0..read_count]);
+    }
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    return try allocator.dupe(u8, hex[0..]);
+}
+
+fn firstOutputLine(bytes: []const u8) []const u8 {
+    const end = std.mem.indexOfAny(u8, bytes, "\r\n") orelse bytes.len;
+    return std.mem.trimRight(u8, bytes[0..end], " \t");
+}
+
+fn appendVersionIdentity(writer: anytype, allocator: std.mem.Allocator, path: []const u8) !void {
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ path, "--version" },
+    }) catch |err| {
+        try writer.print("version_error={s}", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    const version_output = if (result.stdout.len != 0) result.stdout else result.stderr;
+    const version_line = firstOutputLine(version_output);
+    switch (result.term) {
+        .Exited => |code| {
+            try writer.print("version_exit={d};version={s}", .{ code, if (version_line.len == 0) "empty" else version_line });
+        },
+        else => {
+            try writer.print("version_error=terminated;version={s}", .{if (version_line.len == 0) "empty" else version_line});
+        },
+    }
+}
+
+fn appendProgramIdentity(writer: anytype, allocator: std.mem.Allocator, label: []const u8, executable: []const u8, path_env: ?[]const u8) !bool {
+    try writer.print("{s}=", .{label});
+    const resolved = (try resolveProgram(allocator, executable, path_env)) orelse {
+        try writer.writeAll("objcopy=missing");
+        return false;
+    };
+    defer allocator.free(resolved);
+
+    const stat = std.fs.cwd().statFile(resolved) catch |err| {
+        try writer.print("stat_error={s};path={s}", .{ @errorName(err), resolved });
+        return true;
+    };
+    if (stat.kind != .file) {
+        try writer.print("not_file;path={s}", .{resolved});
+        return true;
+    }
+    const digest_hex = hashFileHex(allocator, resolved) catch |err| {
+        try writer.print("hash_error={s};path={s};size={d}", .{ @errorName(err), resolved, stat.size });
+        return true;
+    };
+    defer allocator.free(digest_hex);
+
+    try writer.print("path={s};size={d};sha256={s};", .{ resolved, stat.size, digest_hex });
+    try appendVersionIdentity(writer, allocator, resolved);
+    return true;
+}
+
+pub fn toolchainCacheIdentity(allocator: std.mem.Allocator, options: ToolchainCacheIdentityOptions) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    const writer = out.writer();
+    try writer.writeAll("zigcc-toolchain-cache/v1;");
+    _ = try appendProgramIdentity(writer, allocator, "zig_cc_driver", "zig", options.path_env);
+    try writer.writeByte(';');
+    if (options.include_objcopy and builtin.os.tag == .linux) {
+        const candidates = [_][]const u8{
+            "llvm-objcopy",
+            "llvm-objcopy-20",
+            "llvm-objcopy-19",
+            "llvm-objcopy-18",
+            "llvm-objcopy-17",
+            "llvm-objcopy-16",
+            "llvm-objcopy-15",
+            "llvm-objcopy-14",
+            "objcopy",
+        };
+        for (candidates) |candidate| {
+            const before_len = out.items.len;
+            try writer.print("objcopy_candidate={s};", .{candidate});
+            if (try appendProgramIdentity(writer, allocator, "objcopy_tool", candidate, options.path_env)) {
+                return try out.toOwnedSlice();
+            }
+            out.shrinkRetainingCapacity(before_len);
+        }
+        try writer.writeAll("missing");
+    } else {
+        try writer.writeAll("objcopy=not-applicable");
+    }
+    return try out.toOwnedSlice();
+}
+
 fn hostRpathArgument(os_tag: std.Target.Os.Tag) ?[]const u8 {
     return switch (os_tag) {
         .linux => "-Wl,-rpath,$ORIGIN",
@@ -403,4 +590,59 @@ test "native executable rpath follows host loader semantics" {
     try std.testing.expectEqualStrings("-Wl,-rpath,$ORIGIN", hostRpathArgument(.linux).?);
     try std.testing.expectEqualStrings("-Wl,-rpath,@loader_path", hostRpathArgument(.macos).?);
     try std.testing.expectEqual(@as(?[]const u8, null), hostRpathArgument(.windows));
+}
+
+fn writeFakeTool(dir: std.fs.Dir, path: []const u8, version: []const u8) !void {
+    const source = try std.fmt.allocPrint(std.testing.allocator, "#!/bin/sh\necho {s}\n", .{version});
+    defer std.testing.allocator.free(source);
+    try dir.writeFile(.{ .sub_path = path, .data = source });
+    if (builtin.os.tag != .windows) {
+        var file = try dir.openFile(path, .{ .mode = .read_write });
+        defer file.close();
+        try file.chmod(0o755);
+    }
+}
+
+test "toolchain cache identity tracks resolved zig executable contents" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("bin");
+    try writeFakeTool(tmp.dir, "bin/zig", "zig-tool-v1");
+    const bin_path = try tmp.dir.realpathAlloc(std.testing.allocator, "bin");
+    defer std.testing.allocator.free(bin_path);
+
+    const first = try toolchainCacheIdentity(std.testing.allocator, .{ .path_env = bin_path });
+    defer std.testing.allocator.free(first);
+    try std.testing.expect(std.mem.indexOf(u8, first, "zig-tool-v1") != null);
+
+    try writeFakeTool(tmp.dir, "bin/zig", "zig-tool-v2");
+    const second = try toolchainCacheIdentity(std.testing.allocator, .{ .path_env = bin_path });
+    defer std.testing.allocator.free(second);
+    try std.testing.expect(std.mem.indexOf(u8, second, "zig-tool-v2") != null);
+    try std.testing.expect(!std.mem.eql(u8, first, second));
+}
+
+test "toolchain cache identity tracks selected Linux objcopy executable contents" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("bin");
+    try writeFakeTool(tmp.dir, "bin/zig", "zig-tool-v1");
+    try writeFakeTool(tmp.dir, "bin/llvm-objcopy", "objcopy-tool-v1");
+    const bin_path = try tmp.dir.realpathAlloc(std.testing.allocator, "bin");
+    defer std.testing.allocator.free(bin_path);
+
+    const first = try toolchainCacheIdentity(std.testing.allocator, .{ .path_env = bin_path, .include_objcopy = true });
+    defer std.testing.allocator.free(first);
+    try std.testing.expect(std.mem.indexOf(u8, first, "objcopy_candidate=llvm-objcopy") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "objcopy-tool-v1") != null);
+
+    try writeFakeTool(tmp.dir, "bin/llvm-objcopy", "objcopy-tool-v2");
+    const second = try toolchainCacheIdentity(std.testing.allocator, .{ .path_env = bin_path, .include_objcopy = true });
+    defer std.testing.allocator.free(second);
+    try std.testing.expect(std.mem.indexOf(u8, second, "objcopy-tool-v2") != null);
+    try std.testing.expect(!std.mem.eql(u8, first, second));
 }
