@@ -2,6 +2,21 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 entry-dir no_follow authorization and stale lock accounting
+
+- Project-cache entry directories now open with `.iterate = true, .no_follow = true` through `openProjectCacheEntryDir`.
+- Symlinked entry directories are rejected as `incomplete` with `first_difference=entry.symlink` before nested manifest/file probes.
+- `sa cache clean` reclaims unowned stale `.locks/*.lock` and `*.build.lock` files after entry cleanup while active writers remain pinned.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache rejects symlink entry directories"` -> `1/1`
+  - `zig test ... --test-filter "project cache clean reclaims stale unowned lock files"` -> `1/1`
+  - `zig test ... --test-filter "project cache clean pins an active staging writer"` -> `1/1`
+  - `zig test ... --test-filter "project cache clean recovers orphaned crash staging entries"` -> `1/1`
+  - `zig test ... --test-filter "project cache entry rejects unexpected extra files"` -> `1/1`
+  - `zig test ... --test-filter "project cache manifest rejects symlink artifact entries"` -> `1/1`
+  - `zig fmt --check src/cli.zig`; `git diff --check`
+- Evidence boundary: this is Linux unit coverage for entry-dir no_follow authorization and persistent lock reclaim. Full openat/O_NOFOLLOW path authorization, emit/sync/rename/link external-tool injection, broader cross-process recovery, and native macOS/Windows validation remain open.
+
 ## Focused verified: 2026-07-17 orphaned staging crash recovery
 
 - Project-cache store now recovers crash-left staging siblings for the same key under the exclusive entry lock before reuse/publish decisions.

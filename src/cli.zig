@@ -6447,6 +6447,7 @@ fn deleteCacheTree(path: []const u8) void {
 }
 
 fn renameCachePath(old_path: []const u8, new_path: []const u8) !void {
+    try projectCacheIoTestMaybeFail("rename");
     if (std.fs.path.isAbsolute(old_path) and std.fs.path.isAbsolute(new_path)) {
         return try std.fs.renameAbsolute(old_path, new_path);
     }
@@ -6454,6 +6455,7 @@ fn renameCachePath(old_path: []const u8, new_path: []const u8) !void {
 }
 
 fn syncCacheFile(path: []const u8) !void {
+    try projectCacheIoTestMaybeFail("sync");
     var file = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
     defer file.close();
     try file.sync();
@@ -6488,6 +6490,12 @@ var project_cache_store_test_pause: ?*ProjectCacheStoreTestPause = null;
 // Test-only store failure injection: when set to a stage name, the next store
 // reaches that stage and returns TestInjectedStoreFailure without publishing.
 var project_cache_store_test_fail_stage: ?[]const u8 = null;
+// Test-only low-level IO failure injection for sync/rename helpers used by
+// cache store publication. `fail_after` matching ops succeed first, then the
+// next matching op returns TestInjectedIoFailure and clears the hook.
+var project_cache_io_test_fail_op: ?[]const u8 = null;
+var project_cache_io_test_fail_after: usize = 0;
+var project_cache_io_test_fail_seen: usize = 0;
 var project_build_key_toolchain_path_override: ?[]const u8 = null;
 
 fn projectCacheStoreTestMaybeFail(stage: []const u8) !void {
@@ -6495,6 +6503,32 @@ fn projectCacheStoreTestMaybeFail(stage: []const u8) !void {
     if (project_cache_store_test_fail_stage) |fail_stage| {
         if (std.mem.eql(u8, fail_stage, stage)) return error.TestInjectedStoreFailure;
     }
+}
+
+fn projectCacheIoTestMaybeFail(op: []const u8) !void {
+    if (!builtin.is_test) return;
+    const want = project_cache_io_test_fail_op orelse return;
+    if (!std.mem.eql(u8, want, op)) return;
+    if (project_cache_io_test_fail_seen < project_cache_io_test_fail_after) {
+        project_cache_io_test_fail_seen += 1;
+        return;
+    }
+    project_cache_io_test_fail_op = null;
+    project_cache_io_test_fail_after = 0;
+    project_cache_io_test_fail_seen = 0;
+    return error.TestInjectedIoFailure;
+}
+
+fn projectCacheIoTestArm(op: []const u8, fail_after: usize) void {
+    project_cache_io_test_fail_op = op;
+    project_cache_io_test_fail_after = fail_after;
+    project_cache_io_test_fail_seen = 0;
+}
+
+fn projectCacheIoTestDisarm() void {
+    project_cache_io_test_fail_op = null;
+    project_cache_io_test_fail_after = 0;
+    project_cache_io_test_fail_seen = 0;
 }
 
 fn projectCacheLockPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
@@ -6782,6 +6816,10 @@ fn projectCacheManifestLookupReason(
     artifact_path: []const u8,
     out_path: []const u8,
 ) ProjectCacheLookupReason {
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
+    defer allocator.free(entry_path);
+    if (projectCacheEntryPathIsSymlinkDir(entry_path)) return .incomplete;
+
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return .unknown;
     defer allocator.free(manifest_path);
     const manifest_stat = std.fs.cwd().statFile(manifest_path) catch |err| switch (err) {
@@ -6791,10 +6829,8 @@ fn projectCacheManifestLookupReason(
     if (manifest_stat.kind != .file or manifest_stat.size == 0) return .incomplete;
     if (!cachePathIsRegularFile(manifest_path)) return .incomplete;
     if (manifest_stat.size > project_cache_manifest_max_bytes) return .manifest_invalid;
-    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
-    defer allocator.free(entry_path);
     {
-        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return .incomplete;
+        var entry_dir = openProjectCacheEntryDir(entry_path) catch return .incomplete;
         defer entry_dir.close();
         if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return .artifact_corrupt;
     }
@@ -7099,9 +7135,10 @@ fn projectCacheClaim(
 }
 
 fn projectCacheEntryValidAtPath(kind: BuildCacheKind, key: ProjectCacheKey, entry_path: []const u8) bool {
+    if (projectCacheEntryPathIsSymlinkDir(entry_path)) return false;
     // Extra-file allowlist checks iterate the entry, so open with iterate
     // permissions even when callers only need a validity boolean.
-    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return false;
+    var entry_dir = openProjectCacheEntryDir(entry_path) catch return false;
     defer entry_dir.close();
     return cacheEntryComplete(kind, entry_dir) and cacheEntryManifestValid(kind, key.slice(), entry_dir);
 }
@@ -7862,7 +7899,7 @@ fn cacheEntrySizeBytes(entry_dir: std.fs.Dir) !u64 {
 fn cacheEntrySizeBytesAt(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) u64 {
     const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return 0;
     defer allocator.free(entry_path);
-    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return 0;
+    var entry_dir = openProjectCacheEntryDir(entry_path) catch return 0;
     defer entry_dir.close();
     return cacheEntrySizeBytes(entry_dir) catch 0;
 }
@@ -8092,7 +8129,7 @@ fn projectCacheEntryLookupReasonAt(
     if (kind == .build_obj_incremental) {
         const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
         defer allocator.free(entry_path);
-        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch |err| switch (err) {
+        var entry_dir = openProjectCacheEntryDir(entry_path) catch |err| switch (err) {
             error.FileNotFound => return if (projectCacheEntryWasEvicted(allocator, project_root, kind, key)) .evicted else .absent,
             else => return .manifest_invalid,
         };
@@ -8111,7 +8148,7 @@ fn projectCacheEntryLookupReasonAt(
     };
 
     {
-        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch null;
+        var entry_dir = openProjectCacheEntryDir(entry_path) catch null;
         if (entry_dir) |*dir| {
             defer dir.close();
             if (!cacheEntryComplete(kind, dir.*)) return .incomplete;
@@ -8204,15 +8241,19 @@ fn projectCacheManifestFirstDifference(
 ) ?[]const u8 {
     if (kind == .build_obj_incremental) return null;
 
+    // Reject symlink entry directories before nested no_follow path probes so the
+    // authorization failure is not collapsed into a generic "manifest" miss.
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return "entry.path";
+    defer allocator.free(entry_path);
+    if (projectCacheEntryPathIsSymlinkDir(entry_path)) return "entry.symlink";
+
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return "manifest.path";
     defer allocator.free(manifest_path);
     if (!cachePathIsRegularFile(manifest_path)) return "manifest";
     const manifest_stat = std.fs.cwd().statFile(manifest_path) catch return "manifest";
     if (manifest_stat.size > project_cache_manifest_max_bytes) return "manifest.size";
-    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return "entry.path";
-    defer allocator.free(entry_path);
     {
-        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return "entry.path";
+        var entry_dir = openProjectCacheEntryDir(entry_path) catch return "entry.path";
         defer entry_dir.close();
         if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return "entry.extra_file";
     }
@@ -8680,9 +8721,12 @@ fn cleanCacheKindDir(
         var remove = entry.kind != .directory or !isHexCacheKey(entry.name);
         if (staging_key != null) {
             remove = true;
+        } else if (entry.kind == .sym_link) {
+            // Symlinked entry directories are never reusable project-cache entries.
+            remove = true;
         } else if (!remove) {
             const stat: ?std.fs.File.Stat = kind_dir.statFile(entry.name) catch null;
-            if (kind_dir.openDir(entry.name, .{ .iterate = true })) |entry_dir_value| {
+            if (kind_dir.openDir(entry.name, .{ .iterate = true, .no_follow = true })) |entry_dir_value| {
                 var entry_dir = entry_dir_value;
                 remove = !cacheEntryComplete(kind, entry_dir) or
                     !cacheEntryManifestValid(kind, entry.name, entry_dir) or
@@ -8713,6 +8757,66 @@ fn cleanCacheKindDir(
             stats.kept += 1;
         }
     }
+
+    // Persistent lock files outlive entries; reclaim unowned stale locks after
+    // entry cleanup so crash-left `.locks/*.lock` and `*.build.lock` do not accumulate.
+    try cleanProjectCacheStaleLocks(kind_dir, options);
+}
+
+fn cleanProjectCacheStaleLocks(kind_dir: std.fs.Dir, options: CacheCleanOptions) !void {
+    // Lock files are auxiliary bookkeeping, not cache entries. Reclaim them
+    // without mutating entry-level clean stats so callers can still assert on
+    // kept/removed entry counts.
+    var locks_dir = kind_dir.openDir(".locks", .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
+    defer locks_dir.close();
+
+    var names = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    defer {
+        for (names.items) |name| std.heap.page_allocator.free(name);
+        names.deinit();
+    }
+    var iter = locks_dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file and entry.kind != .sym_link) continue;
+        try names.append(try std.heap.page_allocator.dupe(u8, entry.name));
+    }
+
+    for (names.items) |name| {
+        const key_name = projectCacheLockFileKeyName(name) orelse {
+            if (!options.dry_run) locks_dir.deleteFile(name) catch {};
+            continue;
+        };
+        const entry_exists = blk: {
+            kind_dir.access(key_name, .{}) catch break :blk false;
+            break :blk true;
+        };
+        if (entry_exists) continue;
+        if (options.dry_run) continue;
+
+        var lock_file = locks_dir.createFile(name, .{ .read = true, .truncate = false }) catch continue;
+        var lock_open = true;
+        defer if (lock_open) lock_file.close();
+        if (!(try tryLockProjectCacheFileExclusive(lock_file))) continue;
+        // Drop the lock handle before unlinking so Windows can remove the file.
+        lock_file.close();
+        lock_open = false;
+        locks_dir.deleteFile(name) catch {};
+    }
+}
+
+fn projectCacheLockFileKeyName(name: []const u8) ?[]const u8 {
+    if (std.mem.endsWith(u8, name, ".build.lock")) {
+        const key = name[0 .. name.len - ".build.lock".len];
+        return if (isHexCacheKey(key)) key else null;
+    }
+    if (std.mem.endsWith(u8, name, ".lock")) {
+        const key = name[0 .. name.len - ".lock".len];
+        return if (isHexCacheKey(key)) key else null;
+    }
+    return null;
 }
 
 fn cleanProjectCache(allocator: std.mem.Allocator, project_root: []const u8, options: CacheCleanOptions) !CacheCleanStats {
@@ -9076,7 +9180,7 @@ fn loadIncrementalObjectManifestAtPath(
 ) ?IncrementalObjectManifest {
     const entry_path = projectCacheDir(allocator, project_root, .build_obj_incremental, cache_key) catch return null;
     defer allocator.free(entry_path);
-    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true, .no_follow = true }) catch return null;
+    var entry_dir = openProjectCacheEntryDir(entry_path) catch return null;
     defer entry_dir.close();
     return readIncrementalObjectManifest(allocator, entry_dir, cache_key.slice(), expected_source) catch null;
 }
@@ -9346,6 +9450,22 @@ fn cachePathIsRegularFile(path: []const u8) bool {
     return false;
 }
 
+/// Open a project-cache entry directory without following a final symlink.
+/// Callers that only need a presence check still fail closed on symlink dirs.
+fn openProjectCacheEntryDir(entry_path: []const u8) !std.fs.Dir {
+    return std.fs.cwd().openDir(entry_path, .{ .iterate = true, .no_follow = true });
+}
+
+fn projectCacheEntryPathIsSymlinkDir(entry_path: []const u8) bool {
+    const parent = std.fs.path.dirname(entry_path) orelse ".";
+    const basename = std.fs.path.basename(entry_path);
+    var dir = std.fs.cwd().openDir(parent, .{ .iterate = true, .no_follow = true }) catch return false;
+    defer dir.close();
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    _ = dir.readLink(basename, &link_buf) catch return false;
+    return true;
+}
+
 fn createIncrementalObjectStagingPath(allocator: std.mem.Allocator, object_path: []const u8) ![]u8 {
     try ensureParentDir(object_path);
     for (0..8) |_| {
@@ -9515,7 +9635,7 @@ fn cleanupIncrementalObjectEntry(
 
     const entry_path = projectCacheDir(allocator, project_root, .build_obj_incremental, cache_key) catch return;
     defer allocator.free(entry_path);
-    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true, .no_follow = true }) catch return;
+    var entry_dir = openProjectCacheEntryDir(entry_path) catch return;
     defer entry_dir.close();
 
     if (entry_dir.openDir("functions", .{ .iterate = true, .no_follow = true })) |functions_dir_value| {
@@ -12856,8 +12976,9 @@ test "project cache manifest rejects symlink test metadata entries" {
     defer std.testing.allocator.free(artifact_path);
     const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .test_cache, key, "output.bin");
     defer std.testing.allocator.free(output_path);
-    const real_metadata_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .test_cache, key, "test-metadata-real.json");
-    defer std.testing.allocator.free(real_metadata_path);
+    // Keep the real metadata payload outside the entry directory so the only
+    // entry-side violation is the metadata symlink itself.
+    const real_metadata_path = "test-metadata-real.json";
     const metadata_path = try projectCacheTestMetadataPath(std.testing.allocator, project_root, key);
     defer std.testing.allocator.free(metadata_path);
     const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .test_cache, key);
@@ -12865,7 +12986,7 @@ test "project cache manifest rejects symlink test metadata entries" {
     try writeAllFile(artifact_path, "artifact");
     try writeAllFile(output_path, "output");
     try writeAllFile(real_metadata_path, "{\"version\":1,\"tests\":[]}\n");
-    try std.fs.cwd().symLink("test-metadata-real.json", metadata_path, .{});
+    try std.fs.cwd().symLink("../../test-metadata-real.json", metadata_path, .{});
     try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .test_cache, key, artifact_path, output_path, real_metadata_path, &.{});
 
     try std.testing.expectEqual(
@@ -13502,6 +13623,88 @@ test "project cache injects manifest and publish store failures without partial 
     try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, publish_key).?);
 }
 
+test "project cache injects sync and rename IO failures without partial entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "io-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "io-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    // First sync is the artifact copy; fail closed with copy_artifact stage.
+    var sync_key = ProjectCacheKey{ .hex = undefined };
+    @memset(sync_key.hex[0..], '1');
+    projectCacheIoTestArm("sync", 0);
+    defer projectCacheIoTestDisarm();
+    try std.testing.expectError(
+        error.TestInjectedIoFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            sync_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, sync_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, sync_key).?);
+    try std.testing.expectEqualStrings("copy_artifact", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, sync_key).?);
+
+    // First rename is the atomic manifest commit; fail closed with manifest stage.
+    var manifest_rename_key = ProjectCacheKey{ .hex = undefined };
+    @memset(manifest_rename_key.hex[0..], '2');
+    projectCacheIoTestArm("rename", 0);
+    try std.testing.expectError(
+        error.TestInjectedIoFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            manifest_rename_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, manifest_rename_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, manifest_rename_key).?);
+    try std.testing.expectEqualStrings("manifest", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, manifest_rename_key).?);
+
+    // Second rename is the final staging publish; fail closed with publish stage.
+    var publish_rename_key = ProjectCacheKey{ .hex = undefined };
+    @memset(publish_rename_key.hex[0..], '3');
+    projectCacheIoTestArm("rename", 1);
+    try std.testing.expectError(
+        error.TestInjectedIoFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            publish_rename_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, publish_rename_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, publish_rename_key).?);
+    try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, publish_rename_key).?);
+}
+
 test "project cache single flight hands a failed owner to one waiter" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -13797,6 +14000,82 @@ test "project cache clean pins an active staging writer" {
     project_cache_store_test_pause = null;
     if (writer.failure) |err| return err;
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+}
+
+test "project cache rejects symlink entry directories" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'e'} ** 64 };
+    const final_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(final_dir);
+    try std.fs.cwd().makePath("real-entry");
+    try writeAllFile("real-entry/artifact.sa.bc", "artifact");
+    try writeAllFile("real-entry/output.bin", "output");
+    try projectCacheWriteManifestAt(
+        std.testing.allocator,
+        "real-entry/manifest.json",
+        .build_exe,
+        key,
+        "real-entry/artifact.sa.bc",
+        "real-entry/output.bin",
+        null,
+        &.{},
+    );
+    try std.fs.cwd().makePath(std.fs.path.dirname(final_dir).?);
+    try std.fs.cwd().symLink("../../real-entry", final_dir, .{ .is_directory = true });
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    try std.testing.expect(projectCacheEntryPathIsSymlinkDir(final_dir));
+    try std.testing.expect(!projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.incomplete,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "entry.symlink",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache clean reclaims stale unowned lock files" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], 'a');
+
+    // Stale entry lock and build lock with no corresponding entry directory.
+    const entry_lock = try projectCacheLockPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_lock);
+    const build_lock = try projectCacheBuildLockPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(build_lock);
+    try writeAllFile(entry_lock, "");
+    try writeAllFile(build_lock, "");
+    try writeAllFile(".sa_cache/build-exe/.locks/not-a-key.lock", "");
+
+    _ = try cleanProjectCache(std.testing.allocator, project_root, .{ .max_age_days = 0 });
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(entry_lock, .{}));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(build_lock, .{}));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(".sa_cache/build-exe/.locks/not-a-key.lock", .{}));
 }
 
 test "project cache clean recovers orphaned crash staging entries" {
