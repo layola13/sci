@@ -170,6 +170,41 @@ fn validateGitHubRunNumber(name: []const u8, value: []const u8) !void {
     }
 }
 
+fn expectedRuntimeTarget(platform: []const u8, arch: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, platform, "macos")) {
+        if (std.mem.eql(u8, arch, "x86_64")) return "x86_64-macos";
+        if (std.mem.eql(u8, arch, "arm64")) return "aarch64-macos";
+        return error.UnsupportedArch;
+    }
+    if (std.mem.eql(u8, platform, "windows")) {
+        if (std.mem.eql(u8, arch, "x86_64")) return "native";
+        return error.UnsupportedArch;
+    }
+    return error.UnsupportedPlatform;
+}
+
+fn validatePlatformArchTarget(options: Options) !void {
+    const expected_runtime_target = try expectedRuntimeTarget(options.platform, options.arch);
+    switch (options.kind) {
+        .smoke => {
+            if (options.target != null) {
+                std.debug.print("native smoke evidence must not use --target\n", .{});
+                return error.InvalidEvidenceArgument;
+            }
+        },
+        .runtime => {
+            const actual_target = options.target orelse return error.MissingTarget;
+            if (!std.mem.eql(u8, actual_target, expected_runtime_target)) {
+                std.debug.print(
+                    "native runtime evidence target mismatch for {s}/{s}: expected '{s}', got '{s}'\n",
+                    .{ options.platform, options.arch, expected_runtime_target, actual_target },
+                );
+                return error.EvidenceMismatch;
+            }
+        },
+    }
+}
+
 fn expectedArchive(platform: []const u8, arch: []const u8) ![]const u8 {
     if (std.mem.eql(u8, platform, "macos")) {
         if (std.mem.eql(u8, arch, "x86_64")) return "sa-macos-x86_64.tar.gz";
@@ -254,6 +289,7 @@ fn validateEvidence(root: std.json.Value, options: Options) !void {
     try validateGitHubSha(options.github_sha);
     try validateGitHubRunNumber("github_run_id", options.github_run_id);
     try validateGitHubRunNumber("github_run_attempt", options.github_run_attempt);
+    try validatePlatformArchTarget(options);
 
     try expectInteger(root, "evidence_schema_version", evidence_schema_version);
     try expectString(root, "platform", options.platform);
@@ -275,7 +311,7 @@ fn validateEvidence(root: std.json.Value, options: Options) !void {
             try validateInstallerTransports(root);
         },
         .runtime => {
-            try expectString(root, "target", options.target orelse return error.MissingTarget);
+            try expectString(root, "target", options.target.?);
             try expectString(root, "runtime_evidence", "passed");
             try validatePassedGates(root, options.platform);
         },
@@ -523,6 +559,95 @@ test "rejects malformed GitHub provenance arguments" {
         .github_sha = "fedcba9876543210fedcba9876543210fedcba98",
         .github_run_id = "100",
         .github_run_attempt = "retry-2",
+        .path = "unused",
+    }));
+}
+
+test "rejects unsupported platform target matrix drift" {
+    const macos_source =
+        \\{
+        \\  "arch": "x86_64",
+        \\  "evidence_schema_version": 1,
+        \\  "github_run_attempt": "1",
+        \\  "github_run_id": "99",
+        \\  "github_sha": "0123456789abcdef0123456789abcdef01234567",
+        \\  "llvm_version": "14.0.6",
+        \\  "passed_gates": ["plugin-host-smoke", "daemon-smoke", "test-runtime-basic", "test-runtime-pal", "test-runtime-netx", "test-runtime-darwin", "test-runtime-darwin-socket", "test-runtime-darwin-pty"],
+        \\  "platform": "macos",
+        \\  "runtime_evidence": "passed",
+        \\  "target": "aarch64-macos",
+        \\  "zig_version": "0.14.1"
+        \\}
+    ;
+    try std.testing.expectError(error.EvidenceMismatch, validateEvidenceSource(std.testing.allocator, macos_source, .{
+        .kind = .runtime,
+        .platform = "macos",
+        .arch = "x86_64",
+        .target = "aarch64-macos",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
+        .github_sha = "0123456789abcdef0123456789abcdef01234567",
+        .github_run_id = "99",
+        .github_run_attempt = "1",
+        .path = "unused",
+    }));
+
+    const windows_source =
+        \\{
+        \\  "arch": "x86_64",
+        \\  "evidence_schema_version": 1,
+        \\  "github_run_attempt": "1",
+        \\  "github_run_id": "99",
+        \\  "github_sha": "fedcba9876543210fedcba9876543210fedcba98",
+        \\  "llvm_version": "14.0.6",
+        \\  "passed_gates": ["test-runtime-basic", "test-runtime-pal", "test-runtime-netx", "test-runtime-windows"],
+        \\  "platform": "windows",
+        \\  "runtime_evidence": "passed",
+        \\  "target": "x86_64-windows-gnu",
+        \\  "zig_version": "0.14.1"
+        \\}
+    ;
+    try std.testing.expectError(error.EvidenceMismatch, validateEvidenceSource(std.testing.allocator, windows_source, .{
+        .kind = .runtime,
+        .platform = "windows",
+        .arch = "x86_64",
+        .target = "x86_64-windows-gnu",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
+        .github_sha = "fedcba9876543210fedcba9876543210fedcba98",
+        .github_run_id = "99",
+        .github_run_attempt = "1",
+        .path = "unused",
+    }));
+
+    const unsupported_source =
+        \\{
+        \\  "arch": "arm64",
+        \\  "archive": "sa-windows-arm64.zip",
+        \\  "evidence_schema_version": 1,
+        \\  "github_run_attempt": "2",
+        \\  "github_run_id": "100",
+        \\  "github_sha": "fedcba9876543210fedcba9876543210fedcba98",
+        \\  "http_installed_version": "sa 0.0.4",
+        \\  "installed_version": "sa 0.0.4",
+        \\  "installer_transports": ["file", "http"],
+        \\  "llvm_version": "14.0.6",
+        \\  "native_smoke": "passed",
+        \\  "platform": "windows",
+        \\  "staged_version": "sa 0.0.4",
+        \\  "wasm_magic": "0061736d",
+        \\  "zig_version": "0.14.1"
+        \\}
+    ;
+    try std.testing.expectError(error.UnsupportedArch, validateEvidenceSource(std.testing.allocator, unsupported_source, .{
+        .kind = .smoke,
+        .platform = "windows",
+        .arch = "arm64",
+        .zig_version = "0.14.1",
+        .llvm_version = "14.0.6",
+        .github_sha = "fedcba9876543210fedcba9876543210fedcba98",
+        .github_run_id = "100",
+        .github_run_attempt = "2",
         .path = "unused",
     }));
 }

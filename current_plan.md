@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence platform-target matrix hardening
+
+1. [x] Keep the worktree clean before starting the batch.
+2. [x] Validate native evidence platform/architecture combinations in the shared validator.
+3. [x] Validate runtime evidence target values against the platform/architecture matrix.
+4. [x] Lock the stricter matrix with validator tests and macOS/Windows source contracts.
+5. [x] Run focused validator/CI contract validation, then commit and push the batch.
+
 ## Current turn: native evidence provenance-shape hardening
 
 1. [x] Keep the worktree clean before starting the batch.

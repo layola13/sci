@@ -2,6 +2,13 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 native evidence platform-target matrix hardening
+
+- `tools/ci/validate_native_evidence.zig` now rejects unsupported platform/architecture combinations and runtime target drift before accepting macOS/Windows native smoke or runtime evidence. The accepted runtime matrix is macOS `x86_64 -> x86_64-macos`, macOS `arm64 -> aarch64-macos`, and Windows `x86_64 -> native`; smoke evidence rejects unexpected `--target`.
+- The macOS/Windows source contracts lock the matrix validator and expected target strings, and validator tests cover macOS target drift, Windows non-native target drift, and unsupported Windows `arm64` smoke evidence.
+- Validation passed on Linux: `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `zig build native-evidence-validator --summary all` -> `7/7`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `7/7`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `7/7`; `zig build release-contract --summary all` -> release contract `7/7` plus validator `7/7`; `git diff --check`.
+- Evidence boundary: this is Linux validator/source-contract hardening until macOS/Windows runners execute the updated workflows.
+
 ## Focused verified: 2026-07-17 native evidence provenance-shape hardening
 
 - `tools/ci/validate_native_evidence.zig` now rejects malformed GitHub provenance expectations before accepting macOS/Windows native smoke or runtime evidence: `github_sha` must be a full 40-character hex commit id, and `github_run_id` / `github_run_attempt` must be positive decimal integers.

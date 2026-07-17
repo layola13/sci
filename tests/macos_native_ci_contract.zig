@@ -382,6 +382,8 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(evidence_validator_source, "fn validateRequiredEvidenceArgument");
     try expectContains(evidence_validator_source, "fn validateGitHubSha");
     try expectContains(evidence_validator_source, "fn validateGitHubRunNumber");
+    try expectContains(evidence_validator_source, "fn expectedRuntimeTarget");
+    try expectContains(evidence_validator_source, "fn validatePlatformArchTarget");
     try expectContains(evidence_validator_source, "error.InvalidEvidenceArgument");
     try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"zig_version\", options.zig_version);");
     try expectContains(evidence_validator_source, "try validateRequiredEvidenceArgument(\"llvm_version\", options.llvm_version);");
@@ -391,6 +393,9 @@ test "build graph exposes macOS dual-architecture portability entry points" {
     try expectContains(evidence_validator_source, "try validateGitHubSha(options.github_sha);");
     try expectContains(evidence_validator_source, "try validateGitHubRunNumber(\"github_run_id\", options.github_run_id);");
     try expectContains(evidence_validator_source, "try validateGitHubRunNumber(\"github_run_attempt\", options.github_run_attempt);");
+    try expectContains(evidence_validator_source, "try validatePlatformArchTarget(options);");
+    try expectContains(evidence_validator_source, "return \"x86_64-macos\";");
+    try expectContains(evidence_validator_source, "return \"aarch64-macos\";");
     try expectContains(evidence_validator_source, "--zig-version");
     try expectContains(evidence_validator_source, "--llvm-version");
     try expectContains(evidence_validator_source, "try expectString(root, \"zig_version\", options.zig_version);");
