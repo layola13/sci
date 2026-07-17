@@ -2,9 +2,11 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
-## Focused in progress: 2026-07-17 native evidence provenance-shape hardening
+## Focused verified: 2026-07-17 native evidence provenance-shape hardening
 
-- Goal: make the shared native evidence validator reject malformed GitHub provenance expectations before accepting macOS/Windows native smoke or runtime evidence.
+- `tools/ci/validate_native_evidence.zig` now rejects malformed GitHub provenance expectations before accepting macOS/Windows native smoke or runtime evidence: `github_sha` must be a full 40-character hex commit id, and `github_run_id` / `github_run_attempt` must be positive decimal integers.
+- The macOS/Windows source contracts lock the provenance-shape validator calls, and validator tests cover short SHA, zero run id, and non-decimal run attempt rejection.
+- Validation passed on Linux: `zig fmt --check tools/ci/validate_native_evidence.zig tests/macos_native_ci_contract.zig tests/windows_native_ci_contract.zig`; `zig build native-evidence-validator --summary all` -> `6/6`; `zig build macos-ci-contract --summary all` -> macOS contract `3/3` plus validator `6/6`; `zig build windows-ci-contract --summary all` -> Windows contract `5/5` plus validator `6/6`; `zig build release-contract --summary all` -> release contract `7/7` plus validator `6/6`; `git diff --check`.
 - Evidence boundary: this is Linux validator/source-contract hardening until macOS/Windows runners execute the updated workflows.
 
 ## Focused verified: 2026-07-17 native evidence required-field hardening

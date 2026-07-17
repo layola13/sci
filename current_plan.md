@@ -2,6 +2,14 @@
 
 Date: 2026-07-17
 
+## Current turn: native evidence provenance-shape hardening
+
+1. [x] Keep the worktree clean before starting the batch.
+2. [x] Require native evidence GitHub SHA expectations to be full 40-character hexadecimal commit IDs.
+3. [x] Require native evidence GitHub run id and run attempt expectations to be positive decimal integers.
+4. [x] Lock the stricter provenance shape with validator tests and macOS/Windows source contracts.
+5. [x] Run focused validator/CI contract validation, then commit and push the batch.
+
 ## Current turn: native evidence required-field hardening
 
 1. [x] Keep the worktree clean before starting the batch.

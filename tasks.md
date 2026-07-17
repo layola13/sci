@@ -3,10 +3,10 @@
 ## Current native evidence provenance-shape hardening batch (2026-07-17)
 
 - [x] Keep the worktree clean before starting the batch.
-- [ ] Require native evidence GitHub SHA expectations to be full 40-character hexadecimal commit IDs.
-- [ ] Require native evidence GitHub run id and run attempt expectations to be positive decimal integers.
-- [ ] Lock the stricter provenance shape with Linux-runnable validator tests and macOS/Windows source contracts.
-- [ ] Run focused validator/CI contract validation, then commit/push the selected portability files.
+- [x] Require native evidence GitHub SHA expectations to be full 40-character hexadecimal commit IDs.
+- [x] Require native evidence GitHub run id and run attempt expectations to be positive decimal integers.
+- [x] Lock the stricter provenance shape with Linux-runnable validator tests and macOS/Windows source contracts.
+- [x] Run focused validator/CI contract validation, then commit/push the selected portability files.
 - [ ] Execute the updated native workflows on macOS/Windows runners; this batch is validator/source-contract evidence only until then.
 
 ## Current native evidence required-field hardening batch (2026-07-17)
