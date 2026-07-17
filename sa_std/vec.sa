@@ -114,6 +114,34 @@
     EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_default_slice_%out_iter
 [END_MACRO]
 
+[MACRO] VEC_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
+    EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+    EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
+    EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+    EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_ITER_CLONE_U64 %out_iter, %iter_reg
+    EXPAND ITER_CLONE %out_iter, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_U64 %out_iter, %out_vec, %vec_reg
     EXPAND VEC_INTO_RAW_PARTS __vec_into_iter_ptr_%out_iter, __vec_into_iter_len_%out_iter, __vec_into_iter_cap_%out_iter, %vec_reg
     EXPAND VEC_FROM_RAW_PARTS %out_vec, __vec_into_iter_ptr_%out_iter, __vec_into_iter_len_%out_iter, __vec_into_iter_cap_%out_iter

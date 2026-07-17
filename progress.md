@@ -8840,3 +8840,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_trait_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10734+.
+
+## Completed: 2026-07-17 Vec Iter trait/clone
+
+- `sa_std/vec.sa`: Added `VEC_ITER_AS_REF_SLICE_U64`, `VEC_ITER_CLONE_U64`, `VEC_ITER_NEXT_U64`, `VEC_ITER_NEXT_BACK_U64`, `VEC_ITER_SIZE_HINT_U64`, `VEC_ITER_EXACT_SIZE_LEN_U64`, and `VEC_ITER_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers expose the supportable concrete borrowed `slice::Iter<u64>` / `Vec::iter` AsRef, Clone, Iterator, DoubleEndedIterator, ExactSizeIterator, and fused exhaustion shapes over the existing Vec slice-backed cursor. Cloning copies cursor state over the same borrowed Vec storage; it does not clone Vec elements into new owned storage and does not apply to `IterMut`.
+- Test: `tests/unit_framework/std_vec_iter_trait_clone_macro_surface.sa` — 1 test (panic ID 10734) covering remaining-slice view, initial/remaining size hints, clone after partial consumption, independent cursor advancement, repeated exhaustion, default empty clone, and unchanged Vec storage.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_iter_trait_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10735+.
