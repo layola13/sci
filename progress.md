@@ -8813,3 +8813,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10731+.
+
+## Completed: 2026-07-17 BinaryHeap IntoIterSorted trait ops
+
+- `sa_std/binary_heap.sa`: Added `BINARY_HEAP_INTO_ITER_SORTED_NEXT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_SIZE_HINT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_LEN_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: these helpers expose the supportable concrete unstable `binary_heap::IntoIterSorted<u64>` Iterator, ExactSizeIterator, and fused exhaustion shapes over the existing descending materialized backing Vec cursor. Only forward `next` is exposed, matching Rust's lack of a DoubleEndedIterator impl for IntoIterSorted.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_trait_macro_surface.sa` — 1 test (panic ID 10731) covering descending forward order, initial/remaining exact size hints, exhausted repeated next, and empty input.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_trait_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10732+.
