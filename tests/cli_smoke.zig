@@ -1717,6 +1717,14 @@ test "cli build project cache is default and can be disabled" {
 
     const cache_key = try singleCacheEntryName(std.testing.allocator, tmp.dir, ".sa_cache/build-exe");
     defer std.testing.allocator.free(cache_key);
+    const key_input_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/.key-inputs/build-exe/{s}.json", .{cache_key});
+    defer std.testing.allocator.free(key_input_path);
+    const key_input_bytes = try tmp.dir.readFileAlloc(std.testing.allocator, key_input_path, 64 * 1024);
+    defer std.testing.allocator.free(key_input_bytes);
+    try std.testing.expect(std.mem.containsAtLeast(u8, key_input_bytes, 1, "\"key_prefix\":"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, key_input_bytes, 1, "\"name\":\"command\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, key_input_bytes, 1, "\"name\":\"source_tree\""));
+    try std.testing.expect(std.mem.indexOf(u8, key_input_bytes, cache_key) == null);
     const cached_output_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/build-exe/{s}/output.bin", .{cache_key});
     defer std.testing.allocator.free(cached_output_path);
     const cached_manifest_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/build-exe/{s}/manifest.json", .{cache_key});
@@ -2318,6 +2326,17 @@ test "cli cache status and why explain project cache entries" {
     var candidate_miss_key_buf = [_]u8{'b'} ** 64;
     candidate_miss_key_buf[12] = 'a';
     const candidate_miss_key = candidate_miss_key_buf[0..];
+    try tmp.dir.makePath(".sa_cache/.key-inputs/build-exe");
+    const candidate_key_input_path = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/.key-inputs/build-exe/{s}.json", .{candidate_miss_key});
+    defer std.testing.allocator.free(candidate_key_input_path);
+    try writeBytes(tmp.dir, ".sa_cache/.key-inputs/build-exe/" ++ good_key ++ ".json",
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"2222222222222222222222222222222222222222222222222222222222222222"}]}
+        \\
+    );
+    try writeBytes(tmp.dir, candidate_key_input_path,
+        \\{"version":1,"kind":"build-exe","key_prefix":"bbbbbbbbbbbb","fields":[{"name":"schema","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},{"name":"command","sha256":"3333333333333333333333333333333333333333333333333333333333333333"}]}
+        \\
+    );
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
     const why_candidate_argv = [_][]const u8{ "sa", "cache", "why", "--kind", "build-exe", "--key", candidate_miss_key, "--json" };
@@ -2326,8 +2345,10 @@ test "cli cache status and why explain project cache entries" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"reason\":\"absent\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"key_prefix\":\"bbbbbbbbbbbb\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.digest\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "\"first_difference\":\"key.command\""));
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, good_key) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "2222222222222222222222222222222222222222222222222222222222222222") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "3333333333333333333333333333333333333333333333333333333333333333") == null);
 
     stdout_buf.clearRetainingCapacity();
     const status_help_argv = [_][]const u8{ "sa", "cache", "status", "--help" };

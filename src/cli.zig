@@ -5667,6 +5667,86 @@ const ProjectCacheKey = struct {
     }
 };
 
+const ProjectCacheKeyInputField = enum {
+    schema,
+    compiler,
+    backend,
+    toolchain,
+    host_target,
+    project,
+    command,
+    wasm_target,
+    semantic_file_inputs,
+    project_manifests,
+    source_tree,
+
+    fn jsonName(self: ProjectCacheKeyInputField) []const u8 {
+        return switch (self) {
+            .schema => "schema",
+            .compiler => "compiler",
+            .backend => "backend",
+            .toolchain => "toolchain",
+            .host_target => "host_target",
+            .project => "project",
+            .command => "command",
+            .wasm_target => "wasm_target",
+            .semantic_file_inputs => "semantic_file_inputs",
+            .project_manifests => "project_manifests",
+            .source_tree => "source_tree",
+        };
+    }
+};
+
+const project_cache_key_input_fields = [_]ProjectCacheKeyInputField{
+    .schema,
+    .compiler,
+    .backend,
+    .toolchain,
+    .host_target,
+    .project,
+    .command,
+    .wasm_target,
+    .semantic_file_inputs,
+    .project_manifests,
+    .source_tree,
+};
+
+const ProjectCacheKeyInputTrace = struct {
+    hashers: [project_cache_key_input_fields.len]std.crypto.hash.sha2.Sha256,
+    seen: [project_cache_key_input_fields.len]bool,
+
+    fn init() ProjectCacheKeyInputTrace {
+        var trace: ProjectCacheKeyInputTrace = undefined;
+        for (&trace.hashers) |*hasher| hasher.* = std.crypto.hash.sha2.Sha256.init(.{});
+        trace.seen = [_]bool{false} ** project_cache_key_input_fields.len;
+        return trace;
+    }
+
+    fn addBytes(self: *ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField, bytes: []const u8) void {
+        const idx = @intFromEnum(field);
+        self.seen[idx] = true;
+        self.hashers[idx].update(bytes);
+        self.hashers[idx].update(&[_]u8{0});
+    }
+
+    fn addBool(self: *ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField, value: bool) void {
+        self.addBytes(field, &[_]u8{if (value) 1 else 0});
+    }
+
+    fn addU64(self: *ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField, value: u64) void {
+        var buf: [8]u8 = undefined;
+        std.mem.writeInt(u64, &buf, value, .little);
+        self.addBytes(field, &buf);
+    }
+
+    fn digestHex(self: *const ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField) [64]u8 {
+        var hasher = self.hashers[@intFromEnum(field)];
+        var digest: [32]u8 = undefined;
+        hasher.final(&digest);
+        return std.fmt.bytesToHex(digest, .lower);
+    }
+};
+
 fn cacheBytes(hasher: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
     hasher.update(bytes);
     hasher.update(&[_]u8{0});
@@ -5682,16 +5762,39 @@ fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
     hasher.update(&.{if (value) 1 else 0});
 }
 
+fn cacheTraceBytes(hasher: *std.crypto.hash.sha2.Sha256, trace: ?*ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField, bytes: []const u8) void {
+    cacheBytes(hasher, bytes);
+    if (trace) |key_trace| key_trace.addBytes(field, bytes);
+}
+
+fn cacheTraceU64(hasher: *std.crypto.hash.sha2.Sha256, trace: ?*ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField, value: u64) void {
+    cacheU64(hasher, value);
+    if (trace) |key_trace| key_trace.addU64(field, value);
+}
+
+fn cacheTraceBool(hasher: *std.crypto.hash.sha2.Sha256, trace: ?*ProjectCacheKeyInputTrace, field: ProjectCacheKeyInputField, value: bool) void {
+    cacheBool(hasher, value);
+    if (trace) |key_trace| key_trace.addBool(field, value);
+}
+
 fn cacheCompilerVersion() []const u8 {
     if (builtin.is_test) return "test";
     return build_options.version;
 }
 
 fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem.Allocator, path: []const u8) !void {
+    try projectFileMaybeHashWithTrace(hasher, null, allocator, path);
+}
+
+fn projectFileMaybeHashWithTrace(hasher: *std.crypto.hash.sha2.Sha256, trace: ?*ProjectCacheKeyInputTrace, allocator: std.mem.Allocator, path: []const u8) !void {
     if (!projectPathExists(path)) return;
     const bytes = try readTextFileAlloc(allocator, path);
     defer allocator.free(bytes);
     cacheBytes(hasher, bytes);
+    if (trace) |key_trace| {
+        key_trace.addBytes(.project_manifests, path);
+        key_trace.addBytes(.project_manifests, bytes);
+    }
 }
 
 const SourceTreeFileStat = struct {
@@ -5842,9 +5945,13 @@ fn evictSourceTreeHashCacheIfNeeded(cache: *std.StringHashMap(SourceTreeHashCach
     }
 }
 
-fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32]u8) void {
+fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, trace: ?*ProjectCacheKeyInputTrace, digest: [32]u8) void {
     cacheBytes(hasher, "source-tree-digest-v1");
     hasher.update(&digest);
+    if (trace) |key_trace| {
+        key_trace.addBytes(.source_tree, "source-tree-digest-v1");
+        key_trace.addBytes(.source_tree, &digest);
+    }
 }
 
 fn hashResolvedSourceTreeUncached(
@@ -5904,6 +6011,7 @@ fn hashResolvedSourceTreeUncached(
 fn hashResolvedSourceTree(
     allocator: std.mem.Allocator,
     hasher: *std.crypto.hash.sha2.Sha256,
+    trace: ?*ProjectCacheKeyInputTrace,
     dependencies: []pkg_resolver.Dependency,
     plugin_import_roots: []const []const u8,
     project_root: []const u8,
@@ -5916,7 +6024,7 @@ fn hashResolvedSourceTree(
     const cache_key = try buildSourceTreeHashCacheKey(allocator, dependencies, plugin_import_roots, project_root, std_root, offline, real_source_path);
     defer allocator.free(cache_key);
     if (sourceTreeHashCacheHit(cache_key)) |result| {
-        addSourceTreeDigestToHasher(hasher, result.digest);
+        addSourceTreeDigestToHasher(hasher, trace, result.digest);
         return result.project_cacheable;
     }
 
@@ -5937,8 +6045,133 @@ fn hashResolvedSourceTree(
     var digest: [32]u8 = undefined;
     tree_hasher.final(&digest);
     try storeSourceTreeHashCacheEntry(cache_key, digest, project_cacheable, files.items);
-    addSourceTreeDigestToHasher(hasher, digest);
+    addSourceTreeDigestToHasher(hasher, trace, digest);
     return project_cacheable;
+}
+
+fn computeProjectBuildKeyWithTrace(
+    allocator: std.mem.Allocator,
+    project_context: *const ProjectContext,
+    project_root: []const u8,
+    source_path: []const u8,
+    target_name: []const u8,
+    source_suffix: []const u8,
+    kind: BuildCacheKind,
+    debug: bool,
+    release_fast: bool,
+    incremental: bool,
+    wasm: ?WasmTarget,
+    hash_source_tree: bool,
+    offline: bool,
+    dce: DceMode,
+    jobs: ?usize,
+    jobs_explicit: bool,
+    semantic_file_inputs: []const []const u8,
+    trace: ?*ProjectCacheKeyInputTrace,
+) !?ProjectCacheKey {
+    const std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(std_root);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var project_cacheable = true;
+    cacheTraceBytes(&hasher, trace, .schema, "sa-build-cache-v3");
+    cacheTraceBytes(&hasher, trace, .compiler, cacheCompilerVersion());
+    const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
+    defer allocator.free(backend_identity);
+    cacheTraceBytes(&hasher, trace, .backend, backend_identity);
+    const toolchain_identity = try driver.toolchainCacheIdentity(allocator, .{
+        .path_env = if (builtin.is_test) project_build_key_toolchain_path_override else null,
+        .include_objcopy = kind == .build_obj_incremental,
+    });
+    defer allocator.free(toolchain_identity);
+    cacheTraceBytes(&hasher, trace, .toolchain, toolchain_identity);
+    cacheTraceBytes(&hasher, trace, .compiler, builtin.zig_version_string);
+    cacheTraceBytes(&hasher, trace, .host_target, @tagName(builtin.target.cpu.arch));
+    cacheTraceBytes(&hasher, trace, .host_target, builtin.target.cpu.model.name);
+    cacheTraceBytes(&hasher, trace, .host_target, @tagName(builtin.target.os.tag));
+    cacheTraceBytes(&hasher, trace, .host_target, @tagName(builtin.target.abi));
+    cacheTraceBytes(&hasher, trace, .project, project_root);
+    cacheTraceBytes(&hasher, trace, .command, kind.dirName());
+    cacheTraceBytes(&hasher, trace, .command, source_path);
+    cacheTraceBytes(&hasher, trace, .command, target_name);
+    cacheTraceBytes(&hasher, trace, .command, source_suffix);
+    cacheTraceBool(&hasher, trace, .command, debug);
+    cacheTraceBool(&hasher, trace, .command, release_fast);
+    cacheTraceBool(&hasher, trace, .command, incremental);
+    cacheTraceBytes(&hasher, trace, .command, dce.name());
+    cacheTraceBool(&hasher, trace, .command, jobs_explicit);
+    cacheTraceU64(&hasher, trace, .command, if (jobs) |count| @intCast(count) else 0);
+    if (wasm) |target| {
+        cacheTraceBytes(&hasher, trace, .wasm_target, target.triple);
+        cacheTraceBool(&hasher, trace, .wasm_target, target.no_entry);
+        cacheTraceU64(&hasher, trace, .wasm_target, target.size_bits);
+    }
+    for (semantic_file_inputs) |path| {
+        const canonical_path = try std.fs.cwd().realpathAlloc(allocator, path);
+        defer allocator.free(canonical_path);
+        const stat = try std.fs.cwd().statFile(canonical_path);
+        if (stat.kind != .file) return error.InvalidCacheInput;
+        const digest_hex = try hashFileHex(allocator, canonical_path);
+        cacheTraceBytes(&hasher, trace, .semantic_file_inputs, canonical_path);
+        cacheTraceU64(&hasher, trace, .semantic_file_inputs, stat.size);
+        cacheTraceBytes(&hasher, trace, .semantic_file_inputs, digest_hex[0..]);
+    }
+
+    const project_manifest = project_context.manifest;
+    if (project_manifest) |*m| {
+        cacheTraceBytes(&hasher, trace, .project_manifests, project_context.workspace_manifest_path);
+        if (projectPathExists(project_context.workspace_manifest_path)) {
+            const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
+            defer allocator.free(workspace_manifest_bytes);
+            cacheTraceBytes(&hasher, trace, .project_manifests, workspace_manifest_bytes);
+        }
+        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
+            cacheTraceBytes(&hasher, trace, .project_manifests, project_context.member_manifest_path);
+            if (projectPathExists(project_context.member_manifest_path)) {
+                const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
+                defer allocator.free(member_manifest_bytes);
+                cacheTraceBytes(&hasher, trace, .project_manifests, member_manifest_bytes);
+            }
+        }
+        if (project_context.lock_file != null) {
+            const lock_path = try projectLockPath(allocator, project_context.root_path);
+            defer allocator.free(lock_path);
+            try projectFileMaybeHashWithTrace(&hasher, trace, allocator, lock_path);
+        }
+        if (project_context.sum_file != null) {
+            const sum_path = try projectSumPath(allocator, project_context.root_path);
+            defer allocator.free(sum_path);
+            try projectFileMaybeHashWithTrace(&hasher, trace, allocator, sum_path);
+        }
+        var dependency_slice: []pkg_resolver.Dependency = &.{};
+        defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
+        var plugin_import_roots: []const []const u8 = &.{};
+        defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
+        if (m.requires.len != 0) {
+            dependency_slice = try manifestDependencies(m, allocator);
+        }
+        if (m.plugin_requires.len != 0) {
+            plugin_import_roots = try manifestPluginImportRoots(m, allocator);
+        }
+
+        if (hash_source_tree) {
+            project_cacheable = try hashResolvedSourceTree(allocator, &hasher, trace, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
+        }
+    } else {
+        try projectFileMaybeHashWithTrace(&hasher, trace, allocator, project_context.workspace_manifest_path);
+        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
+            try projectFileMaybeHashWithTrace(&hasher, trace, allocator, project_context.member_manifest_path);
+        }
+        if (hash_source_tree) {
+            project_cacheable = try hashResolvedSourceTree(allocator, &hasher, trace, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
+        }
+    }
+
+    if (!project_cacheable) return null;
+
+    var out: [32]u8 = undefined;
+    hasher.final(&out);
+    return .{ .hex = std.fmt.bytesToHex(out, .lower) };
 }
 
 fn computeProjectBuildKey(
@@ -5960,109 +6193,36 @@ fn computeProjectBuildKey(
     jobs_explicit: bool,
     semantic_file_inputs: []const []const u8,
 ) !?ProjectCacheKey {
-    const std_root = try stdRootFromEnv(allocator);
-    defer allocator.free(std_root);
+    return try computeProjectBuildKeyWithTrace(allocator, project_context, project_root, source_path, target_name, source_suffix, kind, debug, release_fast, incremental, wasm, hash_source_tree, offline, dce, jobs, jobs_explicit, semantic_file_inputs, null);
+}
 
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    var project_cacheable = true;
-    cacheBytes(&hasher, "sa-build-cache-v3");
-    cacheBytes(&hasher, cacheCompilerVersion());
-    const backend_identity = try emit_llvm_llvmc.backendCacheIdentity(allocator);
-    defer allocator.free(backend_identity);
-    cacheBytes(&hasher, backend_identity);
-    const toolchain_identity = try driver.toolchainCacheIdentity(allocator, .{
-        .path_env = if (builtin.is_test) project_build_key_toolchain_path_override else null,
-        .include_objcopy = kind == .build_obj_incremental,
-    });
-    defer allocator.free(toolchain_identity);
-    cacheBytes(&hasher, toolchain_identity);
-    cacheBytes(&hasher, builtin.zig_version_string);
-    cacheBytes(&hasher, @tagName(builtin.target.cpu.arch));
-    cacheBytes(&hasher, builtin.target.cpu.model.name);
-    cacheBytes(&hasher, @tagName(builtin.target.os.tag));
-    cacheBytes(&hasher, @tagName(builtin.target.abi));
-    cacheBytes(&hasher, project_root);
-    cacheBytes(&hasher, kind.dirName());
-    cacheBytes(&hasher, source_path);
-    cacheBytes(&hasher, target_name);
-    cacheBytes(&hasher, source_suffix);
-    cacheBool(&hasher, debug);
-    cacheBool(&hasher, release_fast);
-    cacheBool(&hasher, incremental);
-    cacheBytes(&hasher, dce.name());
-    cacheBool(&hasher, jobs_explicit);
-    cacheU64(&hasher, if (jobs) |count| @intCast(count) else 0);
-    if (wasm) |target| {
-        cacheBytes(&hasher, target.triple);
-        cacheBool(&hasher, target.no_entry);
-        cacheU64(&hasher, target.size_bits);
+fn computeProjectBuildKeyAndRecordInputs(
+    allocator: std.mem.Allocator,
+    project_context: *const ProjectContext,
+    project_root: []const u8,
+    source_path: []const u8,
+    target_name: []const u8,
+    source_suffix: []const u8,
+    kind: BuildCacheKind,
+    debug: bool,
+    release_fast: bool,
+    incremental: bool,
+    wasm: ?WasmTarget,
+    hash_source_tree: bool,
+    offline: bool,
+    dce: DceMode,
+    jobs: ?usize,
+    jobs_explicit: bool,
+    semantic_file_inputs: []const []const u8,
+) !?ProjectCacheKey {
+    var trace = ProjectCacheKeyInputTrace.init();
+    const key = try computeProjectBuildKeyWithTrace(allocator, project_context, project_root, source_path, target_name, source_suffix, kind, debug, release_fast, incremental, wasm, hash_source_tree, offline, dce, jobs, jobs_explicit, semantic_file_inputs, &trace);
+    if (key) |cache_key| {
+        projectCacheWriteKeyInputTelemetry(allocator, project_root, kind, cache_key, &trace) catch |err| {
+            _ = @errorName(err);
+        };
     }
-    for (semantic_file_inputs) |path| {
-        const canonical_path = try std.fs.cwd().realpathAlloc(allocator, path);
-        defer allocator.free(canonical_path);
-        const stat = try std.fs.cwd().statFile(canonical_path);
-        if (stat.kind != .file) return error.InvalidCacheInput;
-        const digest_hex = try hashFileHex(allocator, canonical_path);
-        cacheBytes(&hasher, canonical_path);
-        cacheU64(&hasher, stat.size);
-        cacheBytes(&hasher, digest_hex[0..]);
-    }
-
-    const project_manifest = project_context.manifest;
-    if (project_manifest) |*m| {
-        cacheBytes(&hasher, project_context.workspace_manifest_path);
-        if (projectPathExists(project_context.workspace_manifest_path)) {
-            const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
-            defer allocator.free(workspace_manifest_bytes);
-            cacheBytes(&hasher, workspace_manifest_bytes);
-        }
-        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            cacheBytes(&hasher, project_context.member_manifest_path);
-            if (projectPathExists(project_context.member_manifest_path)) {
-                const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
-                defer allocator.free(member_manifest_bytes);
-                cacheBytes(&hasher, member_manifest_bytes);
-            }
-        }
-        if (project_context.lock_file != null) {
-            const lock_path = try projectLockPath(allocator, project_context.root_path);
-            defer allocator.free(lock_path);
-            try projectFileMaybeHash(&hasher, allocator, lock_path);
-        }
-        if (project_context.sum_file != null) {
-            const sum_path = try projectSumPath(allocator, project_context.root_path);
-            defer allocator.free(sum_path);
-            try projectFileMaybeHash(&hasher, allocator, sum_path);
-        }
-        var dependency_slice: []pkg_resolver.Dependency = &.{};
-        defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
-        var plugin_import_roots: []const []const u8 = &.{};
-        defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
-        if (m.requires.len != 0) {
-            dependency_slice = try manifestDependencies(m, allocator);
-        }
-        if (m.plugin_requires.len != 0) {
-            plugin_import_roots = try manifestPluginImportRoots(m, allocator);
-        }
-
-        if (hash_source_tree) {
-            project_cacheable = try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
-        }
-    } else {
-        try projectFileMaybeHash(&hasher, allocator, project_context.workspace_manifest_path);
-        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            try projectFileMaybeHash(&hasher, allocator, project_context.member_manifest_path);
-        }
-        if (hash_source_tree) {
-            project_cacheable = try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
-        }
-    }
-
-    if (!project_cacheable) return null;
-
-    var out: [32]u8 = undefined;
-    hasher.final(&out);
-    return .{ .hex = std.fmt.bytesToHex(out, .lower) };
+    return key;
 }
 
 fn projectCacheDir(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
@@ -6543,6 +6703,35 @@ fn writeCacheManifestBytesAtomically(allocator: std.mem.Allocator, manifest_path
     try renameCachePath(tmp_path, manifest_path);
 }
 
+fn projectCacheWriteKeyInputTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, trace: *const ProjectCacheKeyInputTrace) !void {
+    const marker_path = try projectCacheKeyInputMarkerPath(allocator, project_root, kind, key);
+    defer allocator.free(marker_path);
+
+    var contents = std.ArrayList(u8).init(allocator);
+    defer contents.deinit();
+    var writer = contents.writer();
+    try writer.writeAll("{\"version\":1,\"kind\":");
+    try writeJsonString(writer, kind.dirName());
+    try writer.writeAll(",\"key_prefix\":");
+    try writeJsonString(writer, key.slice()[0..12]);
+    try writer.writeAll(",\"fields\":[");
+    var first = true;
+    for (project_cache_key_input_fields) |field| {
+        if (!trace.seen[@intFromEnum(field)]) continue;
+        if (!first) try writer.writeByte(',');
+        first = false;
+        const digest_hex = trace.digestHex(field);
+        try writer.writeAll("{\"name\":");
+        try writeJsonString(writer, field.jsonName());
+        try writer.writeAll(",\"sha256\":");
+        try writeJsonString(writer, digest_hex[0..]);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+
+    try writeCacheManifestBytesAtomically(allocator, marker_path, contents.items);
+}
+
 fn projectCacheWriteManifestAt(
     allocator: std.mem.Allocator,
     manifest_path: []const u8,
@@ -6769,6 +6958,12 @@ fn projectCacheStoreEventMarkerPath(allocator: std.mem.Allocator, project_root: 
 
 fn projectCacheStoreEventHistoryDirPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
     return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", ".store-event-history", kind.dirName(), key.slice() });
+}
+
+fn projectCacheKeyInputMarkerPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
+    const filename = try std.fmt.allocPrint(allocator, "{s}.json", .{key.slice()});
+    defer allocator.free(filename);
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", ".key-inputs", kind.dirName(), filename });
 }
 
 fn projectCacheEvictionMarkerPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
@@ -7728,6 +7923,67 @@ fn projectCacheManifestFirstDifference(
     return null;
 }
 
+fn projectCacheKeyInputFieldDigest(value: std.json.Value, field: ProjectCacheKeyInputField) ?[]const u8 {
+    if (!jsonIntEquals(jsonGetObject(value, "version") catch return null, 1)) return null;
+    const fields = switch (jsonGetObject(value, "fields") catch return null) {
+        .array => |items| items.items,
+        else => return null,
+    };
+    if (fields.len > project_cache_key_input_fields.len) return null;
+    for (fields) |item| {
+        const name_value = jsonGetObject(item, "name") catch return null;
+        if (!jsonStringEquals(name_value, field.jsonName())) continue;
+        const digest_value = jsonGetObject(item, "sha256") catch return null;
+        if (!(jsonSha256(digest_value) catch return null)) return null;
+        return jsonString(digest_value) catch return null;
+    }
+    return null;
+}
+
+fn projectCacheKeyInputFirstDifference(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    kind: BuildCacheKind,
+    requested_key: ProjectCacheKey,
+    candidate_key: ProjectCacheKey,
+) ?[]const u8 {
+    const requested_path = projectCacheKeyInputMarkerPath(allocator, project_root, kind, requested_key) catch return null;
+    defer allocator.free(requested_path);
+    const candidate_path = projectCacheKeyInputMarkerPath(allocator, project_root, kind, candidate_key) catch return null;
+    defer allocator.free(candidate_path);
+    const requested_bytes = readTextFileAlloc(allocator, requested_path) catch return null;
+    defer allocator.free(requested_bytes);
+    const candidate_bytes = readTextFileAlloc(allocator, candidate_path) catch return null;
+    defer allocator.free(candidate_bytes);
+
+    var requested = std.json.parseFromSlice(std.json.Value, allocator, requested_bytes, .{}) catch return null;
+    defer requested.deinit();
+    var candidate = std.json.parseFromSlice(std.json.Value, allocator, candidate_bytes, .{}) catch return null;
+    defer candidate.deinit();
+
+    for (project_cache_key_input_fields) |field| {
+        const requested_digest = projectCacheKeyInputFieldDigest(requested.value, field);
+        const candidate_digest = projectCacheKeyInputFieldDigest(candidate.value, field);
+        if (requested_digest == null and candidate_digest == null) continue;
+        if (requested_digest == null or candidate_digest == null or !std.mem.eql(u8, requested_digest.?, candidate_digest.?)) {
+            return switch (field) {
+                .schema => "key.schema",
+                .compiler => "key.compiler",
+                .backend => "key.backend",
+                .toolchain => "key.toolchain",
+                .host_target => "key.host_target",
+                .project => "key.project",
+                .command => "key.command",
+                .wasm_target => "key.wasm_target",
+                .semantic_file_inputs => "key.semantic_file_inputs",
+                .project_manifests => "key.project_manifests",
+                .source_tree => "key.source_tree",
+            };
+        }
+    }
+    return null;
+}
+
 fn projectCacheCandidateKeyFirstDifference(
     allocator: std.mem.Allocator,
     project_root: []const u8,
@@ -7743,7 +7999,10 @@ fn projectCacheCandidateKeyFirstDifference(
     while (iter.next() catch return null) |entry| {
         if (entry.kind != .directory or !isHexCacheKey(entry.name)) continue;
         if (std.mem.eql(u8, entry.name, key.slice())) continue;
-        if (std.mem.startsWith(u8, entry.name, key.slice()[0..12])) return "key.digest";
+        if (std.mem.startsWith(u8, entry.name, key.slice()[0..12])) {
+            const candidate_key = projectCacheKeyFromHex(entry.name) catch return "key.digest";
+            return projectCacheKeyInputFirstDifference(allocator, project_root, kind, key, candidate_key) orelse "key.digest";
+        }
     }
     return null;
 }
@@ -9427,7 +9686,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     const std_archive_path = try saStdArchivePath(allocator);
     defer allocator.free(std_archive_path);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
+        try computeProjectBuildKeyAndRecordInputs(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -9686,7 +9945,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})
+        try computeProjectBuildKeyAndRecordInputs(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -9741,7 +10000,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             if (incremental) {
                 // Function tasks always emit serially, so job scheduling must not
                 // partition their reusable object namespace. DCE remains semantic.
-                const incremental_key = (try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, null, false, &.{})) orelse unreachable;
+                const incremental_key = (try computeProjectBuildKeyAndRecordInputs(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, null, false, &.{})) orelse unreachable;
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, output_stage.output_path, debug, optimization, compile_options, stderr);
                 try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, output_stage.artifact_path);
             } else {
@@ -9781,7 +10040,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})
+        try computeProjectBuildKeyAndRecordInputs(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{})
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -10669,7 +10928,7 @@ fn executeTestInner(
     defer project_context.deinit(allocator);
     const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
+        try computeProjectBuildKeyAndRecordInputs(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.jobs, compile_options.jobs_explicit, &.{std_archive_path})
     else
         null;
     var cache_owner: ?ProjectCacheEntryLock = null;
@@ -11472,7 +11731,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
 
     test_source_tree_load_count = 0;
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, null, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var first_digest: [32]u8 = undefined;
     first_hasher.final(&first_digest);
     try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
@@ -11483,7 +11742,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try std.testing.expect(warmed_import.owned_source == null);
 
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, null, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var second_digest: [32]u8 = undefined;
     second_hasher.final(&second_digest);
     try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
@@ -11496,7 +11755,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     }
 
     var third_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &third_hasher, &.{}, &.{}, project_root, std_root, false, "main.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &third_hasher, null, &.{}, &.{}, project_root, std_root, false, "main.sa");
     var third_digest: [32]u8 = undefined;
     third_hasher.final(&third_digest);
     try std.testing.expect(test_source_tree_load_count > 1);
@@ -11531,14 +11790,14 @@ test "source tree with dynamic compile inputs remains keyable for manifest depfi
     defer std.testing.allocator.free(project_root);
 
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    const first_cacheable = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "main.sa");
+    const first_cacheable = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, null, &.{}, &.{}, project_root, project_root, false, "main.sa");
     try std.testing.expect(first_cacheable);
 
     // Dynamic values are deliberately excluded from this preliminary key.
     // The request-local recorder and manifest prevalidation own that part of
     // the cache contract, including warm source-tree-cache lookups.
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    const second_cacheable = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "main.sa");
+    const second_cacheable = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, null, &.{}, &.{}, project_root, project_root, false, "main.sa");
     try std.testing.expect(second_cacheable);
 }
 
@@ -12422,7 +12681,7 @@ test "source tree hash missing import returns PackageNotResolved without ownersh
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     try std.testing.expectError(
         error.PackageNotResolved,
-        hashResolvedSourceTree(std.testing.allocator, &hasher, &.{}, &.{}, project_root, std_root, false, "main.sa"),
+        hashResolvedSourceTree(std.testing.allocator, &hasher, null, &.{}, &.{}, project_root, std_root, false, "main.sa"),
     );
 }
 
@@ -12463,19 +12722,19 @@ test "source tree hash cache LRU is opt-in" {
 
     test_source_tree_load_count = 0;
     var first_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &first_hasher, null, &.{}, &.{}, project_root, project_root, false, "a.sa");
     try std.testing.expectEqual(@as(usize, 1), test_source_tree_load_count);
 
     var second_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hasher, null, &.{}, &.{}, project_root, project_root, false, "b.sa");
     try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
 
     var second_hit_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hit_hasher, &.{}, &.{}, project_root, project_root, false, "b.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &second_hit_hasher, null, &.{}, &.{}, project_root, project_root, false, "b.sa");
     try std.testing.expectEqual(@as(usize, 2), test_source_tree_load_count);
 
     var first_again_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    _ = try hashResolvedSourceTree(std.testing.allocator, &first_again_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
+    _ = try hashResolvedSourceTree(std.testing.allocator, &first_again_hasher, null, &.{}, &.{}, project_root, project_root, false, "a.sa");
     try std.testing.expectEqual(@as(usize, 3), test_source_tree_load_count);
 }
 
