@@ -8903,3 +8903,12 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10741+.
+
+## Completed: 2026-07-17 Array IntoIter comparator/key aggregate ops
+
+- `sa_std/array.sa`: Added `ARRAY_INTO_ITER_MIN_BY_U64`, `ARRAY_INTO_ITER_MAX_BY_U64`, `ARRAY_INTO_ITER_MIN_BY_KEY_U64`, and `ARRAY_INTO_ITER_MAX_BY_KEY_U64`.
+- Semantics: these helpers expose supportable concrete `array::IntoIter<u64, N>` comparator/key aggregate operations by delegating to existing slice-backed cursor primitives over the explicit backing Vec used by `ARRAY_INTO_ITER_U64`. They use concrete signed-order comparator callbacks, concrete `u64` key callbacks, and explicit `(has, value)` scalars, not Rust `Option<T>` ABI, generic `Ord` trait dispatch, closure capture, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_array_into_iter_min_max_by_macro_surface.sa` — 1 test (panic ID 10741) covering min_by, max_by, min_by_key, max_by_key, empty iterator results, and full cursor consumption.
+- Validation status:
+  - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_array_into_iter_min_max_by_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+- Panic IDs next free: 10742+.

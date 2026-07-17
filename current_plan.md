@@ -4293,3 +4293,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10741+.
 Still blocked without redesign: Rust `Sum` / `Product` / `Ord` trait dispatch, Rust `Option<T>` ABI for min/max/reduce, generic `Try` residual conversion, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter comparator/key aggregate ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter comparator/key aggregate aliases in array.sa: ARRAY_INTO_ITER_MIN_BY_U64, ARRAY_INTO_ITER_MAX_BY_U64, ARRAY_INTO_ITER_MIN_BY_KEY_U64, and ARRAY_INTO_ITER_MAX_BY_KEY_U64.
+- Test file std_array_into_iter_min_max_by_macro_surface.sa (panic ID 10741).
+
+Panic IDs next free: 10742+.
+Still blocked without redesign: Rust `Option<T>` ABI for comparator/key aggregates, generic `Ord` trait dispatch, generic closure capture/call ABI, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
