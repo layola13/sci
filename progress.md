@@ -10,7 +10,7 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 - Test: `tests/unit_framework/std_binary_heap_iter_search_macro_surface.sa` - 1 test (panic ID 10759) covering find hit/miss, try_find success/failure, find_map, position, rposition, rfind, cursor remainders, and heap non-consumption.
 - Validation status:
   - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_search_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
-- Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
 - Panic IDs next free: 10760+.
 
 ## Completed: 2026-07-17 BinaryHeap Iter any/all aliases
@@ -22,6 +22,17 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 - Validation status:
   - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_any_all_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10761+.
+
+## Completed: 2026-07-17 BinaryHeap Iter for_each aliases
+
+- Continued Rust `BinaryHeap::Iter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for borrowed `Iter` and `library/core/src/iter/traits/iterator.rs` for `for_each` / `try_for_each`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_ITER_FOR_EACH_U64` and `BINARY_HEAP_ITER_TRY_FOR_EACH_U64`.
+- Semantics: helpers consume the concrete borrowed slice-backed cursor in heap-array order. `for_each` exhausts the cursor, and `try_for_each` short-circuits after the callback returns false while leaving the suffix after the failing item available; the heap itself remains intact.
+- Test: `tests/unit_framework/std_binary_heap_iter_for_each_macro_surface.sa` - 1 test (panic ID 10761) covering for_each exhaustion, try_for_each success/failure, empty try_for_each, cursor remainders, and heap non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_for_each_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10762+.
 
 ## Completed: 2026-07-17 BinaryHeap Iter advance/chunk aliases
 

@@ -31,18 +31,18 @@ Focused validation only:
 Panic IDs next free: 10761+.
 Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, Rust reference item identity, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
 
-## Active std parity batch (2026-07-17 BinaryHeap Iter any/all aliases)
+## Active std parity batch (2026-07-17 BinaryHeap Iter for_each aliases)
 
-Completed supportable `std::collections::BinaryHeap::Iter` any/all aliases:
-- `BINARY_HEAP_ITER_ANY_U64` and `BINARY_HEAP_ITER_ALL_U64` expose Rust borrowed iterator `any` / `all` naming over the existing slice-backed heap cursor.
-- These helpers consume only the cursor in internal heap-array order and return explicit bool scalars; they do not consume or reorder the heap itself.
-- This batch does not model Rust closure capture, generic `Try` residual conversion, `Option` ABI, reference item lifetimes, or panic/drop cleanup.
-- Test file `std_binary_heap_iter_any_all_macro_surface.sa` (panic ID 10760).
+Completed supportable `std::collections::BinaryHeap::Iter` for_each aliases:
+- `BINARY_HEAP_ITER_FOR_EACH_U64` and `BINARY_HEAP_ITER_TRY_FOR_EACH_U64` expose Rust borrowed iterator `for_each` / `try_for_each` naming over the existing slice-backed heap cursor.
+- These helpers consume only the cursor in internal heap-array order; `try_for_each` leaves the suffix after the failing item available and does not consume or reorder the heap itself.
+- This batch does not model Rust closure capture, generic `Try` residual conversion, reference item lifetimes, or panic/drop cleanup.
+- Test file `std_binary_heap_iter_for_each_macro_surface.sa` (panic ID 10761).
 
 Focused validation only:
-- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_any_all_macro_surface.sa --jobs 1 --trace-panic` -> pending in this turn.
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_iter_for_each_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 
-Panic IDs next free: 10761+.
+Panic IDs next free: 10762+.
 Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, Rust reference item identity, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
 
 
