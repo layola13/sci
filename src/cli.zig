@@ -7398,6 +7398,20 @@ fn projectCacheEntryLastStoreStage(allocator: std.mem.Allocator, project_root: [
     return "unknown";
 }
 
+fn projectCacheEntryLastStoreEventNs(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?i128 {
+    const marker_path = projectCacheStoreEventMarkerPath(allocator, project_root, kind, key) catch return null;
+    defer allocator.free(marker_path);
+    const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
+    defer allocator.free(bytes);
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
+    defer parsed.deinit();
+    const value = jsonGetObject(parsed.value, "event_ns") catch return null;
+    return switch (value) {
+        .integer => |ns| if (ns > 0) ns else null,
+        else => null,
+    };
+}
+
 fn projectCacheEntryLastStoreWriterPid(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ?u64 {
     const marker_path = projectCacheStoreEventMarkerPath(allocator, project_root, kind, key) catch return null;
     defer allocator.free(marker_path);
@@ -7664,6 +7678,7 @@ fn writeCacheStatusEntryJson(
     last_store_ns: ?i128,
     last_store_result: ?[]const u8,
     last_store_stage: ?[]const u8,
+    last_store_event_ns: ?i128,
     last_store_writer_pid: ?u64,
     last_store_writer_start_ticks: ?u64,
     last_store_event_count: ?u64,
@@ -7709,6 +7724,12 @@ fn writeCacheStatusEntryJson(
     } else {
         try writer.writeAll("null");
     }
+    try writer.writeAll(",\"last_store_event_ns\":");
+    if (last_store_event_ns) |ns| {
+        try writer.print("{d}", .{ns});
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll(",\"last_store_writer_pid\":");
     if (last_store_writer_pid) |pid| {
         try writer.print("{d}", .{pid});
@@ -7749,6 +7770,7 @@ fn writeCacheStatusEntryText(
     last_store_ns: ?i128,
     last_store_result: ?[]const u8,
     last_store_stage: ?[]const u8,
+    last_store_event_ns: ?i128,
     last_store_writer_pid: ?u64,
     last_store_writer_start_ticks: ?u64,
     last_store_event_count: ?u64,
@@ -7779,6 +7801,11 @@ fn writeCacheStatusEntryText(
         try writer.print(" last_store_stage={s}", .{stage});
     } else {
         try writer.writeAll(" last_store_stage=null");
+    }
+    if (last_store_event_ns) |ns| {
+        try writer.print(" last_store_event_ns={d}", .{ns});
+    } else {
+        try writer.writeAll(" last_store_event_ns=null");
     }
     if (last_store_writer_pid) |pid| {
         try writer.print(" last_store_writer_pid={d}", .{pid});
@@ -7827,6 +7854,7 @@ fn writeCacheStatusEntry(
     const last_store_ns = if (stat != null) projectCacheEntryLastStoreNs(allocator, project_root, kind, key) else null;
     const last_store_result = projectCacheEntryLastStoreResult(allocator, project_root, kind, key);
     const last_store_stage = projectCacheEntryLastStoreStage(allocator, project_root, kind, key);
+    const last_store_event_ns = projectCacheEntryLastStoreEventNs(allocator, project_root, kind, key);
     const last_store_writer_pid = projectCacheEntryLastStoreWriterPid(allocator, project_root, kind, key);
     const last_store_writer_start_ticks = projectCacheEntryLastStoreWriterStartTicks(allocator, project_root, kind, key);
     const last_store_event_count = projectCacheEntryStoreEventHistoryCount(allocator, project_root, kind, key);
@@ -7841,9 +7869,9 @@ fn writeCacheStatusEntry(
     if (json) {
         if (!json_first.*) try writer.writeByte(',');
         json_first.* = false;
-        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
+        try writeCacheStatusEntryJson(writer, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
     } else {
-        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
+        try writeCacheStatusEntryText(writer, prefix, kind, key, reason, manifest_status, bytes, mtime_ns, last_hit_ns, last_store_ns, last_store_result, last_store_stage, last_store_event_ns, last_store_writer_pid, last_store_writer_start_ticks, last_store_event_count, first_difference);
     }
 }
 
@@ -11952,6 +11980,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     try ProjectCacheFailureTest.expectNoEntryOrStaging(tmp.dir, key);
     try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expectEqualStrings("copy_output", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expect(projectCacheEntryLastStoreEventNs(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expectEqual(@as(u64, 1), projectCacheEntryStoreEventHistoryCount(std.testing.allocator, project_root, .build_exe, key).?);
@@ -11964,6 +11993,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, key.slice()) == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"failed\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"copy_output\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_ns\":"));
+    try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_event_ns\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_pid\":"));
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_writer_pid\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_start_ticks\":"));
@@ -11981,6 +12012,7 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, entry_dir));
     try std.testing.expectEqualStrings("published", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
     try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expect(projectCacheEntryLastStoreEventNs(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) != null);
     try std.testing.expectEqual(@as(u64, 2), projectCacheEntryStoreEventHistoryCount(std.testing.allocator, project_root, .build_exe, key).?);
@@ -11991,6 +12023,8 @@ test "project cache single flight hands a failed owner to one waiter" {
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, key.slice()) == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":\"published\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":\"publish\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_ns\":"));
+    try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_event_ns\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_start_ticks\":"));
     try std.testing.expect(std.mem.indexOf(u8, why_json.items, "\"last_store_writer_start_ticks\":null") == null);
     try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_count\":2"));
