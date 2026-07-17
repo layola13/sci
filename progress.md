@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIterSorted comparison aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `min_by`, `max_by`, key aggregates, lexicographic comparison, and equality methods.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_KEY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_KEY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_CMP_U64`, `BINARY_HEAP_INTO_ITER_SORTED_CMP_BY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_U64`, `BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_BY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_EQ_BY_U64`, `BINARY_HEAP_INTO_ITER_SORTED_EQ_U64`, `BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_EQ_U64`, `BINARY_HEAP_INTO_ITER_SORTED_NE_U64`, `BINARY_HEAP_INTO_ITER_SORTED_LT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_LE_U64`, `BINARY_HEAP_INTO_ITER_SORTED_GT_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_GE_U64`.
+- Semantics: aliases consume one or two existing materialized descending cursors greatest-first and reuse concrete `u64` iterator comparison/key aggregate helpers. Reverse comparison aliases are not added because Rust `IntoIterSorted` is not a `DoubleEndedIterator`.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_comparison_macro_surface.sa` - 1 test (panic ID 10777) covering min_by/max_by, min_by_key/max_by_key, cmp/cmp_by, partial_cmp/partial_cmp_by failure and remainders, eq/eq_by/partial_eq/ne, lt/le/gt/ge, empty aggregate identities, and backing Vec ownership.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10778+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIterSorted fold/aggregate aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `fold`, `try_fold`, `sum`, `product`, `min`, `max`, `reduce`, and `try_reduce`.

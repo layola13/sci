@@ -1499,6 +1499,70 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND VEC_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND VEC_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND VEC_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND VEC_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND VEC_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND VEC_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND VEC_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_NE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_LT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_LE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_GT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_GE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
