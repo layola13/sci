@@ -1249,6 +1249,14 @@ L_APPEND_DONE:
     EXPAND VEC_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+    EXPAND VEC_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+    EXPAND VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]

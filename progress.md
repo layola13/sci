@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIter for_each aliases
+
+- Continued Rust `BinaryHeap::IntoIter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the owned heap iterator over backing storage and `library/core/src/iter/traits/iterator.rs` for `for_each` / `try_for_each`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_FOR_EACH_U64` and `BINARY_HEAP_INTO_ITER_TRY_FOR_EACH_U64`.
+- Semantics: aliases consume the explicit owned backing-Vec cursor in heap-array backing order. `try_for_each` short-circuits after the callback returns false and leaves the suffix after the failing item available.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_for_each_macro_surface.sa` - 1 test (panic ID 10771) covering for_each exhaustion, try_for_each success/failure, empty try_for_each, cursor remainders, and backing Vec ownership.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_for_each_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10772+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIter any/all aliases
 
 - Continued Rust `BinaryHeap::IntoIter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the owned heap iterator over backing storage and `library/core/src/iter/traits/iterator.rs` for `any` / `all`.
