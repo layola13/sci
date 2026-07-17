@@ -2,6 +2,18 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 invalid-entry republish repair and manifest/publish failure injection
+
+- `publishProjectCacheEntry` now retires an unusable final entry under the exclusive store lock and retries the atomic rename once, so a partial/corrupt on-disk entry can be repaired by a later successful store.
+- Test-only store failure injection covers `manifest` and `publish` stages; failed stores record stage telemetry and leave no final or staging entry.
+- Entry validity / complete / clean paths open directories with `.iterate = true` so extra-file allowlist checks do not panic on non-iterating handles.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache repairs invalid final entry on republish"` -> `1/1`
+  - `zig test ... --test-filter "project cache injects manifest and publish store failures without partial entries"` -> `1/1`
+  - `zig test ... --test-filter "project cache store failures record stage and leave no partial entry"` -> `1/1`
+  - `zig fmt --check src/cli.zig`; `git diff --check`
+- Evidence boundary: this is Linux unit coverage for invalid-entry republish repair plus manifest/publish stage injection. Emit/sync/rename/link external-tool injection, crash recovery, TOCTOU-hard path authorization, cross-process, and native macOS/Windows validation remain open.
+
 ## Focused verified: 2026-07-17 multi-stage project-cache store failure injection
 
 - Added focused store-stage failure injection covering `copy_artifact`, `copy_output`, and pre-stage `validate` mismatches.

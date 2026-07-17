@@ -6485,7 +6485,17 @@ const ProjectCacheStoreTestPause = struct {
 };
 
 var project_cache_store_test_pause: ?*ProjectCacheStoreTestPause = null;
+// Test-only store failure injection: when set to a stage name, the next store
+// reaches that stage and returns TestInjectedStoreFailure without publishing.
+var project_cache_store_test_fail_stage: ?[]const u8 = null;
 var project_build_key_toolchain_path_override: ?[]const u8 = null;
+
+fn projectCacheStoreTestMaybeFail(stage: []const u8) !void {
+    if (!builtin.is_test) return;
+    if (project_cache_store_test_fail_stage) |fail_stage| {
+        if (std.mem.eql(u8, fail_stage, stage)) return error.TestInjectedStoreFailure;
+    }
+}
 
 fn projectCacheLockPath(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
     const filename = try std.fmt.allocPrint(allocator, "{s}.lock", .{key.slice()});
@@ -7089,7 +7099,9 @@ fn projectCacheClaim(
 }
 
 fn projectCacheEntryValidAtPath(kind: BuildCacheKind, key: ProjectCacheKey, entry_path: []const u8) bool {
-    var entry_dir = std.fs.cwd().openDir(entry_path, .{}) catch return false;
+    // Extra-file allowlist checks iterate the entry, so open with iterate
+    // permissions even when callers only need a validity boolean.
+    var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return false;
     defer entry_dir.close();
     return cacheEntryComplete(kind, entry_dir) and cacheEntryManifestValid(kind, key.slice(), entry_dir);
 }
@@ -7120,11 +7132,18 @@ const ProjectCachePublishResult = enum {
 
 fn publishProjectCacheEntry(kind: BuildCacheKind, key: ProjectCacheKey, staging_dir: []const u8, final_dir: []const u8) !ProjectCachePublishResult {
     renameCachePath(staging_dir, final_dir) catch |err| switch (err) {
-        error.PathAlreadyExists => if (projectCacheEntryValidAtPath(kind, key, final_dir)) return .winner_exists else return err,
-        // Windows can report AccessDenied for a directory rename collision.
-        // Only accept it as a winner when the existing entry is structurally
-        // complete; unrelated access failures must remain visible.
-        error.AccessDenied => if (projectCacheEntryValidAtPath(kind, key, final_dir)) return .winner_exists else return err,
+        error.PathAlreadyExists, error.AccessDenied => {
+            if (projectCacheEntryValidAtPath(kind, key, final_dir)) return .winner_exists;
+            // An unusable final entry may remain after crash/corruption or a
+            // raced invalid publication. Repair by retiring it under the
+            // exclusive store lock and retrying the atomic rename once.
+            std.fs.cwd().deleteTree(final_dir) catch |delete_err| {
+                if (projectCacheEntryValidAtPath(kind, key, final_dir)) return .winner_exists;
+                return delete_err;
+            };
+            try renameCachePath(staging_dir, final_dir);
+            return .published;
+        },
         else => return err,
     };
     return .published;
@@ -7378,7 +7397,9 @@ fn projectCacheStoreEntryLocked(
     };
 
     if ((kind == .test_cache) != (test_list != null)) return error.InvalidCacheManifest;
+    try projectCacheStoreTestMaybeFail("validate");
     store_failure_stage = "prepare";
+    try projectCacheStoreTestMaybeFail(store_failure_stage);
     const final_dir = try projectCacheDir(allocator, project_root, kind, key);
     defer allocator.free(final_dir);
     if (projectCacheEntryReusableNow(allocator, project_root, kind, key)) return;
@@ -7387,10 +7408,12 @@ fn projectCacheStoreEntryLocked(
         // unusable entry is retired. Readers therefore observe either the old
         // complete directory or the final staging rename, never partial files.
         store_failure_stage = "cleanup_old";
+        try projectCacheStoreTestMaybeFail(store_failure_stage);
         try std.fs.cwd().deleteTree(final_dir);
     }
 
     store_failure_stage = "stage";
+    try projectCacheStoreTestMaybeFail(store_failure_stage);
     const staging_dir = try createProjectCacheStagingDir(allocator, final_dir);
     defer allocator.free(staging_dir);
     var staging_live = true;
@@ -7409,17 +7432,22 @@ fn projectCacheStoreEntryLocked(
     defer allocator.free(manifest_path);
 
     store_failure_stage = "copy_artifact";
+    try projectCacheStoreTestMaybeFail(store_failure_stage);
     try copyCacheFileSynced(artifact_path, cached_artifact);
     store_failure_stage = "copy_output";
+    try projectCacheStoreTestMaybeFail(store_failure_stage);
     try copyCacheFileSynced(out_path, cached_output);
     if (test_list) |metadata| {
         store_failure_stage = "test_metadata";
+        try projectCacheStoreTestMaybeFail(store_failure_stage);
         try projectCacheWriteTestMetadataAt(allocator, cached_test_metadata.?, metadata);
     } else if (kind == .test_cache) {
         store_failure_stage = "validate";
+        try projectCacheStoreTestMaybeFail(store_failure_stage);
         return error.InvalidCacheManifest;
     }
     store_failure_stage = "manifest";
+    try projectCacheStoreTestMaybeFail(store_failure_stage);
     try projectCacheWriteManifestAt(allocator, manifest_path, kind, key, cached_artifact, cached_output, cached_test_metadata, dynamic_dependencies);
     if (builtin.is_test) {
         if (project_cache_store_test_pause) |pause| {
@@ -7428,6 +7456,7 @@ fn projectCacheStoreEntryLocked(
         }
     }
     store_failure_stage = "publish";
+    try projectCacheStoreTestMaybeFail(store_failure_stage);
     switch (try publishProjectCacheEntry(kind, key, staging_dir, final_dir)) {
         .published => {
             staging_live = false;
@@ -8023,7 +8052,7 @@ fn projectCacheEntryLookupReasonAt(
     if (kind == .build_obj_incremental) {
         const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
         defer allocator.free(entry_path);
-        var entry_dir = std.fs.cwd().openDir(entry_path, .{}) catch |err| switch (err) {
+        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return if (projectCacheEntryWasEvicted(allocator, project_root, kind, key)) .evicted else .absent,
             else => return .manifest_invalid,
         };
@@ -8042,7 +8071,7 @@ fn projectCacheEntryLookupReasonAt(
     };
 
     {
-        var entry_dir = std.fs.cwd().openDir(entry_path, .{}) catch null;
+        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch null;
         if (entry_dir) |*dir| {
             defer dir.close();
             if (!cacheEntryComplete(kind, dir.*)) return .incomplete;
@@ -8613,7 +8642,7 @@ fn cleanCacheKindDir(
             remove = true;
         } else if (!remove) {
             const stat: ?std.fs.File.Stat = kind_dir.statFile(entry.name) catch null;
-            if (kind_dir.openDir(entry.name, .{})) |entry_dir_value| {
+            if (kind_dir.openDir(entry.name, .{ .iterate = true })) |entry_dir_value| {
                 var entry_dir = entry_dir_value;
                 remove = !cacheEntryComplete(kind, entry_dir) or
                     !cacheEntryManifestValid(kind, entry.name, entry_dir) or
@@ -13323,6 +13352,114 @@ test "project cache store failures record stage and leave no partial entry" {
     try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .test_cache, validate_key);
     try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .test_cache, validate_key).?);
     try std.testing.expectEqualStrings("validate", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .test_cache, validate_key).?);
+}
+
+test "project cache repairs invalid final entry on republish" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "repair-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "repair-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    var key = ProjectCacheKey{ .hex = undefined };
+    @memset(key.hex[0..], '7');
+    const final_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(final_dir);
+    try std.fs.cwd().makePath(final_dir);
+    // Incomplete/corrupt final entry: artifact only, no output/manifest.
+    const corrupt_artifact = try projectCacheEntryPath(std.testing.allocator, final_dir, "artifact.sa.bc");
+    defer std.testing.allocator.free(corrupt_artifact);
+    try writeAllFile(corrupt_artifact, "stale-partial");
+    try std.testing.expect(!projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+
+    try projectCacheStoreWithOwnerMissReason(
+        std.testing.allocator,
+        project_root,
+        .build_exe,
+        key,
+        artifact_path,
+        output_path,
+        &.{},
+        .incomplete,
+    );
+    try std.testing.expect(projectCacheEntryValidAtPath(.build_exe, key, final_dir));
+    try std.testing.expectEqualStrings("published", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key).?);
+    try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key).?);
+
+    const repaired_output = try projectCacheEntryPath(std.testing.allocator, final_dir, "output.bin");
+    defer std.testing.allocator.free(repaired_output);
+    const output_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, repaired_output, 64);
+    defer std.testing.allocator.free(output_bytes);
+    try std.testing.expectEqualStrings("repair-output", output_bytes);
+}
+
+test "project cache injects manifest and publish store failures without partial entries" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.writeFile(.{ .sub_path = "artifact.bc", .data = "inject-artifact" });
+    try tmp.dir.writeFile(.{ .sub_path = "output.bin", .data = "inject-output" });
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const artifact_path = try tmp.dir.realpathAlloc(std.testing.allocator, "artifact.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try tmp.dir.realpathAlloc(std.testing.allocator, "output.bin");
+    defer std.testing.allocator.free(output_path);
+
+    var manifest_key = ProjectCacheKey{ .hex = undefined };
+    @memset(manifest_key.hex[0..], '8');
+    project_cache_store_test_fail_stage = "manifest";
+    defer project_cache_store_test_fail_stage = null;
+    try std.testing.expectError(
+        error.TestInjectedStoreFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            manifest_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, manifest_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, manifest_key).?);
+    try std.testing.expectEqualStrings("manifest", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, manifest_key).?);
+
+    var publish_key = ProjectCacheKey{ .hex = undefined };
+    @memset(publish_key.hex[0..], '9');
+    project_cache_store_test_fail_stage = "publish";
+    try std.testing.expectError(
+        error.TestInjectedStoreFailure,
+        projectCacheStoreWithOwnerMissReason(
+            std.testing.allocator,
+            project_root,
+            .build_exe,
+            publish_key,
+            artifact_path,
+            output_path,
+            &.{},
+            .absent,
+        ),
+    );
+    try ProjectCacheFailureTest.expectNoEntryOrStagingForKind(tmp.dir, .build_exe, publish_key);
+    try std.testing.expectEqualStrings("failed", projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, publish_key).?);
+    try std.testing.expectEqualStrings("publish", projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, publish_key).?);
 }
 
 test "project cache single flight hands a failed owner to one waiter" {

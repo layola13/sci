@@ -2,6 +2,15 @@
 
 Date: 2026-07-17
 
+## Current turn: invalid-entry republish repair and manifest/publish failure injection
+
+1. [x] Keep the worktree scoped to cache store repair/injection only.
+2. [x] Repair unusable final entries on republish by retiring and retrying rename under the store lock.
+3. [x] Inject `manifest`/`publish` store failures with no partial entry and stage telemetry.
+4. [x] Open entry validity/complete/clean paths with iterate permissions for allowlist checks.
+5. [x] Focused verify unit filters, format/diff, then commit/push.
+
+
 ## Current turn: multi-stage project-cache store failure injection
 
 1. [x] Keep the worktree scoped to store-stage failure injection only.
@@ -241,9 +250,11 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] extend focused symlink rejection to project-cache `manifest.json` and `test-metadata.json`, including invalid status and metadata-parse rejection evidence;
    - [ ] add emit/sync/rename/link/manifest failure injection, malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
    - [x] add focused multi-stage store failure injection for `copy_artifact`/`copy_output`/`validate` with no partial entry (`1/1` on Linux);
+   - [x] add focused invalid-entry republish repair plus `manifest`/`publish` store failure injection with no partial entry (`1/1` each on Linux);
    - [x] add focused empty-artifact, legacy version-1, malformed artifact-digest, kind-mismatch, artifact size-mutation, and missing-output project-cache corruption regressions (`1/1` each on Linux);
    - [x] add focused extra-entry-file, oversize-manifest, and same-size output content-flip project-cache corruption regressions (`1/1` each on Linux);
-   - [ ] repair remaining failed artifact/output publication cases and broaden corruption recovery beyond the focused empty/legacy/malformed/symlink guards.
+   - [x] repair unusable final artifact/output entries on republish under the exclusive store lock with focused invalid-entry coverage (`1/1` on Linux);
+   - [ ] broaden remaining corruption recovery, emit/sync/rename/link external-tool injection, crash recovery, and cross-process/native validation beyond the focused empty/legacy/malformed/extra-file/oversize/same-size/store-stage guards.
 4. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
    - [x] index function body ranges once and process every reachable function body at most once;
    - [x] preserve unknown/invalid/indirect/address-taken and signature/body mismatch fallback;
