@@ -1451,6 +1451,22 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ANY_U64 %out_bool, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ALL_U64 %out_bool, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FOR_EACH_U64 %iter_reg, %each_fn
+    EXPAND VEC_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+    EXPAND VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
