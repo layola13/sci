@@ -4311,3 +4311,12 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10743+.
 Still blocked without redesign: Rust `Option<T>` / `Option<usize>` ABI, generic `Try` residual conversion, generic closure capture/call ABI, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-07-17 Array IntoIter for_each ops)
+
+Completed supportable defaults/aliases/macros:
+- Concrete Array owned IntoIter for_each aliases in array.sa: ARRAY_INTO_ITER_FOR_EACH_U64 and ARRAY_INTO_ITER_TRY_FOR_EACH_U64.
+- Test file std_array_into_iter_for_each_macro_surface.sa (panic ID 10743).
+
+Panic IDs next free: 10744+.
+Still blocked without redesign: generic Rust closure capture/call ABI, generic `Try` residual conversion, panic/drop cleanup during callbacks, generic item move/drop semantics, const-generic array object layout, marker trait wiring, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
