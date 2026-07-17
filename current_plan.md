@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-17 BinaryHeap IntoIter advance/chunk aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIter` advance/chunk aliases:
+- `BINARY_HEAP_INTO_ITER_TRY_NEXT_CHUNK_U64`, `BINARY_HEAP_INTO_ITER_ADVANCE_BY`, and `BINARY_HEAP_INTO_ITER_ADVANCE_BACK_BY` expose Rust owned iterator `next_chunk`, `advance_by`, and `advance_back_by` naming over the existing Vec-backed consuming heap cursor.
+- These helpers consume the explicit cursor in heap-array backing order, or from the back for `advance_back_by`. The heap itself has already been consumed into caller-owned backing storage.
+- This batch does not model Rust `array::IntoIter` remainder ABI, `NonZero<usize>` layout, const-generic array item ABI, allocator-parametric owned iterator layout, or panic/drop cleanup.
+- Test file `std_binary_heap_into_iter_advance_chunk_macro_surface.sa` (panic ID 10768).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_advance_chunk_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10769+.
+Still blocked without redesign: generic trait impl dispatch, Rust lifetime/borrow semantics, Rust reference item identity, generic primitive/container trait dispatch, cross-width integer conversions, generic `NonZero<T>`, generic `Wrapping<T>` / `Saturating<T>`, `u128` / `i128` public primitive support, portable target-width `usize` / `isize` switching beyond the current explicit 64-bit ABI, missing concrete wrapper widths, Rust feature-gate modeling, Rust niche optimization, Rust unsafe UB enforcement, Rust panic message/object behavior, parser/formatter trait integration, allocator/drop/borrow semantics, randomized `RandomState`, SipHash compatibility, Rust iterator trait hierarchy, generic `Option` / `Result` / `ControlFlow`, generic `FromIterator`, `IntoIterator`, true format!, Condvar/Barrier, process env maps / Stdio redirection, path component iterators, pre_exec closure ABI, thread stack/name builder ABI, and stdio lock guard handle modeling.
+
 ## Active std parity batch (2026-07-17 BinaryHeap IntoIter cursor ops aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIter` cursor/terminal operation aliases:

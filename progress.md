@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-17 BinaryHeap IntoIter advance/chunk aliases
+
+- Continued Rust `BinaryHeap::IntoIter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the owned heap iterator over backing storage, `library/core/src/iter/traits/iterator.rs` for `next_chunk` / `advance_by`, and `library/core/src/iter/traits/double_ended.rs` for `advance_back_by`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_TRY_NEXT_CHUNK_U64`, `BINARY_HEAP_INTO_ITER_ADVANCE_BY`, and `BINARY_HEAP_INTO_ITER_ADVANCE_BACK_BY`.
+- Semantics: aliases consume the explicit owned backing-Vec cursor in heap-array backing order, or from the back for `advance_back_by`. Advance helpers return explicit `(ok, remaining)` scalars; chunk helper writes filled `u64` values into a caller buffer and reports `(ok, filled)`.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_advance_chunk_macro_surface.sa` - 1 test (panic ID 10768) covering forward/back advance success, short advance exhaustion, complete chunk, short chunk, zero chunk, and backing Vec ownership.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_advance_chunk_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10769+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIter cursor ops aliases
 
 - Continued Rust `BinaryHeap::IntoIter` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the owned heap iterator over backing storage, `library/core/src/iter/traits/iterator.rs` for `nth`, `count`, and `last`, and `library/core/src/iter/traits/double_ended.rs` for `nth_back`.
