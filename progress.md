@@ -2,6 +2,18 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 project cache extra-file/oversize/content-flip corruption regressions
+
+- Project cache entry validation now rejects unexpected files outside the kind allowlist (`artifact.sa.bc`, `output.bin`, `manifest.json`, plus `test-metadata.json` for test cache / `functions` for incremental).
+- Manifest lookup rejects oversize manifests (`> 16 MiB`) as `manifest_invalid` with `first_difference=manifest.size` before parsing.
+- Same-size output content flips remain `artifact_corrupt` with `first_difference=output.sha256`.
+- Focused validation passed on Linux:
+  - `zig test ... --test-filter "project cache entry rejects unexpected extra files"` -> `1/1`
+  - `zig test ... --test-filter "project cache manifest rejects oversize manifests"` -> `1/1`
+  - `zig test ... --test-filter "project cache manifest rejects same-size output content flip"` -> `1/1`
+  - `zig fmt --check src/cli.zig`; `git diff --check`
+- Evidence boundary: this extends Linux unit coverage for extra-object / oversize / same-size digest corruption. Failure injection, crash recovery, TOCTOU-hard path authorization, and native macOS/Windows validation remain open.
+
 ## Focused verified: 2026-07-17 ordered plugin/rpath artifact-key publication
 
 - Project artifact keys for `build-exe` and `test` now include ordered plugin search-path libraries and generated host rpath flags under schema `sa-build-cache-v4` (`plugin_link_inputs`).

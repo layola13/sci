@@ -6768,6 +6768,14 @@ fn projectCacheManifestLookupReason(
     };
     if (manifest_stat.kind != .file or manifest_stat.size == 0) return .incomplete;
     if (!cachePathIsRegularFile(manifest_path)) return .incomplete;
+    if (manifest_stat.size > project_cache_manifest_max_bytes) return .manifest_invalid;
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return .unknown;
+    defer allocator.free(entry_path);
+    {
+        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return .incomplete;
+        defer entry_dir.close();
+        if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return .artifact_corrupt;
+    }
     const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return .manifest_invalid;
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return .manifest_invalid;
@@ -6848,6 +6856,34 @@ fn writeProjectCacheDynamicDependencies(writer: anytype, dependencies: []const f
 }
 
 const project_cache_manifest_max_bytes = 16 * 1024 * 1024;
+
+fn projectCacheEntryAllowedNames(kind: BuildCacheKind) []const []const u8 {
+    return switch (kind) {
+        .build_exe, .build_obj, .build_wasm => &.{ "artifact.sa.bc", "output.bin", "manifest.json" },
+        .test_cache => &.{ "artifact.sa.bc", "output.bin", "manifest.json", "test-metadata.json" },
+        .build_obj_incremental => &.{ "manifest.json", "functions" },
+    };
+}
+
+fn projectCacheEntryNameIsAllowed(kind: BuildCacheKind, name: []const u8) bool {
+    for (projectCacheEntryAllowedNames(kind)) |allowed| {
+        if (std.mem.eql(u8, name, allowed)) return true;
+    }
+    return false;
+}
+
+fn projectCacheEntryContainsOnlyAllowedNames(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
+    var it = entry_dir.iterate();
+    while (it.next() catch return false) |entry| {
+        if (!projectCacheEntryNameIsAllowed(kind, entry.name)) return false;
+        if (kind == .build_obj_incremental and std.mem.eql(u8, entry.name, "functions")) {
+            if (entry.kind != .directory and entry.kind != .sym_link) return false;
+            continue;
+        }
+        if (entry.kind != .file and entry.kind != .sym_link) return false;
+    }
+    return true;
+}
 
 fn writeCacheManifestBytesAtomically(allocator: std.mem.Allocator, manifest_path: []const u8, contents: []const u8) !void {
     if (contents.len > project_cache_manifest_max_bytes) return error.CacheManifestTooLarge;
@@ -7664,6 +7700,7 @@ fn cacheDirPresent(dir: std.fs.Dir, name: []const u8) bool {
 }
 
 fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
+    if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return false;
     return switch (kind) {
         .build_exe, .build_obj, .build_wasm => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json"),
         .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json") and cacheFilePresentNonEmpty(entry_dir, "test-metadata.json"),
@@ -7690,6 +7727,7 @@ fn cacheEntryTestMetadataValid(entry_dir: std.fs.Dir) bool {
 }
 
 fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir: std.fs.Dir) bool {
+    if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return false;
     if (kind == .build_obj_incremental) {
         var incremental_manifest = readIncrementalObjectManifest(std.heap.page_allocator, entry_dir, key_name, null) catch return false;
         defer incremental_manifest.deinit(std.heap.page_allocator);
@@ -8088,6 +8126,15 @@ fn projectCacheManifestFirstDifference(
     const manifest_path = projectCacheManifestPath(allocator, project_root, kind, key) catch return "manifest.path";
     defer allocator.free(manifest_path);
     if (!cachePathIsRegularFile(manifest_path)) return "manifest";
+    const manifest_stat = std.fs.cwd().statFile(manifest_path) catch return "manifest";
+    if (manifest_stat.size > project_cache_manifest_max_bytes) return "manifest.size";
+    const entry_path = projectCacheDir(allocator, project_root, kind, key) catch return "entry.path";
+    defer allocator.free(entry_path);
+    {
+        var entry_dir = std.fs.cwd().openDir(entry_path, .{ .iterate = true }) catch return "entry.path";
+        defer entry_dir.close();
+        if (!projectCacheEntryContainsOnlyAllowedNames(kind, entry_dir)) return "entry.extra_file";
+    }
     const manifest_bytes = readTextFileAlloc(allocator, manifest_path) catch return "manifest";
     defer allocator.free(manifest_bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, manifest_bytes, .{}) catch return "manifest.json";
@@ -12843,6 +12890,128 @@ test "project cache manifest rejects missing output as incomplete" {
     );
     try std.testing.expectEqualStrings(
         "output.file",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache entry rejects unexpected extra files" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'4'} ** 64 };
+    const entry_dir_path = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir_path);
+    try std.fs.cwd().makePath(entry_dir_path);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+    const extra_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "extra.o");
+    defer std.testing.allocator.free(extra_path);
+    try writeAllFile(extra_path, "unexpected-object");
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.artifact_corrupt,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "entry.extra_file",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+    var entry_dir = try std.fs.cwd().openDir(entry_dir_path, .{ .iterate = true });
+    defer entry_dir.close();
+    try std.testing.expect(!cacheEntryComplete(.build_exe, entry_dir));
+}
+
+test "project cache manifest rejects oversize manifests" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'5'} ** 64 };
+    const entry_dir_path = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir_path);
+    try std.fs.cwd().makePath(entry_dir_path);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    // Build an oversize-but-otherwise-shaped manifest without loading the full
+    // payload through the normal JSON writer path.
+    var oversize = std.ArrayList(u8).init(std.testing.allocator);
+    defer oversize.deinit();
+    try oversize.appendSlice("{\"version\":2,\"kind\":\"build-exe\",\"key\":\"");
+    try oversize.appendSlice(key.slice());
+    try oversize.appendSlice("\",\"pad\":\"");
+    try oversize.appendNTimes('x', project_cache_manifest_max_bytes + 1);
+    try oversize.appendSlice("\"}\n");
+    try writeAllFile(manifest_path, oversize.items);
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.manifest_invalid,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "manifest.size",
+        projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
+    );
+}
+
+test "project cache manifest rejects same-size output content flip" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'6'} ** 64 };
+    const entry_dir_path = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir_path);
+    try std.fs.cwd().makePath(entry_dir_path);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output1");
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+    // Keep size stable so only the content digest changes.
+    try writeAllFile(output_path, "output2");
+
+    try std.testing.expectEqual(
+        ProjectCacheLookupReason.artifact_corrupt,
+        projectCacheManifestLookupReason(std.testing.allocator, project_root, .build_exe, key, artifact_path, output_path),
+    );
+    try std.testing.expectEqualStrings(
+        "output.sha256",
         projectCacheManifestFirstDifference(std.testing.allocator, project_root, .build_exe, key).?,
     );
 }

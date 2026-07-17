@@ -2,6 +2,15 @@
 
 Date: 2026-07-17
 
+## Current turn: project cache extra-file/oversize/content-flip corruption regressions
+
+1. [x] Keep the worktree scoped to `src/cli.zig` corruption guards only.
+2. [x] Reject unexpected entry files via allowlisted names for each cache kind.
+3. [x] Reject oversize manifests before JSON parse (`manifest_invalid` / `manifest.size`).
+4. [x] Keep same-size output content flips as `artifact_corrupt` / `output.sha256`.
+5. [x] Focused verify three unit filters, format/diff, then commit/push.
+
+
 ## Current turn: ordered plugin/rpath artifact-key publication
 
 1. [x] Keep corruption regressions already staged with this worktree.
@@ -219,6 +228,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] extend focused symlink rejection to project-cache `manifest.json` and `test-metadata.json`, including invalid status and metadata-parse rejection evidence;
    - [ ] add emit/sync/rename/link/manifest failure injection, malformed/legacy/oversize/path/missing/extra-object cases, broader symlink coverage, TOCTOU-hard path authorization, crash recovery, persistent lock accounting, same-key cross-process coverage, and native macOS/Windows validation;
    - [x] add focused empty-artifact, legacy version-1, malformed artifact-digest, kind-mismatch, artifact size-mutation, and missing-output project-cache corruption regressions (`1/1` each on Linux);
+   - [x] add focused extra-entry-file, oversize-manifest, and same-size output content-flip project-cache corruption regressions (`1/1` each on Linux);
    - [ ] repair remaining failed artifact/output publication cases and broaden corruption recovery beyond the focused empty/legacy/malformed/symlink guards.
 4. [ ] **In progress — finish the LLVM focused reachability queue (P0.5):**
    - [x] index function body ranges once and process every reachable function body at most once;
@@ -269,6 +279,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU acceleration is e
    - [x] lock ordered extra link inputs/host rpath argv placement, backend `cpu=generic-v1;features=none` identity, and ordered `plugin_import_roots` source-tree hashing with focused Linux unit regressions `1/1` each;
    - [x] publish ordered native plugin library/rpath identity into `build-exe`/`test` keys and remove the plugin-only `bypassed_untrusted` short-circuit, with focused unit content/extra-library miss and smoke warm-hit evidence `1/1` each;
    - [x] add focused empty/legacy/malformed/kind/size/missing project-cache corruption regressions (`1/1` each on Linux);
+   - [x] add focused extra-entry-file/oversize-manifest/same-size content-flip project-cache corruption regressions (`1/1` each on Linux);
    - [ ] finish export-flag keying, complete target-feature matrix, broader failure-injection/TOCTOU/cross-process corruption, authorization inputs/tests beyond hit revalidation, and native macOS/Windows validation for the artifact-key boundary.
 8. [ ] Continue the combined-worktree gates without turning focused evidence into a full-suite claim:
    - [x] pass a fresh `/opt/zig/zig build -Doptimize=Debug -j1` for the final v11 snapshot;
