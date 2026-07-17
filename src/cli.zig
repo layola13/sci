@@ -7041,6 +7041,13 @@ fn writeProjectCacheStoreEventJson(writer: anytype, kind: BuildCacheKind, key: P
     try writer.writeAll("}\n");
 }
 
+fn projectCacheStoreEventHeaderValid(value: std.json.Value, kind: BuildCacheKind, key: ProjectCacheKey) bool {
+    if (!jsonIntEquals(jsonGetObject(value, "version") catch return false, 1)) return false;
+    if (!jsonStringEquals(jsonGetObject(value, "kind") catch return false, kind.dirName())) return false;
+    if (!jsonStringEquals(jsonGetObject(value, "key_prefix") catch return false, key.slice()[0..12])) return false;
+    return true;
+}
+
 fn projectCacheWriteStoreEventTelemetry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey, result: []const u8, stage: []const u8, owner_miss_reason: ?ProjectCacheLookupReason) !void {
     const event_ns = std.time.nanoTimestamp();
     const writer_pid = projectCacheStoreEventWriterPid();
@@ -7600,8 +7607,9 @@ fn projectCacheEntryLastStoreResult(allocator: std.mem.Allocator, project_root: 
     defer allocator.free(marker_path);
     const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
     defer allocator.free(bytes);
-    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return "unknown";
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
+    if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) return null;
     const result = jsonString(jsonGetObject(parsed.value, "result") catch return "unknown") catch return "unknown";
     if (std.mem.eql(u8, result, "published")) return "published";
     if (std.mem.eql(u8, result, "failed")) return "failed";
@@ -7613,8 +7621,9 @@ fn projectCacheEntryLastStoreStage(allocator: std.mem.Allocator, project_root: [
     defer allocator.free(marker_path);
     const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
     defer allocator.free(bytes);
-    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return "unknown";
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
+    if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) return null;
     const stage = jsonString(jsonGetObject(parsed.value, "stage") catch return "unknown") catch return "unknown";
     if (std.mem.eql(u8, stage, "lock")) return "lock";
     if (std.mem.eql(u8, stage, "validate")) return "validate";
@@ -7639,8 +7648,9 @@ fn projectCacheEntryLastStoreOwnerMissReason(allocator: std.mem.Allocator, proje
     defer allocator.free(marker_path);
     const bytes = readTextFileAlloc(allocator, marker_path) catch return null;
     defer allocator.free(bytes);
-    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return "unknown";
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
+    if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) return null;
     const value = jsonGetObject(parsed.value, "owner_miss_reason") catch return null;
     return switch (value) {
         .null => null,
@@ -7656,6 +7666,7 @@ fn projectCacheEntryLastStoreEventNs(allocator: std.mem.Allocator, project_root:
     defer allocator.free(bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
+    if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) return null;
     const value = jsonGetObject(parsed.value, "event_ns") catch return null;
     return switch (value) {
         .integer => |ns| if (ns > 0) ns else null,
@@ -7670,6 +7681,7 @@ fn projectCacheEntryLastStoreWriterPid(allocator: std.mem.Allocator, project_roo
     defer allocator.free(bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
+    if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) return null;
     const value = jsonGetObject(parsed.value, "writer_pid") catch return null;
     return switch (value) {
         .integer => |pid| if (pid > 0) @as(u64, @intCast(pid)) else null,
@@ -7684,6 +7696,7 @@ fn projectCacheEntryLastStoreWriterStartTicks(allocator: std.mem.Allocator, proj
     defer allocator.free(bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
+    if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) return null;
     const value = jsonGetObject(parsed.value, "writer_start_ticks") catch return null;
     return switch (value) {
         .integer => |ticks| if (ticks > 0) @as(u64, @intCast(ticks)) else null,
@@ -7704,9 +7717,14 @@ fn projectCacheEntryStoreEventHistoryCount(allocator: std.mem.Allocator, project
     var count: u64 = 0;
     var iter = history_dir.iterate();
     while (iter.next() catch return null) |entry| {
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".json")) count += 1;
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".json")) continue;
+        const bytes = history_dir.readFileAlloc(allocator, entry.name, 64 * 1024) catch continue;
+        defer allocator.free(bytes);
+        var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch continue;
+        defer parsed.deinit();
+        if (projectCacheStoreEventHeaderValid(parsed.value, kind, key)) count += 1;
     }
-    return count;
+    return if (count == 0) null else count;
 }
 
 const ProjectCacheStoreEventHistoryResultCounts = struct {
@@ -7725,6 +7743,7 @@ fn projectCacheEntryStoreEventHistoryResultCounts(allocator: std.mem.Allocator, 
     defer history_dir.close();
 
     var counts: ProjectCacheStoreEventHistoryResultCounts = .{};
+    var seen_valid = false;
     var iter = history_dir.iterate();
     while (iter.next() catch return null) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".json")) continue;
@@ -7732,6 +7751,8 @@ fn projectCacheEntryStoreEventHistoryResultCounts(allocator: std.mem.Allocator, 
         defer allocator.free(bytes);
         var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch continue;
         defer parsed.deinit();
+        if (!projectCacheStoreEventHeaderValid(parsed.value, kind, key)) continue;
+        seen_valid = true;
         const result = jsonString(jsonGetObject(parsed.value, "result") catch continue) catch continue;
         if (std.mem.eql(u8, result, "published")) {
             counts.published += 1;
@@ -7739,7 +7760,7 @@ fn projectCacheEntryStoreEventHistoryResultCounts(allocator: std.mem.Allocator, 
             counts.failed += 1;
         }
     }
-    return counts;
+    return if (seen_valid) counts else null;
 }
 
 fn projectCacheEntryWasEvicted(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) bool {
@@ -12264,6 +12285,73 @@ test "project cache manifest rejects symlink test metadata entries" {
         error.InvalidCacheManifest,
         projectCacheReadTestMetadata(std.testing.allocator, project_root, key),
     );
+}
+
+test "project cache store-event telemetry ignores mismatched marker headers" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const key = ProjectCacheKey{ .hex = [_]u8{'f'} ** 64 };
+    const entry_dir = try projectCacheDir(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(entry_dir);
+    try std.fs.cwd().makePath(entry_dir);
+
+    const artifact_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "artifact.sa.bc");
+    defer std.testing.allocator.free(artifact_path);
+    const output_path = try projectCacheArtifactPath(std.testing.allocator, project_root, .build_exe, key, "output.bin");
+    defer std.testing.allocator.free(output_path);
+    const manifest_path = try projectCacheManifestPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(manifest_path);
+    try writeAllFile(artifact_path, "artifact");
+    try writeAllFile(output_path, "output");
+    try projectCacheWriteManifestAt(std.testing.allocator, manifest_path, .build_exe, key, artifact_path, output_path, null, &.{});
+
+    const mismatched_event =
+        \\{"version":1,"result":"published","kind":"build-exe","stage":"publish","key_prefix":"eeeeeeeeeeee","event_ns":123,"writer_pid":456,"writer_start_ticks":789,"owner_miss_reason":"absent"}
+        \\
+    ;
+    const event_path = try projectCacheStoreEventMarkerPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(event_path);
+    try ensureParentDir(event_path);
+    try writeAllFile(event_path, mismatched_event);
+
+    const history_dir = try projectCacheStoreEventHistoryDirPath(std.testing.allocator, project_root, .build_exe, key);
+    defer std.testing.allocator.free(history_dir);
+    try std.fs.cwd().makePath(history_dir);
+    const history_path = try pathJoinAlloc(std.testing.allocator, &.{ history_dir, "123-bad.json" });
+    defer std.testing.allocator.free(history_path);
+    try writeAllFile(history_path, mismatched_event);
+
+    try std.testing.expect(projectCacheEntryLastStoreResult(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryLastStoreStage(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryLastStoreOwnerMissReason(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryLastStoreEventNs(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryLastStoreWriterPid(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryLastStoreWriterStartTicks(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryStoreEventHistoryCount(std.testing.allocator, project_root, .build_exe, key) == null);
+    try std.testing.expect(projectCacheEntryStoreEventHistoryResultCounts(std.testing.allocator, project_root, .build_exe, key) == null);
+
+    var why_json = std.ArrayList(u8).init(std.testing.allocator);
+    defer why_json.deinit();
+    const why_args = [_][]const u8{ "--kind", "build-exe", "--key", key.slice(), "--json" };
+    try std.testing.expectEqual(@as(u8, 0), try executeCacheWhyCommand(std.testing.allocator, why_args[0..], why_json.writer(), false));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"reason\":\"hit\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"key_prefix\":\"ffffffffffff\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_result\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_stage\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_owner_miss_reason\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_ns\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_pid\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_writer_start_ticks\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_event_count\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_published_event_count\":null"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, why_json.items, 1, "\"last_store_failed_event_count\":null"));
 }
 
 const ProjectCacheFailureTest = struct {

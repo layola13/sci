@@ -2,6 +2,13 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 cache store-event header validation
+
+- Project cache store-event readers now require event JSON to match schema version `1`, the requested cache kind, and the requested 12-character key prefix before exposing `last_store_*` fields in `sa cache status/why`.
+- Store-event history counts now ignore malformed or mismatched event files instead of counting every `.json` file under the per-key history directory.
+- Focused validation passed: `zig test src/cli.zig -ODebug -lc --test-filter "store-event telemetry ignores"` -> `1/1`; `zig build cli-cache-smoke --summary all` -> `5/5` steps and `3/3` tests; `zig fmt --check src/cli.zig`; `git diff --check`; `zig build sa-cli --summary all` -> `5/5`.
+- A mistaken aggregate `zig build test -- test-filter ...` run was interrupted after unrelated Linux/macOS/PAL contract steps started; it is not claimed as a pass. Unrelated worktree changes in `src/driver/zigcc.zig` and `src/emit_llvm_llvmc.zig` remain unstaged.
+
 ## Focused verified: 2026-07-17 native evidence success-only uploads
 
 - `.github/workflows/macos-native.yml` and `.github/workflows/windows-native.yml` now upload native runtime/smoke evidence artifacts only with `if: success()`, so failed gates or rejected evidence validation do not leave uploadable evidence JSON artifacts.

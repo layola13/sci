@@ -691,6 +691,8 @@ lock_owner_failed | bypassed_untrusted | unknown
 
 2026-07-17 历史结果计数补充检查点：`sa cache status/why` 现在从 `.sa_cache/.store-event-history/<kind>/<key>/` 读取 source-free 历史结果计数，并暴露 `last_store_published_event_count` 与 `last_store_failed_event_count`。focused single-flight 证据覆盖第一个 owner 失败后 `published=0, failed=1`，以及 waiter 成功发布后 `published=1, failed=1`。这比单一 `last_store_event_count` 更能解释 owner handoff 过程，但仍不是跨进程 owner 生命周期的完整审计。
 
+2026-07-17 store-event header 校验补充检查点：`sa cache status/why` 在读取 `.sa_cache/.store-events/<kind>/<key>` 与 `.sa_cache/.store-event-history/<kind>/<key>/` 时，现在先校验 source-free event JSON 的 `version=1`、`kind` 与 12 字符 `key_prefix` 是否匹配当前查询。header 不匹配、损坏或无法解析的 marker/history 文件不再暴露为 `last_store_*`，history 计数也只统计通过校验的 event。focused internal gate `project cache store-event telemetry ignores mismatched marker headers` 通过 `1/1`，`cli-cache-smoke` 保持 `3/3`，Debug `sa-cli` build `5/5`。这收窄了损坏/串 key telemetry 的误报面，不等于完整跨进程 owner 生命周期审计。
+
 ---
 
 ## 10. 统一并发与内存预算
