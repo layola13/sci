@@ -210,6 +210,38 @@
     EXPAND ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
+[MACRO] ARRAY_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+    EXPAND ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+    EXPAND ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] ARRAY_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+    EXPAND ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
