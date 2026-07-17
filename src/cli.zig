@@ -6987,6 +6987,8 @@ fn projectCacheTouchHitTelemetry(allocator: std.mem.Allocator, project_root: []c
 fn projectCacheStoreEventWriterPid() ?u64 {
     return switch (builtin.os.tag) {
         .linux => @as(u64, @intCast(std.os.linux.getpid())),
+        .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly => @as(u64, @intCast(std.c.getpid())),
+        .windows => @as(u64, @intCast(std.os.windows.GetCurrentProcessId())),
         else => null,
     };
 }
