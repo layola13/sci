@@ -1,5 +1,13 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Current release contract native-evidence binding batch (2026-07-17)
+
+- [x] Preserve unrelated compiler/cache worktree changes out of this portability batch.
+- [x] Make `release-contract` depend on the shared `native-evidence-validator` build step.
+- [x] Lock the dependency with a Linux-runnable release source contract.
+- [x] Run focused release/validator validation, formatting/YAML/diff checks, then commit/push the selected portability files.
+- [ ] Execute the native macOS/Windows workflows before enabling non-Linux release archive rows; this batch is source/build-contract evidence only.
+
 ## Current native evidence validator batch (2026-07-17)
 
 - [x] Keep unrelated `src/cli.zig` worktree changes out of this portability batch.

@@ -2,6 +2,13 @@
 
 Date: 2026-07-17
 
+## Current turn: release contract native-evidence binding
+
+1. [x] Preserve unrelated compiler/cache worktree changes without staging them.
+2. [x] Make `release-contract` depend on the shared `native-evidence-validator` tests.
+3. [x] Lock that build-graph dependency in `tests/release_contract.zig`.
+4. [x] Run focused release/validator validation, formatting/YAML/diff checks, then commit and push only this portability batch.
+
 ## Current turn: native evidence validator
 
 1. [x] Preserve unrelated `src/cli.zig` worktree changes without staging them.

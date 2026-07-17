@@ -2,6 +2,13 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-17 release contract native-evidence binding
+
+- `release-contract` now depends on the shared `native-evidence-validator` step, so release-switch validation also exercises the native smoke/runtime evidence JSON validator.
+- `tests/release_contract.zig` locks the build-graph dependency and the validator entry point.
+- Validation passed on Linux: `zig build release-contract --summary all` -> release contract `7/7` and validator `3/3`; `zig build native-evidence-validator --summary all` -> `3/3`; `zig fmt --check build.zig tests/release_contract.zig tools/ci/validate_native_evidence.zig`; Python YAML parsing for `.github/workflows/release.yml`; `git diff --check`.
+- Evidence boundary: this is Linux-runnable build/source-contract evidence. It does not execute macOS/Windows runners and does not claim native release artifact support.
+
 ## Focused verified: 2026-07-17 native evidence validator
 
 - Added `tools/ci/validate_native_evidence.zig`, a shared validator for native smoke and runtime evidence JSON. It checks platform, arch, GitHub SHA/run id/run attempt, smoke archive/wasm/version fields, and exact runtime gate lists for macOS and Windows.
