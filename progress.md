@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted array/window collect aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `array_chunks` and `map_windows` adapters.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_ARRAY_CHUNKS_COLLECT_U64` and `BINARY_HEAP_INTO_ITER_SORTED_MAP_WINDOWS_COLLECT_U64`.
+- Semantics: aliases eagerly materialize concrete `u64` outputs from the descending cursor greatest-first. Incomplete array chunks remain available as cursor suffix; map windows use a concrete `(window_ptr, window_len) -> u64` callback.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_array_window_collect_macro_surface.sa` - 1 test (panic ID 10783) covering complete/short chunks, zero chunk failure, descending window sums, and cursor remainder.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_array_window_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10784+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted enumerate/adapter-state collect aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `enumerate`, `by_ref`, `fuse`, and `peekable` adapters.

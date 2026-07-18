@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted array/window collect aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIterSorted` eager array/window aliases:
+- `BINARY_HEAP_INTO_ITER_SORTED_ARRAY_CHUNKS_COLLECT_U64` and `BINARY_HEAP_INTO_ITER_SORTED_MAP_WINDOWS_COLLECT_U64` expose Rust forward `Iterator` adapter naming over the materialized descending sorted cursor.
+- These helpers eagerly materialize concrete `Vec<u64>` outputs greatest-first. `ARRAY_CHUNKS` leaves an incomplete suffix; `MAP_WINDOWS` uses a concrete window pointer/length callback.
+- This batch does not model const-generic array ABI, borrowed window lifetimes, lazy adapter identity/state, generic closure/`FromIterator`, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_binary_heap_into_iter_sorted_array_window_collect_macro_surface.sa` (panic ID 10783).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_array_window_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10784+.
+
+
 ## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted enumerate/adapter-state collect aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIterSorted` eager enumerate/adapter-state aliases:
