@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 HashMap mutable predicate semantics)
+
+Completed supportable mutable `std::collections::HashMap::retain` / `extract_if` predicate lowering:
+
+- Updated `MAP_RETAIN` and `MAP_EXTRACT_IF` so predicates receive raw `value_slot_ptr` pointers instead of the stored pointer value.
+- `MAP_EXTRACT_IF` reloads each value after predicate execution before materializing removed entries, preserving predicate writes on the extracted path.
+- Test file `std_hashmap_mutable_predicate_macro_surface.sa` (panic ID 10823).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_mutable_predicate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers are still eager, concrete open-addressed map lowerings. They do not model Rust's lazy/scoped iterator objects, `FnMut(&K, &mut V)` borrow semantics, partial consumption, aliasing guarantees, generic value ABI, or drop/panic cleanup.
+
 ## Active std parity batch (2026-07-18 HashMap values_mut alias)
 
 Completed supportable eager `std::collections::HashMap::values_mut` lowering:

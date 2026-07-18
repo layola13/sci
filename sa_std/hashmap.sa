@@ -1529,15 +1529,15 @@ L_MAP_RETAIN_BODY_%out_len:
 
 L_MAP_RETAIN_CHECK_%out_len:
     __map_retain_key_%out_len = load __map_retain_slot_%out_len+HashMapSlot_key as ptr
-    __map_retain_value_%out_len = load __map_retain_slot_%out_len+HashMapSlot_value as ptr
-    __map_retain_pred_%out_len = call %pred_fn(__map_retain_key_%out_len, __map_retain_value_%out_len)
+    __map_retain_value_ptr_%out_len = ptr_add __map_retain_slot_%out_len, HashMapSlot_value
+    __map_retain_pred_%out_len = call %pred_fn(__map_retain_key_%out_len, __map_retain_value_ptr_%out_len)
     __map_retain_keep_%out_len = ne __map_retain_pred_%out_len, 0
     br __map_retain_keep_%out_len -> L_MAP_RETAIN_KEEP_%out_len, L_MAP_RETAIN_DROP_%out_len
 
 L_MAP_RETAIN_KEEP_%out_len:
     !__map_retain_keep_%out_len
     !__map_retain_pred_%out_len
-    !__map_retain_value_%out_len
+    !__map_retain_value_ptr_%out_len
     !__map_retain_key_%out_len
     jmp L_MAP_RETAIN_NEXT_%out_len
 
@@ -1558,7 +1558,7 @@ L_MAP_RETAIN_DROP_%out_len:
     !__map_retain_cur_len_%out_len
     !__map_retain_keep_%out_len
     !__map_retain_pred_%out_len
-    !__map_retain_value_%out_len
+    !__map_retain_value_ptr_%out_len
     !__map_retain_key_%out_len
     jmp L_MAP_RETAIN_NEXT_%out_len
 
@@ -1704,19 +1704,20 @@ L_MAP_EXTRACT_BODY_%out_len:
 
 L_MAP_EXTRACT_CHECK_%out_len:
     __map_extract_key_%out_len = load __map_extract_slot_%out_len+HashMapSlot_key as ptr
-    __map_extract_value_%out_len = load __map_extract_slot_%out_len+HashMapSlot_value as ptr
-    __map_extract_pred_%out_len = call %pred_fn(__map_extract_key_%out_len, __map_extract_value_%out_len)
+    __map_extract_value_ptr_%out_len = ptr_add __map_extract_slot_%out_len, HashMapSlot_value
+    __map_extract_pred_%out_len = call %pred_fn(__map_extract_key_%out_len, __map_extract_value_ptr_%out_len)
     __map_extract_take_%out_len = ne __map_extract_pred_%out_len, 0
     br __map_extract_take_%out_len -> L_MAP_EXTRACT_TAKE_%out_len, L_MAP_EXTRACT_KEEP_%out_len
 
 L_MAP_EXTRACT_KEEP_%out_len:
     !__map_extract_take_%out_len
     !__map_extract_pred_%out_len
-    !__map_extract_value_%out_len
+    !__map_extract_value_ptr_%out_len
     !__map_extract_key_%out_len
     jmp L_MAP_EXTRACT_NEXT_%out_len
 
 L_MAP_EXTRACT_TAKE_%out_len:
+    __map_extract_value_%out_len = load __map_extract_slot_%out_len+HashMapSlot_value as ptr
     __map_extract_key_bits_%out_len = bitcast __map_extract_key_%out_len as u64
     __map_extract_value_bits_%out_len = bitcast __map_extract_value_%out_len as u64
     EXPAND VEC_PUSH_U64 %out_vec, __map_extract_key_bits_%out_len
@@ -1740,6 +1741,7 @@ L_MAP_EXTRACT_TAKE_%out_len:
     !__map_extract_take_%out_len
     !__map_extract_pred_%out_len
     !__map_extract_value_%out_len
+    !__map_extract_value_ptr_%out_len
     !__map_extract_key_%out_len
     jmp L_MAP_EXTRACT_NEXT_%out_len
 

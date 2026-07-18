@@ -2,6 +2,16 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashMap mutable predicate semantics
+
+- Continued Rust `HashMap` parity, referencing local Rust `std/src/collections/hash/map.rs` stable `retain` / `extract_if` contracts and the existing concrete open-addressed slot-compaction helpers.
+- `sa_std/hashmap.sa`: updated `MAP_RETAIN` and `MAP_EXTRACT_IF` so predicates receive concrete `key_ptr, value_slot_ptr` raw pointers. `MAP_EXTRACT_IF` now reloads the stored value after predicate execution before materializing removed entries, so predicate writes are preserved on both retained and extracted paths.
+- Test: `tests/unit_framework/std_hashmap_mutable_predicate_macro_surface.sa` - 1 test (panic ID 10823) covering retained-path mutation, extracted-path mutation, removed membership, preserved retained membership, empty-map behavior, and extracted key/value materialization.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_mutable_predicate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10824+.
+
 ## Completed: 2026-07-18 HashMap values_mut alias
 
 - Continued Rust `HashMap` parity, referencing local Rust `std/src/collections/hash/map.rs` stable `values_mut` and the existing concrete open-addressed value-slot materialization helper.
