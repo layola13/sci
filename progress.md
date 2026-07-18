@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque extract_if lowering
+
+- Continued Rust `VecDeque` parity, referencing local Rust `vec_deque/extract_if.rs` and the existing concrete `VEC_EXTRACT_IF_U64` lowering.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_EXTRACT_IF_U64`, which forces logical contents contiguous, eagerly evaluates a concrete `u64 -> u64` predicate, preserves non-matching order in the deque, and materializes matching values front-to-back into a caller-owned Vec.
+- Semantics: this is a full-range eager lowering. It mirrors the existing Vec extract-if facade and does not model Rust's lazy range-bounded `ExtractIf<'_, T, F, A>` object, `FnMut(&mut T)` mutation/reference ABI, partial-consumption drop repair, allocator access, panic/leak behavior, or generic move/drop semantics.
+- Test: `tests/unit_framework/std_vec_deque_extract_if_macro_surface.sa` - 1 test (panic ID 10803) covering a wrapped deque, matching/remain order, never-match, always-match, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_extract_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10804+.
+
 ## Completed: 2026-07-18 VecDeque iter_mut aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/mod.rs` `iter_mut()` / `IntoIterator for &mut VecDeque` plus the existing concrete `Vec` / `Array` `IterMut` lowering style.

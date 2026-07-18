@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque extract_if lowering)
+
+Completed supportable full-range eager `std::collections::VecDeque::extract_if` lowering:
+
+- Added `VEC_DEQUE_EXTRACT_IF_U64` using the same concrete predicate/output shape as `VEC_EXTRACT_IF_U64`.
+- Wrapped storage is first made contiguous; matching values are materialized front-to-back into a caller-owned Vec and non-matching values remain compacted in original order.
+- Test file `std_vec_deque_extract_if_macro_surface.sa` (panic ID 10803).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_extract_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper is eager and full-range. It does not model Rust's lazy range-bounded `ExtractIf` object/state, mutable-reference predicate ABI, partial-consumption drop repair, allocator access, generic item move/drop semantics, or panic/leak cleanup.
+
 ## Active std parity batch (2026-07-18 VecDeque iter_mut aliases)
 
 Completed supportable `std::collections::VecDeque` mutable iterator aliases:

@@ -2695,6 +2695,72 @@ L_VEC_DEQUE_RETAIN_DONE_%out_len:
     !__vec_deque_retain_view_%out_len
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_EXTRACT_IF_U64 %out_len, %out_vec, %deque_reg, %pred_fn
+    call @vec_deque_force_contiguous(&%deque_reg)
+    __vec_deque_extract_view_%out_len = & %deque_reg
+    __vec_deque_extract_ptr_%out_len = load __vec_deque_extract_view_%out_len+VecDeque_buf as ptr
+    __vec_deque_extract_len_%out_len = load __vec_deque_extract_view_%out_len+VecDeque_len as u64
+    EXPAND VEC_WITH_CAPACITY_U64 %out_vec, __vec_deque_extract_len_%out_len
+    __vec_deque_extract_read_slot_%out_len = stack_alloc 8
+    __vec_deque_extract_write_slot_%out_len = stack_alloc 8
+    store __vec_deque_extract_read_slot_%out_len+0, 0 as u64
+    store __vec_deque_extract_write_slot_%out_len+0, 0 as u64
+    jmp L_VEC_DEQUE_EXTRACT_HEAD_%out_len
+
+L_VEC_DEQUE_EXTRACT_HEAD_%out_len:
+    __vec_deque_extract_read_%out_len = load __vec_deque_extract_read_slot_%out_len+0 as u64
+    __vec_deque_extract_done_%out_len = eq __vec_deque_extract_read_%out_len, __vec_deque_extract_len_%out_len
+    br __vec_deque_extract_done_%out_len -> L_VEC_DEQUE_EXTRACT_DONE_%out_len, L_VEC_DEQUE_EXTRACT_BODY_%out_len
+
+L_VEC_DEQUE_EXTRACT_BODY_%out_len:
+    __vec_deque_extract_read_off_%out_len = mul __vec_deque_extract_read_%out_len, VecDeque_SLOT_SIZE
+    __vec_deque_extract_read_ptr_%out_len = ptr_add __vec_deque_extract_ptr_%out_len, __vec_deque_extract_read_off_%out_len
+    __vec_deque_extract_value_%out_len = load __vec_deque_extract_read_ptr_%out_len+0 as u64
+    __vec_deque_extract_pred_%out_len = call %pred_fn(__vec_deque_extract_value_%out_len)
+    __vec_deque_extract_take_%out_len = ne __vec_deque_extract_pred_%out_len, 0
+    br __vec_deque_extract_take_%out_len -> L_VEC_DEQUE_EXTRACT_TAKE_%out_len, L_VEC_DEQUE_EXTRACT_KEEP_%out_len
+
+L_VEC_DEQUE_EXTRACT_TAKE_%out_len:
+    EXPAND VEC_PUSH_U64 %out_vec, __vec_deque_extract_value_%out_len
+    jmp L_VEC_DEQUE_EXTRACT_NEXT_%out_len
+
+L_VEC_DEQUE_EXTRACT_KEEP_%out_len:
+    __vec_deque_extract_write_%out_len = load __vec_deque_extract_write_slot_%out_len+0 as u64
+    __vec_deque_extract_write_off_%out_len = mul __vec_deque_extract_write_%out_len, VecDeque_SLOT_SIZE
+    __vec_deque_extract_write_ptr_%out_len = ptr_add __vec_deque_extract_ptr_%out_len, __vec_deque_extract_write_off_%out_len
+    store __vec_deque_extract_write_ptr_%out_len+0, __vec_deque_extract_value_%out_len as u64
+    __vec_deque_extract_next_write_%out_len = add __vec_deque_extract_write_%out_len, 1
+    store __vec_deque_extract_write_slot_%out_len+0, __vec_deque_extract_next_write_%out_len as u64
+    !__vec_deque_extract_next_write_%out_len
+    !__vec_deque_extract_write_ptr_%out_len
+    !__vec_deque_extract_write_off_%out_len
+    !__vec_deque_extract_write_%out_len
+    jmp L_VEC_DEQUE_EXTRACT_NEXT_%out_len
+
+L_VEC_DEQUE_EXTRACT_NEXT_%out_len:
+    __vec_deque_extract_next_read_%out_len = add __vec_deque_extract_read_%out_len, 1
+    store __vec_deque_extract_read_slot_%out_len+0, __vec_deque_extract_next_read_%out_len as u64
+    !__vec_deque_extract_next_read_%out_len
+    !__vec_deque_extract_take_%out_len
+    !__vec_deque_extract_pred_%out_len
+    !__vec_deque_extract_value_%out_len
+    !__vec_deque_extract_read_ptr_%out_len
+    !__vec_deque_extract_read_off_%out_len
+    !__vec_deque_extract_done_%out_len
+    !__vec_deque_extract_read_%out_len
+    jmp L_VEC_DEQUE_EXTRACT_HEAD_%out_len
+
+L_VEC_DEQUE_EXTRACT_DONE_%out_len:
+    %out_len = load __vec_deque_extract_write_slot_%out_len+0 as u64
+    store __vec_deque_extract_view_%out_len+VecDeque_len, %out_len as u64
+    store __vec_deque_extract_view_%out_len+VecDeque_head, 0 as u64
+    !__vec_deque_extract_done_%out_len
+    !__vec_deque_extract_read_%out_len
+    !__vec_deque_extract_len_%out_len
+    !__vec_deque_extract_ptr_%out_len
+    !__vec_deque_extract_view_%out_len
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_TRY_FRONT_MUT_PTR %out_ok, %out_ptr, %deque_reg
     __vec_deque_front_mut_slot_%out_ok = stack_alloc 8
     __vec_deque_front_mut_ok_%out_ok = call @sa_vec_deque_try_front_mut_ptr(&%deque_reg, &__vec_deque_front_mut_slot_%out_ok)
