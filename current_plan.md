@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 HashSet eager iter aliases)
+
+Completed supportable eager `std::collections::HashSet::iter` / `IntoIterator for &HashSet` lowering:
+
+- Added `SET_ITER` and `SET_REF_INTO_ITER` over the existing concrete pointer-key set.
+- Both aliases materialize arbitrary-order key pointer bits into a caller-owned `Vec<u64>` without consuming the set, reusing the existing `SET_KEYS` / map key scan.
+- Test file `std_hashset_iter_alias_macro_surface.sa` (panic ID 10807).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashset_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers are eager and concrete. They do not model Rust's lazy `Iter` object, scoped borrow/reference lifetimes, generic `&T` item ABI, owned `IntoIter`, lazy set algebra adapters, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 HashMap eager iter aliases)
 
 Completed supportable eager `std::collections::HashMap::iter` / `iter_mut` lowering:

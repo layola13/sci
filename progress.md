@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashSet eager iter aliases
+
+- Continued Rust `HashSet` parity, referencing local Rust `collections/hash/set.rs` `iter()` / `IntoIterator for &HashSet` and the existing concrete set key materialization helper.
+- `sa_std/hashset.sa`: added `SET_ITER` and `SET_REF_INTO_ITER` as Rust-named eager aliases over `SET_KEYS`, materializing arbitrary-order key pointer bits into caller-owned `Vec<u64>` outputs without consuming the set.
+- Semantics: this is an eager concrete pointer-key lowering over the existing open-addressed table scan. It scans by capacity through the map-backed set and does not model Rust's lazy `Iter` object layout, scoped references, borrow lifetimes, generic `&T` item ABI, owned `IntoIter`, lazy set algebra adapters, or drop/panic cleanup.
+- Test: `tests/unit_framework/std_hashset_iter_alias_macro_surface.sa` - 1 test (panic ID 10807) covering `SET_ITER`, `SET_REF_INTO_ITER`, no-consumption behavior, arbitrary-order membership, and empty-set outputs.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashset_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10808+.
+
 ## Completed: 2026-07-18 HashMap eager iter aliases
 
 - Continued Rust `HashMap` parity, referencing local Rust `collections/hash/map.rs` `iter()` / `iter_mut()` and the existing concrete key/value materialization helpers.

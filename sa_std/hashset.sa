@@ -763,6 +763,14 @@ L_SET_DRAIN_FINISH_%out_vec:
     EXPAND MAP_KEYS %out_vec, %set_reg
 [END_MACRO]
 
+[MACRO] SET_ITER %out_vec, %set_reg
+    EXPAND SET_KEYS %out_vec, %set_reg
+[END_MACRO]
+
+[MACRO] SET_REF_INTO_ITER %out_vec, %set_reg
+    EXPAND SET_ITER %out_vec, %set_reg
+[END_MACRO]
+
 [MACRO] SET_INTO_KEYS %out_vec, %set_reg
     EXPAND SET_DRAIN %out_vec, %set_reg
 [END_MACRO]
