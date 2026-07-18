@@ -847,6 +847,83 @@ L_BTREE_SET_EXTRACT_DONE_%out_len:
     !__btree_set_extract_entries_%out_len
 [END_MACRO]
 
+[MACRO] BTREE_SET_EXTRACT_IF_RANGE %out_len, %out_set, %set_reg, %start_key, %end_key, %pred_fn
+    EXPAND BTREE_SET_NEW %out_set
+    EXPAND BTREE_SET_RANGE __btree_set_extract_range_snapshot_%out_len, %set_reg, %start_key, %end_key
+    __btree_set_extract_range_entries_%out_len = load __btree_set_extract_range_snapshot_%out_len+BTreeSet_entries as ptr
+    __btree_set_extract_range_len_%out_len = load __btree_set_extract_range_snapshot_%out_len+BTreeSet_len as u64
+    __btree_set_extract_range_idx_slot_%out_len = stack_alloc 8
+    store __btree_set_extract_range_idx_slot_%out_len+0, 0 as u64
+    jmp L_BTREE_SET_EXTRACT_RANGE_HEAD_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_HEAD_%out_len:
+    __btree_set_extract_range_idx_%out_len = load __btree_set_extract_range_idx_slot_%out_len+0 as u64
+    __btree_set_extract_range_done_%out_len = eq __btree_set_extract_range_idx_%out_len, __btree_set_extract_range_len_%out_len
+    br __btree_set_extract_range_done_%out_len -> L_BTREE_SET_EXTRACT_RANGE_REMOVE_INIT_%out_len, L_BTREE_SET_EXTRACT_RANGE_BODY_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_BODY_%out_len:
+    __btree_set_extract_range_off_%out_len = mul __btree_set_extract_range_idx_%out_len, BTreeMapEntry_SIZE
+    __btree_set_extract_range_entry_%out_len = ptr_add __btree_set_extract_range_entries_%out_len, __btree_set_extract_range_off_%out_len
+    __btree_set_extract_range_pred_%out_len = call %pred_fn(&__btree_set_extract_range_entry_%out_len)
+    __btree_set_extract_range_take_%out_len = ne __btree_set_extract_range_pred_%out_len, 0
+    br __btree_set_extract_range_take_%out_len -> L_BTREE_SET_EXTRACT_RANGE_TAKE_%out_len, L_BTREE_SET_EXTRACT_RANGE_NEXT_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_TAKE_%out_len:
+    __btree_set_extract_range_inserted_%out_len = call @sa_btree_set_insert(&%out_set, &__btree_set_extract_range_entry_%out_len)
+    !__btree_set_extract_range_inserted_%out_len
+    jmp L_BTREE_SET_EXTRACT_RANGE_NEXT_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_NEXT_%out_len:
+    __btree_set_extract_range_next_idx_%out_len = add __btree_set_extract_range_idx_%out_len, 1
+    store __btree_set_extract_range_idx_slot_%out_len+0, __btree_set_extract_range_next_idx_%out_len as u64
+    !__btree_set_extract_range_next_idx_%out_len
+    !__btree_set_extract_range_take_%out_len
+    !__btree_set_extract_range_pred_%out_len
+    !__btree_set_extract_range_entry_%out_len
+    !__btree_set_extract_range_off_%out_len
+    !__btree_set_extract_range_done_%out_len
+    !__btree_set_extract_range_idx_%out_len
+    jmp L_BTREE_SET_EXTRACT_RANGE_HEAD_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_REMOVE_INIT_%out_len:
+    call @sa_btree_set_free(^__btree_set_extract_range_snapshot_%out_len)
+    __btree_set_extract_range_remove_entries_%out_len = load %out_set+BTreeSet_entries as ptr
+    __btree_set_extract_range_remove_len_%out_len = load %out_set+BTreeSet_len as u64
+    __btree_set_extract_range_remove_slot_%out_len = stack_alloc 8
+    store __btree_set_extract_range_remove_slot_%out_len+0, 0 as u64
+    jmp L_BTREE_SET_EXTRACT_RANGE_REMOVE_HEAD_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_REMOVE_HEAD_%out_len:
+    __btree_set_extract_range_remove_idx_%out_len = load __btree_set_extract_range_remove_slot_%out_len+0 as u64
+    __btree_set_extract_range_remove_done_%out_len = eq __btree_set_extract_range_remove_idx_%out_len, __btree_set_extract_range_remove_len_%out_len
+    br __btree_set_extract_range_remove_done_%out_len -> L_BTREE_SET_EXTRACT_RANGE_DONE_%out_len, L_BTREE_SET_EXTRACT_RANGE_REMOVE_BODY_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_REMOVE_BODY_%out_len:
+    __btree_set_extract_range_remove_off_%out_len = mul __btree_set_extract_range_remove_idx_%out_len, BTreeMapEntry_SIZE
+    __btree_set_extract_range_remove_entry_%out_len = ptr_add __btree_set_extract_range_remove_entries_%out_len, __btree_set_extract_range_remove_off_%out_len
+    __btree_set_extract_range_removed_%out_len = call @sa_btree_set_remove(&%set_reg, &__btree_set_extract_range_remove_entry_%out_len)
+    __btree_set_extract_range_remove_next_%out_len = add __btree_set_extract_range_remove_idx_%out_len, 1
+    store __btree_set_extract_range_remove_slot_%out_len+0, __btree_set_extract_range_remove_next_%out_len as u64
+    !__btree_set_extract_range_remove_next_%out_len
+    !__btree_set_extract_range_removed_%out_len
+    !__btree_set_extract_range_remove_entry_%out_len
+    !__btree_set_extract_range_remove_off_%out_len
+    !__btree_set_extract_range_remove_done_%out_len
+    !__btree_set_extract_range_remove_idx_%out_len
+    jmp L_BTREE_SET_EXTRACT_RANGE_REMOVE_HEAD_%out_len
+
+L_BTREE_SET_EXTRACT_RANGE_DONE_%out_len:
+    %out_len = load %set_reg+BTreeSet_len as u64
+    !__btree_set_extract_range_remove_done_%out_len
+    !__btree_set_extract_range_remove_idx_%out_len
+    !__btree_set_extract_range_remove_len_%out_len
+    !__btree_set_extract_range_remove_entries_%out_len
+    !__btree_set_extract_range_done_%out_len
+    !__btree_set_extract_range_idx_%out_len
+    !__btree_set_extract_range_len_%out_len
+    !__btree_set_extract_range_entries_%out_len
+[END_MACRO]
+
 [MACRO] BTREE_SET_INSERT %out_ok, %set_reg, %key_reg
     %out_ok = call @sa_btree_set_insert(&%set_reg, &%key_reg)
 [END_MACRO]

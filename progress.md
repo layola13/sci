@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeSet ranged extract_if
+
+- Continued Rust `BTreeSet::extract_if` parity, referencing local Rust `alloc/src/collections/btree/set.rs` range-bounded `extract_if` contract and the existing concrete half-open set range helper.
+- `sa_std/btree_set.sa`: added `BTREE_SET_EXTRACT_IF_RANGE`.
+- Semantics: the helper snapshots only concrete `[start, end)` sorted keys, invokes the `key_slice -> u64` predicate on those keys, stages matches in a new sorted BTreeSet, then removes their keys from the source after snapshot scanning so source entry movement cannot invalidate the scan.
+- Test: `tests/unit_framework/std_btree_set_extract_if_range_macro_surface.sa` - 1 test (panic ID 10820) covering lower-inclusive/upper-exclusive bounds, in-range predicate true/false paths, untouched out-of-range membership, extracted membership, and equal-bound empty range behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_set_extract_if_range_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10821+.
+
 ## Completed: 2026-07-18 BTreeMap ranged extract_if
 
 - Continued Rust `BTreeMap::extract_if` parity, referencing local Rust `alloc/src/collections/btree/map.rs` range-bounded `extract_if` contract and the existing concrete half-open mutable-range helper.
