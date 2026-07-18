@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator comparison/key aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for front-to-back borrowed and consuming iterator behavior plus core `Iterator` lexicographic comparison defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_MIN_BY_U64`, `VEC_DEQUE_ITER_MAX_BY_U64`, `VEC_DEQUE_ITER_MIN_BY_KEY_U64`, `VEC_DEQUE_ITER_MAX_BY_KEY_U64`, `VEC_DEQUE_ITER_CMP_U64`, `VEC_DEQUE_ITER_CMP_BY_U64`, `VEC_DEQUE_ITER_PARTIAL_CMP_U64`, `VEC_DEQUE_ITER_PARTIAL_CMP_BY_U64`, `VEC_DEQUE_ITER_EQ_BY_U64`, `VEC_DEQUE_ITER_EQ_U64`, `VEC_DEQUE_ITER_PARTIAL_EQ_U64`, `VEC_DEQUE_ITER_NE_U64`, `VEC_DEQUE_ITER_LT_U64`, `VEC_DEQUE_ITER_LE_U64`, `VEC_DEQUE_ITER_GT_U64`, `VEC_DEQUE_ITER_GE_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete iterator comparison/key helpers. Partial comparison returns explicit `(ok, ordering)` channels for the supportable `u64` subset.
+- Test: `tests/unit_framework/std_vec_deque_iter_comparison_macro_surface.sa` - 1 test (panic ID 10791) covering wrapped deque order, min/max by comparator/key, lexicographic comparison variants, partial comparison failure suffixes, equality/relation aliases, and consuming iterator aliases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10792+.
+
 ## Completed: 2026-07-18 VecDeque iterator fold/aggregate aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for forward/reverse fold and exact front-to-back consuming behavior.

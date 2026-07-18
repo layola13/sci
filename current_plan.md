@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator comparison/key aliases)
+
+Completed supportable `std::collections::VecDeque` iterator comparison/key aggregate aliases:
+- `VEC_DEQUE_ITER_MIN_BY_U64`, `VEC_DEQUE_ITER_MAX_BY_U64`, `VEC_DEQUE_ITER_MIN_BY_KEY_U64`, `VEC_DEQUE_ITER_MAX_BY_KEY_U64`, `VEC_DEQUE_ITER_CMP_U64`, `VEC_DEQUE_ITER_CMP_BY_U64`, `VEC_DEQUE_ITER_PARTIAL_CMP_U64`, `VEC_DEQUE_ITER_PARTIAL_CMP_BY_U64`, `VEC_DEQUE_ITER_EQ_BY_U64`, `VEC_DEQUE_ITER_EQ_U64`, `VEC_DEQUE_ITER_PARTIAL_EQ_U64`, `VEC_DEQUE_ITER_NE_U64`, `VEC_DEQUE_ITER_LT_U64`, `VEC_DEQUE_ITER_LE_U64`, `VEC_DEQUE_ITER_GT_U64`, and `VEC_DEQUE_ITER_GE_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors and delegate to concrete iterator comparison/key helpers.
+- This batch does not model Rust generic `Ord` / `PartialOrd` dispatch, closure capture, `Option<Ordering>` ABI, reference item identity/lifetimes, owned iterator layout, allocator state, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_comparison_macro_surface.sa` (panic ID 10791).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_comparison_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10792+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator fold/aggregate aliases)
 
 Completed supportable `std::collections::VecDeque` iterator fold/aggregate aliases:

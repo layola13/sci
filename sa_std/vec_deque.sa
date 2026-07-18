@@ -1932,6 +1932,70 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_LT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_GT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND ITER_GE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
@@ -2050,6 +2114,70 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND VEC_DEQUE_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND VEC_DEQUE_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND VEC_DEQUE_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND VEC_DEQUE_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND VEC_DEQUE_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND VEC_DEQUE_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND VEC_DEQUE_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND VEC_DEQUE_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+    EXPAND VEC_DEQUE_ITER_GE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
