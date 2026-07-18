@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted take/skip adapter aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `take` and `skip` adapters and collect behavior.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_TAKE_COLLECT_U64` and `BINARY_HEAP_INTO_ITER_SORTED_SKIP_COLLECT_U64`.
+- Semantics: aliases eagerly collect from the materialized descending cursor greatest-first and preserve the existing cursor consumption/remainder behavior. Reverse `rev` is intentionally not exposed because Rust `IntoIterSorted` is not a `DoubleEndedIterator`.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_adapter_collect_macro_surface.sa` - 1 test (panic ID 10780) covering take/skip output order, partial and overlarge counts, cursor remainder, and exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10781+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted partition aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for `partition` and `is_partitioned` forward iterator defaults.

@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted take/skip adapter aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIterSorted` eager adapter aliases:
+- `BINARY_HEAP_INTO_ITER_SORTED_TAKE_COLLECT_U64` and `BINARY_HEAP_INTO_ITER_SORTED_SKIP_COLLECT_U64` expose Rust forward `Iterator` `take(...).collect` and `skip(...).collect` naming over the materialized descending sorted cursor.
+- These helpers consume the explicit descending cursor greatest-first and eagerly materialize caller-owned `Vec<u64>` outputs. They intentionally do not add `rev` because Rust `IntoIterSorted` is not a `DoubleEndedIterator`.
+- This batch does not model lazy adapter identity/state, generic `IntoIterator` / `FromIterator`, closure capture, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_binary_heap_into_iter_sorted_adapter_collect_macro_surface.sa` (panic ID 10780).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10781+.
+
+
 ## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted partition aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIterSorted` partition aliases:
