@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 HashSet owned into-iterator alias)
+
+Completed supportable `std::collections::HashSet` owned `IntoIterator` lowering:
+
+- Added `SET_INTO_ITER` over the existing eager `SET_DRAIN` helper.
+- The alias materializes arbitrary-order key pointer bits into a caller-owned `Vec<u64>` and clears the source set.
+- Test file `std_hashset_into_iter_alias_macro_surface.sa` (panic ID 10814).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashset_into_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper exposes Rust's owned `IntoIterator` name over concrete eager drain materialization. It does not model Rust's owned `IntoIter` object layout/drop glue, generic item ownership/drop semantics, allocator state, arbitrary lazy consumption, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeMap into-iterator aliases)
 
 Completed supportable `std::collections::BTreeMap` `IntoIterator` lowering:

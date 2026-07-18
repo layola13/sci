@@ -775,6 +775,10 @@ L_SET_DRAIN_FINISH_%out_vec:
     EXPAND SET_DRAIN %out_vec, %set_reg
 [END_MACRO]
 
+[MACRO] SET_INTO_ITER %out_vec, %set_reg
+    EXPAND SET_DRAIN %out_vec, %set_reg
+[END_MACRO]
+
 [MACRO] SET_EXTRACT_IF %out_len, %out_vec, %set_reg, %pred_fn
     __set_extract_slots_%out_len = load %set_reg+HashSet_slots as ptr
     __set_extract_cap_%out_len = load %set_reg+HashSet_cap as u64

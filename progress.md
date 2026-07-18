@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashSet owned into-iterator alias
+
+- Continued Rust `HashSet` parity, referencing local Rust `std/src/collections/hash/set.rs` `IntoIterator for HashSet` and the existing eager set drain helper.
+- `sa_std/hashset.sa`: added `SET_INTO_ITER` as a Rust naming alias over `SET_DRAIN`.
+- Semantics: the alias materializes arbitrary-order key pointer bits into a caller-owned `Vec<u64>` and clears the source set, while the caller still owns and frees the set storage.
+- Test: `tests/unit_framework/std_hashset_into_iter_alias_macro_surface.sa` - 1 test (panic ID 10814) covering all owned keys, source-set clearing, membership after consumption, and empty-set output.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashset_into_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10815+.
+
 ## Completed: 2026-07-18 BTreeMap into-iterator aliases
 
 - Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` `IntoIterator for &BTreeMap`, `&mut BTreeMap`, and owned `BTreeMap` impls.
