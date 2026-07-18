@@ -2053,6 +2053,10 @@ L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok:
     %out_vec = call @sa_btree_map_value_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
 
+[MACRO] BTREE_MAP_VALUES_MUT %out_vec, %map_reg
+    EXPAND BTREE_MAP_VALUES_MUT_PTRS %out_vec, %map_reg
+[END_MACRO]
+
 [MACRO] BTREE_MAP_ITER %out_vec, %map_reg
     %out_vec = call @sa_btree_map_iter_vec(&%map_reg)
 [END_MACRO]

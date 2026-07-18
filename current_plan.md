@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeMap values_mut alias)
+
+Completed supportable eager `std::collections::BTreeMap::values_mut` lowering:
+
+- Added `BTREE_MAP_VALUES_MUT` as the Rust method-name alias over `BTREE_MAP_VALUES_MUT_PTRS`.
+- The helper materializes raw `u64` value-slot pointer bits in sorted key order, supports in-place source-map updates, and does not consume the map.
+- Test file `std_btree_map_values_mut_alias_macro_surface.sa` (panic ID 10821).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_values_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper is eager and exposes raw value-slot pointers. It does not model Rust's lazy `ValuesMut<'a, K, V>` object, scoped mutable references/lifetimes, aliasing guarantees, generic value ABI, B-tree node traversal internals, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeSet ranged extract_if)
 
 Completed supportable half-open ranged eager `std::collections::BTreeSet::extract_if` lowering:
