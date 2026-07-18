@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeSet eager iter aliases
+
+- Continued Rust `BTreeSet` parity, referencing local Rust `alloc/src/collections/btree/set.rs` `iter()` / `IntoIterator for &BTreeSet` and the existing sorted-array BTreeSet storage helpers.
+- `sa_std/btree_set.sa`: added `BTREE_SET_ITER` and `BTREE_SET_REF_INTO_ITER`. Both materialize ascending key order as flat `Vec<u64>` pairs of `key_ptr_bits, key_len` without consuming the set.
+- Semantics: this is an eager concrete `Slice`-key lowering over the map-backed sorted-array set. It preserves key order and does not model Rust's lazy `Iter` object layout, scoped references, borrow lifetimes, generic `&T` item ABI, owned `IntoIter`, lazy set algebra adapters, node traversal internals, or drop/panic cleanup.
+- Test: `tests/unit_framework/std_btree_set_iter_alias_macro_surface.sa` - 1 test (panic ID 10809) covering sorted pair lanes, `&BTreeSet` into-iterator alias, no-consumption behavior, and empty-set outputs.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_set_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10810+.
+
 ## Completed: 2026-07-18 BTreeMap eager iter aliases
 
 - Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` `iter()` / `iter_mut()` and the existing sorted-array BTreeMap storage helpers.

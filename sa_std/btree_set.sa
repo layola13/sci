@@ -508,6 +508,57 @@ L_ENTRY:
     !set
     return out_set
 
+@export sa_btree_set_iter_vec(&set: ptr) -> ^ptr:
+L_ENTRY:
+    len = load set+BTreeSet_len as u64
+    EXPAND NUM_U64_CHECKED_MUL btree_set_iter_cap_ok, btree_set_iter_cap, len, 2
+    br btree_set_iter_cap_ok -> L_BTREE_SET_ITER_CAP_OK, L_BTREE_SET_ITER_CAP_OVERFLOW
+
+L_BTREE_SET_ITER_CAP_OVERFLOW:
+    panic(2206)
+
+L_BTREE_SET_ITER_CAP_OK:
+    out_vec = call @sa_vec_with_capacity(btree_set_iter_cap, 8)
+    entries = load set+BTreeSet_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_SET_ITER_HEAD
+
+L_BTREE_SET_ITER_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_SET_ITER_DONE, L_BTREE_SET_ITER_BODY
+
+L_BTREE_SET_ITER_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    key_ptr = load entry+BTreeMapEntry_key_ptr as ptr
+    key_len = load entry+BTreeMapEntry_key_len as u64
+    key_ptr_bits = bitcast key_ptr as u64
+    out_vec = call @sa_vec_push(^out_vec, key_ptr_bits, 8)
+    out_vec = call @sa_vec_push(^out_vec, key_len, 8)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !key_ptr_bits
+    !key_len
+    !key_ptr
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_SET_ITER_HEAD
+
+L_BTREE_SET_ITER_DONE:
+    !done
+    !idx
+    !entries
+    !btree_set_iter_cap_ok
+    !btree_set_iter_cap
+    !len
+    !set
+    return out_vec
+
 [MACRO] BTREE_SET_NEW %out_set
     %out_set = call @sa_btree_set_new()
 [END_MACRO]
@@ -756,6 +807,14 @@ L_BTREE_SET_RETAIN_DONE_%out_len:
 
 [MACRO] BTREE_SET_SYMMETRIC_DIFFERENCE %out_set, %set_reg, %other_set
     %out_set = call @sa_btree_set_symmetric_difference(&%set_reg, &%other_set)
+[END_MACRO]
+
+[MACRO] BTREE_SET_ITER %out_vec, %set_reg
+    %out_vec = call @sa_btree_set_iter_vec(&%set_reg)
+[END_MACRO]
+
+[MACRO] BTREE_SET_REF_INTO_ITER %out_vec, %set_reg
+    EXPAND BTREE_SET_ITER %out_vec, %set_reg
 [END_MACRO]
 
 [MACRO] BTREE_SET_LIT1 %out_set, %key1

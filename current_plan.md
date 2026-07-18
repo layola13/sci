@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeSet eager iter aliases)
+
+Completed supportable eager `std::collections::BTreeSet::iter` / `IntoIterator for &BTreeSet` lowering:
+
+- Added `BTREE_SET_ITER` and `BTREE_SET_REF_INTO_ITER` over the existing concrete map-backed sorted-array `Slice`-key set.
+- Both aliases materialize ascending key order as flat `Vec<u64>` pairs of `key_ptr_bits, key_len` without consuming the set.
+- Test file `std_btree_set_iter_alias_macro_surface.sa` (panic ID 10809).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_set_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers are eager and concrete. They do not model Rust's lazy `Iter` object, scoped borrow/reference lifetimes, generic `&T` item ABI, owned `IntoIter`, lazy set algebra adapters, B-tree node traversal internals, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeMap eager iter aliases)
 
 Completed supportable eager `std::collections::BTreeMap::iter` / `iter_mut` lowering:
