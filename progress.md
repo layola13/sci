@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator adapter-state collect aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` adapter-state defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_BY_REF_COLLECT_U64`, `VEC_DEQUE_ITER_FUSE_COLLECT_U64`, `VEC_DEQUE_ITER_PEEKABLE_COLLECT_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume or view snapshot/drained backing cursors through existing concrete iterator adapter-state helpers and eagerly materialize caller-owned `Vec<u64>` outputs. `by_ref` mutates the original cursor through the helper alias, while `fuse` and `peekable` collect the current finite remainder without exposing lazy adapter state.
+- Test: `tests/unit_framework/std_vec_deque_iter_adapter_state_collect_macro_surface.sa` - 1 test (panic ID 10797) covering by_ref exhaustion, fuse repeated exhaustion, empty fuse/peekable, peek non-consumption before collect, and consuming iterator alias exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_adapter_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10798+.
+
 ## Completed: 2026-07-18 VecDeque iterator pair/composition collect aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` pair/composition adapter defaults.

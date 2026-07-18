@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator adapter-state collect aliases)
+
+Completed supportable `std::collections::VecDeque` iterator adapter-state collect aliases:
+- `VEC_DEQUE_ITER_BY_REF_COLLECT_U64`, `VEC_DEQUE_ITER_FUSE_COLLECT_U64`, and `VEC_DEQUE_ITER_PEEKABLE_COLLECT_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume or view explicit snapshot/drained backing cursors and eagerly materialize concrete `Vec<u64>` outputs. `BY_REF` mutates the original cursor through the helper alias; `FUSE` and `PEEKABLE` collect the current finite cursor remainder.
+- This batch does not model Rust lazy adapter identity/state, buffered `Peekable` object state, borrow lifetimes/reference items, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_adapter_state_collect_macro_surface.sa` (panic ID 10797).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_adapter_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10798+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator pair/composition collect aliases)
 
 Completed supportable `std::collections::VecDeque` iterator pair/composition collect aliases:
