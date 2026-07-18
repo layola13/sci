@@ -833,6 +833,11 @@ L_BTREE_SET_RETAIN_DONE_%out_len:
     EXPAND BTREE_SET_ITER %out_vec, %set_reg
 [END_MACRO]
 
+[MACRO] BTREE_SET_INTO_ITER %out_vec, %set_reg
+    EXPAND BTREE_SET_ITER %out_vec, %set_reg
+    EXPAND BTREE_SET_CLEAR %set_reg
+[END_MACRO]
+
 [MACRO] BTREE_SET_LIT1 %out_set, %key1
     EXPAND BTREE_SET_NEW %out_set
     EXPAND BTREE_SET_INSERT __btree_set_lit1_ok_1_%out_set, %out_set, %key1
