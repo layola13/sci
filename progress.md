@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator view/clone aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, `vec::IntoIter`, and core slice iterator view/clone defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_DEFAULT_U64`, `VEC_DEQUE_ITER_AS_REF_SLICE_U64`, `VEC_DEQUE_ITER_CLONE_U64`, `VEC_DEQUE_INTO_ITER_DEFAULT_U64`, `VEC_DEQUE_INTO_ITER_AS_SLICE_U64`, `VEC_DEQUE_INTO_ITER_AS_MUT_SLICE_U64`, `VEC_DEQUE_INTO_ITER_AS_REF_SLICE_U64`, and `VEC_DEQUE_INTO_ITER_CLONE_U64`.
+- Semantics: borrowed iterator clone copies cursor state over the explicit snapshot backing; consuming iterator views expose the current remaining range of the drained backing Vec, mutable views expose raw mutable storage, and consuming clone copies the remaining range into a new caller-owned backing Vec.
+- Test: `tests/unit_framework/std_vec_deque_iter_view_clone_macro_surface.sa` - 1 test (panic ID 10801) covering wrapped deque borrowed as-ref-slice, clone cursor independence, default empty iter clone, consuming as-ref/as-mut-slice, consuming clone backing independence, and default empty consuming clone.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_view_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10802+.
+
 ## Completed: 2026-07-18 VecDeque iterator callback/chunk aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` callback/chunk defaults.

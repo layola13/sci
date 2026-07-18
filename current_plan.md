@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator view/clone aliases)
+
+Completed supportable `std::collections::VecDeque` iterator view/clone aliases:
+
+- `VEC_DEQUE_ITER_DEFAULT_U64`, `VEC_DEQUE_ITER_AS_REF_SLICE_U64`, `VEC_DEQUE_ITER_CLONE_U64`.
+- `VEC_DEQUE_INTO_ITER_DEFAULT_U64`, `VEC_DEQUE_INTO_ITER_AS_SLICE_U64`, `VEC_DEQUE_INTO_ITER_AS_MUT_SLICE_U64`, `VEC_DEQUE_INTO_ITER_AS_REF_SLICE_U64`, and `VEC_DEQUE_INTO_ITER_CLONE_U64`.
+- Test file `std_vec_deque_iter_view_clone_macro_surface.sa` (panic ID 10801).
+
+Validation:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_view_clone_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these aliases reuse explicit `u64` backing cursors. Borrowed clone copies cursor state over the snapshot backing, while consuming clone materializes a new backing Vec for the current remaining range. They do not model Rust reference lifetimes, mutable reference aliasing, generic `Clone`, allocator cloning, owned iterator object layout, drop glue, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator callback/chunk aliases)
 
 Completed supportable `std::collections::VecDeque` iterator callback/chunk aliases:
