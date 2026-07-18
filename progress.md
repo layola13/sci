@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque drain range lowering
+
+- Continued Rust `VecDeque` parity, referencing local Rust `vec_deque/mod.rs` `drain` and the existing concrete `VEC_DRAIN_U64` lowering.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_TRY_DRAIN_RANGE_U64` and `VEC_DEQUE_DRAIN_RANGE_U64`, which force logical contents contiguous, lower a checked `(start, length)` drain through a temporary `Vec<u64>`, return the removed range as a caller-owned Vec, then rebuild the deque front-to-back from the remaining values.
+- Semantics: this is an eager concrete `u64` range-drain lowering. It preserves logical order across wrapped storage, treats invalid ranges as `ok=0` with an empty output Vec and no deque mutation, and supports zero-length successful drains. It does not model Rust's lazy `Drain<'_, T, A>` object, `RangeBounds` syntax, allocator access, leak/drop repair, panic objects, scoped references, or generic item move/drop semantics.
+- Test: `tests/unit_framework/std_vec_deque_drain_range_macro_surface.sa` - 1 test (panic ID 10805) covering a wrapped deque range drain, removed output ordering, remaining deque ordering, zero-length drain, and out-of-range no-mutation failure.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_drain_range_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10806+.
+
 ## Completed: 2026-07-18 VecDeque splice lowering
 
 - Continued Rust `VecDeque` parity, referencing local Rust `vec_deque/mod.rs` `splice` and the existing concrete `VEC_SPLICE_U64` lowering.

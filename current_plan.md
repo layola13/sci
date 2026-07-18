@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque drain range lowering)
+
+Completed supportable eager `std::collections::VecDeque::drain(range)` lowering:
+
+- Added `VEC_DEQUE_TRY_DRAIN_RANGE_U64` and `VEC_DEQUE_DRAIN_RANGE_U64` over a concrete `u64` deque.
+- Wrapped storage is first made contiguous, then drained through the existing `VEC_DRAIN_U64` helper on a temporary Vec; the deque is rebuilt front-to-back from the remaining values and the drained range is returned in a caller-owned Vec.
+- Test file `std_vec_deque_drain_range_macro_surface.sa` (panic ID 10805).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_drain_range_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper is eager and concrete. It does not model Rust's lazy `Drain` iterator object, `RangeBounds` syntax, allocator access, leak/drop repair, scoped references, panic objects, or generic item move/drop semantics.
+
 ## Active std parity batch (2026-07-18 VecDeque splice lowering)
 
 Completed supportable eager `std::collections::VecDeque::splice` lowering:
