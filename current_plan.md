@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 HashMap eager iter aliases)
+
+Completed supportable eager `std::collections::HashMap::iter` / `iter_mut` lowering:
+
+- Added `MAP_ITER` and `MAP_ITER_MUT_PTRS` over the existing concrete pointer-key / pointer-value map.
+- `MAP_ITER` scans filled hash slots and materializes key/value pointer bits as an interleaved caller-owned `Vec<u64>`; `MAP_ITER_MUT_PTRS` materializes key pointer bits interleaved with raw value-slot pointer bits for in-place value updates.
+- Test file `std_hashmap_iter_alias_macro_surface.sa` (panic ID 10806).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers are eager and concrete. They do not model Rust's lazy `Iter` / `IterMut` objects, scoped borrow/reference lifetimes, aliasing guarantees, generic tuple/reference item ABI, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 VecDeque drain range lowering)
 
 Completed supportable eager `std::collections::VecDeque::drain(range)` lowering:

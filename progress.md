@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashMap eager iter aliases
+
+- Continued Rust `HashMap` parity, referencing local Rust `collections/hash/map.rs` `iter()` / `iter_mut()` and the existing concrete key/value materialization helpers.
+- `sa_std/hashmap.sa`: added `MAP_ITER` and `MAP_ITER_MUT_PTRS`. `MAP_ITER` materializes an arbitrary-order interleaved `Vec<u64>` of key pointer bits and value pointer bits. `MAP_ITER_MUT_PTRS` materializes key pointer bits interleaved with raw value-slot pointer bits so callers can update stored values in place.
+- Semantics: this is an eager concrete pointer-key / pointer-value lowering over the existing open-addressed table scan. It preserves the current map, scans by capacity like the existing keys/values helpers, and does not model Rust's lazy `Iter` / `IterMut` object layout, scoped references, borrow lifetimes, aliasing rules, generic `(&K, &V)` / `(&K, &mut V)` item ABI, or drop/panic cleanup.
+- Test: `tests/unit_framework/std_hashmap_iter_alias_macro_surface.sa` - 1 test (panic ID 10806) covering interleaved iter output, interleaved mutable slot output, mutation through a returned value-slot pointer, and empty-map outputs.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10807+.
+
 ## Completed: 2026-07-18 VecDeque drain range lowering
 
 - Continued Rust `VecDeque` parity, referencing local Rust `vec_deque/mod.rs` `drain` and the existing concrete `VEC_DRAIN_U64` lowering.
