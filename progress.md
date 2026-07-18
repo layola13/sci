@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeMap into-iterator aliases
+
+- Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` `IntoIterator for &BTreeMap`, `&mut BTreeMap`, and owned `BTreeMap` impls.
+- `sa_std/btree_map.sa`: added `BTREE_MAP_REF_INTO_ITER`, `BTREE_MAP_MUT_REF_INTO_ITER`, and `BTREE_MAP_INTO_ITER` as Rust naming aliases over the concrete eager borrowed/mutable/owned materialization helpers.
+- Semantics: `BTREE_MAP_REF_INTO_ITER` returns sorted key/value triples like `BTREE_MAP_ITER`, `BTREE_MAP_MUT_REF_INTO_ITER` returns sorted key/value-slot pointer triples like `BTREE_MAP_ITER_MUT_PTRS`, and `BTREE_MAP_INTO_ITER` materializes sorted key/value triples before clearing the map.
+- Test: `tests/unit_framework/std_btree_map_into_iter_alias_macro_surface.sa` - 1 test (panic ID 10813) covering borrowed, mutable-borrowed, owned-consuming, mutation through a returned value-slot pointer, source-map non-consumption for borrowed aliases, source-map clearing for owned alias, sorted key order, and empty-map outputs.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_into_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10814+.
+
 ## Completed: 2026-07-18 HashMap into-iterator aliases
 
 - Continued Rust `HashMap` parity, referencing local Rust `std/src/collections/hash/map.rs` `IntoIterator for &HashMap`, `&mut HashMap`, and owned `HashMap` impls.

@@ -1772,6 +1772,19 @@ L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok:
     %out_vec = call @sa_btree_map_iter_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
 
+[MACRO] BTREE_MAP_REF_INTO_ITER %out_vec, %map_reg
+    EXPAND BTREE_MAP_ITER %out_vec, %map_reg
+[END_MACRO]
+
+[MACRO] BTREE_MAP_MUT_REF_INTO_ITER %out_vec, %map_reg
+    EXPAND BTREE_MAP_ITER_MUT_PTRS %out_vec, %map_reg
+[END_MACRO]
+
+[MACRO] BTREE_MAP_INTO_ITER %out_vec, %map_reg
+    EXPAND BTREE_MAP_ITER %out_vec, %map_reg
+    EXPAND BTREE_MAP_CLEAR %map_reg
+[END_MACRO]
+
 [MACRO] BTREE_MAP_POP_FIRST %out_ok, %out_key, %out_value, %map_reg
     %out_key = alloc Slice_SIZE
     __btree_map_pop_first_value_slot_%out_ok = stack_alloc 8

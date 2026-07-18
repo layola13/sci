@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeMap into-iterator aliases)
+
+Completed supportable `std::collections::BTreeMap` `IntoIterator` lowering:
+
+- Added `BTREE_MAP_REF_INTO_ITER`, `BTREE_MAP_MUT_REF_INTO_ITER`, and `BTREE_MAP_INTO_ITER` over the existing eager `BTREE_MAP_ITER` / `BTREE_MAP_ITER_MUT_PTRS` helpers.
+- Borrowed aliases materialize sorted key-order triples without consuming the map; the owned alias materializes the same sorted triples and clears the map.
+- Test file `std_btree_map_into_iter_alias_macro_surface.sa` (panic ID 10813).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_into_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers expose Rust `IntoIterator` names over concrete eager materialization. They do not model Rust lazy iterator objects, owned `IntoIter` layout/drop glue, scoped references/lifetimes, aliasing rules, generic item ABI, allocator state, B-tree node traversal internals, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 HashMap into-iterator aliases)
 
 Completed supportable `std::collections::HashMap` `IntoIterator` lowering:
