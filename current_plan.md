@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iter_mut aliases)
+
+Completed supportable `std::collections::VecDeque` mutable iterator aliases:
+
+- `VEC_DEQUE_ITER_MUT_U64` and `VEC_DEQUE_MUT_REF_INTO_ITER_U64`.
+- `VEC_DEQUE_ITER_MUT_AS_REF_SLICE_U64`, `VEC_DEQUE_ITER_MUT_AS_MUT_SLICE_U64`, `VEC_DEQUE_ITER_MUT_NEXT_U64`, `VEC_DEQUE_ITER_MUT_NEXT_BACK_U64`, `VEC_DEQUE_ITER_MUT_SIZE_HINT_U64`, `VEC_DEQUE_ITER_MUT_EXACT_SIZE_LEN_U64`, and `VEC_DEQUE_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64`.
+- Test file `std_vec_deque_iter_mut_macro_surface.sa` (panic ID 10802).
+
+Validation:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_mut_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: `VEC_DEQUE_ITER_MUT_U64` lowers by forcing the deque contiguous and building a concrete mutable slice-backed cursor over the logical order. It can reorder wrapped storage while preserving logical contents, and exposes raw mutable storage through `Slice` views. It does not model Rust's split two-slice `IterMut` object layout, reference lifetimes, borrow aliasing, generic mutable reference item semantics, drop glue, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator view/clone aliases)
 
 Completed supportable `std::collections::VecDeque` iterator view/clone aliases:

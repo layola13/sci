@@ -1817,8 +1817,17 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     !__vec_deque_iter_len_%out_iter
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_MUT_U64 %out_iter, %out_slice, %deque_reg
+    EXPAND VEC_DEQUE_MAKE_CONTIGUOUS %out_slice, %deque_reg
+    EXPAND ITER_FROM_SLICE %out_iter, %out_slice
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_REF_INTO_ITER_U64 %out_iter, %out_vec, %deque_reg
     EXPAND VEC_DEQUE_ITER_U64 %out_iter, %out_vec, %deque_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_MUT_REF_INTO_ITER_U64 %out_iter, %out_slice, %deque_reg
+    EXPAND VEC_DEQUE_ITER_MUT_U64 %out_iter, %out_slice, %deque_reg
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INTO_ITER_U64 %out_iter, %out_vec, %deque_reg
@@ -1835,6 +1844,14 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
+    EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MUT_AS_REF_SLICE_U64 %out_slice, %iter_reg
+    EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MUT_AS_MUT_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
@@ -1866,7 +1883,15 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_MUT_NEXT_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MUT_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
@@ -2071,6 +2096,18 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+    EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MUT_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+    EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MUT_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
+    EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 

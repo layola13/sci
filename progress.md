@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iter_mut aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/mod.rs` `iter_mut()` / `IntoIterator for &mut VecDeque` plus the existing concrete `Vec` / `Array` `IterMut` lowering style.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_MUT_U64`, `VEC_DEQUE_MUT_REF_INTO_ITER_U64`, `VEC_DEQUE_ITER_MUT_AS_REF_SLICE_U64`, `VEC_DEQUE_ITER_MUT_AS_MUT_SLICE_U64`, `VEC_DEQUE_ITER_MUT_NEXT_U64`, `VEC_DEQUE_ITER_MUT_NEXT_BACK_U64`, `VEC_DEQUE_ITER_MUT_SIZE_HINT_U64`, `VEC_DEQUE_ITER_MUT_EXACT_SIZE_LEN_U64`, and `VEC_DEQUE_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64`.
+- Semantics: `VEC_DEQUE_ITER_MUT_U64` first calls `VEC_DEQUE_MAKE_CONTIGUOUS` and then builds a mutable slice-backed cursor over the logical order. This exposes a supportable concrete `u64` mutable remaining-slice view and can reorder wrapped storage while preserving deque contents; it does not model Rust's split two-slice `IterMut` object, reference lifetimes, borrow aliasing, generic item references, or iterator object layout.
+- Test: `tests/unit_framework/std_vec_deque_iter_mut_macro_surface.sa` - 1 test (panic ID 10802) covering wrapped-deque contiguous lowering, size hints/exact-size aliases, as-ref/as-mut remaining-slice views, mutation through the remaining mutable slice, double-ended cursor consumption, deque state preservation, and `&mut VecDeque` into-iterator alias.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_mut_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10803+.
+
 ## Completed: 2026-07-18 VecDeque iterator view/clone aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, `vec::IntoIter`, and core slice iterator view/clone defaults.
