@@ -2032,6 +2032,22 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+    EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_COPIED_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_COPIED_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_CLONED_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_CLONED_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
@@ -2330,6 +2346,22 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_DEQUE_ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND VEC_DEQUE_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+    EXPAND VEC_DEQUE_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_COPIED_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND VEC_DEQUE_ITER_COPIED_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_CLONED_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND VEC_DEQUE_ITER_CLONED_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count

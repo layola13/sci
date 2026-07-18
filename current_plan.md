@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator extended collect aliases)
+
+Completed supportable `std::collections::VecDeque` iterator extended collect aliases:
+- `VEC_DEQUE_ITER_TRY_COLLECT_U64`, `VEC_DEQUE_ITER_COLLECT_INTO_U64`, `VEC_DEQUE_ITER_COPIED_COLLECT_U64`, and `VEC_DEQUE_ITER_CLONED_COLLECT_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors through concrete collect helpers. `TRY_COLLECT` returns explicit `ok` plus mapped output Vec and consumes the first failing item, `COLLECT_INTO` appends to an existing Vec, and `COPIED`/`CLONED` are value-copy aliases for the concrete `u64` cursor.
+- This batch does not model Rust generic `Try` residual conversion, generic `FromIterator` / `Extend` dispatch, borrowed reference item semantics, generic `Copy` / `Clone` trait dispatch, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_collect_ext_macro_surface.sa` (panic ID 10799).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_collect_ext_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10800+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator array/window collect aliases)
 
 Completed supportable `std::collections::VecDeque` iterator array/window collect aliases:

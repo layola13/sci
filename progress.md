@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator extended collect aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` collect/copied/cloned defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_TRY_COLLECT_U64`, `VEC_DEQUE_ITER_COLLECT_INTO_U64`, `VEC_DEQUE_ITER_COPIED_COLLECT_U64`, `VEC_DEQUE_ITER_CLONED_COLLECT_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete iterator collect helpers. `try_collect` uses explicit `ok` plus mapped output Vec and consumes the first failing item; `collect_into` appends to an existing Vec; `copied`/`cloned` are concrete value-copy aliases over the `u64` cursor.
+- Test: `tests/unit_framework/std_vec_deque_iter_collect_ext_macro_surface.sa` - 1 test (panic ID 10799) covering try_collect success/failure suffixes, collect_into append, copied/cloned output order over wrapped deques, and consuming iterator alias exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_collect_ext_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10800+.
+
 ## Completed: 2026-07-18 VecDeque iterator array/window collect aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` array/window adapter defaults.
