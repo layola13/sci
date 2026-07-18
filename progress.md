@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashSet bit-operator aliases
+
+- Continued Rust `HashSet` parity, referencing local Rust `std/src/collections/hash/set.rs` bit-operator impls for `|`, `&`, `-`, and `^`, and the existing eager set algebra helpers.
+- `sa_std/hashset.sa`: added `SET_BITOR`, `SET_BITAND`, `SET_SUB`, and `SET_BITXOR` as Rust operator-name aliases over the concrete union/intersection/difference/symmetric-difference helpers.
+- Semantics: these are eager concrete set-algebra aliases over the existing pointer-key set. They materialize a new SA set and do not model Rust lazy adapter objects, scoped references, lifetimes, generic hash/build-hasher dispatch, allocator-aware constructors, or drop/panic cleanup.
+- Test: `tests/unit_framework/std_hashset_bit_ops_macro_surface.sa` - 1 test (panic ID 10811) covering `|`, `&`, `-`, and `^` aliases, result membership, and source-set non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashset_bit_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10812+.
+
 ## Completed: 2026-07-18 BTreeSet eager iter aliases
 
 - Continued Rust `BTreeSet` parity, referencing local Rust `alloc/src/collections/btree/set.rs` `iter()` / `IntoIterator for &BTreeSet` and the existing sorted-array BTreeSet storage helpers.

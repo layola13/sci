@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 HashSet bit-operator aliases)
+
+Completed supportable `std::collections::HashSet` bit-operator lowering:
+
+- Added `SET_BITOR`, `SET_BITAND`, `SET_SUB`, and `SET_BITXOR` over the existing eager union/intersection/difference/symmetric-difference helpers.
+- Each alias materializes a new pointer-key set without consuming either source set.
+- Test file `std_hashset_bit_ops_macro_surface.sa` (panic ID 10811).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashset_bit_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers expose Rust operator names over concrete eager set algebra. They do not model lazy set algebra adapters, scoped references/lifetimes, generic hash/build-hasher dispatch, allocator cloning, operator trait objects, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeSet bit-operator aliases)
 
 Completed supportable `std::collections::BTreeSet` bit-operator lowering:
