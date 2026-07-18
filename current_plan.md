@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeMap ranged extract_if)
+
+Completed supportable half-open ranged eager `std::collections::BTreeMap::extract_if` lowering:
+
+- Added `BTREE_MAP_EXTRACT_IF_RANGE` over the existing eager mutable-range materialization.
+- The helper applies concrete `[start, end)` slice-key bounds, calls the mutable predicate only for in-range sorted entries, preserves predicate writes, materializes matching entries into a new sorted BTreeMap, and removes those entries from the source after range scanning is complete.
+- Test file `std_btree_map_extract_if_range_macro_surface.sa` (panic ID 10819).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_extract_if_range_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper models only half-open concrete bounds and eager exhaustion. It does not model Rust's other `RangeBounds` variants, lazy `ExtractIf` object, partial iterator consumption, scoped reference lifetimes/aliasing, generic `Ord`, allocator cloning, drop repair, or panic/leak cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeMap extract_if)
 
 Completed supportable full-range eager `std::collections::BTreeMap::extract_if` lowering:

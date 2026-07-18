@@ -1877,6 +1877,101 @@ L_BTREE_MAP_EXTRACT_DONE_%out_len:
     !__btree_map_extract_entries_%out_len
 [END_MACRO]
 
+[MACRO] BTREE_MAP_EXTRACT_IF_RANGE %out_len, %out_map, %map_reg, %start_key, %end_key, %pred_fn
+    EXPAND BTREE_MAP_NEW %out_map
+    EXPAND BTREE_MAP_RANGE_MUT_PTRS __btree_map_extract_range_vec_%out_len, %map_reg, %start_key, %end_key
+    __btree_map_extract_range_len_%out_len = call @sa_vec_len(&__btree_map_extract_range_vec_%out_len)
+    __btree_map_extract_range_ptr_%out_len = load __btree_map_extract_range_vec_%out_len+Vec_ptr as ptr
+    __btree_map_extract_range_key_%out_len = stack_alloc Slice_SIZE
+    __btree_map_extract_range_idx_slot_%out_len = stack_alloc 8
+    store __btree_map_extract_range_idx_slot_%out_len+0, 0 as u64
+    jmp L_BTREE_MAP_EXTRACT_RANGE_HEAD_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_HEAD_%out_len:
+    __btree_map_extract_range_idx_%out_len = load __btree_map_extract_range_idx_slot_%out_len+0 as u64
+    __btree_map_extract_range_done_%out_len = eq __btree_map_extract_range_idx_%out_len, __btree_map_extract_range_len_%out_len
+    br __btree_map_extract_range_done_%out_len -> L_BTREE_MAP_EXTRACT_RANGE_REMOVE_INIT_%out_len, L_BTREE_MAP_EXTRACT_RANGE_BODY_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_BODY_%out_len:
+    __btree_map_extract_range_key_idx_%out_len = mul __btree_map_extract_range_idx_%out_len, 8
+    __btree_map_extract_range_key_lane_%out_len = ptr_add __btree_map_extract_range_ptr_%out_len, __btree_map_extract_range_key_idx_%out_len
+    __btree_map_extract_range_key_bits_%out_len = load __btree_map_extract_range_key_lane_%out_len+0 as u64
+    __btree_map_extract_range_key_len_lane_%out_len = ptr_add __btree_map_extract_range_key_lane_%out_len, 8
+    __btree_map_extract_range_key_len_%out_len = load __btree_map_extract_range_key_len_lane_%out_len+0 as u64
+    __btree_map_extract_range_value_lane_%out_len = ptr_add __btree_map_extract_range_key_lane_%out_len, 16
+    __btree_map_extract_range_value_bits_%out_len = load __btree_map_extract_range_value_lane_%out_len+0 as u64
+    __btree_map_extract_range_key_ptr_%out_len = bitcast __btree_map_extract_range_key_bits_%out_len as ptr
+    __btree_map_extract_range_value_ptr_%out_len = bitcast __btree_map_extract_range_value_bits_%out_len as ptr
+    store __btree_map_extract_range_key_%out_len+Slice_ptr, __btree_map_extract_range_key_ptr_%out_len as ptr
+    store __btree_map_extract_range_key_%out_len+Slice_len, __btree_map_extract_range_key_len_%out_len as u64
+    __btree_map_extract_range_pred_%out_len = call %pred_fn(&__btree_map_extract_range_key_%out_len, __btree_map_extract_range_value_ptr_%out_len)
+    __btree_map_extract_range_take_%out_len = ne __btree_map_extract_range_pred_%out_len, 0
+    br __btree_map_extract_range_take_%out_len -> L_BTREE_MAP_EXTRACT_RANGE_TAKE_%out_len, L_BTREE_MAP_EXTRACT_RANGE_NEXT_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_TAKE_%out_len:
+    __btree_map_extract_range_value_%out_len = load __btree_map_extract_range_value_ptr_%out_len+0 as u64
+    call @sa_btree_map_insert(&%out_map, &__btree_map_extract_range_key_%out_len, __btree_map_extract_range_value_%out_len)
+    !__btree_map_extract_range_value_%out_len
+    jmp L_BTREE_MAP_EXTRACT_RANGE_NEXT_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_NEXT_%out_len:
+    __btree_map_extract_range_next_idx_%out_len = add __btree_map_extract_range_idx_%out_len, 3
+    store __btree_map_extract_range_idx_slot_%out_len+0, __btree_map_extract_range_next_idx_%out_len as u64
+    !__btree_map_extract_range_next_idx_%out_len
+    !__btree_map_extract_range_take_%out_len
+    !__btree_map_extract_range_pred_%out_len
+    !__btree_map_extract_range_value_ptr_%out_len
+    !__btree_map_extract_range_key_ptr_%out_len
+    !__btree_map_extract_range_value_bits_%out_len
+    !__btree_map_extract_range_value_lane_%out_len
+    !__btree_map_extract_range_key_len_%out_len
+    !__btree_map_extract_range_key_len_lane_%out_len
+    !__btree_map_extract_range_key_bits_%out_len
+    !__btree_map_extract_range_key_lane_%out_len
+    !__btree_map_extract_range_key_idx_%out_len
+    !__btree_map_extract_range_done_%out_len
+    !__btree_map_extract_range_idx_%out_len
+    jmp L_BTREE_MAP_EXTRACT_RANGE_HEAD_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_REMOVE_INIT_%out_len:
+    call @sa_vec_free(^__btree_map_extract_range_vec_%out_len)
+    __btree_map_extract_range_remove_entries_%out_len = load %out_map+BTreeMap_entries as ptr
+    __btree_map_extract_range_remove_len_%out_len = load %out_map+BTreeMap_len as u64
+    __btree_map_extract_range_remove_slot_%out_len = stack_alloc 8
+    store __btree_map_extract_range_remove_slot_%out_len+0, 0 as u64
+    jmp L_BTREE_MAP_EXTRACT_RANGE_REMOVE_HEAD_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_REMOVE_HEAD_%out_len:
+    __btree_map_extract_range_remove_idx_%out_len = load __btree_map_extract_range_remove_slot_%out_len+0 as u64
+    __btree_map_extract_range_remove_done_%out_len = eq __btree_map_extract_range_remove_idx_%out_len, __btree_map_extract_range_remove_len_%out_len
+    br __btree_map_extract_range_remove_done_%out_len -> L_BTREE_MAP_EXTRACT_RANGE_DONE_%out_len, L_BTREE_MAP_EXTRACT_RANGE_REMOVE_BODY_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_REMOVE_BODY_%out_len:
+    __btree_map_extract_range_remove_off_%out_len = mul __btree_map_extract_range_remove_idx_%out_len, BTreeMapEntry_SIZE
+    __btree_map_extract_range_remove_entry_%out_len = ptr_add __btree_map_extract_range_remove_entries_%out_len, __btree_map_extract_range_remove_off_%out_len
+    __btree_map_extract_range_removed_value_%out_len = call @sa_btree_map_remove(&%map_reg, &__btree_map_extract_range_remove_entry_%out_len)
+    __btree_map_extract_range_remove_next_%out_len = add __btree_map_extract_range_remove_idx_%out_len, 1
+    store __btree_map_extract_range_remove_slot_%out_len+0, __btree_map_extract_range_remove_next_%out_len as u64
+    !__btree_map_extract_range_remove_next_%out_len
+    !__btree_map_extract_range_removed_value_%out_len
+    !__btree_map_extract_range_remove_entry_%out_len
+    !__btree_map_extract_range_remove_off_%out_len
+    !__btree_map_extract_range_remove_done_%out_len
+    !__btree_map_extract_range_remove_idx_%out_len
+    jmp L_BTREE_MAP_EXTRACT_RANGE_REMOVE_HEAD_%out_len
+
+L_BTREE_MAP_EXTRACT_RANGE_DONE_%out_len:
+    %out_len = load %map_reg+BTreeMap_len as u64
+    !__btree_map_extract_range_remove_done_%out_len
+    !__btree_map_extract_range_remove_idx_%out_len
+    !__btree_map_extract_range_remove_len_%out_len
+    !__btree_map_extract_range_remove_entries_%out_len
+    !__btree_map_extract_range_done_%out_len
+    !__btree_map_extract_range_idx_%out_len
+    !__btree_map_extract_range_ptr_%out_len
+    !__btree_map_extract_range_len_%out_len
+[END_MACRO]
+
 [MACRO] BTREE_MAP_REMOVE %out_value, %map_reg, %key_reg
     %out_value = call @sa_btree_map_remove(&%map_reg, &%key_reg)
 [END_MACRO]

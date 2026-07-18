@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeMap ranged extract_if
+
+- Continued Rust `BTreeMap::extract_if` parity, referencing local Rust `alloc/src/collections/btree/map.rs` range-bounded `extract_if` contract and the existing concrete half-open mutable-range helper.
+- `sa_std/btree_map.sa`: added `BTREE_MAP_EXTRACT_IF_RANGE`.
+- Semantics: the helper materializes sorted mutable triples only for concrete `[start, end)` keys, invokes the `key_slice, value_slot_ptr -> u64` predicate on those entries, preserves all predicate value writes, stages matching entries in a new sorted BTreeMap, then removes their keys from the source after the mutable-range scan so staged raw value pointers are never invalidated mid-scan.
+- Test: `tests/unit_framework/std_btree_map_extract_if_range_macro_surface.sa` - 1 test (panic ID 10819) covering lower-inclusive/upper-exclusive bounds, in-range predicate mutation on extracted and retained entries, untouched out-of-range values, extracted membership, and equal-bound empty range behavior.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_extract_if_range_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10820+.
+
 ## Completed: 2026-07-18 BTreeMap extract_if
 
 - Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` stable `extract_if` / `ExtractIf` and the existing stable in-place BTreeMap retain compaction pattern.
