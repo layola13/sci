@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque front/back mut aliases
+
+- Continued Rust `VecDeque` parity, referencing local Rust `alloc/src/collections/vec_deque/mod.rs` stable `front_mut` / `back_mut` contracts and the existing checked raw slot-pointer helpers.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_FRONT_MUT` and `VEC_DEQUE_BACK_MUT` as Rust method-name aliases over `VEC_DEQUE_TRY_FRONT_MUT_PTR` / `VEC_DEQUE_TRY_BACK_MUT_PTR`.
+- Semantics: aliases return explicit `(ok, ptr)` results, mutate the current concrete `u64` front/back slots in place, leave the deque length unchanged, and return `(ok=0, null)` on an empty deque.
+- Test: `tests/unit_framework/std_vec_deque_front_back_mut_alias_macro_surface.sa` - 1 test (panic ID 10824) covering front/back slot writes, visible front/back reads, preserved interior element, unchanged length, and empty-deque failure paths.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_front_back_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10825+.
+
 ## Completed: 2026-07-18 HashMap mutable predicate semantics
 
 - Continued Rust `HashMap` parity, referencing local Rust `std/src/collections/hash/map.rs` stable `retain` / `extract_if` contracts and the existing concrete open-addressed slot-compaction helpers.

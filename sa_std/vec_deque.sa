@@ -2868,6 +2868,10 @@ L_VEC_DEQUE_SPLICE_DONE_%out_ok:
     EXPAND VEC_DEQUE_TRY_FRONT_MUT_PTR %out_ok, %out_ptr, %deque_reg
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_FRONT_MUT %out_ok, %out_ptr, %deque_reg
+    EXPAND VEC_DEQUE_TRY_FRONT_MUT_PTR %out_ok, %out_ptr, %deque_reg
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_TRY_BACK_MUT_PTR %out_ok, %out_ptr, %deque_reg
     __vec_deque_back_mut_slot_%out_ok = stack_alloc 8
     __vec_deque_back_mut_ok_%out_ok = call @sa_vec_deque_try_back_mut_ptr(&%deque_reg, &__vec_deque_back_mut_slot_%out_ok)
@@ -2876,6 +2880,10 @@ L_VEC_DEQUE_SPLICE_DONE_%out_ok:
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_BACK_MUT_PTR %out_ok, %out_ptr, %deque_reg
+    EXPAND VEC_DEQUE_TRY_BACK_MUT_PTR %out_ok, %out_ptr, %deque_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_BACK_MUT %out_ok, %out_ptr, %deque_reg
     EXPAND VEC_DEQUE_TRY_BACK_MUT_PTR %out_ok, %out_ptr, %deque_reg
 [END_MACRO]
 

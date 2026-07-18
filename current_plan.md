@@ -16,6 +16,20 @@ Focused validation only:
 
 Scope note: these helpers are still eager, concrete open-addressed map lowerings. They do not model Rust's lazy/scoped iterator objects, `FnMut(&K, &mut V)` borrow semantics, partial consumption, aliasing guarantees, generic value ABI, or drop/panic cleanup.
 
+## Active std parity batch (2026-07-18 VecDeque front/back mut aliases)
+
+Completed supportable `std::collections::VecDeque::front_mut` / `back_mut` name lowering:
+
+- Added `VEC_DEQUE_FRONT_MUT` and `VEC_DEQUE_BACK_MUT` as Rust method-name aliases over the existing checked raw front/back slot-pointer helpers.
+- The aliases return explicit `(ok, ptr)` results and allow in-place mutation of the current concrete `u64` front/back slots without consuming the deque.
+- Test file `std_vec_deque_front_back_mut_alias_macro_surface.sa` (panic ID 10824).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_front_back_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these aliases expose raw slot pointers for the current concrete deque facade. They do not model Rust `Option<&mut T>`, scoped mutable-reference lifetimes, aliasing guarantees, generic `VecDeque<T>`, or drop/panic cleanup.
+
 ## Active std parity batch (2026-07-18 HashMap values_mut alias)
 
 Completed supportable eager `std::collections::HashMap::values_mut` lowering:
