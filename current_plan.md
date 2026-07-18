@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted sortedness aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIterSorted` sortedness aliases:
+- `BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_U64`, `BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_KEY_U64` expose Rust forward `Iterator` sortedness naming over the existing materialized descending sorted cursor.
+- These helpers consume the explicit descending cursor greatest-first and reuse concrete sortedness callbacks. They do not add reverse traversal or model lazy adapter/object state.
+- This batch does not model Rust generic `PartialOrd` dispatch, closure capture, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_binary_heap_into_iter_sorted_sortedness_macro_surface.sa` (panic ID 10778).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_sortedness_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10779+.
+
+
 ## Active std parity batch (2026-07-17 BinaryHeap IntoIterSorted comparison aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIterSorted` comparison/key aggregate aliases:

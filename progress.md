@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted sortedness aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the forward `Iterator` implementation and `library/core/src/iter/traits/iterator.rs` for `is_sorted`, `is_sorted_by`, and `is_sorted_by_key`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_U64`, `BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_KEY_U64`.
+- Semantics: aliases consume the existing materialized descending cursor greatest-first and reuse concrete `u64` iterator sortedness helpers. They are forward-only aliases and do not add reverse traversal.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_sortedness_macro_surface.sa` - 1 test (panic ID 10778) covering default ascending check, explicit descending comparator, strict comparator with duplicates, key comparator, empty/single-item cases, and cursor exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_sortedness_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10779+.
+
 ## Completed: 2026-07-17 BinaryHeap IntoIterSorted comparison aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for `IntoIterSorted`'s forward `Iterator` / `ExactSizeIterator` implementation and `library/core/src/iter/traits/iterator.rs` for `min_by`, `max_by`, key aggregates, lexicographic comparison, and equality methods.
