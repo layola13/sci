@@ -2076,6 +2076,26 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+    EXPAND ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+    EXPAND ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_DEQUE_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
@@ -2322,6 +2342,26 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND VEC_DEQUE_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+    EXPAND VEC_DEQUE_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+    EXPAND VEC_DEQUE_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND VEC_DEQUE_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_DEQUE_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_DEQUE_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_RESERVE %deque_reg, %additional

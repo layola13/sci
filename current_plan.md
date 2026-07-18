@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator sequence collect aliases)
+
+Completed supportable `std::collections::VecDeque` iterator sequence collect aliases:
+- `VEC_DEQUE_ITER_INTERSPERSE_COLLECT_U64`, `VEC_DEQUE_ITER_INTERSPERSE_WITH_COLLECT_U64`, `VEC_DEQUE_ITER_CYCLE_TAKE_COLLECT_U64`, `VEC_DEQUE_ITER_TAKE_WHILE_COLLECT_U64`, and `VEC_DEQUE_ITER_SKIP_WHILE_COLLECT_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors and eagerly materialize concrete `Vec<u64>` outputs. `CYCLE_TAKE` is finite; zero-count cycle leaves the source cursor untouched; `TAKE_WHILE` consumes the first predicate-false item; `SKIP_WHILE` collects the first predicate-false item and suffix.
+- This batch does not model Rust lazy adapter identity/state, infinite `Cycle` object semantics, generic `Option` / `FromIterator`, closure capture, allocator-parametric owned iterator layout, reference item identity/lifetimes, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_sequence_collect_macro_surface.sa` (panic ID 10795).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_sequence_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10796+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator transform/filter collect aliases)
 
 Completed supportable `std::collections::VecDeque` iterator transform/filter collect aliases:
