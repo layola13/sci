@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator eager adapter collect aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for double-ended front/back behavior and core `Iterator` adapter defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_TAKE_COLLECT_U64`, `VEC_DEQUE_ITER_SKIP_COLLECT_U64`, `VEC_DEQUE_ITER_REV_COLLECT_U64`, `VEC_DEQUE_ITER_TRY_STEP_BY_COLLECT_U64`, `VEC_DEQUE_ITER_STEP_BY_COLLECT_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete iterator adapter helpers and eagerly materialize caller-owned `Vec<u64>` outputs. `try_step_by` reports `ok=0` without consuming when `step == 0`.
+- Test: `tests/unit_framework/std_vec_deque_iter_adapter_collect_macro_surface.sa` - 1 test (panic ID 10793) covering wrapped deque order, take/skip/rev/step_by outputs, cursor suffixes, zero-step failure, and consuming iterator alias exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10794+.
+
 ## Completed: 2026-07-18 VecDeque iterator sortedness/partition aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for front-to-back borrowed/consuming iteration plus core `Iterator` sortedness and partition defaults.

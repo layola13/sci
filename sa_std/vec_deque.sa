@@ -2032,6 +2032,26 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+    EXPAND ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+    EXPAND ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_DEQUE_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
@@ -2234,6 +2254,26 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_DEQUE_ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND VEC_DEQUE_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND VEC_DEQUE_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+    EXPAND VEC_DEQUE_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+    EXPAND VEC_DEQUE_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+    EXPAND VEC_DEQUE_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_RESERVE %deque_reg, %additional

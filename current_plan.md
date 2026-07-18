@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator eager adapter collect aliases)
+
+Completed supportable `std::collections::VecDeque` iterator eager adapter collect aliases:
+- `VEC_DEQUE_ITER_TAKE_COLLECT_U64`, `VEC_DEQUE_ITER_SKIP_COLLECT_U64`, `VEC_DEQUE_ITER_REV_COLLECT_U64`, `VEC_DEQUE_ITER_TRY_STEP_BY_COLLECT_U64`, and `VEC_DEQUE_ITER_STEP_BY_COLLECT_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors and eagerly materialize concrete `Vec<u64>` outputs.
+- This batch does not model Rust lazy adapter identity/state, generic `IntoIterator` / `FromIterator`, `NonZero<usize>` ABI, allocator-parametric owned iterator layout, reference item identity/lifetimes, closure capture, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_adapter_collect_macro_surface.sa` (panic ID 10793).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10794+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator sortedness/partition aliases)
 
 Completed supportable `std::collections::VecDeque` iterator sortedness/partition aliases:
