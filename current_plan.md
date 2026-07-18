@@ -3,6 +3,19 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted partition aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIterSorted` partition aliases:
+- `BINARY_HEAP_INTO_ITER_SORTED_PARTITION_U64` and `BINARY_HEAP_INTO_ITER_SORTED_IS_PARTITIONED_U64` expose Rust forward `Iterator` partition naming over the existing materialized descending sorted cursor.
+- These helpers consume the explicit descending cursor greatest-first and reuse concrete partition helpers. They do not model generic `Default` / `Extend` / `Try` dispatch, closure capture, or lazy adapter/object state.
+- Test file `std_binary_heap_into_iter_sorted_partition_macro_surface.sa` (panic ID 10779).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_partition_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10780+.
+
+
 ## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted sortedness aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIterSorted` sortedness aliases:

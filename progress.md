@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted partition aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for `partition` and `is_partitioned` forward iterator defaults.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_PARTITION_U64` and `BINARY_HEAP_INTO_ITER_SORTED_IS_PARTITIONED_U64`.
+- Semantics: aliases consume the materialized descending cursor greatest-first and reuse concrete `u64` partition helpers. Partition writes caller-owned true/false vectors; `is_partitioned` preserves the underlying short-circuit cursor consumption behavior.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_partition_macro_surface.sa` - 1 test (panic ID 10779) covering descending partition buckets, empty partition, partitioned/non-partitioned predicates, cursor remainder, and exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_partition_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10780+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted sortedness aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/alloc/src/collections/binary_heap/mod.rs` for the forward `Iterator` implementation and `library/core/src/iter/traits/iterator.rs` for `is_sorted`, `is_sorted_by`, and `is_sorted_by_key`.
