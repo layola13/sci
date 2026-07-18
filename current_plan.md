@@ -3,6 +3,20 @@
 Date: 2026-07-09
 
 
+## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted enumerate/adapter-state collect aliases)
+
+Completed supportable `std::collections::BinaryHeap::IntoIterSorted` eager enumerate/adapter-state aliases:
+- `BINARY_HEAP_INTO_ITER_SORTED_ENUMERATE_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_BY_REF_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_FUSE_COLLECT_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_PEEKABLE_COLLECT_U64` expose Rust forward `Iterator` adapter naming over the materialized descending sorted cursor.
+- These helpers consume or view the explicit descending cursor greatest-first and eagerly materialize concrete `Vec<u64>` outputs. `ENUMERATE` flattens pair lanes as `index,value`.
+- This batch does not model lazy adapter identity/state, Rust borrow lifetimes, tuple ABI, generic `IntoIterator` / `FromIterator`, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_binary_heap_into_iter_sorted_state_collect_macro_surface.sa` (panic ID 10782).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_state_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10783+.
+
+
 ## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted transform/filter collect aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIterSorted` eager transform/filter aliases:
