@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque borrowed/consuming iterator basics
+
+- Continued Rust `VecDeque` parity, referencing local Rust `library/alloc/src/collections/vec_deque/mod.rs` for front-to-back `iter` and consuming `IntoIterator`, plus their double-ended and exact-size behavior.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_U64`, `VEC_DEQUE_REF_INTO_ITER_U64`, `VEC_DEQUE_INTO_ITER_U64`, forward/back `next`, size-hint, exact-size, and collect aliases.
+- Semantics: borrowed iteration snapshots the deque's logical front-to-back values into an explicit backing `Vec<u64>` and leaves the deque unchanged; consuming iteration drains the deque into the backing Vec. Both cursors support front/back consumption over the backing.
+- Test: `tests/unit_framework/std_vec_deque_iter_macro_surface.sa` - 1 test (panic ID 10787) covering wrapped storage order, borrowed non-consumption, reference alias naming, double-ended cursor operations, exact size, collect, and consuming deque exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10788+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted inspect/scan/step_by collect aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `inspect`, `scan`, and `step_by` adapters.

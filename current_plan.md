@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque borrowed/consuming iterator basics)
+
+Completed supportable `std::collections::VecDeque` iterator foundations:
+- `VEC_DEQUE_ITER_U64` and `VEC_DEQUE_REF_INTO_ITER_U64` expose front-to-back borrowed iterator naming through an explicit snapshot backing `Vec<u64>`; `VEC_DEQUE_INTO_ITER_U64` drains the deque front-to-back into an owned backing Vec and cursor.
+- Forward/back `next`, exact size hint/length/empty, and materializing collect aliases delegate to the concrete slice-backed iterator helpers.
+- This batch does not model Rust reference item identity/lifetimes, mutable iteration, lazy iterator object layout, allocator parameters, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_macro_surface.sa` (panic ID 10787).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10788+.
+
 ## Active std parity batch (2026-07-18 BinaryHeap IntoIterSorted inspect/scan/step_by collect aliases)
 
 Completed supportable `std::collections::BinaryHeap::IntoIterSorted` eager transform/step aliases:
