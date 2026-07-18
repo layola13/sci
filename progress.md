@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator pair/composition collect aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` pair/composition adapter defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_ENUMERATE_COLLECT_U64`, `VEC_DEQUE_ITER_ZIP_COLLECT_U64`, `VEC_DEQUE_ITER_CHAIN_COLLECT_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete iterator pair/composition helpers and eagerly materialize caller-owned `Vec<u64>` outputs. `enumerate` flattens `index,value` lanes, `zip` flattens `left,right` lanes and stops at the shorter cursor, and `chain` consumes left then right.
+- Test: `tests/unit_framework/std_vec_deque_iter_pair_collect_macro_surface.sa` - 1 test (panic ID 10796) covering wrapped deque order, enumerate after one consumed item, zip short-right suffix behavior, chain output order, and consuming iterator alias exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_pair_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10797+.
+
 ## Completed: 2026-07-18 VecDeque iterator sequence collect aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` sequence adapter defaults.

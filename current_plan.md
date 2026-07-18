@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator pair/composition collect aliases)
+
+Completed supportable `std::collections::VecDeque` iterator pair/composition collect aliases:
+- `VEC_DEQUE_ITER_ENUMERATE_COLLECT_U64`, `VEC_DEQUE_ITER_ZIP_COLLECT_U64`, and `VEC_DEQUE_ITER_CHAIN_COLLECT_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors and eagerly materialize concrete `Vec<u64>` outputs. `ENUMERATE` flattens `index,value` lanes, `ZIP` flattens `left,right` lanes and stops at the shorter cursor, and `CHAIN` consumes left then right.
+- This batch does not model Rust tuple ABI, generic `IntoIterator` / `FromIterator` dispatch, lazy adapter identity/state, allocator-parametric owned iterator layout, reference item identity/lifetimes, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_pair_collect_macro_surface.sa` (panic ID 10796).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_pair_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10797+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator sequence collect aliases)
 
 Completed supportable `std::collections::VecDeque` iterator sequence collect aliases:
