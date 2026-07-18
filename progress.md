@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeMap extract_if
+
+- Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` stable `extract_if` / `ExtractIf` and the existing stable in-place BTreeMap retain compaction pattern.
+- `sa_std/btree_map.sa`: added `BTREE_MAP_EXTRACT_IF`.
+- Semantics: the helper eagerly evaluates a concrete `key_slice, value_slot_ptr -> u64` predicate over the full sorted map, reloads each value after the predicate, inserts matching key/value pairs into a new sorted BTreeMap, stably compacts non-matching entries in the source map, clears stale tail entries, and returns the remaining source length.
+- Test: `tests/unit_framework/std_btree_map_extract_if_macro_surface.sa` - 1 test (panic ID 10818) covering extracted and retained membership, predicate mutation for both paths, extracted ordering/identity, never-match behavior, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_extract_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10819+.
+
 ## Completed: 2026-07-18 BTreeSet extract_if
 
 - Continued Rust `BTreeSet` parity, referencing local Rust `alloc/src/collections/btree/set.rs` stable `extract_if` / `ExtractIf` and the existing stable in-place BTreeSet retain compaction pattern.

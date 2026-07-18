@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeMap extract_if)
+
+Completed supportable full-range eager `std::collections::BTreeMap::extract_if` lowering:
+
+- Added `BTREE_MAP_EXTRACT_IF` over the concrete sorted-array `Slice`-key / `u64`-value map.
+- The helper eagerly evaluates a concrete `key_slice, value_slot_ptr -> u64` predicate across the full map, preserves predicate writes to both retained and extracted values, materializes matching entries into a new sorted BTreeMap, and stably compacts non-matching entries in the source map.
+- Test file `std_btree_map_extract_if_macro_surface.sa` (panic ID 10818).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_extract_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper is full-range and eager. It does not model Rust's range-bounded lazy `ExtractIf` object, partial iterator consumption, `FnMut(&K, &mut V)` reference/lifetime ABI, generic `RangeBounds` / `Ord` dispatch, allocator cloning, drop repair, or panic/leak cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeSet extract_if)
 
 Completed supportable full-range eager `std::collections::BTreeSet::extract_if` lowering:
