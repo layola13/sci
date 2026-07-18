@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeMap mutable range)
+
+Completed supportable `std::collections::BTreeMap::range_mut` lowering:
+
+- Added `BTREE_MAP_RANGE_MUT_PTRS` over the concrete sorted-array `Slice`-key / `u64`-value map.
+- The helper applies the existing half-open `[start, end)` key bounds and materializes sorted flat `Vec<u64>` triples of `key_ptr_bits, key_len, value_slot_ptr_bits`; returned raw value-slot pointers update the source map in place.
+- Test file `std_btree_map_range_mut_macro_surface.sa` (panic ID 10816).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_range_mut_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: this helper is an eager concrete raw-pointer lowering. It does not model Rust's generic `RangeBounds` variants, lazy/double-ended `RangeMut` object, scoped mutable-reference lifetime, borrow aliasing guarantees, generic `Ord` / `Borrow` dispatch, B-tree node traversal internals, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeSet owned into-iterator alias)
 
 Completed supportable `std::collections::BTreeSet` owned `IntoIterator` lowering:

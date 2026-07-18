@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeMap mutable range
+
+- Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` `range_mut` / `RangeMut` and the existing sorted-array range and mutable iterator helpers.
+- `sa_std/btree_map.sa`: added `sa_btree_map_range_mut_ptrs_vec` and `BTREE_MAP_RANGE_MUT_PTRS`.
+- Semantics: the helper applies the existing concrete half-open `[start, end)` slice-key bounds and materializes sorted flat `Vec<u64>` triples of `key_ptr_bits, key_len, value_slot_ptr_bits`. Returned raw value-slot pointers target the source map entries, so writes update values in place without changing map length or key order.
+- Test: `tests/unit_framework/std_btree_map_range_mut_macro_surface.sa` - 1 test (panic ID 10816) covering lower-inclusive/upper-exclusive bounds, sorted lanes, mutation through both returned value pointers, unchanged out-of-range values, preserved map length, and an empty equal-bound range.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_range_mut_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10817+.
+
 ## Completed: 2026-07-18 BTreeSet owned into-iterator alias
 
 - Continued Rust `BTreeSet` parity, referencing local Rust `alloc/src/collections/btree/set.rs` `IntoIterator for BTreeSet` and the existing eager sorted-key iterator helper.
