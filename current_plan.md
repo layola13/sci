@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator array/window collect aliases)
+
+Completed supportable `std::collections::VecDeque` iterator array/window collect aliases:
+- `VEC_DEQUE_ITER_ARRAY_CHUNKS_COLLECT_U64` and `VEC_DEQUE_ITER_MAP_WINDOWS_COLLECT_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors and eagerly materialize concrete `Vec<u64>` outputs. `ARRAY_CHUNKS` flattens complete chunks and leaves incomplete tails available; `MAP_WINDOWS` uses a concrete `(window_ptr, window_len) -> u64` mapper and consumes valid finite inputs.
+- This batch does not model Rust const-generic array item/reference ABI, lazy adapter identity/state, generic closure capture, allocator-parametric owned iterator layout, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_array_window_collect_macro_surface.sa` (panic ID 10798).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_array_window_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10799+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator adapter-state collect aliases)
 
 Completed supportable `std::collections::VecDeque` iterator adapter-state collect aliases:
