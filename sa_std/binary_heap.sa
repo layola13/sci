@@ -1647,6 +1647,26 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+    EXPAND VEC_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+    EXPAND VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+    EXPAND VEC_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg
     %out_flag = call @sa_binary_heap_is_empty(&%heap_reg)
 [END_MACRO]

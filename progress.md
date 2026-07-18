@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted sequence collect aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `intersperse`, `intersperse_with`, `cycle`, `take_while`, and `skip_while` adapters.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_WITH_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_CYCLE_TAKE_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_TAKE_WHILE_COLLECT_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_SKIP_WHILE_COLLECT_U64`.
+- Semantics: aliases eagerly materialize concrete `u64` sequence outputs from the descending cursor greatest-first. `CYCLE_TAKE` is finite; `TAKE_WHILE` and `SKIP_WHILE` preserve concrete short-circuit consumption.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_sequence_collect_macro_surface.sa` - 1 test (panic ID 10784) covering separators, generated separators, finite cycle, take/skip while predicates, and cursor remainders.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_sequence_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10785+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted array/window collect aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `array_chunks` and `map_windows` adapters.
