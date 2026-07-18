@@ -809,6 +809,22 @@ L_BTREE_SET_RETAIN_DONE_%out_len:
     %out_set = call @sa_btree_set_symmetric_difference(&%set_reg, &%other_set)
 [END_MACRO]
 
+[MACRO] BTREE_SET_BITOR %out_set, %set_reg, %other_set
+    EXPAND BTREE_SET_UNION %out_set, %set_reg, %other_set
+[END_MACRO]
+
+[MACRO] BTREE_SET_BITAND %out_set, %set_reg, %other_set
+    EXPAND BTREE_SET_INTERSECTION %out_set, %set_reg, %other_set
+[END_MACRO]
+
+[MACRO] BTREE_SET_SUB %out_set, %set_reg, %other_set
+    EXPAND BTREE_SET_DIFFERENCE %out_set, %set_reg, %other_set
+[END_MACRO]
+
+[MACRO] BTREE_SET_BITXOR %out_set, %set_reg, %other_set
+    EXPAND BTREE_SET_SYMMETRIC_DIFFERENCE %out_set, %set_reg, %other_set
+[END_MACRO]
+
 [MACRO] BTREE_SET_ITER %out_vec, %set_reg
     %out_vec = call @sa_btree_set_iter_vec(&%set_reg)
 [END_MACRO]

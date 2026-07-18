@@ -13,6 +13,17 @@ Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
   - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
 - Panic IDs next free: 10810+.
 
+## Completed: 2026-07-18 BTreeSet bit-operator aliases
+
+- Continued Rust `BTreeSet` parity, referencing local Rust `alloc/src/collections/btree/set.rs` bit-operator impls for `|`, `&`, `-`, and `^`, and the existing eager set algebra helpers.
+- `sa_std/btree_set.sa`: added `BTREE_SET_BITOR`, `BTREE_SET_BITAND`, `BTREE_SET_SUB`, and `BTREE_SET_BITXOR` as Rust operator-name aliases over the concrete union/intersection/difference/symmetric-difference helpers.
+- Semantics: these are eager concrete set-algebra aliases over the existing sorted-array `Slice`-key set. They materialize a new SA set and do not model Rust lazy adapter objects, scoped references, lifetimes, generic `Ord` dispatch, allocator-aware constructors, or drop/panic cleanup.
+- Test: `tests/unit_framework/std_btree_set_bit_ops_macro_surface.sa` - 1 test (panic ID 10810) covering `|`, `&`, `-`, and `^` aliases, result membership, and source-set non-consumption.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_set_bit_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10811+.
+
 ## Completed: 2026-07-18 BTreeMap eager iter aliases
 
 - Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` `iter()` / `iter_mut()` and the existing sorted-array BTreeMap storage helpers.

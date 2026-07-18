@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 BTreeSet bit-operator aliases)
+
+Completed supportable `std::collections::BTreeSet` bit-operator lowering:
+
+- Added `BTREE_SET_BITOR`, `BTREE_SET_BITAND`, `BTREE_SET_SUB`, and `BTREE_SET_BITXOR` over the existing eager union/intersection/difference/symmetric-difference helpers.
+- Each alias materializes a new sorted-array `Slice`-key set without consuming either source set.
+- Test file `std_btree_set_bit_ops_macro_surface.sa` (panic ID 10810).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_set_bit_ops_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers expose Rust operator names over concrete eager set algebra. They do not model lazy set algebra adapters, scoped references/lifetimes, generic `Ord` / `Clone` dispatch, allocator cloning, operator trait objects, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 BTreeSet eager iter aliases)
 
 Completed supportable eager `std::collections::BTreeSet::iter` / `IntoIterator for &BTreeSet` lowering:
