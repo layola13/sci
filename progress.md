@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator search/predicate aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for forward and reverse iterator search surfaces.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_FIND_U64`, `VEC_DEQUE_ITER_TRY_FIND_U64`, `VEC_DEQUE_ITER_FIND_MAP_U64`, `VEC_DEQUE_ITER_POSITION_U64`, `VEC_DEQUE_ITER_RPOSITION_U64`, `VEC_DEQUE_ITER_RFIND_U64`, `VEC_DEQUE_ITER_ANY_U64`, `VEC_DEQUE_ITER_ALL_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete search helpers. Short-circuit helpers consume the matching/failing item and leave only the later suffix; reverse position reports an index relative to the current remaining cursor window.
+- Test: `tests/unit_framework/std_vec_deque_iter_search_macro_surface.sa` - 1 test (panic ID 10789) covering wrapped deque order, forward/reverse search, find_map, try_find failure, position/rposition, any/all suffix behavior, and consuming iterator aliases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_search_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10790+.
+
 ## Completed: 2026-07-18 VecDeque iterator cursor ops
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for `Iterator`, `DoubleEndedIterator`, and `ExactSizeIterator` cursor behavior.

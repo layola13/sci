@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator search/predicate aliases)
+
+Completed supportable `std::collections::VecDeque` iterator search/predicate aliases:
+- `VEC_DEQUE_ITER_FIND_U64`, `VEC_DEQUE_ITER_TRY_FIND_U64`, `VEC_DEQUE_ITER_FIND_MAP_U64`, `VEC_DEQUE_ITER_POSITION_U64`, `VEC_DEQUE_ITER_RPOSITION_U64`, `VEC_DEQUE_ITER_RFIND_U64`, `VEC_DEQUE_ITER_ANY_U64`, and `VEC_DEQUE_ITER_ALL_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume the explicit front-to-back snapshot/drained backing cursors and delegate to concrete forward/reverse iterator search helpers.
+- This batch does not model Rust closure capture, `Option<T>` / `Result` ABI, reference item identity/lifetimes, owned iterator layout, allocator state, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_search_macro_surface.sa` (panic ID 10789).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_search_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10790+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator cursor ops)
 
 Completed supportable `std::collections::VecDeque` iterator cursor aliases:
