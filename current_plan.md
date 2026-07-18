@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 HashMap into-iterator aliases)
+
+Completed supportable `std::collections::HashMap` `IntoIterator` lowering:
+
+- Added `MAP_REF_INTO_ITER`, `MAP_MUT_REF_INTO_ITER`, and `MAP_INTO_ITER` over the existing eager `MAP_ITER`, `MAP_ITER_MUT_PTRS`, and `MAP_DRAIN` helpers.
+- Borrowed aliases materialize arbitrary-order key/value or key/value-slot pointer lanes without consuming the map; the owned alias drains the map into an interleaved `Vec<u64>` of key/value pointer bits.
+- Test file `std_hashmap_into_iter_alias_macro_surface.sa` (panic ID 10812).
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_into_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these helpers expose Rust `IntoIterator` names over concrete eager materialization. They do not model Rust lazy iterator objects, owned `IntoIter` layout/drop glue, scoped references/lifetimes, aliasing rules, generic item ABI, allocator state, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 HashSet bit-operator aliases)
 
 Completed supportable `std::collections::HashSet` bit-operator lowering:

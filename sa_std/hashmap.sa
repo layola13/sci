@@ -1884,6 +1884,18 @@ L_MAP_ENTRY_AND_MODIFY_END_%out_ok:
     %out_vec = call @sa_map_iter_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
 
+[MACRO] MAP_REF_INTO_ITER %out_vec, %map_reg
+    EXPAND MAP_ITER %out_vec, %map_reg
+[END_MACRO]
+
+[MACRO] MAP_MUT_REF_INTO_ITER %out_vec, %map_reg
+    EXPAND MAP_ITER_MUT_PTRS %out_vec, %map_reg
+[END_MACRO]
+
+[MACRO] MAP_INTO_ITER %out_vec, %map_reg
+    EXPAND MAP_DRAIN %out_vec, %map_reg
+[END_MACRO]
+
 [MACRO] MAP_REMOVE_ENTRY %out_ok, %out_key, %out_value, %map_reg, %key
     __map_remove_key_slot_%out_ok = stack_alloc 8
     __map_remove_value_slot_%out_ok = stack_alloc 8

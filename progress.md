@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashMap into-iterator aliases
+
+- Continued Rust `HashMap` parity, referencing local Rust `std/src/collections/hash/map.rs` `IntoIterator for &HashMap`, `&mut HashMap`, and owned `HashMap` impls.
+- `sa_std/hashmap.sa`: added `MAP_REF_INTO_ITER`, `MAP_MUT_REF_INTO_ITER`, and `MAP_INTO_ITER` as Rust naming aliases over the concrete eager borrowed/mutable/owned materialization helpers.
+- Semantics: `MAP_REF_INTO_ITER` returns the same arbitrary-order interleaved key/value pointer-bit vector as `MAP_ITER`, `MAP_MUT_REF_INTO_ITER` returns key pointer bits interleaved with raw value-slot pointer bits like `MAP_ITER_MUT_PTRS`, and `MAP_INTO_ITER` drains the map through `MAP_DRAIN` into owned key/value pointer-bit lanes.
+- Test: `tests/unit_framework/std_hashmap_into_iter_alias_macro_surface.sa` - 1 test (panic ID 10812) covering borrowed, mutable-borrowed, owned-consuming, mutation through a returned value-slot pointer, source-map non-consumption for borrowed aliases, source-map clearing for owned alias, and empty-map outputs.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_into_iter_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10813+.
+
 ## Completed: 2026-07-18 HashSet bit-operator aliases
 
 - Continued Rust `HashSet` parity, referencing local Rust `std/src/collections/hash/set.rs` bit-operator impls for `|`, `&`, `-`, and `^`, and the existing eager set algebra helpers.
