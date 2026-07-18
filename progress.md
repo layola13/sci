@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted inspect/scan/step_by collect aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `inspect`, `scan`, and `step_by` adapters.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_INSPECT_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_SCAN_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_TRY_STEP_BY_COLLECT_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_STEP_BY_COLLECT_U64`.
+- Semantics: aliases eagerly materialize concrete `u64` outputs from the descending cursor greatest-first; `SCAN` preserves callback short-circuit consumption, and `TRY_STEP_BY` reports step-zero failure without consuming the cursor.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_transform_adapter_collect_macro_surface.sa` - 1 test (panic ID 10786).
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_transform_adapter_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10787+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted zip/chain collect aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `zip` and `chain` adapters.

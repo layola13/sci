@@ -1623,6 +1623,22 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+    EXPAND VEC_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND VEC_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+    EXPAND VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+    EXPAND VEC_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
