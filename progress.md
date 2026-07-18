@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator cursor ops
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for `Iterator`, `DoubleEndedIterator`, and `ExactSizeIterator` cursor behavior.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_NTH_U64`, `VEC_DEQUE_ITER_NTH_BACK_U64`, `VEC_DEQUE_ITER_ADVANCE_BY`, `VEC_DEQUE_ITER_ADVANCE_BACK_BY`, `VEC_DEQUE_ITER_COUNT_U64`, `VEC_DEQUE_ITER_LAST_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained front-to-back backing cursors through existing concrete double-ended iterator helpers. Advance helpers return explicit `(ok, remaining)` scalars instead of Rust's `Result<(), NonZero<usize>>`.
+- Test: `tests/unit_framework/std_vec_deque_iter_cursor_macro_surface.sa` - 1 test (panic ID 10788) covering wrapped deque order, nth/nth_back, advance success/failure, count/last exhaustion, and consuming iterator aliases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_cursor_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10789+.
+
 ## Completed: 2026-07-18 VecDeque borrowed/consuming iterator basics
 
 - Continued Rust `VecDeque` parity, referencing local Rust `library/alloc/src/collections/vec_deque/mod.rs` for front-to-back `iter` and consuming `IntoIterator`, plus their double-ended and exact-size behavior.

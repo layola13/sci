@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator cursor ops)
+
+Completed supportable `std::collections::VecDeque` iterator cursor aliases:
+- `VEC_DEQUE_ITER_NTH_U64`, `VEC_DEQUE_ITER_NTH_BACK_U64`, `VEC_DEQUE_ITER_ADVANCE_BY`, `VEC_DEQUE_ITER_ADVANCE_BACK_BY`, `VEC_DEQUE_ITER_COUNT_U64`, and `VEC_DEQUE_ITER_LAST_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume the explicit front-to-back snapshot/drained backing cursors and delegate to the same concrete double-ended iterator helpers used by `Vec::IntoIter`.
+- This batch does not model Rust `Option<T>` / `NonZero<usize>` ABI, reference item identity/lifetimes, owned iterator layout, allocator state, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_cursor_macro_surface.sa` (panic ID 10788).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_cursor_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10789+.
+
 ## Active std parity batch (2026-07-18 VecDeque borrowed/consuming iterator basics)
 
 Completed supportable `std::collections::VecDeque` iterator foundations:
