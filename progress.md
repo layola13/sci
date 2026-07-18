@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 HashMap values_mut alias
+
+- Continued Rust `HashMap` parity, referencing local Rust `std/src/collections/hash/map.rs` stable `values_mut` and the existing concrete open-addressed value-slot materialization helper.
+- `sa_std/hashmap.sa`: added `MAP_VALUES_MUT` as the Rust method-name alias over `MAP_VALUES_MUT_PTRS`.
+- Semantics: the alias materializes raw value-slot pointer bits in arbitrary current slot-scan order, permits in-place updates to the source map, preserves map length and keys, and returns an empty vector for an empty map.
+- Test: `tests/unit_framework/std_hashmap_values_mut_alias_macro_surface.sa` - 1 test (panic ID 10822) covering membership of every expected value-slot address, writes through returned slots, unchanged map length, and empty-map output.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_values_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10823+.
+
 ## Completed: 2026-07-18 BTreeMap values_mut alias
 
 - Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` stable `values_mut` and the existing concrete sorted value-slot materialization helper.
