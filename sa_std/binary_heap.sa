@@ -1667,6 +1667,14 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg
     %out_flag = call @sa_binary_heap_is_empty(&%heap_reg)
 [END_MACRO]

@@ -930,6 +930,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_binary_heap_into_iter_sorted_state_collect_macro_surface.sa",
         "tests/unit_framework/std_binary_heap_into_iter_sorted_array_window_collect_macro_surface.sa",
         "tests/unit_framework/std_binary_heap_into_iter_sorted_sequence_collect_macro_surface.sa",
+        "tests/unit_framework/std_binary_heap_into_iter_sorted_pair_collect_macro_surface.sa",
         "tests/unit_framework/std_binary_heap_into_iter_sorted_clone_macro_surface.sa",
         "tests/unit_framework/std_binary_heap_into_iter_sorted_collect_macro_surface.sa",
         "tests/unit_framework/std_btree_macro_surface.sa",
