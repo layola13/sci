@@ -1892,6 +1892,46 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_SUM_U64 %out_value, %iter_reg
+    EXPAND ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_PRODUCT_U64 %out_value, %iter_reg
+    EXPAND ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+    EXPAND ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
@@ -1970,6 +2010,46 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_DEQUE_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_DEQUE_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_DEQUE_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_DEQUE_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_DEQUE_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_SUM_U64 %out_value, %iter_reg
+    EXPAND VEC_DEQUE_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
+    EXPAND VEC_DEQUE_ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+    EXPAND VEC_DEQUE_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+    EXPAND VEC_DEQUE_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_DEQUE_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_DEQUE_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg

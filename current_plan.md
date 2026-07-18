@@ -2,6 +2,19 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator fold/aggregate aliases)
+
+Completed supportable `std::collections::VecDeque` iterator fold/aggregate aliases:
+- `VEC_DEQUE_ITER_FOLD_U64`, `VEC_DEQUE_ITER_TRY_FOLD_U64`, `VEC_DEQUE_ITER_RFOLD_U64`, `VEC_DEQUE_ITER_TRY_RFOLD_U64`, `VEC_DEQUE_ITER_SUM_U64`, `VEC_DEQUE_ITER_PRODUCT_U64`, `VEC_DEQUE_ITER_MIN_U64`, `VEC_DEQUE_ITER_MAX_U64`, `VEC_DEQUE_ITER_REDUCE_U64`, and `VEC_DEQUE_ITER_TRY_REDUCE_U64`, plus matching `VEC_DEQUE_INTO_ITER_*` names.
+- These helpers consume explicit snapshot/drained backing cursors and delegate to concrete forward/reverse fold and aggregate helpers.
+- This batch does not model Rust closure capture, generic `Try` residual conversion, `Sum` / `Product` / `Ord` trait dispatch, `Option<T>` ABI, reference item identity/lifetimes, owned iterator layout, allocator state, generic item move/drop semantics, or panic/drop cleanup.
+- Test file `std_vec_deque_iter_fold_aggregate_macro_surface.sa` (panic ID 10790).
+
+Focused validation only:
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_fold_aggregate_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Panic IDs next free: 10791+.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator search/predicate aliases)
 
 Completed supportable `std::collections::VecDeque` iterator search/predicate aliases:
