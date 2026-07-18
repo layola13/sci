@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator callback/chunk aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` callback/chunk defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_TRY_NEXT_CHUNK_U64`, `VEC_DEQUE_ITER_FOR_EACH_U64`, `VEC_DEQUE_ITER_TRY_FOR_EACH_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete iterator helpers. `try_next_chunk` writes sequential `u64` items to caller storage and reports explicit success/filled counts; callback helpers consume through a macro-level `u64 -> u64` function, with `try_for_each` consuming the failing item and leaving the suffix available.
+- Test: `tests/unit_framework/std_vec_deque_iter_for_each_chunk_macro_surface.sa` - 1 test (panic ID 10800) covering borrowed for_each exhaustion without mutating the deque, try_for_each success/failure suffixes, full/short/zero next_chunk paths over wrapped deques, and consuming iterator aliases.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_for_each_chunk_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10801+.
+
 ## Completed: 2026-07-18 VecDeque iterator extended collect aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs`, `vec_deque/into_iter.rs`, and core `Iterator` collect/copied/cloned defaults.

@@ -1844,6 +1844,10 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
     EXPAND ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
 [END_MACRO]
@@ -1890,6 +1894,14 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+    EXPAND ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+    EXPAND ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
@@ -2160,6 +2172,10 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND VEC_DEQUE_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND VEC_DEQUE_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_INTO_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
     EXPAND VEC_DEQUE_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
 [END_MACRO]
@@ -2206,6 +2222,14 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_DEQUE_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+    EXPAND VEC_DEQUE_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+    EXPAND VEC_DEQUE_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn

@@ -2,6 +2,20 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-18 VecDeque iterator callback/chunk aliases)
+
+Completed supportable `std::collections::VecDeque` iterator callback/chunk aliases:
+
+- `VEC_DEQUE_ITER_TRY_NEXT_CHUNK_U64`, `VEC_DEQUE_ITER_FOR_EACH_U64`, `VEC_DEQUE_ITER_TRY_FOR_EACH_U64`.
+- Matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Test file `std_vec_deque_iter_for_each_chunk_macro_surface.sa` (panic ID 10800).
+
+Validation:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_for_each_chunk_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+
+Scope note: these aliases consume the existing explicit `u64` backing cursor and reuse concrete `ITER_*` helpers. They do not model Rust const-generic array remainder ABI, generic `Try` residual conversion, closure capture, borrowed reference item semantics, owned iterator object layout, allocator state, generic item drop, or panic/drop cleanup.
+
 ## Active std parity batch (2026-07-18 VecDeque iterator extended collect aliases)
 
 Completed supportable `std::collections::VecDeque` iterator extended collect aliases:
