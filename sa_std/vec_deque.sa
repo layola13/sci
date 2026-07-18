@@ -2052,6 +2052,30 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
     EXPAND ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+    EXPAND ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_DEQUE_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
@@ -2274,6 +2298,30 @@ L_VEC_DEQUE_ITER_BUILD_%out_iter:
 
 [MACRO] VEC_DEQUE_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
     EXPAND VEC_DEQUE_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_DEQUE_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+    EXPAND VEC_DEQUE_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND VEC_DEQUE_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_DEQUE_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_DEQUE_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] VEC_DEQUE_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_DEQUE_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] VEC_DEQUE_RESERVE %deque_reg, %additional

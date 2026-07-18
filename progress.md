@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 VecDeque iterator transform/filter collect aliases
+
+- Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for front-to-back borrowed/consuming behavior and core `Iterator` transform/filter defaults.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_ITER_MAP_COLLECT_U64`, `VEC_DEQUE_ITER_INSPECT_COLLECT_U64`, `VEC_DEQUE_ITER_SCAN_COLLECT_U64`, `VEC_DEQUE_ITER_FILTER_COLLECT_U64`, `VEC_DEQUE_ITER_FILTER_MAP_COLLECT_U64`, `VEC_DEQUE_ITER_MAP_WHILE_COLLECT_U64`, and matching `VEC_DEQUE_INTO_ITER_*` aliases.
+- Semantics: aliases consume snapshot/drained backing cursors through existing concrete iterator transform/filter helpers and eagerly materialize caller-owned `Vec<u64>` outputs. `scan` and `map_while` consume the stopping item and leave only the later suffix.
+- Test: `tests/unit_framework/std_vec_deque_iter_transform_collect_macro_surface.sa` - 1 test (panic ID 10794) covering wrapped deque order, map/inspect/filter/filter_map output order, scan/map_while short-circuit suffixes, and consuming iterator alias exhaustion.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_iter_transform_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10795+.
+
 ## Completed: 2026-07-18 VecDeque iterator eager adapter collect aliases
 
 - Continued Rust `VecDeque` iterator parity, referencing local Rust `vec_deque/iter.rs` and `vec_deque/into_iter.rs` for double-ended front/back behavior and core `Iterator` adapter defaults.
