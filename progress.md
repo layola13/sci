@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BinaryHeap IntoIterSorted transform/filter collect aliases
+
+- Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `map`, `filter`, `filter_map`, and `map_while` adapters.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_INTO_ITER_SORTED_MAP_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_FILTER_COLLECT_U64`, `BINARY_HEAP_INTO_ITER_SORTED_FILTER_MAP_COLLECT_U64`, and `BINARY_HEAP_INTO_ITER_SORTED_MAP_WHILE_COLLECT_U64`.
+- Semantics: aliases eagerly materialize concrete `u64` outputs from the descending cursor greatest-first; `map_while` stops at the first callback failure and leaves the suffix available.
+- Test: `tests/unit_framework/std_binary_heap_into_iter_sorted_transform_collect_macro_surface.sa` - 1 test (panic ID 10781) covering map order, filter order, filter_map order, map_while stop/remainder, and cursor cleanup.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_transform_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10782+.
+
 ## Completed: 2026-07-18 BinaryHeap IntoIterSorted take/skip adapter aliases
 
 - Continued Rust `BinaryHeap::IntoIterSorted` macro-surface parity, referencing local Rust `library/core/src/iter/traits/iterator.rs` for forward `take` and `skip` adapters and collect behavior.

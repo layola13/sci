@@ -1607,6 +1607,22 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND VEC_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg
     %out_flag = call @sa_binary_heap_is_empty(&%heap_reg)
 [END_MACRO]
