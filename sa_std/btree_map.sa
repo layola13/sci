@@ -1135,6 +1135,116 @@ L_BTREE_VALUE_PTRS_DONE:
     !map
     return out_vec
 
+@export sa_btree_map_iter_vec(&map: ptr) -> ^ptr:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    EXPAND NUM_U64_CHECKED_MUL btree_iter_cap_ok, btree_iter_cap, len, 3
+    br btree_iter_cap_ok -> L_BTREE_ITER_CAP_OK, L_BTREE_ITER_CAP_OVERFLOW
+
+L_BTREE_ITER_CAP_OVERFLOW:
+    panic(2204)
+
+L_BTREE_ITER_CAP_OK:
+    out_vec = call @sa_vec_with_capacity(btree_iter_cap, 8)
+    entries = load map+BTreeMap_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_ITER_HEAD
+
+L_BTREE_ITER_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_ITER_DONE, L_BTREE_ITER_BODY
+
+L_BTREE_ITER_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    key_ptr = load entry+BTreeMapEntry_key_ptr as ptr
+    key_len = load entry+BTreeMapEntry_key_len as u64
+    value = load entry+BTreeMapEntry_value as u64
+    key_ptr_bits = bitcast key_ptr as u64
+    out_vec = call @sa_vec_push(^out_vec, key_ptr_bits, 8)
+    out_vec = call @sa_vec_push(^out_vec, key_len, 8)
+    out_vec = call @sa_vec_push(^out_vec, value, 8)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !key_ptr_bits
+    !value
+    !key_len
+    !key_ptr
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_ITER_HEAD
+
+L_BTREE_ITER_DONE:
+    !done
+    !idx
+    !entries
+    !btree_iter_cap_ok
+    !btree_iter_cap
+    !len
+    !map
+    return out_vec
+
+@export sa_btree_map_iter_mut_ptrs_vec(&map: ptr) -> ^ptr:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    EXPAND NUM_U64_CHECKED_MUL btree_iter_mut_cap_ok, btree_iter_mut_cap, len, 3
+    br btree_iter_mut_cap_ok -> L_BTREE_ITER_MUT_CAP_OK, L_BTREE_ITER_MUT_CAP_OVERFLOW
+
+L_BTREE_ITER_MUT_CAP_OVERFLOW:
+    panic(2205)
+
+L_BTREE_ITER_MUT_CAP_OK:
+    out_vec = call @sa_vec_with_capacity(btree_iter_mut_cap, 8)
+    entries = load map+BTreeMap_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_ITER_MUT_HEAD
+
+L_BTREE_ITER_MUT_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_ITER_MUT_DONE, L_BTREE_ITER_MUT_BODY
+
+L_BTREE_ITER_MUT_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    key_ptr = load entry+BTreeMapEntry_key_ptr as ptr
+    key_len = load entry+BTreeMapEntry_key_len as u64
+    value_ptr = ptr_add entry, BTreeMapEntry_value
+    key_ptr_bits = bitcast key_ptr as u64
+    value_ptr_bits = bitcast value_ptr as u64
+    out_vec = call @sa_vec_push(^out_vec, key_ptr_bits, 8)
+    out_vec = call @sa_vec_push(^out_vec, key_len, 8)
+    out_vec = call @sa_vec_push(^out_vec, value_ptr_bits, 8)
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !value_ptr_bits
+    !key_ptr_bits
+    !value_ptr
+    !key_len
+    !key_ptr
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_ITER_MUT_HEAD
+
+L_BTREE_ITER_MUT_DONE:
+    !done
+    !idx
+    !entries
+    !btree_iter_mut_cap_ok
+    !btree_iter_mut_cap
+    !len
+    !map
+    return out_vec
+
 @export sa_btree_map_remove_entry(&map: ptr, &key: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:
 L_ENTRY:
     found = call @sa_btree_map_try_get_key_value(&map, &key, &out_key, &out_value_slot)
@@ -1652,6 +1762,14 @@ L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok:
 
 [MACRO] BTREE_MAP_VALUES_MUT_PTRS %out_vec, %map_reg
     %out_vec = call @sa_btree_map_value_mut_ptrs_vec(&%map_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_ITER %out_vec, %map_reg
+    %out_vec = call @sa_btree_map_iter_vec(&%map_reg)
+[END_MACRO]
+
+[MACRO] BTREE_MAP_ITER_MUT_PTRS %out_vec, %map_reg
+    %out_vec = call @sa_btree_map_iter_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
 
 [MACRO] BTREE_MAP_POP_FIRST %out_ok, %out_key, %out_value, %map_reg
