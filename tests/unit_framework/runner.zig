@@ -889,6 +889,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_vec_deque_mut_alias_macro_surface.sa",
         "tests/unit_framework/std_vec_deque_push_mut_alias_macro_surface.sa",
         "tests/unit_framework/std_vec_deque_extract_if_macro_surface.sa",
+        "tests/unit_framework/std_vec_deque_splice_macro_surface.sa",
         "tests/unit_framework/std_vec_deque_iter_macro_surface.sa",
         "tests/unit_framework/std_vec_deque_iter_cursor_macro_surface.sa",
         "tests/unit_framework/std_vec_deque_iter_search_macro_surface.sa",

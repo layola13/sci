@@ -2761,6 +2761,52 @@ L_VEC_DEQUE_EXTRACT_DONE_%out_len:
     !__vec_deque_extract_view_%out_len
 [END_MACRO]
 
+[MACRO] VEC_DEQUE_SPLICE_U64 %out_ok, %out_vec, %deque_reg, %start, %length, %replacement_slice
+    EXPAND VEC_DEQUE_MAKE_CONTIGUOUS __vec_deque_splice_slice_%out_ok, %deque_reg
+    EXPAND VEC_FROM_SLICE_U64 __vec_deque_splice_vec_%out_ok, __vec_deque_splice_slice_%out_ok
+    EXPAND VEC_SPLICE_U64 %out_ok, %out_vec, __vec_deque_splice_vec_%out_ok, %start, %length, %replacement_slice
+    __vec_deque_splice_hit_%out_ok = ne %out_ok, 0
+    br __vec_deque_splice_hit_%out_ok -> L_VEC_DEQUE_SPLICE_REBUILD_%out_ok, L_VEC_DEQUE_SPLICE_MISS_%out_ok
+
+L_VEC_DEQUE_SPLICE_REBUILD_%out_ok:
+    EXPAND VEC_DEQUE_CLEAR %deque_reg
+    EXPAND VEC_LEN __vec_deque_splice_new_len_%out_ok, __vec_deque_splice_vec_%out_ok
+    __vec_deque_splice_idx_slot_%out_ok = stack_alloc 8
+    store __vec_deque_splice_idx_slot_%out_ok+0, 0 as u64
+    jmp L_VEC_DEQUE_SPLICE_COPY_HEAD_%out_ok
+
+L_VEC_DEQUE_SPLICE_COPY_HEAD_%out_ok:
+    __vec_deque_splice_idx_%out_ok = load __vec_deque_splice_idx_slot_%out_ok+0 as u64
+    __vec_deque_splice_copy_done_%out_ok = eq __vec_deque_splice_idx_%out_ok, __vec_deque_splice_new_len_%out_ok
+    br __vec_deque_splice_copy_done_%out_ok -> L_VEC_DEQUE_SPLICE_COPY_END_%out_ok, L_VEC_DEQUE_SPLICE_COPY_BODY_%out_ok
+
+L_VEC_DEQUE_SPLICE_COPY_BODY_%out_ok:
+    EXPAND VEC_GET_U64 __vec_deque_splice_value_%out_ok, __vec_deque_splice_vec_%out_ok, __vec_deque_splice_idx_%out_ok
+    EXPAND VEC_DEQUE_PUSH_BACK %deque_reg, __vec_deque_splice_value_%out_ok
+    __vec_deque_splice_next_%out_ok = add __vec_deque_splice_idx_%out_ok, 1
+    store __vec_deque_splice_idx_slot_%out_ok+0, __vec_deque_splice_next_%out_ok as u64
+    !__vec_deque_splice_next_%out_ok
+    !__vec_deque_splice_value_%out_ok
+    !__vec_deque_splice_copy_done_%out_ok
+    !__vec_deque_splice_idx_%out_ok
+    jmp L_VEC_DEQUE_SPLICE_COPY_HEAD_%out_ok
+
+L_VEC_DEQUE_SPLICE_COPY_END_%out_ok:
+    !__vec_deque_splice_copy_done_%out_ok
+    !__vec_deque_splice_idx_%out_ok
+    !__vec_deque_splice_new_len_%out_ok
+    !__vec_deque_splice_hit_%out_ok
+    jmp L_VEC_DEQUE_SPLICE_DONE_%out_ok
+
+L_VEC_DEQUE_SPLICE_MISS_%out_ok:
+    !__vec_deque_splice_hit_%out_ok
+    jmp L_VEC_DEQUE_SPLICE_DONE_%out_ok
+
+L_VEC_DEQUE_SPLICE_DONE_%out_ok:
+    EXPAND VEC_FREE __vec_deque_splice_vec_%out_ok
+    !__vec_deque_splice_slice_%out_ok
+[END_MACRO]
+
 [MACRO] VEC_DEQUE_TRY_FRONT_MUT_PTR %out_ok, %out_ptr, %deque_reg
     __vec_deque_front_mut_slot_%out_ok = stack_alloc 8
     __vec_deque_front_mut_ok_%out_ok = call @sa_vec_deque_try_front_mut_ptr(&%deque_reg, &__vec_deque_front_mut_slot_%out_ok)
