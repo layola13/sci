@@ -2,6 +2,17 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-18 BTreeSet extract_if
+
+- Continued Rust `BTreeSet` parity, referencing local Rust `alloc/src/collections/btree/set.rs` stable `extract_if` / `ExtractIf` and the existing stable in-place BTreeSet retain compaction pattern.
+- `sa_std/btree_set.sa`: added `BTREE_SET_EXTRACT_IF`.
+- Semantics: the helper eagerly evaluates a concrete `key_slice -> u64` predicate over the full sorted set, inserts matching keys into a new sorted BTreeSet, stably compacts non-matching entries in the source set, clears stale tail entries, and returns the remaining source length.
+- Test: `tests/unit_framework/std_btree_set_extract_if_macro_surface.sa` - 1 test (panic ID 10817) covering matching-key extraction, source membership, extracted ordering/identity, never-match behavior, and empty input.
+- Validation status:
+  - Focused only: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_set_extract_if_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused test.
+- Panic IDs next free: 10818+.
+
 ## Completed: 2026-07-18 BTreeMap mutable range
 
 - Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` `range_mut` / `RangeMut` and the existing sorted-array range and mutable iterator helpers.
