@@ -194,7 +194,7 @@ L_ENTRY:
 L_ENTRY:
     set = call @sa_set_with_capacity(cap)
     store out_set_slot+0, set as ptr
-    !set
+    ^set
     !out_set_slot
     !cap
     return 1

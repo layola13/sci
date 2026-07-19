@@ -1,5 +1,16 @@
 # 架构设计参考 (Technical Design Reference)
 
+## Completed: 2026-07-19 multiplatform Linux-host gate sweep + process wait unlock
+
+- [x] Process wait/kill: unlock registry mutex for non-capture blocking waits (`waitStatusForIds` snapshot path).
+- [x] Revalidated process suite `23/23` after unlock refactor.
+- [x] Linux gates: runtime-basic/pal/netx, linux-ci-contract, sa-std-artifact-abi, release-contract (`25/25`, `100/100` tests).
+- [x] Portable aggregate: test-portable + plugin-host-smoke + portability-check (`78/78`, `61/61` tests).
+- [x] `test-portable -Doptimize=ReleaseSafe` revalidation (`9/9`, `49/49` tests).
+- [x] windows-ci-contract / macos-ci-contract / native-evidence-validator green on Linux host.
+- [ ] Native Windows/macOS workflow execution blocked: `gh` not authenticated; no GH_TOKEN.
+- [x] Darwin socket/PTY **cross-link** on Linux for x86_64-macos and aarch64-macos (`6/6` each). Native runtime still requires macOS runners.
+
 ## Current parent-chain no_follow cache path authorization batch (2026-07-17)
 
 - [x] Keep the worktree scoped to project-cache parent-chain path authorization and compile-unblock fixes only.
@@ -341,6 +352,14 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of sc
 - [ ] **P1.3 Referee region merge**: worker-owned result regions, one ordered top-level merge, no per-delta deep copy, and proven OOM/Trap/cancel cleanup ownership.
 - [ ] **P1.4 task granularity**: weighted batching, serial thresholds, physical-core awareness, and gates proving `jobs=auto` does not regress a one-physical-core host.
 
+## Completed: 2026-07-19 ownership transfer + process hang recovery (Linux)
+
+- [x] Fix `STRING_BUF_TRY_SPLIT_OFF` failures (panic 10244/10250) via `sa_vec_try_split_off` ownership transfer.
+- [x] Fix matching out-slot ownership bugs in vec_deque split_off and heap/map/set try_with_capacity.
+- [x] Process: `linuxErrno`, wait4 fallback, bounded deinit reap, pidfd wait without holding registry mutex.
+- [x] Verified: string `105/105`, vec `45/45`, deque `18/18`, heap/map/set green, process `23/23`, multiplatform contracts `71/71`, Linux `daemon-smoke` `7/7`.
+- [ ] Native Windows/macOS runner execution still required for L2 claims.
+
 ## Active multi-platform portability (2026-07-15)
 
 - [x] Lock the public `sa_std` ABI with source-symbol and built-artifact checks (`129d520`).
@@ -368,7 +387,7 @@ Reference: `docs/compiler_performance_optimization_cn.md`. GPU work is out of sc
 - [x] Implement Darwin terminal winsize and native PTY raw-enter/raw-leave/winsize tests. Darwin uses the target `ioctl(TIOCGWINSZ)` path through `std.posix.system`, raw mode now clears `ECHONL`, and `test-runtime-darwin-pty` links/runs only on native macOS x86_64/aarch64. The C contract opens a real PTY, verifies winsize, raw flag clearing, `VMIN/VTIME`, restore, duplicate leave invalidation, and non-terminal `UNSUPPORTED` output clearing; the Linux terminal integration test mirrors the raw/winsize/error boundary.
 - [x] Run the Darwin terminal batch gates on Linux: `sa-term-runtime` `2/2`, `portable-runtime-typecheck` `21/21`, `portability-check` `44/44`, `test-portable` `9/9` steps and `49/49` tests, `sa-std-abi` `11/11`, macOS CI contract `3/3`, format/diff checks, and x86_64/aarch64 Darwin warnings-as-errors compile plus production Mach-O PTY contract links `4/4` each. `sa-std-runtime` remains the known environment-limited `13/14` because this container rejects the existing IPv6 multicast join case. No macOS native PTY execution is claimed yet.
 - [ ] Complete native plugin/installer/archive/release smoke for `.dll`, `.dylib`, PowerShell installation, target-specific artifact selection, and macOS/Windows clean-machine use. Linux release/install evidence does not satisfy these native gates.
-- [ ] Add a daemon client/server Unix-socket end-to-end smoke after the portable compiler/runtime gate is stable.
+- [x] Add a daemon client/server Unix-socket end-to-end smoke after the portable compiler/runtime gate is stable. Linux host: `zig build daemon-smoke` → `7/7` steps, `1/1` tests. macOS workflow wiring remains pending native runner execution.
 
 Verification boundary: the active host is Linux. Linux tests are executable evidence; Windows/macOS results are recorded only as cross type-check, object/link, and ABI evidence until native runners execute them. The current process contract is deliberately limited to exact small-output capture and is not evidence for arbitrary-size capture.
 

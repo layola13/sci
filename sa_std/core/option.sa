@@ -654,7 +654,7 @@ L_OPTION_TRANSPOSE_OK_%out_res:
     store %out_res+Result_tag, Result_OK as u64
     store %out_res+Result_ok, __option_transpose_ok_opt_%out_res as ptr
     store %out_res+Result_err, 0 as u64
-    !__option_transpose_ok_opt_%out_res
+    ^__option_transpose_ok_opt_%out_res
     !__option_transpose_ok_value_%out_res
     !__option_transpose_inner_ok_%out_res
     !__option_transpose_inner_tag_%out_res
@@ -681,7 +681,7 @@ L_OPTION_TRANSPOSE_NONE_%out_res:
     store %out_res+Result_tag, Result_OK as u64
     store %out_res+Result_ok, __option_transpose_none_opt_%out_res as ptr
     store %out_res+Result_err, 0 as u64
-    !__option_transpose_none_opt_%out_res
+    ^__option_transpose_none_opt_%out_res
     !__option_transpose_some_%out_res
     !__option_transpose_tag_%out_res
 L_OPTION_TRANSPOSE_END_%out_res:

@@ -403,7 +403,7 @@ L_WITH_CAP_ZERO:
 L_ENTRY:
     map = call @sa_map_with_capacity(cap)
     store out_map_slot+0, map as ptr
-    !map
+    ^map
     !out_map_slot
     !cap
     return 1

@@ -1435,7 +1435,7 @@ L_SPLIT_COPY_BODY:
 L_SPLIT_STORE:
     store deque+VecDeque_len, index as u64
     store out_deque_slot+0, out_deque as ptr
-    !out_deque
+    ^out_deque
     !done
     !idx
     !tail_len

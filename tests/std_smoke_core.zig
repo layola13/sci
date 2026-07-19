@@ -10,7 +10,7 @@ test "sa_std core primitives are concrete and verifiable" {
     const slice_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/slice.sal");
     defer std.testing.allocator.free(slice_layout);
     try std.testing.expectEqualStrings(
-        "#def Slice_SIZE = 16\n#def Slice_ptr  = +0\n#def Slice_len  = +8\n",
+        "#def Slice_SIZE = 16\n#def Slice_ptr  = +0\n#def Slice_len  = +8\n\n#def TryFromSliceError_SIZE = 8\n#def TryFromSliceError_code = +0\n#def TRY_FROM_SLICE_ERROR_LENGTH_MISMATCH = 0\n",
         slice_layout,
     );
 
@@ -1228,7 +1228,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
     const option_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/option.sal");
     defer std.testing.allocator.free(option_layout);
     try std.testing.expectEqualStrings(
-        "#def Option_SIZE = 16\n#def Option_tag = +0\n#def Option_value = +8\n#def Option_NONE = 0\n#def Option_SOME = 1\n",
+        "#def Option_SIZE = 16\n#def Option_tag = +0\n#def Option_value = +8\n#def Option_NONE = 0\n#def Option_SOME = 1\n\n\n#def OptionPairU64_SIZE = 24\n#def OptionPairU64_tag = +0\n#def OptionPairU64_value1 = +8\n#def OptionPairU64_value2 = +16\n",
         option_layout,
     );
 
@@ -1417,7 +1417,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
     const refcell_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/refcell.sal");
     defer std.testing.allocator.free(refcell_layout);
     try std.testing.expectEqualStrings(
-        "#def RefCell_SIZE = 8\n#def RefCell_value = +0\n#def RefCell_borrows = +4\n\n#def RefCellU64_SIZE = 16\n#def RefCellU64_value = +0\n#def RefCellU64_borrows = +8\n",
+        "#def RefCell_SIZE = 8\n#def RefCell_value = +0\n#def RefCell_borrows = +4\n\n#def RefCellU64_SIZE = 16\n#def RefCellU64_value = +0\n#def RefCellU64_borrows = +8\n\n#def BorrowError_SIZE = 0\n#def BorrowError_ALIGN = 1\n\n#def BorrowMutError_SIZE = 0\n#def BorrowMutError_ALIGN = 1\n",
         refcell_layout,
     );
 

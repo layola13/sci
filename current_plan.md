@@ -1,6 +1,23 @@
 # Current Plan
 
-Date: 2026-07-17
+Date: 2026-07-19
+
+## Current turn: multiplatform Linux-host gate sweep + process wait unlock
+
+1. [x] Unlock non-capture process wait/kill across registry mutex; revalidate process suite 23/23.
+2. [x] Re-run Linux multiplatform runtime/ABI/release/portable/plugin/contract gates.
+3. [x] Confirm `gh` unauthenticated — native macOS/Windows runner execution remains blocked.
+4. [x] Darwin cross-link socket+PTY contracts: `-Dtarget=x86_64-macos` and `aarch64-macos` → `6/6` steps each (link-only, not native runtime/L2).
+5. [x] Host-side multiplatform work exhausted under current credentials; L2 claims remain blocked until authenticated GitHub native runners execute macOS/Windows workflows (needs `gh auth login` or `GH_TOKEN`).
+
+## Current turn: ownership transfer + process/pidfd hang recovery
+
+1. [x] Restore string macro surface tests (remove debug force-pass/inverted branches).
+2. [x] Fix `sa_vec_try_split_off` and related out-slot ownership transfers (`!` → `^`).
+3. [x] Bound process deinit reap and release registry mutex before blocking pidfd waits.
+4. [x] Revalidate string/vec/deque/collections/process suites and multiplatform Linux contracts.
+5. [x] Run Linux `daemon-smoke` → `7/7` steps, `1/1` tests passed (Unix-socket daemon client/server).
+6. [ ] Keep native Windows/macOS runner execution and installer smoke as blocked on GitHub runners.
 
 ## Current turn: parent-chain no_follow cache path authorization
 

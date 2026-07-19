@@ -118,7 +118,7 @@ L_WITH_CAP_EMPTY:
 L_ENTRY:
     heap = call @sa_binary_heap_with_capacity(cap)
     store out_heap_slot+0, heap as ptr
-    !heap
+    ^heap
     !out_heap_slot
     !cap
     return 1

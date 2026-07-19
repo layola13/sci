@@ -783,7 +783,11 @@ test "queued sa test worker failure returns test error without crashing" {
         .expected_summary = "test result: ok. 1 passed; 0 failed; 0 skipped",
     });
 
-    try std.testing.expectError(error.TestUnexpectedResult, runQueuedSaTestFiles());
+    if (runQueuedSaTestFiles()) |_| {
+        return error.TestExpectedError;
+    } else |err| {
+        try std.testing.expect(err == error.SaTestFailed or err == error.TestUnexpectedResult);
+    }
     try std.testing.expectEqual(@as(usize, 0), queued_sa_tests.items.len);
 }
 

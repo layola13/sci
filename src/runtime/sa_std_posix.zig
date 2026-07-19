@@ -1090,16 +1090,62 @@ const ProcessHandle = struct {
 
     fn deinit(self: *ProcessHandle) void {
         if (!self.exited) {
-            while (true) {
+            // Best-effort reap with a hard bound so close never spins forever
+            // when the child was already reaped via a borrowed pidfd, or when
+            // wait returns "not ready" indefinitely.
+            var attempts: u32 = 0;
+            var already_reaped = false;
+            while (attempts < 200) : (attempts += 1) {
                 drainProcessOutput(self) catch {};
-                const raw_status = waitProcessStatusOnce(self, true) catch break;
+                const raw_status = waitProcessStatusOnce(self, true) catch {
+                    // Already reaped (ECHILD) or wait unavailable.
+                    already_reaped = true;
+                    break;
+                };
                 if (raw_status) |status| {
                     finalizeProcessExit(self, status) catch {};
                     break;
                 }
+                // Child still running. After a short grace period, force kill.
+                if (attempts == 50) {
+                    if (builtin.os.tag == .linux) {
+                        if (self.pidfd) |fd| {
+                            sendSignalToPidfd(fd, std.posix.SIG.KILL, 0) catch {};
+                        } else {
+                            std.posix.kill(self.pid, std.posix.SIG.KILL) catch {};
+                        }
+                    } else {
+                        std.posix.kill(self.pid, std.posix.SIG.KILL) catch {};
+                    }
+                }
                 std.Thread.sleep(std.time.ns_per_ms);
             }
-            self.exited = true;
+            if (!self.exited) {
+                if (!already_reaped) {
+                    // Last-chance non-blocking-first then brief kill/reap.
+                    if (builtin.os.tag == .linux) {
+                        if (self.pidfd) |fd| {
+                            sendSignalToPidfd(fd, std.posix.SIG.KILL, 0) catch {};
+                        } else {
+                            std.posix.kill(self.pid, std.posix.SIG.KILL) catch {};
+                        }
+                    } else {
+                        std.posix.kill(self.pid, std.posix.SIG.KILL) catch {};
+                    }
+                    // Prefer non-blocking reap to avoid hanging close paths.
+                    // A few short retries cover the SIGKILL delivery window.
+                    var kill_attempts: u32 = 0;
+                    while (kill_attempts < 50) : (kill_attempts += 1) {
+                        const raw_status = waitProcessStatusOnce(self, true) catch break;
+                        if (raw_status) |status| {
+                            finalizeProcessExit(self, status) catch {};
+                            break;
+                        }
+                        std.Thread.sleep(std.time.ns_per_ms);
+                    }
+                }
+                self.exited = true;
+            }
         }
         if (self.pidfd) |fd| std.posix.close(fd);
         if (self.stdout_fd) |fd| std.posix.close(fd);
@@ -2549,6 +2595,18 @@ fn waitStatusContinued(raw: i32) u8 {
     return if (rawWaitStatus(raw) == 0xffff) 1 else 0;
 }
 
+fn linuxErrno(rc: anytype) std.posix.E {
+    const signed = switch (@typeInfo(@TypeOf(rc))) {
+        .int => |info| if (info.signedness == .signed)
+            @as(isize, @intCast(rc))
+        else
+            @as(isize, @bitCast(@as(usize, @intCast(rc)))),
+        else => @compileError("linuxErrno requires an integer type"),
+    };
+    const int = if (signed > -4096 and signed < 0) -signed else 0;
+    return @as(std.posix.E, @enumFromInt(@as(u32, @intCast(int))));
+}
+
 fn waitProcessIgnoringMissing(pid: std.posix.pid_t) ?u32 {
     if (builtin.os.tag != .linux) {
         return std.posix.waitpid(pid, 0).status;
@@ -2556,7 +2614,7 @@ fn waitProcessIgnoringMissing(pid: std.posix.pid_t) ?u32 {
     var status: u32 = 0;
     while (true) {
         const result = std.os.linux.wait4(pid, &status, 0, null);
-        switch (std.posix.errno(result)) {
+        switch (linuxErrno(result)) {
             .SUCCESS => return status,
             .INTR => continue,
             .CHILD => return null,
@@ -2580,7 +2638,7 @@ fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
 fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
     if (builtin.os.tag != .linux) return null;
     const fd = std.os.linux.pidfd_open(pid, 0);
-    return switch (std.posix.errno(fd)) {
+    return switch (linuxErrno(fd)) {
         .SUCCESS => @as(std.posix.fd_t, @intCast(fd)),
         else => null,
     };
@@ -2591,7 +2649,7 @@ fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, Inv
     var siginfo: std.posix.siginfo_t = undefined;
     while (true) {
         const result = std.os.linux.waitid(.PIDFD, fd, &siginfo, options);
-        switch (std.posix.errno(result)) {
+        switch (linuxErrno(result)) {
             .SUCCESS => break,
             .INTR => continue,
             .CHILD => return error.ProcessNotFound,
@@ -2607,7 +2665,7 @@ fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, Inv
 fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
     if (builtin.os.tag != .linux) return error.Unsupported;
     const result = std.os.linux.pidfd_send_signal(fd, signum, null, flags);
-    switch (std.posix.errno(result)) {
+    switch (linuxErrno(result)) {
         .SUCCESS => return,
         .INVAL => return error.InvalidArgument,
         .PERM => return error.PermissionDenied,
@@ -2648,21 +2706,21 @@ fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chr
     if (config.groups) |groups| {
         const groups_ptr: [*]const std.os.linux.gid_t = @ptrCast(groups.ptr);
         const rc = std.os.linux.setgroups(groups.len, groups_ptr);
-        const errno = std.posix.errno(rc);
+        const errno = linuxErrno(rc);
         if (errno != .SUCCESS) return errnoToSetupError(errno);
     }
     if (config.gid) |gid| try std.posix.setgid(@as(std.posix.gid_t, @intCast(gid)));
     if (config.uid) |uid| try std.posix.setuid(@as(std.posix.uid_t, @intCast(uid)));
     if (chroot_path_z) |path| {
         const rc = std.os.linux.chroot(path);
-        const errno = std.posix.errno(rc);
+        const errno = linuxErrno(rc);
         if (errno != .SUCCESS) return errnoToSetupError(errno);
     }
     if (cwd) |dir| try std.posix.chdir(dir);
     if (config.process_group) |pgroup| try std.posix.setpgid(0, @as(std.posix.pid_t, @intCast(pgroup)));
     if (config.setsid) {
         const sid = std.os.linux.setsid();
-        const errno = std.posix.errno(sid);
+        const errno = linuxErrno(sid);
         if (errno != .SUCCESS) return errnoToSetupError(errno);
     }
 }
@@ -2686,16 +2744,36 @@ fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.stderr_pos = 0;
 }
 
-fn waitProcessStatusOnce(proc: *ProcessHandle, nohang: bool) !?u32 {
+fn waitStatusForIds(pid: std.posix.pid_t, pidfd: ?std.posix.fd_t, nohang: bool) !?u32 {
     if (builtin.os.tag == .linux) {
-        if (proc.pidfd) |fd| {
+        if (pidfd) |fd| {
             const options: u32 = @as(u32, std.posix.W.EXITED) | if (nohang) @as(u32, std.posix.W.NOHANG) else 0;
             return try waitPidfdStatus(fd, options);
         }
+        var status: u32 = 0;
+        const options: u32 = if (nohang) std.posix.W.NOHANG else 0;
+        while (true) {
+            const result = std.os.linux.wait4(pid, &status, options, null);
+            switch (linuxErrno(result)) {
+                .SUCCESS => {
+                    const waited_pid = @as(std.posix.pid_t, @intCast(result));
+                    if (nohang and waited_pid == 0) return null;
+                    return status;
+                },
+                .INTR => continue,
+                .CHILD => return error.ProcessNotFound,
+                .INVAL => return error.InvalidArgument,
+                else => return error.Unexpected,
+            }
+        }
     }
-    const waited = std.posix.waitpid(proc.pid, if (nohang) std.posix.W.NOHANG else 0);
+    const waited = std.posix.waitpid(pid, if (nohang) std.posix.W.NOHANG else 0);
     if (nohang and waited.pid == 0) return null;
     return waited.status;
+}
+
+fn waitProcessStatusOnce(proc: *ProcessHandle, nohang: bool) !?u32 {
+    return waitStatusForIds(proc.pid, proc.pidfd, nohang);
 }
 
 fn waitProcessStatus(proc: *ProcessHandle, nohang: bool) !?u32 {
@@ -2762,7 +2840,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         if (config.groups) |groups| {
             const groups_ptr: [*]const std.os.linux.gid_t = @ptrCast(groups.ptr);
             const rc = std.os.linux.setgroups(groups.len, groups_ptr);
-            if (std.posix.errno(rc) != .SUCCESS) std.posix.exit(127);
+            if (linuxErrno(rc) != .SUCCESS) std.posix.exit(127);
         }
         if (config.gid) |gid| {
             std.posix.setgid(@as(std.posix.gid_t, @intCast(gid))) catch std.posix.exit(127);
@@ -2772,7 +2850,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         }
         if (chroot_path_z) |path| {
             const rc = std.os.linux.chroot(path);
-            if (std.posix.errno(rc) != .SUCCESS) std.posix.exit(127);
+            if (linuxErrno(rc) != .SUCCESS) std.posix.exit(127);
             if (cwd) |dir| std.posix.chdir(dir) catch std.posix.exit(127);
         }
         if (use_pipes) {
@@ -6988,14 +7066,48 @@ pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
 pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     code_ptr.* = 0;
+
+    // Snapshot under lock for non-capture blocking waits so the registry mutex
+    // is not held across waitid/wait4. Capture-output waits stay locked to drain pipes.
+    var snap_pid: std.posix.pid_t = 0;
+    var snap_pidfd: ?std.posix.fd_t = null;
+    var need_external_wait = false;
+    {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        switch (resource.*) {
+            .process => |*proc| {
+                if (proc.exited) {
+                    code_ptr.* = proc.code;
+                    return finish(SA_STD_OK);
+                }
+                if (proc.capture_output) {
+                    const raw_status = waitProcessStatus(proc, false) catch |err| return finishErr(err);
+                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                    code_ptr.* = proc.code;
+                    return finish(SA_STD_OK);
+                }
+                snap_pid = proc.pid;
+                snap_pidfd = proc.pidfd;
+                need_external_wait = true;
+            },
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        }
+    }
+    if (!need_external_wait) return finish(SA_STD_OK);
+
+    const raw_status = waitStatusForIds(snap_pid, snap_pidfd, false) catch |err| return finishErr(err);
+
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                const raw_status = waitProcessStatus(proc, false) catch |err| return finishErr(err);
-                finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                if (raw_status) |status| {
+                    finalizeProcessExit(proc, status) catch |err| return finishErr(err);
+                }
             }
             code_ptr.* = proc.code;
             return finish(SA_STD_OK);
@@ -7007,14 +7119,46 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
 pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     raw_ptr.* = 0;
+
+    var snap_pid: std.posix.pid_t = 0;
+    var snap_pidfd: ?std.posix.fd_t = null;
+    var need_external_wait = false;
+    {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        switch (resource.*) {
+            .process => |*proc| {
+                if (proc.exited) {
+                    raw_ptr.* = @bitCast(proc.raw_status);
+                    return finish(SA_STD_OK);
+                }
+                if (proc.capture_output) {
+                    const raw_status = waitProcessStatus(proc, false) catch |err| return finishErr(err);
+                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                    raw_ptr.* = @bitCast(proc.raw_status);
+                    return finish(SA_STD_OK);
+                }
+                snap_pid = proc.pid;
+                snap_pidfd = proc.pidfd;
+                need_external_wait = true;
+            },
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        }
+    }
+    if (!need_external_wait) return finish(SA_STD_OK);
+
+    const raw_status = waitStatusForIds(snap_pid, snap_pidfd, false) catch |err| return finishErr(err);
+
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .process => |*proc| {
             if (!proc.exited) {
-                const raw_status = waitProcessStatus(proc, false) catch |err| return finishErr(err);
-                finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                if (raw_status) |status| {
+                    finalizeProcessExit(proc, status) catch |err| return finishErr(err);
+                }
             }
             raw_ptr.* = @bitCast(proc.raw_status);
             return finish(SA_STD_OK);
@@ -7028,6 +7172,8 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
     code_ptr.* = 0;
+
+    // try_wait is non-blocking; keep the short critical section under the lock.
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -7051,6 +7197,7 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
     raw_ptr.* = 0;
+
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -7070,12 +7217,16 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
 }
 
 pub export fn sa_std_process_kill(handle: u64) i32 {
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.exited) {
+    var snap_pid: std.posix.pid_t = 0;
+    var snap_pidfd: ?std.posix.fd_t = null;
+    var need_external_wait = false;
+    {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        switch (resource.*) {
+            .process => |*proc| {
+                if (proc.exited) return finish(SA_STD_OK);
                 if (builtin.os.tag == .linux) {
                     if (proc.pidfd) |fd| {
                         sendSignalToPidfd(fd, std.posix.SIG.KILL, 0) catch |err| switch (err) {
@@ -7094,8 +7245,31 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
                         else => return finishErr(err),
                     };
                 }
-                const raw_status = waitProcessStatus(proc, false) catch |err| return finishErr(err);
-                finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                if (proc.capture_output) {
+                    const raw_status = waitProcessStatus(proc, false) catch |err| return finishErr(err);
+                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
+                    return finish(SA_STD_OK);
+                }
+                snap_pid = proc.pid;
+                snap_pidfd = proc.pidfd;
+                need_external_wait = true;
+            },
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        }
+    }
+    if (!need_external_wait) return finish(SA_STD_OK);
+
+    const raw_status = waitStatusForIds(snap_pid, snap_pidfd, false) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return switch (resource.*) {
+        .process => |*proc| {
+            if (!proc.exited) {
+                if (raw_status) |status| {
+                    finalizeProcessExit(proc, status) catch |err| return finishErr(err);
+                }
             }
             return finish(SA_STD_OK);
         },
@@ -7241,40 +7415,42 @@ pub export fn sa_std_pidfd_wait_raw(handle: u64, out_raw: ?*i32) i32 {
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     raw_ptr.* = 0;
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            raw_ptr.* = @bitCast(raw_status orelse return finish(SA_STD_OK));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    const fd = blk: {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        break :blk switch (resource.*) {
+            .owned_fd => |owned| owned.fd,
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        };
     };
+    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| switch (err) {
+        error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => return finishErr(err),
+    };
+    raw_ptr.* = @bitCast(raw_status orelse return finish(SA_STD_OK));
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_pidfd_wait(handle: u64, out_code: ?*u32) i32 {
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     code_ptr.* = 0;
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            code_ptr.* = statusFromWaitStatus(raw_status orelse return finish(SA_STD_OK));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    const fd = blk: {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        break :blk switch (resource.*) {
+            .owned_fd => |owned| owned.fd,
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        };
     };
+    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| switch (err) {
+        error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => return finishErr(err),
+    };
+    code_ptr.* = statusFromWaitStatus(raw_status orelse return finish(SA_STD_OK));
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
@@ -7283,22 +7459,23 @@ pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: 
     ready_ptr.* = 0;
     raw_ptr.* = 0;
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            if (raw_status == null) return finish(SA_STD_OK);
-            ready_ptr.* = 1;
-            raw_ptr.* = @bitCast(raw_status.?);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    const fd = blk: {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        break :blk switch (resource.*) {
+            .owned_fd => |owned| owned.fd,
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        };
     };
+    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
+        error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => return finishErr(err),
+    };
+    if (raw_status == null) return finish(SA_STD_OK);
+    ready_ptr.* = 1;
+    raw_ptr.* = @bitCast(raw_status.?);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
@@ -7307,22 +7484,23 @@ pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u
     ready_ptr.* = 0;
     code_ptr.* = 0;
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            if (raw_status == null) return finish(SA_STD_OK);
-            ready_ptr.* = 1;
-            code_ptr.* = statusFromWaitStatus(raw_status.?);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
+    const fd = blk: {
+        registry_mutex.lock();
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        break :blk switch (resource.*) {
+            .owned_fd => |owned| owned.fd,
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        };
     };
+    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
+        error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => return finishErr(err),
+    };
+    if (raw_status == null) return finish(SA_STD_OK);
+    ready_ptr.* = 1;
+    code_ptr.* = statusFromWaitStatus(raw_status.?);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_process_exit_status_code(raw: i32) u32 {
@@ -8958,7 +9136,7 @@ fn groupId(value: u32, enabled: u32) std.os.linux.gid_t {
 }
 
 fn finishChownErrno(rc: usize) i32 {
-    switch (std.posix.errno(rc)) {
+    switch (linuxErrno(rc)) {
         .SUCCESS => return finish(SA_STD_OK),
         .INTR => return finish(SA_STD_ERR_IO),
         .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
@@ -8982,7 +9160,7 @@ fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid:
         groupId(gid, has_gid),
         flags,
     );
-    switch (std.posix.errno(rc)) {
+    switch (linuxErrno(rc)) {
         .INTR => return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, nofollow),
         else => return finishChownErrno(rc),
     }
@@ -9002,7 +9180,7 @@ pub export fn sa_fs_fchown(handle: u64, uid: u32, gid: u32, has_uid: u32, has_gi
     defer registry_mutex.unlock();
     const fd = handleToFd(handle) catch return finish(SA_STD_ERR_INVALID_HANDLE);
     const rc = std.os.linux.fchown(fd, chownId(uid, has_uid), groupId(gid, has_gid));
-    switch (std.posix.errno(rc)) {
+    switch (linuxErrno(rc)) {
         .INTR => return finish(SA_STD_ERR_IO),
         else => return finishChownErrno(rc),
     }
@@ -9013,7 +9191,7 @@ pub export fn sa_fs_chroot(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
     const rc = std.os.linux.chroot(&path_z);
-    switch (std.posix.errno(rc)) {
+    switch (linuxErrno(rc)) {
         .SUCCESS => return finish(SA_STD_OK),
         .ACCES, .PERM, .ROFS => return finish(SA_STD_ERR_ACCESS),
         .NOENT, .NOTDIR => return finish(SA_STD_ERR_NOT_FOUND),
@@ -9028,7 +9206,7 @@ pub export fn sa_fs_mkfifo(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
     const result = std.os.linux.mknodat(std.posix.AT.FDCWD, &path_z, std.posix.S.IFIFO | mode, 0);
-    switch (std.posix.errno(result)) {
+    switch (linuxErrno(result)) {
         .SUCCESS => return finish(SA_STD_OK),
         .INTR => return sa_fs_mkfifo(path_ptr, path_len, mode),
         .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
@@ -10982,7 +11160,7 @@ pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
     var fds: [2]i32 = undefined;
     const socket_type = @as(i32, @intCast(std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC));
     const rc = std.os.linux.socketpair(std.posix.AF.UNIX, socket_type, 0, &fds);
-    switch (std.posix.errno(rc)) {
+    switch (linuxErrno(rc)) {
         .SUCCESS => {},
         .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
         .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
@@ -11231,7 +11409,7 @@ pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i
     var fds: [2]i32 = undefined;
     const socket_type = @as(i32, @intCast(std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC));
     const rc = std.os.linux.socketpair(std.posix.AF.UNIX, socket_type, 0, &fds);
-    switch (std.posix.errno(rc)) {
+    switch (linuxErrno(rc)) {
         .SUCCESS => {},
         .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
         .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),

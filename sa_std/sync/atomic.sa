@@ -1437,14 +1437,14 @@ L_ATOMIC_PTR_FETCH_UPDATE_HEAD_%out_ok:
 L_ATOMIC_PTR_FETCH_UPDATE_RETRY_%out_ok:
     !__atomic_ptr_fetch_update_ok_%out_ok
     !__atomic_ptr_fetch_update_cur_%out_ok
-    !__atomic_ptr_fetch_update_new_%out_ok
+    ^__atomic_ptr_fetch_update_new_%out_ok
     !%out_old
     jmp L_ATOMIC_PTR_FETCH_UPDATE_HEAD_%out_ok
 L_ATOMIC_PTR_FETCH_UPDATE_DONE_%out_ok:
     %out_ok = add 0, 1
     !__atomic_ptr_fetch_update_ok_%out_ok
     !__atomic_ptr_fetch_update_cur_%out_ok
-    !__atomic_ptr_fetch_update_new_%out_ok
+    ^__atomic_ptr_fetch_update_new_%out_ok
 [END_MACRO]
 
 // Default-style zero initialization helpers (store 0 into existing atomic slots).

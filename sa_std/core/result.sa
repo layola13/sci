@@ -624,7 +624,7 @@ L_RESULT_TRANSPOSE_SOME_%out_opt:
     store __result_transpose_result_%out_opt+Result_err, 0 as u64
     store %out_opt+Option_tag, Option_SOME as u64
     store %out_opt+Option_value, __result_transpose_result_%out_opt as ptr
-    !__result_transpose_result_%out_opt
+    ^__result_transpose_result_%out_opt
     !__result_transpose_value_%out_opt
     !__result_transpose_inner_some_%out_opt
     !__result_transpose_inner_tag_%out_opt
@@ -649,7 +649,7 @@ L_RESULT_TRANSPOSE_ERR_%out_opt:
     store __result_transpose_err_result_%out_opt+Result_err, __result_transpose_err_%out_opt as u64
     store %out_opt+Option_tag, Option_SOME as u64
     store %out_opt+Option_value, __result_transpose_err_result_%out_opt as ptr
-    !__result_transpose_err_result_%out_opt
+    ^__result_transpose_err_result_%out_opt
     !__result_transpose_err_%out_opt
     !__result_transpose_ok_%out_opt
     !__result_transpose_tag_%out_opt

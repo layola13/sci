@@ -3548,8 +3548,8 @@ fn verifyBody(
                     };
                 };
                 const second_ret_state = if (ret_state == maskOf(.fallible)) maskOf(.active) else ret_state;
-                const dests = [_]?[]const u8 parsed.dest, parsed.dest2 };
-                const dest_states = [_]u64 ret_state, second_ret_state };
+                const dests = [_]?[]const u8{ parsed.dest, parsed.dest2 };
+                const dest_states = [_]u16{ ret_state, second_ret_state };
                 for (dests, dest_states) |maybe_dest, dest_state| {
                     const dest = maybe_dest orelse continue;
                     if (!isIdentLike(dest)) continue;

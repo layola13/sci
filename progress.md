@@ -2,6 +2,54 @@
 
 Scope: `/root/projects/sci` compiler std/runtime/CLI work.
 
+## Focused verified: 2026-07-19 multiplatform Linux-host gate sweep + process wait unlock
+
+- Extended process wait hardening: non-capture `process_wait` / `process_wait_raw` / `process_kill` snapshot pid/pidfd under the registry lock, unlock, wait via `waitStatusForIds`, then re-lock to finalize. Capture-output paths remain locked for pipe drain correctness. `try_wait*` stays non-blocking under lock.
+- Revalidated after unlock refactor:
+  - `sa test tests/unit_framework/std_process_macro_surface.sa --jobs 1 --trace-panic` → `23 passed; 0 failed` (pidfd included)
+  - `zig build sa-std-static -Doptimize=ReleaseSafe` → success
+- Linux multiplatform executable/static gates (this host):
+  - `test-runtime-basic` + `test-runtime-pal` (12) + `test-runtime-netx` (88) + `linux-ci-contract` + `sa-std-artifact-abi` (Linux ELF + Windows COFF) + `release-contract` → `25/25` steps, `100/100` tests
+  - `test-portable` + `plugin-host-smoke` + `portability-check` (host/runtime typecheck, PAL typecheck/source, ABI) → `78/78` steps, `61/61` tests
+  - `test-portable -Doptimize=ReleaseSafe` revalidation → `9/9` steps, `49/49` tests
+  - `windows-ci-contract` `5/5`, `macos-ci-contract` `3/3` (via shared native-evidence validator), `native-evidence-validator` `8/8`
+  - Prior: ownership/string/process suites, multiplatform contracts `71/71`, Linux `daemon-smoke` `7/7`
+- Cross-link attempt notes:
+  - `runtime-darwin-socket-link` / `runtime-darwin-pty-link` without `-Dtarget` correctly fail-closed on Linux host (require macOS target).
+  - Cross-link with `-Dtarget=x86_64-macos` and `aarch64-macos`: `runtime-darwin-socket-link` + `runtime-darwin-pty-link` → `6/6` steps each (link-only, not native Darwin runtime/L2).
+- Blockers unchanged for L2 claims:
+  - `gh` is unauthenticated (`gh auth status` → not logged in); no `GH_TOKEN` available in env / launch `.env` keys.
+  - Cannot dispatch `.github/workflows/macos-native.yml` or `windows-native.yml` from this host.
+  - Wine/QEMU not available for PE runtime simulation.
+- Evidence boundary: all successes above are Linux-host native execution and/or cross typecheck/link/ABI/static workflow contracts. Do **not** claim Windows/macOS L2 support or native runner execution.
+
+## Focused verified: 2026-07-19 ownership transfer + process/pidfd hang fixes
+
+- Root cause for `std_string_macro_surface` panics 10244/10250: `sa_vec_try_split_off` dropped the out-vector with `!` after storing it into the caller out-slot, so split-off tails were freed before use. Fixed to `^out_vec` ownership transfer in `sa_std/alloc/vec.sa`.
+- Same out-slot ownership pattern fixed for:
+  - `sa_vec_deque_try_split_off` (`sa_std/vec_deque.sa`)
+  - `sa_binary_heap_try_with_capacity` (`sa_std/binary_heap.sa`)
+  - `sa_map_try_with_capacity` (`sa_std/hashmap.sa`)
+  - `sa_set_try_with_capacity` (`sa_std/hashset.sa`)
+- Prior worktree ownership transfer fixes retained for option/result transpose and atomic fetch-update (`!` → `^`).
+- Process hang hardening in `src/runtime/sa_std_posix.zig`:
+  - `linuxErrno` for raw Linux syscall returns when linked with libc
+  - wait4-based process wait fallback when no pidfd (avoid `waitpid` ECHILD panic)
+  - bounded `ProcessHandle.deinit` reap loop with force-kill and ECHILD-as-reaped
+  - pidfd wait/try-wait extract fd under registry lock, then `waitid` outside the lock
+- Multiplatform Linux gates revalidated: `windows-ci-contract`, `macos-ci-contract`, `portable-runtime-typecheck`, `portability-check` → `71/71` steps succeeded.
+- Focused validation (timeouts applied):
+  - `sa test tests/unit_framework/std_string_macro_surface.sa --jobs 1 --trace-panic` → `105 passed; 0 failed; 0 skipped`
+  - `sa test tests/unit_framework/std_vec_macro_surface.sa --jobs 1 --trace-panic` → `45 passed; 0 failed; 0 skipped`
+  - `sa test tests/unit_framework/std_vec_deque_macro_surface.sa --jobs 1 --trace-panic` → `18 passed; 0 failed; 0 skipped`
+  - `sa test tests/unit_framework/std_binary_heap_macro_surface.sa` → `9 passed`
+  - `sa test tests/unit_framework/std_hashmap_macro_surface.sa` → `11 passed`
+  - `sa test tests/unit_framework/std_hashset_macro_surface.sa` → `9 passed`
+  - `sa test tests/unit_framework/std_process_macro_surface.sa --jobs 1 --trace-panic` → `23 passed; 0 failed; 0 skipped` (includes pidfd macros)
+  - `zig build sa-cli sa-std-static -Doptimize=ReleaseSafe` → success
+- `zig build daemon-smoke --summary all` → `7/7` steps succeeded; `1/1` tests passed (native Unix-socket daemon client/server on Linux).
+- Evidence boundary: Linux host executable evidence only. Native Windows/macOS runner execution, installer/plugin native smoke, and release matrix rows remain open.
+
 ## Focused verified: 2026-07-17 parent-chain no_follow cache path authorization
 
 - Added `openDirNoFollowPath` to walk every cache parent directory component with `no_follow`, closing the intermediate-parent symlink gap left by final-component-only `O_NOFOLLOW` file opens.
