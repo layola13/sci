@@ -11,6 +11,11 @@
     %out_buf = call @sa_fmt_u64(%value, %base)
 [END_MACRO]
 
+// Rust method-name alias over STRFMT_U64.
+[MACRO] STRFMT %out_buf, %value, %base
+    EXPAND STRFMT_U64 %out_buf, %value, %base
+[END_MACRO]
+
 [MACRO] STRFMT_F64 %out_buf, %value, %precision
     %out_buf = call @sa_fmt_f64(%value, %precision)
 [END_MACRO]
@@ -107,6 +112,11 @@
     !__format_fmt_free_ok_%tag
     !__format_fmt_len_%tag
     !__format_fmt_ptr_%tag
+[END_MACRO]
+
+// Rust method-name alias over FORMAT_PUSH_U64.
+[MACRO] FORMAT_PUSH %tag, %string_reg, %value
+    EXPAND FORMAT_PUSH_U64 %tag, %string_reg, %value
 [END_MACRO]
 
 [MACRO] FORMAT_PUSH_F64 %tag, %string_reg, %value, %precision

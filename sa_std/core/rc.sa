@@ -12,6 +12,11 @@
     EXPAND RC_NEW %out_rc, 0
 [END_MACRO]
 
+// Rust method-name alias over RC_DEFAULT_U64.
+[MACRO] RC_DEFAULT %out_rc
+    EXPAND RC_DEFAULT_U64 %out_rc
+[END_MACRO]
+
 [MACRO] RC_CLONE %rc_reg
     __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
     __rc_next_strong_%rc_reg = add __rc_strong_%rc_reg, 1
@@ -117,8 +122,18 @@ L_RC_TRY_UNWRAP_DONE_%out_ok:
     %out_ptr = ptr_add %rc_reg, RcBox_data
 [END_MACRO]
 
+// Rust method-name alias over RC_MAKE_MUT_U64.
+[MACRO] RC_MAKE_MUT %out_ptr, %rc_reg
+    EXPAND RC_MAKE_MUT_U64 %out_ptr, %rc_reg
+[END_MACRO]
+
 [MACRO] RC_UNWRAP_OR_CLONE_U64 %out_value, %rc_reg
     %out_value = load %rc_reg+RcBox_data as u64
+[END_MACRO]
+
+// Rust method-name alias over RC_UNWRAP_OR_CLONE_U64.
+[MACRO] RC_UNWRAP_OR_CLONE %out_value, %rc_reg
+    EXPAND RC_UNWRAP_OR_CLONE_U64 %out_value, %rc_reg
 [END_MACRO]
 
 [MACRO] RC_DROP %rc_reg, %cleanup_label

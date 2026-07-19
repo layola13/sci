@@ -14,9 +14,19 @@
     store %control_flow_ptr+ControlFlowU64_value, %value as u64
 [END_MACRO]
 
+// Rust method-name alias over CONTROL_FLOW_CONTINUE_U64.
+[MACRO] CONTROL_FLOW_CONTINUE %control_flow_ptr, %value
+    EXPAND CONTROL_FLOW_CONTINUE_U64 %control_flow_ptr, %value
+[END_MACRO]
+
 [MACRO] CONTROL_FLOW_BREAK_U64 %control_flow_ptr, %value
     store %control_flow_ptr+ControlFlowU64_tag, CONTROL_FLOW_BREAK as u64
     store %control_flow_ptr+ControlFlowU64_value, %value as u64
+[END_MACRO]
+
+// Rust method-name alias over CONTROL_FLOW_BREAK_U64.
+[MACRO] CONTROL_FLOW_BREAK %control_flow_ptr, %value
+    EXPAND CONTROL_FLOW_BREAK_U64 %control_flow_ptr, %value
 [END_MACRO]
 
 [MACRO] CONTROL_FLOW_TAG %out_tag, %control_flow_ptr
@@ -25,6 +35,11 @@
 
 [MACRO] CONTROL_FLOW_VALUE_U64 %out_value, %control_flow_ptr
     %out_value = load %control_flow_ptr+ControlFlowU64_value as u64
+[END_MACRO]
+
+// Rust method-name alias over CONTROL_FLOW_VALUE_U64.
+[MACRO] CONTROL_FLOW_VALUE %out_value, %control_flow_ptr
+    EXPAND CONTROL_FLOW_VALUE_U64 %out_value, %control_flow_ptr
 [END_MACRO]
 
 [MACRO] CONTROL_FLOW_IS_CONTINUE %out_bool, %control_flow_ptr
@@ -62,6 +77,11 @@ L_CONTROL_FLOW_BREAK_VALUE_NONE_%out_option_ptr:
 L_CONTROL_FLOW_BREAK_VALUE_DONE_%out_option_ptr:
 [END_MACRO]
 
+// Rust method-name alias over CONTROL_FLOW_BREAK_VALUE_U64.
+[MACRO] CONTROL_FLOW_BREAK_VALUE %out_option_ptr, %control_flow_ptr
+    EXPAND CONTROL_FLOW_BREAK_VALUE_U64 %out_option_ptr, %control_flow_ptr
+[END_MACRO]
+
 [MACRO] CONTROL_FLOW_CONTINUE_VALUE_U64 %out_option_ptr, %control_flow_ptr
     __control_flow_continue_value_tag_%out_option_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
     __control_flow_continue_value_is_continue_%out_option_ptr = eq __control_flow_continue_value_tag_%out_option_ptr, CONTROL_FLOW_CONTINUE
@@ -83,6 +103,11 @@ L_CONTROL_FLOW_CONTINUE_VALUE_NONE_%out_option_ptr:
     !__control_flow_continue_value_tag_%out_option_ptr
 
 L_CONTROL_FLOW_CONTINUE_VALUE_DONE_%out_option_ptr:
+[END_MACRO]
+
+// Rust method-name alias over CONTROL_FLOW_CONTINUE_VALUE_U64.
+[MACRO] CONTROL_FLOW_CONTINUE_VALUE %out_option_ptr, %control_flow_ptr
+    EXPAND CONTROL_FLOW_CONTINUE_VALUE_U64 %out_option_ptr, %control_flow_ptr
 [END_MACRO]
 
 [MACRO] CONTROL_FLOW_BREAK_OK_U64 %out_result_ptr, %control_flow_ptr
@@ -111,6 +136,11 @@ L_CONTROL_FLOW_BREAK_OK_ERR_%out_result_ptr:
 L_CONTROL_FLOW_BREAK_OK_DONE_%out_result_ptr:
 [END_MACRO]
 
+// Rust method-name alias over CONTROL_FLOW_BREAK_OK_U64.
+[MACRO] CONTROL_FLOW_BREAK_OK %out_result_ptr, %control_flow_ptr
+    EXPAND CONTROL_FLOW_BREAK_OK_U64 %out_result_ptr, %control_flow_ptr
+[END_MACRO]
+
 [MACRO] CONTROL_FLOW_CONTINUE_OK_U64 %out_result_ptr, %control_flow_ptr
     __control_flow_continue_ok_tag_%out_result_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
     __control_flow_continue_ok_value_%out_result_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
@@ -135,6 +165,11 @@ L_CONTROL_FLOW_CONTINUE_OK_ERR_%out_result_ptr:
     !__control_flow_continue_ok_tag_%out_result_ptr
 
 L_CONTROL_FLOW_CONTINUE_OK_DONE_%out_result_ptr:
+[END_MACRO]
+
+// Rust method-name alias over CONTROL_FLOW_CONTINUE_OK_U64.
+[MACRO] CONTROL_FLOW_CONTINUE_OK %out_result_ptr, %control_flow_ptr
+    EXPAND CONTROL_FLOW_CONTINUE_OK_U64 %out_result_ptr, %control_flow_ptr
 [END_MACRO]
 
 [MACRO] CONTROL_FLOW_MAP_BREAK_U64 %out_control_flow_ptr, %control_flow_ptr, %map_fn
@@ -163,6 +198,11 @@ L_CONTROL_FLOW_MAP_BREAK_COPY_%out_control_flow_ptr:
 L_CONTROL_FLOW_MAP_BREAK_DONE_%out_control_flow_ptr:
 [END_MACRO]
 
+// Rust method-name alias over CONTROL_FLOW_MAP_BREAK_U64.
+[MACRO] CONTROL_FLOW_MAP_BREAK %out_control_flow_ptr, %control_flow_ptr, %map_fn
+    EXPAND CONTROL_FLOW_MAP_BREAK_U64 %out_control_flow_ptr, %control_flow_ptr, %map_fn
+[END_MACRO]
+
 [MACRO] CONTROL_FLOW_MAP_CONTINUE_U64 %out_control_flow_ptr, %control_flow_ptr, %map_fn
     __control_flow_map_continue_tag_%out_control_flow_ptr = load %control_flow_ptr+ControlFlowU64_tag as u64
     __control_flow_map_continue_value_%out_control_flow_ptr = load %control_flow_ptr+ControlFlowU64_value as u64
@@ -189,8 +229,18 @@ L_CONTROL_FLOW_MAP_CONTINUE_COPY_%out_control_flow_ptr:
 L_CONTROL_FLOW_MAP_CONTINUE_DONE_%out_control_flow_ptr:
 [END_MACRO]
 
+// Rust method-name alias over CONTROL_FLOW_MAP_CONTINUE_U64.
+[MACRO] CONTROL_FLOW_MAP_CONTINUE %out_control_flow_ptr, %control_flow_ptr, %map_fn
+    EXPAND CONTROL_FLOW_MAP_CONTINUE_U64 %out_control_flow_ptr, %control_flow_ptr, %map_fn
+[END_MACRO]
+
 [MACRO] CONTROL_FLOW_INTO_VALUE_U64 %out_value, %control_flow_ptr
     %out_value = load %control_flow_ptr+ControlFlowU64_value as u64
+[END_MACRO]
+
+// Rust method-name alias over CONTROL_FLOW_INTO_VALUE_U64.
+[MACRO] CONTROL_FLOW_INTO_VALUE %out_value, %control_flow_ptr
+    EXPAND CONTROL_FLOW_INTO_VALUE_U64 %out_value, %control_flow_ptr
 [END_MACRO]
 
 [MACRO] RANGE_U64_START %out_start, %range_ptr
@@ -703,6 +753,11 @@ L_RANGE_TO_INC_SLICE_END_%out_ok:
 
 [MACRO] RANGE_FULL_CONTAINS_U64 %out_bool, %item
     %out_bool = add 0, 1
+[END_MACRO]
+
+// Rust method-name alias over RANGE_FULL_CONTAINS_U64.
+[MACRO] RANGE_FULL_CONTAINS %out_bool, %item
+    EXPAND RANGE_FULL_CONTAINS_U64 %out_bool, %item
 [END_MACRO]
 
 [MACRO] RANGE_FULL_GET_SLICE %out_slice, %base_slice
@@ -1257,13 +1312,28 @@ L_BOUND_USIZE_MAP_DONE_%dst_bound_ptr:
     EXPAND BOUND_U64_UNBOUNDED_NEW %bound_ptr
 [END_MACRO]
 
+// Rust method-name alias over RANGE_FULL_START_BOUND_U64.
+[MACRO] RANGE_FULL_START_BOUND %bound_ptr
+    EXPAND RANGE_FULL_START_BOUND_U64 %bound_ptr
+[END_MACRO]
+
 [MACRO] RANGE_FULL_END_BOUND_U64 %bound_ptr
     EXPAND BOUND_U64_UNBOUNDED_NEW %bound_ptr
+[END_MACRO]
+
+// Rust method-name alias over RANGE_FULL_END_BOUND_U64.
+[MACRO] RANGE_FULL_END_BOUND %bound_ptr
+    EXPAND RANGE_FULL_END_BOUND_U64 %bound_ptr
 [END_MACRO]
 
 [MACRO] RANGE_FULL_INTO_BOUNDS_U64 %start_bound_ptr, %end_bound_ptr
     EXPAND BOUND_U64_UNBOUNDED_NEW %start_bound_ptr
     EXPAND BOUND_U64_UNBOUNDED_NEW %end_bound_ptr
+[END_MACRO]
+
+// Rust method-name alias over RANGE_FULL_INTO_BOUNDS_U64.
+[MACRO] RANGE_FULL_INTO_BOUNDS %start_bound_ptr, %end_bound_ptr
+    EXPAND RANGE_FULL_INTO_BOUNDS_U64 %start_bound_ptr, %end_bound_ptr
 [END_MACRO]
 
 [MACRO] RANGE_U64_START_BOUND %bound_ptr, %range_ptr

@@ -17,6 +17,16 @@
     store %out_opt+Option_value, %value as u64
 [END_MACRO]
 
+// Rust constructor-name bare alias over OPTION_NEW_SOME.
+[MACRO] OPTION_SOME %out_opt, %value
+    EXPAND OPTION_NEW_SOME %out_opt, %value
+[END_MACRO]
+
+// Rust constructor-name bare alias over OPTION_NEW_NONE.
+[MACRO] OPTION_NONE %out_opt
+    EXPAND OPTION_NEW_NONE %out_opt
+[END_MACRO]
+
 [MACRO] OPTION_IS_SOME %out_bool, %opt_reg
     __option_tag_%out_bool = load %opt_reg+Option_tag as u64
     %out_bool = eq __option_tag_%out_bool, Option_SOME
@@ -81,8 +91,18 @@ L_OPTION_COPIED_NONE_%out_opt:
 L_OPTION_COPIED_END_%out_opt:
 [END_MACRO]
 
+// Rust method-name alias over OPTION_COPIED_U64.
+[MACRO] OPTION_COPIED %out_opt, %opt_reg
+    EXPAND OPTION_COPIED_U64 %out_opt, %opt_reg
+[END_MACRO]
+
 [MACRO] OPTION_CLONED_U64 %out_opt, %opt_reg
     EXPAND OPTION_COPIED_U64 %out_opt, %opt_reg
+[END_MACRO]
+
+// Rust method-name alias over OPTION_CLONED_U64.
+[MACRO] OPTION_CLONED %out_opt, %opt_reg
+    EXPAND OPTION_CLONED_U64 %out_opt, %opt_reg
 [END_MACRO]
 
 [MACRO] OPTION_AS_SLICE %out_slice, %opt_reg
@@ -127,6 +147,11 @@ L_OPTION_CONTAINS_NONE_%out_bool:
     !__option_contains_some_%out_bool
     !__option_contains_tag_%out_bool
 L_OPTION_CONTAINS_END_%out_bool:
+[END_MACRO]
+
+// Rust method-name alias over OPTION_CONTAINS_U64.
+[MACRO] OPTION_CONTAINS %out_bool, %opt_reg, %value
+    EXPAND OPTION_CONTAINS_U64 %out_bool, %opt_reg, %value
 [END_MACRO]
 
 [MACRO] OPTION_IS_SOME_AND %out_bool, %opt_reg, %pred_fn
@@ -761,6 +786,11 @@ L_ZIP_NONE_B_%out_opt:
 L_ZIP_END_%out_opt:
 [END_MACRO]
 
+// Rust method-name alias over OPTION_ZIP_U64.
+[MACRO] OPTION_ZIP %out_opt, %opt_a, %opt_b
+    EXPAND OPTION_ZIP_U64 %out_opt, %opt_a, %opt_b
+[END_MACRO]
+
 [MACRO] OPTION_UNZIP_TO_U64 %out_opt_a, %out_opt_b, %pair_opt
     %out_opt_a = alloc Option_SIZE
     %out_opt_b = alloc Option_SIZE
@@ -787,4 +817,9 @@ L_UNZIP_NONE_%out_opt_a:
     !__unzip_some_%out_opt_a
     !__unzip_tag_%out_opt_a
 L_UNZIP_END_%out_opt_a:
+[END_MACRO]
+
+// Rust method-name alias over OPTION_UNZIP_TO_U64.
+[MACRO] OPTION_UNZIP_TO %out_opt_a, %out_opt_b, %pair_opt
+    EXPAND OPTION_UNZIP_TO_U64 %out_opt_a, %out_opt_b, %pair_opt
 [END_MACRO]

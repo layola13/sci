@@ -1718,17 +1718,24 @@ static void emit_sys_write_file(EmitCtx *e) {
 }
 
 static void emit_sa_time_sleep_ns(EmitCtx *e) {
+    // Runtime `sa_time_sleep_ns` returns plain i32 status (not Fallible {i32,i32}).
+    // If SAI already declared the symbol, reuse its type; only emit a weak stub when missing.
     LLVMTypeRef params[1] = { e->i64_ty };
-    LLVMTypeRef ret_ty = fallible_type_of(e, SA_T_I32);
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_time_sleep_ns");
     if (fn == NULL) {
-        fn = LLVMAddFunction(e->module, "sa_time_sleep_ns", LLVMFunctionType(ret_ty, params, 1, 0));
+        fn = LLVMAddFunction(e->module, "sa_time_sleep_ns", LLVMFunctionType(e->i32_ty, params, 1, 0));
     }
     LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     if (LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMTypeRef declared_ret = LLVMGetReturnType(LLVMGlobalGetValueType(fn));
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMPositionBuilderAtEnd(e->builder, entry);
-    LLVMBuildRet(e->builder, build_fallible_ok(e, SA_T_I32, LLVMConstInt(e->i32_ty, 0, 0), SA_T_I32));
+    // Match declared return shape so we never ret {i32,i32} from an i32 function (or vice versa).
+    if (LLVMGetTypeKind(declared_ret) == LLVMStructTypeKind) {
+        LLVMBuildRet(e->builder, build_fallible_ok(e, SA_T_I32, LLVMConstInt(e->i32_ty, 0, 0), SA_T_I32));
+    } else {
+        LLVMBuildRet(e->builder, LLVMConstInt(e->i32_ty, 0, 0));
+    }
 }
 
 static void emit_sys_runtime(EmitCtx *e) {

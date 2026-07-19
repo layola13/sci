@@ -595,6 +595,11 @@ L_BTREE_SET_ITER_DONE:
     EXPAND BTREE_SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
 [END_MACRO]
 
+// Rust method-name bare alias for the common set entry path (get_or_insert).
+[MACRO] BTREE_SET_ENTRY %out_inserted, %out_key, %set_reg, %key_reg
+    EXPAND BTREE_SET_ENTRY_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
+[END_MACRO]
+
 [MACRO] BTREE_SET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
     EXPAND BTREE_SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key_reg
 [END_MACRO]
@@ -624,6 +629,11 @@ L_BTREE_SET_ITER_DONE:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __btree_set_hash_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name bare alias over BTREE_SET_HASH_STR.
+[MACRO] BTREE_SET_HASH %out_hash, %set_reg
+    EXPAND BTREE_SET_HASH_STR %out_hash, %set_reg
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_SET_STR %out_hash, %builder, %set_reg
     __build_hash_one_btree_set_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_btree_set_hasher_%out_hash, %builder
@@ -631,11 +641,21 @@ L_BTREE_SET_ITER_DONE:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_btree_set_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name bare alias over BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_SET_STR.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_SET %out_hash, %builder, %set_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_SET_STR %out_hash, %builder, %set_reg
+[END_MACRO]
+
 [MACRO] RANDOM_STATE_HASH_ONE_BTREE_SET_STR %out_hash, %state, %set_reg
     __random_state_hash_one_btree_set_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_btree_set_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_BTREE_SET_STR __random_state_hash_one_btree_set_hasher_%out_hash, %set_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_btree_set_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name bare alias over RANDOM_STATE_HASH_ONE_BTREE_SET_STR.
+[MACRO] RANDOM_STATE_HASH_ONE_BTREE_SET %out_hash, %state, %set_reg
+    EXPAND RANDOM_STATE_HASH_ONE_BTREE_SET_STR %out_hash, %state, %set_reg
 [END_MACRO]
 
 [MACRO] BTREE_SET_RETAIN %out_len, %set_reg, %pred_fn

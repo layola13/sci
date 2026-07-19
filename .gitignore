@@ -53,3 +53,7 @@ demos/**/*.bc
 sa_plugin_rust
 sa_plugin_matmul
 .sa_cache
+
+# code-index generated artifacts
+.code_index/index
+# end code-index generated artifacts

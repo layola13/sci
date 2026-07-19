@@ -94,18 +94,38 @@
     !__vec_iter_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_U64.
+[MACRO] VEC_ITER %out_iter, %vec_reg
+    EXPAND VEC_ITER_U64 %out_iter, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_MUT_U64 %out_iter, %vec_reg
     EXPAND VEC_AS_MUT_SLICE __vec_iter_mut_slice_%out_iter, %vec_reg
     EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_mut_slice_%out_iter
     !__vec_iter_mut_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_MUT_U64.
+[MACRO] VEC_ITER_MUT %out_iter, %vec_reg
+    EXPAND VEC_ITER_MUT_U64 %out_iter, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_REF_INTO_ITER_U64 %out_iter, %vec_reg
     EXPAND VEC_ITER_U64 %out_iter, %vec_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_REF_INTO_ITER_U64.
+[MACRO] VEC_REF_INTO_ITER %out_iter, %vec_reg
+    EXPAND VEC_REF_INTO_ITER_U64 %out_iter, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_MUT_REF_INTO_ITER_U64 %out_iter, %vec_reg
     EXPAND VEC_ITER_MUT_U64 %out_iter, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_MUT_REF_INTO_ITER_U64.
+[MACRO] VEC_MUT_REF_INTO_ITER %out_iter, %vec_reg
+    EXPAND VEC_MUT_REF_INTO_ITER_U64 %out_iter, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_DEFAULT_U64 %out_iter
@@ -114,60 +134,135 @@
     EXPAND ITER_FROM_SLICE %out_iter, __vec_iter_default_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_DEFAULT_U64.
+[MACRO] VEC_ITER_DEFAULT %out_iter
+    EXPAND VEC_ITER_DEFAULT_U64 %out_iter
+[END_MACRO]
+
 [MACRO] VEC_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_AS_REF_SLICE_U64.
+[MACRO] VEC_ITER_AS_REF_SLICE %out_slice, %iter_reg
+    EXPAND VEC_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_SIZE_HINT_U64.
+[MACRO] VEC_ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND VEC_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_EXACT_SIZE_LEN_U64.
+[MACRO] VEC_ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND VEC_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] VEC_ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND VEC_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_NEXT_U64.
+[MACRO] VEC_ITER_NEXT %out_has, %out_value, %iter_reg
+    EXPAND VEC_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_NEXT_BACK_U64.
+[MACRO] VEC_ITER_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND VEC_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_CLONE_U64 %out_iter, %iter_reg
     EXPAND ITER_CLONE %out_iter, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_CLONE_U64.
+[MACRO] VEC_ITER_CLONE %out_iter, %iter_reg
+    EXPAND VEC_ITER_CLONE_U64 %out_iter, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_MUT_AS_REF_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_MUT_AS_REF_SLICE_U64.
+[MACRO] VEC_ITER_MUT_AS_REF_SLICE %out_slice, %iter_reg
+    EXPAND VEC_ITER_MUT_AS_REF_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_MUT_AS_MUT_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_MUT_AS_MUT_SLICE_U64.
+[MACRO] VEC_ITER_MUT_AS_MUT_SLICE %out_slice, %iter_reg
+    EXPAND VEC_ITER_MUT_AS_MUT_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_MUT_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_MUT_SIZE_HINT_U64.
+[MACRO] VEC_ITER_MUT_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND VEC_ITER_MUT_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_MUT_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_MUT_EXACT_SIZE_LEN_U64.
+[MACRO] VEC_ITER_MUT_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND VEC_ITER_MUT_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] VEC_ITER_MUT_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND VEC_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_MUT_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_ITER_MUT_NEXT_U64.
+[MACRO] VEC_ITER_MUT_NEXT %out_has, %out_value, %iter_reg
+    EXPAND VEC_ITER_MUT_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_ITER_MUT_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_ITER_MUT_NEXT_BACK_U64.
+[MACRO] VEC_ITER_MUT_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND VEC_ITER_MUT_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_U64 %out_iter, %out_vec, %vec_reg
@@ -180,6 +275,11 @@
     !__vec_into_iter_cap_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_U64.
+[MACRO] VEC_INTO_ITER %out_iter, %out_vec, %vec_reg
+    EXPAND VEC_INTO_ITER_U64 %out_iter, %out_vec, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
     EXPAND VEC_NEW %out_vec
     EXPAND VEC_AS_SLICE __vec_into_iter_default_slice_%out_iter, %out_vec
@@ -187,56 +287,126 @@
     !__vec_into_iter_default_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_DEFAULT_U64.
+[MACRO] VEC_INTO_ITER_DEFAULT %out_iter, %out_vec
+    EXPAND VEC_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_AS_SLICE_U64.
+[MACRO] VEC_INTO_ITER_AS_SLICE %out_slice, %iter_reg
+    EXPAND VEC_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_AS_MUT_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_AS_MUT_SLICE_U64.
+[MACRO] VEC_INTO_ITER_AS_MUT_SLICE %out_slice, %iter_reg
+    EXPAND VEC_INTO_ITER_AS_MUT_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
     EXPAND VEC_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_AS_REF_SLICE_U64.
+[MACRO] VEC_INTO_ITER_AS_REF_SLICE %out_slice, %iter_reg
+    EXPAND VEC_INTO_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_SIZE_HINT_U64.
+[MACRO] VEC_INTO_ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND VEC_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_EXACT_SIZE_LEN_U64.
+[MACRO] VEC_INTO_ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND VEC_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] VEC_INTO_ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND VEC_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_NEXT_U64.
+[MACRO] VEC_INTO_ITER_NEXT %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_NEXT_BACK_U64.
+[MACRO] VEC_INTO_ITER_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_NTH_U64.
+[MACRO] VEC_INTO_ITER_NTH %out_has, %out_value, %iter_reg, %nth
+    EXPAND VEC_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_NTH_BACK_U64.
+[MACRO] VEC_INTO_ITER_NTH_BACK %out_has, %out_value, %iter_reg, %nth
+    EXPAND VEC_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
     EXPAND ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_TRY_NEXT_CHUNK_U64.
+[MACRO] VEC_INTO_ITER_TRY_NEXT_CHUNK %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND VEC_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_COUNT_U64 %out_count, %iter_reg
     EXPAND ITER_COUNT %out_count, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_COUNT_U64.
+[MACRO] VEC_INTO_ITER_COUNT %out_count, %iter_reg
+    EXPAND VEC_INTO_ITER_COUNT_U64 %out_count, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_LAST_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_LAST_U64.
+[MACRO] VEC_INTO_ITER_LAST %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
@@ -251,272 +421,612 @@
     EXPAND ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_FOLD_U64.
+[MACRO] VEC_INTO_ITER_FOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_TRY_FOLD_U64.
+[MACRO] VEC_INTO_ITER_TRY_FOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_RFOLD_U64.
+[MACRO] VEC_INTO_ITER_RFOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_TRY_RFOLD_U64.
+[MACRO] VEC_INTO_ITER_TRY_RFOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND VEC_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_SUM_U64 %out_value, %iter_reg
     EXPAND ITER_SUM_U64 %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_SUM_U64.
+[MACRO] VEC_INTO_ITER_SUM %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
     EXPAND ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_PRODUCT_U64.
+[MACRO] VEC_INTO_ITER_PRODUCT %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_MIN_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_MIN_U64.
+[MACRO] VEC_INTO_ITER_MIN %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_MAX_U64.
+[MACRO] VEC_INTO_ITER_MAX %out_has, %out_value, %iter_reg
+    EXPAND VEC_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_REDUCE_U64.
+[MACRO] VEC_INTO_ITER_REDUCE %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_TRY_REDUCE_U64.
+[MACRO] VEC_INTO_ITER_TRY_REDUCE %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_MIN_BY_U64.
+[MACRO] VEC_INTO_ITER_MIN_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND VEC_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_MAX_BY_U64.
+[MACRO] VEC_INTO_ITER_MAX_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND VEC_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_MIN_BY_KEY_U64.
+[MACRO] VEC_INTO_ITER_MIN_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND VEC_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_MAX_BY_KEY_U64.
+[MACRO] VEC_INTO_ITER_MAX_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND VEC_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_IS_SORTED_U64 %out_bool, %iter_reg
     EXPAND ITER_IS_SORTED_U64 %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_IS_SORTED_U64.
+[MACRO] VEC_INTO_ITER_IS_SORTED %out_bool, %iter_reg
+    EXPAND VEC_INTO_ITER_IS_SORTED_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
     EXPAND ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_IS_SORTED_BY_U64.
+[MACRO] VEC_INTO_ITER_IS_SORTED_BY %out_bool, %iter_reg, %compare_fn
+    EXPAND VEC_INTO_ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
     EXPAND ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_IS_SORTED_BY_KEY_U64.
+[MACRO] VEC_INTO_ITER_IS_SORTED_BY_KEY %out_bool, %iter_reg, %key_fn
+    EXPAND VEC_INTO_ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_CMP_U64.
+[MACRO] VEC_INTO_ITER_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_CMP_BY_U64.
+[MACRO] VEC_INTO_ITER_CMP_BY %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND VEC_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_PARTIAL_CMP_U64.
+[MACRO] VEC_INTO_ITER_PARTIAL_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_PARTIAL_CMP_BY_U64.
+[MACRO] VEC_INTO_ITER_PARTIAL_CMP_BY %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND VEC_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
     EXPAND ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_EQ_BY_U64.
+[MACRO] VEC_INTO_ITER_EQ_BY %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND VEC_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_EQ_U64.
+[MACRO] VEC_INTO_ITER_EQ %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_PARTIAL_EQ_U64.
+[MACRO] VEC_INTO_ITER_PARTIAL_EQ %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_NE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_NE_U64.
+[MACRO] VEC_INTO_ITER_NE %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_LT_U64.
+[MACRO] VEC_INTO_ITER_LT %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_LE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_LE_U64.
+[MACRO] VEC_INTO_ITER_LE %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_GT_U64.
+[MACRO] VEC_INTO_ITER_GT %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_GE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_GE_U64.
+[MACRO] VEC_INTO_ITER_GE %out_bool, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_FIND_U64.
+[MACRO] VEC_INTO_ITER_FIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_TRY_FIND_U64.
+[MACRO] VEC_INTO_ITER_TRY_FIND %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
     EXPAND ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_FIND_MAP_U64.
+[MACRO] VEC_INTO_ITER_FIND_MAP %out_has, %out_value, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_POSITION_U64.
+[MACRO] VEC_INTO_ITER_POSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_RPOSITION_U64.
+[MACRO] VEC_INTO_ITER_RPOSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_RFIND_U64.
+[MACRO] VEC_INTO_ITER_RFIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_ANY_U64.
+[MACRO] VEC_INTO_ITER_ANY %out_bool, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_ALL_U64.
+[MACRO] VEC_INTO_ITER_ALL %out_bool, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
     EXPAND ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_FOR_EACH_U64.
+[MACRO] VEC_INTO_ITER_FOR_EACH %iter_reg, %each_fn
+    EXPAND VEC_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
     EXPAND ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_TRY_FOR_EACH_U64.
+[MACRO] VEC_INTO_ITER_TRY_FOR_EACH %out_ok, %iter_reg, %each_fn
+    EXPAND VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_COLLECT %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
     EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_TRY_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_TRY_COLLECT %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND VEC_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_COLLECT_INTO_U64.
+[MACRO] VEC_INTO_ITER_COLLECT_INTO %vec_reg, %iter_reg
+    EXPAND VEC_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_TAKE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_TAKE_COLLECT %out_vec, %iter_reg, %count
+    EXPAND VEC_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_SKIP_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_SKIP_COLLECT %out_vec, %iter_reg, %count
+    EXPAND VEC_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_REV_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_REV_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_REV_COLLECT %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
     EXPAND ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_TRY_STEP_BY_COLLECT %out_ok, %out_vec, %iter_reg, %step
+    EXPAND VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
     EXPAND ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_STEP_BY_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_STEP_BY_COLLECT %out_vec, %iter_reg, %step
+    EXPAND VEC_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
     EXPAND ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_INTERSPERSE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_INTERSPERSE_COLLECT %out_vec, %iter_reg, %separator
+    EXPAND VEC_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
     EXPAND ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT %out_vec, %iter_reg, %sep_fn
+    EXPAND VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_CYCLE_TAKE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_CYCLE_TAKE_COLLECT %out_vec, %iter_reg, %count
+    EXPAND VEC_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_TAKE_WHILE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_TAKE_WHILE_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_SKIP_WHILE_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_ENUMERATE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_ENUMERATE_COLLECT %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
     EXPAND ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_ZIP_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_ZIP_COLLECT %out_vec, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
     EXPAND ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_CHAIN_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_CHAIN_COLLECT %out_vec, %left_iter, %right_iter
+    EXPAND VEC_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_BY_REF_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_BY_REF_COLLECT %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_FUSE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_FUSE_COLLECT %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_PEEKABLE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_PEEKABLE_COLLECT %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
     EXPAND ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_PARTITION_U64.
+[MACRO] VEC_INTO_ITER_PARTITION %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_IS_PARTITIONED_U64.
+[MACRO] VEC_INTO_ITER_IS_PARTITIONED %out_bool, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
     EXPAND ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT %out_ok, %out_vec, %iter_reg, %chunk_size
+    EXPAND VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
     EXPAND ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_MAP_WINDOWS_COLLECT %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+    EXPAND VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_MAP_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_MAP_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
     EXPAND ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_INSPECT_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_INSPECT_COLLECT %out_vec, %iter_reg, %inspect_fn
+    EXPAND VEC_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
     EXPAND ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_SCAN_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_SCAN_COLLECT %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND VEC_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_FILTER_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_FILTER_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND VEC_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_INTO_ITER_FILTER_MAP_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_FILTER_MAP_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] VEC_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_MAP_WHILE_COLLECT_U64.
+[MACRO] VEC_INTO_ITER_MAP_WHILE_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND VEC_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
@@ -526,6 +1036,11 @@
     EXPAND VEC_AS_SLICE __vec_into_iter_clone_backing_slice_%out_iter, %out_vec
     EXPAND ITER_FROM_SLICE %out_iter, __vec_into_iter_clone_backing_slice_%out_iter
     !__vec_into_iter_clone_backing_slice_%out_iter
+[END_MACRO]
+
+// Rust method-name alias over VEC_INTO_ITER_CLONE_U64.
+[MACRO] VEC_INTO_ITER_CLONE %out_iter, %out_vec, %iter_reg
+    EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] VEC_LEAK %out_slice, %vec_reg
@@ -571,18 +1086,38 @@
     !__vec_get_mut_slice_%out_ptr
 [END_MACRO]
 
+// Rust method-name alias over VEC_GET_MUT_PTR_U64.
+[MACRO] VEC_GET_MUT_PTR %out_ptr, %vec_reg, %index
+    EXPAND VEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
     EXPAND VEC_AS_MUT_SLICE __vec_try_get_mut_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, __vec_try_get_mut_slice_%out_ok, %index
     !__vec_try_get_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_GET_MUT_PTR_U64.
+[MACRO] VEC_TRY_GET_MUT_PTR %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND VEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_GET_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index
     EXPAND VEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
 [END_MACRO]
 
+// Rust method-name alias over VEC_GET_MUT_U64.
+[MACRO] VEC_GET_MUT %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND VEC_GET_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index
+[END_MACRO]
+
 [MACRO] VEC_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %vec_reg, %index
     EXPAND VEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+// Rust method-name alias over VEC_GET_UNCHECKED_MUT_PTR_U64.
+[MACRO] VEC_GET_UNCHECKED_MUT_PTR %out_ptr, %vec_reg, %index
+    EXPAND VEC_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %vec_reg, %index
 [END_MACRO]
 
 [MACRO] VEC_TRY_GET %out_ok, %out_value, %vec_reg, %index
@@ -688,10 +1223,20 @@
     !__vec_get_ok_%out_value
 [END_MACRO]
 
+// Rust method-name alias over VEC_GET_TYPED_U64.
+[MACRO] VEC_GET_TYPED %out_value, %vec_reg, %index, %elem_size
+    EXPAND VEC_GET_TYPED_U64 %out_value, %vec_reg, %index, %elem_size
+[END_MACRO]
+
 [MACRO] VEC_TRY_GET_TYPED_U64 %out_ok, %out_value, %vec_reg, %index, %elem_size
     EXPAND VEC_AS_SLICE __vec_get_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_GET_TYPED_U64 %out_ok, %out_value, __vec_get_slice_%out_ok, %index, %elem_size
     !__vec_get_slice_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over VEC_TRY_GET_TYPED_U64.
+[MACRO] VEC_TRY_GET_TYPED %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND VEC_TRY_GET_TYPED_U64 %out_ok, %out_value, %vec_reg, %index, %elem_size
 [END_MACRO]
 
 [MACRO] VEC_GET_TYPED_F32 %out_value, %vec_reg, %index, %elem_size
@@ -824,8 +1369,18 @@ L_VEC_SET_TYPED_END_%value:
     !__vec_first_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_FIRST_MUT_U64.
+[MACRO] VEC_TRY_FIRST_MUT %out_ok, %out_ptr, %vec_reg
+    EXPAND VEC_TRY_FIRST_MUT_U64 %out_ok, %out_ptr, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_FIRST_MUT_U64 %out_ok, %out_ptr, %vec_reg
     EXPAND VEC_TRY_FIRST_MUT_U64 %out_ok, %out_ptr, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_FIRST_MUT_U64.
+[MACRO] VEC_FIRST_MUT %out_ok, %out_ptr, %vec_reg
+    EXPAND VEC_FIRST_MUT_U64 %out_ok, %out_ptr, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_TRY_LAST_MUT_U64 %out_ok, %out_ptr, %vec_reg
@@ -834,8 +1389,18 @@ L_VEC_SET_TYPED_END_%value:
     !__vec_last_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_LAST_MUT_U64.
+[MACRO] VEC_TRY_LAST_MUT %out_ok, %out_ptr, %vec_reg
+    EXPAND VEC_TRY_LAST_MUT_U64 %out_ok, %out_ptr, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_LAST_MUT_U64 %out_ok, %out_ptr, %vec_reg
     EXPAND VEC_TRY_LAST_MUT_U64 %out_ok, %out_ptr, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_LAST_MUT_U64.
+[MACRO] VEC_LAST_MUT %out_ok, %out_ptr, %vec_reg
+    EXPAND VEC_LAST_MUT_U64 %out_ok, %out_ptr, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_TRY_PEEK_MUT %out_ok, %out_ptr, %vec_reg, %elem_size
@@ -883,8 +1448,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     !__vec_split_first_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_FIRST_U64.
+[MACRO] VEC_TRY_SPLIT_FIRST %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
     EXPAND VEC_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_FIRST_U64.
+[MACRO] VEC_SPLIT_FIRST %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
@@ -893,8 +1468,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     !__vec_split_first_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_FIRST_MUT_U64.
+[MACRO] VEC_TRY_SPLIT_FIRST_MUT %out_ok, %out_ptr, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
     EXPAND VEC_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_FIRST_MUT_U64.
+[MACRO] VEC_SPLIT_FIRST_MUT %out_ok, %out_ptr, %out_rest, %vec_reg
+    EXPAND VEC_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
@@ -903,8 +1488,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     !__vec_split_last_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_LAST_U64.
+[MACRO] VEC_TRY_SPLIT_LAST %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
     EXPAND VEC_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_LAST_U64.
+[MACRO] VEC_SPLIT_LAST %out_ok, %out_value, %out_rest, %vec_reg
+    EXPAND VEC_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
@@ -913,8 +1508,18 @@ L_VEC_PEEK_MUT_END_%out_ok:
     !__vec_split_last_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_LAST_MUT_U64.
+[MACRO] VEC_TRY_SPLIT_LAST_MUT %out_ok, %out_ptr, %out_rest, %vec_reg
+    EXPAND VEC_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
     EXPAND VEC_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_LAST_MUT_U64.
+[MACRO] VEC_SPLIT_LAST_MUT %out_ok, %out_ptr, %out_rest, %vec_reg
+    EXPAND VEC_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_PUSH %vec_reg, %value, %elem_size
@@ -1183,8 +1788,18 @@ L_VEC_POP_IF_EMPTY_%out_ok:
 L_VEC_POP_IF_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_POP_IF_U64.
+[MACRO] VEC_TRY_POP_IF %out_ok, %out_value, %vec_reg, %pred_fn
+    EXPAND VEC_TRY_POP_IF_U64 %out_ok, %out_value, %vec_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_POP_IF_U64 %out_ok, %out_value, %vec_reg, %pred_fn
     EXPAND VEC_TRY_POP_IF_U64 %out_ok, %out_value, %vec_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over concrete u64 pop_if.
+[MACRO] VEC_POP_IF %out_ok, %out_value, %vec_reg, %pred_fn
+    EXPAND VEC_POP_IF_U64 %out_ok, %out_value, %vec_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_TRY_POP_IF_MUT_U64 %out_ok, %out_value, %vec_reg, %pred_fn
@@ -1243,8 +1858,18 @@ L_VEC_POP_IF_MUT_EMPTY_%out_ok:
 L_VEC_POP_IF_MUT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_POP_IF_MUT_U64.
+[MACRO] VEC_TRY_POP_IF_MUT %out_ok, %out_value, %vec_reg, %pred_fn
+    EXPAND VEC_TRY_POP_IF_MUT_U64 %out_ok, %out_value, %vec_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_POP_IF_MUT_U64 %out_ok, %out_value, %vec_reg, %pred_fn
     EXPAND VEC_TRY_POP_IF_MUT_U64 %out_ok, %out_value, %vec_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_POP_IF_MUT_U64.
+[MACRO] VEC_POP_IF_MUT %out_ok, %out_value, %vec_reg, %pred_fn
+    EXPAND VEC_POP_IF_MUT_U64 %out_ok, %out_value, %vec_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_WITH_CAPACITY %out_vec, %cap, %elem_size
@@ -1463,10 +2088,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_contains_slice_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_CONTAINS_U64.
+[MACRO] VEC_CONTAINS %out_bool, %vec_reg, %needle
+    EXPAND VEC_CONTAINS_U64 %out_bool, %vec_reg, %needle
+[END_MACRO]
+
 [MACRO] VEC_EQ_SLICE_U64 %out_bool, %vec_reg, %slice_reg
     EXPAND VEC_AS_SLICE __vec_eq_slice_%out_bool, %vec_reg
     EXPAND SLICE_EQ_U64 %out_bool, __vec_eq_slice_%out_bool, %slice_reg
     !__vec_eq_slice_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over VEC_EQ_SLICE_U64.
+[MACRO] VEC_EQ_SLICE %out_bool, %vec_reg, %slice_reg
+    EXPAND VEC_EQ_SLICE_U64 %out_bool, %vec_reg, %slice_reg
 [END_MACRO]
 
 [MACRO] VEC_NE_SLICE_U64 %out_bool, %vec_reg, %slice_reg
@@ -1475,12 +2110,27 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_ne_slice_eq_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_NE_SLICE_U64.
+[MACRO] VEC_NE_SLICE %out_bool, %vec_reg, %slice_reg
+    EXPAND VEC_NE_SLICE_U64 %out_bool, %vec_reg, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_EQ_VEC_U64 %out_bool, %slice_reg, %vec_reg
     EXPAND VEC_EQ_SLICE_U64 %out_bool, %vec_reg, %slice_reg
 [END_MACRO]
 
+// Rust method-name alias over SLICE_EQ_VEC_U64.
+[MACRO] SLICE_EQ_VEC %out_bool, %slice_reg, %vec_reg
+    EXPAND SLICE_EQ_VEC_U64 %out_bool, %slice_reg, %vec_reg
+[END_MACRO]
+
 [MACRO] SLICE_NE_VEC_U64 %out_bool, %slice_reg, %vec_reg
     EXPAND VEC_NE_SLICE_U64 %out_bool, %vec_reg, %slice_reg
+[END_MACRO]
+
+// Rust method-name alias over SLICE_NE_VEC_U64.
+[MACRO] SLICE_NE_VEC %out_bool, %slice_reg, %vec_reg
+    EXPAND SLICE_NE_VEC_U64 %out_bool, %slice_reg, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_EQ_U64 %out_bool, %left_vec, %right_vec
@@ -1491,10 +2141,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_eq_right_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_EQ_U64.
+[MACRO] VEC_EQ %out_bool, %left_vec, %right_vec
+    EXPAND VEC_EQ_U64 %out_bool, %left_vec, %right_vec
+[END_MACRO]
+
 [MACRO] VEC_NE_U64 %out_bool, %left_vec, %right_vec
     EXPAND VEC_EQ_U64 __vec_ne_eq_%out_bool, %left_vec, %right_vec
     %out_bool = eq __vec_ne_eq_%out_bool, 0
     !__vec_ne_eq_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over VEC_NE_U64.
+[MACRO] VEC_NE %out_bool, %left_vec, %right_vec
+    EXPAND VEC_NE_U64 %out_bool, %left_vec, %right_vec
 [END_MACRO]
 
 [MACRO] DEFAULT_HASHER_WRITE_VEC_U64 %hasher, %vec_reg
@@ -1503,10 +2163,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_write_hash_slice_%hasher
 [END_MACRO]
 
+// Rust method-name alias over DEFAULT_HASHER_WRITE_VEC_U64.
+[MACRO] DEFAULT_HASHER_WRITE_VEC %hasher, %vec_reg
+    EXPAND DEFAULT_HASHER_WRITE_VEC_U64 %hasher, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_HASH_U64 %out_hash, %vec_reg
     EXPAND VEC_AS_SLICE __vec_hash_slice_%out_hash, %vec_reg
     EXPAND SLICE_HASH_U64 %out_hash, __vec_hash_slice_%out_hash
     !__vec_hash_slice_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over VEC_HASH_U64.
+[MACRO] VEC_HASH %out_hash, %vec_reg
+    EXPAND VEC_HASH_U64 %out_hash, %vec_reg
 [END_MACRO]
 
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_VEC_U64 %out_hash, %builder, %vec_reg
@@ -1516,11 +2186,21 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_vec_u64_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_VEC_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_VEC %out_hash, %builder, %vec_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_VEC_U64 %out_hash, %builder, %vec_reg
+[END_MACRO]
+
 [MACRO] RANDOM_STATE_HASH_ONE_VEC_U64 %out_hash, %state, %vec_reg
     __random_state_hash_one_vec_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_vec_u64_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_VEC_U64 __random_state_hash_one_vec_u64_hasher_%out_hash, %vec_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_vec_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_VEC_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_VEC %out_hash, %state, %vec_reg
+    EXPAND RANDOM_STATE_HASH_ONE_VEC_U64 %out_hash, %state, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_CMP_SLICE_U64 %out_ordering, %vec_reg, %slice_reg
@@ -1529,10 +2209,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_cmp_slice_%out_ordering
 [END_MACRO]
 
+// Rust method-name alias over VEC_CMP_SLICE_U64.
+[MACRO] VEC_CMP_SLICE %out_ordering, %vec_reg, %slice_reg
+    EXPAND VEC_CMP_SLICE_U64 %out_ordering, %vec_reg, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_CMP_VEC_U64 %out_ordering, %slice_reg, %vec_reg
     EXPAND VEC_AS_SLICE __slice_cmp_vec_%out_ordering, %vec_reg
     EXPAND SLICE_CMP_U64 %out_ordering, %slice_reg, __slice_cmp_vec_%out_ordering
     !__slice_cmp_vec_%out_ordering
+[END_MACRO]
+
+// Rust method-name alias over SLICE_CMP_VEC_U64.
+[MACRO] SLICE_CMP_VEC %out_ordering, %slice_reg, %vec_reg
+    EXPAND SLICE_CMP_VEC_U64 %out_ordering, %slice_reg, %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_CMP_U64 %out_ordering, %left_vec, %right_vec
@@ -1543,10 +2233,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_cmp_right_%out_ordering
 [END_MACRO]
 
+// Rust method-name alias over VEC_CMP_U64.
+[MACRO] VEC_CMP %out_ordering, %left_vec, %right_vec
+    EXPAND VEC_CMP_U64 %out_ordering, %left_vec, %right_vec
+[END_MACRO]
+
 [MACRO] VEC_LT_U64 %out_bool, %left_vec, %right_vec
     EXPAND VEC_CMP_U64 __vec_lt_order_%out_bool, %left_vec, %right_vec
     %out_bool = slt __vec_lt_order_%out_bool, 0
     !__vec_lt_order_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over VEC_LT_U64.
+[MACRO] VEC_LT %out_bool, %left_vec, %right_vec
+    EXPAND VEC_LT_U64 %out_bool, %left_vec, %right_vec
 [END_MACRO]
 
 [MACRO] VEC_LE_U64 %out_bool, %left_vec, %right_vec
@@ -1555,10 +2255,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_le_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_LE_U64.
+[MACRO] VEC_LE %out_bool, %left_vec, %right_vec
+    EXPAND VEC_LE_U64 %out_bool, %left_vec, %right_vec
+[END_MACRO]
+
 [MACRO] VEC_GT_U64 %out_bool, %left_vec, %right_vec
     EXPAND VEC_CMP_U64 __vec_gt_order_%out_bool, %left_vec, %right_vec
     %out_bool = sgt __vec_gt_order_%out_bool, 0
     !__vec_gt_order_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over VEC_GT_U64.
+[MACRO] VEC_GT %out_bool, %left_vec, %right_vec
+    EXPAND VEC_GT_U64 %out_bool, %left_vec, %right_vec
 [END_MACRO]
 
 [MACRO] VEC_GE_U64 %out_bool, %left_vec, %right_vec
@@ -1567,10 +2277,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_ge_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_GE_U64.
+[MACRO] VEC_GE %out_bool, %left_vec, %right_vec
+    EXPAND VEC_GE_U64 %out_bool, %left_vec, %right_vec
+[END_MACRO]
+
 [MACRO] VEC_STARTS_WITH_U64 %out_bool, %vec_reg, %prefix_slice
     EXPAND VEC_AS_SLICE __vec_starts_slice_%out_bool, %vec_reg
     EXPAND SLICE_STARTS_WITH_U64 %out_bool, __vec_starts_slice_%out_bool, %prefix_slice
     !__vec_starts_slice_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over VEC_STARTS_WITH_U64.
+[MACRO] VEC_STARTS_WITH %out_bool, %vec_reg, %prefix_slice
+    EXPAND VEC_STARTS_WITH_U64 %out_bool, %vec_reg, %prefix_slice
 [END_MACRO]
 
 [MACRO] VEC_ENDS_WITH_U64 %out_bool, %vec_reg, %suffix_slice
@@ -1579,10 +2299,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_ends_slice_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_ENDS_WITH_U64.
+[MACRO] VEC_ENDS_WITH %out_bool, %vec_reg, %suffix_slice
+    EXPAND VEC_ENDS_WITH_U64 %out_bool, %vec_reg, %suffix_slice
+[END_MACRO]
+
 [MACRO] VEC_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
     EXPAND VEC_AS_SLICE __vec_strip_prefix_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, __vec_strip_prefix_slice_%out_ok, %prefix_slice
     !__vec_strip_prefix_slice_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over VEC_TRY_STRIP_PREFIX_U64.
+[MACRO] VEC_TRY_STRIP_PREFIX %out_ok, %out_slice, %vec_reg, %prefix_slice
+    EXPAND VEC_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
@@ -1591,12 +2321,27 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_strip_suffix_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_STRIP_SUFFIX_U64.
+[MACRO] VEC_TRY_STRIP_SUFFIX %out_ok, %out_slice, %vec_reg, %suffix_slice
+    EXPAND VEC_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
+[END_MACRO]
+
 [MACRO] VEC_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
     EXPAND VEC_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
 [END_MACRO]
 
+// Rust method-name alias over VEC_STRIP_PREFIX_U64.
+[MACRO] VEC_STRIP_PREFIX %out_ok, %out_slice, %vec_reg, %prefix_slice
+    EXPAND VEC_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice
+[END_MACRO]
+
 [MACRO] VEC_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
     EXPAND VEC_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
+[END_MACRO]
+
+// Rust method-name alias over VEC_STRIP_SUFFIX_U64.
+[MACRO] VEC_STRIP_SUFFIX %out_ok, %out_slice, %vec_reg, %suffix_slice
+    EXPAND VEC_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice
 [END_MACRO]
 
 [MACRO] VEC_TRIM_PREFIX_U64 %out_slice, %vec_reg, %prefix_slice
@@ -1605,10 +2350,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_trim_prefix_slice_%out_slice
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRIM_PREFIX_U64.
+[MACRO] VEC_TRIM_PREFIX %out_slice, %vec_reg, %prefix_slice
+    EXPAND VEC_TRIM_PREFIX_U64 %out_slice, %vec_reg, %prefix_slice
+[END_MACRO]
+
 [MACRO] VEC_TRIM_SUFFIX_U64 %out_slice, %vec_reg, %suffix_slice
     EXPAND VEC_AS_SLICE __vec_trim_suffix_slice_%out_slice, %vec_reg
     EXPAND SLICE_TRIM_SUFFIX_U64 %out_slice, __vec_trim_suffix_slice_%out_slice, %suffix_slice
     !__vec_trim_suffix_slice_%out_slice
+[END_MACRO]
+
+// Rust method-name alias over VEC_TRIM_SUFFIX_U64.
+[MACRO] VEC_TRIM_SUFFIX %out_slice, %vec_reg, %suffix_slice
+    EXPAND VEC_TRIM_SUFFIX_U64 %out_slice, %vec_reg, %suffix_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
@@ -1617,8 +2372,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_AT_U64.
+[MACRO] VEC_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_AT_U64.
+[MACRO] VEC_SPLIT_AT %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
@@ -1627,8 +2392,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_AT_MUT_U64.
+[MACRO] VEC_TRY_SPLIT_AT_MUT %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_AT_MUT_U64.
+[MACRO] VEC_SPLIT_AT_MUT %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
 
 [MACRO] VEC_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %vec_reg, %mid
@@ -1637,18 +2412,38 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_unchecked_slice_%out_left
 [END_MACRO]
 
+// Rust method-name alias over VEC_SPLIT_AT_UNCHECKED_U64.
+[MACRO] VEC_SPLIT_AT_UNCHECKED %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_AS_MUT_SLICE __vec_split_mut_unchecked_slice_%out_left, %vec_reg
     EXPAND SLICE_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, __vec_split_mut_unchecked_slice_%out_left, %mid
     !__vec_split_mut_unchecked_slice_%out_left
 [END_MACRO]
 
+// Rust method-name alias over VEC_SPLIT_AT_MUT_UNCHECKED_U64.
+[MACRO] VEC_SPLIT_AT_MUT_UNCHECKED %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_AT_CHECKED_U64.
+[MACRO] VEC_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_AT_CHECKED_U64.
+[MACRO] VEC_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
@@ -1657,8 +2452,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_mut_checked_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_AT_MUT_CHECKED_U64.
+[MACRO] VEC_TRY_SPLIT_AT_MUT_CHECKED %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_TRY_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
     EXPAND VEC_TRY_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_AT_MUT_CHECKED_U64.
+[MACRO] VEC_SPLIT_AT_MUT_CHECKED %out_ok, %out_left, %out_right, %vec_reg, %mid
+    EXPAND VEC_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid
 [END_MACRO]
 
 [MACRO] VEC_TRY_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
@@ -1667,8 +2472,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_range_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_RANGE_U64.
+[MACRO] VEC_TRY_RANGE %out_ok, %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_TRY_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over VEC_RANGE_U64.
+[MACRO] VEC_RANGE %out_ok, %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
@@ -1677,16 +2492,36 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_range_unchecked_slice_%out_slice
 [END_MACRO]
 
+// Rust method-name alias over VEC_RANGE_UNCHECKED_U64.
+[MACRO] VEC_RANGE_UNCHECKED %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_TRY_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over VEC_TRY_GET_RANGE_U64.
+[MACRO] VEC_TRY_GET_RANGE %out_ok, %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_TRY_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
+// Rust method-name alias over VEC_GET_RANGE_U64.
+[MACRO] VEC_GET_RANGE %out_ok, %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_GET_RANGE_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_GET_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
     EXPAND VEC_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over VEC_GET_RANGE_UNCHECKED_U64.
+[MACRO] VEC_GET_RANGE_UNCHECKED %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_GET_RANGE_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
@@ -1695,8 +2530,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_range_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_GET_RANGE_MUT_U64.
+[MACRO] VEC_TRY_GET_RANGE_MUT %out_ok, %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
     EXPAND VEC_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over VEC_GET_RANGE_MUT_U64.
+[MACRO] VEC_GET_RANGE_MUT %out_ok, %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_GET_RANGE_MUT_U64 %out_ok, %out_slice, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
@@ -1705,14 +2550,29 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_range_mut_unchecked_slice_%out_slice
 [END_MACRO]
 
+// Rust method-name alias over VEC_GET_RANGE_MUT_UNCHECKED_U64.
+[MACRO] VEC_GET_RANGE_MUT_UNCHECKED %out_slice, %vec_reg, %start, %length
+    EXPAND VEC_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
     EXPAND VEC_AS_SLICE __vec_split_first_chunk_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, __vec_split_first_chunk_slice_%out_ok, %chunk_len
     !__vec_split_first_chunk_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_FIRST_CHUNK_U64.
+[MACRO] VEC_TRY_SPLIT_FIRST_CHUNK %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
     EXPAND VEC_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_FIRST_CHUNK_U64.
+[MACRO] VEC_SPLIT_FIRST_CHUNK %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+    EXPAND VEC_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
@@ -1721,8 +2581,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_first_chunk_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_FIRST_CHUNK_U64.
+[MACRO] VEC_TRY_FIRST_CHUNK %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_FIRST_CHUNK_U64.
+[MACRO] VEC_FIRST_CHUNK %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_FIRST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
@@ -1731,8 +2601,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_first_chunk_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_FIRST_CHUNK_MUT_U64.
+[MACRO] VEC_TRY_FIRST_CHUNK_MUT %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_FIRST_CHUNK_MUT_U64.
+[MACRO] VEC_FIRST_CHUNK_MUT %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
@@ -1741,8 +2621,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_first_chunk_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_FIRST_CHUNK_MUT_U64.
+[MACRO] VEC_TRY_SPLIT_FIRST_CHUNK_MUT %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
     EXPAND VEC_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_FIRST_CHUNK_MUT_U64.
+[MACRO] VEC_SPLIT_FIRST_CHUNK_MUT %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
+    EXPAND VEC_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
@@ -1751,8 +2641,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_last_chunk_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_LAST_CHUNK_U64.
+[MACRO] VEC_TRY_SPLIT_LAST_CHUNK %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_LAST_CHUNK_U64.
+[MACRO] VEC_SPLIT_LAST_CHUNK %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
@@ -1761,8 +2661,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_split_last_chunk_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLIT_LAST_CHUNK_MUT_U64.
+[MACRO] VEC_TRY_SPLIT_LAST_CHUNK_MUT %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLIT_LAST_CHUNK_MUT_U64.
+[MACRO] VEC_SPLIT_LAST_CHUNK_MUT %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
@@ -1771,8 +2681,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_last_chunk_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_LAST_CHUNK_U64.
+[MACRO] VEC_TRY_LAST_CHUNK %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_LAST_CHUNK_U64.
+[MACRO] VEC_LAST_CHUNK %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_LAST_CHUNK_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
@@ -1781,8 +2701,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_last_chunk_mut_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_LAST_CHUNK_MUT_U64.
+[MACRO] VEC_TRY_LAST_CHUNK_MUT %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] VEC_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
     EXPAND VEC_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over VEC_LAST_CHUNK_MUT_U64.
+[MACRO] VEC_LAST_CHUNK_MUT %out_ok, %out_chunk, %vec_reg, %chunk_len
+    EXPAND VEC_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %vec_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] VEC_CHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size
@@ -1791,14 +2721,29 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_chunk_slice_%out_count
 [END_MACRO]
 
+// Rust method-name alias over VEC_CHUNK_COUNT_U64.
+[MACRO] VEC_CHUNK_COUNT %out_count, %vec_reg, %chunk_size
+    EXPAND VEC_CHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] VEC_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_AS_SLICE __vec_chunk_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_CHUNK_AT_U64 %out_ok, %out_slice, __vec_chunk_at_slice_%out_ok, %chunk_size, %chunk_index
     !__vec_chunk_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_CHUNK_AT_U64.
+[MACRO] VEC_TRY_CHUNK_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_CHUNK_AT_U64.
+[MACRO] VEC_CHUNK_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_CHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_RCHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size
@@ -1807,14 +2752,29 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunk_slice_%out_count
 [END_MACRO]
 
+// Rust method-name alias over VEC_RCHUNK_COUNT_U64.
+[MACRO] VEC_RCHUNK_COUNT %out_count, %vec_reg, %chunk_size
+    EXPAND VEC_RCHUNK_COUNT_U64 %out_count, %vec_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] VEC_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_AS_SLICE __vec_rchunk_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, __vec_rchunk_at_slice_%out_ok, %chunk_size, %chunk_index
     !__vec_rchunk_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_RCHUNK_AT_U64.
+[MACRO] VEC_TRY_RCHUNK_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_RCHUNK_AT_U64.
+[MACRO] VEC_RCHUNK_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_RCHUNK_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
@@ -1823,8 +2783,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunk_mut_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_RCHUNK_MUT_AT_U64.
+[MACRO] VEC_TRY_RCHUNK_MUT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_RCHUNK_MUT_AT_U64.
+[MACRO] VEC_RCHUNK_MUT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_CHUNKS_EXACT_COUNT_U64 %out_count, %vec_reg, %chunk_size
@@ -1833,10 +2803,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_chunks_exact_slice_%out_count
 [END_MACRO]
 
+// Rust method-name alias over VEC_CHUNKS_EXACT_COUNT_U64.
+[MACRO] VEC_CHUNKS_EXACT_COUNT %out_count, %vec_reg, %chunk_size
+    EXPAND VEC_CHUNKS_EXACT_COUNT_U64 %out_count, %vec_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] VEC_CHUNKS_EXACT_REMAINDER_U64 %out_slice, %vec_reg, %chunk_size
     EXPAND VEC_AS_SLICE __vec_chunks_exact_remainder_slice_%out_slice, %vec_reg
     EXPAND SLICE_CHUNKS_EXACT_REMAINDER_U64 %out_slice, __vec_chunks_exact_remainder_slice_%out_slice, %chunk_size
     !__vec_chunks_exact_remainder_slice_%out_slice
+[END_MACRO]
+
+// Rust method-name alias over VEC_CHUNKS_EXACT_REMAINDER_U64.
+[MACRO] VEC_CHUNKS_EXACT_REMAINDER %out_slice, %vec_reg, %chunk_size
+    EXPAND VEC_CHUNKS_EXACT_REMAINDER_U64 %out_slice, %vec_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] VEC_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
@@ -1845,8 +2825,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_chunk_exact_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_CHUNK_EXACT_AT_U64.
+[MACRO] VEC_TRY_CHUNK_EXACT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_CHUNK_EXACT_AT_U64.
+[MACRO] VEC_CHUNK_EXACT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
@@ -1855,8 +2845,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_chunk_exact_mut_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_CHUNK_EXACT_MUT_AT_U64.
+[MACRO] VEC_TRY_CHUNK_EXACT_MUT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_CHUNK_EXACT_MUT_AT_U64.
+[MACRO] VEC_CHUNK_EXACT_MUT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_RCHUNKS_EXACT_COUNT_U64 %out_count, %vec_reg, %chunk_size
@@ -1865,10 +2865,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunks_exact_slice_%out_count
 [END_MACRO]
 
+// Rust method-name alias over VEC_RCHUNKS_EXACT_COUNT_U64.
+[MACRO] VEC_RCHUNKS_EXACT_COUNT %out_count, %vec_reg, %chunk_size
+    EXPAND VEC_RCHUNKS_EXACT_COUNT_U64 %out_count, %vec_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] VEC_RCHUNKS_EXACT_REMAINDER_U64 %out_slice, %vec_reg, %chunk_size
     EXPAND VEC_AS_SLICE __vec_rchunks_exact_remainder_slice_%out_slice, %vec_reg
     EXPAND SLICE_RCHUNKS_EXACT_REMAINDER_U64 %out_slice, __vec_rchunks_exact_remainder_slice_%out_slice, %chunk_size
     !__vec_rchunks_exact_remainder_slice_%out_slice
+[END_MACRO]
+
+// Rust method-name alias over VEC_RCHUNKS_EXACT_REMAINDER_U64.
+[MACRO] VEC_RCHUNKS_EXACT_REMAINDER %out_slice, %vec_reg, %chunk_size
+    EXPAND VEC_RCHUNKS_EXACT_REMAINDER_U64 %out_slice, %vec_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] VEC_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
@@ -1877,8 +2887,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunk_exact_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_RCHUNK_EXACT_AT_U64.
+[MACRO] VEC_TRY_RCHUNK_EXACT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_RCHUNK_EXACT_AT_U64.
+[MACRO] VEC_RCHUNK_EXACT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
@@ -1887,8 +2907,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rchunk_exact_mut_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_RCHUNK_EXACT_MUT_AT_U64.
+[MACRO] VEC_TRY_RCHUNK_EXACT_MUT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] VEC_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
     EXPAND VEC_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_RCHUNK_EXACT_MUT_AT_U64.
+[MACRO] VEC_RCHUNK_EXACT_MUT_AT %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
+    EXPAND VEC_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %vec_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] VEC_WINDOW_COUNT_U64 %out_count, %vec_reg, %window_size
@@ -1897,14 +2927,29 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_window_slice_%out_count
 [END_MACRO]
 
+// Rust method-name alias over VEC_WINDOW_COUNT_U64.
+[MACRO] VEC_WINDOW_COUNT %out_count, %vec_reg, %window_size
+    EXPAND VEC_WINDOW_COUNT_U64 %out_count, %vec_reg, %window_size
+[END_MACRO]
+
 [MACRO] VEC_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
     EXPAND VEC_AS_SLICE __vec_window_at_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_WINDOW_AT_U64 %out_ok, %out_slice, __vec_window_at_slice_%out_ok, %window_size, %window_index
     !__vec_window_at_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_WINDOW_AT_U64.
+[MACRO] VEC_TRY_WINDOW_AT %out_ok, %out_slice, %vec_reg, %window_size, %window_index
+    EXPAND VEC_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
+[END_MACRO]
+
 [MACRO] VEC_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
     EXPAND VEC_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_WINDOW_AT_U64.
+[MACRO] VEC_WINDOW_AT %out_ok, %out_slice, %vec_reg, %window_size, %window_index
+    EXPAND VEC_WINDOW_AT_U64 %out_ok, %out_slice, %vec_reg, %window_size, %window_index
 [END_MACRO]
 
 [MACRO] VEC_SWAP_U64 %vec_reg, %left, %right
@@ -1913,10 +2958,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_swap_slice_%vec_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_SWAP_U64.
+[MACRO] VEC_SWAP %vec_reg, %left, %right
+    EXPAND VEC_SWAP_U64 %vec_reg, %left, %right
+[END_MACRO]
+
 [MACRO] VEC_TRY_SWAP_U64 %out_ok, %vec_reg, %left, %right
     EXPAND VEC_AS_MUT_SLICE __vec_try_swap_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_SWAP_U64 %out_ok, __vec_try_swap_slice_%out_ok, %left, %right
     !__vec_try_swap_slice_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over VEC_TRY_SWAP_U64.
+[MACRO] VEC_TRY_SWAP %out_ok, %vec_reg, %left, %right
+    EXPAND VEC_TRY_SWAP_U64 %out_ok, %vec_reg, %left, %right
 [END_MACRO]
 
 [MACRO] VEC_REVERSE_U64 %vec_reg
@@ -1925,14 +2980,29 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_reverse_slice_%vec_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_REVERSE_U64.
+[MACRO] VEC_REVERSE %vec_reg
+    EXPAND VEC_REVERSE_U64 %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_TRY_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
     EXPAND VEC_AS_MUT_SLICE __vec_rotate_left_slice_%out_ok, %vec_reg
     EXPAND SLICE_TRY_ROTATE_LEFT_U64 %out_ok, __vec_rotate_left_slice_%out_ok, %count
     !__vec_rotate_left_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_ROTATE_LEFT_U64.
+[MACRO] VEC_TRY_ROTATE_LEFT %out_ok, %vec_reg, %count
+    EXPAND VEC_TRY_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
+[END_MACRO]
+
 [MACRO] VEC_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
     EXPAND VEC_TRY_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_ROTATE_LEFT_U64.
+[MACRO] VEC_ROTATE_LEFT %out_ok, %vec_reg, %count
+    EXPAND VEC_ROTATE_LEFT_U64 %out_ok, %vec_reg, %count
 [END_MACRO]
 
 [MACRO] VEC_TRY_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
@@ -1941,8 +3011,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_rotate_right_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_ROTATE_RIGHT_U64.
+[MACRO] VEC_TRY_ROTATE_RIGHT %out_ok, %vec_reg, %count
+    EXPAND VEC_TRY_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
+[END_MACRO]
+
 [MACRO] VEC_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
     EXPAND VEC_TRY_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_ROTATE_RIGHT_U64.
+[MACRO] VEC_ROTATE_RIGHT %out_ok, %vec_reg, %count
+    EXPAND VEC_ROTATE_RIGHT_U64 %out_ok, %vec_reg, %count
 [END_MACRO]
 
 [MACRO] VEC_TRY_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
@@ -1951,8 +3031,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_swap_with_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SWAP_WITH_SLICE_U64.
+[MACRO] VEC_TRY_SWAP_WITH_SLICE %out_ok, %vec_reg, %other_slice
+    EXPAND VEC_TRY_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
+[END_MACRO]
+
 [MACRO] VEC_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
     EXPAND VEC_TRY_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
+[END_MACRO]
+
+// Rust method-name alias over VEC_SWAP_WITH_SLICE_U64.
+[MACRO] VEC_SWAP_WITH_SLICE %out_ok, %vec_reg, %other_slice
+    EXPAND VEC_SWAP_WITH_SLICE_U64 %out_ok, %vec_reg, %other_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
@@ -1961,8 +3051,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_binary_search_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_BINARY_SEARCH_U64.
+[MACRO] VEC_TRY_BINARY_SEARCH %out_ok, %out_index, %vec_reg, %needle
+    EXPAND VEC_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
+[END_MACRO]
+
 [MACRO] VEC_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
     EXPAND VEC_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
+[END_MACRO]
+
+// Rust method-name alias over VEC_BINARY_SEARCH_U64.
+[MACRO] VEC_BINARY_SEARCH %out_ok, %out_index, %vec_reg, %needle
+    EXPAND VEC_BINARY_SEARCH_U64 %out_ok, %out_index, %vec_reg, %needle
 [END_MACRO]
 
 [MACRO] VEC_PARTITION_POINT_U64 %out_index, %vec_reg, %pred_fn
@@ -1971,10 +3071,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_partition_point_slice_%out_index
 [END_MACRO]
 
+// Rust method-name alias over VEC_PARTITION_POINT_U64.
+[MACRO] VEC_PARTITION_POINT %out_index, %vec_reg, %pred_fn
+    EXPAND VEC_PARTITION_POINT_U64 %out_index, %vec_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_LOWER_BOUND_U64 %out_index, %vec_reg, %needle
     EXPAND VEC_AS_SLICE __vec_lower_bound_slice_%out_index, %vec_reg
     EXPAND SLICE_LOWER_BOUND_U64 %out_index, __vec_lower_bound_slice_%out_index, %needle
     !__vec_lower_bound_slice_%out_index
+[END_MACRO]
+
+// Rust method-name alias over VEC_LOWER_BOUND_U64.
+[MACRO] VEC_LOWER_BOUND %out_index, %vec_reg, %needle
+    EXPAND VEC_LOWER_BOUND_U64 %out_index, %vec_reg, %needle
 [END_MACRO]
 
 [MACRO] VEC_UPPER_BOUND_U64 %out_index, %vec_reg, %needle
@@ -1983,10 +3093,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_upper_bound_slice_%out_index
 [END_MACRO]
 
+// Rust method-name alias over VEC_UPPER_BOUND_U64.
+[MACRO] VEC_UPPER_BOUND %out_index, %vec_reg, %needle
+    EXPAND VEC_UPPER_BOUND_U64 %out_index, %vec_reg, %needle
+[END_MACRO]
+
 [MACRO] VEC_EQUAL_RANGE_U64 %out_start, %out_end, %vec_reg, %needle
     EXPAND VEC_AS_SLICE __vec_equal_range_slice_%out_start, %vec_reg
     EXPAND SLICE_EQUAL_RANGE_U64 %out_start, %out_end, __vec_equal_range_slice_%out_start, %needle
     !__vec_equal_range_slice_%out_start
+[END_MACRO]
+
+// Rust method-name alias over VEC_EQUAL_RANGE_U64.
+[MACRO] VEC_EQUAL_RANGE %out_start, %out_end, %vec_reg, %needle
+    EXPAND VEC_EQUAL_RANGE_U64 %out_start, %out_end, %vec_reg, %needle
 [END_MACRO]
 
 [MACRO] VEC_IS_SORTED_U64 %out_bool, %vec_reg
@@ -1995,10 +3115,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_sorted_slice_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_IS_SORTED_U64.
+[MACRO] VEC_IS_SORTED %out_bool, %vec_reg
+    EXPAND VEC_IS_SORTED_U64 %out_bool, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_IS_SORTED_BY_U64 %out_bool, %vec_reg, %compare_fn
     EXPAND VEC_AS_SLICE __vec_sorted_by_slice_%out_bool, %vec_reg
     EXPAND SLICE_IS_SORTED_BY_U64 %out_bool, __vec_sorted_by_slice_%out_bool, %compare_fn
     !__vec_sorted_by_slice_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over VEC_IS_SORTED_BY_U64.
+[MACRO] VEC_IS_SORTED_BY %out_bool, %vec_reg, %compare_fn
+    EXPAND VEC_IS_SORTED_BY_U64 %out_bool, %vec_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] VEC_IS_SORTED_BY_KEY_U64 %out_bool, %vec_reg, %key_fn
@@ -2007,10 +3137,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_sorted_key_slice_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over VEC_IS_SORTED_BY_KEY_U64.
+[MACRO] VEC_IS_SORTED_BY_KEY %out_bool, %vec_reg, %key_fn
+    EXPAND VEC_IS_SORTED_BY_KEY_U64 %out_bool, %vec_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_SORT_U64 %vec_reg
     EXPAND VEC_AS_MUT_SLICE __vec_sort_slice_%vec_reg, %vec_reg
     EXPAND SLICE_SORT_U64 __vec_sort_slice_%vec_reg
     !__vec_sort_slice_%vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SORT_U64.
+[MACRO] VEC_SORT %vec_reg
+    EXPAND VEC_SORT_U64 %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_SORT_BY_U64 %vec_reg, %compare_fn
@@ -2019,10 +3159,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_sort_by_slice_%vec_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_SORT_BY_U64.
+[MACRO] VEC_SORT_BY %vec_reg, %compare_fn
+    EXPAND VEC_SORT_BY_U64 %vec_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] VEC_SORT_BY_KEY_U64 %vec_reg, %key_fn
     EXPAND VEC_AS_MUT_SLICE __vec_sort_key_slice_%vec_reg, %vec_reg
     EXPAND SLICE_SORT_BY_KEY_U64 __vec_sort_key_slice_%vec_reg, %key_fn
     !__vec_sort_key_slice_%vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SORT_BY_KEY_U64.
+[MACRO] VEC_SORT_BY_KEY %vec_reg, %key_fn
+    EXPAND VEC_SORT_BY_KEY_U64 %vec_reg, %key_fn
 [END_MACRO]
 
 [MACRO] VEC_SORT_BY_CACHED_KEY_U64 %vec_reg, %key_fn
@@ -2031,16 +3181,36 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_sort_cached_key_slice_%vec_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_SORT_BY_CACHED_KEY_U64.
+[MACRO] VEC_SORT_BY_CACHED_KEY %vec_reg, %key_fn
+    EXPAND VEC_SORT_BY_CACHED_KEY_U64 %vec_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_SORT_UNSTABLE_U64 %vec_reg
     EXPAND VEC_SORT_U64 %vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_SORT_UNSTABLE_U64.
+[MACRO] VEC_SORT_UNSTABLE %vec_reg
+    EXPAND VEC_SORT_UNSTABLE_U64 %vec_reg
 [END_MACRO]
 
 [MACRO] VEC_SORT_UNSTABLE_BY_U64 %vec_reg, %compare_fn
     EXPAND VEC_SORT_BY_U64 %vec_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over VEC_SORT_UNSTABLE_BY_U64.
+[MACRO] VEC_SORT_UNSTABLE_BY %vec_reg, %compare_fn
+    EXPAND VEC_SORT_UNSTABLE_BY_U64 %vec_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] VEC_SORT_UNSTABLE_BY_KEY_U64 %vec_reg, %key_fn
     EXPAND VEC_SORT_BY_KEY_U64 %vec_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_SORT_UNSTABLE_BY_KEY_U64.
+[MACRO] VEC_SORT_UNSTABLE_BY_KEY %vec_reg, %key_fn
+    EXPAND VEC_SORT_UNSTABLE_BY_KEY_U64 %vec_reg, %key_fn
 [END_MACRO]
 
 [MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
@@ -2049,8 +3219,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_select_nth_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SELECT_NTH_UNSTABLE_U64.
+[MACRO] VEC_TRY_SELECT_NTH_UNSTABLE %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
+    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
+[END_MACRO]
+
 [MACRO] VEC_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
     EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
+[END_MACRO]
+
+// Rust method-name alias over VEC_SELECT_NTH_UNSTABLE_U64.
+[MACRO] VEC_SELECT_NTH_UNSTABLE %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
+    EXPAND VEC_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth
 [END_MACRO]
 
 [MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
@@ -2059,8 +3239,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_select_nth_by_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64.
+[MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_BY %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
+    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
+[END_MACRO]
+
 [MACRO] VEC_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
     EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_SELECT_NTH_UNSTABLE_BY_U64.
+[MACRO] VEC_SELECT_NTH_UNSTABLE_BY %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
+    EXPAND VEC_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %compare_fn
 [END_MACRO]
 
 [MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
@@ -2069,8 +3259,18 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_select_nth_key_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64.
+[MACRO] VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
+    EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
     EXPAND VEC_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64.
+[MACRO] VEC_SELECT_NTH_UNSTABLE_BY_KEY %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
+    EXPAND VEC_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %vec_reg, %nth, %key_fn
 [END_MACRO]
 
 [MACRO] VEC_FILL_WITH_U64 %vec_reg, %gen_fn
@@ -2079,10 +3279,20 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_fill_with_slice_%vec_reg
 [END_MACRO]
 
+// Rust method-name alias over VEC_FILL_WITH_U64.
+[MACRO] VEC_FILL_WITH %vec_reg, %gen_fn
+    EXPAND VEC_FILL_WITH_U64 %vec_reg, %gen_fn
+[END_MACRO]
+
 [MACRO] VEC_FILL_U64 %vec_reg, %value
     EXPAND VEC_AS_MUT_SLICE __vec_fill_slice_%vec_reg, %vec_reg
     EXPAND SLICE_FILL_U64 __vec_fill_slice_%vec_reg, %value
     !__vec_fill_slice_%vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_FILL_U64.
+[MACRO] VEC_FILL %vec_reg, %value
+    EXPAND VEC_FILL_U64 %vec_reg, %value
 [END_MACRO]
 
 [MACRO] VEC_COPY_FROM_SLICE_U64 %out_ok, %vec_reg, %src_slice
@@ -2091,16 +3301,31 @@ L_VEC_FROM_ELEM_DONE_%out_vec:
     !__vec_copy_from_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_COPY_FROM_SLICE_U64.
+[MACRO] VEC_COPY_FROM_SLICE %out_ok, %vec_reg, %src_slice
+    EXPAND VEC_COPY_FROM_SLICE_U64 %out_ok, %vec_reg, %src_slice
+[END_MACRO]
+
 [MACRO] VEC_CLONE_FROM_SLICE_U64 %out_ok, %vec_reg, %src_slice
     EXPAND VEC_AS_MUT_SLICE __vec_clone_from_slice_%out_ok, %vec_reg
     EXPAND SLICE_CLONE_FROM_SLICE_U64 %out_ok, __vec_clone_from_slice_%out_ok, %src_slice
     !__vec_clone_from_slice_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over VEC_CLONE_FROM_SLICE_U64.
+[MACRO] VEC_CLONE_FROM_SLICE %out_ok, %vec_reg, %src_slice
+    EXPAND VEC_CLONE_FROM_SLICE_U64 %out_ok, %vec_reg, %src_slice
+[END_MACRO]
+
 [MACRO] VEC_COPY_WITHIN_U64 %out_ok, %vec_reg, %src_start, %src_len, %dest
     EXPAND VEC_AS_MUT_SLICE __vec_copy_within_slice_%out_ok, %vec_reg
     EXPAND SLICE_COPY_WITHIN_U64 %out_ok, __vec_copy_within_slice_%out_ok, %src_start, %src_len, %dest
     !__vec_copy_within_slice_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over VEC_COPY_WITHIN_U64.
+[MACRO] VEC_COPY_WITHIN %out_ok, %vec_reg, %src_start, %src_len, %dest
+    EXPAND VEC_COPY_WITHIN_U64 %out_ok, %vec_reg, %src_start, %src_len, %dest
 [END_MACRO]
 
 [MACRO] VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, %elem_size
@@ -2250,8 +3475,18 @@ L_VEC_EFSNWC_MISS_%out_ok:
 L_VEC_EFSNWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64.
+[MACRO] VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %slice_reg, %count
+    EXPAND VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
+[END_MACRO]
+
 [MACRO] VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
     EXPAND VEC_TRY_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64.
+[MACRO] VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY %out_ok, %vec_reg, %slice_reg, %count
+    EXPAND VEC_EXTEND_FROM_SLICE_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %slice_reg, %count
 [END_MACRO]
 
 [MACRO] VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length
@@ -2344,8 +3579,18 @@ L_VEC_EFWWC_MISS_START_%out_ok:
 L_VEC_EFWWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64.
+[MACRO] VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY %out_ok, %vec_reg, %start, %length
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_EXTEND_FROM_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length
     EXPAND VEC_TRY_EXTEND_FROM_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over VEC_EXTEND_FROM_WITHIN_CAPACITY_U64.
+[MACRO] VEC_EXTEND_FROM_WITHIN_CAPACITY %out_ok, %vec_reg, %start, %length
+    EXPAND VEC_EXTEND_FROM_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length, %count
@@ -2460,8 +3705,18 @@ L_VEC_EFWNWC_MISS_START_%out_ok:
 L_VEC_EFWNWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64.
+[MACRO] VEC_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY %out_ok, %vec_reg, %start, %length, %count
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length, %count
+[END_MACRO]
+
 [MACRO] VEC_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length, %count
     EXPAND VEC_TRY_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length, %count
+[END_MACRO]
+
+// Rust method-name alias over VEC_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64.
+[MACRO] VEC_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY %out_ok, %vec_reg, %start, %length, %count
+    EXPAND VEC_EXTEND_FROM_WITHIN_N_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %start, %length, %count
 [END_MACRO]
 
 [MACRO] VEC_EXTEND_ITER %vec_reg, %slice_reg, %elem_size
@@ -2525,9 +3780,19 @@ L_VEC_EFW_MISS_START_%out_ok:
 L_VEC_EFW_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_EXTEND_FROM_WITHIN_U64.
+[MACRO] VEC_TRY_EXTEND_FROM_WITHIN %out_ok, %vec_reg, %start, %length
+    EXPAND VEC_TRY_EXTEND_FROM_WITHIN_U64 %out_ok, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_EXTEND_FROM_WITHIN_U64 %vec_reg, %start, %length
     EXPAND VEC_TRY_EXTEND_FROM_WITHIN_U64 __vec_efw_ok_%vec_reg, %vec_reg, %start, %length
     !__vec_efw_ok_%vec_reg
+[END_MACRO]
+
+// Rust method-name alias over VEC_EXTEND_FROM_WITHIN_U64.
+[MACRO] VEC_EXTEND_FROM_WITHIN %vec_reg, %start, %length
+    EXPAND VEC_EXTEND_FROM_WITHIN_U64 %vec_reg, %start, %length
 [END_MACRO]
 
 [MACRO] VEC_APPEND %dst_vec_reg, %src_vec_reg, %elem_size
@@ -3338,6 +4603,11 @@ L_VEC_DEDUP_SMALL_%out_len:
 L_VEC_DEDUP_END_%out_len:
 [END_MACRO]
 
+// Rust method-name alias over VEC_DEDUP_U64.
+[MACRO] VEC_DEDUP %out_len, %vec_reg
+    EXPAND VEC_DEDUP_U64 %out_len, %vec_reg
+[END_MACRO]
+
 [MACRO] VEC_DEDUP_BY_U64 %out_len, %vec_reg, %same_fn
     __vec_dedup_by_view_%out_len = & %vec_reg
     __vec_dedup_by_ptr_%out_len = load __vec_dedup_by_view_%out_len+Vec_ptr as ptr
@@ -3421,6 +4691,11 @@ L_VEC_DEDUP_BY_SMALL_%out_len:
     !__vec_dedup_by_view_%out_len
 
 L_VEC_DEDUP_BY_END_%out_len:
+[END_MACRO]
+
+// Rust method-name alias over VEC_DEDUP_BY_U64.
+[MACRO] VEC_DEDUP_BY %out_len, %vec_reg, %same_fn
+    EXPAND VEC_DEDUP_BY_U64 %out_len, %vec_reg, %same_fn
 [END_MACRO]
 
 [MACRO] VEC_DEDUP_BY_KEY_U64 %out_len, %vec_reg, %key_fn
@@ -3510,6 +4785,11 @@ L_VEC_DEDUP_KEY_SMALL_%out_len:
 L_VEC_DEDUP_KEY_END_%out_len:
 [END_MACRO]
 
+// Rust method-name alias over VEC_DEDUP_BY_KEY_U64.
+[MACRO] VEC_DEDUP_BY_KEY %out_len, %vec_reg, %key_fn
+    EXPAND VEC_DEDUP_BY_KEY_U64 %out_len, %vec_reg, %key_fn
+[END_MACRO]
+
 [MACRO] VEC_RETAIN_U64 %out_len, %vec_reg, %pred_fn
     __vec_retain_view_%out_len = & %vec_reg
     __vec_retain_ptr_%out_len = load __vec_retain_view_%out_len+Vec_ptr as ptr
@@ -3570,6 +4850,11 @@ L_VEC_RETAIN_DONE_%out_len:
     !__vec_retain_len_%out_len
     !__vec_retain_ptr_%out_len
     !__vec_retain_view_%out_len
+[END_MACRO]
+
+// Rust method-name alias over concrete u64 retain.
+[MACRO] VEC_RETAIN %out_len, %vec_reg, %pred_fn
+    EXPAND VEC_RETAIN_U64 %out_len, %vec_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_RETAIN_MUT_U64 %out_len, %vec_reg, %pred_fn
@@ -3634,6 +4919,11 @@ L_VEC_RETAIN_MUT_DONE_%out_len:
     !__vec_retain_mut_view_%out_len
 [END_MACRO]
 
+// Rust method-name alias over concrete u64 retain_mut.
+[MACRO] VEC_RETAIN_MUT %out_len, %vec_reg, %pred_fn
+    EXPAND VEC_RETAIN_MUT_U64 %out_len, %vec_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] VEC_EXTRACT_IF_U64 %out_len, %out_vec, %vec_reg, %pred_fn
     __vec_extract_view_%out_len = & %vec_reg
     __vec_extract_ptr_%out_len = load __vec_extract_view_%out_len+Vec_ptr as ptr
@@ -3696,6 +4986,11 @@ L_VEC_EXTRACT_DONE_%out_len:
     !__vec_extract_len_%out_len
     !__vec_extract_ptr_%out_len
     !__vec_extract_view_%out_len
+[END_MACRO]
+
+// Rust method-name alias over concrete u64 extract_if.
+[MACRO] VEC_EXTRACT_IF %out_len, %out_vec, %vec_reg, %pred_fn
+    EXPAND VEC_EXTRACT_IF_U64 %out_len, %out_vec, %vec_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] VEC_DRAIN_U64 %out_ok, %out_vec, %vec_reg, %start, %length
@@ -3798,6 +5093,11 @@ L_VEC_DRAIN_MISS_START_%out_ok:
 L_VEC_DRAIN_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_DRAIN_U64.
+[MACRO] VEC_DRAIN %out_ok, %out_vec, %vec_reg, %start, %length
+    EXPAND VEC_DRAIN_U64 %out_ok, %out_vec, %vec_reg, %start, %length
+[END_MACRO]
+
 [MACRO] VEC_SPLICE_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
     EXPAND VEC_DRAIN_U64 %out_ok, %out_vec, %vec_reg, %start, %length
     __vec_splice_hit_%out_ok = ne %out_ok, 0
@@ -3835,6 +5135,11 @@ L_VEC_SPLICE_MISS_%out_ok:
     !__vec_splice_hit_%out_ok
 
 L_VEC_SPLICE_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLICE_U64.
+[MACRO] VEC_SPLICE %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
+    EXPAND VEC_SPLICE_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_SPLICE_WITHIN_CAPACITY_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
@@ -4069,8 +5374,18 @@ L_VEC_SWC_MISS_START_%out_ok:
 L_VEC_SWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_SPLICE_WITHIN_CAPACITY_U64.
+[MACRO] VEC_TRY_SPLICE_WITHIN_CAPACITY %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
+    EXPAND VEC_TRY_SPLICE_WITHIN_CAPACITY_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
+[END_MACRO]
+
 [MACRO] VEC_SPLICE_WITHIN_CAPACITY_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
     EXPAND VEC_TRY_SPLICE_WITHIN_CAPACITY_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
+[END_MACRO]
+
+// Rust method-name alias over VEC_SPLICE_WITHIN_CAPACITY_U64.
+[MACRO] VEC_SPLICE_WITHIN_CAPACITY %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
+    EXPAND VEC_SPLICE_WITHIN_CAPACITY_U64 %out_ok, %out_vec, %vec_reg, %start, %length, %replacement_slice
 [END_MACRO]
 
 [MACRO] VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index
@@ -4271,6 +5586,11 @@ L_VEC_RESIZE_WITH_DONE_%out_len:
 L_VEC_RESIZE_WITH_END_%out_len:
 [END_MACRO]
 
+// Rust method-name alias over VEC_RESIZE_WITH_U64.
+[MACRO] VEC_RESIZE_WITH %out_len, %vec_reg, %new_len, %gen_fn
+    EXPAND VEC_RESIZE_WITH_U64 %out_len, %vec_reg, %new_len, %gen_fn
+[END_MACRO]
+
 [MACRO] VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64 %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
     __vec_rswwc_view_%out_ok = & %vec_reg
     __vec_rswwc_len_%out_ok = load __vec_rswwc_view_%out_ok+Vec_len as u64
@@ -4350,8 +5670,18 @@ L_VEC_RSWWC_NO_ROOM_%out_ok:
 L_VEC_RSWWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64.
+[MACRO] VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
+    EXPAND VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64 %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
+[END_MACRO]
+
 [MACRO] VEC_RESIZE_WITH_WITHIN_CAPACITY_U64 %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
     EXPAND VEC_TRY_RESIZE_WITH_WITHIN_CAPACITY_U64 %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
+[END_MACRO]
+
+// Rust method-name alias over VEC_RESIZE_WITH_WITHIN_CAPACITY_U64.
+[MACRO] VEC_RESIZE_WITH_WITHIN_CAPACITY %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
+    EXPAND VEC_RESIZE_WITH_WITHIN_CAPACITY_U64 %out_ok, %out_len, %vec_reg, %new_len, %gen_fn
 [END_MACRO]
 
 [MACRO] VEC_SHRINK_TO %vec_reg, %min_cap, %elem_size
@@ -4395,10 +5725,20 @@ L_VEC_RSWWC_END_%out_ok:
     EXPAND VEC_PUSH_U64 %out_vec, %value1
 [END_MACRO]
 
+// Rust method-name alias over VEC_LIT1_U64.
+[MACRO] VEC_LIT1 %out_vec, %value1
+    EXPAND VEC_LIT1_U64 %out_vec, %value1
+[END_MACRO]
+
 [MACRO] VEC_LIT2_U64 %out_vec, %value1, %value2
     EXPAND VEC_NEW %out_vec
     EXPAND VEC_PUSH_U64 %out_vec, %value1
     EXPAND VEC_PUSH_U64 %out_vec, %value2
+[END_MACRO]
+
+// Rust method-name alias over VEC_LIT2_U64.
+[MACRO] VEC_LIT2 %out_vec, %value1, %value2
+    EXPAND VEC_LIT2_U64 %out_vec, %value1, %value2
 [END_MACRO]
 
 [MACRO] VEC_LIT3_U64 %out_vec, %value1, %value2, %value3
@@ -4406,4 +5746,9 @@ L_VEC_RSWWC_END_%out_ok:
     EXPAND VEC_PUSH_U64 %out_vec, %value1
     EXPAND VEC_PUSH_U64 %out_vec, %value2
     EXPAND VEC_PUSH_U64 %out_vec, %value3
+[END_MACRO]
+
+// Rust method-name alias over VEC_LIT3_U64.
+[MACRO] VEC_LIT3 %out_vec, %value1, %value2, %value3
+    EXPAND VEC_LIT3_U64 %out_vec, %value1, %value2, %value3
 [END_MACRO]

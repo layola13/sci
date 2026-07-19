@@ -19,6 +19,16 @@
     store %out_res+Result_err, %err as u64
 [END_MACRO]
 
+// Rust constructor-name bare alias over RESULT_NEW_OK.
+[MACRO] RESULT_OK %out_res, %value
+    EXPAND RESULT_NEW_OK %out_res, %value
+[END_MACRO]
+
+// Rust constructor-name bare alias over RESULT_NEW_ERR.
+[MACRO] RESULT_ERR %out_res, %err
+    EXPAND RESULT_NEW_ERR %out_res, %err
+[END_MACRO]
+
 [MACRO] RESULT_DEFAULT %out_res
     %out_res = alloc Result_SIZE
     store %out_res+Result_tag, Result_OK as u64
@@ -104,8 +114,18 @@ L_RESULT_COPIED_ERR_%out_res:
 L_RESULT_COPIED_END_%out_res:
 [END_MACRO]
 
+// Rust method-name alias over RESULT_COPIED_U64.
+[MACRO] RESULT_COPIED %out_res, %res_reg
+    EXPAND RESULT_COPIED_U64 %out_res, %res_reg
+[END_MACRO]
+
 [MACRO] RESULT_CLONED_U64 %out_res, %res_reg
     EXPAND RESULT_COPIED_U64 %out_res, %res_reg
+[END_MACRO]
+
+// Rust method-name alias over RESULT_CLONED_U64.
+[MACRO] RESULT_CLONED %out_res, %res_reg
+    EXPAND RESULT_CLONED_U64 %out_res, %res_reg
 [END_MACRO]
 
 [MACRO] RESULT_COPY %out_res, %res_reg

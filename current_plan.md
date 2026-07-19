@@ -2,6 +2,102 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-19 resume: full bare-alias closure)
+
+Completed:
+
+1. **Whole-tree bare alias closure**: every `*_U64` helper under `sa_std/**` now has a bare method-name alias (`+374` this wave; containers previously +630). Remaining gap count: **0**.
+2. **Surface tests 10851–10862** (array/string/hash/vec/path/option/slice/fs-path/iter/binary_heap) — all focused-pass.
+3. Macro surface total ≈ **8862** `[MACRO]` definitions in `sa_std`.
+
+Next free panic: **10863+**.
+
+Natural next work (if continuing std):
+- Real runtime primitives still missing (not aliasable): more network, async, allocator traits.
+- Fix or delete unregistered failing `std_net_fingerprint_macro_surface.sa`.
+- Optional: reduce progress.md log noise / CI subset for new surfaces.
+
+Full suite still intentionally skipped.
+
+## Active std parity batch (2026-07-19 bulk bare aliases + surface tests)
+
+Completed mass Rust method-name aliasing for concrete u64 container helpers:
+
+- Auto-inserted bare aliases for all missing `*_U64` → bare names in vec / vec_deque / binary_heap (**630** macros).
+- Added `VecDeque::truncate_front` runtime + macro; binary_search/partition_point composition macros.
+- Multi-agent focused surface tests panic 10839–10847, 10849–10850 (all green).
+- String/path bulk alias skipped (already broad surface); optional 10848 unused.
+
+Next free panic: **10851+**. Full suite still intentionally skipped.
+
+## Active std parity batch (2026-07-19 BinaryHeap retain + Map iter_mut + VecDeque contains/pop_if)
+
+Completed supportable Rust method-name alias lowering for:
+
+- `BinaryHeap::retain` via `BINARY_HEAP_RETAIN`
+- `HashMap::iter_mut` via `MAP_ITER_MUT`
+- `BTreeMap::iter_mut` via `BTREE_MAP_ITER_MUT`
+- `VecDeque::contains` / `pop_front_if` / `pop_back_if` via `VEC_DEQUE_CONTAINS` / `VEC_DEQUE_POP_FRONT_IF` / `VEC_DEQUE_POP_BACK_IF`
+
+Tests: panic IDs 10835 / 10836 / 10837 / 10838.
+
+Focused validation only — all four passed. Full suite skipped (memory pressure policy).
+
+Scope note: thin aliases over concrete helpers; no lazy iterators, generic element ABI, or panic/drop cleanup modeling.
+
+## Active std parity batch (2026-07-19 BTreeMap entry/disjoint/range_mut aliases)
+
+Completed supportable Rust method-name alias lowering for:
+
+- `BTreeMap::first_entry` / `last_entry` via `BTREE_MAP_FIRST_ENTRY` / `BTREE_MAP_LAST_ENTRY` (+ `_MUT` variants)
+- `BTreeMap::get_disjoint_mut` via `BTREE_MAP_GET_DISJOINT_MUT` / `BTREE_MAP_GET_DISJOINT_MUT_PTRS`
+- `BTreeMap::range_mut` via `BTREE_MAP_RANGE_MUT`
+
+Tests: panic IDs 10832 / 10833 / 10834.
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_entry_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_get_disjoint_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_btree_map_range_mut_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+
+Scope note: these are thin name aliases over existing concrete helpers. They do not model Rust `OccupiedEntry` objects, generic `RangeBounds` variants, lazy `RangeMut` iterators, scoped mutable-reference lifetimes, or panic/drop cleanup.
+
+## Active std parity batch (2026-07-19 HashMap/BinaryHeap/Vec method-name aliases)
+
+Completed supportable Rust method-name alias lowering for:
+
+- `HashMap::get_disjoint_mut` via `MAP_GET_DISJOINT_MUT` / `MAP_GET_DISJOINT_MUT_PTRS`
+- `BinaryHeap::peek_mut` via `BINARY_HEAP_PEEK_MUT` returning `(ok, ptr)`
+- `Vec::retain` / `retain_mut` / `extract_if` / `pop_if` via `VEC_RETAIN`, `VEC_RETAIN_MUT`, `VEC_EXTRACT_IF`, `VEC_POP_IF`
+
+Tests: panic IDs 10828 / 10829 / 10830 / 10831.
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_hashmap_get_disjoint_mut_alias_macro_surface.sa --jobs 1 --trace-panic`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_peek_mut_alias_macro_surface.sa --jobs 1 --trace-panic`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_retain_alias_macro_surface.sa --jobs 1 --trace-panic`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_extract_if_pop_if_alias_macro_surface.sa --jobs 1 --trace-panic`
+
+Scope note: these are thin name aliases over existing concrete helpers. They do not model Rust `Option<&mut T>` / `PeekMut` / lazy `ExtractIf` objects, generic element ABI, aliasing guarantees, or panic/drop cleanup.
+
+## Active std parity batch (2026-07-19 VecDeque retain/split_off/extract_if aliases)
+
+Completed supportable Rust method-name alias lowering for `VecDeque::retain` / `retain_mut` / `split_off` / `extract_if`:
+
+- Added `VEC_DEQUE_RETAIN`, `VEC_DEQUE_RETAIN_MUT`, `VEC_DEQUE_SPLIT_OFF`, and `VEC_DEQUE_EXTRACT_IF` over the existing concrete u64 helpers.
+- `RETAIN` uses value predicates; `RETAIN_MUT` uses mut pointer predicates; `SPLIT_OFF` keeps explicit `(ok, deque)` results; `EXTRACT_IF` eagerly drains matches into a vec.
+- Tests: panic IDs 10825 / 10826 / 10827.
+
+Focused validation only:
+
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_retain_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_split_off_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+- `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_extract_if_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+
+Scope note: these aliases are concrete u64 facades. They do not model Rust lazy `ExtractIf` objects, generic `VecDeque<T>`, scoped mutable-reference lifetimes, allocator cloning, or panic/drop cleanup. Also fixed `VEC_DEQUE_RETAIN_MUT_U64` keep-path nested load to match vec retain_mut.
+
 ## Active std parity batch (2026-07-18 HashMap mutable predicate semantics)
 
 Completed supportable mutable `std::collections::HashMap::retain` / `extract_if` predicate lowering:

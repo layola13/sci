@@ -1809,6 +1809,15 @@ L_MAP_EXTRACT_DONE_%out_len:
     %out_ptr_b = load __map_disjoint_mut_b_slot_%out_ok+0 as ptr
 [END_MACRO]
 
+// Rust method-name aliases over checked disjoint mutable value-slot pointers.
+[MACRO] MAP_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+    EXPAND MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+[END_MACRO]
+
+[MACRO] MAP_GET_DISJOINT_MUT %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+    EXPAND MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+[END_MACRO]
+
 [MACRO] MAP_INSERT %out_replaced, %out_old_value, %map_reg, %key, %value
     __map_insert_old_slot_%out_replaced = stack_alloc 8
     %out_replaced = call @sa_map_insert(&%map_reg, &%key, &%value, &__map_insert_old_slot_%out_replaced)
@@ -1823,6 +1832,11 @@ L_MAP_EXTRACT_DONE_%out_len:
 
 [MACRO] MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
     EXPAND MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
+[END_MACRO]
+
+// Rust method-name bare alias for the common entry path (or_insert).
+[MACRO] MAP_ENTRY %out_inserted, %out_value_ptr, %map_reg, %key, %value
+    EXPAND MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
 [END_MACRO]
 
 [MACRO] MAP_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value
@@ -1888,6 +1902,11 @@ L_MAP_ENTRY_AND_MODIFY_END_%out_ok:
 
 [MACRO] MAP_ITER_MUT_PTRS %out_vec, %map_reg
     %out_vec = call @sa_map_iter_mut_ptrs_vec(&%map_reg)
+[END_MACRO]
+
+// Rust method-name alias: HashMap::iter_mut (eager raw value-slot pointer materialization).
+[MACRO] MAP_ITER_MUT %out_vec, %map_reg
+    EXPAND MAP_ITER_MUT_PTRS %out_vec, %map_reg
 [END_MACRO]
 
 [MACRO] MAP_REF_INTO_ITER %out_vec, %map_reg

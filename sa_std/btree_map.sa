@@ -1605,11 +1605,29 @@ L_BTREE_RANGE_DONE:
     %out_ptr = load __btree_map_first_entry_mut_slot_%out_ok+0 as ptr
 [END_MACRO]
 
+// Rust method-name alias: BTreeMap::first_entry -> mutable value slot + key slice.
+[MACRO] BTREE_MAP_FIRST_ENTRY_MUT %out_ok, %out_key, %out_ptr, %map_reg
+    EXPAND BTREE_MAP_FIRST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
+[END_MACRO]
+
+[MACRO] BTREE_MAP_FIRST_ENTRY %out_ok, %out_key, %out_ptr, %map_reg
+    EXPAND BTREE_MAP_FIRST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
+[END_MACRO]
+
 [MACRO] BTREE_MAP_LAST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
     %out_key = alloc Slice_SIZE
     __btree_map_last_entry_mut_slot_%out_ok = stack_alloc 8
     %out_ok = call @sa_btree_map_last_entry_mut_ptr(&%map_reg, &%out_key, &__btree_map_last_entry_mut_slot_%out_ok)
     %out_ptr = load __btree_map_last_entry_mut_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+// Rust method-name alias: BTreeMap::last_entry -> mutable value slot + key slice.
+[MACRO] BTREE_MAP_LAST_ENTRY_MUT %out_ok, %out_key, %out_ptr, %map_reg
+    EXPAND BTREE_MAP_LAST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
+[END_MACRO]
+
+[MACRO] BTREE_MAP_LAST_ENTRY %out_ok, %out_key, %out_ptr, %map_reg
+    EXPAND BTREE_MAP_LAST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg
 [END_MACRO]
 
 [MACRO] BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
@@ -1618,6 +1636,15 @@ L_BTREE_RANGE_DONE:
     %out_ok = call @sa_btree_map_try_get_disjoint_mut_ptrs(&%map_reg, &%key_a, &%key_b, &__btree_map_disjoint_a_slot_%out_ok, &__btree_map_disjoint_b_slot_%out_ok)
     %out_ptr_a = load __btree_map_disjoint_a_slot_%out_ok+0 as ptr
     %out_ptr_b = load __btree_map_disjoint_b_slot_%out_ok+0 as ptr
+[END_MACRO]
+
+// Rust method-name alias: BTreeMap::get_disjoint_mut (pair form).
+[MACRO] BTREE_MAP_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+    EXPAND BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+[END_MACRO]
+
+[MACRO] BTREE_MAP_GET_DISJOINT_MUT %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
+    EXPAND BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b
 [END_MACRO]
 
 [MACRO] BTREE_MAP_FIRST_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg
@@ -1646,11 +1673,26 @@ L_BTREE_RANGE_DONE:
     call @btree_map_write_hash_str_u64(&%hasher, &%map_reg)
 [END_MACRO]
 
+// Rust method-name alias over DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64.
+[MACRO] DEFAULT_HASHER_WRITE_BTREE_MAP_STR %hasher, %map_reg
+    EXPAND DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 %hasher, %map_reg
+[END_MACRO]
+
 [MACRO] BTREE_MAP_HASH_STR_U64 %out_hash, %map_reg
     __btree_map_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND DEFAULT_HASHER_NEW __btree_map_hash_hasher_%out_hash
     EXPAND DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 __btree_map_hash_hasher_%out_hash, %map_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __btree_map_hash_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BTREE_MAP_HASH_STR_U64.
+[MACRO] BTREE_MAP_HASH_STR %out_hash, %map_reg
+    EXPAND BTREE_MAP_HASH_STR_U64 %out_hash, %map_reg
+[END_MACRO]
+
+// Rust method-name bare alias over the concrete str-key/u64-value hash helper.
+[MACRO] BTREE_MAP_HASH %out_hash, %map_reg
+    EXPAND BTREE_MAP_HASH_STR_U64 %out_hash, %map_reg
 [END_MACRO]
 
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %builder, %map_reg
@@ -1660,11 +1702,31 @@ L_BTREE_RANGE_DONE:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_btree_map_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR %out_hash, %builder, %map_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %builder, %map_reg
+[END_MACRO]
+
+// Rust method-name bare alias over BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP %out_hash, %builder, %map_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %builder, %map_reg
+[END_MACRO]
+
 [MACRO] RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %state, %map_reg
     __random_state_hash_one_btree_map_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_btree_map_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_BTREE_MAP_STR_U64 __random_state_hash_one_btree_map_hasher_%out_hash, %map_reg
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_btree_map_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_BTREE_MAP_STR %out_hash, %state, %map_reg
+    EXPAND RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %state, %map_reg
+[END_MACRO]
+
+// Rust method-name bare alias over RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_BTREE_MAP %out_hash, %state, %map_reg
+    EXPAND RANDOM_STATE_HASH_ONE_BTREE_MAP_STR_U64 %out_hash, %state, %map_reg
 [END_MACRO]
 
 [MACRO] BTREE_MAP_RETAIN %out_len, %map_reg, %pred_fn
@@ -2003,6 +2065,11 @@ L_BTREE_MAP_EXTRACT_RANGE_DONE_%out_len:
     EXPAND BTREE_MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
 [END_MACRO]
 
+// Rust method-name bare alias for the common entry path (or_insert).
+[MACRO] BTREE_MAP_ENTRY %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+    EXPAND BTREE_MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
+[END_MACRO]
+
 [MACRO] BTREE_MAP_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
     EXPAND BTREE_MAP_ENTRY_OR_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value
 [END_MACRO]
@@ -2065,6 +2132,11 @@ L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok:
     %out_vec = call @sa_btree_map_iter_mut_ptrs_vec(&%map_reg)
 [END_MACRO]
 
+// Rust method-name alias: BTreeMap::iter_mut (eager raw value-slot pointer materialization).
+[MACRO] BTREE_MAP_ITER_MUT %out_vec, %map_reg
+    EXPAND BTREE_MAP_ITER_MUT_PTRS %out_vec, %map_reg
+[END_MACRO]
+
 [MACRO] BTREE_MAP_REF_INTO_ITER %out_vec, %map_reg
     EXPAND BTREE_MAP_ITER %out_vec, %map_reg
 [END_MACRO]
@@ -2106,6 +2178,11 @@ L_BTREE_MAP_ENTRY_AND_MODIFY_END_%out_ok:
 
 [MACRO] BTREE_MAP_RANGE_MUT_PTRS %out_vec, %map_reg, %start_key, %end_key
     %out_vec = call @sa_btree_map_range_mut_ptrs_vec(&%map_reg, &%start_key, &%end_key)
+[END_MACRO]
+
+// Rust method-name alias: BTreeMap::range_mut (eager raw-pointer materialization).
+[MACRO] BTREE_MAP_RANGE_MUT %out_vec, %map_reg, %start_key, %end_key
+    EXPAND BTREE_MAP_RANGE_MUT_PTRS %out_vec, %map_reg, %start_key, %end_key
 [END_MACRO]
 
 [MACRO] BTREE_MAP_LIT1 %out_map, %key1, %value1

@@ -17,40 +17,90 @@
     EXPAND SLICE_NEW %out_slice, %array_ptr, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_AS_SLICE_U64.
+[MACRO] ARRAY_AS_SLICE %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_AS_MUT_SLICE_U64 %out_slice, %array_ptr, %length
     EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_AS_MUT_SLICE_U64.
+[MACRO] ARRAY_AS_MUT_SLICE %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_MUT_SLICE_U64 %out_slice, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_AS_REF_SLICE_U64 %out_slice, %array_ptr, %length
     EXPAND ARRAY_AS_SLICE_U64 %out_slice, %array_ptr, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_AS_REF_SLICE_U64.
+[MACRO] ARRAY_AS_REF_SLICE %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_REF_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_AS_MUT_REF_SLICE_U64 %out_slice, %array_ptr, %length
     EXPAND ARRAY_AS_MUT_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_AS_MUT_REF_SLICE_U64.
+[MACRO] ARRAY_AS_MUT_REF_SLICE %out_slice, %array_ptr, %length
+    EXPAND ARRAY_AS_MUT_REF_SLICE_U64 %out_slice, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_BORROW_SLICE_U64 %out_slice, %array_ptr, %length
     EXPAND ARRAY_AS_REF_SLICE_U64 %out_slice, %array_ptr, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_BORROW_SLICE_U64.
+[MACRO] ARRAY_BORROW_SLICE %out_slice, %array_ptr, %length
+    EXPAND ARRAY_BORROW_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_BORROW_MUT_SLICE_U64 %out_slice, %array_ptr, %length
     EXPAND ARRAY_AS_MUT_REF_SLICE_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_BORROW_MUT_SLICE_U64.
+[MACRO] ARRAY_BORROW_MUT_SLICE %out_slice, %array_ptr, %length
+    EXPAND ARRAY_BORROW_MUT_SLICE_U64 %out_slice, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_FROM_REF_U64 %out_slice, %value_ptr
     EXPAND SLICE_NEW %out_slice, %value_ptr, 1
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_FROM_REF_U64.
+[MACRO] ARRAY_FROM_REF %out_slice, %value_ptr
+    EXPAND ARRAY_FROM_REF_U64 %out_slice, %value_ptr
+[END_MACRO]
+
 [MACRO] ARRAY_FROM_MUT_U64 %out_slice, %value_ptr
     EXPAND SLICE_NEW %out_slice, %value_ptr, 1
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_FROM_MUT_U64.
+[MACRO] ARRAY_FROM_MUT %out_slice, %value_ptr
+    EXPAND ARRAY_FROM_MUT_U64 %out_slice, %value_ptr
 [END_MACRO]
 
 [MACRO] ARRAY_EACH_REF_U64 %out_slice, %array_ptr, %length
     EXPAND SLICE_NEW %out_slice, %array_ptr, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_EACH_REF_U64.
+[MACRO] ARRAY_EACH_REF %out_slice, %array_ptr, %length
+    EXPAND ARRAY_EACH_REF_U64 %out_slice, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_EACH_MUT_U64 %out_slice, %array_ptr, %length
     EXPAND SLICE_NEW %out_slice, %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_EACH_MUT_U64.
+[MACRO] ARRAY_EACH_MUT %out_slice, %array_ptr, %length
+    EXPAND ARRAY_EACH_MUT_U64 %out_slice, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_U64 %out_iter, %array_ptr, %length
@@ -59,18 +109,38 @@
     EXPAND ITER_FROM_SLICE %out_iter, __array_iter_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_U64.
+[MACRO] ARRAY_ITER %out_iter, %array_ptr, %length
+    EXPAND ARRAY_ITER_U64 %out_iter, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_MUT_U64 %out_iter, %array_ptr, %length
     __array_iter_mut_slice_%out_iter = stack_alloc Slice_SIZE
     EXPAND ARRAY_AS_MUT_SLICE_U64 __array_iter_mut_slice_%out_iter, %array_ptr, %length
     EXPAND ITER_FROM_SLICE %out_iter, __array_iter_mut_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_MUT_U64.
+[MACRO] ARRAY_ITER_MUT %out_iter, %array_ptr, %length
+    EXPAND ARRAY_ITER_MUT_U64 %out_iter, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
     EXPAND ARRAY_ITER_U64 %out_iter, %array_ptr, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_REF_INTO_ITER_U64.
+[MACRO] ARRAY_REF_INTO_ITER %out_iter, %array_ptr, %length
+    EXPAND ARRAY_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_MUT_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
     EXPAND ARRAY_ITER_MUT_U64 %out_iter, %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_MUT_REF_INTO_ITER_U64.
+[MACRO] ARRAY_MUT_REF_INTO_ITER %out_iter, %array_ptr, %length
+    EXPAND ARRAY_MUT_REF_INTO_ITER_U64 %out_iter, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_U64 %out_iter, %out_vec, %array_ptr, %length
@@ -82,68 +152,153 @@
     !__array_into_iter_backing_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_U64.
+[MACRO] ARRAY_INTO_ITER %out_iter, %out_vec, %array_ptr, %length
+    EXPAND ARRAY_INTO_ITER_U64 %out_iter, %out_vec, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_NEW_U64 %out_iter, %out_vec, %array_ptr, %length
     EXPAND ARRAY_INTO_ITER_U64 %out_iter, %out_vec, %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_NEW_U64.
+[MACRO] ARRAY_INTO_ITER_NEW %out_iter, %out_vec, %array_ptr, %length
+    EXPAND ARRAY_INTO_ITER_NEW_U64 %out_iter, %out_vec, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_EMPTY_U64 %out_iter, %out_vec
     EXPAND VEC_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_EMPTY_U64.
+[MACRO] ARRAY_INTO_ITER_EMPTY %out_iter, %out_vec
+    EXPAND ARRAY_INTO_ITER_EMPTY_U64 %out_iter, %out_vec
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
     EXPAND ARRAY_INTO_ITER_EMPTY_U64 %out_iter, %out_vec
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_DEFAULT_U64.
+[MACRO] ARRAY_INTO_ITER_DEFAULT %out_iter, %out_vec
+    EXPAND ARRAY_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_AS_SLICE_U64.
+[MACRO] ARRAY_INTO_ITER_AS_SLICE %out_slice, %iter_reg
+    EXPAND ARRAY_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_AS_MUT_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_AS_MUT_SLICE_U64.
+[MACRO] ARRAY_INTO_ITER_AS_MUT_SLICE %out_slice, %iter_reg
+    EXPAND ARRAY_INTO_ITER_AS_MUT_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
     EXPAND ARRAY_INTO_ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_AS_REF_SLICE_U64.
+[MACRO] ARRAY_INTO_ITER_AS_REF_SLICE %out_slice, %iter_reg
+    EXPAND ARRAY_INTO_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_SIZE_HINT_U64.
+[MACRO] ARRAY_INTO_ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND ARRAY_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_EXACT_SIZE_LEN_U64.
+[MACRO] ARRAY_INTO_ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND ARRAY_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND ARRAY_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_NEXT_U64.
+[MACRO] ARRAY_INTO_ITER_NEXT %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_NEXT_BACK_U64.
+[MACRO] ARRAY_INTO_ITER_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_NTH_U64.
+[MACRO] ARRAY_INTO_ITER_NTH %out_has, %out_value, %iter_reg, %nth
+    EXPAND ARRAY_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_NTH_BACK_U64.
+[MACRO] ARRAY_INTO_ITER_NTH_BACK %out_has, %out_value, %iter_reg, %nth
+    EXPAND ARRAY_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
     EXPAND ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_NEXT_CHUNK_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_NEXT_CHUNK %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND ARRAY_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_COUNT_U64 %out_count, %iter_reg
     EXPAND ITER_COUNT %out_count, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_COUNT_U64.
+[MACRO] ARRAY_INTO_ITER_COUNT %out_count, %iter_reg
+    EXPAND ARRAY_INTO_ITER_COUNT_U64 %out_count, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_LAST_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_LAST_U64.
+[MACRO] ARRAY_INTO_ITER_LAST %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
@@ -158,332 +313,747 @@
     EXPAND ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_FOLD_U64.
+[MACRO] ARRAY_INTO_ITER_FOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ARRAY_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_FOLD_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_FOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ARRAY_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_RFOLD_U64.
+[MACRO] ARRAY_INTO_ITER_RFOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ARRAY_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_RFOLD_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_RFOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND ARRAY_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_SUM_U64 %out_value, %iter_reg
     EXPAND ITER_SUM_U64 %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_SUM_U64.
+[MACRO] ARRAY_INTO_ITER_SUM %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
     EXPAND ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_PRODUCT_U64.
+[MACRO] ARRAY_INTO_ITER_PRODUCT %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_MIN_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_MIN_U64.
+[MACRO] ARRAY_INTO_ITER_MIN %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_MAX_U64.
+[MACRO] ARRAY_INTO_ITER_MAX %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_REDUCE_U64.
+[MACRO] ARRAY_INTO_ITER_REDUCE %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND ARRAY_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_REDUCE_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_REDUCE %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND ARRAY_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_MIN_BY_U64.
+[MACRO] ARRAY_INTO_ITER_MIN_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND ARRAY_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_MAX_BY_U64.
+[MACRO] ARRAY_INTO_ITER_MAX_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND ARRAY_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_MIN_BY_KEY_U64.
+[MACRO] ARRAY_INTO_ITER_MIN_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND ARRAY_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_MAX_BY_KEY_U64.
+[MACRO] ARRAY_INTO_ITER_MAX_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND ARRAY_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_IS_SORTED_U64 %out_bool, %iter_reg
     EXPAND ITER_IS_SORTED_U64 %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_IS_SORTED_U64.
+[MACRO] ARRAY_INTO_ITER_IS_SORTED %out_bool, %iter_reg
+    EXPAND ARRAY_INTO_ITER_IS_SORTED_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
     EXPAND ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_IS_SORTED_BY_U64.
+[MACRO] ARRAY_INTO_ITER_IS_SORTED_BY %out_bool, %iter_reg, %compare_fn
+    EXPAND ARRAY_INTO_ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
     EXPAND ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_IS_SORTED_BY_KEY_U64.
+[MACRO] ARRAY_INTO_ITER_IS_SORTED_BY_KEY %out_bool, %iter_reg, %key_fn
+    EXPAND ARRAY_INTO_ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_CMP_U64.
+[MACRO] ARRAY_INTO_ITER_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_CMP_BY_U64.
+[MACRO] ARRAY_INTO_ITER_CMP_BY %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND ARRAY_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_PARTIAL_CMP_U64.
+[MACRO] ARRAY_INTO_ITER_PARTIAL_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_PARTIAL_CMP_BY_U64.
+[MACRO] ARRAY_INTO_ITER_PARTIAL_CMP_BY %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND ARRAY_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
     EXPAND ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_EQ_BY_U64.
+[MACRO] ARRAY_INTO_ITER_EQ_BY %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND ARRAY_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_EQ_U64.
+[MACRO] ARRAY_INTO_ITER_EQ %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_PARTIAL_EQ_U64.
+[MACRO] ARRAY_INTO_ITER_PARTIAL_EQ %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_NE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_NE_U64.
+[MACRO] ARRAY_INTO_ITER_NE %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_LT_U64.
+[MACRO] ARRAY_INTO_ITER_LT %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_LE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_LE_U64.
+[MACRO] ARRAY_INTO_ITER_LE %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_GT_U64.
+[MACRO] ARRAY_INTO_ITER_GT %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
     EXPAND ITER_GE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_GE_U64.
+[MACRO] ARRAY_INTO_ITER_GE %out_bool, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_FIND_U64.
+[MACRO] ARRAY_INTO_ITER_FIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_FIND_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_FIND %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
     EXPAND ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_FIND_MAP_U64.
+[MACRO] ARRAY_INTO_ITER_FIND_MAP %out_has, %out_value, %iter_reg, %map_fn
+    EXPAND ARRAY_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_POSITION_U64.
+[MACRO] ARRAY_INTO_ITER_POSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_RPOSITION_U64.
+[MACRO] ARRAY_INTO_ITER_RPOSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_RFIND_U64.
+[MACRO] ARRAY_INTO_ITER_RFIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_ANY_U64.
+[MACRO] ARRAY_INTO_ITER_ANY %out_bool, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_ALL_U64.
+[MACRO] ARRAY_INTO_ITER_ALL %out_bool, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
     EXPAND ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_FOR_EACH_U64.
+[MACRO] ARRAY_INTO_ITER_FOR_EACH %iter_reg, %each_fn
+    EXPAND ARRAY_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
     EXPAND ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_FOR_EACH_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_FOR_EACH %out_ok, %iter_reg, %each_fn
+    EXPAND ARRAY_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_COLLECT %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
     EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_COLLECT %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND ARRAY_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_COLLECT_INTO_U64.
+[MACRO] ARRAY_INTO_ITER_COLLECT_INTO %vec_reg, %iter_reg
+    EXPAND ARRAY_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_TAKE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_TAKE_COLLECT %out_vec, %iter_reg, %count
+    EXPAND ARRAY_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_SKIP_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_SKIP_COLLECT %out_vec, %iter_reg, %count
+    EXPAND ARRAY_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_REV_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_REV_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_REV_COLLECT %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_REV_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
     EXPAND ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_TRY_STEP_BY_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_TRY_STEP_BY_COLLECT %out_ok, %out_vec, %iter_reg, %step
+    EXPAND ARRAY_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
     EXPAND ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_STEP_BY_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_STEP_BY_COLLECT %out_vec, %iter_reg, %step
+    EXPAND ARRAY_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_MAP_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_MAP_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND ARRAY_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
     EXPAND ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_INSPECT_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_INSPECT_COLLECT %out_vec, %iter_reg, %inspect_fn
+    EXPAND ARRAY_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
     EXPAND ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_SCAN_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_SCAN_COLLECT %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND ARRAY_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_FILTER_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_FILTER_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_FILTER_MAP_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_FILTER_MAP_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND ARRAY_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_MAP_WHILE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_MAP_WHILE_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND ARRAY_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
     EXPAND ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_INTERSPERSE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_INTERSPERSE_COLLECT %out_vec, %iter_reg, %separator
+    EXPAND ARRAY_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
     EXPAND ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_INTERSPERSE_WITH_COLLECT %out_vec, %iter_reg, %sep_fn
+    EXPAND ARRAY_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_CYCLE_TAKE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_CYCLE_TAKE_COLLECT %out_vec, %iter_reg, %count
+    EXPAND ARRAY_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_TAKE_WHILE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_TAKE_WHILE_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_SKIP_WHILE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_SKIP_WHILE_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_ENUMERATE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_ENUMERATE_COLLECT %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
     EXPAND ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_ZIP_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_ZIP_COLLECT %out_vec, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
     EXPAND ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_CHAIN_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_CHAIN_COLLECT %out_vec, %left_iter, %right_iter
+    EXPAND ARRAY_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_BY_REF_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_BY_REF_COLLECT %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_FUSE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_FUSE_COLLECT %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_PEEKABLE_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_PEEKABLE_COLLECT %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
     EXPAND ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_PARTITION_U64.
+[MACRO] ARRAY_INTO_ITER_PARTITION %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_IS_PARTITIONED_U64.
+[MACRO] ARRAY_INTO_ITER_IS_PARTITIONED %out_bool, %iter_reg, %pred_fn
+    EXPAND ARRAY_INTO_ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
     EXPAND ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_ARRAY_CHUNKS_COLLECT %out_ok, %out_vec, %iter_reg, %chunk_size
+    EXPAND ARRAY_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] ARRAY_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
     EXPAND ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INTO_ITER_MAP_WINDOWS_COLLECT_U64.
+[MACRO] ARRAY_INTO_ITER_MAP_WINDOWS_COLLECT %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+    EXPAND ARRAY_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
 [END_MACRO]
 
 [MACRO] ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INTO_ITER_CLONE_U64.
+[MACRO] ARRAY_INTO_ITER_CLONE %out_iter, %out_vec, %iter_reg
+    EXPAND ARRAY_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_AS_REF_SLICE_U64.
+[MACRO] ARRAY_ITER_AS_REF_SLICE %out_slice, %iter_reg
+    EXPAND ARRAY_ITER_AS_REF_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_SIZE_HINT_U64.
+[MACRO] ARRAY_ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND ARRAY_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_EXACT_SIZE_LEN_U64.
+[MACRO] ARRAY_ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND ARRAY_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] ARRAY_ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND ARRAY_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_NEXT_U64.
+[MACRO] ARRAY_ITER_NEXT %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_NEXT_BACK_U64.
+[MACRO] ARRAY_ITER_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_CLONE_U64 %out_iter, %iter_reg
     EXPAND ITER_CLONE %out_iter, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_CLONE_U64.
+[MACRO] ARRAY_ITER_CLONE %out_iter, %iter_reg
+    EXPAND ARRAY_ITER_CLONE_U64 %out_iter, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_MUT_AS_REF_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_MUT_AS_REF_SLICE_U64.
+[MACRO] ARRAY_ITER_MUT_AS_REF_SLICE %out_slice, %iter_reg
+    EXPAND ARRAY_ITER_MUT_AS_REF_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_MUT_AS_MUT_SLICE_U64 %out_slice, %iter_reg
     EXPAND ITER_AS_SLICE_U64 %out_slice, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_MUT_AS_MUT_SLICE_U64.
+[MACRO] ARRAY_ITER_MUT_AS_MUT_SLICE %out_slice, %iter_reg
+    EXPAND ARRAY_ITER_MUT_AS_MUT_SLICE_U64 %out_slice, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_MUT_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_MUT_SIZE_HINT_U64.
+[MACRO] ARRAY_ITER_MUT_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND ARRAY_ITER_MUT_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_MUT_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_MUT_EXACT_SIZE_LEN_U64.
+[MACRO] ARRAY_ITER_MUT_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND ARRAY_ITER_MUT_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] ARRAY_ITER_MUT_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND ARRAY_ITER_MUT_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_MUT_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_ITER_MUT_NEXT_U64.
+[MACRO] ARRAY_ITER_MUT_NEXT %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_ITER_MUT_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] ARRAY_ITER_MUT_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_ITER_MUT_NEXT_BACK_U64.
+[MACRO] ARRAY_ITER_MUT_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND ARRAY_ITER_MUT_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] ARRAY_GET_U64 %out_value, %array_ptr, %index
@@ -494,18 +1064,38 @@
     !__array_get_off_%out_value
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_GET_U64.
+[MACRO] ARRAY_GET %out_value, %array_ptr, %index
+    EXPAND ARRAY_GET_U64 %out_value, %array_ptr, %index
+[END_MACRO]
+
 [MACRO] ARRAY_GET_MUT_PTR_U64 %out_ptr, %array_ptr, %index
     __array_mut_off_%out_ptr = mul %index, 8
     %out_ptr = ptr_add %array_ptr, __array_mut_off_%out_ptr
     !__array_mut_off_%out_ptr
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_GET_MUT_PTR_U64.
+[MACRO] ARRAY_GET_MUT_PTR %out_ptr, %array_ptr, %index
+    EXPAND ARRAY_GET_MUT_PTR_U64 %out_ptr, %array_ptr, %index
+[END_MACRO]
+
 [MACRO] ARRAY_INDEX_U64 %out_value, %array_ptr, %index
     EXPAND ARRAY_GET_U64 %out_value, %array_ptr, %index
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_INDEX_U64.
+[MACRO] ARRAY_INDEX %out_value, %array_ptr, %index
+    EXPAND ARRAY_INDEX_U64 %out_value, %array_ptr, %index
+[END_MACRO]
+
 [MACRO] ARRAY_INDEX_MUT_PTR_U64 %out_ptr, %array_ptr, %index
     EXPAND ARRAY_GET_MUT_PTR_U64 %out_ptr, %array_ptr, %index
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_INDEX_MUT_PTR_U64.
+[MACRO] ARRAY_INDEX_MUT_PTR %out_ptr, %array_ptr, %index
+    EXPAND ARRAY_INDEX_MUT_PTR_U64 %out_ptr, %array_ptr, %index
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_GET_U64 %out_ok, %out_value, %array_ptr, %length, %index
@@ -526,6 +1116,11 @@ L_ARRAY_TRY_GET_MISS_%out_ok:
 L_ARRAY_TRY_GET_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_GET_U64.
+[MACRO] ARRAY_TRY_GET %out_ok, %out_value, %array_ptr, %length, %index
+    EXPAND ARRAY_TRY_GET_U64 %out_ok, %out_value, %array_ptr, %length, %index
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %array_ptr, %length, %index
     __array_mut_in_bounds_%out_ok = ult %index, %length
     br __array_mut_in_bounds_%out_ok -> L_ARRAY_TRY_MUT_HIT_%out_ok, L_ARRAY_TRY_MUT_MISS_%out_ok
@@ -544,14 +1139,29 @@ L_ARRAY_TRY_MUT_MISS_%out_ok:
 L_ARRAY_TRY_MUT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_GET_MUT_PTR_U64.
+[MACRO] ARRAY_TRY_GET_MUT_PTR %out_ok, %out_ptr, %array_ptr, %length, %index
+    EXPAND ARRAY_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %array_ptr, %length, %index
+[END_MACRO]
+
 [MACRO] ARRAY_FIRST_U64 %out_value, %array_ptr
     EXPAND ARRAY_GET_U64 %out_value, %array_ptr, 0
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_FIRST_U64.
+[MACRO] ARRAY_FIRST %out_value, %array_ptr
+    EXPAND ARRAY_FIRST_U64 %out_value, %array_ptr
 [END_MACRO]
 
 [MACRO] ARRAY_LAST_U64 %out_value, %array_ptr, %length
     __array_last_idx_%out_value = sub %length, 1
     EXPAND ARRAY_GET_U64 %out_value, %array_ptr, __array_last_idx_%out_value
     !__array_last_idx_%out_value
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_LAST_U64.
+[MACRO] ARRAY_LAST %out_value, %array_ptr, %length
+    EXPAND ARRAY_LAST_U64 %out_value, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_FILL_U64 %array_ptr, %length, %value
@@ -582,12 +1192,27 @@ L_ARRAY_FILL_DONE_%array_ptr:
     !__array_fill_idx_%array_ptr
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_FILL_U64.
+[MACRO] ARRAY_FILL %array_ptr, %length, %value
+    EXPAND ARRAY_FILL_U64 %array_ptr, %length, %value
+[END_MACRO]
+
 [MACRO] ARRAY_REPEAT_U64 %array_ptr, %length, %value
     EXPAND ARRAY_FILL_U64 %array_ptr, %length, %value
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_REPEAT_U64.
+[MACRO] ARRAY_REPEAT %array_ptr, %length, %value
+    EXPAND ARRAY_REPEAT_U64 %array_ptr, %length, %value
+[END_MACRO]
+
 [MACRO] ARRAY_DEFAULT_U64 %array_ptr, %length
     EXPAND ARRAY_FILL_U64 %array_ptr, %length, 0
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_DEFAULT_U64.
+[MACRO] ARRAY_DEFAULT %array_ptr, %length
+    EXPAND ARRAY_DEFAULT_U64 %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_DEFAULT_I64 %array_ptr, %length
@@ -604,6 +1229,11 @@ L_ARRAY_FILL_DONE_%array_ptr:
 
 [MACRO] DEFAULT_ARRAY_U64 %array_ptr, %length
     EXPAND ARRAY_DEFAULT_U64 %array_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_ARRAY_U64.
+[MACRO] DEFAULT_ARRAY %array_ptr, %length
+    EXPAND DEFAULT_ARRAY_U64 %array_ptr, %length
 [END_MACRO]
 
 [MACRO] DEFAULT_ARRAY_I64 %array_ptr, %length
@@ -624,16 +1254,36 @@ L_ARRAY_FILL_DONE_%array_ptr:
     !__array_copy_bytes_%dst_ptr
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_COPY_U64.
+[MACRO] ARRAY_COPY %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_CLONE_U64 %dst_ptr, %src_ptr, %length
     EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_CLONE_U64.
+[MACRO] ARRAY_CLONE %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_CLONE_U64 %dst_ptr, %src_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_CLONE_FROM_U64 %dst_ptr, %src_ptr, %length
     EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_CLONE_FROM_U64.
+[MACRO] ARRAY_CLONE_FROM %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_CLONE_FROM_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_COPY_FROM_U64 %dst_ptr, %src_ptr, %length
     EXPAND ARRAY_COPY_U64 %dst_ptr, %src_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_COPY_FROM_U64.
+[MACRO] ARRAY_COPY_FROM %dst_ptr, %src_ptr, %length
+    EXPAND ARRAY_COPY_FROM_U64 %dst_ptr, %src_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
@@ -644,14 +1294,29 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND SLICE_EQ_U64 %out_bool, __array_eq_left_%out_bool, __array_eq_right_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_EQ_U64.
+[MACRO] ARRAY_EQ %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_NE_U64 %out_bool, %left_ptr, %right_ptr, %length
     EXPAND ARRAY_EQ_U64 __array_ne_eq_%out_bool, %left_ptr, %right_ptr, %length
     %out_bool = eq __array_ne_eq_%out_bool, 0
     !__array_ne_eq_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_NE_U64.
+[MACRO] ARRAY_NE %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_NE_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_PARTIAL_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
     EXPAND ARRAY_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_PARTIAL_EQ_U64.
+[MACRO] ARRAY_PARTIAL_EQ %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_PARTIAL_EQ_U64 %out_bool, %left_ptr, %right_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
@@ -662,8 +1327,18 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND SLICE_CMP_U64 %out_ordering, __array_cmp_left_%out_ordering, __array_cmp_right_%out_ordering
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_CMP_U64.
+[MACRO] ARRAY_CMP %out_ordering, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_PARTIAL_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
     EXPAND ARRAY_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_PARTIAL_CMP_U64.
+[MACRO] ARRAY_PARTIAL_CMP %out_ordering, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_PARTIAL_CMP_U64 %out_ordering, %left_ptr, %right_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_LT_U64 %out_bool, %left_ptr, %right_ptr, %length
@@ -672,10 +1347,20 @@ L_ARRAY_FILL_DONE_%array_ptr:
     !__array_lt_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_LT_U64.
+[MACRO] ARRAY_LT %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_LT_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_LE_U64 %out_bool, %left_ptr, %right_ptr, %length
     EXPAND ARRAY_CMP_U64 __array_le_order_%out_bool, %left_ptr, %right_ptr, %length
     %out_bool = sle __array_le_order_%out_bool, 0
     !__array_le_order_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_LE_U64.
+[MACRO] ARRAY_LE %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_LE_U64 %out_bool, %left_ptr, %right_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_GT_U64 %out_bool, %left_ptr, %right_ptr, %length
@@ -684,16 +1369,31 @@ L_ARRAY_FILL_DONE_%array_ptr:
     !__array_gt_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_GT_U64.
+[MACRO] ARRAY_GT %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_GT_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_GE_U64 %out_bool, %left_ptr, %right_ptr, %length
     EXPAND ARRAY_CMP_U64 __array_ge_order_%out_bool, %left_ptr, %right_ptr, %length
     %out_bool = sge __array_ge_order_%out_bool, 0
     !__array_ge_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_GE_U64.
+[MACRO] ARRAY_GE %out_bool, %left_ptr, %right_ptr, %length
+    EXPAND ARRAY_GE_U64 %out_bool, %left_ptr, %right_ptr, %length
+[END_MACRO]
+
 [MACRO] DEFAULT_HASHER_WRITE_ARRAY_U64 %hasher, %array_ptr, %length
     __array_hash_slice_%hasher = stack_alloc Slice_SIZE
     EXPAND ARRAY_AS_SLICE_U64 __array_hash_slice_%hasher, %array_ptr, %length
     EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 %hasher, __array_hash_slice_%hasher
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_ARRAY_U64.
+[MACRO] DEFAULT_HASHER_WRITE_ARRAY %hasher, %array_ptr, %length
+    EXPAND DEFAULT_HASHER_WRITE_ARRAY_U64 %hasher, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_HASH_U64 %out_hash, %array_ptr, %length
@@ -703,6 +1403,11 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __array_hash_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_HASH_U64.
+[MACRO] ARRAY_HASH %out_hash, %array_ptr, %length
+    EXPAND ARRAY_HASH_U64 %out_hash, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_ARRAY_U64 %out_hash, %builder, %array_ptr, %length
     __build_hash_one_array_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_array_u64_hasher_%out_hash, %builder
@@ -710,11 +1415,21 @@ L_ARRAY_FILL_DONE_%array_ptr:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_array_u64_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_ARRAY_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_ARRAY %out_hash, %builder, %array_ptr, %length
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_ARRAY_U64 %out_hash, %builder, %array_ptr, %length
+[END_MACRO]
+
 [MACRO] RANDOM_STATE_HASH_ONE_ARRAY_U64 %out_hash, %state, %array_ptr, %length
     __random_state_hash_one_array_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_array_u64_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_ARRAY_U64 __random_state_hash_one_array_u64_hasher_%out_hash, %array_ptr, %length
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_array_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_ARRAY_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_ARRAY %out_hash, %state, %array_ptr, %length
+    EXPAND RANDOM_STATE_HASH_ONE_ARRAY_U64 %out_hash, %state, %array_ptr, %length
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
@@ -739,12 +1454,27 @@ L_ARRAY_COPY_SLICE_MISS_%out_ok:
 L_ARRAY_COPY_SLICE_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_COPY_FROM_SLICE_U64.
+[MACRO] ARRAY_TRY_COPY_FROM_SLICE %out_ok, %dst_ptr, %length, %src_slice
+    EXPAND ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
     EXPAND ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_FROM_SLICE_U64.
+[MACRO] ARRAY_TRY_FROM_SLICE %out_ok, %dst_ptr, %length, %src_slice
+    EXPAND ARRAY_TRY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_FROM_MUT_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
     EXPAND ARRAY_TRY_COPY_FROM_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_TRY_FROM_MUT_SLICE_U64.
+[MACRO] ARRAY_TRY_FROM_MUT_SLICE %out_ok, %dst_ptr, %length, %src_slice
+    EXPAND ARRAY_TRY_FROM_MUT_SLICE_U64 %out_ok, %dst_ptr, %length, %src_slice
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
@@ -773,8 +1503,18 @@ L_ARRAY_SPLIT_REF_MISS_%out_ok:
 L_ARRAY_SPLIT_REF_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_SPLIT_ARRAY_REF_U64.
+[MACRO] ARRAY_TRY_SPLIT_ARRAY_REF %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+    EXPAND ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_SPLIT_ARRAY_MUT_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
     EXPAND ARRAY_TRY_SPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_TRY_SPLIT_ARRAY_MUT_U64.
+[MACRO] ARRAY_TRY_SPLIT_ARRAY_MUT %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
+    EXPAND ARRAY_TRY_SPLIT_ARRAY_MUT_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %prefix_len
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_RSPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
@@ -803,8 +1543,18 @@ L_ARRAY_RSPLIT_REF_MISS_%out_ok:
 L_ARRAY_RSPLIT_REF_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_RSPLIT_ARRAY_REF_U64.
+[MACRO] ARRAY_TRY_RSPLIT_ARRAY_REF %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+    EXPAND ARRAY_TRY_RSPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_RSPLIT_ARRAY_MUT_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
     EXPAND ARRAY_TRY_RSPLIT_ARRAY_REF_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_TRY_RSPLIT_ARRAY_MUT_U64.
+[MACRO] ARRAY_TRY_RSPLIT_ARRAY_MUT %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
+    EXPAND ARRAY_TRY_RSPLIT_ARRAY_MUT_U64 %out_ok, %out_prefix, %out_suffix, %array_ptr, %length, %suffix_len
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
@@ -832,16 +1582,36 @@ L_ARRAY_AS_REF_MISS_%out_ok:
 L_ARRAY_AS_REF_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_AS_ARRAY_REF_U64.
+[MACRO] ARRAY_TRY_AS_ARRAY_REF %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
 [MACRO] ARRAY_TRY_AS_ARRAY_MUT_U64 %out_ok, %out_slice, %slice, %length
     EXPAND ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_TRY_AS_ARRAY_MUT_U64.
+[MACRO] ARRAY_TRY_AS_ARRAY_MUT %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_TRY_AS_ARRAY_MUT_U64 %out_ok, %out_slice, %slice, %length
 [END_MACRO]
 
 [MACRO] ARRAY_REF_TRY_FROM_SLICE_U64 %out_ok, %out_slice, %slice, %length
     EXPAND ARRAY_TRY_AS_ARRAY_REF_U64 %out_ok, %out_slice, %slice, %length
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_REF_TRY_FROM_SLICE_U64.
+[MACRO] ARRAY_REF_TRY_FROM_SLICE %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_REF_TRY_FROM_SLICE_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
 [MACRO] ARRAY_MUT_REF_TRY_FROM_MUT_SLICE_U64 %out_ok, %out_slice, %slice, %length
     EXPAND ARRAY_TRY_AS_ARRAY_MUT_U64 %out_ok, %out_slice, %slice, %length
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_MUT_REF_TRY_FROM_MUT_SLICE_U64.
+[MACRO] ARRAY_MUT_REF_TRY_FROM_MUT_SLICE %out_ok, %out_slice, %slice, %length
+    EXPAND ARRAY_MUT_REF_TRY_FROM_MUT_SLICE_U64 %out_ok, %out_slice, %slice, %length
 [END_MACRO]
 
 [MACRO] ARRAY_SWAP_U64 %array_ptr, %left_index, %right_index
@@ -859,6 +1629,11 @@ L_ARRAY_AS_REF_END_%out_ok:
     !__array_swap_left_ptr_%array_ptr
     !__array_swap_right_off_%array_ptr
     !__array_swap_left_off_%array_ptr
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_SWAP_U64.
+[MACRO] ARRAY_SWAP %array_ptr, %left_index, %right_index
+    EXPAND ARRAY_SWAP_U64 %array_ptr, %left_index, %right_index
 [END_MACRO]
 
 [MACRO] ARRAY_REVERSE_U64 %array_ptr, %length
@@ -906,6 +1681,11 @@ L_ARRAY_REV_DONE_SMALL_%array_ptr:
 L_ARRAY_REV_END_%array_ptr:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_REVERSE_U64.
+[MACRO] ARRAY_REVERSE %array_ptr, %length
+    EXPAND ARRAY_REVERSE_U64 %array_ptr, %length
+[END_MACRO]
+
 [MACRO] ARRAY_FROM_FN_U64 %array_ptr, %length, %gen_fn
     __array_fn_idx_slot_%array_ptr = stack_alloc 8
     store __array_fn_idx_slot_%array_ptr+0, 0 as u64
@@ -934,6 +1714,11 @@ L_ARRAY_FROM_FN_BODY_%array_ptr:
 L_ARRAY_FROM_FN_DONE_%array_ptr:
     !__array_fn_done_%array_ptr
     !__array_fn_idx_%array_ptr
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_FROM_FN_U64.
+[MACRO] ARRAY_FROM_FN %array_ptr, %length, %gen_fn
+    EXPAND ARRAY_FROM_FN_U64 %array_ptr, %length, %gen_fn
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_FROM_FN_U64 %out_ok, %array_ptr, %length, %gen_fn
@@ -985,6 +1770,11 @@ L_ARRAY_TRY_FROM_FN_DONE_%out_ok:
 L_ARRAY_TRY_FROM_FN_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over ARRAY_TRY_FROM_FN_U64.
+[MACRO] ARRAY_TRY_FROM_FN %out_ok, %array_ptr, %length, %gen_fn
+    EXPAND ARRAY_TRY_FROM_FN_U64 %out_ok, %array_ptr, %length, %gen_fn
+[END_MACRO]
+
 [MACRO] ARRAY_MAP_U64 %dst_ptr, %src_ptr, %length, %map_fn
     __array_map_idx_slot_%dst_ptr = stack_alloc 8
     store __array_map_idx_slot_%dst_ptr+0, 0 as u64
@@ -1017,6 +1807,11 @@ L_ARRAY_MAP_BODY_%dst_ptr:
 L_ARRAY_MAP_DONE_%dst_ptr:
     !__array_map_done_%dst_ptr
     !__array_map_idx_%dst_ptr
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_MAP_U64.
+[MACRO] ARRAY_MAP %dst_ptr, %src_ptr, %length, %map_fn
+    EXPAND ARRAY_MAP_U64 %dst_ptr, %src_ptr, %length, %map_fn
 [END_MACRO]
 
 [MACRO] ARRAY_TRY_MAP_U64 %out_ok, %dst_ptr, %src_ptr, %length, %map_fn
@@ -1073,4 +1868,9 @@ L_ARRAY_TRY_MAP_DONE_%out_ok:
     !__array_try_map_idx_%out_ok
 
 L_ARRAY_TRY_MAP_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over ARRAY_TRY_MAP_U64.
+[MACRO] ARRAY_TRY_MAP %out_ok, %dst_ptr, %src_ptr, %length, %map_fn
+    EXPAND ARRAY_TRY_MAP_U64 %out_ok, %dst_ptr, %src_ptr, %length, %map_fn
 [END_MACRO]

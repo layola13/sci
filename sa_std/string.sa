@@ -1195,6 +1195,11 @@ L_STRING_INTO_CHARS_DONE_%out_vec:
     EXPAND STRING_BUF_FREE %string_reg
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_INTO_CHARS_U64.
+[MACRO] STRING_BUF_INTO_CHARS %out_vec, %string_reg
+    EXPAND STRING_BUF_INTO_CHARS_U64 %out_vec, %string_reg
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_EXTEND_CHARS_U64 %out_ok, %string_reg, %chars_slice
     __string_extend_chars_idx_slot_%out_ok = stack_alloc 8
     store __string_extend_chars_idx_slot_%out_ok+0, 0 as u64
@@ -1280,9 +1285,19 @@ L_STRING_EXTEND_CHARS_INVALID_%out_ok:
 L_STRING_EXTEND_CHARS_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_EXTEND_CHARS_U64.
+[MACRO] STRING_BUF_TRY_EXTEND_CHARS %out_ok, %string_reg, %chars_slice
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 %out_ok, %string_reg, %chars_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_EXTEND_CHARS_U64 %string_reg, %chars_slice
     EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 __string_extend_chars_ok_%string_reg, %string_reg, %chars_slice
     !__string_extend_chars_ok_%string_reg
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_EXTEND_CHARS_U64.
+[MACRO] STRING_BUF_EXTEND_CHARS %string_reg, %chars_slice
+    EXPAND STRING_BUF_EXTEND_CHARS_U64 %string_reg, %chars_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
@@ -1392,8 +1407,18 @@ L_STRING_ECWC_INVALID_%out_ok:
 L_STRING_ECWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64.
+[MACRO] STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY %out_ok, %string_reg, %chars_slice
+    EXPAND STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
     EXPAND STRING_BUF_TRY_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_EXTEND_CHARS_WITHIN_CAPACITY_U64.
+[MACRO] STRING_BUF_EXTEND_CHARS_WITHIN_CAPACITY %out_ok, %string_reg, %chars_slice
+    EXPAND STRING_BUF_EXTEND_CHARS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %chars_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_FROM_CHARS_U64 %out_ok, %out_string, %chars_slice
@@ -1401,9 +1426,19 @@ L_STRING_ECWC_END_%out_ok:
     EXPAND STRING_BUF_TRY_EXTEND_CHARS_U64 %out_ok, %out_string, %chars_slice
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_FROM_CHARS_U64.
+[MACRO] STRING_BUF_TRY_FROM_CHARS %out_ok, %out_string, %chars_slice
+    EXPAND STRING_BUF_TRY_FROM_CHARS_U64 %out_ok, %out_string, %chars_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_CHARS_U64 %out_string, %chars_slice
     EXPAND STRING_BUF_TRY_FROM_CHARS_U64 __string_from_chars_ok_%out_string, %out_string, %chars_slice
     !__string_from_chars_ok_%out_string
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_FROM_CHARS_U64.
+[MACRO] STRING_BUF_FROM_CHARS %out_string, %chars_slice
+    EXPAND STRING_BUF_FROM_CHARS_U64 %out_string, %chars_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_EXTEND_CHAR_REFS_U64 %out_ok, %string_reg, %char_refs_slice
@@ -1495,9 +1530,19 @@ L_STRING_EXTEND_CHAR_REFS_INVALID_%out_ok:
 L_STRING_EXTEND_CHAR_REFS_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_EXTEND_CHAR_REFS_U64.
+[MACRO] STRING_BUF_TRY_EXTEND_CHAR_REFS %out_ok, %string_reg, %char_refs_slice
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_U64 %out_ok, %string_reg, %char_refs_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_EXTEND_CHAR_REFS_U64 %string_reg, %char_refs_slice
     EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_U64 __string_extend_char_refs_ok_%string_reg, %string_reg, %char_refs_slice
     !__string_extend_char_refs_ok_%string_reg
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_EXTEND_CHAR_REFS_U64.
+[MACRO] STRING_BUF_EXTEND_CHAR_REFS %string_reg, %char_refs_slice
+    EXPAND STRING_BUF_EXTEND_CHAR_REFS_U64 %string_reg, %char_refs_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %char_refs_slice
@@ -1611,8 +1656,18 @@ L_STRING_ECRWC_INVALID_%out_ok:
 L_STRING_ECRWC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64.
+[MACRO] STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY %out_ok, %string_reg, %char_refs_slice
+    EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %char_refs_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %char_refs_slice
     EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %char_refs_slice
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64.
+[MACRO] STRING_BUF_EXTEND_CHAR_REFS_WITHIN_CAPACITY %out_ok, %string_reg, %char_refs_slice
+    EXPAND STRING_BUF_EXTEND_CHAR_REFS_WITHIN_CAPACITY_U64 %out_ok, %string_reg, %char_refs_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_FROM_CHAR_REFS_U64 %out_ok, %out_string, %char_refs_slice
@@ -1620,9 +1675,19 @@ L_STRING_ECRWC_END_%out_ok:
     EXPAND STRING_BUF_TRY_EXTEND_CHAR_REFS_U64 %out_ok, %out_string, %char_refs_slice
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_FROM_CHAR_REFS_U64.
+[MACRO] STRING_BUF_TRY_FROM_CHAR_REFS %out_ok, %out_string, %char_refs_slice
+    EXPAND STRING_BUF_TRY_FROM_CHAR_REFS_U64 %out_ok, %out_string, %char_refs_slice
+[END_MACRO]
+
 [MACRO] STRING_BUF_FROM_CHAR_REFS_U64 %out_string, %char_refs_slice
     EXPAND STRING_BUF_TRY_FROM_CHAR_REFS_U64 __string_from_char_refs_ok_%out_string, %out_string, %char_refs_slice
     !__string_from_char_refs_ok_%out_string
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_FROM_CHAR_REFS_U64.
+[MACRO] STRING_BUF_FROM_CHAR_REFS %out_string, %char_refs_slice
+    EXPAND STRING_BUF_FROM_CHAR_REFS_U64 %out_string, %char_refs_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_TRY_EXTEND_ASCII_CHARS %out_ok, %string_reg, %ascii_chars_slice

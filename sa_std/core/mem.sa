@@ -127,12 +127,27 @@ L_END:
     EXPAND BOX_NEW %out_box, 0
 [END_MACRO]
 
+// Rust method-name alias over BOX_DEFAULT_U64.
+[MACRO] BOX_DEFAULT %out_box
+    EXPAND BOX_DEFAULT_U64 %out_box
+[END_MACRO]
+
 [MACRO] BOX_GET_U64 %out_value, %box_reg
     %out_value = load %box_reg+Box_value as u64
 [END_MACRO]
 
+// Rust method-name alias over BOX_GET_U64.
+[MACRO] BOX_GET %out_value, %box_reg
+    EXPAND BOX_GET_U64 %out_value, %box_reg
+[END_MACRO]
+
 [MACRO] BOX_SET_U64 %box_reg, %value
     store %box_reg+Box_value, %value as u64
+[END_MACRO]
+
+// Rust method-name alias over BOX_SET_U64.
+[MACRO] BOX_SET %box_reg, %value
+    EXPAND BOX_SET_U64 %box_reg, %value
 [END_MACRO]
 
 [MACRO] BOX_AS_PTR %out_ptr, %box_reg
@@ -152,9 +167,19 @@ L_END:
     store %box_reg+Box_value, %new_value as u64
 [END_MACRO]
 
+// Rust method-name alias over BOX_REPLACE_U64.
+[MACRO] BOX_REPLACE %out_old, %box_reg, %new_value
+    EXPAND BOX_REPLACE_U64 %out_old, %box_reg, %new_value
+[END_MACRO]
+
 [MACRO] BOX_TAKE_U64 %out_old, %box_reg
     %out_old = load %box_reg+Box_value as u64
     store %box_reg+Box_value, 0 as u64
+[END_MACRO]
+
+// Rust method-name alias over BOX_TAKE_U64.
+[MACRO] BOX_TAKE %out_old, %box_reg
+    EXPAND BOX_TAKE_U64 %out_old, %box_reg
 [END_MACRO]
 
 [MACRO] BOX_CLONE_U64 %out_box, %box_reg
@@ -163,9 +188,19 @@ L_END:
     !__box_clone_value_%out_box
 [END_MACRO]
 
+// Rust method-name alias over BOX_CLONE_U64.
+[MACRO] BOX_CLONE %out_box, %box_reg
+    EXPAND BOX_CLONE_U64 %out_box, %box_reg
+[END_MACRO]
+
 [MACRO] BOX_INTO_INNER_U64 %out_value, %box_reg
     %out_value = load %box_reg+Box_value as u64
     !%box_reg
+[END_MACRO]
+
+// Rust method-name alias over BOX_INTO_INNER_U64.
+[MACRO] BOX_INTO_INNER %out_value, %box_reg
+    EXPAND BOX_INTO_INNER_U64 %out_value, %box_reg
 [END_MACRO]
 
 [MACRO] BOX_INTO_RAW %out_ptr, %box_reg

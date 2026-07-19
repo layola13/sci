@@ -4,6 +4,7 @@
 @extern sa_time_unix_s() -> i64
 @extern sa_time_unix_ms() -> i64
 @extern sa_time_unix_ns() -> i64
-@extern sa_time_utc_now(&out: ptr) -> i32!
-@extern sa_time_sleep_ns(ns: u64) -> i32!
-@extern sa_time_sleep_ms(ms: u64) -> i32!
+// Runtime returns plain i32 status (not Fallible {status,value}); match that ABI.
+@extern sa_time_utc_now(&out: ptr) -> i32
+@extern sa_time_sleep_ns(ns: u64) -> i32
+@extern sa_time_sleep_ms(ms: u64) -> i32

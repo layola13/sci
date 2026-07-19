@@ -49,6 +49,11 @@
     EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_U64_LO, ANY_TYPE_ID_HI
 [END_MACRO]
 
+// Rust method-name alias over TYPE_ID_U64.
+[MACRO] TYPE_ID %type_id
+    EXPAND TYPE_ID_U64 %type_id
+[END_MACRO]
+
 [MACRO] TYPE_ID_I8 %type_id
     EXPAND TYPE_ID_NEW %type_id, ANY_TYPE_I8_LO, ANY_TYPE_ID_HI
 [END_MACRO]

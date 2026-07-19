@@ -29,6 +29,11 @@ L_MATH_MIN_END_%i:
     !%rhs
 [END_MACRO]
 
+// Rust method-name alias over MATH_MIN_U64.
+[MACRO] MATH_MIN %out_value, %lhs, %rhs
+    EXPAND MATH_MIN_U64 %out_value, %lhs, %rhs
+[END_MACRO]
+
 [MACRO] MATH_MAX_U64 %out_value, %lhs, %rhs
     take_lhs = ugt %lhs, %rhs
     br take_lhs -> L_MATH_MAX_LHS_%i, L_MATH_MAX_RHS_%i
@@ -42,6 +47,11 @@ L_MATH_MAX_RHS_%i:
 L_MATH_MAX_END_%i:
     !%lhs
     !%rhs
+[END_MACRO]
+
+// Rust method-name alias over MATH_MAX_U64.
+[MACRO] MATH_MAX %out_value, %lhs, %rhs
+    EXPAND MATH_MAX_U64 %out_value, %lhs, %rhs
 [END_MACRO]
 
 [MACRO] MATH_CLAMP_U64 %out_value, %value, %min_value, %max_value
@@ -66,4 +76,9 @@ L_MATH_CLAMP_END_%i:
     !%value
     !%min_value
     !%max_value
+[END_MACRO]
+
+// Rust method-name alias over MATH_CLAMP_U64.
+[MACRO] MATH_CLAMP %out_value, %value, %min_value, %max_value
+    EXPAND MATH_CLAMP_U64 %out_value, %value, %min_value, %max_value
 [END_MACRO]

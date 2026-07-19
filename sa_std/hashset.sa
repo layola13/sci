@@ -892,6 +892,11 @@ L_SET_EXTRACT_DONE_%out_len:
     EXPAND SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
 [END_MACRO]
 
+// Rust method-name bare alias for the common set entry path (get_or_insert).
+[MACRO] SET_ENTRY %out_inserted, %out_key, %set_reg, %key
+    EXPAND SET_ENTRY_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
+[END_MACRO]
+
 [MACRO] SET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
     EXPAND SET_GET_OR_INSERT %out_inserted, %out_key, %set_reg, %key
 [END_MACRO]

@@ -20,23 +20,17 @@
 
 [MACRO] TIME_UTC_NOW %out_date
     __time_utc_status = call @sa_time_utc_now(&%out_date)
-    __time_utc_ok = ? __time_utc_status
     !__time_utc_status
-    !__time_utc_ok
 [END_MACRO]
 
 [MACRO] TIME_SLEEP_NS %ns
     __time_sleep_status = call @sa_time_sleep_ns(%ns)
-    __time_sleep_ok = ? __time_sleep_status
     !__time_sleep_status
-    !__time_sleep_ok
 [END_MACRO]
 
 [MACRO] TIME_SLEEP_MS %ms
     __time_sleep_ms_status = call @sa_time_sleep_ms(%ms)
-    __time_sleep_ms_ok = ? __time_sleep_ms_status
     !__time_sleep_ms_status
-    !__time_sleep_ms_ok
 [END_MACRO]
 
 [MACRO] TIME_THREAD_SLEEP_NS %ns

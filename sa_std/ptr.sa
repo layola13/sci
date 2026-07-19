@@ -85,6 +85,11 @@
     !__ptr_offset_bytes_%out_offset
 [END_MACRO]
 
+// Rust method-name alias over PTR_OFFSET_FROM_U64.
+[MACRO] PTR_OFFSET_FROM %out_offset, %ptr_reg, %base_ptr
+    EXPAND PTR_OFFSET_FROM_U64 %out_offset, %ptr_reg, %base_ptr
+[END_MACRO]
+
 [MACRO] PTR_BYTE_OFFSET_FROM_UNSIGNED %out_offset, %ptr_reg, %base_ptr
     EXPAND PTR_OFFSET_FROM_BYTES %out_offset, %ptr_reg, %base_ptr
 [END_MACRO]
@@ -93,14 +98,29 @@
     EXPAND PTR_OFFSET_FROM_U64 %out_offset, %ptr_reg, %base_ptr
 [END_MACRO]
 
+// Rust method-name alias over PTR_OFFSET_FROM_UNSIGNED_U64.
+[MACRO] PTR_OFFSET_FROM_UNSIGNED %out_offset, %ptr_reg, %base_ptr
+    EXPAND PTR_OFFSET_FROM_UNSIGNED_U64 %out_offset, %ptr_reg, %base_ptr
+[END_MACRO]
+
 [MACRO] PTR_OFFSET_U64 %out_ptr, %ptr_reg, %index
     __ptr_u64_off_%out_ptr = mul %index, 8
     %out_ptr = ptr_add %ptr_reg, __ptr_u64_off_%out_ptr
     !__ptr_u64_off_%out_ptr
 [END_MACRO]
 
+// Rust method-name alias over PTR_OFFSET_U64.
+[MACRO] PTR_OFFSET %out_ptr, %ptr_reg, %index
+    EXPAND PTR_OFFSET_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
 [MACRO] PTR_ADD_U64 %out_ptr, %ptr_reg, %index
     EXPAND PTR_OFFSET_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
+// Rust method-name alias over PTR_ADD_U64.
+[MACRO] PTR_ADD %out_ptr, %ptr_reg, %index
+    EXPAND PTR_ADD_U64 %out_ptr, %ptr_reg, %index
 [END_MACRO]
 
 [MACRO] PTR_SUB_U64 %out_ptr, %ptr_reg, %index
@@ -111,12 +131,27 @@
     !__ptr_u64_sub_off_%out_ptr
 [END_MACRO]
 
+// Rust method-name alias over PTR_SUB_U64.
+[MACRO] PTR_SUB %out_ptr, %ptr_reg, %index
+    EXPAND PTR_SUB_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
 [MACRO] PTR_WRAPPING_ADD_U64 %out_ptr, %ptr_reg, %index
     EXPAND PTR_ADD_U64 %out_ptr, %ptr_reg, %index
 [END_MACRO]
 
+// Rust method-name alias over PTR_WRAPPING_ADD_U64.
+[MACRO] PTR_WRAPPING_ADD %out_ptr, %ptr_reg, %index
+    EXPAND PTR_WRAPPING_ADD_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
 [MACRO] PTR_WRAPPING_SUB_U64 %out_ptr, %ptr_reg, %index
     EXPAND PTR_SUB_U64 %out_ptr, %ptr_reg, %index
+[END_MACRO]
+
+// Rust method-name alias over PTR_WRAPPING_SUB_U64.
+[MACRO] PTR_WRAPPING_SUB %out_ptr, %ptr_reg, %index
+    EXPAND PTR_WRAPPING_SUB_U64 %out_ptr, %ptr_reg, %index
 [END_MACRO]
 
 [MACRO] PTR_IS_ALIGNED_TO %out_bool, %ptr_reg, %align
@@ -141,12 +176,27 @@
     %out_value = load %ptr_reg+0 as u64
 [END_MACRO]
 
+// Rust method-name alias over PTR_READ_U64.
+[MACRO] PTR_READ %out_value, %ptr_reg
+    EXPAND PTR_READ_U64 %out_value, %ptr_reg
+[END_MACRO]
+
 [MACRO] PTR_READ_UNALIGNED_U64 %out_value, %ptr_reg
     %out_value = load %ptr_reg+0 as u64
 [END_MACRO]
 
+// Rust method-name alias over PTR_READ_UNALIGNED_U64.
+[MACRO] PTR_READ_UNALIGNED %out_value, %ptr_reg
+    EXPAND PTR_READ_UNALIGNED_U64 %out_value, %ptr_reg
+[END_MACRO]
+
 [MACRO] PTR_READ_VOLATILE_U64 %out_value, %ptr_reg
     %out_value = load %ptr_reg+0 as u64
+[END_MACRO]
+
+// Rust method-name alias over PTR_READ_VOLATILE_U64.
+[MACRO] PTR_READ_VOLATILE %out_value, %ptr_reg
+    EXPAND PTR_READ_VOLATILE_U64 %out_value, %ptr_reg
 [END_MACRO]
 
 [MACRO] PTR_READ_VOLATILE_I32 %out_value, %ptr_reg
@@ -169,12 +219,27 @@
     store %ptr_reg+0, %value as u64
 [END_MACRO]
 
+// Rust method-name alias over PTR_WRITE_U64.
+[MACRO] PTR_WRITE %ptr_reg, %value
+    EXPAND PTR_WRITE_U64 %ptr_reg, %value
+[END_MACRO]
+
 [MACRO] PTR_WRITE_UNALIGNED_U64 %ptr_reg, %value
     store %ptr_reg+0, %value as u64
 [END_MACRO]
 
+// Rust method-name alias over PTR_WRITE_UNALIGNED_U64.
+[MACRO] PTR_WRITE_UNALIGNED %ptr_reg, %value
+    EXPAND PTR_WRITE_UNALIGNED_U64 %ptr_reg, %value
+[END_MACRO]
+
 [MACRO] PTR_WRITE_VOLATILE_U64 %ptr_reg, %value
     store %ptr_reg+0, %value as u64
+[END_MACRO]
+
+// Rust method-name alias over PTR_WRITE_VOLATILE_U64.
+[MACRO] PTR_WRITE_VOLATILE %ptr_reg, %value
+    EXPAND PTR_WRITE_VOLATILE_U64 %ptr_reg, %value
 [END_MACRO]
 
 [MACRO] PTR_WRITE_U8 %ptr_reg, %value
@@ -198,8 +263,18 @@
     !__ptr_swap_lhs_%lhs_ptr
 [END_MACRO]
 
+// Rust method-name alias over PTR_SWAP_U64.
+[MACRO] PTR_SWAP %lhs_ptr, %rhs_ptr
+    EXPAND PTR_SWAP_U64 %lhs_ptr, %rhs_ptr
+[END_MACRO]
+
 [MACRO] PTR_SWAP_NONOVERLAPPING_U64 %lhs_ptr, %rhs_ptr
     EXPAND PTR_SWAP_U64 %lhs_ptr, %rhs_ptr
+[END_MACRO]
+
+// Rust method-name alias over PTR_SWAP_NONOVERLAPPING_U64.
+[MACRO] PTR_SWAP_NONOVERLAPPING %lhs_ptr, %rhs_ptr
+    EXPAND PTR_SWAP_NONOVERLAPPING_U64 %lhs_ptr, %rhs_ptr
 [END_MACRO]
 
 [MACRO] PTR_REPLACE_U64 %out_old, %ptr_reg, %new_value
@@ -207,9 +282,19 @@
     store %ptr_reg+0, %new_value as u64
 [END_MACRO]
 
+// Rust method-name alias over PTR_REPLACE_U64.
+[MACRO] PTR_REPLACE %out_old, %ptr_reg, %new_value
+    EXPAND PTR_REPLACE_U64 %out_old, %ptr_reg, %new_value
+[END_MACRO]
+
 [MACRO] PTR_TAKE_U64 %out_old, %ptr_reg
     %out_old = load %ptr_reg+0 as u64
     store %ptr_reg+0, 0 as u64
+[END_MACRO]
+
+// Rust method-name alias over PTR_TAKE_U64.
+[MACRO] PTR_TAKE %out_old, %ptr_reg
+    EXPAND PTR_TAKE_U64 %out_old, %ptr_reg
 [END_MACRO]
 
 [MACRO] PTR_COPY_BYTES %dst_ptr, %src_ptr, %byte_count
@@ -299,18 +384,38 @@
     !__nonnull_add_u64_bytes_%out_nonnull
 [END_MACRO]
 
+// Rust method-name alias over NONNULL_ADD_U64.
+[MACRO] NONNULL_ADD %out_nonnull, %nonnull_ptr, %index
+    EXPAND NONNULL_ADD_U64 %out_nonnull, %nonnull_ptr, %index
+[END_MACRO]
+
 [MACRO] NONNULL_SUB_U64 %out_nonnull, %nonnull_ptr, %index
     __nonnull_sub_u64_bytes_%out_nonnull = mul %index, 8
     EXPAND NONNULL_BYTE_SUB %out_nonnull, %nonnull_ptr, __nonnull_sub_u64_bytes_%out_nonnull
     !__nonnull_sub_u64_bytes_%out_nonnull
 [END_MACRO]
 
+// Rust method-name alias over NONNULL_SUB_U64.
+[MACRO] NONNULL_SUB %out_nonnull, %nonnull_ptr, %index
+    EXPAND NONNULL_SUB_U64 %out_nonnull, %nonnull_ptr, %index
+[END_MACRO]
+
 [MACRO] NONNULL_WRAPPING_ADD_U64 %out_nonnull, %nonnull_ptr, %index
     EXPAND NONNULL_ADD_U64 %out_nonnull, %nonnull_ptr, %index
 [END_MACRO]
 
+// Rust method-name alias over NONNULL_WRAPPING_ADD_U64.
+[MACRO] NONNULL_WRAPPING_ADD %out_nonnull, %nonnull_ptr, %index
+    EXPAND NONNULL_WRAPPING_ADD_U64 %out_nonnull, %nonnull_ptr, %index
+[END_MACRO]
+
 [MACRO] NONNULL_WRAPPING_SUB_U64 %out_nonnull, %nonnull_ptr, %index
     EXPAND NONNULL_SUB_U64 %out_nonnull, %nonnull_ptr, %index
+[END_MACRO]
+
+// Rust method-name alias over NONNULL_WRAPPING_SUB_U64.
+[MACRO] NONNULL_WRAPPING_SUB %out_nonnull, %nonnull_ptr, %index
+    EXPAND NONNULL_WRAPPING_SUB_U64 %out_nonnull, %nonnull_ptr, %index
 [END_MACRO]
 
 [MACRO] NONNULL_OFFSET_FROM_BYTES %out_offset, %nonnull_ptr, %base_nonnull
@@ -329,12 +434,22 @@
     !__nonnull_offset_u64_ptr_%out_offset
 [END_MACRO]
 
+// Rust method-name alias over NONNULL_OFFSET_FROM_U64.
+[MACRO] NONNULL_OFFSET_FROM %out_offset, %nonnull_ptr, %base_nonnull
+    EXPAND NONNULL_OFFSET_FROM_U64 %out_offset, %nonnull_ptr, %base_nonnull
+[END_MACRO]
+
 [MACRO] NONNULL_BYTE_OFFSET_FROM_UNSIGNED %out_offset, %nonnull_ptr, %base_nonnull
     EXPAND NONNULL_OFFSET_FROM_BYTES %out_offset, %nonnull_ptr, %base_nonnull
 [END_MACRO]
 
 [MACRO] NONNULL_OFFSET_FROM_UNSIGNED_U64 %out_offset, %nonnull_ptr, %base_nonnull
     EXPAND NONNULL_OFFSET_FROM_U64 %out_offset, %nonnull_ptr, %base_nonnull
+[END_MACRO]
+
+// Rust method-name alias over NONNULL_OFFSET_FROM_UNSIGNED_U64.
+[MACRO] NONNULL_OFFSET_FROM_UNSIGNED %out_offset, %nonnull_ptr, %base_nonnull
+    EXPAND NONNULL_OFFSET_FROM_UNSIGNED_U64 %out_offset, %nonnull_ptr, %base_nonnull
 [END_MACRO]
 
 [MACRO] NONNULL_IS_NONNULL %out_bool, %nonnull_ptr

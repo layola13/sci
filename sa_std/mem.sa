@@ -23,6 +23,11 @@
     %out_size = add 0, MEM_SIZE_U64
 [END_MACRO]
 
+// Rust method-name alias over MEM_SIZE_OF_U64.
+[MACRO] MEM_SIZE_OF %out_size
+    EXPAND MEM_SIZE_OF_U64 %out_size
+[END_MACRO]
+
 [MACRO] MEM_SIZE_OF_USIZE %out_size
     %out_size = add 0, MEM_SIZE_USIZE
 [END_MACRO]
@@ -31,8 +36,18 @@
     %out_size = add 0, MEM_SIZE_U64
 [END_MACRO]
 
+// Rust method-name alias over MEM_SIZE_OF_VAL_U64.
+[MACRO] MEM_SIZE_OF_VAL %out_size, %value_ptr
+    EXPAND MEM_SIZE_OF_VAL_U64 %out_size, %value_ptr
+[END_MACRO]
+
 [MACRO] MEM_SIZE_OF_VAL_RAW_U64 %out_size, %value_ptr
     %out_size = add 0, MEM_SIZE_U64
+[END_MACRO]
+
+// Rust method-name alias over MEM_SIZE_OF_VAL_RAW_U64.
+[MACRO] MEM_SIZE_OF_VAL_RAW %out_size, %value_ptr
+    EXPAND MEM_SIZE_OF_VAL_RAW_U64 %out_size, %value_ptr
 [END_MACRO]
 
 [MACRO] MEM_SIZE_OF_I8 %out_size
@@ -75,6 +90,11 @@
     %out_align = add 0, MEM_ALIGN_U64
 [END_MACRO]
 
+// Rust method-name alias over MEM_ALIGN_OF_U64.
+[MACRO] MEM_ALIGN_OF %out_align
+    EXPAND MEM_ALIGN_OF_U64 %out_align
+[END_MACRO]
+
 [MACRO] MEM_ALIGN_OF_USIZE %out_align
     %out_align = add 0, MEM_ALIGN_USIZE
 [END_MACRO]
@@ -83,8 +103,18 @@
     %out_align = add 0, MEM_ALIGN_U64
 [END_MACRO]
 
+// Rust method-name alias over MEM_ALIGN_OF_VAL_U64.
+[MACRO] MEM_ALIGN_OF_VAL %out_align, %value_ptr
+    EXPAND MEM_ALIGN_OF_VAL_U64 %out_align, %value_ptr
+[END_MACRO]
+
 [MACRO] MEM_ALIGN_OF_VAL_RAW_U64 %out_align, %value_ptr
     %out_align = add 0, MEM_ALIGN_U64
+[END_MACRO]
+
+// Rust method-name alias over MEM_ALIGN_OF_VAL_RAW_U64.
+[MACRO] MEM_ALIGN_OF_VAL_RAW %out_align, %value_ptr
+    EXPAND MEM_ALIGN_OF_VAL_RAW_U64 %out_align, %value_ptr
 [END_MACRO]
 
 [MACRO] MEM_ALIGN_OF_I8 %out_align
@@ -116,9 +146,19 @@
     !__mem_swap_lhs_%lhs_ptr
 [END_MACRO]
 
+// Rust method-name alias over MEM_SWAP_U64.
+[MACRO] MEM_SWAP %lhs_ptr, %rhs_ptr
+    EXPAND MEM_SWAP_U64 %lhs_ptr, %rhs_ptr
+[END_MACRO]
+
 [MACRO] MEM_REPLACE_U64 %out_old, %slot_ptr, %new_value
     %out_old = load %slot_ptr+0 as u64
     store %slot_ptr+0, %new_value as u64
+[END_MACRO]
+
+// Rust method-name alias over MEM_REPLACE_U64.
+[MACRO] MEM_REPLACE %out_old, %slot_ptr, %new_value
+    EXPAND MEM_REPLACE_U64 %out_old, %slot_ptr, %new_value
 [END_MACRO]
 
 [MACRO] MEM_TAKE_U64 %out_old, %slot_ptr
@@ -126,9 +166,19 @@
     store %slot_ptr+0, 0 as u64
 [END_MACRO]
 
+// Rust method-name alias over MEM_TAKE_U64.
+[MACRO] MEM_TAKE %out_old, %slot_ptr
+    EXPAND MEM_TAKE_U64 %out_old, %slot_ptr
+[END_MACRO]
+
 [MACRO] MEM_FORGET_U64 %value
     __mem_forget_sink_%value = add %value, 0
     !__mem_forget_sink_%value
+[END_MACRO]
+
+// Rust method-name alias over MEM_FORGET_U64.
+[MACRO] MEM_FORGET %value
+    EXPAND MEM_FORGET_U64 %value
 [END_MACRO]
 
 [MACRO] MEM_DROP_U64 %value
@@ -136,8 +186,18 @@
     !__mem_drop_sink_%value
 [END_MACRO]
 
+// Rust method-name alias over MEM_DROP_U64.
+[MACRO] MEM_DROP %value
+    EXPAND MEM_DROP_U64 %value
+[END_MACRO]
+
 [MACRO] MEM_COPY_U64 %out_value, %value_ptr
     %out_value = load %value_ptr+0 as u64
+[END_MACRO]
+
+// Rust method-name alias over MEM_COPY_U64.
+[MACRO] MEM_COPY %out_value, %value_ptr
+    EXPAND MEM_COPY_U64 %out_value, %value_ptr
 [END_MACRO]
 
 [MACRO] MEM_NEEDS_DROP_PRIMITIVE %out_bool
@@ -256,6 +316,11 @@
     !__manually_drop_u64_hash_value_%hasher
 [END_MACRO]
 
+// Rust method-name alias over DEFAULT_HASHER_WRITE_MANUALLY_DROP_U64.
+[MACRO] DEFAULT_HASHER_WRITE_MANUALLY_DROP %hasher, %slot_ptr
+    EXPAND DEFAULT_HASHER_WRITE_MANUALLY_DROP_U64 %hasher, %slot_ptr
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_HASH %out_hash, %slot_ptr
     __manually_drop_u64_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND DEFAULT_HASHER_NEW __manually_drop_u64_hash_hasher_%out_hash
@@ -270,11 +335,21 @@
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_manually_drop_u64_hasher_%out_hash
 [END_MACRO]
 
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_MANUALLY_DROP_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_MANUALLY_DROP %out_hash, %builder, %slot_ptr
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_MANUALLY_DROP_U64 %out_hash, %builder, %slot_ptr
+[END_MACRO]
+
 [MACRO] RANDOM_STATE_HASH_ONE_MANUALLY_DROP_U64 %out_hash, %state, %slot_ptr
     __random_state_hash_one_manually_drop_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
     EXPAND RANDOM_STATE_BUILD __random_state_hash_one_manually_drop_u64_hasher_%out_hash, %state
     EXPAND DEFAULT_HASHER_WRITE_MANUALLY_DROP_U64 __random_state_hash_one_manually_drop_u64_hasher_%out_hash, %slot_ptr
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_manually_drop_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_MANUALLY_DROP_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_MANUALLY_DROP %out_hash, %state, %slot_ptr
+    EXPAND RANDOM_STATE_HASH_ONE_MANUALLY_DROP_U64 %out_hash, %state, %slot_ptr
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_EQ %out_bool, %left_slot, %right_slot

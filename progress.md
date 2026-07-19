@@ -2,6 +2,138 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-19 full test suite green (`tools/test_steps_timed.sh` 22/22)
+
+- Full `build.zig` test dependency set via `tools/test_steps_timed.sh`: **passed=22 failed=0 timeout=0** (~19m).
+- Log dir: `logs/test_steps/full-rerun-20260719T074750Z`.
+- Fixes applied for previously failing steps:
+  - `std-smoke`: updated `tests/std_smoke_core.zig` SAL layout snapshots for `slice.sal` / `option.sal` / `refcell.sal`.
+  - `wasm-matrix`: rebuilt with fixed `sa` (time Fallible ABI) + current `sa_std`; matrix now **PASS** (110 demos).
+  - Earlier unit-framework blockers (time.sai / json.sai / emit_sa_time_sleep_ns) already fixed and revalidated.
+
+## Completed: 2026-07-19 full `zig build unit-framework` green
+
+- Fixed pre-existing blockers that failed unit-framework:
+  1. `src/emit_llvm_llvmc_shim.c` `emit_sa_time_sleep_ns`: stop forcing Fallible `{i32,i32}` stub when SAI declares plain `i32` (fixes `std_time_duration_hash_one` / any import of `time.sai`).
+  2. `sa_std/time.sai` + `time.sa`: align utc/sleep externs to plain `i32` (runtime is not Fallible).
+  3. `sa_std/encoding/json.sai`: `sa_json_buffer_free` / `sa_json_stream_free` take `^` ownership (fixes feature_suite JSON CapabilityMismatch).
+- Validation: `zig build unit-framework --summary all` → **unit-framework success; 5/5 tests passed; 446/446 macro surface files completed** (~39m). Only intentional `queued_fail` harness path reports FAIL.
+- Log: `logs/unit-framework-full-20260719T050145.log`.
+
+## Completed: 2026-07-19 resume wave — full sa_std bare-alias closure + multi-agent surfaces
+
+- Second bulk pass closed **all remaining** `FOO_U64` → bare `FOO` gaps across **entire** `sa_std/**` (**+374** macros: array 160, string 13, core/slice 98, core/iter 79, hash 71, ptr 23, convert 20, mem/ops/cmp/num/… remainder).
+- Prior container bulk (630) + this wave ⇒ **zero** `_U64` bare-gaps left under `sa_std/`.
+- Total `[MACRO]` count in `sa_std`: **8862**.
+- Multi-agent focused surface tests (panic **10851–10862**), all green:
+  - array bare access / iter / map+from_fn
+  - string chars bare
+  - container hash bare (vec/vec_deque)
+  - vec leak/spare/try_remove/from_fn
+  - PathBuf method aliases
+  - option/result bare constructors
+  - slice bare
+  - path_join pure string surface (FS env path simplified to avoid StackEscape)
+  - binary_heap pop_if/clear/drain bare
+  - iter bare adapter collect
+- Runner: all new suites registered; only intentional holdout remains `std_net_fingerprint_macro_surface.sa` (known failing panics).
+- Smoke revalidated: array/slice/option_result/vec_retain/binary_heap_retain/btree_hash_one focused suites pass.
+- Full suite not run (memory pressure policy).
+- Panic IDs next free: **10863+**.
+
+## Completed: 2026-07-19 bulk bare method-name aliases + multi-agent surface tests
+
+- Bulk-generated **630** thin Rust method-name aliases: every `FOO_U64` lacking bare `FOO` in `vec.sa` (262), `vec_deque.sa` (198), `binary_heap.sa` (170) now expands to the typed helper.
+- New concrete helper: `sa_vec_deque_truncate_front` + `VEC_DEQUE_TRUNCATE_FRONT` (Rust `truncate_front`).
+- VecDeque composition helpers from agents: `VEC_DEQUE_BINARY_SEARCH` / `PARTITION_POINT` (via make_contiguous + slice helpers).
+- Map/set bare aliases: entry + bitops + btree hash_one short names.
+- Focused surface tests (panic **10839–10847**, **10849–10850**; **10848 skipped** — string/path already dense):
+  - vec search/dedup, drain/resize/splice, into_iter bare
+  - vec_deque drain/iter bare, truncate_front, binary_search
+  - binary_heap iter/into_iter bare
+  - map/set entry+bitops, btree hash_one bare
+- Macro counts now: vec **750**, vec_deque **524**, binary_heap **384**.
+- Validation: all new focused suites passed; full suite not run (memory pressure policy).
+- Panic IDs next free: **10851+** (10848 unused).
+
+## Completed: 2026-07-19 BinaryHeap retain + Map iter_mut + VecDeque contains/pop_if aliases
+
+- Continued Rust std container parity with thin method-name aliases over existing concrete helpers.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_RETAIN` over `BINARY_HEAP_RETAIN_U64` (heapify after filter).
+- `sa_std/hashmap.sa`: added `MAP_ITER_MUT` over `MAP_ITER_MUT_PTRS` (eager key_bits/value_slot_ptr pairs).
+- `sa_std/btree_map.sa`: added `BTREE_MAP_ITER_MUT` over `BTREE_MAP_ITER_MUT_PTRS` (eager key_ptr/key_len/value_slot triples).
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_CONTAINS`, `VEC_DEQUE_POP_FRONT_IF`, `VEC_DEQUE_POP_BACK_IF` over existing `_U64` helpers.
+- Tests:
+  - `tests/unit_framework/std_binary_heap_retain_alias_macro_surface.sa` (panic ID 10835)
+  - `tests/unit_framework/std_hashmap_iter_mut_alias_macro_surface.sa` (panic ID 10836)
+  - `tests/unit_framework/std_btree_map_iter_mut_alias_macro_surface.sa` (panic ID 10837)
+  - `tests/unit_framework/std_vec_deque_contains_pop_if_alias_macro_surface.sa` (panic ID 10838)
+- Validation status:
+  - Focused only: all four -> `1 passed; 0 failed; 0 skipped`
+  - Full tests intentionally not run because prior full runs caused memory pressure.
+- Panic IDs next free: 10839+.
+
+## Completed: 2026-07-19 BTreeMap first/last entry + get_disjoint_mut + range_mut aliases
+
+- Continued Rust `BTreeMap` parity, referencing local Rust `alloc/src/collections/btree/map.rs` stable `first_entry` / `last_entry` / `get_disjoint_mut` / `range_mut` contracts over existing concrete mut-pointer helpers.
+- `sa_std/btree_map.sa`:
+  - `BTREE_MAP_FIRST_ENTRY` / `BTREE_MAP_FIRST_ENTRY_MUT` over `BTREE_MAP_FIRST_ENTRY_MUT_PTR`
+  - `BTREE_MAP_LAST_ENTRY` / `BTREE_MAP_LAST_ENTRY_MUT` over `BTREE_MAP_LAST_ENTRY_MUT_PTR`
+  - `BTREE_MAP_GET_DISJOINT_MUT` / `BTREE_MAP_GET_DISJOINT_MUT_PTRS` over `BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS`
+  - `BTREE_MAP_RANGE_MUT` over `BTREE_MAP_RANGE_MUT_PTRS`
+- Semantics: entry aliases return `(ok, key_slice, value_slot_ptr)` for the extreme key; disjoint-mut returns `(ok, ptr_a, ptr_b)` and rejects same-key/missing; range_mut eagerly materializes sorted flat triples `key_ptr_bits, key_len, value_slot_ptr_bits` for half-open `[start, end)`.
+- Tests:
+  - `tests/unit_framework/std_btree_map_entry_mut_alias_macro_surface.sa` (panic ID 10832)
+  - `tests/unit_framework/std_btree_map_get_disjoint_mut_alias_macro_surface.sa` (panic ID 10833)
+  - `tests/unit_framework/std_btree_map_range_mut_alias_macro_surface.sa` (panic ID 10834)
+- Validation status:
+  - Focused only:
+    - `std_btree_map_entry_mut_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+    - `std_btree_map_get_disjoint_mut_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+    - `std_btree_map_range_mut_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused tests.
+- Panic IDs next free: 10835+.
+
+## Completed: 2026-07-19 HashMap/BinaryHeap/Vec Rust method-name aliases
+
+- Continued Rust std container parity with thin method-name aliases over existing checked concrete helpers.
+- `sa_std/hashmap.sa`: added `MAP_GET_DISJOINT_MUT_PTRS` and `MAP_GET_DISJOINT_MUT` over `MAP_TRY_GET_DISJOINT_MUT_PTRS`.
+- `sa_std/binary_heap.sa`: added `BINARY_HEAP_PEEK_MUT` over `BINARY_HEAP_TRY_PEEK_MUT_PTR` returning `(ok, ptr)`.
+- `sa_std/vec.sa`: added `VEC_RETAIN`, `VEC_RETAIN_MUT`, `VEC_EXTRACT_IF`, and `VEC_POP_IF` over the corresponding `_U64` helpers.
+- Tests:
+  - `tests/unit_framework/std_hashmap_get_disjoint_mut_alias_macro_surface.sa` (panic ID 10828)
+  - `tests/unit_framework/std_binary_heap_peek_mut_alias_macro_surface.sa` (panic ID 10829)
+  - `tests/unit_framework/std_vec_retain_alias_macro_surface.sa` (panic ID 10830)
+  - `tests/unit_framework/std_vec_extract_if_pop_if_alias_macro_surface.sa` (panic ID 10831)
+- Runner also registers previously missing `std_vec_deque_front_back_mut_alias_macro_surface.sa`.
+- Validation status:
+  - Focused only:
+    - `std_hashmap_get_disjoint_mut_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+    - `std_binary_heap_peek_mut_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+    - `std_vec_retain_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+    - `std_vec_extract_if_pop_if_alias_macro_surface.sa` -> `1 passed; 0 failed; 0 skipped`
+    - `std_vec_deque_front_back_mut_alias_macro_surface.sa` (runner registration check) -> `1 passed; 0 failed; 0 skipped`
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused tests.
+- Panic IDs next free: 10832+.
+
+## Completed: 2026-07-19 VecDeque retain/split_off/extract_if aliases
+
+- Continued Rust `VecDeque` parity, referencing local Rust `alloc/src/collections/vec_deque/mod.rs` stable `retain` / `retain_mut` / `split_off` / `extract_if` names over the existing concrete u64 helpers.
+- `sa_std/vec_deque.sa`: added `VEC_DEQUE_RETAIN`, `VEC_DEQUE_RETAIN_MUT`, `VEC_DEQUE_SPLIT_OFF`, and `VEC_DEQUE_EXTRACT_IF` as Rust method-name aliases over `VEC_DEQUE_RETAIN_U64`, `VEC_DEQUE_RETAIN_MUT_U64`, `VEC_DEQUE_TRY_SPLIT_OFF`, and `VEC_DEQUE_EXTRACT_IF_U64`.
+- Semantics: `RETAIN` predicates take values; `RETAIN_MUT` predicates take mutable value pointers; `SPLIT_OFF` returns explicit `(ok, deque)` like try-split; `EXTRACT_IF` eagerly materializes matching values into a new vec and compacts the source.
+- Tests:
+  - `tests/unit_framework/std_vec_deque_retain_alias_macro_surface.sa` (panic ID 10825)
+  - `tests/unit_framework/std_vec_deque_split_off_alias_macro_surface.sa` (panic ID 10826)
+  - `tests/unit_framework/std_vec_deque_extract_if_alias_macro_surface.sa` (panic ID 10827)
+- Validation status:
+  - Focused only:
+    - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_retain_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+    - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_split_off_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+    - `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_vec_deque_extract_if_alias_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`
+  - Full tests intentionally not run because prior full runs caused memory pressure; this batch only runs the newly added focused tests.
+- Note: fixed `VEC_DEQUE_RETAIN_MUT_U64` keep-path nested load (UnknownRegister) to match `VEC_RETAIN_MUT_U64` (reload value into a temp before store).
+- Panic IDs next free: 10828+.
+
 ## Completed: 2026-07-18 VecDeque front/back mut aliases
 
 - Continued Rust `VecDeque` parity, referencing local Rust `alloc/src/collections/vec_deque/mod.rs` stable `front_mut` / `back_mut` contracts and the existing checked raw slot-pointer helpers.

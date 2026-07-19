@@ -55,6 +55,11 @@
     !__slice_ptr_%out_value
 [END_MACRO]
 
+// Rust method-name alias over SLICE_GET_U64.
+[MACRO] SLICE_GET %out_value, %slice_reg, %index
+    EXPAND SLICE_GET_U64 %out_value, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, %index
     __slice_ptr_%out_ptr = load %slice_reg+Slice_ptr as ptr
     __slice_off_%out_ptr = mul %index, 8
@@ -63,24 +68,54 @@
     !__slice_ptr_%out_ptr
 [END_MACRO]
 
+// Rust method-name alias over SLICE_GET_MUT_PTR_U64.
+[MACRO] SLICE_GET_MUT_PTR %out_ptr, %slice_reg, %index
+    EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] SLICE_GET_UNCHECKED_U64 %out_value, %slice_reg, %index
     EXPAND SLICE_GET_U64 %out_value, %slice_reg, %index
+[END_MACRO]
+
+// Rust method-name alias over SLICE_GET_UNCHECKED_U64.
+[MACRO] SLICE_GET_UNCHECKED %out_value, %slice_reg, %index
+    EXPAND SLICE_GET_UNCHECKED_U64 %out_value, %slice_reg, %index
 [END_MACRO]
 
 [MACRO] SLICE_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %slice_reg, %index
     EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, %index
 [END_MACRO]
 
+// Rust method-name alias over SLICE_GET_UNCHECKED_MUT_PTR_U64.
+[MACRO] SLICE_GET_UNCHECKED_MUT_PTR %out_ptr, %slice_reg, %index
+    EXPAND SLICE_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] SLICE_FIRST_U64 %out_value, %slice_reg
     EXPAND SLICE_GET_U64 %out_value, %slice_reg, 0
+[END_MACRO]
+
+// Rust method-name alias over SLICE_FIRST_U64.
+[MACRO] SLICE_FIRST %out_value, %slice_reg
+    EXPAND SLICE_FIRST_U64 %out_value, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_FIRST_MUT_PTR_U64 %out_ptr, %slice_reg
     EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, 0
 [END_MACRO]
 
+// Rust method-name alias over SLICE_FIRST_MUT_PTR_U64.
+[MACRO] SLICE_FIRST_MUT_PTR %out_ptr, %slice_reg
+    EXPAND SLICE_FIRST_MUT_PTR_U64 %out_ptr, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_TRY_FIRST_U64 %out_ok, %out_value, %slice_reg
     EXPAND SLICE_TRY_GET_U64 %out_ok, %out_value, %slice_reg, 0
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_FIRST_U64.
+[MACRO] SLICE_TRY_FIRST %out_ok, %out_value, %slice_reg
+    EXPAND SLICE_TRY_FIRST_U64 %out_ok, %out_value, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_LAST_U64 %out_value, %slice_reg
@@ -91,12 +126,22 @@
     !__slice_len_%out_value
 [END_MACRO]
 
+// Rust method-name alias over SLICE_LAST_U64.
+[MACRO] SLICE_LAST %out_value, %slice_reg
+    EXPAND SLICE_LAST_U64 %out_value, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_LAST_MUT_PTR_U64 %out_ptr, %slice_reg
     __slice_len_%out_ptr = load %slice_reg+Slice_len as u64
     __slice_last_%out_ptr = sub __slice_len_%out_ptr, 1
     EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, __slice_last_%out_ptr
     !__slice_last_%out_ptr
     !__slice_len_%out_ptr
+[END_MACRO]
+
+// Rust method-name alias over SLICE_LAST_MUT_PTR_U64.
+[MACRO] SLICE_LAST_MUT_PTR %out_ptr, %slice_reg
+    EXPAND SLICE_LAST_MUT_PTR_U64 %out_ptr, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_TRY_LAST_U64 %out_ok, %out_value, %slice_reg
@@ -122,6 +167,11 @@ L_SLICE_TRY_LAST_MISS_%out_ok:
 L_SLICE_TRY_LAST_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_LAST_U64.
+[MACRO] SLICE_TRY_LAST %out_ok, %out_value, %slice_reg
+    EXPAND SLICE_TRY_LAST_U64 %out_ok, %out_value, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_TRY_GET_U64 %out_ok, %out_value, %slice_reg, %index
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
     __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
@@ -141,6 +191,11 @@ L_SLICE_TRY_GET_MISS_%out_ok:
     !__slice_len_%out_ok
 
 L_SLICE_TRY_GET_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_GET_U64.
+[MACRO] SLICE_TRY_GET %out_ok, %out_value, %slice_reg, %index
+    EXPAND SLICE_TRY_GET_U64 %out_ok, %out_value, %slice_reg, %index
 [END_MACRO]
 
 [MACRO] SLICE_TRY_GET_TYPED_I1 %out_ok, %out_value, %slice_reg, %index, %elem_size
@@ -339,6 +394,11 @@ L_SLICE_TRY_GET_TYPED_U32_END_%out_ok:
     EXPAND SLICE_TRY_GET_U64 %out_ok, %out_value, %slice_reg, %index
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_GET_TYPED_U64.
+[MACRO] SLICE_TRY_GET_TYPED %out_ok, %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_TRY_GET_TYPED_U64 %out_ok, %out_value, %slice_reg, %index, %elem_size
+[END_MACRO]
+
 [MACRO] SLICE_TRY_GET_TYPED_F32 %out_ok, %out_value, %slice_reg, %index, %elem_size
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
     __slice_in_bounds_%out_ok = ult %index, __slice_len_%out_ok
@@ -456,6 +516,11 @@ L_SLICE_TRY_GET_TYPED_PTR_END_%out_ok:
     !__slice_get_ok_%out_value
 [END_MACRO]
 
+// Rust method-name alias over SLICE_GET_TYPED_U64.
+[MACRO] SLICE_GET_TYPED %out_value, %slice_reg, %index, %elem_size
+    EXPAND SLICE_GET_TYPED_U64 %out_value, %slice_reg, %index, %elem_size
+[END_MACRO]
+
 [MACRO] SLICE_GET_TYPED_F32 %out_value, %slice_reg, %index, %elem_size
     EXPAND SLICE_TRY_GET_TYPED_F32 __slice_get_ok_%out_value, %out_value, %slice_reg, %index, %elem_size
     !__slice_get_ok_%out_value
@@ -492,8 +557,18 @@ L_SLICE_TRY_GET_MUT_MISS_%out_ok:
 L_SLICE_TRY_GET_MUT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_GET_MUT_PTR_U64.
+[MACRO] SLICE_TRY_GET_MUT_PTR %out_ok, %out_ptr, %slice_reg, %index
+    EXPAND SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] SLICE_TRY_FIRST_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg
     EXPAND SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg, 0
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_FIRST_MUT_PTR_U64.
+[MACRO] SLICE_TRY_FIRST_MUT_PTR %out_ok, %out_ptr, %slice_reg
+    EXPAND SLICE_TRY_FIRST_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_TRY_LAST_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg
@@ -517,6 +592,11 @@ L_SLICE_TRY_LAST_MUT_MISS_%out_ok:
     !__slice_len_%out_ok
 
 L_SLICE_TRY_LAST_MUT_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_LAST_MUT_PTR_U64.
+[MACRO] SLICE_TRY_LAST_MUT_PTR %out_ok, %out_ptr, %slice_reg
+    EXPAND SLICE_TRY_LAST_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %slice_reg
@@ -551,6 +631,11 @@ L_SLICE_SPLIT_FIRST_MISS_%out_ok:
 L_SLICE_SPLIT_FIRST_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SPLIT_FIRST_U64.
+[MACRO] SLICE_TRY_SPLIT_FIRST %out_ok, %out_value, %out_rest, %slice_reg
+    EXPAND SLICE_TRY_SPLIT_FIRST_U64 %out_ok, %out_value, %out_rest, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %slice_reg
     %out_rest = alloc Slice_SIZE
     __slice_mut_first_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -581,6 +666,11 @@ L_SLICE_SPLIT_FIRST_MUT_MISS_%out_ok:
     !__slice_mut_first_len_%out_ok
 
 L_SLICE_SPLIT_FIRST_MUT_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_FIRST_MUT_U64.
+[MACRO] SLICE_TRY_SPLIT_FIRST_MUT %out_ok, %out_ptr, %out_rest, %slice_reg
+    EXPAND SLICE_TRY_SPLIT_FIRST_MUT_U64 %out_ok, %out_ptr, %out_rest, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %slice_reg
@@ -617,6 +707,11 @@ L_SLICE_SPLIT_LAST_MISS_%out_ok:
 L_SLICE_SPLIT_LAST_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SPLIT_LAST_U64.
+[MACRO] SLICE_TRY_SPLIT_LAST %out_ok, %out_value, %out_rest, %slice_reg
+    EXPAND SLICE_TRY_SPLIT_LAST_U64 %out_ok, %out_value, %out_rest, %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %slice_reg
     %out_rest = alloc Slice_SIZE
     __slice_mut_last_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -647,6 +742,11 @@ L_SLICE_SPLIT_LAST_MUT_MISS_%out_ok:
     !__slice_mut_last_len_%out_ok
 
 L_SLICE_SPLIT_LAST_MUT_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_LAST_MUT_U64.
+[MACRO] SLICE_TRY_SPLIT_LAST_MUT %out_ok, %out_ptr, %out_rest, %slice_reg
+    EXPAND SLICE_TRY_SPLIT_LAST_MUT_U64 %out_ok, %out_ptr, %out_rest, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_CONTAINS_U64 %out_bool, %slice_reg, %needle
@@ -700,6 +800,11 @@ L_SLICE_CONTAINS_MISS_%out_bool:
     !__slice_ptr_%out_bool
 
 L_SLICE_CONTAINS_END_%out_bool:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_CONTAINS_U64.
+[MACRO] SLICE_CONTAINS %out_bool, %slice_reg, %needle
+    EXPAND SLICE_CONTAINS_U64 %out_bool, %slice_reg, %needle
 [END_MACRO]
 
 [MACRO] SLICE_EQ_U64 %out_bool, %left_slice, %right_slice
@@ -779,10 +884,20 @@ L_SLICE_EQ_FALSE_%out_bool:
 L_SLICE_EQ_END_%out_bool:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_EQ_U64.
+[MACRO] SLICE_EQ %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_EQ_U64 %out_bool, %left_slice, %right_slice
+[END_MACRO]
+
 [MACRO] SLICE_NE_U64 %out_bool, %left_slice, %right_slice
     EXPAND SLICE_EQ_U64 __slice_ne_eq_%out_bool, %left_slice, %right_slice
     %out_bool = eq __slice_ne_eq_%out_bool, 0
     !__slice_ne_eq_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over SLICE_NE_U64.
+[MACRO] SLICE_NE %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_NE_U64 %out_bool, %left_slice, %right_slice
 [END_MACRO]
 
 [MACRO] SLICE_CMP_U64 %out_ordering, %left_slice, %right_slice
@@ -905,10 +1020,20 @@ L_SLICE_CMP_EQUAL_%out_ordering:
 L_SLICE_CMP_END_%out_ordering:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_CMP_U64.
+[MACRO] SLICE_CMP %out_ordering, %left_slice, %right_slice
+    EXPAND SLICE_CMP_U64 %out_ordering, %left_slice, %right_slice
+[END_MACRO]
+
 [MACRO] SLICE_LT_U64 %out_bool, %left_slice, %right_slice
     EXPAND SLICE_CMP_U64 __slice_lt_order_%out_bool, %left_slice, %right_slice
     %out_bool = slt __slice_lt_order_%out_bool, 0
     !__slice_lt_order_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over SLICE_LT_U64.
+[MACRO] SLICE_LT %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_LT_U64 %out_bool, %left_slice, %right_slice
 [END_MACRO]
 
 [MACRO] SLICE_LE_U64 %out_bool, %left_slice, %right_slice
@@ -917,16 +1042,31 @@ L_SLICE_CMP_END_%out_ordering:
     !__slice_le_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over SLICE_LE_U64.
+[MACRO] SLICE_LE %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_LE_U64 %out_bool, %left_slice, %right_slice
+[END_MACRO]
+
 [MACRO] SLICE_GT_U64 %out_bool, %left_slice, %right_slice
     EXPAND SLICE_CMP_U64 __slice_gt_order_%out_bool, %left_slice, %right_slice
     %out_bool = sgt __slice_gt_order_%out_bool, 0
     !__slice_gt_order_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over SLICE_GT_U64.
+[MACRO] SLICE_GT %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_GT_U64 %out_bool, %left_slice, %right_slice
+[END_MACRO]
+
 [MACRO] SLICE_GE_U64 %out_bool, %left_slice, %right_slice
     EXPAND SLICE_CMP_U64 __slice_ge_order_%out_bool, %left_slice, %right_slice
     %out_bool = sge __slice_ge_order_%out_bool, 0
     !__slice_ge_order_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over SLICE_GE_U64.
+[MACRO] SLICE_GE %out_bool, %left_slice, %right_slice
+    EXPAND SLICE_GE_U64 %out_bool, %left_slice, %right_slice
 [END_MACRO]
 
 [MACRO] SLICE_STARTS_WITH_U64 %out_bool, %slice_reg, %prefix_slice
@@ -1004,6 +1144,11 @@ L_SLICE_STARTS_FALSE_%out_bool:
     !__slice_ptr_%out_bool
 
 L_SLICE_STARTS_END_%out_bool:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_STARTS_WITH_U64.
+[MACRO] SLICE_STARTS_WITH %out_bool, %slice_reg, %prefix_slice
+    EXPAND SLICE_STARTS_WITH_U64 %out_bool, %slice_reg, %prefix_slice
 [END_MACRO]
 
 [MACRO] SLICE_ENDS_WITH_U64 %out_bool, %slice_reg, %suffix_slice
@@ -1095,6 +1240,11 @@ L_SLICE_ENDS_FALSE_%out_bool:
 L_SLICE_ENDS_END_%out_bool:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_ENDS_WITH_U64.
+[MACRO] SLICE_ENDS_WITH %out_bool, %slice_reg, %suffix_slice
+    EXPAND SLICE_ENDS_WITH_U64 %out_bool, %slice_reg, %suffix_slice
+[END_MACRO]
+
 [MACRO] SLICE_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %slice_reg, %prefix_slice
     %out_slice = alloc Slice_SIZE
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -1130,6 +1280,11 @@ L_SLICE_STRIP_PREFIX_MISS_%out_ok:
 L_SLICE_STRIP_PREFIX_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_STRIP_PREFIX_U64.
+[MACRO] SLICE_TRY_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice
+    EXPAND SLICE_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %slice_reg, %prefix_slice
+[END_MACRO]
+
 [MACRO] SLICE_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %slice_reg, %suffix_slice
     %out_slice = alloc Slice_SIZE
     __slice_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -1159,6 +1314,11 @@ L_SLICE_STRIP_SUFFIX_MISS_%out_ok:
     !__slice_len_%out_ok
 
 L_SLICE_STRIP_SUFFIX_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_STRIP_SUFFIX_U64.
+[MACRO] SLICE_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice
+    EXPAND SLICE_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %slice_reg, %suffix_slice
 [END_MACRO]
 
 [MACRO] SLICE_TRIM_PREFIX_U64 %out_slice, %slice_reg, %prefix_slice
@@ -1194,6 +1354,11 @@ L_SLICE_TRIM_PREFIX_MISS_%out_slice:
 L_SLICE_TRIM_PREFIX_END_%out_slice:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRIM_PREFIX_U64.
+[MACRO] SLICE_TRIM_PREFIX %out_slice, %slice_reg, %prefix_slice
+    EXPAND SLICE_TRIM_PREFIX_U64 %out_slice, %slice_reg, %prefix_slice
+[END_MACRO]
+
 [MACRO] SLICE_TRIM_SUFFIX_U64 %out_slice, %slice_reg, %suffix_slice
     %out_slice = alloc Slice_SIZE
     __slice_len_%out_slice = load %slice_reg+Slice_len as u64
@@ -1221,6 +1386,11 @@ L_SLICE_TRIM_SUFFIX_MISS_%out_slice:
     !__slice_len_%out_slice
 
 L_SLICE_TRIM_SUFFIX_END_%out_slice:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRIM_SUFFIX_U64.
+[MACRO] SLICE_TRIM_SUFFIX %out_slice, %slice_reg, %suffix_slice
+    EXPAND SLICE_TRIM_SUFFIX_U64 %out_slice, %slice_reg, %suffix_slice
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
@@ -1258,16 +1428,36 @@ L_SLICE_SPLIT_AT_MISS_%out_ok:
 L_SLICE_SPLIT_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SPLIT_AT_U64.
+[MACRO] SLICE_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
     EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_AT_MUT_U64.
+[MACRO] SLICE_TRY_SPLIT_AT_MUT %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
     EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SPLIT_AT_CHECKED_U64.
+[MACRO] SLICE_TRY_SPLIT_AT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_TRY_SPLIT_AT_CHECKED_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
     EXPAND SLICE_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_AT_MUT_CHECKED_U64.
+[MACRO] SLICE_TRY_SPLIT_AT_MUT_CHECKED %out_ok, %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_TRY_SPLIT_AT_MUT_CHECKED_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
 [MACRO] SLICE_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
@@ -1287,12 +1477,27 @@ L_SLICE_SPLIT_AT_END_%out_ok:
     !__slice_split_unchecked_len_%out_left
 [END_MACRO]
 
+// Rust method-name alias over SLICE_SPLIT_AT_UNCHECKED_U64.
+[MACRO] SLICE_SPLIT_AT_UNCHECKED %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
 [MACRO] SLICE_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
     EXPAND SLICE_SPLIT_AT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
 [END_MACRO]
 
+// Rust method-name alias over SLICE_SPLIT_AT_MUT_UNCHECKED_U64.
+[MACRO] SLICE_SPLIT_AT_MUT_UNCHECKED %out_left, %out_right, %slice_reg, %mid
+    EXPAND SLICE_SPLIT_AT_MUT_UNCHECKED_U64 %out_left, %out_right, %slice_reg, %mid
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
     EXPAND SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_FIRST_CHUNK_U64.
+[MACRO] SLICE_TRY_SPLIT_FIRST_CHUNK %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] SLICE_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
@@ -1300,12 +1505,27 @@ L_SLICE_SPLIT_AT_END_%out_ok:
     !__slice_first_chunk_rest_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_FIRST_CHUNK_U64.
+[MACRO] SLICE_TRY_FIRST_CHUNK %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] SLICE_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
     EXPAND SLICE_TRY_FIRST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_FIRST_CHUNK_MUT_U64.
+[MACRO] SLICE_TRY_FIRST_CHUNK_MUT %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
     EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_FIRST_CHUNK_MUT_U64.
+[MACRO] SLICE_TRY_SPLIT_FIRST_CHUNK_MUT %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_FIRST_CHUNK_MUT_U64 %out_ok, %out_chunk, %out_rest, %slice_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
@@ -1343,8 +1563,18 @@ L_SLICE_SPLIT_LAST_CHUNK_MISS_%out_ok:
 L_SLICE_SPLIT_LAST_CHUNK_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SPLIT_LAST_CHUNK_U64.
+[MACRO] SLICE_TRY_SPLIT_LAST_CHUNK %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
     EXPAND SLICE_TRY_SPLIT_LAST_CHUNK_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SPLIT_LAST_CHUNK_MUT_U64.
+[MACRO] SLICE_TRY_SPLIT_LAST_CHUNK_MUT %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_SPLIT_LAST_CHUNK_MUT_U64 %out_ok, %out_rest, %out_chunk, %slice_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] SLICE_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
@@ -1352,8 +1582,18 @@ L_SLICE_SPLIT_LAST_CHUNK_END_%out_ok:
     !__slice_last_chunk_rest_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_LAST_CHUNK_U64.
+[MACRO] SLICE_TRY_LAST_CHUNK %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
 [MACRO] SLICE_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
     EXPAND SLICE_TRY_LAST_CHUNK_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_LAST_CHUNK_MUT_U64.
+[MACRO] SLICE_TRY_LAST_CHUNK_MUT %out_ok, %out_chunk, %slice_reg, %chunk_len
+    EXPAND SLICE_TRY_LAST_CHUNK_MUT_U64 %out_ok, %out_chunk, %slice_reg, %chunk_len
 [END_MACRO]
 
 [MACRO] SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
@@ -1404,12 +1644,27 @@ L_SLICE_RANGE_MISS_START_%out_ok:
 L_SLICE_RANGE_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_RANGE_U64.
+[MACRO] SLICE_TRY_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
 [MACRO] SLICE_TRY_GET_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
     EXPAND SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_GET_RANGE_U64.
+[MACRO] SLICE_TRY_GET_RANGE %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_TRY_GET_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
 [MACRO] SLICE_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %slice_reg, %start, %length
     EXPAND SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_GET_RANGE_MUT_U64.
+[MACRO] SLICE_TRY_GET_RANGE_MUT %out_ok, %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_TRY_GET_RANGE_MUT_U64 %out_ok, %out_slice, %slice_reg, %start, %length
 [END_MACRO]
 
 [MACRO] SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
@@ -1423,12 +1678,27 @@ L_SLICE_RANGE_END_%out_ok:
     !__slice_range_unchecked_src_%out_slice
 [END_MACRO]
 
+// Rust method-name alias over SLICE_RANGE_UNCHECKED_U64.
+[MACRO] SLICE_RANGE_UNCHECKED %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
 [MACRO] SLICE_GET_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
     EXPAND SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
 [END_MACRO]
 
+// Rust method-name alias over SLICE_GET_RANGE_UNCHECKED_U64.
+[MACRO] SLICE_GET_RANGE_UNCHECKED %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_GET_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
 [MACRO] SLICE_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
     EXPAND SLICE_RANGE_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
+[END_MACRO]
+
+// Rust method-name alias over SLICE_GET_RANGE_MUT_UNCHECKED_U64.
+[MACRO] SLICE_GET_RANGE_MUT_UNCHECKED %out_slice, %slice_reg, %start, %length
+    EXPAND SLICE_GET_RANGE_MUT_UNCHECKED_U64 %out_slice, %slice_reg, %start, %length
 [END_MACRO]
 
 [MACRO] SLICE_CHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
@@ -1452,6 +1722,11 @@ L_SLICE_CHUNK_COUNT_ZERO_%out_count:
     !__slice_chunk_len_%out_count
 
 L_SLICE_CHUNK_COUNT_END_%out_count:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_CHUNK_COUNT_U64.
+[MACRO] SLICE_CHUNK_COUNT %out_count, %slice_reg, %chunk_size
+    EXPAND SLICE_CHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] SLICE_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
@@ -1526,8 +1801,18 @@ L_SLICE_CHUNK_AT_MISS_ZERO_%out_ok:
 L_SLICE_CHUNK_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_CHUNK_AT_U64.
+[MACRO] SLICE_TRY_CHUNK_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_CHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] SLICE_RCHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
     EXPAND SLICE_CHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
+[END_MACRO]
+
+// Rust method-name alias over SLICE_RCHUNK_COUNT_U64.
+[MACRO] SLICE_RCHUNK_COUNT %out_count, %slice_reg, %chunk_size
+    EXPAND SLICE_RCHUNK_COUNT_U64 %out_count, %slice_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] SLICE_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
@@ -1615,8 +1900,18 @@ L_SLICE_RCHUNK_AT_MISS_ZERO_%out_ok:
 L_SLICE_RCHUNK_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_RCHUNK_AT_U64.
+[MACRO] SLICE_TRY_RCHUNK_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] SLICE_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
     EXPAND SLICE_TRY_RCHUNK_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_RCHUNK_MUT_AT_U64.
+[MACRO] SLICE_TRY_RCHUNK_MUT_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_RCHUNK_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] SLICE_CHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
@@ -1636,6 +1931,11 @@ L_SLICE_CHUNKS_EXACT_COUNT_ZERO_%out_count:
     !__slice_chunks_exact_len_%out_count
 
 L_SLICE_CHUNKS_EXACT_COUNT_END_%out_count:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_CHUNKS_EXACT_COUNT_U64.
+[MACRO] SLICE_CHUNKS_EXACT_COUNT %out_count, %slice_reg, %chunk_size
+    EXPAND SLICE_CHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] SLICE_CHUNKS_EXACT_REMAINDER_U64 %out_slice, %slice_reg, %chunk_size
@@ -1670,6 +1970,11 @@ L_SLICE_CHUNKS_EXACT_REMAINDER_ZERO_%out_slice:
     !__slice_chunks_exact_rem_len_%out_slice
 
 L_SLICE_CHUNKS_EXACT_REMAINDER_END_%out_slice:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_CHUNKS_EXACT_REMAINDER_U64.
+[MACRO] SLICE_CHUNKS_EXACT_REMAINDER %out_slice, %slice_reg, %chunk_size
+    EXPAND SLICE_CHUNKS_EXACT_REMAINDER_U64 %out_slice, %slice_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] SLICE_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
@@ -1722,12 +2027,27 @@ L_SLICE_CHUNK_EXACT_AT_MISS_ZERO_%out_ok:
 L_SLICE_CHUNK_EXACT_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_CHUNK_EXACT_AT_U64.
+[MACRO] SLICE_TRY_CHUNK_EXACT_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] SLICE_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
     EXPAND SLICE_TRY_CHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_CHUNK_EXACT_MUT_AT_U64.
+[MACRO] SLICE_TRY_CHUNK_EXACT_MUT_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_CHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] SLICE_RCHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
     EXPAND SLICE_CHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
+[END_MACRO]
+
+// Rust method-name alias over SLICE_RCHUNKS_EXACT_COUNT_U64.
+[MACRO] SLICE_RCHUNKS_EXACT_COUNT %out_count, %slice_reg, %chunk_size
+    EXPAND SLICE_RCHUNKS_EXACT_COUNT_U64 %out_count, %slice_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] SLICE_RCHUNKS_EXACT_REMAINDER_U64 %out_slice, %slice_reg, %chunk_size
@@ -1758,6 +2078,11 @@ L_SLICE_RCHUNKS_EXACT_REMAINDER_ZERO_%out_slice:
     !__slice_rchunks_exact_rem_len_%out_slice
 
 L_SLICE_RCHUNKS_EXACT_REMAINDER_END_%out_slice:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_RCHUNKS_EXACT_REMAINDER_U64.
+[MACRO] SLICE_RCHUNKS_EXACT_REMAINDER %out_slice, %slice_reg, %chunk_size
+    EXPAND SLICE_RCHUNKS_EXACT_REMAINDER_U64 %out_slice, %slice_reg, %chunk_size
 [END_MACRO]
 
 [MACRO] SLICE_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
@@ -1814,8 +2139,18 @@ L_SLICE_RCHUNK_EXACT_AT_MISS_ZERO_%out_ok:
 L_SLICE_RCHUNK_EXACT_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_RCHUNK_EXACT_AT_U64.
+[MACRO] SLICE_TRY_RCHUNK_EXACT_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
 [MACRO] SLICE_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
     EXPAND SLICE_TRY_RCHUNK_EXACT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_RCHUNK_EXACT_MUT_AT_U64.
+[MACRO] SLICE_TRY_RCHUNK_EXACT_MUT_AT %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
+    EXPAND SLICE_TRY_RCHUNK_EXACT_MUT_AT_U64 %out_ok, %out_slice, %slice_reg, %chunk_size, %chunk_index
 [END_MACRO]
 
 [MACRO] SLICE_WINDOW_COUNT_U64 %out_count, %slice_reg, %window_size
@@ -1849,6 +2184,11 @@ L_SLICE_WINDOW_COUNT_ZERO_%out_count:
     !__slice_window_len_%out_count
 
 L_SLICE_WINDOW_COUNT_END_%out_count:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_WINDOW_COUNT_U64.
+[MACRO] SLICE_WINDOW_COUNT %out_count, %slice_reg, %window_size
+    EXPAND SLICE_WINDOW_COUNT_U64 %out_count, %slice_reg, %window_size
 [END_MACRO]
 
 [MACRO] SLICE_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %slice_reg, %window_size, %window_index
@@ -1915,6 +2255,11 @@ L_SLICE_WINDOW_AT_MISS_ZERO_%out_ok:
 L_SLICE_WINDOW_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_WINDOW_AT_U64.
+[MACRO] SLICE_TRY_WINDOW_AT %out_ok, %out_slice, %slice_reg, %window_size, %window_index
+    EXPAND SLICE_TRY_WINDOW_AT_U64 %out_ok, %out_slice, %slice_reg, %window_size, %window_index
+[END_MACRO]
+
 [MACRO] SLICE_SWAP_U64 %slice_reg, %left, %right
     __slice_swap_ptr_%slice_reg = load %slice_reg+Slice_ptr as ptr
     __slice_swap_left_off_%slice_reg = mul %left, 8
@@ -1932,6 +2277,11 @@ L_SLICE_WINDOW_AT_END_%out_ok:
     !__slice_swap_right_off_%slice_reg
     !__slice_swap_left_off_%slice_reg
     !__slice_swap_ptr_%slice_reg
+[END_MACRO]
+
+// Rust method-name alias over SLICE_SWAP_U64.
+[MACRO] SLICE_SWAP %slice_reg, %left, %right
+    EXPAND SLICE_SWAP_U64 %slice_reg, %left, %right
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SWAP_U64 %out_ok, %slice_reg, %left, %right
@@ -1958,6 +2308,11 @@ L_SLICE_TRY_SWAP_MISS_%out_ok:
     !__slice_swap_len_%out_ok
 
 L_SLICE_TRY_SWAP_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SWAP_U64.
+[MACRO] SLICE_TRY_SWAP %out_ok, %slice_reg, %left, %right
+    EXPAND SLICE_TRY_SWAP_U64 %out_ok, %slice_reg, %left, %right
 [END_MACRO]
 
 [MACRO] SLICE_FILL_U64 %slice_reg, %value
@@ -1992,6 +2347,11 @@ L_SLICE_FILL_END_%slice_reg:
     !__slice_fill_ptr_%slice_reg
 [END_MACRO]
 
+// Rust method-name alias over SLICE_FILL_U64.
+[MACRO] SLICE_FILL %slice_reg, %value
+    EXPAND SLICE_FILL_U64 %slice_reg, %value
+[END_MACRO]
+
 [MACRO] SLICE_FILL_WITH_U64 %slice_reg, %gen_fn
     __slice_fill_with_ptr_%slice_reg = load %slice_reg+Slice_ptr as ptr
     __slice_fill_with_len_%slice_reg = load %slice_reg+Slice_len as u64
@@ -2024,6 +2384,11 @@ L_SLICE_FILL_WITH_END_%slice_reg:
     !__slice_fill_with_idx_%slice_reg
     !__slice_fill_with_len_%slice_reg
     !__slice_fill_with_ptr_%slice_reg
+[END_MACRO]
+
+// Rust method-name alias over SLICE_FILL_WITH_U64.
+[MACRO] SLICE_FILL_WITH %slice_reg, %gen_fn
+    EXPAND SLICE_FILL_WITH_U64 %slice_reg, %gen_fn
 [END_MACRO]
 
 [MACRO] SLICE_REVERSE_U64 %slice_reg
@@ -2087,6 +2452,11 @@ L_SLICE_REV_DONE_SMALL_%slice_reg:
     !__slice_rev_len_%slice_reg
 
 L_SLICE_REV_END_%slice_reg:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_REVERSE_U64.
+[MACRO] SLICE_REVERSE %slice_reg
+    EXPAND SLICE_REVERSE_U64 %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_TRY_ROTATE_LEFT_U64 %out_ok, %slice_reg, %count
@@ -2189,6 +2559,11 @@ L_SLICE_ROT_LEFT_MISS_%out_ok:
 L_SLICE_ROT_LEFT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_ROTATE_LEFT_U64.
+[MACRO] SLICE_TRY_ROTATE_LEFT %out_ok, %slice_reg, %count
+    EXPAND SLICE_TRY_ROTATE_LEFT_U64 %out_ok, %slice_reg, %count
+[END_MACRO]
+
 [MACRO] SLICE_TRY_ROTATE_RIGHT_U64 %out_ok, %slice_reg, %count
     __slice_rot_right_len_%out_ok = load %slice_reg+Slice_len as u64
     __slice_rot_right_round_slot_%out_ok = stack_alloc 8
@@ -2288,6 +2663,11 @@ L_SLICE_ROT_RIGHT_MISS_%out_ok:
 L_SLICE_ROT_RIGHT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_ROTATE_RIGHT_U64.
+[MACRO] SLICE_TRY_ROTATE_RIGHT %out_ok, %slice_reg, %count
+    EXPAND SLICE_TRY_ROTATE_RIGHT_U64 %out_ok, %slice_reg, %count
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SWAP_WITH_SLICE_U64 %out_ok, %left_slice, %right_slice
     __slice_sws_left_len_%out_ok = load %left_slice+Slice_len as u64
     __slice_sws_right_len_%out_ok = load %right_slice+Slice_len as u64
@@ -2344,6 +2724,11 @@ L_SLICE_SWS_MISS_%out_ok:
     !__slice_sws_left_len_%out_ok
 
 L_SLICE_SWS_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SWAP_WITH_SLICE_U64.
+[MACRO] SLICE_TRY_SWAP_WITH_SLICE %out_ok, %left_slice, %right_slice
+    EXPAND SLICE_TRY_SWAP_WITH_SLICE_U64 %out_ok, %left_slice, %right_slice
 [END_MACRO]
 
 [MACRO] SLICE_IS_SORTED_U64 %out_bool, %slice_reg
@@ -2422,6 +2807,11 @@ L_SLICE_SORTED_TRUE_SMALL_%out_bool:
     !__slice_sorted_len_%out_bool
 
 L_SLICE_SORTED_END_%out_bool:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_IS_SORTED_U64.
+[MACRO] SLICE_IS_SORTED %out_bool, %slice_reg
+    EXPAND SLICE_IS_SORTED_U64 %out_bool, %slice_reg
 [END_MACRO]
 
 [MACRO] SLICE_IS_SORTED_BY_U64 %out_bool, %slice_reg, %compare_fn
@@ -2503,6 +2893,11 @@ L_SLICE_SORTED_BY_TRUE_SMALL_%out_bool:
     !__slice_sorted_by_len_%out_bool
 
 L_SLICE_SORTED_BY_END_%out_bool:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_IS_SORTED_BY_U64.
+[MACRO] SLICE_IS_SORTED_BY %out_bool, %slice_reg, %compare_fn
+    EXPAND SLICE_IS_SORTED_BY_U64 %out_bool, %slice_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] SLICE_IS_SORTED_BY_KEY_U64 %out_bool, %slice_reg, %key_fn
@@ -2587,6 +2982,11 @@ L_SLICE_SORTED_KEY_TRUE_SMALL_%out_bool:
     !__slice_sorted_key_len_%out_bool
 
 L_SLICE_SORTED_KEY_END_%out_bool:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_IS_SORTED_BY_KEY_U64.
+[MACRO] SLICE_IS_SORTED_BY_KEY %out_bool, %slice_reg, %key_fn
+    EXPAND SLICE_IS_SORTED_BY_KEY_U64 %out_bool, %slice_reg, %key_fn
 [END_MACRO]
 
 [MACRO] SLICE_SORT_U64 %slice_reg
@@ -2676,6 +3076,11 @@ L_SLICE_SORT_DONE_SMALL_%slice_reg:
 L_SLICE_SORT_END_%slice_reg:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_SORT_U64.
+[MACRO] SLICE_SORT %slice_reg
+    EXPAND SLICE_SORT_U64 %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_SORT_BY_U64 %slice_reg, %compare_fn
     __slice_sort_by_len_%slice_reg = load %slice_reg+Slice_len as u64
     __slice_sort_by_small_%slice_reg = ule __slice_sort_by_len_%slice_reg, 1
@@ -2763,6 +3168,11 @@ L_SLICE_SORT_BY_DONE_SMALL_%slice_reg:
     !__slice_sort_by_len_%slice_reg
 
 L_SLICE_SORT_BY_END_%slice_reg:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_SORT_BY_U64.
+[MACRO] SLICE_SORT_BY %slice_reg, %compare_fn
+    EXPAND SLICE_SORT_BY_U64 %slice_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
@@ -2856,20 +3266,45 @@ L_SLICE_SORT_KEY_DONE_SMALL_%slice_reg:
 L_SLICE_SORT_KEY_END_%slice_reg:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_SORT_BY_KEY_U64.
+[MACRO] SLICE_SORT_BY_KEY %slice_reg, %key_fn
+    EXPAND SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
+[END_MACRO]
+
 [MACRO] SLICE_SORT_BY_CACHED_KEY_U64 %slice_reg, %key_fn
     EXPAND SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over SLICE_SORT_BY_CACHED_KEY_U64.
+[MACRO] SLICE_SORT_BY_CACHED_KEY %slice_reg, %key_fn
+    EXPAND SLICE_SORT_BY_CACHED_KEY_U64 %slice_reg, %key_fn
 [END_MACRO]
 
 [MACRO] SLICE_SORT_UNSTABLE_U64 %slice_reg
     EXPAND SLICE_SORT_U64 %slice_reg
 [END_MACRO]
 
+// Rust method-name alias over SLICE_SORT_UNSTABLE_U64.
+[MACRO] SLICE_SORT_UNSTABLE %slice_reg
+    EXPAND SLICE_SORT_UNSTABLE_U64 %slice_reg
+[END_MACRO]
+
 [MACRO] SLICE_SORT_UNSTABLE_BY_U64 %slice_reg, %compare_fn
     EXPAND SLICE_SORT_BY_U64 %slice_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over SLICE_SORT_UNSTABLE_BY_U64.
+[MACRO] SLICE_SORT_UNSTABLE_BY %slice_reg, %compare_fn
+    EXPAND SLICE_SORT_UNSTABLE_BY_U64 %slice_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] SLICE_SORT_UNSTABLE_BY_KEY_U64 %slice_reg, %key_fn
     EXPAND SLICE_SORT_BY_KEY_U64 %slice_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over SLICE_SORT_UNSTABLE_BY_KEY_U64.
+[MACRO] SLICE_SORT_UNSTABLE_BY_KEY %slice_reg, %key_fn
+    EXPAND SLICE_SORT_UNSTABLE_BY_KEY_U64 %slice_reg, %key_fn
 [END_MACRO]
 
 [MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth
@@ -2918,6 +3353,11 @@ L_SLICE_SELECT_NTH_MISS_%out_ok:
 L_SLICE_SELECT_NTH_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SELECT_NTH_UNSTABLE_U64.
+[MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %compare_fn
     %out_left = alloc Slice_SIZE
     %out_right = alloc Slice_SIZE
@@ -2964,6 +3404,11 @@ L_SLICE_SELECT_NTH_BY_MISS_%out_ok:
 L_SLICE_SELECT_NTH_BY_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_SELECT_NTH_UNSTABLE_BY_U64.
+[MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_BY %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %compare_fn
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_BY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %compare_fn
+[END_MACRO]
+
 [MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %key_fn
     %out_left = alloc Slice_SIZE
     %out_right = alloc Slice_SIZE
@@ -3008,6 +3453,11 @@ L_SLICE_SELECT_NTH_KEY_MISS_%out_ok:
     !__slice_select_key_len_%out_ok
 
 L_SLICE_SELECT_NTH_KEY_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64.
+[MACRO] SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %key_fn
+    EXPAND SLICE_TRY_SELECT_NTH_UNSTABLE_BY_KEY_U64 %out_ok, %out_left, %out_pivot_ptr, %out_right, %slice_reg, %nth, %key_fn
 [END_MACRO]
 
 [MACRO] SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
@@ -3065,8 +3515,18 @@ L_SLICE_COPY_MISS_%out_ok:
 L_SLICE_COPY_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_COPY_FROM_SLICE_U64.
+[MACRO] SLICE_COPY_FROM_SLICE %out_ok, %dst_slice, %src_slice
+    EXPAND SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
+[END_MACRO]
+
 [MACRO] SLICE_CLONE_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
     EXPAND SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
+[END_MACRO]
+
+// Rust method-name alias over SLICE_CLONE_FROM_SLICE_U64.
+[MACRO] SLICE_CLONE_FROM_SLICE %out_ok, %dst_slice, %src_slice
+    EXPAND SLICE_CLONE_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice
 [END_MACRO]
 
 [MACRO] SLICE_COPY_WITHIN_U64 %out_ok, %slice_reg, %src_start, %src_len, %dest
@@ -3224,6 +3684,11 @@ L_SLICE_CW_MISS_SRC_START_%out_ok:
 L_SLICE_CW_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_COPY_WITHIN_U64.
+[MACRO] SLICE_COPY_WITHIN %out_ok, %slice_reg, %src_start, %src_len, %dest
+    EXPAND SLICE_COPY_WITHIN_U64 %out_ok, %slice_reg, %src_start, %src_len, %dest
+[END_MACRO]
+
 [MACRO] SLICE_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %slice_reg, %needle
     __slice_bs_ptr_%out_ok = load %slice_reg+Slice_ptr as ptr
     __slice_bs_len_%out_ok = load %slice_reg+Slice_len as u64
@@ -3314,6 +3779,11 @@ L_SLICE_BS_MISS_%out_ok:
 L_SLICE_BS_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over SLICE_TRY_BINARY_SEARCH_U64.
+[MACRO] SLICE_TRY_BINARY_SEARCH %out_ok, %out_index, %slice_reg, %needle
+    EXPAND SLICE_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %slice_reg, %needle
+[END_MACRO]
+
 [MACRO] SLICE_PARTITION_POINT_U64 %out_index, %slice_reg, %pred_fn
     __slice_pp_ptr_%out_index = load %slice_reg+Slice_ptr as ptr
     __slice_pp_len_%out_index = load %slice_reg+Slice_len as u64
@@ -3381,6 +3851,11 @@ L_SLICE_PP_DONE_%out_index:
     !__slice_pp_ptr_%out_index
 [END_MACRO]
 
+// Rust method-name alias over SLICE_PARTITION_POINT_U64.
+[MACRO] SLICE_PARTITION_POINT %out_index, %slice_reg, %pred_fn
+    EXPAND SLICE_PARTITION_POINT_U64 %out_index, %slice_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] SLICE_LOWER_BOUND_U64 %out_index, %slice_reg, %needle
     __slice_lb_ptr_%out_index = load %slice_reg+Slice_ptr as ptr
     __slice_lb_len_%out_index = load %slice_reg+Slice_len as u64
@@ -3443,6 +3918,11 @@ L_SLICE_LB_DONE_%out_index:
     !__slice_lb_left_%out_index
     !__slice_lb_len_%out_index
     !__slice_lb_ptr_%out_index
+[END_MACRO]
+
+// Rust method-name alias over SLICE_LOWER_BOUND_U64.
+[MACRO] SLICE_LOWER_BOUND %out_index, %slice_reg, %needle
+    EXPAND SLICE_LOWER_BOUND_U64 %out_index, %slice_reg, %needle
 [END_MACRO]
 
 [MACRO] SLICE_UPPER_BOUND_U64 %out_index, %slice_reg, %needle
@@ -3509,9 +3989,19 @@ L_SLICE_UB_DONE_%out_index:
     !__slice_ub_ptr_%out_index
 [END_MACRO]
 
+// Rust method-name alias over SLICE_UPPER_BOUND_U64.
+[MACRO] SLICE_UPPER_BOUND %out_index, %slice_reg, %needle
+    EXPAND SLICE_UPPER_BOUND_U64 %out_index, %slice_reg, %needle
+[END_MACRO]
+
 [MACRO] SLICE_EQUAL_RANGE_U64 %out_start, %out_end, %slice_reg, %needle
     EXPAND SLICE_LOWER_BOUND_U64 %out_start, %slice_reg, %needle
     EXPAND SLICE_UPPER_BOUND_U64 %out_end, %slice_reg, %needle
+[END_MACRO]
+
+// Rust method-name alias over SLICE_EQUAL_RANGE_U64.
+[MACRO] SLICE_EQUAL_RANGE %out_start, %out_end, %slice_reg, %needle
+    EXPAND SLICE_EQUAL_RANGE_U64 %out_start, %out_end, %slice_reg, %needle
 [END_MACRO]
 
 

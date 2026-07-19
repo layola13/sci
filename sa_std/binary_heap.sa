@@ -984,8 +984,18 @@ L_APPEND_DONE:
     EXPAND ITER_FROM_SLICE %out_iter, __binary_heap_iter_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_U64.
+[MACRO] BINARY_HEAP_ITER %out_iter, %heap_reg
+    EXPAND BINARY_HEAP_ITER_U64 %out_iter, %heap_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_REF_INTO_ITER_U64 %out_iter, %heap_reg
     EXPAND BINARY_HEAP_ITER_U64 %out_iter, %heap_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_REF_INTO_ITER_U64.
+[MACRO] BINARY_HEAP_REF_INTO_ITER %out_iter, %heap_reg
+    EXPAND BINARY_HEAP_REF_INTO_ITER_U64 %out_iter, %heap_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_DEFAULT_U64 %out_iter
@@ -994,28 +1004,63 @@ L_APPEND_DONE:
     EXPAND ITER_FROM_SLICE %out_iter, __binary_heap_iter_default_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_DEFAULT_U64.
+[MACRO] BINARY_HEAP_ITER_DEFAULT %out_iter
+    EXPAND BINARY_HEAP_ITER_DEFAULT_U64 %out_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_CLONE_U64 %out_iter, %iter_reg
     EXPAND ITER_CLONE %out_iter, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_CLONE_U64.
+[MACRO] BINARY_HEAP_ITER_CLONE %out_iter, %iter_reg
+    EXPAND BINARY_HEAP_ITER_CLONE_U64 %out_iter, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_NEXT_U64.
+[MACRO] BINARY_HEAP_ITER_NEXT %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_NEXT_BACK_U64.
+[MACRO] BINARY_HEAP_ITER_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_NTH_U64.
+[MACRO] BINARY_HEAP_ITER_NTH %out_has, %out_value, %iter_reg, %nth
+    EXPAND BINARY_HEAP_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_NTH_BACK_U64.
+[MACRO] BINARY_HEAP_ITER_NTH_BACK %out_has, %out_value, %iter_reg, %nth
+    EXPAND BINARY_HEAP_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
     EXPAND ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_NEXT_CHUNK_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_NEXT_CHUNK %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND BINARY_HEAP_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
@@ -1030,112 +1075,252 @@ L_APPEND_DONE:
     EXPAND ITER_COUNT %out_count, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_COUNT_U64.
+[MACRO] BINARY_HEAP_ITER_COUNT %out_count, %iter_reg
+    EXPAND BINARY_HEAP_ITER_COUNT_U64 %out_count, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_LAST_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_LAST_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_LAST_U64.
+[MACRO] BINARY_HEAP_ITER_LAST %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_LAST_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_FIND_U64.
+[MACRO] BINARY_HEAP_ITER_FIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_FIND_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_FIND %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
     EXPAND ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_FIND_MAP_U64.
+[MACRO] BINARY_HEAP_ITER_FIND_MAP %out_has, %out_value, %iter_reg, %map_fn
+    EXPAND BINARY_HEAP_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_POSITION_U64.
+[MACRO] BINARY_HEAP_ITER_POSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_RPOSITION_U64.
+[MACRO] BINARY_HEAP_ITER_RPOSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_RFIND_U64.
+[MACRO] BINARY_HEAP_ITER_RFIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_ANY_U64.
+[MACRO] BINARY_HEAP_ITER_ANY %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_ALL_U64.
+[MACRO] BINARY_HEAP_ITER_ALL %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_FOR_EACH_U64 %iter_reg, %each_fn
     EXPAND ITER_FOR_EACH_U64 %iter_reg, %each_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_FOR_EACH_U64.
+[MACRO] BINARY_HEAP_ITER_FOR_EACH %iter_reg, %each_fn
+    EXPAND BINARY_HEAP_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
     EXPAND ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_FOR_EACH_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_FOR_EACH %out_ok, %iter_reg, %each_fn
+    EXPAND BINARY_HEAP_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_FOLD_U64.
+[MACRO] BINARY_HEAP_ITER_FOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_FOLD_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_FOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_RFOLD_U64.
+[MACRO] BINARY_HEAP_ITER_RFOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_RFOLD_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_RFOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_SUM_U64 %out_value, %iter_reg
     EXPAND ITER_SUM_U64 %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_SUM_U64.
+[MACRO] BINARY_HEAP_ITER_SUM %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_PRODUCT_U64 %out_value, %iter_reg
     EXPAND ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_PRODUCT_U64.
+[MACRO] BINARY_HEAP_ITER_PRODUCT %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_PRODUCT_U64 %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_MIN_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_MIN_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_MIN_U64.
+[MACRO] BINARY_HEAP_ITER_MIN %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_MAX_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_MAX_U64.
+[MACRO] BINARY_HEAP_ITER_MAX %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_ITER_MAX_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_REDUCE_U64.
+[MACRO] BINARY_HEAP_ITER_REDUCE %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND BINARY_HEAP_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_REDUCE_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_REDUCE %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND BINARY_HEAP_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_SIZE_HINT_U64.
+[MACRO] BINARY_HEAP_ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND BINARY_HEAP_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_EXACT_SIZE_LEN_U64.
+[MACRO] BINARY_HEAP_ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND BINARY_HEAP_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] BINARY_HEAP_ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND BINARY_HEAP_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_COLLECT_U64.
+[MACRO] BINARY_HEAP_ITER_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
     EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_ITER_TRY_COLLECT_U64.
+[MACRO] BINARY_HEAP_ITER_TRY_COLLECT %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND BINARY_HEAP_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_ITER_COLLECT_INTO_U64.
+[MACRO] BINARY_HEAP_ITER_COLLECT_INTO %vec_reg, %iter_reg
+    EXPAND BINARY_HEAP_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_VEC %out_vec, %heap_reg
@@ -1149,28 +1334,63 @@ L_APPEND_DONE:
     !__binary_heap_into_iter_slice_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_U64.
+[MACRO] BINARY_HEAP_INTO_ITER %out_iter, %out_vec, %heap_reg
+    EXPAND BINARY_HEAP_INTO_ITER_U64 %out_iter, %out_vec, %heap_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
     EXPAND VEC_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_DEFAULT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_DEFAULT %out_iter, %out_vec
+    EXPAND BINARY_HEAP_INTO_ITER_DEFAULT_U64 %out_iter, %out_vec
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_NEXT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_NEXT %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_NEXT_BACK_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_NEXT_BACK %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_NEXT_BACK_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND VEC_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_NTH_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_NTH %out_has, %out_value, %iter_reg, %nth
+    EXPAND BINARY_HEAP_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND VEC_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_NTH_BACK_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_NTH_BACK %out_has, %out_value, %iter_reg, %nth
+    EXPAND BINARY_HEAP_INTO_ITER_NTH_BACK_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
     EXPAND VEC_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_NEXT_CHUNK_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_NEXT_CHUNK %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
@@ -1185,180 +1405,405 @@ L_APPEND_DONE:
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SIZE_HINT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_EXACT_SIZE_LEN_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_COUNT_U64 %out_count, %iter_reg
     EXPAND VEC_INTO_ITER_COUNT_U64 %out_count, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_COUNT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_COUNT %out_count, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_COUNT_U64 %out_count, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_LAST_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_LAST %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_CLONE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_CLONE %out_iter, %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
     EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_COLLECT %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
     EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_COLLECT_INTO_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_COLLECT_INTO %vec_reg, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_FIND_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_FIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_FIND_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_FIND %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
     EXPAND VEC_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_FIND_MAP_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_FIND_MAP %out_has, %out_value, %iter_reg, %map_fn
+    EXPAND BINARY_HEAP_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_POSITION_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_POSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_RPOSITION_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_RPOSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_RPOSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_RFIND_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_RFIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_RFIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_ANY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_ANY %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_ALL_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_ALL %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
     EXPAND VEC_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_FOR_EACH_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_FOR_EACH %iter_reg, %each_fn
+    EXPAND BINARY_HEAP_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
     EXPAND VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_FOR_EACH_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_FOR_EACH %out_ok, %iter_reg, %each_fn
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_FOLD_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_FOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_FOLD_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_FOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_RFOLD_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_RFOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_INTO_ITER_RFOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_RFOLD_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_RFOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_RFOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SUM_U64 %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SUM_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SUM %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SUM_U64 %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_PRODUCT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_PRODUCT %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_MIN_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_MIN %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_MAX_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_MAX %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND VEC_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_REDUCE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_REDUCE %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND BINARY_HEAP_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_TRY_REDUCE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_TRY_REDUCE %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND BINARY_HEAP_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND VEC_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_MIN_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_MIN_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND VEC_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_MAX_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_MAX_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND VEC_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_MIN_BY_KEY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_MIN_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND BINARY_HEAP_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND VEC_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_MAX_BY_KEY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_MAX_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND BINARY_HEAP_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_CMP_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND VEC_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_CMP_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_CMP_BY %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_PARTIAL_CMP_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_PARTIAL_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND VEC_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_PARTIAL_CMP_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_PARTIAL_CMP_BY %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
     EXPAND VEC_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_EQ_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_EQ_BY %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND BINARY_HEAP_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_EQ_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_EQ %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_PARTIAL_EQ_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_PARTIAL_EQ %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_NE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_NE %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_LT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_LT %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_LE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_LE %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_GT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_GT %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_GE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_GE %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_SORTED_VEC %out_vec, %heap_reg
@@ -1399,16 +1844,36 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     !__binary_heap_sorted_len_%out_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED %out_iter, %out_vec, %heap_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_U64 %out_iter, %out_vec, %heap_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_NEXT_U64 %out_has, %out_value, %iter_reg
     EXPAND ITER_NEXT_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_NEXT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_NEXT %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_NEXT_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_NTH_U64 %out_has, %out_value, %iter_reg, %nth
     EXPAND VEC_INTO_ITER_NTH_U64 %out_has, %out_value, %iter_reg, %nth
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_NTH_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_NTH %out_has, %out_value, %iter_reg, %nth
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_NTH_U64 %out_has, %out_value, %iter_reg, %nth
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
     EXPAND VEC_INTO_ITER_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_NEXT_CHUNK_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_NEXT_CHUNK %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_NEXT_CHUNK_U64 %out_ok, %out_filled, %iter_reg, %dst_ptr, %count
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ADVANCE_BY %out_ok, %out_remaining, %iter_reg, %count
@@ -1419,276 +1884,621 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND ITER_SIZE_HINT %out_lower, %out_upper, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_SIZE_HINT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SIZE_HINT %out_lower, %out_upper, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_SIZE_HINT_U64 %out_lower, %out_upper, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
     EXPAND ITER_EXACT_SIZE_LEN %out_len, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_LEN_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_LEN %out_len, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_LEN_U64 %out_len, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
     EXPAND ITER_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_IS_EMPTY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_IS_EMPTY %out_bool, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_EXACT_SIZE_IS_EMPTY_U64 %out_bool, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_COUNT_U64 %out_count, %iter_reg
     EXPAND VEC_INTO_ITER_COUNT_U64 %out_count, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_COUNT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_COUNT %out_count, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_COUNT_U64 %out_count, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_LAST_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_LAST_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_LAST_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_LAST %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_LAST_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FIND_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FIND %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FIND_U64 %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_FIND_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FIND %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_FIND_U64 %out_ok, %out_has, %out_value, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
     EXPAND VEC_INTO_ITER_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FIND_MAP_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FIND_MAP %out_has, %out_value, %iter_reg, %map_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FIND_MAP_U64 %out_has, %out_value, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_POSITION_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_POSITION %out_has, %out_index, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_POSITION_U64 %out_has, %out_index, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ANY_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_ANY_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_ANY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ANY %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_ANY_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ALL_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_ALL_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_ALL_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ALL %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_ALL_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FOR_EACH_U64 %iter_reg, %each_fn
     EXPAND VEC_INTO_ITER_FOR_EACH_U64 %iter_reg, %each_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FOR_EACH_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FOR_EACH %iter_reg, %each_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FOR_EACH_U64 %iter_reg, %each_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
     EXPAND VEC_INTO_ITER_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_FOR_EACH_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FOR_EACH %out_ok, %iter_reg, %each_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_FOR_EACH_U64 %out_ok, %iter_reg, %each_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FOLD_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FOLD %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FOLD_U64 %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
     EXPAND VEC_INTO_ITER_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_FOLD_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_FOLD %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_FOLD_U64 %out_ok, %out_value, %iter_reg, %init_value, %fold_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_SUM_U64 %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_SUM_U64 %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_SUM_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SUM %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_SUM_U64 %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_PRODUCT_U64 %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_PRODUCT_U64 %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_PRODUCT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PRODUCT %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_PRODUCT_U64 %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_MIN_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MIN_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MIN_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_U64 %out_has, %out_value, %iter_reg
     EXPAND VEC_INTO_ITER_MAX_U64 %out_has, %out_value, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MAX_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX %out_has, %out_value, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MAX_U64 %out_has, %out_value, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND VEC_INTO_ITER_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_REDUCE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_REDUCE %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_REDUCE_U64 %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
     EXPAND VEC_INTO_ITER_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_REDUCE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_REDUCE %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_REDUCE_U64 %out_ok, %out_has, %out_value, %iter_reg, %reduce_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND VEC_INTO_ITER_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
     EXPAND VEC_INTO_ITER_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_BY %out_has, %out_value, %iter_reg, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_U64 %out_has, %out_value, %iter_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND VEC_INTO_ITER_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_KEY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MIN_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
     EXPAND VEC_INTO_ITER_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_KEY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_KEY %out_has, %out_value, %iter_reg, %key_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MAX_BY_KEY_U64 %out_has, %out_value, %iter_reg, %key_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_U64 %out_bool, %iter_reg
     EXPAND VEC_INTO_ITER_IS_SORTED_U64 %out_bool, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED %out_bool, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_U64 %out_bool, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
     EXPAND VEC_INTO_ITER_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY %out_bool, %iter_reg, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_U64 %out_bool, %iter_reg, %compare_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
     EXPAND VEC_INTO_ITER_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_KEY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_KEY %out_bool, %iter_reg, %key_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_IS_SORTED_BY_KEY_U64 %out_bool, %iter_reg, %key_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_PARTITION_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTITION %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_PARTITION_U64 %out_true_vec, %out_false_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_IS_PARTITIONED_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_IS_PARTITIONED %out_bool, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_IS_PARTITIONED_U64 %out_bool, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_CMP_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND VEC_INTO_ITER_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_CMP_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CMP_BY %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_CMP_BY_U64 %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP %out_ordering, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_U64 %out_ordering, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
     EXPAND VEC_INTO_ITER_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_BY %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_CMP_BY_U64 %out_ok, %out_ordering, %left_iter, %right_iter, %compare_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
     EXPAND VEC_INTO_ITER_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_EQ_BY_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_EQ_BY %out_bool, %left_iter, %right_iter, %eq_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_EQ_BY_U64 %out_bool, %left_iter, %right_iter, %eq_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_EQ_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_EQ %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_EQ_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_EQ %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_PARTIAL_EQ_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_NE_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_NE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_NE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_NE %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_NE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_LT_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_LT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_LT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_LT %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_LT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_LE_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_LE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_LE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_LE %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_LE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_GT_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_GT_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_GT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_GT %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_GT_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_GE_U64 %out_bool, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_GE_U64 %out_bool, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_GE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_GE %out_bool, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_GE_U64 %out_bool, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64 %out_iter, %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_CLONE_U64 %out_iter, %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CLONE %out_iter, %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_CLONE_U64 %out_iter, %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_COLLECT_U64 %out_vec, %iter_reg
     EXPAND ITER_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
     EXPAND ITER_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_COLLECT %out_ok, %out_vec, %iter_reg, %try_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %try_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_COLLECT_INTO_U64 %vec_reg, %iter_reg
     EXPAND ITER_COLLECT_INTO_U64 %vec_reg, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_COLLECT_INTO_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_COLLECT_INTO %vec_reg, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_COLLECT_INTO_U64 %vec_reg, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND VEC_INTO_ITER_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TAKE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TAKE_COLLECT %out_vec, %iter_reg, %count
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND VEC_INTO_ITER_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_SKIP_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SKIP_COLLECT %out_vec, %iter_reg, %count
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_SKIP_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND VEC_INTO_ITER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MAP_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FILTER_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FILTER_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FILTER_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND VEC_INTO_ITER_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FILTER_MAP_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FILTER_MAP_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FILTER_MAP_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
     EXPAND VEC_INTO_ITER_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MAP_WHILE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_WHILE_COLLECT %out_vec, %iter_reg, %map_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MAP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %map_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
     EXPAND VEC_INTO_ITER_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_INSPECT_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_INSPECT_COLLECT %out_vec, %iter_reg, %inspect_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_INSPECT_COLLECT_U64 %out_vec, %iter_reg, %inspect_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
     EXPAND VEC_INTO_ITER_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_SCAN_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SCAN_COLLECT %out_vec, %iter_reg, %initial_state, %scan_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_SCAN_COLLECT_U64 %out_vec, %iter_reg, %initial_state, %scan_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
     EXPAND VEC_INTO_ITER_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TRY_STEP_BY_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TRY_STEP_BY_COLLECT %out_ok, %out_vec, %iter_reg, %step
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TRY_STEP_BY_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %step
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
     EXPAND VEC_INTO_ITER_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_STEP_BY_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_STEP_BY_COLLECT %out_vec, %iter_reg, %step
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_STEP_BY_COLLECT_U64 %out_vec, %iter_reg, %step
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_ENUMERATE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ENUMERATE_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_ENUMERATE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_BY_REF_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_BY_REF_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_BY_REF_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_BY_REF_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_BY_REF_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_FUSE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_FUSE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_FUSE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_FUSE_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_FUSE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
     EXPAND VEC_INTO_ITER_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_PEEKABLE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_PEEKABLE_COLLECT %out_vec, %iter_reg
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_PEEKABLE_COLLECT_U64 %out_vec, %iter_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
     EXPAND VEC_INTO_ITER_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_ARRAY_CHUNKS_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ARRAY_CHUNKS_COLLECT %out_ok, %out_vec, %iter_reg, %chunk_size
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_ARRAY_CHUNKS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %chunk_size
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
     EXPAND VEC_INTO_ITER_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_MAP_WINDOWS_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_MAP_WINDOWS_COLLECT %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_MAP_WINDOWS_COLLECT_U64 %out_ok, %out_vec, %iter_reg, %window_size, %map_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
     EXPAND VEC_INTO_ITER_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_COLLECT %out_vec, %iter_reg, %separator
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_COLLECT_U64 %out_vec, %iter_reg, %separator
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
     EXPAND VEC_INTO_ITER_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_WITH_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_WITH_COLLECT %out_vec, %iter_reg, %sep_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_INTERSPERSE_WITH_COLLECT_U64 %out_vec, %iter_reg, %sep_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
     EXPAND VEC_INTO_ITER_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_CYCLE_TAKE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CYCLE_TAKE_COLLECT %out_vec, %iter_reg, %count
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_CYCLE_TAKE_COLLECT_U64 %out_vec, %iter_reg, %count
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_TAKE_WHILE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_TAKE_WHILE_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_TAKE_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
     EXPAND VEC_INTO_ITER_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_SKIP_WHILE_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_SKIP_WHILE_COLLECT %out_vec, %iter_reg, %pred_fn
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_SKIP_WHILE_COLLECT_U64 %out_vec, %iter_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_ZIP_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_ZIP_COLLECT %out_vec, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_ZIP_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_INTO_ITER_SORTED_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
     EXPAND VEC_INTO_ITER_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_INTO_ITER_SORTED_CHAIN_COLLECT_U64.
+[MACRO] BINARY_HEAP_INTO_ITER_SORTED_CHAIN_COLLECT %out_vec, %left_iter, %right_iter
+    EXPAND BINARY_HEAP_INTO_ITER_SORTED_CHAIN_COLLECT_U64 %out_vec, %left_iter, %right_iter
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg
@@ -1710,6 +2520,11 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     EXPAND BINARY_HEAP_TRY_PEEK_MUT_PTR __binary_heap_peek_mut_ok_%out_ptr, %out_ptr, %heap_reg
 [END_MACRO]
 
+// Rust method-name alias over checked peek-mut raw slot pointer.
+[MACRO] BINARY_HEAP_PEEK_MUT %out_ok, %out_ptr, %heap_reg
+    EXPAND BINARY_HEAP_TRY_PEEK_MUT_PTR %out_ok, %out_ptr, %heap_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_TRY_PEEK_MUT_SET_U64 %out_ok, %out_old_value, %heap_reg, %value
     __binary_heap_peek_set_slot_%out_ok = stack_alloc 8
     __binary_heap_peek_set_ok_%out_ok = call @sa_binary_heap_try_peek_mut_set_u64(&%heap_reg, %value, &__binary_heap_peek_set_slot_%out_ok)
@@ -1717,8 +2532,18 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
     %out_ok = __binary_heap_peek_set_ok_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_TRY_PEEK_MUT_SET_U64.
+[MACRO] BINARY_HEAP_TRY_PEEK_MUT_SET %out_ok, %out_old_value, %heap_reg, %value
+    EXPAND BINARY_HEAP_TRY_PEEK_MUT_SET_U64 %out_ok, %out_old_value, %heap_reg, %value
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_PEEK_MUT_SET_U64 %out_old_value, %heap_reg, %value
     EXPAND BINARY_HEAP_TRY_PEEK_MUT_SET_U64 __binary_heap_peek_set_ok_%out_old_value, %out_old_value, %heap_reg, %value
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_PEEK_MUT_SET_U64.
+[MACRO] BINARY_HEAP_PEEK_MUT_SET %out_old_value, %heap_reg, %value
+    EXPAND BINARY_HEAP_PEEK_MUT_SET_U64 %out_old_value, %heap_reg, %value
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_PUSH %heap_reg, %value
@@ -1769,8 +2594,18 @@ L_BINARY_HEAP_POP_IF_EMPTY_%out_ok:
 L_BINARY_HEAP_POP_IF_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_TRY_POP_IF_U64.
+[MACRO] BINARY_HEAP_TRY_POP_IF %out_ok, %out_value, %heap_reg, %pred_fn
+    EXPAND BINARY_HEAP_TRY_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
     EXPAND BINARY_HEAP_TRY_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_POP_IF_U64.
+[MACRO] BINARY_HEAP_POP_IF %out_ok, %out_value, %heap_reg, %pred_fn
+    EXPAND BINARY_HEAP_POP_IF_U64 %out_ok, %out_value, %heap_reg, %pred_fn
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_CLEAR %heap_reg
@@ -1941,6 +2776,11 @@ L_BINARY_HEAP_RETAIN_DONE_%out_len:
     !__binary_heap_retain_buf_%out_len
 [END_MACRO]
 
+// Rust method-name alias: BinaryHeap::retain over concrete u64 predicate helper.
+[MACRO] BINARY_HEAP_RETAIN %out_len, %heap_reg, %pred_fn
+    EXPAND BINARY_HEAP_RETAIN_U64 %out_len, %heap_reg, %pred_fn
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_APPEND %heap_reg, %other_heap_reg
     call @sa_binary_heap_append(&%heap_reg, &%other_heap_reg)
 [END_MACRO]
@@ -2046,9 +2886,19 @@ L_BINARY_HEAP_EXTEND_DONE_%heap_reg:
     !__bh_ext_len_%heap_reg
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_EXTEND_FROM_SLICE_U64.
+[MACRO] BINARY_HEAP_EXTEND_FROM_SLICE %heap_reg, %slice_reg
+    EXPAND BINARY_HEAP_EXTEND_FROM_SLICE_U64 %heap_reg, %slice_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_FROM_SLICE_U64 %out_heap, %slice_reg
     EXPAND BINARY_HEAP_NEW %out_heap
     EXPAND BINARY_HEAP_EXTEND_FROM_SLICE_U64 %out_heap, %slice_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_FROM_SLICE_U64.
+[MACRO] BINARY_HEAP_FROM_SLICE %out_heap, %slice_reg
+    EXPAND BINARY_HEAP_FROM_SLICE_U64 %out_heap, %slice_reg
 [END_MACRO]
 
 [MACRO] BINARY_HEAP_FROM_VEC_U64 %out_heap, %vec_reg
@@ -2057,10 +2907,20 @@ L_BINARY_HEAP_EXTEND_DONE_%heap_reg:
     !__bh_from_vec_slice_%out_heap
 [END_MACRO]
 
+// Rust method-name alias over BINARY_HEAP_FROM_VEC_U64.
+[MACRO] BINARY_HEAP_FROM_VEC %out_heap, %vec_reg
+    EXPAND BINARY_HEAP_FROM_VEC_U64 %out_heap, %vec_reg
+[END_MACRO]
+
 [MACRO] BINARY_HEAP_EXTEND_FROM_VEC_U64 %heap_reg, %vec_reg
     EXPAND VEC_AS_SLICE __bh_ext_vec_slice_%heap_reg, %vec_reg
     EXPAND BINARY_HEAP_EXTEND_FROM_SLICE_U64 %heap_reg, __bh_ext_vec_slice_%heap_reg
     !__bh_ext_vec_slice_%heap_reg
+[END_MACRO]
+
+// Rust method-name alias over BINARY_HEAP_EXTEND_FROM_VEC_U64.
+[MACRO] BINARY_HEAP_EXTEND_FROM_VEC %heap_reg, %vec_reg
+    EXPAND BINARY_HEAP_EXTEND_FROM_VEC_U64 %heap_reg, %vec_reg
 [END_MACRO]
 
 // Rust Default-style empty BinaryHeap constructor alias.
