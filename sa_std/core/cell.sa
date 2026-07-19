@@ -89,3 +89,20 @@
 [MACRO] CELL_U64_FROM_MUT_PTR %out_cell, %value_ptr
     %out_cell = add %value_ptr, 0
 [END_MACRO]
+
+[MACRO] CELL_UPDATE %out_old, %cell_reg, %map_fn
+    EXPAND CELL_GET __cell_upd_cur_%out_old, %cell_reg
+    __cell_upd_next_%out_old = call %map_fn(__cell_upd_cur_%out_old)
+    EXPAND CELL_REPLACE %out_old, %cell_reg, __cell_upd_next_%out_old
+    !__cell_upd_next_%out_old
+    !__cell_upd_cur_%out_old
+[END_MACRO]
+
+[MACRO] CELL_SWAP %left_cell, %right_cell
+    EXPAND CELL_GET __cell_sw_l_%left_cell, %left_cell
+    EXPAND CELL_GET __cell_sw_r_%left_cell, %right_cell
+    EXPAND CELL_SET %left_cell, __cell_sw_r_%left_cell
+    EXPAND CELL_SET %right_cell, __cell_sw_l_%left_cell
+    !__cell_sw_r_%left_cell
+    !__cell_sw_l_%left_cell
+[END_MACRO]

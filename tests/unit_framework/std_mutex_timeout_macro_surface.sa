@@ -1,0 +1,24 @@
+@import "sa_std/sync/mutex.sa"
+
+@test "sa_std mutex try_lock_timeout"():
+L_ENTRY:
+    EXPAND MUTEX_NEW mutex
+    EXPAND MUTEX_LOCK mutex
+    EXPAND MUTEX_TRY_LOCK_TIMEOUT_NS t_ok, mutex, 20000
+    EXPAND MUTEX_UNLOCK mutex
+    EXPAND MUTEX_TRY_LOCK_TIMEOUT_NS t2, mutex, 20000
+    EXPAND MUTEX_UNLOCK mutex
+    a = eq t_ok, 0
+    b = eq t2, 1
+    ok = and a, b
+    !t_ok
+    !t2
+    !a
+    !b
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !ok
+    return 0
+L_FAIL:
+    !ok
+    panic(10894)

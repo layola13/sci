@@ -584,3 +584,11 @@ L_CSTRING_FREE_AFTER_%cstring_reg:
     EXPAND CSTR_TO_BYTES __cstr_lossy_bytes_%out_string, %cstr_reg
     EXPAND STRING_BUF_FROM_UTF8_LOSSY %out_string, __cstr_lossy_bytes_%out_string
 [END_MACRO]
+
+[MACRO] CSTRING_INTO_STRING %out_status, %out_slice, %cstring_reg
+    EXPAND CSTRING_TO_STR %out_status, %out_slice, %cstring_reg
+[END_MACRO]
+
+[MACRO] CSTRING_AS_C_STR %out_cstr, %cstring_reg
+    EXPAND CSTRING_AS_CSTR %out_cstr, %cstring_reg
+[END_MACRO]

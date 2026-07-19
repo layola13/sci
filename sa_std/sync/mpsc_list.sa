@@ -1,0 +1,64 @@
+// Unbounded channel backed by LinkedList + Mutex (single-producer multi not optimized).
+// Models supportable unbounded mpsc semantics without growable ring complexity.
+@import "mpsc_list.sal"
+@import "mutex.sa"
+@import "../collections/linked_list.sa"
+@import "mpsc.sal"
+
+@sa_mpsc_list_new() -> ^ptr:
+L_ENTRY:
+    chan = alloc MpscList_SIZE
+    EXPAND MUTEX_NEW mtx
+    EXPAND LINKED_LIST_NEW list
+    store chan+MpscList_mutex, mtx as ptr
+    store chan+MpscList_list, list as ptr
+    return chan
+
+@sa_mpsc_list_send(&chan: ptr, value: u64) -> void:
+L_ENTRY:
+    mtx = load chan+MpscList_mutex as ptr
+    list = load chan+MpscList_list as ptr
+    EXPAND MUTEX_LOCK mtx
+    EXPAND LINKED_LIST_PUSH_BACK list, value
+    EXPAND MUTEX_UNLOCK mtx
+    !list
+    !mtx
+    !value
+    return
+
+@sa_mpsc_list_try_recv(&chan: ptr, &out_value: ptr) -> i32:
+L_ENTRY:
+    mtx = load chan+MpscList_mutex as ptr
+    list = load chan+MpscList_list as ptr
+    EXPAND MUTEX_LOCK mtx
+    ok = call @sa_linked_list_try_pop_front(&list, &out_value)
+    EXPAND MUTEX_UNLOCK mtx
+    !list
+    !mtx
+    return ok
+
+[MACRO] MPSC_LIST_NEW %out_chan
+    %out_chan = call @sa_mpsc_list_new()
+[END_MACRO]
+
+[MACRO] MPSC_LIST_SEND %chan, %value
+    call @sa_mpsc_list_send(&%chan, %value)
+[END_MACRO]
+
+[MACRO] MPSC_LIST_TRY_RECV %out_ok, %out_value, %chan
+    __mpl_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_mpsc_list_try_recv(&%chan, &__mpl_slot_%out_ok)
+    %out_value = load __mpl_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] MPSC_LIST_LEN %out_len, %chan
+    __mpl_list_%out_len = load %chan+MpscList_list as ptr
+    EXPAND LINKED_LIST_LEN %out_len, __mpl_list_%out_len
+    !__mpl_list_%out_len
+[END_MACRO]
+
+[MACRO] MPSC_LIST_IS_EMPTY %out_bool, %chan
+    __mpl_list_e_%out_bool = load %chan+MpscList_list as ptr
+    EXPAND LINKED_LIST_IS_EMPTY %out_bool, __mpl_list_e_%out_bool
+    !__mpl_list_e_%out_bool
+[END_MACRO]

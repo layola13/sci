@@ -143,3 +143,29 @@ L_COW_TO_MUT_END_%out_ok:
 [MACRO] COW_SLICE_PTR %out_ptr, %cow
     %out_ptr = load %cow+CowSlice_ptr as ptr
 [END_MACRO]
+
+// Clone the Cow header (shared view). Models supportable Clone for concrete
+// CowSlice without generic ToOwned allocation for borrowed→owned upgrade.
+[MACRO] COW_SLICE_CLONE %out_cow, %cow
+    __cow_c_tag_%out_cow = load %cow+CowSlice_tag as u64
+    __cow_c_ptr_%out_cow = load %cow+CowSlice_ptr as ptr
+    __cow_c_len_%out_cow = load %cow+CowSlice_len as u64
+    store %out_cow+CowSlice_tag, __cow_c_tag_%out_cow as u64
+    store %out_cow+CowSlice_ptr, __cow_c_ptr_%out_cow as ptr
+    store %out_cow+CowSlice_len, __cow_c_len_%out_cow as u64
+    !__cow_c_len_%out_cow
+    !__cow_c_ptr_%out_cow
+    !__cow_c_tag_%out_cow
+[END_MACRO]
+
+[MACRO] COW_SLICE_EQ_U64 %out_bool, %left_cow, %right_cow
+    __cow_eq_l_%out_bool = stack_alloc Slice_SIZE
+    __cow_eq_r_%out_bool = stack_alloc Slice_SIZE
+    EXPAND COW_SLICE_AS_SLICE __cow_eq_l_%out_bool, %left_cow
+    EXPAND COW_SLICE_AS_SLICE __cow_eq_r_%out_bool, %right_cow
+    EXPAND SLICE_EQ_U64 %out_bool, __cow_eq_l_%out_bool, __cow_eq_r_%out_bool
+[END_MACRO]
+
+[MACRO] COW_SLICE_EQ %out_bool, %left_cow, %right_cow
+    EXPAND COW_SLICE_EQ_U64 %out_bool, %left_cow, %right_cow
+[END_MACRO]

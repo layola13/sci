@@ -29,3 +29,7 @@
     __buf_reader_close = call @sa_io_close(%handle)
     %out_ok = __buf_reader_close
 [END_MACRO]
+
+[MACRO] BUF_READER_LINES %out_buf, %handle, %max_bytes
+    EXPAND BUF_READER_READ_LINE %out_buf, %handle, %max_bytes
+[END_MACRO]

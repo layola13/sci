@@ -1,0 +1,99 @@
+// Concrete Barrier subset: wait until N waiters arrive, then release.
+// Spin/backoff based (no OS futex). Leader = last waiter to arrive.
+// Scope: single-generation spin barrier for concrete N; not full Rust generation object.
+@import "barrier.sal"
+@import "../time.sai"
+
+@__barrier_wait_spin(barrier: ptr) -> u64:
+L_ENTRY:
+    n = load barrier+Barrier_n as u64
+    prev = atomic_rmw_add barrier+Barrier_count, 1 as u64 seq_cst
+    arrived = add prev, 1
+    is_leader = eq arrived, n
+    br is_leader -> L_LEADER, L_FOLLOWER
+
+L_LEADER:
+    atomic_store barrier+Barrier_count, 0 as u64 seq_cst
+    !arrived
+    !prev
+    !n
+    return 1
+
+L_FOLLOWER:
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+    arrived_slot = stack_alloc 8
+    store arrived_slot+0, arrived as u64
+    !arrived
+    !prev
+    !n
+    jmp L_SPIN
+
+L_SPIN:
+    cur = atomic_load barrier+Barrier_count as u64 acquire
+    // Leader reset count to 0, or a new generation started below our marker.
+    done = eq cur, 0
+    br done -> L_FOLLOWER_DONE, L_CHECK_GEN
+
+L_CHECK_GEN:
+    arrived_v = load arrived_slot+0 as u64
+    still_waiting = uge cur, arrived_v
+    !arrived_v
+    br still_waiting -> L_BACKOFF, L_FOLLOWER_DONE
+
+L_BACKOFF:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    at_limit = uge backoff_ns, 1024
+    br at_limit -> L_KEEP, L_GROW
+
+L_GROW:
+    next_backoff = shl backoff_ns, 1
+    store backoff_slot+0, next_backoff as u64
+    !next_backoff
+    !at_limit
+    !backoff_ns
+    !still_waiting
+    !done
+    !cur
+    jmp L_SPIN
+
+L_KEEP:
+    !at_limit
+    !backoff_ns
+    !still_waiting
+    !done
+    !cur
+    jmp L_SPIN
+
+L_FOLLOWER_DONE:
+    return 0
+
+[MACRO] BARRIER_NEW %out_barrier, %n
+    %out_barrier = alloc Barrier_SIZE
+    store %out_barrier+Barrier_n, %n as u64
+    store %out_barrier+Barrier_count, 0 as u64
+[END_MACRO]
+
+[MACRO] BARRIER_WAIT %out_is_leader, %barrier_reg
+    %out_is_leader = call @__barrier_wait_spin(%barrier_reg)
+[END_MACRO]
+
+[MACRO] BARRIER_N %out_n, %barrier_reg
+    %out_n = load %barrier_reg+Barrier_n as u64
+[END_MACRO]
+
+[MACRO] BARRIER_DEFAULT %out_barrier
+    EXPAND BARRIER_NEW %out_barrier, 2
+[END_MACRO]
+
+[MACRO] BARRIER_WAIT_RESULT %out_result, %barrier_reg
+    %out_result = alloc BarrierWaitResult_SIZE
+    __bw_leader_%out_result = call @__barrier_wait_spin(%barrier_reg)
+    store %out_result+BarrierWaitResult_is_leader, __bw_leader_%out_result as u64
+    !__bw_leader_%out_result
+[END_MACRO]
+
+[MACRO] BARRIER_WAIT_RESULT_IS_LEADER %out_bool, %result_reg
+    %out_bool = load %result_reg+BarrierWaitResult_is_leader as u64
+[END_MACRO]

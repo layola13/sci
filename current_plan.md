@@ -2,6 +2,22 @@
 
 Date: 2026-07-09
 
+## Active std parity batch (2026-07-19 LinkedList/Barrier/Condvar)
+
+Filled previously documented missing sync/collections subsets:
+
+- LinkedList concrete u64 facade
+- Barrier / Condvar spin facades
+- Focused tests 10863–10868 green
+
+Next free panic: **10904+** (continuous std fill ongoing)
+
+Remaining high-value `std_missing` gaps (not done this batch):
+- OS futex Condvar/Barrier, unbounded mpsc Sender/Receiver split
+- LinkedList Cursor/splice/generics
+- Windows OsString/WTF-8, full CString trait/drop model
+- Condvar timed wait / BarrierWaitResult object
+
 ## Active std parity batch (2026-07-19 resume: full bare-alias closure)
 
 Completed:
@@ -10,7 +26,7 @@ Completed:
 2. **Surface tests 10851–10862** (array/string/hash/vec/path/option/slice/fs-path/iter/binary_heap) — all focused-pass.
 3. Macro surface total ≈ **8862** `[MACRO]` definitions in `sa_std`.
 
-Next free panic: **10863+**.
+Next free panic: **10904+** (continuous std fill ongoing)
 
 Natural next work (if continuing std):
 - Real runtime primitives still missing (not aliasable): more network, async, allocator traits.
@@ -28,7 +44,7 @@ Completed mass Rust method-name aliasing for concrete u64 container helpers:
 - Multi-agent focused surface tests panic 10839–10847, 10849–10850 (all green).
 - String/path bulk alias skipped (already broad surface); optional 10848 unused.
 
-Next free panic: **10851+**. Full suite still intentionally skipped.
+Next free panic: **10904+** (continuous std fill ongoing)
 
 ## Active std parity batch (2026-07-19 BinaryHeap retain + Map iter_mut + VecDeque contains/pop_if)
 

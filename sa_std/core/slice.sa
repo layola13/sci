@@ -4011,3 +4011,11 @@ L_SLICE_UB_DONE_%out_index:
     store %slice_reg+Slice_len, __slice_default_zero_%slice_reg as u64
     !__slice_default_zero_%slice_reg
 [END_MACRO]
+
+[MACRO] SLICE_ROTATE_LEFT %out_ok, %slice_reg, %count
+    EXPAND SLICE_TRY_ROTATE_LEFT %out_ok, %slice_reg, %count
+[END_MACRO]
+
+[MACRO] SLICE_ROTATE_RIGHT %out_ok, %slice_reg, %count
+    EXPAND SLICE_TRY_ROTATE_RIGHT %out_ok, %slice_reg, %count
+[END_MACRO]

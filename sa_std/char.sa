@@ -994,6 +994,11 @@ L_CHAR_ENC_FAIL_%out_ok:
 L_CHAR_ENC_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over CHAR_TRY_ENCODE_UTF8.
+[MACRO] CHAR_ENCODE_UTF8 %out_ok, %out_len, %dst_ptr, %dst_len, %code
+    EXPAND CHAR_TRY_ENCODE_UTF8 %out_ok, %out_len, %dst_ptr, %dst_len, %code
+[END_MACRO]
+
 [MACRO] CHAR_ESCAPE_DEBUG_WRITE %out_ok, %out_len, %dst_ptr, %dst_len, %code
     __char_debug_pair_slot_%out_ok = stack_alloc 8
     EXPAND CHAR_IS_VALID_SCALAR __char_debug_valid_%out_ok, %code
@@ -1220,6 +1225,11 @@ L_CHAR_ENC16_FAIL_%out_ok:
     !__char_enc16_valid_%out_ok
 
 L_CHAR_ENC16_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over CHAR_TRY_ENCODE_UTF16.
+[MACRO] CHAR_ENCODE_UTF16 %out_ok, %out_len, %dst_ptr, %dst_len, %code
+    EXPAND CHAR_TRY_ENCODE_UTF16 %out_ok, %out_len, %dst_ptr, %dst_len, %code
 [END_MACRO]
 
 [MACRO] CHAR_DECODE_UTF16_UNIT %out_ok, %out_char, %out_units, %lead, %trail

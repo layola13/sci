@@ -78,3 +78,78 @@ L_MUTEX_LOCK_DONE:
 [MACRO] MUTEX_DEFAULT %out_mutex
     EXPAND MUTEX_NEW %out_mutex
 [END_MACRO]
+
+// Rust-style into_inner for MUTEX_NEW_I32 layout: returns stored i32 and releases lock word.
+[MACRO] MUTEX_INTO_INNER_I32 %out_value, %mutex_reg
+    %out_value = load %mutex_reg+Mutex_data as i32
+    atomic_store %mutex_reg+Mutex_lock, 0 as u64 release
+[END_MACRO]
+
+// Guard layout helper: store mutex ptr in guard for unlock symmetry.
+[MACRO] MUTEX_GUARD_NEW %out_guard, %mutex_reg
+    %out_guard = alloc MutexGuard_SIZE
+    store %out_guard+MutexGuard_mutex, %mutex_reg as ptr
+[END_MACRO]
+
+[MACRO] MUTEX_GUARD_UNLOCK %guard_reg
+    __mutex_guard_ptr_%guard_reg = load %guard_reg+MutexGuard_mutex as ptr
+    EXPAND MUTEX_UNLOCK __mutex_guard_ptr_%guard_reg
+    !__mutex_guard_ptr_%guard_reg
+[END_MACRO]
+
+
+[MACRO] MUTEX_GET_MUT_I32 %out_ptr, %mutex_reg
+    %out_ptr = ptr_add %mutex_reg, Mutex_data
+[END_MACRO]
+
+@__mutex_try_lock_timeout_ns(lock: ptr, timeout_ns: u64) -> i32:
+L_ENTRY:
+    start = call @sa_time_instant_ns()
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+    jmp L_MT_TRY
+L_MT_TRY:
+    prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 acquire
+    free = eq prev, 0
+    !prev
+    br free -> L_MT_OK, L_MT_CHECK
+L_MT_OK:
+    !free
+    !start
+    !timeout_ns
+    return 1
+L_MT_CHECK:
+    !free
+    now = call @sa_time_instant_ns()
+    elapsed = sub now, start
+    timed_out = uge elapsed, timeout_ns
+    !now
+    !elapsed
+    br timed_out -> L_MT_TIMEOUT, L_MT_BACKOFF
+L_MT_BACKOFF:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    at_limit = uge backoff_ns, 1024
+    br at_limit -> L_MT_KEEP, L_MT_GROW
+L_MT_GROW:
+    next = shl backoff_ns, 1
+    store backoff_slot+0, next as u64
+    !next
+    !at_limit
+    !backoff_ns
+    !timed_out
+    jmp L_MT_TRY
+L_MT_KEEP:
+    !at_limit
+    !backoff_ns
+    !timed_out
+    jmp L_MT_TRY
+L_MT_TIMEOUT:
+    !timed_out
+    !start
+    !timeout_ns
+    return 0
+
+[MACRO] MUTEX_TRY_LOCK_TIMEOUT_NS %out_ok, %lock_ptr, %timeout_ns
+    %out_ok = call @__mutex_try_lock_timeout_ns(%lock_ptr, %timeout_ns)
+[END_MACRO]

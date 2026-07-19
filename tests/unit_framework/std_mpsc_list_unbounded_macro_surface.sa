@@ -1,0 +1,40 @@
+@import "sa_std/sync/mpsc_list.sa"
+
+@test "sa_std mpsc_list unbounded send recv"():
+L_ENTRY:
+    EXPAND MPSC_LIST_NEW chan
+    EXPAND MPSC_LIST_SEND chan, 11
+    EXPAND MPSC_LIST_SEND chan, 22
+    EXPAND MPSC_LIST_TRY_RECV r0_ok, r0, chan
+    EXPAND MPSC_LIST_TRY_RECV r1_ok, r1, chan
+    EXPAND MPSC_LIST_TRY_RECV r2_ok, r2, chan
+    a = eq r0_ok, 1
+    b = eq r0, 11
+    c = eq r1_ok, 1
+    d = eq r1, 22
+    e = eq r2_ok, 0
+    ok01 = and a, b
+    ok02 = and ok01, c
+    ok03 = and ok02, d
+    ok = and ok03, e
+    !r0_ok
+    !r0
+    !r1_ok
+    !r1
+    !r2_ok
+    !r2
+    !a
+    !b
+    !c
+    !d
+    !e
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !ok
+    return 0
+L_FAIL:
+    !ok
+    panic(10903)

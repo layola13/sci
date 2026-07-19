@@ -419,16 +419,31 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     !__string_buf_try_char_at_view_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_CHAR_AT.
+[MACRO] STRING_BUF_CHAR_AT %out_ok, %out_codepoint, %string_reg, %char_index
+    EXPAND STRING_BUF_TRY_CHAR_AT %out_ok, %out_codepoint, %string_reg, %char_index
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %string_reg, %byte_index
     EXPAND STRING_BUF_AS_STR __string_buf_try_char_at_byte_view_%out_ok, %string_reg
     EXPAND STR_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, __string_buf_try_char_at_byte_view_%out_ok, %byte_index
     !__string_buf_try_char_at_byte_view_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_CHAR_AT_BYTE.
+[MACRO] STRING_BUF_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %string_reg, %byte_index
+    EXPAND STRING_BUF_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %string_reg, %byte_index
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_CHAR_RANGE_AT %out_ok, %out_slice, %string_reg, %char_index
     EXPAND STRING_BUF_AS_STR __string_buf_try_char_range_at_view_%out_ok, %string_reg
     EXPAND STR_TRY_CHAR_RANGE_AT %out_ok, %out_slice, __string_buf_try_char_range_at_view_%out_ok, %char_index
     !__string_buf_try_char_range_at_view_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_TRY_CHAR_RANGE_AT.
+[MACRO] STRING_BUF_CHAR_RANGE_AT %out_ok, %out_slice, %string_reg, %char_index
+    EXPAND STRING_BUF_TRY_CHAR_RANGE_AT %out_ok, %out_slice, %string_reg, %char_index
 [END_MACRO]
 
 [MACRO] STRING_BUF_CHAR_INDICES_COUNT %out_count, %string_reg
@@ -681,10 +696,20 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     !__string_buf_index_view_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_INDEX_RANGE.
+[MACRO] STRING_BUF_INDEX_RANGE %out_ok, %out_slice, %string_reg, %start, %length
+    EXPAND STRING_BUF_TRY_INDEX_RANGE %out_ok, %out_slice, %string_reg, %start, %length
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_INDEX_RANGE_MUT %out_ok, %out_slice, %string_reg, %start, %length
     EXPAND STRING_BUF_AS_MUT_STR __string_buf_index_mut_view_%out_ok, %string_reg
     EXPAND STR_TRY_GET_RANGE %out_ok, %out_slice, __string_buf_index_mut_view_%out_ok, %start, %length
     !__string_buf_index_mut_view_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_TRY_INDEX_RANGE_MUT.
+[MACRO] STRING_BUF_INDEX_RANGE_MUT %out_ok, %out_slice, %string_reg, %start, %length
+    EXPAND STRING_BUF_TRY_INDEX_RANGE_MUT %out_ok, %out_slice, %string_reg, %start, %length
 [END_MACRO]
 
 [MACRO] STRING_BUF_AS_BYTES %out_slice, %string_reg
@@ -705,6 +730,11 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     EXPAND STRING_BUF_AS_STR __string_buf_try_byte_at_view_%out_ok, %string_reg
     EXPAND STR_TRY_BYTE_AT %out_ok, %out_byte, __string_buf_try_byte_at_view_%out_ok, %index
     !__string_buf_try_byte_at_view_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_TRY_BYTE_AT.
+[MACRO] STRING_BUF_BYTE_AT %out_ok, %out_byte, %string_reg, %index
+    EXPAND STRING_BUF_TRY_BYTE_AT %out_ok, %out_byte, %string_reg, %index
 [END_MACRO]
 
 [MACRO] STRING_BUF_COUNT_BYTE %out_count, %string_reg, %byte_value
@@ -2649,6 +2679,11 @@ L_STRING_BUF_UTF16_BYTES_ODD_%out_ok:
 L_STRING_BUF_UTF16_BYTES_DONE_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over STRING_BUF_TRY_FROM_UTF16_BYTES.
+[MACRO] STRING_BUF_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, %is_be
+    EXPAND STRING_BUF_TRY_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, %is_be
+[END_MACRO]
+
 [MACRO] STRING_BUF_TRY_FROM_UTF16LE %out_ok, %out_string, %bytes_slice
     EXPAND STRING_BUF_TRY_FROM_UTF16_BYTES %out_ok, %out_string, %bytes_slice, 0
 [END_MACRO]
@@ -2811,6 +2846,11 @@ L_STRING_BUF_ASCII_MISS_%out_ok:
     !__string_buf_ascii_ptr_%out_ok
 
 L_STRING_BUF_ASCII_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over STRING_BUF_TRY_FROM_UTF8_ASCII.
+[MACRO] STRING_BUF_FROM_UTF8_ASCII %out_ok, %out_string, %bytes_slice
+    EXPAND STRING_BUF_TRY_FROM_UTF8_ASCII %out_ok, %out_string, %bytes_slice
 [END_MACRO]
 
 [MACRO] STRING_BUF_REPLACE %out_string, %source_slice, %needle_slice, %replacement_slice
@@ -10229,6 +10269,11 @@ L_STR_BYTE_AT_MISS_%out_ok:
 L_STR_BYTE_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over STR_TRY_BYTE_AT.
+[MACRO] STR_BYTE_AT %out_ok, %out_byte, %slice_reg, %index
+    EXPAND STR_TRY_BYTE_AT %out_ok, %out_byte, %slice_reg, %index
+[END_MACRO]
+
 [MACRO] STRING_TRY_BYTE_AT %out_ok, %out_byte, %slice_reg, %index
     EXPAND STR_TRY_BYTE_AT %out_ok, %out_byte, %slice_reg, %index
 [END_MACRO]
@@ -10257,6 +10302,11 @@ L_STR_BYTE_AT_END_%out_ok:
     !__str_char_at_ptr_%out_ok
 [END_MACRO]
 
+// Rust method-name alias over STR_TRY_CHAR_AT.
+[MACRO] STR_CHAR_AT %out_ok, %out_codepoint, %slice_reg, %char_index
+    EXPAND STR_TRY_CHAR_AT %out_ok, %out_codepoint, %slice_reg, %char_index
+[END_MACRO]
+
 [MACRO] STRING_TRY_CHAR_AT %out_ok, %out_codepoint, %slice_reg, %char_index
     EXPAND STR_TRY_CHAR_AT %out_ok, %out_codepoint, %slice_reg, %char_index
 [END_MACRO]
@@ -10273,6 +10323,11 @@ L_STR_BYTE_AT_END_%out_ok:
     !__str_char_at_byte_status_%out_ok
     !__str_char_at_byte_len_%out_ok
     !__str_char_at_byte_ptr_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over STR_TRY_CHAR_AT_BYTE.
+[MACRO] STR_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %slice_reg, %byte_index
+    EXPAND STR_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %slice_reg, %byte_index
 [END_MACRO]
 
 [MACRO] STRING_TRY_CHAR_AT_BYTE %out_ok, %out_codepoint, %out_len, %slice_reg, %byte_index
@@ -10412,6 +10467,11 @@ L_STR_CHAR_RANGE_MISS_%out_ok:
     !__str_char_range_ptr_%out_ok
 
 L_STR_CHAR_RANGE_DONE_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over STR_TRY_CHAR_RANGE_AT.
+[MACRO] STR_CHAR_RANGE_AT %out_ok, %out_slice, %slice_reg, %char_index
+    EXPAND STR_TRY_CHAR_RANGE_AT %out_ok, %out_slice, %slice_reg, %char_index
 [END_MACRO]
 
 [MACRO] STRING_TRY_CHAR_RANGE_AT %out_ok, %out_slice, %slice_reg, %char_index

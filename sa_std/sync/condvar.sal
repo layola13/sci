@@ -1,0 +1,4 @@
+// Concrete Condvar facade over spin/backoff notify flags (single-thread testable).
+#def Condvar_SIZE = 16
+#def Condvar_waiters = +0
+#def Condvar_notify = +8

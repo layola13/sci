@@ -35,3 +35,8 @@
 #def TrySendErrorU64_value = +8
 #def TRY_SEND_ERROR_FULL = 0
 #def TRY_SEND_ERROR_DISCONNECTED = 1
+
+#def MpscSender_SIZE = 8
+#def MpscSender_chan = +0
+#def MpscReceiver_SIZE = 8
+#def MpscReceiver_chan = +0

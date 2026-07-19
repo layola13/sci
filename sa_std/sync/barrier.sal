@@ -1,0 +1,7 @@
+// Concrete Barrier facade for N waiters (single-generation spin barrier).
+#def Barrier_SIZE = 16
+#def Barrier_n = +0
+#def Barrier_count = +8
+
+#def BarrierWaitResult_SIZE = 8
+#def BarrierWaitResult_is_leader = +0

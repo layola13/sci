@@ -21,3 +21,7 @@
     __buf_writer_close = call @sa_io_close(%handle)
     %out_ok = __buf_writer_close
 [END_MACRO]
+
+[MACRO] BUF_WRITER_WRITE_FMT %out_ok, %handle, %buf, %len
+    EXPAND BUF_WRITER_WRITE_ALL %out_ok, %handle, %buf, %len
+[END_MACRO]

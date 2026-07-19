@@ -2928,3 +2928,70 @@ L_BINARY_HEAP_EXTEND_DONE_%heap_reg:
 [MACRO] BINARY_HEAP_DEFAULT %out_heap
     EXPAND BINARY_HEAP_NEW %out_heap
 [END_MACRO]
+
+// Eager extract_if: materialize matching values into Vec, rebuild heap with non-matching.
+
+// Eager extract_if without consuming heap storage: snapshot via as_slice, then rebuild.
+[MACRO] BINARY_HEAP_EXTRACT_IF %out_len, %out_vec, %heap_reg, %pred_fn
+    EXPAND VEC_NEW %out_vec
+    EXPAND BINARY_HEAP_AS_SLICE __bh_ei_slice_%out_len, %heap_reg
+    EXPAND SLICE_GET_LEN __bh_ei_n_%out_len, __bh_ei_slice_%out_len
+    EXPAND VEC_NEW __bh_ei_keep_%out_len
+    __bh_ei_i_slot_%out_len = stack_alloc 8
+    store __bh_ei_i_slot_%out_len+0, 0 as u64
+    jmp L_BH_EI_HEAD_%out_len
+L_BH_EI_HEAD_%out_len:
+    __bh_ei_i_%out_len = load __bh_ei_i_slot_%out_len+0 as u64
+    __bh_ei_done_%out_len = eq __bh_ei_i_%out_len, __bh_ei_n_%out_len
+    br __bh_ei_done_%out_len -> L_BH_EI_REBUILD_%out_len, L_BH_EI_BODY_%out_len
+L_BH_EI_BODY_%out_len:
+    EXPAND SLICE_GET_U64 __bh_ei_val_%out_len, __bh_ei_slice_%out_len, __bh_ei_i_%out_len
+    __bh_ei_pred_%out_len = call %pred_fn(__bh_ei_val_%out_len)
+    __bh_ei_take_%out_len = ne __bh_ei_pred_%out_len, 0
+    br __bh_ei_take_%out_len -> L_BH_EI_TAKE_%out_len, L_BH_EI_KEEP_%out_len
+L_BH_EI_TAKE_%out_len:
+    EXPAND VEC_PUSH_U64 %out_vec, __bh_ei_val_%out_len
+    jmp L_BH_EI_NEXT_%out_len
+L_BH_EI_KEEP_%out_len:
+    EXPAND VEC_PUSH_U64 __bh_ei_keep_%out_len, __bh_ei_val_%out_len
+    jmp L_BH_EI_NEXT_%out_len
+L_BH_EI_NEXT_%out_len:
+    __bh_ei_ni_%out_len = add __bh_ei_i_%out_len, 1
+    store __bh_ei_i_slot_%out_len+0, __bh_ei_ni_%out_len as u64
+    !__bh_ei_ni_%out_len
+    !__bh_ei_take_%out_len
+    !__bh_ei_pred_%out_len
+    !__bh_ei_val_%out_len
+    !__bh_ei_done_%out_len
+    !__bh_ei_i_%out_len
+    jmp L_BH_EI_HEAD_%out_len
+L_BH_EI_REBUILD_%out_len:
+    EXPAND BINARY_HEAP_CLEAR %heap_reg
+    EXPAND VEC_LEN __bh_ei_kn_%out_len, __bh_ei_keep_%out_len
+    store __bh_ei_i_slot_%out_len+0, 0 as u64
+    jmp L_BH_EI_PUSH_HEAD_%out_len
+L_BH_EI_PUSH_HEAD_%out_len:
+    __bh_ei_pi_%out_len = load __bh_ei_i_slot_%out_len+0 as u64
+    __bh_ei_pdone_%out_len = eq __bh_ei_pi_%out_len, __bh_ei_kn_%out_len
+    br __bh_ei_pdone_%out_len -> L_BH_EI_DONE_%out_len, L_BH_EI_PUSH_BODY_%out_len
+L_BH_EI_PUSH_BODY_%out_len:
+    EXPAND VEC_GET_U64 __bh_ei_kv_%out_len, __bh_ei_keep_%out_len, __bh_ei_pi_%out_len
+    EXPAND BINARY_HEAP_PUSH %heap_reg, __bh_ei_kv_%out_len
+    __bh_ei_pni_%out_len = add __bh_ei_pi_%out_len, 1
+    store __bh_ei_i_slot_%out_len+0, __bh_ei_pni_%out_len as u64
+    !__bh_ei_pni_%out_len
+    !__bh_ei_kv_%out_len
+    !__bh_ei_pdone_%out_len
+    !__bh_ei_pi_%out_len
+    jmp L_BH_EI_PUSH_HEAD_%out_len
+L_BH_EI_DONE_%out_len:
+    EXPAND VEC_LEN %out_len, %out_vec
+    EXPAND VEC_FREE __bh_ei_keep_%out_len
+    !__bh_ei_pdone_%out_len
+    !__bh_ei_pi_%out_len
+    !__bh_ei_kn_%out_len
+    !__bh_ei_done_%out_len
+    !__bh_ei_i_%out_len
+    !__bh_ei_n_%out_len
+    !__bh_ei_slice_%out_len
+[END_MACRO]

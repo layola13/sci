@@ -265,3 +265,7 @@ L_OS_STR_TO_STR_DONE_%out_ok:
 [MACRO] OS_STRING_FROM_PATH %out_os_string, %path_slice
     EXPAND OS_STRING_FROM_STR %out_os_string, %path_slice
 [END_MACRO]
+
+[MACRO] OS_STRING_INTO_STRING %out_ok, %out_string, %os_string
+    EXPAND OS_STRING_INTO_STRING_CHECKED %out_ok, %out_string, %os_string
+[END_MACRO]

@@ -715,6 +715,11 @@ L_PATH_STRIP_MISS:
 L_PATH_STRIP_END:
 [END_MACRO]
 
+// Rust method-name alias over PATH_TRY_STRIP_PREFIX.
+[MACRO] PATH_STRIP_PREFIX %out_ok, %out_slice, %path_slice, %prefix_slice
+    EXPAND PATH_TRY_STRIP_PREFIX %out_ok, %out_slice, %path_slice, %prefix_slice
+[END_MACRO]
+
 [MACRO] PATH_TRIM_PREFIX %out_slice, %path_slice, %prefix_slice
     EXPAND PATH_TRY_STRIP_PREFIX __path_trim_ok_%out_slice, __path_trim_value_%out_slice, %path_slice, %prefix_slice
     br __path_trim_ok_%out_slice -> L_PATH_TRIM_PREFIX_HIT_%out_slice, L_PATH_TRIM_PREFIX_MISS_%out_slice
@@ -1232,6 +1237,11 @@ L_PATH_TO_STR_END_%out_ok:
     !__path_to_str_status_%out_ok
     !__path_to_str_len_%out_ok
     !__path_to_str_ptr_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over PATH_TRY_TO_STR.
+[MACRO] PATH_TO_STR %out_ok, %out_slice, %path_slice
+    EXPAND PATH_TRY_TO_STR %out_ok, %out_slice, %path_slice
 [END_MACRO]
 
 [MACRO] DEFAULT_HASHER_WRITE_PATH %hasher, %path_slice
@@ -1911,6 +1921,11 @@ L_PATH_COMPONENT_AT_MISS_AFTER_EOF_%out_ok:
 L_PATH_COMPONENT_AT_END_%out_ok:
 [END_MACRO]
 
+// Rust method-name alias over PATH_TRY_COMPONENT_AT.
+[MACRO] PATH_COMPONENT_AT %out_ok, %out_slice, %path_slice, %component_index
+    EXPAND PATH_TRY_COMPONENT_AT %out_ok, %out_slice, %path_slice, %component_index
+[END_MACRO]
+
 [MACRO] PATH_TRY_COMPONENT_PREFIX_AT %out_ok, %out_slice, %path_slice, %component_index
     EXPAND PATH_TRY_COMPONENT_AT %out_ok, __path_prefix_component_%out_ok, %path_slice, %component_index
     br %out_ok -> L_PATH_COMPONENT_PREFIX_HIT_%out_ok, L_PATH_COMPONENT_PREFIX_MISS_%out_ok
@@ -1976,6 +1991,11 @@ L_PATH_COMPONENT_PREFIX_MISS_%out_ok:
     !__path_prefix_component_%out_ok
 
 L_PATH_COMPONENT_PREFIX_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over PATH_TRY_COMPONENT_PREFIX_AT.
+[MACRO] PATH_COMPONENT_PREFIX_AT %out_ok, %out_slice, %path_slice, %component_index
+    EXPAND PATH_TRY_COMPONENT_PREFIX_AT %out_ok, %out_slice, %path_slice, %component_index
 [END_MACRO]
 
 [MACRO] PATH_ANCESTOR_COUNT %out_count, %path_slice
@@ -2185,6 +2205,11 @@ L_PATH_ANCESTOR_MISS_%out_ok:
     !__path_ancestor_components_%out_ok
 
 L_PATH_ANCESTOR_END_%out_ok:
+[END_MACRO]
+
+// Rust method-name alias over PATH_TRY_ANCESTOR_AT.
+[MACRO] PATH_ANCESTOR_AT %out_ok, %out_slice, %path_slice, %ancestor_index
+    EXPAND PATH_TRY_ANCESTOR_AT %out_ok, %out_slice, %path_slice, %ancestor_index
 [END_MACRO]
 
 

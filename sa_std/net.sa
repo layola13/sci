@@ -351,6 +351,11 @@
     %out_listener = load __net_unix_listener_clone_%out_status+0 as u64
 [END_MACRO]
 
+// Rust method-name alias over NET_UNIX_LISTENER_TRY_CLONE.
+[MACRO] NET_UNIX_LISTENER_CLONE %out_status, %out_listener, %listener
+    EXPAND NET_UNIX_LISTENER_TRY_CLONE %out_status, %out_listener, %listener
+[END_MACRO]
+
 [MACRO] NET_UNIX_LISTENER_AS_RAW_FD %out_status, %out_fd, %listener
     EXPAND FD_AS_RAW %out_status, %out_fd, %listener
 [END_MACRO]
@@ -417,6 +422,11 @@
     __net_unix_stream_clone_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_stream_try_clone(%stream, &__net_unix_stream_clone_%out_status)
     %out_stream = load __net_unix_stream_clone_%out_status+0 as u64
+[END_MACRO]
+
+// Rust method-name alias over NET_UNIX_STREAM_TRY_CLONE.
+[MACRO] NET_UNIX_STREAM_CLONE %out_status, %out_stream, %stream
+    EXPAND NET_UNIX_STREAM_TRY_CLONE %out_status, %out_stream, %stream
 [END_MACRO]
 
 [MACRO] NET_UNIX_STREAM_AS_RAW_FD %out_status, %out_fd, %stream
@@ -551,6 +561,11 @@
     __net_unix_datagram_clone_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_unix_datagram_try_clone(%socket, &__net_unix_datagram_clone_%out_status)
     %out_socket = load __net_unix_datagram_clone_%out_status+0 as u64
+[END_MACRO]
+
+// Rust method-name alias over NET_UNIX_DATAGRAM_TRY_CLONE.
+[MACRO] NET_UNIX_DATAGRAM_CLONE %out_status, %out_socket, %socket
+    EXPAND NET_UNIX_DATAGRAM_TRY_CLONE %out_status, %out_socket, %socket
 [END_MACRO]
 
 [MACRO] NET_UNIX_DATAGRAM_AS_RAW_FD %out_status, %out_fd, %socket

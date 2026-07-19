@@ -2,6 +2,41 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-07-19 continuous std fill (ongoing)
+
+- Continuous fill still running; panic IDs through **11003**, next free **11004+**.
+- About **135** focused surface files in this continuous wave.
+- Broad coverage across LinkedList, sync (Barrier/Condvar/MPSC/Once/RwLock/Mutex), containers, path/string/env/process/thread/time, and core primitives.
+
+## Completed: 2026-07-19 continuous std fill wave (LinkedList+/sync+/Cow/Cell/Heap)
+
+- Panic IDs used through **10899**; next free **10900+**.
+- New surfaces include LinkedList (full concrete API), Barrier/Condvar/MPSC timeouts & split, RwLock spin locks, Cell/Cow/Box/ManuallyDrop helpers, BinaryHeap extract_if.
+
+
+- MPSC list unbounded channel; path/str bare TRY aliases; CString into_string; barrier wait_result
+- Additional: LinkedList extract_if/cursor/drain/pop_if/get/set/reverse/retain/collect/remove/split; MPSC send/recv timeout + unbounded; Condvar wait_timeout_ms; Box into_inner/leak/raw; Slice rotate aliases; Cell update/swap; BinaryHeap extract_if; Once is_completed; docs/std_missing LinkedList/sync updates
+
+
+- LinkedList extended: remove/split_off/to_vec/from_vec/from_slice/retain/get/set/reverse/drain/pop_front_if/pop_back_if
+- Sync: Barrier, Condvar (+wait_timeout_ns), MPSC channel split (tx/rx) + unbounded alias + recv_timeout, Once call_once aliases, RwLock blocking READ/WRITE spin, Mutex into_inner/guard/get_mut
+- Borrow: COW_SLICE_CLONE / EQ
+- Cell: UPDATE / SWAP
+- BinaryHeap: EXTRACT_IF eager
+- Tests panic **10863–10886** focused green (batch revalidated)
+- Panic IDs next free: **10942+** (continuous fill through 10891)
+
+## Completed: 2026-07-19 LinkedList + Barrier + Condvar std subset
+
+- New modules (Rust std gaps from `docs/std_missing.md`):
+  - `sa_std/collections/linked_list.{sal,sa}`: concrete `LinkedList<u64>` push/pop/front/back/contains/append/clear.
+  - `sa_std/sync/barrier.{sal,sa}`: spin `Barrier` (`NEW`/`WAIT`/`N`/`DEFAULT`).
+  - `sa_std/sync/condvar.{sal,sa}`: spin `Condvar` notify/wait/wait_while (+ `MUTEX_INTO_INNER_I32` / guard helpers).
+- Wired into `sa_std/rust_core.sa` imports.
+- Tests (panic 10863–10868): `std_linked_list_macro_surface.sa`, `std_barrier_macro_surface.sa`, `std_condvar_macro_surface.sa` — all focused green.
+- Runner registered. `docs/std_missing.md` updated.
+- Panic IDs next free: **10869+**.
+
 ## Completed: 2026-07-19 full test suite green (`tools/test_steps_timed.sh` 22/22)
 
 - Full `build.zig` test dependency set via `tools/test_steps_timed.sh`: **passed=22 failed=0 timeout=0** (~19m).

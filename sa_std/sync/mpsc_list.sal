@@ -1,0 +1,3 @@
+#def MpscList_SIZE = 16
+#def MpscList_mutex = +0
+#def MpscList_list = +8

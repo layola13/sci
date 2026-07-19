@@ -1,0 +1,10 @@
+// Concrete doubly-linked list of u64 values (Rust LinkedList facade subset).
+#def LinkedList_SIZE = 24
+#def LinkedList_head = +0
+#def LinkedList_tail = +8
+#def LinkedList_len = +16
+
+#def LinkedListNode_SIZE = 24
+#def LinkedListNode_prev = +0
+#def LinkedListNode_next = +8
+#def LinkedListNode_value = +16

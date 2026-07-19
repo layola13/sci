@@ -311,3 +311,173 @@ L_MPSC_RECV_DONE_%out_value:
     %out_value = load __mpsc_value_slot_%out_value+0 as u64
     !__mpsc_recv_ok_%out_value
 [END_MACRO]
+
+// Concrete channel handle split: both ends share the same ring buffer pointer.
+// Does not model disconnect/drop of half; free still goes through MPSC_FREE on channel.
+
+[MACRO] MPSC_CHANNEL %out_tx, %out_rx, %cap
+    EXPAND MPSC_NEW __mpsc_ch_chan_%out_tx, %cap
+    %out_tx = alloc MpscSender_SIZE
+    %out_rx = alloc MpscReceiver_SIZE
+    store %out_tx+MpscSender_chan, __mpsc_ch_chan_%out_tx as ptr
+    store %out_rx+MpscReceiver_chan, __mpsc_ch_chan_%out_tx as ptr
+    !__mpsc_ch_chan_%out_tx
+[END_MACRO]
+
+[MACRO] MPSC_TX_TRY_SEND %out_ok, %tx, %value
+    __mpsc_tx_chan_%out_ok = load %tx+MpscSender_chan as ptr
+    EXPAND MPSC_TRY_SEND %out_ok, __mpsc_tx_chan_%out_ok, %value
+    !__mpsc_tx_chan_%out_ok
+[END_MACRO]
+
+[MACRO] MPSC_TX_SEND %tx, %value
+    __mpsc_tx_chan_s_%tx = load %tx+MpscSender_chan as ptr
+    EXPAND MPSC_SEND __mpsc_tx_chan_s_%tx, %value
+    !__mpsc_tx_chan_s_%tx
+[END_MACRO]
+
+[MACRO] MPSC_RX_TRY_RECV %out_ok, %out_value, %rx
+    __mpsc_rx_chan_%out_ok = load %rx+MpscReceiver_chan as ptr
+    EXPAND MPSC_TRY_RECV %out_ok, %out_value, __mpsc_rx_chan_%out_ok
+    !__mpsc_rx_chan_%out_ok
+[END_MACRO]
+
+[MACRO] MPSC_RX_RECV %out_value, %rx
+    __mpsc_rx_chan_r_%out_value = load %rx+MpscReceiver_chan as ptr
+    EXPAND MPSC_RECV %out_value, __mpsc_rx_chan_r_%out_value
+    !__mpsc_rx_chan_r_%out_value
+[END_MACRO]
+
+[MACRO] MPSC_CHANNEL_FREE %tx, %rx
+    __mpsc_cf_chan_%tx = load %tx+MpscSender_chan as ptr
+    EXPAND MPSC_FREE __mpsc_cf_chan_%tx
+    !%tx
+    !%rx
+[END_MACRO]
+
+// Unbounded-style channel: large fixed capacity ring (not growable; SA subset).
+[MACRO] MPSC_UNBOUNDED %out_tx, %out_rx
+    EXPAND MPSC_CHANNEL %out_tx, %out_rx, 1024
+[END_MACRO]
+
+[MACRO] MPSC_CHANNEL_DEFAULT %out_tx, %out_rx
+    EXPAND MPSC_CHANNEL %out_tx, %out_rx, 16
+[END_MACRO]
+
+@__mpsc_try_recv_timeout_ns(&chan: ptr, &out_value_slot: ptr, timeout_ns: u64) -> i32:
+L_ENTRY:
+    start = call @sa_time_instant_ns()
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+    jmp L_TO_TRY
+L_TO_TRY:
+    ok = call @__mpsc_try_recv(&chan, &out_value_slot)
+    br ok -> L_TO_OK, L_TO_CHECK
+L_TO_OK:
+    !start
+    !timeout_ns
+    return 1
+L_TO_CHECK:
+    now = call @sa_time_instant_ns()
+    elapsed = sub now, start
+    timed_out = uge elapsed, timeout_ns
+    !now
+    !elapsed
+    br timed_out -> L_TO_TIMEOUT, L_TO_BACKOFF
+L_TO_BACKOFF:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    at_limit = uge backoff_ns, 1024
+    br at_limit -> L_TO_KEEP, L_TO_GROW
+L_TO_GROW:
+    next = shl backoff_ns, 1
+    store backoff_slot+0, next as u64
+    !next
+    !at_limit
+    !backoff_ns
+    !timed_out
+    !ok
+    jmp L_TO_TRY
+L_TO_KEEP:
+    !at_limit
+    !backoff_ns
+    !timed_out
+    !ok
+    jmp L_TO_TRY
+L_TO_TIMEOUT:
+    !timed_out
+    !ok
+    !start
+    !timeout_ns
+    return 0
+
+[MACRO] MPSC_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %chan, %timeout_ns
+    __mpsc_to_slot_%out_ok = stack_alloc 8
+    %out_ok = call @__mpsc_try_recv_timeout_ns(&%chan, &__mpsc_to_slot_%out_ok, %timeout_ns)
+    %out_value = load __mpsc_to_slot_%out_ok+0 as u64
+[END_MACRO]
+
+[MACRO] MPSC_RX_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %rx, %timeout_ns
+    __mpsc_rx_to_chan_%out_ok = load %rx+MpscReceiver_chan as ptr
+    EXPAND MPSC_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, __mpsc_rx_to_chan_%out_ok, %timeout_ns
+    !__mpsc_rx_to_chan_%out_ok
+[END_MACRO]
+
+@__mpsc_try_send_timeout_ns(&chan: ptr, &value_slot: ptr, timeout_ns: u64) -> i32:
+L_ENTRY:
+    start = call @sa_time_instant_ns()
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+    jmp L_ST_TRY
+L_ST_TRY:
+    ok = call @__mpsc_try_send(&chan, &value_slot)
+    br ok -> L_ST_OK, L_ST_CHECK
+L_ST_OK:
+    !start
+    !timeout_ns
+    return 1
+L_ST_CHECK:
+    now = call @sa_time_instant_ns()
+    elapsed = sub now, start
+    timed_out = uge elapsed, timeout_ns
+    !now
+    !elapsed
+    br timed_out -> L_ST_TIMEOUT, L_ST_BACKOFF
+L_ST_BACKOFF:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    at_limit = uge backoff_ns, 1024
+    br at_limit -> L_ST_KEEP, L_ST_GROW
+L_ST_GROW:
+    next = shl backoff_ns, 1
+    store backoff_slot+0, next as u64
+    !next
+    !at_limit
+    !backoff_ns
+    !timed_out
+    !ok
+    jmp L_ST_TRY
+L_ST_KEEP:
+    !at_limit
+    !backoff_ns
+    !timed_out
+    !ok
+    jmp L_ST_TRY
+L_ST_TIMEOUT:
+    !timed_out
+    !ok
+    !start
+    !timeout_ns
+    return 0
+
+[MACRO] MPSC_TRY_SEND_TIMEOUT_NS %out_ok, %chan, %value, %timeout_ns
+    __mpsc_st_slot_%out_ok = stack_alloc 8
+    store __mpsc_st_slot_%out_ok+0, %value as u64
+    %out_ok = call @__mpsc_try_send_timeout_ns(&%chan, &__mpsc_st_slot_%out_ok, %timeout_ns)
+[END_MACRO]
+
+[MACRO] MPSC_TX_TRY_SEND_TIMEOUT_NS %out_ok, %tx, %value, %timeout_ns
+    __mpsc_tx_st_chan_%out_ok = load %tx+MpscSender_chan as ptr
+    EXPAND MPSC_TRY_SEND_TIMEOUT_NS %out_ok, __mpsc_tx_st_chan_%out_ok, %value, %timeout_ns
+    !__mpsc_tx_st_chan_%out_ok
+[END_MACRO]

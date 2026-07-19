@@ -1,4 +1,5 @@
 @import "rwlock.sal"
+@import "../time.sai"
 
 @__rwlock_release_read(lock: ptr) -> void:
 L_ENTRY:
@@ -211,4 +212,110 @@ L_RWLOCK_TRY_WRITE_END_%out_ok:
 
 [MACRO] RWLOCK_DEFAULT %out_lock
     EXPAND RWLOCK_NEW %out_lock
+[END_MACRO]
+
+
+@__rwlock_lock_read_spin(lock: ptr) -> void:
+L_ENTRY:
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+    jmp L_TRY
+L_TRY:
+    writing = atomic_load lock+RwLock_writing as i32 acquire
+    busy = ne writing, 0
+    !writing
+    br busy -> L_BUSY_WAIT, L_CLAIM
+L_BUSY_WAIT:
+    !busy
+    jmp L_WAIT
+L_CLAIM:
+    !busy
+    old = atomic_rmw_add lock+RwLock_readers, 1 as i32 acq_rel
+    writing2 = atomic_load lock+RwLock_writing as i32 acquire
+    still_busy = ne writing2, 0
+    !writing2
+    !old
+    br still_busy -> L_ROLLBACK, L_DONE
+L_ROLLBACK:
+    rolled = atomic_rmw_sub lock+RwLock_readers, 1 as i32 acq_rel
+    !rolled
+    !still_busy
+    jmp L_WAIT
+L_WAIT:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    at_limit = uge backoff_ns, 1024
+    br at_limit -> L_KEEP, L_GROW
+L_GROW:
+    next = shl backoff_ns, 1
+    store backoff_slot+0, next as u64
+    !next
+    !at_limit
+    !backoff_ns
+    jmp L_TRY
+L_KEEP:
+    !at_limit
+    !backoff_ns
+    jmp L_TRY
+L_DONE:
+    !still_busy
+    return
+
+@__rwlock_lock_write_spin(lock: ptr) -> void:
+L_ENTRY:
+    backoff_slot = stack_alloc 8
+    store backoff_slot+0, 1 as u64
+    jmp L_WTRY
+L_WTRY:
+    old_w, ok = cmpxchg lock+RwLock_writing, 0, 1 as i32 acq_rel acquire
+    br ok -> L_WCHECK, L_WFAIL
+L_WFAIL:
+    !ok
+    !old_w
+    jmp L_WWAIT
+L_WCHECK:
+    !ok
+    !old_w
+    readers = atomic_load lock+RwLock_readers as i32 acquire
+    no_readers = eq readers, 0
+    !readers
+    br no_readers -> L_WDONE, L_WABORT
+L_WABORT:
+    atomic_store lock+RwLock_writing, 0 as i32 release
+    !no_readers
+    jmp L_WWAIT
+L_WWAIT:
+    backoff_ns = load backoff_slot+0 as u64
+    call @sa_time_sleep_ns(backoff_ns)
+    at_limit = uge backoff_ns, 1024
+    br at_limit -> L_WKEEP, L_WGROW
+L_WGROW:
+    next = shl backoff_ns, 1
+    store backoff_slot+0, next as u64
+    !next
+    !at_limit
+    !backoff_ns
+    jmp L_WTRY
+L_WKEEP:
+    !at_limit
+    !backoff_ns
+    jmp L_WTRY
+L_WDONE:
+    !no_readers
+    return
+
+[MACRO] RWLOCK_READ %lock_reg
+    call @__rwlock_lock_read_spin(%lock_reg)
+[END_MACRO]
+
+[MACRO] RWLOCK_WRITE %lock_reg
+    call @__rwlock_lock_write_spin(%lock_reg)
+[END_MACRO]
+
+[MACRO] RWLOCK_LOCK_READ %lock_reg
+    EXPAND RWLOCK_READ %lock_reg
+[END_MACRO]
+
+[MACRO] RWLOCK_LOCK_WRITE %lock_reg
+    EXPAND RWLOCK_WRITE %lock_reg
 [END_MACRO]

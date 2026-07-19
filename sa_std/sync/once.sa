@@ -334,3 +334,29 @@ L_ONCE_GET_OR_INIT_DONE_%out_value:
 [MACRO] LAZY_LOCK_DEFAULT %out_once
     EXPAND LAZY_LOCK_NEW %out_once
 [END_MACRO]
+
+// Rust-style call_once / call_once_force name aliases over get_or_init / publish paths.
+[MACRO] ONCE_CALL_ONCE %out_value, %once_reg, %init_fn
+    EXPAND ONCE_GET_OR_INIT %out_value, %once_reg, %init_fn
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_CALL_ONCE %out_value, %once_reg, %init_fn
+    EXPAND ONCE_LOCK_GET_OR_INIT %out_value, %once_reg, %init_fn
+[END_MACRO]
+
+// Force-style: always invoke init when not ready; same as get_or_init for concrete cell.
+[MACRO] ONCE_CALL_ONCE_FORCE %out_value, %once_reg, %init_fn
+    EXPAND ONCE_GET_OR_INIT %out_value, %once_reg, %init_fn
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_WAIT %out_value, %once_reg
+    EXPAND ONCE_LOCK_GET %out_value, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_IS_COMPLETED %out_ready, %once_reg
+    EXPAND ONCE_IS_READY %out_ready, %once_reg
+[END_MACRO]
+
+[MACRO] ONCE_LOCK_IS_COMPLETED %out_ready, %once_reg
+    EXPAND ONCE_LOCK_IS_READY %out_ready, %once_reg
+[END_MACRO]

@@ -263,8 +263,18 @@
     store %slot_ptr+ManuallyDropU64_value, %value as u64
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_NEW.
+[MACRO] MANUALLY_DROP_NEW %slot_ptr, %value
+    EXPAND MANUALLY_DROP_U64_NEW %slot_ptr, %value
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_DEFAULT %slot_ptr
     store %slot_ptr+ManuallyDropU64_value, 0 as u64
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_DEFAULT.
+[MACRO] MANUALLY_DROP_DEFAULT %slot_ptr
+    EXPAND MANUALLY_DROP_U64_DEFAULT %slot_ptr
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
@@ -273,16 +283,36 @@
     !__manually_drop_u64_copy_value_%dst_slot
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_COPY.
+[MACRO] MANUALLY_DROP_COPY %dst_slot, %src_slot
+    EXPAND MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_CLONE %dst_slot, %src_slot
     EXPAND MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_CLONE.
+[MACRO] MANUALLY_DROP_CLONE %dst_slot, %src_slot
+    EXPAND MANUALLY_DROP_U64_CLONE %dst_slot, %src_slot
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_CLONE_FROM %dst_slot, %src_slot
     EXPAND MANUALLY_DROP_U64_COPY %dst_slot, %src_slot
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_CLONE_FROM.
+[MACRO] MANUALLY_DROP_CLONE_FROM %dst_slot, %src_slot
+    EXPAND MANUALLY_DROP_U64_CLONE_FROM %dst_slot, %src_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_INTO_INNER %out_value, %slot_ptr
     %out_value = load %slot_ptr+ManuallyDropU64_value as u64
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_INTO_INNER.
+[MACRO] MANUALLY_DROP_INTO_INNER %out_value, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_INTO_INNER %out_value, %slot_ptr
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_TAKE %out_value, %slot_ptr
@@ -290,24 +320,54 @@
     store %slot_ptr+ManuallyDropU64_value, 0 as u64
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_TAKE.
+[MACRO] MANUALLY_DROP_TAKE %out_value, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_TAKE %out_value, %slot_ptr
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_DROP %slot_ptr
     store %slot_ptr+ManuallyDropU64_value, 0 as u64
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_DROP.
+[MACRO] MANUALLY_DROP_DROP %slot_ptr
+    EXPAND MANUALLY_DROP_U64_DROP %slot_ptr
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_AS_PTR %out_ptr, %slot_ptr
     %out_ptr = ptr_add %slot_ptr, ManuallyDropU64_value
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_AS_PTR.
+[MACRO] MANUALLY_DROP_AS_PTR %out_ptr, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_AS_PTR %out_ptr, %slot_ptr
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
     %out_ptr = ptr_add %slot_ptr, ManuallyDropU64_value
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_AS_MUT_PTR.
+[MACRO] MANUALLY_DROP_AS_MUT_PTR %out_ptr, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_DEREF %out_ptr, %slot_ptr
     EXPAND MANUALLY_DROP_U64_AS_PTR %out_ptr, %slot_ptr
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_DEREF.
+[MACRO] MANUALLY_DROP_DEREF %out_ptr, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_DEREF %out_ptr, %slot_ptr
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_DEREF_MUT %out_ptr, %slot_ptr
     EXPAND MANUALLY_DROP_U64_AS_MUT_PTR %out_ptr, %slot_ptr
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_DEREF_MUT.
+[MACRO] MANUALLY_DROP_DEREF_MUT %out_ptr, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_DEREF_MUT %out_ptr, %slot_ptr
 [END_MACRO]
 
 [MACRO] DEFAULT_HASHER_WRITE_MANUALLY_DROP_U64 %hasher, %slot_ptr
@@ -326,6 +386,11 @@
     EXPAND DEFAULT_HASHER_NEW __manually_drop_u64_hash_hasher_%out_hash
     EXPAND DEFAULT_HASHER_WRITE_MANUALLY_DROP_U64 __manually_drop_u64_hash_hasher_%out_hash, %slot_ptr
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __manually_drop_u64_hash_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_HASH.
+[MACRO] MANUALLY_DROP_HASH %out_hash, %slot_ptr
+    EXPAND MANUALLY_DROP_U64_HASH %out_hash, %slot_ptr
 [END_MACRO]
 
 [MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_MANUALLY_DROP_U64 %out_hash, %builder, %slot_ptr
@@ -360,10 +425,20 @@
     !__manually_drop_u64_eq_left_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_EQ.
+[MACRO] MANUALLY_DROP_EQ %out_bool, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_EQ %out_bool, %left_slot, %right_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_NE %out_bool, %left_slot, %right_slot
     EXPAND MANUALLY_DROP_U64_EQ __manually_drop_u64_ne_eq_%out_bool, %left_slot, %right_slot
     %out_bool = eq __manually_drop_u64_ne_eq_%out_bool, 0
     !__manually_drop_u64_ne_eq_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_NE.
+[MACRO] MANUALLY_DROP_NE %out_bool, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_NE %out_bool, %left_slot, %right_slot
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_CMP %out_ordering, %left_slot, %right_slot
@@ -390,8 +465,18 @@ L_MANUALLY_DROP_U64_CMP_DONE_%out_ordering:
     !__manually_drop_u64_cmp_left_%out_ordering
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_CMP.
+[MACRO] MANUALLY_DROP_CMP %out_ordering, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_CMP %out_ordering, %left_slot, %right_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_PARTIAL_CMP %out_ordering, %left_slot, %right_slot
     EXPAND MANUALLY_DROP_U64_CMP %out_ordering, %left_slot, %right_slot
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_PARTIAL_CMP.
+[MACRO] MANUALLY_DROP_PARTIAL_CMP %out_ordering, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_PARTIAL_CMP %out_ordering, %left_slot, %right_slot
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_LT %out_bool, %left_slot, %right_slot
@@ -402,12 +487,22 @@ L_MANUALLY_DROP_U64_CMP_DONE_%out_ordering:
     !__manually_drop_u64_lt_left_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_LT.
+[MACRO] MANUALLY_DROP_LT %out_bool, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_LT %out_bool, %left_slot, %right_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_LE %out_bool, %left_slot, %right_slot
     __manually_drop_u64_le_left_%out_bool = load %left_slot+ManuallyDropU64_value as u64
     __manually_drop_u64_le_right_%out_bool = load %right_slot+ManuallyDropU64_value as u64
     %out_bool = ule __manually_drop_u64_le_left_%out_bool, __manually_drop_u64_le_right_%out_bool
     !__manually_drop_u64_le_right_%out_bool
     !__manually_drop_u64_le_left_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_LE.
+[MACRO] MANUALLY_DROP_LE %out_bool, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_LE %out_bool, %left_slot, %right_slot
 [END_MACRO]
 
 [MACRO] MANUALLY_DROP_U64_GT %out_bool, %left_slot, %right_slot
@@ -418,12 +513,22 @@ L_MANUALLY_DROP_U64_CMP_DONE_%out_ordering:
     !__manually_drop_u64_gt_left_%out_bool
 [END_MACRO]
 
+// Rust method-name alias over MANUALLY_DROP_U64_GT.
+[MACRO] MANUALLY_DROP_GT %out_bool, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_GT %out_bool, %left_slot, %right_slot
+[END_MACRO]
+
 [MACRO] MANUALLY_DROP_U64_GE %out_bool, %left_slot, %right_slot
     __manually_drop_u64_ge_left_%out_bool = load %left_slot+ManuallyDropU64_value as u64
     __manually_drop_u64_ge_right_%out_bool = load %right_slot+ManuallyDropU64_value as u64
     %out_bool = uge __manually_drop_u64_ge_left_%out_bool, __manually_drop_u64_ge_right_%out_bool
     !__manually_drop_u64_ge_right_%out_bool
     !__manually_drop_u64_ge_left_%out_bool
+[END_MACRO]
+
+// Rust method-name alias over MANUALLY_DROP_U64_GE.
+[MACRO] MANUALLY_DROP_GE %out_bool, %left_slot, %right_slot
+    EXPAND MANUALLY_DROP_U64_GE %out_bool, %left_slot, %right_slot
 [END_MACRO]
 
 [MACRO] MEM_SIZE_OF_F32 %out_size
