@@ -19,6 +19,30 @@ extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_pat
 pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction };
 pub const EmitOptions = emit_options.EmitOptions;
 
+threadlocal var last_error_buf: [512]u8 = undefined;
+threadlocal var last_error_len: usize = 0;
+
+fn recordLastError(message: []const u8) void {
+    const len = @min(message.len, last_error_buf.len);
+    @memcpy(last_error_buf[0..len], message[0..len]);
+    last_error_len = len;
+}
+
+fn recordLlvmcError(prefix: []const u8, msg: [*:0]const u8) void {
+    const message = std.mem.sliceTo(msg, 0);
+    var stream = std.io.fixedBufferStream(&last_error_buf);
+    stream.writer().print("{s}: {s}", .{ prefix, message }) catch {
+        recordLastError(message);
+        return;
+    };
+    last_error_len = stream.pos;
+}
+
+pub fn lastErrorMessage() ?[]const u8 {
+    if (last_error_len == 0) return null;
+    return last_error_buf[0..last_error_len];
+}
+
 const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8, u8 = 9, u16 = 10, u32 = 11, u64 = 12 };
 const CFuncKind = enum(c_int) { normal = 0, external = 1, exported = 2, test_func = 3 };
 const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21, release = 22, take = 23 };
@@ -1530,7 +1554,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         var err_msg: ?[*:0]u8 = null;
         if (sa_llvmc_emit_module_object(&module, path_z.ptr, @intCast(opt_level), &err_msg) != 0) {
             if (err_msg) |msg| {
-                std.debug.print("llvmc object emit: {s}\n", .{std.mem.sliceTo(msg, 0)});
+                recordLlvmcError("llvmc object emit", msg);
                 sa_llvmc_free(msg);
             }
             return error.Failed;
@@ -1542,7 +1566,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         var err_msg: ?[*:0]u8 = null;
         if (sa_llvmc_emit_module_bitcode(&module, @intCast(options.opt_level), &out_bytes, &out_len, &err_msg) != 0) {
             if (err_msg) |msg| {
-                std.debug.print("llvmc backend: {s}\n", .{std.mem.sliceTo(msg, 0)});
+                recordLlvmcError("llvmc backend", msg);
                 sa_llvmc_free(msg);
             }
             return error.Failed;
@@ -1803,7 +1827,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     var err_msg: ?[*:0]u8 = null;
     if (sa_llvmc_emit_module_artifacts(&module, bc_z.ptr, obj_z.ptr, @intCast(opt_level), &err_msg) != 0) {
         if (err_msg) |msg| {
-            std.debug.print("llvmc artifact emit: {s}\n", .{std.mem.sliceTo(msg, 0)});
+            recordLlvmcError("llvmc artifact emit", msg);
             sa_llvmc_free(msg);
         }
         return error.Failed;

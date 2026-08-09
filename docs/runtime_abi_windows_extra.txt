@@ -1,0 +1,62 @@
+# Windows bootstrap compatibility exports that are intentionally not part of
+# the shared C header. Keep this list small and document every new entry.
+#
+# Verified 2026-08-04 against src/runtime/sa_std_windows.zig: these are the
+# current Windows-only file and socket compatibility wrappers. No process, fd,
+# terminal, or unsupported POSIX-only export is promoted through this list.
+
+sa_fs_file_close
+sa_fs_file_flush
+sa_fs_file_read
+sa_fs_file_read_exact
+sa_fs_file_seek
+sa_fs_file_write
+sa_fs_file_write_all
+sa_deno_make_temp_dir
+sa_deno_make_temp_file
+sa_net_tcp_connect
+sa_net_tcp_listener_accept
+sa_net_tcp_listener_bind
+sa_net_tcp_listener_close
+sa_net_tcp_listener_local_addr
+sa_net_tcp_stream_close
+sa_net_tcp_stream_flush
+sa_net_tcp_stream_read
+sa_net_tcp_stream_write
+sa_net_tcp_stream_write_all
+sa_net_udp_bind
+sa_net_udp_local_addr
+sa_net_udp_peek
+sa_net_udp_peek_from
+sa_net_udp_recv_from
+sa_net_udp_send_to
+sa_test_debug_i64
+#
+# Windows HTTP mock surface added 2026-08-09 for demo 301/302 single-file
+# builds. These are non-network mock stubs that return fixed canned data so
+# the saasm HTTP demos link without a real HTTP stack; not part of sa_std.h.
+sa_http_client_body_reader_free
+sa_http_client_free
+sa_http_client_new
+sa_http_client_req_add_header
+sa_http_client_req_free
+sa_http_client_req_new
+sa_http_client_req_send
+sa_http_client_req_set_body
+sa_http_client_resp_body_reader
+sa_http_client_resp_free
+sa_http_client_resp_read_chunk
+sa_http_client_resp_status
+sa_http_server_accept
+sa_http_server_free
+sa_http_server_new
+sa_http_server_req_free
+sa_http_server_req_get_body
+sa_http_server_req_get_header
+sa_http_server_req_get_path
+sa_http_server_resp_stream_end
+sa_http_server_resp_stream_flush
+sa_http_server_resp_stream_free
+sa_http_server_resp_stream_new
+sa_http_server_resp_stream_write
+sa_http_server_start

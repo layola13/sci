@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const empty_argv: [0][:0]u8 = .{};
 
@@ -12,13 +13,35 @@ const ArgvState = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         if (self.initialized) return;
-        self.argv = loadProcCmdline() catch empty_argv[0..];
+        self.argv = loadArgv() catch empty_argv[0..];
         self.argc = @as(i32, @intCast(self.argv.len));
         self.initialized = true;
     }
 };
 
 var argv_state: ArgvState = .{};
+
+fn loadArgv() ![][:0]u8 {
+    return switch (builtin.os.tag) {
+        .linux => loadProcCmdline(),
+        else => loadProcessArgs(),
+    };
+}
+
+fn loadProcessArgs() ![][:0]u8 {
+    var args = std.ArrayList([:0]u8).init(std.heap.page_allocator);
+    errdefer {
+        for (args.items) |arg| std.heap.page_allocator.free(arg);
+        args.deinit();
+    }
+
+    var it = try std.process.argsWithAllocator(std.heap.page_allocator);
+    defer it.deinit();
+    while (it.next()) |arg| {
+        try args.append(try std.heap.page_allocator.dupeZ(u8, arg));
+    }
+    return try args.toOwnedSlice();
+}
 
 fn loadProcCmdline() ![][:0]u8 {
     var file = try std.fs.openFileAbsolute("/proc/self/cmdline", .{});
@@ -71,7 +94,7 @@ pub export fn sys_print(data: ?[*]const u8, len: u64) void {
 }
 
 pub export fn sys_exit(code: i32) noreturn {
-    std.posix.exit(@as(u8, @truncate(@as(u32, @bitCast(code)))));
+    std.process.exit(@as(u8, @truncate(@as(u32, @bitCast(code)))));
 }
 
 pub export fn sys_argc() i32 {

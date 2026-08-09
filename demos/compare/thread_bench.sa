@@ -31,7 +31,7 @@ L_ENTRY:
 
 L_COND:
     i = load i_ptr+0 as i64
-    limit64 = sext limit to i64
+    limit64 = sext limit as i64
     cond = slt i, limit64
     br cond -> L_BODY, L_EXIT
 
@@ -53,7 +53,7 @@ L_BODY:
 
 L_EXIT:
     result64 = load sum_ptr+0 as i64
-    result32 = trunc result64 to i32
+    result32 = trunc result64 as i32
     store slot+Thread_result, result32 as i32
     !result64
     !result32

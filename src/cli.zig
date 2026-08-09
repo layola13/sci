@@ -1982,6 +1982,24 @@ pub fn printCliError(writer: anytype, err: anyerror, mode: DiagnosticsMode) !voi
     }
 }
 
+fn printLlvmcEmitError(writer: anytype, err: anyerror, mode: DiagnosticsMode) !void {
+    if (err == error.Failed) {
+        if (emit_llvm_llvmc.lastErrorMessage()) |message| {
+            switch (mode) {
+                .human => try writer.print("error[LLVMBackend]: {s}\n", .{message}),
+                .json => {
+                    try writer.writeAll("{\"status\":\"error\",\"error\":{");
+                    try writer.writeAll("\"name\":\"LLVMBackend\",\"code\":\"SA-LLVM-001\",\"message\":");
+                    try writeJsonString(writer, message);
+                    try writer.writeAll(",\"hint\":\"configure LLVM-C support or rebuild with -Dllvm=true and valid LLVM paths\"}}\n");
+                },
+            }
+            return;
+        }
+    }
+    try printCliError(writer, err, mode);
+}
+
 fn importResolutionMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.InvalidImportPath => "invalid import path",
@@ -5381,6 +5399,10 @@ fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffi
     return try std.fmt.allocPrint(allocator, "{s}{s}", .{ stem, suffix });
 }
 
+pub fn defaultExecutableSuffix() []const u8 {
+    return if (builtin.os.tag == .windows) ".exe" else "";
+}
+
 fn ensureParentDir(path: []const u8) !void {
     if (std.fs.path.dirname(path)) |dir| {
         if (dir.len != 0) try std.fs.cwd().makePath(dir);
@@ -6967,7 +6989,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
                 recordMetricMemoryAfterEmit(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7043,9 +7068,15 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             if (incremental) {
                 const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
             } else {
-                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level);
+                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
             }
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7098,7 +7129,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                return 1;
+            };
             const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7744,7 +7778,6 @@ fn collectCallEdges(
     }
 }
 
-
 fn executeTestInner(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -7890,7 +7923,10 @@ fn executeTestInner(
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path);
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
+                try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                return 1;
+            };
             const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
             const fast_sab_compile_only = test_options.compile_only and std.mem.endsWith(u8, source_path, ".sab") and has_explicit_test_selection;
@@ -8098,7 +8134,7 @@ pub fn executeWithWritersAndOptions(
             const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer if (owned_source_path) |path| allocator.free(path);
             const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, defaultExecutableSuffix());
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8135,7 +8171,7 @@ pub fn executeWithWritersAndOptions(
             defer allocator.free(project_root);
             const final_source_path = try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer allocator.free(final_source_path);
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, defaultExecutableSuffix());
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8208,7 +8244,7 @@ pub fn executeWithWritersAndOptions(
             const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer if (owned_source_path) |path| allocator.free(path);
             const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, defaultExecutableSuffix());
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);

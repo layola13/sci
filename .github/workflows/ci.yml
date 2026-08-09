@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-full:
+    name: Linux full native gate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install Linux native dependencies
+        run: sudo apt-get update && sudo apt-get install -y llvm-14-dev
+
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: ${{ runner.os }}-full-${{ hashFiles('build.zig', 'src/**/*.zig', 'src/**/*.c', 'tests/**/*.zig', 'sa_std/**/*.sa', 'sa_std/**/*.sai') }}
+          restore-keys: |
+            ${{ runner.os }}-full-
+
+      - name: Build Linux compiler and runtime
+        run: zig build
+
+      - name: Run shared ABI and test graph
+        run: zig build test
+
+      - name: Run Linux-only runtime gate
+        run: zig build linux-runtime
+
+  windows-bootstrap:
+    name: Windows bootstrap/core gate
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+          key: ${{ runner.os }}-bootstrap-${{ hashFiles('build.zig', 'src/**/*.zig', 'src/**/*.c', 'tests/**/*.zig', 'sa_std/**/*.sa', 'sa_std/**/*.sai') }}
+          restore-keys: |
+            ${{ runner.os }}-bootstrap-
+
+      - name: Build Windows bootstrap compiler
+        run: zig build -Dllvm=false
+
+      - name: Run Windows target-aware test graph
+        run: zig build test -Dllvm=false
+
+      - name: Run Windows core/runtime/plugin gates
+        run: |
+          zig build core -Dllvm=false
+          zig build runtime-basic -Dllvm=false
+          zig build windows-runtime -Dllvm=false
+          zig build plugin-host-smoke -Dllvm=false
+
+  windows-llvm:
+    name: Windows LLVM-C native gate
+    runs-on: windows-2025
+    needs: windows-bootstrap
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install LLVM 14
+        shell: pwsh
+        run: choco install llvm --version=14.0.6 --yes --no-progress
+
+      - name: Add exact LLVM 14 C headers
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP "llvm-project-14.0.6"
+          git clone --filter=blob:none --no-checkout --depth 1 --branch llvmorg-14.0.6 https://github.com/llvm/llvm-project.git $source
+          Push-Location $source
+          git sparse-checkout init --cone
+          git sparse-checkout set llvm/include/llvm-c
+          git checkout --force llvmorg-14.0.6
+          Pop-Location
+          $destination = "C:\Program Files\LLVM\include\llvm-c"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Copy-Item -Path (Join-Path $source "llvm\include\llvm-c\*") -Destination $destination -Recurse -Force
+          if (-not (Test-Path "C:\Program Files\LLVM\include\llvm-c\Core.h")) { throw "LLVM-C Core.h was not installed" }
+          if (-not (Test-Path "C:\Program Files\LLVM\lib\LLVM-C.lib")) { throw "LLVM-C.lib was not installed" }
+
+      - name: Run Windows LLVM native smoke
+        shell: pwsh
+        run: |
+          $env:Path = "C:\Program Files\LLVM\bin;" + $env:Path
+          zig build windows-llvm-smoke -Dllvm=true -Dllvm-include-dir="C:\Program Files\LLVM\include" -Dllvm-lib-dir="C:\Program Files\LLVM\lib" -Dllvm-lib-name=LLVM-C
+
+      - name: Run Windows LLVM-C backend suite
+        shell: pwsh
+        run: |
+          $env:Path = "C:\Program Files\LLVM\bin;" + $env:Path
+          zig build llvmc-test -Dllvm=true -Dllvm-include-dir="C:\Program Files\LLVM\include" -Dllvm-lib-dir="C:\Program Files\LLVM\lib" -Dllvm-lib-name=LLVM-C

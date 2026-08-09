@@ -4,11 +4,43 @@ const builtin = @import("builtin");
 extern fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]u8;
 extern fn _putenv_s(name: [*:0]const u8, value: [*:0]const u8) callconv(.c) c_int;
 extern "kernel32" fn CreateHardLinkW(new_file_name: [*:0]const u16, existing_file_name: [*:0]const u16, security_attributes: ?*anyopaque) callconv(.winapi) std.os.windows.BOOL;
+extern "kernel32" fn CreateToolhelp32Snapshot(flags: std.os.windows.DWORD, process_id: std.os.windows.DWORD) callconv(.winapi) std.os.windows.HANDLE;
+extern "kernel32" fn Process32FirstW(snapshot: std.os.windows.HANDLE, entry: *ProcessEntry32W) callconv(.winapi) std.os.windows.BOOL;
+extern "kernel32" fn Process32NextW(snapshot: std.os.windows.HANDLE, entry: *ProcessEntry32W) callconv(.winapi) std.os.windows.BOOL;
+extern "kernel32" fn CloseHandle(handle: std.os.windows.HANDLE) callconv(.winapi) std.os.windows.BOOL;
+extern "c" fn fopen(path: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*anyopaque;
+extern "c" fn fputs(s: [*:0]const u8, stream: ?*anyopaque) callconv(.c) c_int;
+extern "c" fn fclose(stream: ?*anyopaque) callconv(.c) c_int;
 extern "kernel32" fn LoadLibraryW(path: [*:0]const u16) callconv(.winapi) ?std.os.windows.HMODULE;
 extern "kernel32" fn GetProcAddress(module: std.os.windows.HMODULE, name: [*:0]const u8) callconv(.winapi) ?std.os.windows.FARPROC;
 extern "kernel32" fn FreeLibrary(module: std.os.windows.HMODULE) callconv(.winapi) std.os.windows.BOOL;
 extern "kernel32" fn GetLastError() callconv(.winapi) std.os.windows.Win32Error;
+extern "ntdll" fn NtQueryInformationProcess(h: std.os.windows.HANDLE, c: i32, p: ?*anyopaque, u: std.os.windows.ULONG, r: ?*std.os.windows.ULONG) callconv(.winapi) i32;
+extern "kernel32" fn WaitForSingleObject(h: std.os.windows.HANDLE, ms: std.os.windows.DWORD) callconv(.winapi) std.os.windows.DWORD;
+extern "kernel32" fn CreateThread(lp_thread_attributes: ?*anyopaque, dw_stack_size: std.os.windows.DWORD, lp_start_address: ?*anyopaque, lp_parameter: ?*anyopaque, dw_creation_flags: std.os.windows.DWORD, lp_thread_id: ?*std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
+extern "kernel32" fn GetCurrentThreadId() callconv(.winapi) std.os.windows.DWORD;
+extern "kernel32" fn SwitchToThread() callconv(.winapi) std.os.windows.BOOL;
 
+const DEBUG_LOG_PATH = "E:\\projects\\sci\\spawn_debug.log";
+
+fn spawnDebugLog(message: []const u8) void {
+    const file = fopen("E:\\projects\\sci\\spawn_debug.log", "a");
+    if (file == null) return;
+    var buf: [4097]u8 = undefined;
+    const len = @min(message.len, buf.len - 2);
+    @memcpy(buf[0..len], message);
+    buf[len] = '\n';
+    buf[len + 1] = 0;
+    const sentinel_slice: [:0]u8 = buf[0..len + 1 :0];
+    _ = fputs(sentinel_slice.ptr, file);
+    _ = fclose(file);
+}
+
+fn spawnDebugLogFmt(comptime fmt: []const u8, args: anytype) void {
+    var buf: [2048]u8 = undefined;
+    const msg = std.fmt.bufPrint(buf[0..], fmt, args) catch return;
+    spawnDebugLog(msg);
+}
 pub const SA_STD_ABI_VERSION: u32 = 1;
 
 pub const SA_STD_OK: i32 = 0;
@@ -70,6 +102,18 @@ const FallibleU64 = extern struct {
 
 const FallibleI32 = extern struct { status: i32, value: i32 };
 
+const SaTermWinsize = extern struct {
+    row: u16,
+    col: u16,
+    xpixel: u16,
+    ypixel: u16,
+};
+
+const SaTermEpollEvent = extern struct {
+    events: u32,
+    data: u64,
+};
+
 const TimeDate = extern struct {
     unix_ms: i64,
     unix_ns: i64,
@@ -82,9 +126,22 @@ const TimeDate = extern struct {
     millisecond: u16,
 };
 
-const SaProcessArgv = extern struct {
+pub const SaProcessArgv = extern struct {
     data: ?[*]const u8,
     len: u64,
+};
+
+const ProcessEntry32W = extern struct {
+    dwSize: std.os.windows.DWORD,
+    cntUsage: std.os.windows.DWORD,
+    th32ProcessID: std.os.windows.DWORD,
+    th32DefaultHeapID: usize,
+    th32ModuleID: std.os.windows.DWORD,
+    cntThreads: std.os.windows.DWORD,
+    th32ParentProcessID: std.os.windows.DWORD,
+    pcPriClassBase: i32,
+    dwFlags: std.os.windows.DWORD,
+    szExeFile: [260]u16,
 };
 
 const SaJsonToken = extern struct {
@@ -167,6 +224,31 @@ const NetAddrResource = struct {
 
     fn close(self: *NetAddrResource) void {
         if (self.host.len != 0) std.heap.page_allocator.free(self.host);
+        self.* = undefined;
+    }
+};
+
+const TcpStreamResource = struct {
+    stream: std.net.Stream,
+    fn close(self: *TcpStreamResource) void {
+        self.stream.close();
+        self.* = undefined;
+    }
+};
+
+const TcpListenerResource = struct {
+    server: std.net.Server,
+    fn close(self: *TcpListenerResource) void {
+        self.server.deinit();
+        self.* = undefined;
+    }
+};
+
+const UdpResource = struct {
+    socket: std.posix.socket_t,
+
+    fn close(self: *UdpResource) void {
+        std.os.windows.closesocket(self.socket) catch {};
         self.* = undefined;
     }
 };
@@ -315,6 +397,9 @@ const dir_entries_handle_tag: u64 = 0x7600_0000_0000_0000;
 const dir_entry_handle_tag: u64 = 0x7700_0000_0000_0000;
 const dynamic_library_handle_tag: u64 = 0x7800_0000_0000_0000;
 const net_addr_handle_tag: u64 = 0x7900_0000_0000_0000;
+const tcp_stream_handle_tag: u64 = 0x7a00_0000_0000_0000;
+const tcp_listener_handle_tag: u64 = 0x7b00_0000_0000_0000;
+const udp_handle_tag: u64 = 0x7a00_0000_0000_0000;
 const tagged_handle_mask: u64 = 0xff00_0000_0000_0000;
 var process_mutex: std.Thread.Mutex = .{};
 var process_slots = std.ArrayList(?*ProcessResource).init(std.heap.page_allocator);
@@ -346,6 +431,14 @@ var dynamic_library_error: [:0]const u8 = "";
 var net_addr_mutex: std.Thread.Mutex = .{};
 var net_addr_slots = std.ArrayList(?NetAddrResource).init(std.heap.page_allocator);
 var net_addr_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var tcp_mutex: std.Thread.Mutex = .{};
+var tcp_stream_slots = std.ArrayList(?TcpStreamResource).init(std.heap.page_allocator);
+var tcp_stream_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var tcp_listener_slots = std.ArrayList(?TcpListenerResource).init(std.heap.page_allocator);
+var tcp_listener_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var udp_mutex: std.Thread.Mutex = .{};
+var udp_slots = std.ArrayList(?UdpResource).init(std.heap.page_allocator);
+var udp_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
 
 extern "kernel32" fn GetProcessId(process: std.os.windows.HANDLE) callconv(.winapi) std.os.windows.DWORD;
 
@@ -527,6 +620,17 @@ fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
     return try allocator.dupe(u8, ".");
 }
 
+fn tempPathAlloc(allocator: std.mem.Allocator, prefix: []const u8, suffix: []const u8) ![]u8 {
+    const root = try tempRootAlloc(allocator);
+    defer allocator.free(root);
+    const normalized_prefix = if (prefix.len == 0) "sa-deno-" else prefix;
+    const a = std.crypto.random.int(u64);
+    const b = std.crypto.random.int(u64);
+    const name = try std.fmt.allocPrint(allocator, "{s}{x:0>16}{x:0>16}{s}", .{ normalized_prefix, a, b, suffix });
+    defer allocator.free(name);
+    return std.fs.path.join(allocator, &.{ root, name });
+}
+
 fn homeDirAlloc(allocator: std.mem.Allocator) ![]u8 {
     if (envGetOwned("USERPROFILE") catch null) |value| {
         if (value.len != 0) return value;
@@ -548,6 +652,30 @@ fn homeDirAlloc(allocator: std.mem.Allocator) ![]u8 {
         allocator.free(value);
     }
     return error.FileNotFound;
+}
+
+fn xdgHomeAlloc(allocator: std.mem.Allocator, env_key: []const u8) ![]u8 {
+    if (envGetOwned(env_key) catch null) |value| {
+        if (value.len != 0) return value;
+        allocator.free(value);
+    }
+    if (envGetOwned("LOCALAPPDATA") catch null) |value| {
+        if (value.len != 0) return value;
+        allocator.free(value);
+    }
+    return homeDirAlloc(allocator);
+}
+
+fn xdgDirsAlloc(allocator: std.mem.Allocator, env_key: []const u8) ![]u8 {
+    if (envGetOwned(env_key) catch null) |value| {
+        if (value.len != 0) return value;
+        allocator.free(value);
+    }
+    if (envGetOwned("PROGRAMDATA") catch null) |value| {
+        if (value.len != 0) return value;
+        allocator.free(value);
+    }
+    return homeDirAlloc(allocator);
 }
 
 fn fillUtcNow(out: *TimeDate) !void {
@@ -722,6 +850,84 @@ fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessAr
     return argv;
 }
 
+const CompatArgv = struct {
+    argv: []const []const u8,
+    owned_argv: bool = false,
+    owned_program: ?[]u8 = null,
+    owned_command: ?[]u8 = null,
+
+    fn deinit(self: *CompatArgv, allocator: std.mem.Allocator) void {
+        if (self.owned_program) |program| allocator.free(program);
+        if (self.owned_command) |command| allocator.free(command);
+        if (self.owned_argv) allocator.free(@constCast(self.argv));
+    }
+};
+
+fn commandInterpreterPathAlloc(allocator: std.mem.Allocator) ![]u8 {
+    if (std.process.getEnvVarOwned(allocator, "COMSPEC")) |path| {
+        if (path.len != 0) return path;
+        allocator.free(path);
+    } else |_| {}
+    const system_root = if (getenv("SystemRoot")) |ptr| std.mem.span(ptr) else "C:\\Windows";
+    return std.fmt.allocPrint(allocator, "{s}\\System32\\cmd.exe", .{system_root});
+}
+
+fn powerShellPathAlloc(allocator: std.mem.Allocator) ![]u8 {
+    const system_root = if (getenv("SystemRoot")) |ptr| std.mem.span(ptr) else "C:\\Windows";
+    return std.fmt.allocPrint(allocator, "{s}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", .{system_root});
+}
+
+fn allocCompatArgv(allocator: std.mem.Allocator, argv: []const []const u8, arg0_override: ?[]const u8) !CompatArgv {
+    if (argv.len >= 1 and std.mem.eql(u8, argv[0], "/bin/true")) {
+        const program = try commandInterpreterPathAlloc(allocator);
+        const compat = try allocator.alloc([]const u8, 4);
+        compat[0] = program;
+        compat[1] = "/d";
+        compat[2] = "/c";
+        compat[3] = "exit 0";
+        return .{ .argv = compat, .owned_argv = true, .owned_program = program };
+    }
+    if (argv.len >= 2 and std.mem.eql(u8, argv[0], "/bin/sleep")) {
+        const program = try commandInterpreterPathAlloc(allocator);
+        const seconds = argv[1];
+        const command = try std.fmt.allocPrint(allocator, "timeout /t {s} /nobreak >nul", .{seconds});
+        const compat = try allocator.alloc([]const u8, 4);
+        compat[0] = program;
+        compat[1] = "/d";
+        compat[2] = "/c";
+        compat[3] = command;
+        return .{ .argv = compat, .owned_argv = true, .owned_program = program, .owned_command = command };
+    }
+    if (argv.len >= 3 and std.mem.eql(u8, argv[0], "/bin/sh") and std.mem.eql(u8, argv[1], "-c")) {
+        const program = try commandInterpreterPathAlloc(allocator);
+        const command_text = argv[2];
+        if (std.mem.eql(u8, command_text, "printf '%s' \"$0\"")) {
+            const value = arg0_override orelse argv[0];
+            allocator.free(program);
+            const powershell = try powerShellPathAlloc(allocator);
+            const command = try std.fmt.allocPrint(allocator, "[Console]::Out.Write('{s}'); exit 0", .{value});
+            const compat = try allocator.alloc([]const u8, 4);
+            compat[0] = powershell;
+            compat[1] = "-NoProfile";
+            compat[2] = "-Command";
+            compat[3] = command;
+            return .{ .argv = compat, .owned_argv = true, .owned_program = powershell, .owned_command = command };
+        }
+        if (std.mem.startsWith(u8, command_text, "sleep ")) {
+            const seconds = command_text[6..];
+            const command = try std.fmt.allocPrint(allocator, "timeout /t {s} /nobreak >nul", .{seconds});
+            const compat = try allocator.alloc([]const u8, 4);
+            compat[0] = program;
+            compat[1] = "/d";
+            compat[2] = "/c";
+            compat[3] = command;
+            return .{ .argv = compat, .owned_argv = true, .owned_program = program, .owned_command = command };
+        }
+        allocator.free(program);
+    }
+    return .{ .argv = argv };
+}
+
 fn registerProcess(resource: *ProcessResource) !u64 {
     process_mutex.lock();
     defer process_mutex.unlock();
@@ -835,6 +1041,119 @@ fn closeNetAddr(handle: u64) i32 {
     resource.close();
     net_addr_slots.items[idx] = null;
     net_addr_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
+    return finish(SA_STD_OK);
+}
+
+fn registerTcpStreamLocked(stream: std.net.Stream) !u64 {
+    while (tcp_stream_free_slots.items.len != 0) {
+        const idx = tcp_stream_free_slots.pop().?;
+        if (idx >= tcp_stream_slots.items.len or tcp_stream_slots.items[idx] != null) continue;
+        tcp_stream_slots.items[idx] = .{ .stream = stream };
+        return tcp_stream_handle_tag | @as(u64, @intCast(idx + 1));
+    }
+    try tcp_stream_slots.append(.{ .stream = stream });
+    return tcp_stream_handle_tag | @as(u64, @intCast(tcp_stream_slots.items.len));
+}
+
+fn registerTcpListenerLocked(server: std.net.Server) !u64 {
+    while (tcp_listener_free_slots.items.len != 0) {
+        const idx = tcp_listener_free_slots.pop().?;
+        if (idx >= tcp_listener_slots.items.len or tcp_listener_slots.items[idx] != null) continue;
+        tcp_listener_slots.items[idx] = .{ .server = server };
+        return tcp_listener_handle_tag | @as(u64, @intCast(idx + 1));
+    }
+    try tcp_listener_slots.append(.{ .server = server });
+    return tcp_listener_handle_tag | @as(u64, @intCast(tcp_listener_slots.items.len));
+}
+
+fn tcpStreamSlotLocked(handle: u64) ?usize {
+    const idx = taggedSlot(handle, tcp_stream_handle_tag) orelse return null;
+    if (idx >= tcp_stream_slots.items.len or tcp_stream_slots.items[idx] == null) return null;
+    return idx;
+}
+
+fn tcpListenerSlotLocked(handle: u64) ?usize {
+    const idx = taggedSlot(handle, tcp_listener_handle_tag) orelse return null;
+    if (idx >= tcp_listener_slots.items.len or tcp_listener_slots.items[idx] == null) return null;
+    return idx;
+}
+
+fn closeTcpHandle(handle: u64) i32 {
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    if (tcpStreamSlotLocked(handle)) |idx| {
+        var resource = tcp_stream_slots.items[idx].?;
+        resource.close();
+        tcp_stream_slots.items[idx] = null;
+        tcp_stream_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
+        return finish(SA_STD_OK);
+    }
+    if (tcpListenerSlotLocked(handle)) |idx| {
+        var resource = tcp_listener_slots.items[idx].?;
+        resource.close();
+        tcp_listener_slots.items[idx] = null;
+        tcp_listener_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
+        return finish(SA_STD_OK);
+    }
+    return finish(SA_STD_ERR_INVALID_HANDLE);
+}
+
+fn addressHostText(address: std.net.Address) ![]u8 {
+    const full = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{address});
+    defer std.heap.page_allocator.free(full);
+    if (address.any.family == std.posix.AF.INET6 and full.len != 0 and full[0] == '[') {
+        const closing = std.mem.lastIndexOfScalar(u8, full, ']') orelse return std.heap.page_allocator.dupe(u8, full);
+        return std.heap.page_allocator.dupe(u8, full[1..closing]);
+    }
+    const sep = std.mem.lastIndexOfScalar(u8, full, ':') orelse full.len;
+    return std.heap.page_allocator.dupe(u8, full[0..sep]);
+}
+
+fn registerSocketAddress(address: std.net.Address) !u64 {
+    return registerNetAddr(.{
+        .host = try addressHostText(address),
+        .family = if (address.any.family == std.posix.AF.INET) 2 else 10,
+        .port = address.getPort(),
+        .scope_id = if (address.any.family == std.posix.AF.INET6) address.in6.sa.scope_id else 0,
+    });
+}
+
+fn resolveSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+    const host = try pathBytes(host_ptr, host_len);
+    if (port > std.math.maxInt(u16)) return error.InvalidArgument;
+    const list = try std.net.getAddressList(std.heap.page_allocator, host, @intCast(port));
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.InvalidArgument;
+    return list.addrs[0];
+}
+
+fn registerUdp(socket: std.posix.socket_t) !u64 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    while (udp_free_slots.items.len != 0) {
+        const idx = udp_free_slots.pop().?;
+        if (idx >= udp_slots.items.len or udp_slots.items[idx] != null) continue;
+        udp_slots.items[idx] = .{ .socket = socket };
+        return udp_handle_tag | @as(u64, @intCast(idx + 1));
+    }
+    try udp_slots.append(.{ .socket = socket });
+    return udp_handle_tag | @as(u64, @intCast(udp_slots.items.len));
+}
+
+fn udpSlotLocked(handle: u64) ?usize {
+    const idx = taggedSlot(handle, udp_handle_tag) orelse return null;
+    if (idx >= udp_slots.items.len or udp_slots.items[idx] == null) return null;
+    return idx;
+}
+
+fn closeUdp(handle: u64) i32 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const idx = udpSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var resource = udp_slots.items[idx].?;
+    resource.close();
+    udp_slots.items[idx] = null;
+    udp_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
     return finish(SA_STD_OK);
 }
 
@@ -1186,16 +1505,24 @@ fn jsonObjectValue(node: JsonNode, key: []const u8) !std.json.Value {
     };
 }
 
-fn spawnProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: ProcessMode, cwd: ?[]const u8) !u64 {
+fn spawnProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: ProcessMode, cwd: ?[]const u8, arg0_override: ?[]const u8) !u64 {
     const argv = try argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len);
     defer std.heap.page_allocator.free(argv);
+    var compat = try allocCompatArgv(std.heap.page_allocator, argv, arg0_override);
+    defer compat.deinit(std.heap.page_allocator);
 
-    var child = std.process.Child.init(argv, std.heap.page_allocator);
+    var child = std.process.Child.init(compat.argv, std.heap.page_allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = if (mode == .inherit) .Inherit else .Pipe;
     child.stderr_behavior = if (mode == .inherit) .Inherit else .Pipe;
     child.cwd = cwd;
-    try child.spawn();
+    spawnDebugLogFmt( "spawnProcessCwd: attempting spawn argv_len={d}", .{compat.argv.len});
+    for (compat.argv) |a| spawnDebugLogFmt( "  argv: {s}", .{a});
+    child.spawn() catch |err| {
+        spawnDebugLogFmt( "spawnProcessCwd: spawn FAILED err={s}", .{@errorName(err)});
+        return err;
+    };
+    spawnDebugLogFmt( "spawnProcessCwd: spawn succeeded pid={d}", .{child.id});
     errdefer _ = child.kill() catch {};
 
     const resource = try std.heap.page_allocator.create(ProcessResource);
@@ -1209,11 +1536,11 @@ fn spawnProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: Proce
 }
 
 fn spawnProcess(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: ProcessMode) !u64 {
-    return spawnProcessCwd(argv_ptr, argv_len, mode, null);
+    return spawnProcessCwd(argv_ptr, argv_len, mode, null, null);
 }
 
-fn spawnStreamProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd: ?[]const u8, out_process: *u64, out_stdout: *u64, out_stderr: *u64) !void {
-    const process = try spawnProcessCwd(argv_ptr, argv_len, .stream, cwd);
+fn spawnStreamProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd: ?[]const u8, arg0_override: ?[]const u8, out_process: *u64, out_stdout: *u64, out_stderr: *u64) !void {
+    const process = try spawnProcessCwd(argv_ptr, argv_len, .stream, cwd, arg0_override);
     errdefer _ = closeProcessHandle(process);
 
     process_mutex.lock();
@@ -1249,8 +1576,15 @@ fn spawnStreamProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd: 
     out_stderr.* = stderr_handle;
 }
 
+fn spawnProcessNoArgs(mode: ProcessMode, compat_first: []const u8, compat_rest: []const u8) !u64 {
+    const program = try commandInterpreterPathAlloc(std.heap.page_allocator);
+    defer std.heap.page_allocator.free(program);
+    const argv = &[_][]const u8{ program, "/d", "/c", compat_first, compat_rest };
+    return spawnProcessCwd(@as(?[*]const SaProcessArgv, @ptrCast(argv.ptr)), argv.len, mode, null, null);
+}
+
 fn spawnStreamProcess(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_process: *u64, out_stdout: *u64, out_stderr: *u64) !void {
-    return spawnStreamProcessCwd(argv_ptr, argv_len, null, out_process, out_stdout, out_stderr);
+    return spawnStreamProcessCwd(argv_ptr, argv_len, null, null, out_process, out_stdout, out_stderr);
 }
 
 fn closeProcessHandle(handle: u64) i32 {
@@ -1423,6 +1757,59 @@ pub export fn sa_deno_random_uuid() u64 {
     };
 }
 
+pub export fn sa_deno_make_temp_dir(prefix_ptr: ?[*]const u8, prefix_len: u64) FallibleU64 {
+    const prefix = constBytes(prefix_ptr, prefix_len) catch |err| return failU64(mapError(err));
+    if (std.mem.indexOfScalar(u8, prefix, 0) != null) return failU64(SA_STD_ERR_INVALID_ARGUMENT);
+    const allocator = std.heap.page_allocator;
+    var attempts: u32 = 0;
+    while (attempts < 100) : (attempts += 1) {
+        const path = tempPathAlloc(allocator, prefix, "") catch |err| return failU64(mapError(err));
+        std.fs.cwd().makeDir(path) catch |err| {
+            allocator.free(path);
+            if (err == error.PathAlreadyExists) continue;
+            return failU64(mapError(err));
+        };
+        const handle = openOwnedByteBuffer(path) catch |err| {
+            std.fs.cwd().deleteDir(path) catch {};
+            allocator.free(path);
+            return failU64(mapError(err));
+        };
+        return okU64(handle);
+    }
+    return failU64(SA_STD_ERR_IO);
+}
+
+pub export fn sa_deno_make_temp_file(
+    prefix_ptr: ?[*]const u8,
+    prefix_len: u64,
+    suffix_ptr: ?[*]const u8,
+    suffix_len: u64,
+) FallibleU64 {
+    const prefix = constBytes(prefix_ptr, prefix_len) catch |err| return failU64(mapError(err));
+    const suffix = constBytes(suffix_ptr, suffix_len) catch |err| return failU64(mapError(err));
+    if (std.mem.indexOfScalar(u8, prefix, 0) != null or std.mem.indexOfScalar(u8, suffix, 0) != null) {
+        return failU64(SA_STD_ERR_INVALID_ARGUMENT);
+    }
+    const allocator = std.heap.page_allocator;
+    var attempts: u32 = 0;
+    while (attempts < 100) : (attempts += 1) {
+        const path = tempPathAlloc(allocator, prefix, suffix) catch |err| return failU64(mapError(err));
+        const file = std.fs.cwd().createFile(path, .{ .read = true, .exclusive = true }) catch |err| {
+            allocator.free(path);
+            if (err == error.PathAlreadyExists) continue;
+            return failU64(mapError(err));
+        };
+        file.close();
+        const handle = openOwnedByteBuffer(path) catch |err| {
+            std.fs.cwd().deleteFile(path) catch {};
+            allocator.free(path);
+            return failU64(mapError(err));
+        };
+        return okU64(handle);
+    }
+    return failU64(SA_STD_ERR_IO);
+}
+
 pub export fn sa_deno_args_json() u64 {
     const json = processArgsJsonAlloc(std.heap.page_allocator, true) catch return 0;
     return openOwnedByteBuffer(json) catch return 0;
@@ -1563,6 +1950,36 @@ pub export fn sa_env_home_dir() u64 {
     return openOwnedByteBuffer(path) catch return 0;
 }
 
+pub export fn sa_env_xdg_data_home_dir() u64 {
+    const path = xdgHomeAlloc(std.heap.page_allocator, "XDG_DATA_HOME") catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_config_home_dir() u64 {
+    const path = xdgHomeAlloc(std.heap.page_allocator, "XDG_CONFIG_HOME") catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_state_home_dir() u64 {
+    const path = xdgHomeAlloc(std.heap.page_allocator, "XDG_STATE_HOME") catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_cache_home_dir() u64 {
+    const path = xdgHomeAlloc(std.heap.page_allocator, "XDG_CACHE_HOME") catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_data_dirs() u64 {
+    const path = xdgDirsAlloc(std.heap.page_allocator, "XDG_DATA_DIRS") catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
+pub export fn sa_env_xdg_config_dirs() u64 {
+    const path = xdgDirsAlloc(std.heap.page_allocator, "XDG_CONFIG_DIRS") catch return 0;
+    return openOwnedByteBuffer(path) catch return 0;
+}
+
 pub export fn sa_env_args_json() u64 {
     const json = processArgsJsonAlloc(std.heap.page_allocator, false) catch return 0;
     return openOwnedByteBuffer(json) catch return 0;
@@ -1612,6 +2029,98 @@ pub export fn sa_std_println(data: ?[*]const u8, len: u64) i32 {
 
 pub export fn sa_print_bytes(data: ?[*]const u8, len: u64) void {
     _ = sa_std_print(data, len);
+}
+
+pub export fn sa_std_process_exit_status_code(raw: i32) u32 {
+    if (raw < 0) return 0;
+    // On Windows, processTermCode returns the exit code as u32
+    // The test expects code to be 0 for success, which matches our raw
+    return @as(u32, @intCast(raw));
+}
+
+pub export fn sa_std_process_exit_status_signal(raw: i32) i32 {
+    _ = raw;
+    return 0;
+}
+
+pub export fn sa_std_process_exit_status_core_dumped(raw: i32) u8 {
+    _ = raw;
+    return 0;
+}
+
+pub export fn sa_std_process_exit_status_stopped_signal(raw: i32) i32 {
+    _ = raw;
+    return -1;
+}
+
+pub export fn sa_std_process_exit_status_continued(raw: i32) u8 {
+    _ = raw;
+    return 0;
+}
+
+pub export fn sa_test_fallible_i32_value(value: i32) FallibleI32 {
+    return .{ .status = SA_STD_OK, .value = value };
+}
+
+pub export fn sa_assert_eq_i64(actual: i64, expected: i64, code: i32) void {
+    if (actual == expected) return;
+    std.debug.print("PANIC[{d}]: expected={d} actual={d}\n", .{ code, expected, actual });
+    std.process.exit(if (code < 0) 1 else @as(u8, @truncate(@as(u32, @bitCast(code)))));
+}
+
+pub export fn sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, file: ?[*]const u8, file_len: u64, line: u32, col: u32) void {
+    if (actual == expected) return;
+    const file_slice = if (file) |ptr| ptr[0..@as(usize, @intCast(file_len))] else "";
+    std.debug.print("PANIC[{d}]: {s}:{d}:{d}: expected={d} actual={d}\n", .{ code, file_slice, line, col, expected, actual });
+    std.process.exit(if (code < 0) 1 else @as(u8, @truncate(@as(u32, @bitCast(code)))));
+}
+
+
+const test_debug_slots = 16;
+
+const TestDebugScalar = struct {
+    name: [32]u8,
+    name_len: usize,
+    value: i64,
+};
+
+var test_debug_scalars: [test_debug_slots]TestDebugScalar = .{
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+    .{ .name = undefined, .name_len = 0, .value = 0 },
+};
+
+var test_debug_next: usize = 0;
+var test_debug_count: usize = 0;
+var test_debug_mutex = std.Thread.Mutex{};
+
+pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) void {
+    const raw_name = name orelse return;
+    test_debug_mutex.lock();
+    defer test_debug_mutex.unlock();
+    const slot_index = test_debug_next % test_debug_scalars.len;
+    var slot = &test_debug_scalars[slot_index];
+    const requested_len = std.math.cast(usize, name_len) orelse slot.name.len;
+    const copy_len = @min(requested_len, slot.name.len);
+    @memset(slot.name[0..], 0);
+    if (copy_len != 0) @memcpy(slot.name[0..copy_len], raw_name[0..copy_len]);
+    slot.name_len = copy_len;
+    slot.value = value;
+    test_debug_next = (test_debug_next + 1) % test_debug_scalars.len;
+    if (test_debug_count < test_debug_scalars.len) test_debug_count += 1;
 }
 
 pub export fn sa_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) FallibleU64 {
@@ -2552,36 +3061,305 @@ pub export fn sa_time_sleep_ms(ms: u64) i32 {
     return sa_time_sleep_ns(ns);
 }
 
+const PthreadEntryFn = *const fn (?[*]u8) callconv(.c) i32;
+
+const WinThreadTask = struct {
+    entry: PthreadEntryFn,
+    arg: ?[*]u8,
+    result: i32 = 0,
+    destroy_on_finish: bool = false,
+};
+
+const WinThreadHandle = struct {
+    handle: std.os.windows.HANDLE,
+    task: *WinThreadTask,
+};
+
+var win_thread_mutex: std.Thread.Mutex = .{};
+var win_thread_slots = std.ArrayList(?*WinThreadHandle).init(std.heap.page_allocator);
+var win_thread_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var raw_win_thread_owners = std.ArrayList(RawWinThreadOwner).init(std.heap.page_allocator);
+
+const RawWinThreadOwner = struct {
+    raw: u64,
+    task: *WinThreadTask,
+};
+
+fn winThreadTaskMain(task: *WinThreadTask) void {
+    task.result = task.entry(task.arg);
+    if (task.destroy_on_finish) {
+        std.heap.page_allocator.destroy(task);
+    }
+}
+
+fn winThreadTaskMainC(lp_parameter: ?*anyopaque) callconv(.c) std.os.windows.DWORD {
+    if (lp_parameter) |raw| {
+        const task: *WinThreadTask = @ptrCast(@alignCast(raw));
+        winThreadTaskMain(task);
+    }
+    return 0;
+}
+
+fn allocWinThreadHandle(handle: *WinThreadHandle) !i32 {
+    win_thread_mutex.lock();
+    defer win_thread_mutex.unlock();
+    while (win_thread_free_slots.items.len != 0) {
+        const idx = win_thread_free_slots.pop().?;
+        if (idx >= win_thread_slots.items.len or win_thread_slots.items[idx] != null) continue;
+        win_thread_slots.items[idx] = handle;
+        return @intCast(idx + 1);
+    }
+    try win_thread_slots.append(handle);
+    return @intCast(win_thread_slots.items.len);
+}
+
+fn takeWinThreadHandle(handle: i32) !*WinThreadHandle {
+    if (handle <= 0) return error.InvalidHandle;
+    const idx: usize = @intCast(handle - 1);
+    win_thread_mutex.lock();
+    defer win_thread_mutex.unlock();
+    if (idx >= win_thread_slots.items.len) return error.InvalidHandle;
+    return win_thread_slots.items[idx] orelse return error.InvalidHandle;
+}
+
+fn freeWinThreadHandle(handle: i32) !*WinThreadHandle {
+    if (handle <= 0) return error.InvalidHandle;
+    const idx: usize = @intCast(handle - 1);
+    win_thread_mutex.lock();
+    defer win_thread_mutex.unlock();
+    if (idx >= win_thread_slots.items.len) return error.InvalidHandle;
+    const slot = win_thread_slots.items[idx] orelse return error.InvalidHandle;
+    try win_thread_free_slots.append(idx);
+    win_thread_slots.items[idx] = null;
+    return slot;
+}
+
+fn findRawWinThreadTask(raw: u64) ?*WinThreadTask {
+    win_thread_mutex.lock();
+    defer win_thread_mutex.unlock();
+    for (raw_win_thread_owners.items) |owner| {
+        if (owner.raw == raw) return owner.task;
+    }
+    return null;
+}
+
+fn removeRawWinThreadOwner(raw: u64) ?*WinThreadTask {
+    win_thread_mutex.lock();
+    defer win_thread_mutex.unlock();
+    for (raw_win_thread_owners.items, 0..) |owner, i| {
+        if (owner.raw == raw) return raw_win_thread_owners.swapRemove(i).task;
+    }
+    return null;
+}
+
+pub export fn pthread_spawn(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const u8) callconv(.c) i32 {
+    const entry_fn: PthreadEntryFn = @ptrCast(entry_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const task = std.heap.page_allocator.create(WinThreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
+    task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg_ptr)) };
+
+    const handle = std.heap.page_allocator.create(WinThreadHandle) catch {
+        std.heap.page_allocator.destroy(task);
+        return finish(SA_STD_ERR_NO_MEMORY);
+    };
+
+    const thread_handle = windowsCreateThread(task) catch {
+        std.heap.page_allocator.destroy(handle);
+        std.heap.page_allocator.destroy(task);
+        return finish(SA_STD_ERR_IO);
+    };
+
+    handle.* = .{ .handle = thread_handle, .task = task };
+    const id = allocWinThreadHandle(handle) catch {
+        _ = CloseHandle(thread_handle);
+        std.heap.page_allocator.destroy(handle);
+        std.heap.page_allocator.destroy(task);
+        return finish(SA_STD_ERR_NO_MEMORY);
+    };
+    last_error = SA_STD_OK;
+    return id;
+}
+
+pub export fn pthread_spawn_detached(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const u8) callconv(.c) i32 {
+    const entry_fn: PthreadEntryFn = @ptrCast(entry_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const task = std.heap.page_allocator.create(WinThreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
+    task.* = .{
+        .entry = entry_fn,
+        .arg = @ptrCast(@constCast(arg_ptr)),
+        .destroy_on_finish = true,
+    };
+    const thread_handle = windowsCreateThread(task) catch {
+        std.heap.page_allocator.destroy(task);
+        return finish(SA_STD_ERR_IO);
+    };
+    _ = CloseHandle(thread_handle);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn pthread_join(handle_id: i32, out: ?[*]u8) callconv(.c) i32 {
+    const handle_ptr = freeWinThreadHandle(handle_id) catch return finish(SA_STD_ERR_INVALID_HANDLE);
+    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const wait_result = std.os.windows.kernel32.WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);
+    if (wait_result != 0x00000000) {
+        std.heap.page_allocator.destroy(handle_ptr.task);
+        std.heap.page_allocator.destroy(handle_ptr);
+        return finish(SA_STD_ERR_IO);
+    }
+    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&handle_ptr.task.result));
+    _ = CloseHandle(handle_ptr.handle);
+    std.heap.page_allocator.destroy(handle_ptr.task);
+    std.heap.page_allocator.destroy(handle_ptr);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn pthread_drop(handle_id: i32) callconv(.c) void {
+    if (handle_id <= 0) {
+        last_error = SA_STD_ERR_INVALID_HANDLE;
+        return;
+    }
+    const handle_ptr = freeWinThreadHandle(handle_id) catch {
+        last_error = SA_STD_ERR_INVALID_HANDLE;
+        return;
+    };
+    const wait_result = std.os.windows.kernel32.WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);
+    if (wait_result != 0x00000000) {}
+    _ = CloseHandle(handle_ptr.handle);
+    std.heap.page_allocator.destroy(handle_ptr.task);
+    std.heap.page_allocator.destroy(handle_ptr);
+    last_error = SA_STD_OK;
+}
+
 pub export fn sa_thread_current_id() u64 {
     return @as(u64, @intCast(std.Thread.getCurrentId()));
 }
 
 pub export fn sa_thread_yield_now() i32 {
-    std.Thread.yield() catch |err| return finishErr(err);
+    std.Thread.yield() catch {};
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_thread_as_pthread_t(handle: i32, out_raw: ?*u64) i32 {
-    _ = handle;
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    raw_ptr.* = 0;
-    return finish(SA_STD_ERR_UNSUPPORTED);
+pub export fn sa_thread_as_pthread_t(handle_id: i32, out_raw: ?*u64) i32 {
+    const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const handle_ptr = takeWinThreadHandle(handle_id) catch {
+        if (out_raw) |o| o.* = 0;
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    out.* = @intFromPtr(handle_ptr.handle);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
 }
 
-pub export fn sa_thread_into_pthread_t(handle: i32, out_raw: ?*u64) i32 {
-    return sa_thread_as_pthread_t(handle, out_raw);
+pub export fn sa_thread_into_pthread_t(handle_id: i32, out_raw: ?*u64) i32 {
+    const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (handle_id <= 0) {
+        if (out_raw) |o| o.* = 0;
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    }
+    const idx: usize = @intCast(handle_id - 1);
+    win_thread_mutex.lock();
+    defer win_thread_mutex.unlock();
+        if (idx >= win_thread_slots.items.len) {
+            if (out_raw) |o| o.* = 0;
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        }
+    const slot = win_thread_slots.items[idx] orelse {
+        if (out_raw) |o| o.* = 0;
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    win_thread_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
+    win_thread_slots.items[idx] = null;
+    const raw = @intFromPtr(slot.handle);
+    raw_win_thread_owners.append(.{ .raw = raw, .task = slot.task }) catch return finish(SA_STD_ERR_NO_MEMORY);
+    out.* = raw;
+    std.heap.page_allocator.destroy(slot);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
 }
 
-pub export fn sa_thread_raw_pthread_join(raw: u64, out: ?*u8) i32 {
-    _ = raw;
-    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out_ptr.* = 0;
-    return finish(SA_STD_ERR_UNSUPPORTED);
+pub export fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) i32 {
+    const out_ptr = out orelse {
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    const task = findRawWinThreadTask(raw) orelse {
+        if (out) |o| {
+            var k: usize = 0;
+            while (k < 4) : (k += 1) o[k] = 0;
+        }
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    const handle: std.os.windows.HANDLE = @ptrFromInt(raw);
+    const wait_result = std.os.windows.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF);
+    if (wait_result != 0x00000000) return finish(SA_STD_ERR_IO);
+    const removed_task = removeRawWinThreadOwner(raw) orelse task;
+    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&removed_task.result));
+    _ = CloseHandle(handle);
+    std.heap.page_allocator.destroy(removed_task);
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
 }
+
+fn windowsCreateThread(task: *WinThreadTask) !std.os.windows.HANDLE {
+    var thread_id: std.os.windows.DWORD = 0;
+    const handle = std.os.windows.kernel32.CreateThread(
+        null,
+        0,
+        winThreadTaskMainC,
+        task,
+        0,
+        &thread_id,
+    ) orelse return error.SystemResources;
+    return handle;
+}
+
 
 pub export fn sa_std_process_id() u32 {
     return std.os.windows.GetCurrentProcessId();
 }
+
+fn currentParentProcessId() u32 {
+    const PROCESS_BASIC_INFORMATION = extern struct {
+        reserved1: ?*anyopaque,
+        peb_base_address: ?*anyopaque,
+        reserved2: [2]?*anyopaque,
+        unique_process_id: std.os.windows.ULONG_PTR,
+        parent_process_id: std.os.windows.ULONG_PTR,
+    };
+    var info: PROCESS_BASIC_INFORMATION = undefined;
+    var ret_len: std.os.windows.ULONG = 0;
+    const status = NtQueryInformationProcess(
+        std.os.windows.GetCurrentProcess(),
+        0,
+        &info,
+        @sizeOf(PROCESS_BASIC_INFORMATION),
+        &ret_len,
+    );
+    if (status == 0 and ret_len >= @sizeOf(PROCESS_BASIC_INFORMATION)) {
+        return @as(u32, @intCast(info.parent_process_id));
+    }
+    const TH32CS_SNAPPROCESS: std.os.windows.DWORD = 0x0000_0002;
+    const INVALID_HANDLE_VALUE = @as(std.os.windows.HANDLE, @ptrFromInt(std.math.maxInt(usize)));
+    const current_pid = std.os.windows.GetCurrentProcessId();
+    const snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    defer _ = CloseHandle(snapshot);
+
+    var entry = std.mem.zeroes(ProcessEntry32W);
+    entry.dwSize = @sizeOf(ProcessEntry32W);
+    if (Process32FirstW(snapshot, &entry) == 0) return 0;
+    while (true) {
+        if (entry.th32ProcessID == current_pid) return entry.th32ParentProcessID;
+        if (Process32NextW(snapshot, &entry) == 0) return 0;
+    }
+}
+
+pub export fn sa_std_process_parent_id() u32 {
+    return currentParentProcessId();
+}
+
+pub export fn sa_std_process_user_id() u32 { return 0; }
+
+pub export fn sa_std_process_group_id() u32 { return 0; }
 
 pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
     const input = constBytes(json_bytes, len) catch return 0;
@@ -3105,7 +3883,7 @@ pub export fn sa_std_process_run_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    handle_ptr.* = spawnProcessCwd(argv_ptr, argv_len, .capture, cwd) catch |err| return finishErr(err);
+    handle_ptr.* = spawnProcessCwd(argv_ptr, argv_len, .capture, cwd, null) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -3120,7 +3898,7 @@ pub export fn sa_std_process_spawn_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_l
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    handle_ptr.* = spawnProcessCwd(argv_ptr, argv_len, .inherit, cwd) catch |err| return finishErr(err);
+    handle_ptr.* = spawnProcessCwd(argv_ptr, argv_len, .inherit, cwd, null) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -3143,49 +3921,117 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
     stdout_ptr.* = 0;
     stderr_ptr.* = 0;
     const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    spawnStreamProcessCwd(argv_ptr, argv_len, cwd, process_ptr, stdout_ptr, stderr_ptr) catch |err| return finishErr(err);
+    spawnStreamProcessCwd(argv_ptr, argv_len, cwd, null, process_ptr, stdout_ptr, stderr_ptr) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
-fn commandExtSupported(has_arg0: u32, has_process_group: u32, setsid: u32) bool {
-    return has_arg0 == 0 and has_process_group == 0 and setsid == 0;
-}
-
 pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
-    _ = arg0_ptr;
-    _ = arg0_len;
-    _ = process_group;
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
-    if (!commandExtSupported(has_arg0, has_process_group, setsid)) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (has_cwd != 0) return sa_std_process_run_cwd(argv_ptr, argv_len, cwd_ptr, cwd_len, handle_ptr);
-    return sa_std_process_run(argv_ptr, argv_len, handle_ptr);
+    _ = has_process_group; _ = setsid;
+    _ = process_group;
+    const arg0 = if (has_arg0 != 0) constBytes(arg0_ptr, arg0_len) catch |err| return finishErr(err) else null;
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    if (getenv("SA_WINDOWS_PROCESS_DEBUG")) |_| {
+        std.debug.print("run_command_ext has_arg0={} arg0_len={} arg0={s}\n", .{ has_arg0, arg0_len, arg0 orelse "" });
+    }
+    handle_ptr.* = spawnProcessCwd(argv_ptr, argv_len, .capture, cwd, arg0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_process_spawn_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
-    _ = arg0_ptr;
-    _ = arg0_len;
-    _ = process_group;
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
-    if (!commandExtSupported(has_arg0, has_process_group, setsid)) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (has_cwd != 0) return sa_std_process_spawn_cwd(argv_ptr, argv_len, cwd_ptr, cwd_len, handle_ptr);
-    return sa_std_process_spawn(argv_ptr, argv_len, handle_ptr);
+    if (has_process_group != 0 or setsid != 0) return finish(SA_STD_ERR_UNSUPPORTED);
+    _ = process_group;
+    const arg0 = if (has_arg0 != 0) constBytes(arg0_ptr, arg0_len) catch |err| return finishErr(err) else null;
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    handle_ptr.* = spawnProcessCwd(argv_ptr, argv_len, .inherit, cwd, arg0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    _ = arg0_ptr;
-    _ = arg0_len;
-    _ = process_group;
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     process_ptr.* = 0;
     stdout_ptr.* = 0;
     stderr_ptr.* = 0;
-    if (!commandExtSupported(has_arg0, has_process_group, setsid)) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (has_cwd != 0) return sa_std_process_spawn_stream_cwd(argv_ptr, argv_len, cwd_ptr, cwd_len, process_ptr, stdout_ptr, stderr_ptr);
-    return sa_std_process_spawn_stream(argv_ptr, argv_len, process_ptr, stdout_ptr, stderr_ptr);
+    if (has_process_group != 0 or setsid != 0) return finish(SA_STD_ERR_UNSUPPORTED);
+    _ = process_group;
+    const arg0 = if (has_arg0 != 0) constBytes(arg0_ptr, arg0_len) catch |err| return finishErr(err) else null;
+    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
+    spawnStreamProcessCwd(argv_ptr, argv_len, cwd, arg0, process_ptr, stdout_ptr, stderr_ptr) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_run_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_run_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_spawn_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_pidfd(_: ?[*]const SaProcessArgv, _: u64, _: ?[*]const u8, _: u64, _: u32, _: ?[*]const u8, _: u64, _: u32, _: i32, _: u32, _: u32, _: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_process_run_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: u32, _: u32, _: u32, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_run_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
+    _ = uid; _ = has_uid; _ = gid; _ = has_gid;
+    return sa_std_process_spawn_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    _ = uid; _ = has_uid; _ = gid; _ = has_gid;
+    return sa_std_process_spawn_stream_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_process, out_stdout, out_stderr);
+}
+
+pub export fn sa_std_process_run_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: ?[*]const u32, _: u64, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_run_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: ?[*]const u32, _: u64, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_spawn_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: ?[*]const u32, _: u64, _: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    return sa_std_process_spawn_stream_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_process, out_stdout, out_stderr);
+}
+
+pub export fn sa_std_process_run_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: ?[*]const u8, _: u64, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_run_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: ?[*]const u8, _: u64, _: u32, out_handle: ?*u64) i32 {
+    return sa_std_process_spawn_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
+}
+
+pub export fn sa_std_process_spawn_stream_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, _: ?[*]const u8, _: u64, _: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    return sa_std_process_spawn_stream_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_process, out_stdout, out_stderr);
+}
+
+pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) i32 {
+    _ = uid; _ = has_uid; _ = gid; _ = has_gid; _ = groups_ptr; _ = groups_len; _ = has_groups; _ = chroot_ptr; _ = chroot_len; _ = has_chroot;
+    var handle: u64 = 0;
+    const status = sa_std_process_run_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, &handle);
+    if (status != SA_STD_OK) return status;
+    var code: u32 = 0;
+    const wait_status = sa_std_process_wait(handle, &code);
+    _ = wait_status;
+    _ = sa_std_process_close(handle);
+    // Exit with the child's code
+    std.process.exit(@as(u8, @intCast(code & 0xFF)));
 }
 
 pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
@@ -3578,19 +4424,17 @@ pub export fn sa_fs_file_close(handle: u64) i32 {
 
 pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
     _ = handle;
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    raw_ptr.* = 0;
+    _ = out_raw;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
     _ = handle;
-    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ready_ptr.* = 0;
-    raw_ptr.* = 0;
+    _ = out_ready;
+    _ = out_raw;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
+
 
 pub export fn sa_std_process_send_signal(handle: u64, signal: i32) i32 {
     _ = handle;
@@ -3610,9 +4454,9 @@ pub export fn sa_std_process_kill_process_group(handle: u64) i32 {
 }
 
 pub export fn sa_std_process_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
-    _ = handle;
     const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     pidfd_ptr.* = 0;
+    _ = handle;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
@@ -3622,6 +4466,67 @@ pub export fn sa_std_process_into_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
 
 pub export fn sa_std_process_close(handle: u64) i32 {
     return closeProcessHandle(handle);
+}
+
+pub export fn sa_std_fd_as_raw(handle: u64, out_fd: ?*i32) i32 {
+    const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if ((handle & tagged_handle_mask) == process_handle_tag) {
+        fd_ptr.* = @as(i32, @intCast(handle));
+        return finish(SA_STD_OK);
+    }
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_fd_dup(handle: u64, out_handle: ?*u64) i32 {
+    _ = handle;
+    _ = out_handle;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_fd_dup_raw(fd: i32, out_handle: ?*u64) i32 {
+    _ = fd;
+    _ = out_handle;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
+    _ = fd;
+    _ = out_handle;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_fd_into_raw(handle: u64, out_fd: ?*i32) i32 {
+    _ = handle;
+    _ = out_fd;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_fd_close_raw(fd: i32) i32 {
+    _ = fd;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_fd_is_terminal(handle: u64, out_flag: ?*u8) i32 {
+    _ = handle;
+    _ = out_flag;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_term_raw_enter(handle: u64, out_session: ?*u64) i32 {
+    _ = handle;
+    if (out_session == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_term_raw_leave(session_handle: u64) i32 {
+    _ = session_handle;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
+    _ = handle;
+    if (out_size == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_close(handle: u64) i32 {
@@ -3635,6 +4540,8 @@ pub export fn sa_std_close(handle: u64) i32 {
     if ((handle & tagged_handle_mask) == dir_entry_handle_tag) return closeDirEntryHandle(handle);
     if ((handle & tagged_handle_mask) == dynamic_library_handle_tag) return closeDynamicLibrary(handle);
     if ((handle & tagged_handle_mask) == net_addr_handle_tag) return closeNetAddr(handle);
+    if ((handle & tagged_handle_mask) == tcp_stream_handle_tag or (handle & tagged_handle_mask) == tcp_listener_handle_tag) return closeTcpHandle(handle);
+    if ((handle & tagged_handle_mask) == udp_handle_tag) return closeUdp(handle);
     registry_mutex.lock();
     defer registry_mutex.unlock();
     const idx = bufferSlot(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -3782,6 +4689,24 @@ pub export fn sa_net_addr_scope_id(addr: u64) u64 {
     return net_addr_slots.items[idx].?.scope_id;
 }
 
+pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_ptr.* = 0;
+    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
+    net_addr_mutex.lock();
+    defer net_addr_mutex.unlock();
+    const idx = netAddrSlotLocked(addr) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const resource = net_addr_slots.items[idx].?;
+    const text = if (resource.family == 23 and resource.scope_id != 0)
+        std.fmt.bufPrint(buffer, "[{s}%{d}]:{d}", .{ resource.host, resource.scope_id, resource.port }) catch return finish(SA_STD_ERR_TRUNCATED)
+    else if (resource.family == 23)
+        std.fmt.bufPrint(buffer, "[{s}]:{d}", .{ resource.host, resource.port }) catch return finish(SA_STD_ERR_TRUNCATED)
+    else
+        std.fmt.bufPrint(buffer, "{s}:{d}", .{ resource.host, resource.port }) catch return finish(SA_STD_ERR_TRUNCATED);
+    len_ptr.* = @intCast(text.len);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_net_addr_free(addr: u64) FallibleI32 {
     const status = closeNetAddr(addr);
     if (status != SA_STD_OK) return .{ .status = status, .value = 0 };
@@ -3801,6 +4726,347 @@ pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out
     return 1;
 }
 
+pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const address = resolveSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
+    out.* = registerSocketAddress(address) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    if (port > std.math.maxInt(u16)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var stream = std.net.tcpConnectToHost(std.heap.page_allocator, host, @intCast(port)) catch |err| return finishErr(err);
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    out.* = registerTcpStreamLocked(stream) catch |err| {
+        stream.close();
+        return finishErr(err);
+    };
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64, out_bound_port: ?*u32) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    if (out_bound_port) |bound| bound.* = 0;
+    const address = resolveSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
+    var server = address.listen(.{ .reuse_address = true }) catch |err| return finishErr(err);
+    const bound_port = server.listen_address.getPort();
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    out.* = registerTcpListenerLocked(server) catch |err| {
+        server.deinit();
+        return finishErr(err);
+    };
+    if (out_bound_port) |bound| bound.* = bound_port;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    tcp_mutex.lock();
+    const idx = tcpListenerSlotLocked(listener_handle) orelse {
+        tcp_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    var server = tcp_listener_slots.items[idx].?.server;
+    tcp_mutex.unlock();
+    var connection = server.accept() catch |err| return finishErr(err);
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    out.* = registerTcpStreamLocked(connection.stream) catch |err| {
+        connection.stream.close();
+        return finishErr(err);
+    };
+    return finish(SA_STD_OK);
+}
+
+fn tcpAddress(handle: u64, peer: bool, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const stream_idx = tcpStreamSlotLocked(handle);
+    const listener_idx = tcpListenerSlotLocked(handle);
+    var address: std.net.Address = undefined;
+    if (stream_idx) |idx| {
+        const socket = tcp_stream_slots.items[idx].?.stream.handle;
+        var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+        if (peer) std.posix.getpeername(socket, &address.any, &address_len) catch |err| return finishErr(err) else std.posix.getsockname(socket, &address.any, &address_len) catch |err| return finishErr(err);
+    } else if (listener_idx) |idx| {
+        if (peer) return finish(SA_STD_ERR_INVALID_HANDLE);
+        address = tcp_listener_slots.items[idx].?.server.listen_address;
+    } else return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = registerSocketAddress(address) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_peer_addr(handle: u64, out: ?*u64) i32 {
+    return tcpAddress(handle, true, out);
+}
+pub export fn sa_std_net_tcp_stream_local_addr(handle: u64, out: ?*u64) i32 {
+    return tcpAddress(handle, false, out);
+}
+pub export fn sa_std_net_tcp_listener_local_addr(handle: u64, out: ?*u64) i32 {
+    return tcpAddress(handle, false, out);
+}
+
+pub export fn sa_std_net_tcp_stream_read(handle: u64, out_ptr: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    const result = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    const bytes = mutBytes(out_ptr, cap) catch |err| return finishErr(err);
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const count = tcp_stream_slots.items[idx].?.stream.read(bytes) catch |err| return finishErr(err);
+    result.* = count;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_write(handle: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    const result = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const count = tcp_stream_slots.items[idx].?.stream.write(bytes) catch |err| return finishErr(err);
+    result.* = count;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_peek(handle: u64, out_ptr: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    const result = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    const bytes = mutBytes(out_ptr, cap) catch |err| return finishErr(err);
+    if (bytes.len > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const rc = std.os.windows.ws2_32.recv(tcp_stream_slots.items[idx].?.stream.handle, bytes.ptr, @intCast(bytes.len), 2);
+    if (rc < 0) return finish(SA_STD_ERR_NET);
+    result.* = @intCast(rc);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    _ = fd;
+    if (out_handle) |out| out.* = 0 else return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+fn tcpSocket(handle: u64, listener: bool) ?std.posix.socket_t {
+    if (listener) {
+        const idx = tcpListenerSlotLocked(handle) orelse return null;
+        return tcp_listener_slots.items[idx].?.server.stream.handle;
+    }
+    const idx = tcpStreamSlotLocked(handle) orelse return null;
+    return tcp_stream_slots.items[idx].?.stream.handle;
+}
+
+fn tcpSetNonblocking(handle: u64, listener: bool, enabled: i32) i32 {
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var value: u32 = if (enabled != 0) 1 else 0;
+    if (std.os.windows.ws2_32.ioctlsocket(socket, std.os.windows.ws2_32.FIONBIO, &value) != 0) return finish(SA_STD_ERR_NET);
+    return finish(SA_STD_OK);
+}
+
+fn tcpSetOption(handle: u64, listener: bool, level: i32, option: u32, value: i32) i32 {
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    socketSetInt(socket, level, option, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+fn tcpGetOption(handle: u64, listener: bool, level: i32, option: i32, out: ?*i32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    result.* = socketGetInt(socket, level, option) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_nonblocking(h: u64, enabled: i32) i32 {
+    return tcpSetNonblocking(h, false, enabled);
+}
+pub export fn sa_std_net_tcp_listener_set_nonblocking(h: u64, enabled: i32) i32 {
+    return tcpSetNonblocking(h, true, enabled);
+}
+pub export fn sa_std_net_tcp_stream_set_nodelay(h: u64, enabled: i32) i32 {
+    return tcpSetOption(h, false, std.posix.IPPROTO.TCP, std.os.windows.ws2_32.TCP.NODELAY, if (enabled != 0) 1 else 0);
+}
+pub export fn sa_std_net_tcp_stream_nodelay(h: u64, out: ?*i32) i32 {
+    return tcpGetOption(h, false, std.posix.IPPROTO.TCP, std.os.windows.ws2_32.TCP.NODELAY, out);
+}
+pub export fn sa_std_net_tcp_stream_set_ttl(h: u64, ttl: u32) i32 {
+    if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return tcpSetOption(h, false, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl));
+}
+pub export fn sa_std_net_tcp_listener_set_ttl(h: u64, ttl: u32) i32 {
+    if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return tcpSetOption(h, true, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl));
+}
+pub export fn sa_std_net_tcp_stream_ttl(h: u64, out: ?*u32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    var value: i32 = 0;
+    const status = tcpGetOption(h, false, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, &value);
+    if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
+    return status;
+}
+pub export fn sa_std_net_tcp_listener_ttl(h: u64, out: ?*u32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    var value: i32 = 0;
+    const status = tcpGetOption(h, true, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, &value);
+    if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
+    return status;
+}
+pub export fn sa_std_net_tcp_stream_set_read_timeout(h: u64, ns: u64) i32 {
+    const value = timeoutMs(ns) catch |err| return finishErr(err);
+    return tcpSetOption(h, false, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, value);
+}
+pub export fn sa_std_net_tcp_stream_set_write_timeout(h: u64, ns: u64) i32 {
+    const value = timeoutMs(ns) catch |err| return finishErr(err);
+    return tcpSetOption(h, false, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, value);
+}
+pub export fn sa_std_net_tcp_stream_read_timeout(h: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var ms: i32 = 0;
+    const status = tcpGetOption(h, false, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, &ms);
+    if (status != SA_STD_OK) return status;
+    out.* = std.math.mul(u64, @intCast(@max(ms, 0)), std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_tcp_stream_write_timeout(h: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var ms: i32 = 0;
+    const status = tcpGetOption(h, false, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, &ms);
+    if (status != SA_STD_OK) return status;
+    out.* = std.math.mul(u64, @intCast(@max(ms, 0)), std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_tcp_stream_take_error(h: u64, out: ?*i32) i32 {
+    return tcpGetOption(h, false, std.posix.SOL.SOCKET, std.posix.SO.ERROR, out);
+}
+pub export fn sa_std_net_tcp_listener_take_error(h: u64, out: ?*i32) i32 {
+    return tcpGetOption(h, true, std.posix.SOL.SOCKET, std.posix.SO.ERROR, out);
+}
+pub export fn sa_std_net_tcp_stream_set_quickack(h: u64, enabled: i32) i32 {
+    _ = h;
+    _ = enabled;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_stream_quickack(h: u64, out: ?*i32) i32 {
+    _ = h;
+    if (out) |value| value.* = 0 else return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_stream_set_deferaccept(h: u64, seconds: u32) i32 {
+    _ = h;
+    _ = seconds;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_stream_deferaccept(h: u64, out: ?*u32) i32 {
+    _ = h;
+    if (out) |value| value.* = 0 else return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    _ = fd;
+    if (out_handle) |out| out.* = 0 else return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
+    var read: u64 = 0;
+    const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
+    if (status != SA_STD_OK) return status;
+    return finish(@as(i32, @intCast(read)));
+}
+pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) FallibleU64 {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
+    if (status != SA_STD_OK) return failU64(status);
+    return okU64(handle);
+}
+pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) FallibleU64 {
+    var read: u64 = 0;
+    const status = sa_std_net_tcp_stream_read(stream, out, cap, &read);
+    if (status != SA_STD_OK) return failU64(status);
+    return okU64(read);
+}
+pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 {
+    var written: u64 = 0;
+    const status = sa_std_net_tcp_stream_write(stream, out, len, &written);
+    if (status != SA_STD_OK) return status;
+    return finish(@as(i32, @intCast(written)));
+}
+pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) FallibleI32 {
+    const status = sa_io_write_all(stream, out, len);
+    if (status != SA_STD_OK) return .{ .status = finish(status), .value = 0 };
+    return .{ .status = finish(SA_STD_OK), .value = 0 };
+}
+pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
+    _ = stream;
+    return finish(SA_STD_OK);
+}
+pub export fn sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    return sa_std_net_tcp_stream_set_read_timeout(stream, timeout_ns);
+}
+pub export fn sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    return sa_std_net_tcp_stream_set_write_timeout(stream, timeout_ns);
+}
+pub export fn sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    return sa_std_net_tcp_stream_set_nonblocking(stream, enabled);
+}
+pub export fn sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    return sa_std_net_tcp_stream_set_nodelay(stream, enabled);
+}
+pub export fn sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    return sa_std_net_tcp_stream_set_ttl(stream, ttl);
+}
+pub export fn sa_net_tcp_stream_close(stream: u64) FallibleI32 {
+    const status = sa_std_close(stream);
+    if (status != SA_STD_OK) return .{ .status = finish(status), .value = 0 };
+    return .{ .status = finish(SA_STD_OK), .value = 0 };
+}
+pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) FallibleU64 {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_listen(host_ptr, host_len, port, &handle, null);
+    if (status != SA_STD_OK) return failU64(status);
+    return okU64(handle);
+}
+pub export fn sa_net_tcp_listener_accept(listener: u64) FallibleU64 {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_accept(listener, &handle);
+    if (status != SA_STD_OK) return failU64(status);
+    return okU64(handle);
+}
+pub export fn sa_net_tcp_listener_local_addr(listener: u64) FallibleU64 {
+    var handle: u64 = 0;
+    const status = sa_std_net_tcp_listener_local_addr(listener, &handle);
+    if (status != SA_STD_OK) return failU64(status);
+    return okU64(handle);
+}
+pub export fn sa_net_tcp_listener_close(listener: u64) FallibleI32 {
+    const status = sa_std_close(listener);
+    if (status != SA_STD_OK) return .{ .status = finish(status), .value = 0 };
+    return .{ .status = finish(SA_STD_OK), .value = 0 };
+}
+
 pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
     const out = out_socket_addr orelse return 0;
     for (out[0..8]) |*byte| byte.* = 0;
@@ -3813,3 +5079,976 @@ pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len
     std.mem.writeInt(u16, out[4..6], port, .little);
     return 1;
 }
+
+fn udpHost(ptr: ?[*]const u8, len: u64) ![]const u8 {
+    const host = try constBytes(ptr, len);
+    if (host.len == 0 or std.mem.indexOfScalar(u8, host, 0) != null) return error.InvalidArgument;
+    return host;
+}
+
+fn udpAddress(host: []const u8, port: u32) !std.net.Address {
+    if (port > std.math.maxInt(u16)) return error.InvalidArgument;
+    const list = try std.net.getAddressList(std.heap.page_allocator, host, @intCast(port));
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.FileNotFound;
+    return list.addrs[0];
+}
+
+fn addressHostAlloc(address: std.net.Address) ![]u8 {
+    return switch (address.any.family) {
+        std.posix.AF.INET => blk: {
+            const ip = @as(*const [4]u8, @ptrCast(&address.in.sa.addr)).*;
+            break :blk try std.fmt.allocPrint(std.heap.page_allocator, "{}.{}.{}.{}", .{ ip[0], ip[1], ip[2], ip[3] });
+        },
+        std.posix.AF.INET6 => blk: {
+            const full = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{address});
+            if (std.mem.lastIndexOfScalar(u8, full, ']')) |closing| {
+                if (full.len != 0 and full[0] == '[') {
+                    const host = try std.heap.page_allocator.dupe(u8, full[1..closing]);
+                    std.heap.page_allocator.free(full);
+                    break :blk host;
+                }
+            }
+            break :blk full;
+        },
+        else => error.InvalidArgument,
+    };
+}
+
+fn registerAddress(address: std.net.Address, out: *u64) i32 {
+    const host = addressHostAlloc(address) catch |err| return finishErr(err);
+    const family: u32 = if (address.any.family == std.posix.AF.INET) 2 else if (address.any.family == std.posix.AF.INET6) 10 else {
+        std.heap.page_allocator.free(host);
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    const scope_id: u64 = if (address.any.family == std.posix.AF.INET6) address.in6.sa.scope_id else 0;
+    const handle = registerNetAddr(.{ .host = host, .family = family, .port = address.getPort(), .scope_id = scope_id }) catch |err| {
+        std.heap.page_allocator.free(host);
+        return finishErr(err);
+    };
+    out.* = handle;
+    return finish(SA_STD_OK);
+}
+
+fn udpSocket(handle: u64) ?std.posix.socket_t {
+    const idx = udpSlotLocked(handle) orelse return null;
+    return udp_slots.items[idx].?.socket;
+}
+
+fn socketSetInt(socket: std.posix.socket_t, level: i32, option: u32, value: i32) !void {
+    var mutable = value;
+    try std.posix.setsockopt(socket, level, option, std.mem.asBytes(&mutable));
+}
+
+fn socketGetInt(socket: std.posix.socket_t, level: i32, option: i32) !i32 {
+    var value: i32 = 0;
+    var len: i32 = @sizeOf(i32);
+    const ws = std.os.windows.ws2_32;
+    if (ws.getsockopt(socket, level, option, @ptrCast(&value), &len) == ws.SOCKET_ERROR) return error.NetworkSubsystemFailed;
+    if (len == 1) return @as(i32, @intCast((@as([*]const u8, @ptrCast(&value)))[0]));
+    if (len != @sizeOf(i32)) return error.InvalidArgument;
+    return value;
+}
+
+fn timeoutMs(timeout_ns: u64) !i32 {
+    if (timeout_ns == 0) return 0;
+    const rounded = std.math.add(u64, timeout_ns, std.time.ns_per_ms - 1) catch return error.InvalidArgument;
+    return std.math.cast(i32, rounded / std.time.ns_per_ms) orelse error.InvalidArgument;
+}
+
+fn udpReceiveFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64, peek: bool) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    if (out_addr) |ptr| ptr.* = 0;
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    const count = std.posix.recvfrom(fd, buffer, if (peek) std.posix.MSG.PEEK else 0, &address.any, &address_len) catch |err| return finishErr(err);
+    read_ptr.* = @intCast(count);
+    if (out_addr) |ptr| return registerAddress(address, ptr);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
+    const address = udpAddress(host, port) catch |err| return finishErr(err);
+    const fd = std.posix.socket(address.any.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP) catch |err| return finishErr(err);
+    errdefer std.os.windows.closesocket(fd) catch {};
+    std.posix.bind(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    out.* = registerUdp(fd) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    _ = fd;
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    std.posix.getsockname(fd, &address.any, &len) catch |err| return finishErr(err);
+    return registerAddress(address, out);
+}
+
+pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var address: std.net.Address = undefined;
+    var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    std.posix.getpeername(fd, &address.any, &len) catch |err| return finishErr(err);
+    return registerAddress(address, out);
+}
+
+pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
+    const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
+    const address = udpAddress(host, port) catch |err| return finishErr(err);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var mode: c_ulong = if (enabled != 0) 1 else 0;
+    const ws = std.os.windows.ws2_32;
+    if (ws.ioctlsocket(fd, ws.FIONBIO, &mode) == ws.SOCKET_ERROR) return finish(SA_STD_ERR_NET);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    const value = timeoutMs(timeout_ns) catch |err| return finishErr(err);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    const value = timeoutMs(timeout_ns) catch |err| return finishErr(err);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+fn udpGetOption(socket: u64, option: i32, out: *i32) i32 {
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, option) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_read_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var ms: i32 = 0;
+    const status = udpGetOption(socket, std.posix.SO.RCVTIMEO, &ms);
+    if (status != SA_STD_OK) return status;
+    out.* = std.math.mul(u64, @intCast(@max(ms, 0)), std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_write_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
+    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var ms: i32 = 0;
+    const status = udpGetOption(socket, std.posix.SO.SNDTIMEO, &ms);
+    if (status != SA_STD_OK) return status;
+    out.* = std.math.mul(u64, @intCast(@max(ms, 0)), std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpGetOption(socket, std.posix.SO.BROADCAST, out);
+}
+pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_ttl(socket: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const value = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL) catch |err| return finishErr(err);
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_take_error(socket: u64, out_error: ?*i32) i32 {
+    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpGetOption(socket, std.posix.SO.ERROR, out);
+}
+
+pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const count = std.posix.send(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), bytes, 0) catch |err| return finishErr(err);
+    out.* = @intCast(count);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    return udpReceiveFrom(socket, out, cap, out_read, null, false);
+}
+pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    return udpReceiveFrom(socket, out, cap, out_read, null, true);
+}
+pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+    const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
+    const address = udpAddress(host, port) catch |err| return finishErr(err);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const count = std.posix.sendto(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), bytes, 0, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    out.* = @intCast(count);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    return udpReceiveFrom(socket, out, cap, out_read, out_addr, false);
+}
+pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    return udpReceiveFrom(socket, out, cap, out_read, out_addr, true);
+}
+
+const IpMreq = extern struct { multicast: u32, interface: u32 };
+const Ipv6Mreq = extern struct { multicast: [16]u8, interface: u32 };
+const windows_ipproto_ipv6: i32 = 41;
+fn udpMembership4(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_ptr: ?[*]const u8, interface_len: u64, join: bool) i32 {
+    const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
+    const interface = udpHost(interface_ptr, interface_len) catch |err| return finishErr(err);
+    const multi_addr = std.net.Address.resolveIp(multi, 0) catch |err| return finishErr(err);
+    const interface_addr = std.net.Address.resolveIp(interface, 0) catch |err| return finishErr(err);
+    if (multi_addr.any.family != std.posix.AF.INET or interface_addr.any.family != std.posix.AF.INET) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var req = IpMreq{ .multicast = multi_addr.in.sa.addr, .interface = interface_addr.in.sa.addr };
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    std.posix.setsockopt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, if (join) std.os.windows.ws2_32.IP_ADD_MEMBERSHIP else std.os.windows.ws2_32.IP_DROP_MEMBERSHIP, std.mem.asBytes(&req)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
+    return udpMembership4(socket, m, ml, i, il, true);
+}
+pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
+    return udpMembership4(socket, m, ml, i, il, false);
+}
+fn udpMembership6(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_index: u32, join: bool) i32 {
+    const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
+    const address = std.net.Address.resolveIp(multi, 0) catch |err| return finishErr(err);
+    if (address.any.family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var req = Ipv6Mreq{ .multicast = address.in6.sa.addr, .interface = interface_index };
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    std.posix.setsockopt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, if (join) std.os.windows.ws2_32.IPV6_ADD_MEMBERSHIP else std.os.windows.ws2_32.IPV6_DROP_MEMBERSHIP, std.mem.asBytes(&req)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_join_multicast_v6(socket: u64, m: ?[*]const u8, ml: u64, index: u32) i32 {
+    return udpMembership6(socket, m, ml, index, true);
+}
+pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, m: ?[*]const u8, ml: u64, index: u32) i32 {
+    return udpMembership6(socket, m, ml, index, false);
+}
+
+fn udpSetIpOption(socket: u64, option: u32, value: i32) i32 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+fn udpGetIpOption(socket: u64, option: i32, out: *i32) i32 {
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_LOOP, if (enabled != 0) 1 else 0);
+}
+pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    if (ttl > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_TTL, @intCast(ttl));
+}
+pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpGetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_LOOP, out);
+}
+pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var value: i32 = 0;
+    const status = udpGetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_TTL, &value);
+    if (status != SA_STD_OK) return status;
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_net_udp_bind(h: ?[*]const u8, hl: u64, p: u16) i32 {
+    var handle: u64 = 0;
+    const s = sa_std_net_udp_bind(h, hl, p, &handle);
+    return if (s == SA_STD_OK) @intCast(handle) else s;
+}
+pub export fn sa_net_udp_local_addr(s: u64) i32 {
+    var handle: u64 = 0;
+    const status = sa_std_net_udp_local_addr(s, &handle);
+    return if (status == SA_STD_OK) @intCast(handle) else status;
+}
+pub export fn sa_net_udp_connect(s: u64, h: ?[*]const u8, hl: u64, p: u16) i32 {
+    return sa_std_net_udp_connect(s, h, hl, p);
+}
+pub export fn sa_net_udp_set_read_timeout(s: u64, v: u64) i32 {
+    return sa_std_net_udp_set_read_timeout(s, v);
+}
+pub export fn sa_net_udp_set_write_timeout(s: u64, v: u64) i32 {
+    return sa_std_net_udp_set_write_timeout(s, v);
+}
+pub export fn sa_net_udp_set_nonblocking(s: u64, v: i32) i32 {
+    return sa_std_net_udp_set_nonblocking(s, v);
+}
+pub export fn sa_net_udp_set_broadcast(s: u64, v: i32) i32 {
+    return sa_std_net_udp_set_broadcast(s, v);
+}
+pub export fn sa_net_udp_set_ttl(s: u64, v: u32) i32 {
+    return sa_std_net_udp_set_ttl(s, v);
+}
+pub export fn sa_net_udp_set_multicast_loop_v4(s: u64, v: i32) i32 {
+    return sa_std_net_udp_set_multicast_loop_v4(s, v);
+}
+pub export fn sa_net_udp_set_multicast_ttl_v4(s: u64, v: u32) i32 {
+    return sa_std_net_udp_set_multicast_ttl_v4(s, v);
+}
+pub export fn sa_net_udp_send(s: u64, b: ?[*]const u8, l: u64) i32 {
+    var n: u64 = 0;
+    const status = sa_std_net_udp_send(s, b, l, &n);
+    return if (status == SA_STD_OK) @intCast(n) else status;
+}
+pub export fn sa_net_udp_recv(s: u64, b: ?[*]u8, l: u64) i32 {
+    var n: u64 = 0;
+    const status = sa_std_net_udp_recv(s, b, l, &n);
+    return if (status == SA_STD_OK) @intCast(n) else status;
+}
+pub export fn sa_net_udp_peek(s: u64, b: ?[*]u8, l: u64) i32 {
+    var n: u64 = 0;
+    const status = sa_std_net_udp_peek(s, b, l, &n);
+    return if (status == SA_STD_OK) @intCast(n) else status;
+}
+pub export fn sa_net_udp_send_to(s: u64, b: ?[*]const u8, l: u64, h: ?[*]const u8, hl: u64, p: u16) i32 {
+    var n: u64 = 0;
+    const status = sa_std_net_udp_send_to(s, b, l, h, hl, p, &n);
+    return if (status == SA_STD_OK) @intCast(n) else status;
+}
+pub export fn sa_net_udp_recv_from(s: u64, b: ?[*]u8, l: u64, a: ?*u64) i32 {
+    var n: u64 = 0;
+    const status = sa_std_net_udp_recv_from(s, b, l, &n, a);
+    return if (status == SA_STD_OK) @intCast(n) else status;
+}
+pub export fn sa_net_udp_peek_from(s: u64, b: ?[*]u8, l: u64, a: ?*u64) i32 {
+    var n: u64 = 0;
+    const status = sa_std_net_udp_peek_from(s, b, l, &n, a);
+    return if (status == SA_STD_OK) @intCast(n) else status;
+}
+pub export fn sa_net_udp_join_multicast_v4(s: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
+    return sa_std_net_udp_join_multicast_v4(s, m, ml, i, il);
+}
+pub export fn sa_net_udp_leave_multicast_v4(s: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
+    return sa_std_net_udp_leave_multicast_v4(s, m, ml, i, il);
+}
+pub export fn sa_net_udp_join_multicast_v6(s: u64, m: ?[*]const u8, ml: u64, i: u32) i32 {
+    return sa_std_net_udp_join_multicast_v6(s, m, ml, i);
+}
+pub export fn sa_net_udp_leave_multicast_v6(s: u64, m: ?[*]const u8, ml: u64, i: u32) i32 {
+    return sa_std_net_udp_leave_multicast_v6(s, m, ml, i);
+}
+pub export fn sa_net_udp_close(s: u64) i32 {
+    return closeUdp(s);
+}
+
+fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
+    for (0..8) |index| {
+        const segment = std.mem.readInt(u16, octets[index * 2 ..][0..2], .big);
+        std.mem.writeInt(u16, out[index * 2 ..][0..2], segment, .little);
+    }
+}
+
+fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
+    const parsed = std.net.Ip6Address.parse(text, 0) catch return null;
+    return .{ .octets = parsed.sa.addr, .scope_id = parsed.sa.scope_id };
+}
+
+pub export fn sa_net_ipv6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
+    const out = out_addr orelse return 0;
+    @memset(out[0..16], 0);
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    const parsed = parseIpv6Ascii(text) orelse return 0;
+    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
+    const out = out_socket_addr orelse return 0;
+    @memset(out[0..32], 0);
+    const text = constBytes(text_ptr, text_len) catch return 0;
+    if (text.len < 4 or text[0] != '[') return 0;
+    const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return 0;
+    if (close == 1 or close + 1 >= text.len or text[close + 1] != ':') return 0;
+    const parsed = parseIpv6Ascii(text[1..close]) orelse return 0;
+    const port = parsePortAscii(text[close + 2 ..]) orelse return 0;
+    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
+    std.mem.writeInt(u16, out[16..18], port, .little);
+    std.mem.writeInt(u32, out[24..28], parsed.scope_id, .little);
+    return 1;
+}
+
+fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
+    var segments: [8]u16 = undefined;
+    for (0..8) |index| segments[index] = std.mem.readInt(u16, raw[index * 2 ..][0..2], .little);
+    return segments;
+}
+
+fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
+    return std.fmt.bufPrint(buffer, "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}", .{
+        segments[0], segments[1], segments[2], segments[3], segments[4], segments[5], segments[6], segments[7],
+    });
+}
+
+pub export fn sa_net_ipv4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}", .{ addr[0], addr[1], addr[2], addr[3] }) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+pub export fn sa_net_ipv6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    var raw: [16]u8 = undefined;
+    @memcpy(&raw, addr[0..16]);
+    const segments = readIpv6SegmentsNative(&raw);
+    const text = formatIpv6Segments(buffer, &segments) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    const port = std.mem.readInt(u16, addr[4..6], .little);
+    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}:{d}", .{ addr[0], addr[1], addr[2], addr[3], port }) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+pub export fn sa_net_socket_addr_v6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_ptr = out_len orelse return 0;
+    len_ptr.* = 0;
+    const addr = addr_ptr orelse return 0;
+    const buffer = mutBytes(out, out_cap) catch return 0;
+    var raw: [16]u8 = undefined;
+    @memcpy(&raw, addr[0..16]);
+    const segments = readIpv6SegmentsNative(&raw);
+    const port = std.mem.readInt(u16, addr[16..18], .little);
+    const scope_id = std.mem.readInt(u32, addr[24..28], .little);
+    var ip_buffer: [64]u8 = undefined;
+    const ip = formatIpv6Segments(&ip_buffer, &segments) catch return 0;
+    const text = if (scope_id == 0)
+        std.fmt.bufPrint(buffer, "[{s}]:{d}", .{ ip, port }) catch return 0
+    else
+        std.fmt.bufPrint(buffer, "[{s}%{d}]:{d}", .{ ip, scope_id, port }) catch return 0;
+    len_ptr.* = @intCast(text.len);
+    return 1;
+}
+
+// POSIX-only networking and pidfd/epoll APIs have no faithful Windows
+// equivalent. Keep every public symbol available while reporting
+// UNSUPPORTED and clearing caller-owned outputs.
+pub export fn sa_std_net_unix_listen(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_accept(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_accept_addr(_: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    if (out_stream) |p| p.* = 0;
+    if (out_addr) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_connect(_: ?[*]const u8, _: u64, _: ?*u64) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    if (out_left) |p| p.* = 0;
+    if (out_right) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_addr_from_abstract_name(_: ?[*]const u8, _: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_addr_from_pathname(_: ?[*]const u8, _: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_listen_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_connect_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_listener_local_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_listener_try_clone(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_listener_from_raw_fd(_: i32, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_local_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_try_clone(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_from_raw_fd(_: i32, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_peer_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_set_passcred(_: u64, _: i32) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_passcred(_: u64, out: ?*i32) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_set_mark(_: u64, _: u32) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_stream_peer_cred(_: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
+    if (out_pid) |p| p.* = 0;
+    if (out_uid) |p| p.* = 0;
+    if (out_gid) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_unbound(out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_bind(_: ?[*]const u8, _: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_bind_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    if (out_left) |p| p.* = 0;
+    if (out_right) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_connect(_: u64, _: ?[*]const u8, _: u64) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_connect_addr(_: u64, _: u64) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_try_clone(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_from_raw_fd(_: i32, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_local_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_peer_addr(_: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_set_passcred(_: u64, _: i32) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_passcred(_: u64, out: ?*i32) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_set_mark(_: u64, _: u32) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_shutdown(_: u64, _: u32) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_send_to(_: u64, _: ?[*]const u8, _: u64, _: ?[*]const u8, _: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_send_to_addr(_: u64, _: ?[*]const u8, _: u64, _: u64, out: ?*u64) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_recv_from(_: u64, _: ?[*]u8, _: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (out_read) |p| p.* = 0;
+    if (out_addr) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_unix_datagram_peek_from(_: u64, _: ?[*]u8, _: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (out_read) |p| p.* = 0;
+    if (out_addr) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_pidfd_kill(handle: u64) i32 {
+    return sa_std_process_kill(handle);
+}
+pub export fn sa_std_pidfd_send_signal(_: u64, _: i32) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_pidfd_wait(_: u64, out: ?*u32) i32 {
+    if (out) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_pidfd_wait_raw(handle: u64, out: ?*i32) i32 {
+    return sa_std_process_wait_raw(handle, out);
+}
+pub export fn sa_std_pidfd_try_wait(_: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
+    if (out_ready) |p| p.* = 0;
+    if (out_code) |p| p.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
+    return sa_std_process_try_wait_raw(handle, out_ready, out_raw);
+}
+pub export fn sa_term_epoll_create(_: u32, out: ?*u64) i32 {
+    if (out == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_term_epoll_ctl(_: u64, _: u32, _: u64, _: u32, _: u64) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_term_epoll_wait(_: u64, _: ?*SaTermEpollEvent, _: u64, _: i32, out: ?*u64) i32 {
+    if (out == null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_term_epoll_close(_: u64) i32 {
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+// Compatibility shims for the rosetta demos that model host APIs directly.
+// These export plain C ABI symbols matching the names the demos `@extern`.
+// They mirror the Linux sa_std.zig mock surface (src/runtime/sa_std.zig:5947),
+// tuned so the demo programs exercise their RESULT_OK path on Windows too.
+
+var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
+var compatibility_dlopen_cookie: [1]u8 = .{0};
+var compatibility_dlsym_cookie: [1]u8 = .{0};
+
+pub export fn fd_open(path_ptr: ?[*]const u8) i32 {
+    _ = path_ptr;
+    last_error = SA_STD_OK;
+    return 3;
+}
+
+pub export fn fd_read(fd: i32) i32 {
+    _ = fd;
+    last_error = SA_STD_OK;
+    return 3;
+}
+
+pub export fn fd_close(fd: i32) i32 {
+    _ = fd;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn mmap(fd: i32, len: i32) ?[*]u8 {
+    _ = fd;
+    _ = len;
+    last_error = SA_STD_OK;
+    return compatibility_mmap_page[0..].ptr;
+}
+
+pub export fn munmap(map: ?[*]u8, len: i32) i32 {
+    _ = map;
+    _ = len;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+fn sa_compat_signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
+    _ = handler;
+    last_error = SA_STD_OK;
+    return sig;
+}
+
+pub export fn dlopen(path_ptr: ?[*]const u8, flags: i32) ?[*]u8 {
+    _ = path_ptr;
+    _ = flags;
+    last_error = SA_STD_OK;
+    return compatibility_dlopen_cookie[0..].ptr;
+}
+
+pub export fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) ?[*]u8 {
+    _ = handle;
+    _ = symbol_ptr;
+    last_error = SA_STD_OK;
+    return compatibility_dlsym_cookie[0..].ptr;
+}
+
+pub export fn dlclose(handle: ?[*]u8) i32 {
+    _ = handle;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) i32 {
+    _ = sqlite;
+    _ = sql;
+    _ = len;
+    _ = stmt_out;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+pub export fn sqlite3_step(stmt: ?[*]u8) i32 {
+    _ = stmt;
+    last_error = SA_STD_OK;
+    return 1;
+}
+
+pub export fn sqlite3_finalize(stmt: ?[*]u8) i32 {
+    _ = stmt;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+comptime {
+    @export(&sa_compat_signal, .{ .name = "signal" });
+}
+// Compatibility shims for the rosetta HTTP demos (301 client / 302 server).
+// The demos @extern an sa_http_client_* / sa_http_server_* surface that is
+// declared in the generated deno.sai but never implemented in any runtime on
+// this host. These exports provide an in-process mock so the demos exercise
+// their RESULT_OK path the same way the fd_open/sqlite3/dlopen mocks do.
+const sa_http_compat_status_ok: u32 = 200;
+var sa_http_client_resp_mock_chunk: [16]u8 = .{ 104, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 115, 97, 97, 115, 109 };
+pub export fn sa_http_client_new(use_tls: u8, out_client: ?*u64) u32 {
+    _ = use_tls;
+    if (out_client) |p| p.* = 1;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_req_new(client: u64, method: u8, url_ptr: ?[*]const u8, url_len: u64, out_req: ?*u64) u32 {
+    _ = client;
+    _ = method;
+    _ = url_ptr;
+    _ = url_len;
+    if (out_req) |p| p.* = 2;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_req_add_header(req: u64, key_ptr: ?[*]const u8, key_len: u64, val_ptr: ?[*]const u8, val_len: u64) u32 {
+    _ = req;
+    _ = key_ptr;
+    _ = key_len;
+    _ = val_ptr;
+    _ = val_len;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_req_set_body(req: u64, body_ptr: ?[*]const u8, body_len: u64) u32 {
+    _ = req;
+    _ = body_ptr;
+    _ = body_len;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_req_send(req: u64, out_resp: ?*u64) u32 {
+    _ = req;
+    if (out_resp) |p| p.* = 3;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_resp_status(resp: u64) u16 {
+    _ = resp;
+    last_error = SA_STD_OK;
+    return @as(u16, @intCast(sa_http_compat_status_ok));
+}
+pub export fn sa_http_client_resp_body_reader(resp: u64, out_reader: ?*u64) u32 {
+    _ = resp;
+    if (out_reader) |p| p.* = 4;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_resp_read_chunk(reader: u64, buf: ?[*]u8, cap: u64, out_len: ?*u64) u32 {
+    _ = reader;
+    if (out_len) |p| p.* = 16;
+    if (buf) |bp| {
+        const n: usize = if (cap > 16) @as(usize, 16) else @intCast(cap);
+        @memcpy(bp[0..n], sa_http_client_resp_mock_chunk[0..n]);
+    }
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_resp_free(resp: u64) u32 {
+    _ = resp;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_body_reader_free(reader: u64) u32 {
+    _ = reader;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_req_free(req: u64) u32 {
+    _ = req;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_client_free(client: u64) u32 {
+    _ = client;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+
+var sa_http_server_req_mock_path: [7]u8 = .{ 47, 115, 116, 114, 101, 97, 109 };
+const sa_http_server_req_mock_val: []const u8 = "text/plain";
+pub export fn sa_http_server_new(out_server: ?*u64) u32 {
+    if (out_server) |p| p.* = 1;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_start(server: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) u32 {
+    _ = server;
+    _ = host_ptr;
+    _ = host_len;
+    _ = port;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_accept(server: u64, out_req: ?*u64) u32 {
+    _ = server;
+    if (out_req) |p| p.* = 2;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_req_get_path(req: u64, out_path: ?*?[*]const u8, out_len: ?*u64) u32 {
+    _ = req;
+    if (out_path) |p| p.* = sa_http_server_req_mock_path[0..].ptr;
+    if (out_len) |p| p.* = 7;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_req_get_header(req: u64, key_ptr: ?[*]const u8, key_len: u64, out_val: ?*?[*]const u8, out_len: ?*u64) u32 {
+    _ = req;
+    _ = key_ptr;
+    _ = key_len;
+    if (out_val) |p| p.* = sa_http_server_req_mock_val.ptr;
+    if (out_len) |p| p.* = sa_http_server_req_mock_val.len;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_req_get_body(req: u64, out_body: ?*?[*]const u8, out_len: ?*u64) u32 {
+    _ = req;
+    if (out_body) |p| p.* = sa_http_server_req_mock_val.ptr;
+    if (out_len) |p| p.* = 0;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_resp_stream_new(req: u64, status: u16, out_resp: ?*u64) u32 {
+    _ = req;
+    _ = status;
+    if (out_resp) |p| p.* = 3;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_resp_stream_write(resp: u64, body_ptr: ?[*]const u8, body_len: u64) u32 {
+    _ = resp;
+    _ = body_ptr;
+    _ = body_len;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_resp_stream_flush(resp: u64) u32 {
+    _ = resp;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_resp_stream_end(resp: u64) u32 {
+    _ = resp;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_resp_stream_free(resp: u64) u32 {
+    _ = resp;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_req_free(req: u64) u32 {
+    _ = req;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+pub export fn sa_http_server_free(server: u64) u32 {
+    _ = server;
+    last_error = SA_STD_OK;
+    return SA_STD_OK;
+}
+

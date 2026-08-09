@@ -56,6 +56,16 @@ fn normalizedPath(path: []const u8) []u8 {
     return std.mem.replaceOwned(u8, std.heap.page_allocator, path, std.fs.path.sep_str, "/") catch unreachable;
 }
 
+fn pathEndsWithPortable(path: []const u8, suffix: []const u8) bool {
+    if (suffix.len > path.len) return false;
+    const tail = path[path.len - suffix.len ..];
+    for (tail, suffix) |actual, expected| {
+        if (std.fs.path.isSep(actual) and std.fs.path.isSep(expected)) continue;
+        if (actual != expected) return false;
+    }
+    return true;
+}
+
 fn appendPathComponent(writer: anytype, path: []const u8) !void {
     for (path) |c| {
         try writer.writeByte(if (std.fs.path.isSep(c)) '/' else c);
@@ -160,7 +170,11 @@ pub const ResolvedImport = struct {
 
     pub fn deinit(self: *ResolvedImport, allocator: std.mem.Allocator) void {
         if (self.mapped) |mapped| {
-            std.posix.munmap(mapped);
+            if (builtin.os.tag == .windows) {
+                std.heap.page_allocator.free(mapped);
+            } else {
+                std.posix.munmap(mapped);
+            }
         } else if (self.owned_source) |owned_source| {
             allocator.free(owned_source);
         }
@@ -266,6 +280,19 @@ fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usiz
 }
 
 fn mapFileReadOnly(path: []const u8) ResolveError!struct { mapped: []align(std.heap.page_size_min) u8, source: []u8 } {
+    if (builtin.os.tag == .windows) {
+        var file = std.fs.cwd().openFile(path, .{}) catch return error.PackageNotResolved;
+        defer file.close();
+        const end_pos = file.getEndPos() catch return error.PackageNotResolved;
+        const len = std.math.cast(usize, end_pos) orelse return error.PackageNotResolved;
+        if (len == 0) return error.PackageNotResolved;
+        const source = file.readToEndAlloc(std.heap.page_allocator, len) catch return error.PackageNotResolved;
+        const mapped = try std.heap.page_allocator.alignedAlloc(u8, std.heap.page_size_min, source.len);
+        @memcpy(mapped, source);
+        std.heap.page_allocator.free(source);
+        return .{ .mapped = mapped, .source = mapped };
+    }
+
     var file = std.fs.cwd().openFile(path, .{}) catch return error.PackageNotResolved;
     defer file.close();
 
@@ -644,7 +671,7 @@ test "resolveImport prefers a relative source file" {
         owned.deinit(std.testing.allocator);
     }
 
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "src/module.sa"));
+    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "src/module.sa"));
     try std.testing.expectEqualStrings("@main() -> i32:\n    return 0\n", resolved.source);
     try std.testing.expect(resolved.root_dir == null);
 }
@@ -674,7 +701,7 @@ test "resolveImport falls back to local vendor package roots" {
     }
 
     try std.testing.expect(resolved.root_dir != null);
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "sa_vendor/github.com/example/pkg/index.sa"));
+    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "sa_vendor/github.com/example/pkg/index.sa"));
     try std.testing.expectEqualStrings("@pkg() -> i32:\n    return 123\n", resolved.source);
     try std.testing.expect(!resolved.is_global);
 }
@@ -710,7 +737,7 @@ test "resolveImport maps global cache entries read-only" {
 
     try std.testing.expect(resolved.is_global);
     try std.testing.expect(resolved.mapped != null);
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.sa"));
+    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.sa"));
     try std.testing.expectEqualStrings("@global() -> i32:\n    return 7\n", resolved.source);
 }
 
@@ -856,6 +883,6 @@ test "resolveImport falls back to declared plugin interface roots" {
     }
 
     try std.testing.expect(resolved.is_global);
-    try std.testing.expect(std.mem.endsWith(u8, resolved.entry_path, "plugins/installed/deno/current/sa/deno.sal"));
+    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "plugins/installed/deno/current/sa/deno.sal"));
     try std.testing.expectEqualStrings("@const DENO_OK: u64 = 1\n", resolved.source);
 }

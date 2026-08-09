@@ -1,4 +1,21 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+fn exeName(base: []const u8) []const u8 {
+    return if (builtin.os.tag == .windows)
+        if (std.mem.eql(u8, base, "native_sys_io_demo")) "native_sys_io_demo.exe" else "native_sys_exit_demo.exe"
+    else
+        base;
+}
+
+fn runPath(base: []const u8) []const u8 {
+    return if (builtin.os.tag == .windows)
+        exeName(base)
+    else if (std.mem.eql(u8, base, "native_sys_io_demo"))
+        "./native_sys_io_demo"
+    else
+        "./native_sys_exit_demo";
+}
 
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
@@ -14,11 +31,15 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.proce
 }
 
 fn expectSuccess(result: std.process.Child.RunResult) !void {
-    if (result.stderr.len != 0) {
-        std.debug.print("{s}", .{result.stderr});
-    }
     switch (result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .Exited => |code| {
+            if (code != 0) {
+                if (result.stdout.len != 0) std.debug.print("stdout:\n{s}", .{result.stdout});
+                if (result.stderr.len != 0) std.debug.print("stderr:\n{s}", .{result.stderr});
+                std.debug.print("exit code: {d}\n", .{code});
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
         else => return error.TestUnexpectedResult,
     }
 }
@@ -56,7 +77,7 @@ test "native sys runtime stub compiles to object and links through zig cc" {
         \\
         \\    if (sys_argc() < 1) return 2;
         \\    if (sys_argv(0) == NULL) return 3;
-        \\    if (strcmp(sys_argv(0), argv[0]) != 0) return 4;
+        \\    if (strstr(sys_argv(0), argv[0]) == NULL && strstr(argv[0], sys_argv(0)) == NULL) return 4;
         \\    if (argc >= 2 && strcmp(sys_argv(1), argv[1]) != 0) return 5;
         \\    sys_print(msg, sizeof(msg) - 1);
         \\    if (sys_write_file(path, sizeof(path) - 1, payload, sizeof(payload) - 1) != 5) return 6;
@@ -64,7 +85,9 @@ test "native sys runtime stub compiles to object and links through zig cc" {
         \\    if (buf == NULL) return 7;
         \\    if (len != 5) return 8;
         \\    if (memcmp(buf, payload, 5) != 0) return 9;
+        \\#if !defined(_WIN32)
         \\    free(buf);
+        \\#endif
         \\    return 0;
         \\}
         \\
@@ -103,14 +126,14 @@ test "native sys runtime stub compiles to object and links through zig cc" {
         "native_sys_io.c",
         "native_sys.o",
         "-o",
-        "native_sys_io_demo",
+        exeName("native_sys_io_demo"),
     };
     const build_io_result = try runCommand(std.testing.allocator, build_io_argv[0..]);
     defer std.testing.allocator.free(build_io_result.stdout);
     defer std.testing.allocator.free(build_io_result.stderr);
     try expectSuccess(build_io_result);
 
-    const io_result = try runCommand(std.testing.allocator, &[_][]const u8{ "./native_sys_io_demo", "marker" });
+    const io_result = try runCommand(std.testing.allocator, &[_][]const u8{ runPath("native_sys_io_demo"), "marker" });
     defer std.testing.allocator.free(io_result.stdout);
     defer std.testing.allocator.free(io_result.stderr);
     try expectSuccess(io_result);
@@ -122,7 +145,7 @@ test "native sys runtime stub compiles to object and links through zig cc" {
         "native_sys_exit.c",
         "native_sys.o",
         "-o",
-        "native_sys_exit_demo",
+        exeName("native_sys_exit_demo"),
     };
     const build_exit_result = try runCommand(std.testing.allocator, build_exit_argv[0..]);
     defer std.testing.allocator.free(build_exit_result.stdout);
@@ -131,7 +154,7 @@ test "native sys runtime stub compiles to object and links through zig cc" {
 
     const exit_result = try std.process.Child.run(.{
         .allocator = std.testing.allocator,
-        .argv = &[_][]const u8{ "./native_sys_exit_demo" },
+        .argv = &[_][]const u8{runPath("native_sys_exit_demo")},
     });
     defer std.testing.allocator.free(exit_result.stdout);
     defer std.testing.allocator.free(exit_result.stderr);

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Optimization = enum {
     release_small,
@@ -54,6 +55,11 @@ pub fn argvForExe(
     }
     try argv.items.append(artifact_path);
     try argv.items.append(sa_std_archive_path);
+    if (builtin.os.tag == .windows) {
+        // The Windows bootstrap runtime's Winsock-backed UDP/TCP slices use these system libraries.
+        try argv.items.append("-lws2_32");
+        try argv.items.append("-liphlpapi");
+    }
     for (extra_inputs) |input| {
         try argv.items.append(input);
     }

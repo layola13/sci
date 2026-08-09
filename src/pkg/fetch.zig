@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const audit = @import("audit.zig");
 const manifest = @import("manifest.zig");
@@ -157,12 +158,14 @@ fn validateExpectedSourceHash(expected: ?[32]u8, actual: [32]u8) !void {
 }
 
 fn chmodFileReadOnly(path: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
     var file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
     try file.chmod(0o444);
 }
 
 fn chmodDirReadOnly(path: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
     var dir = try std.fs.cwd().openDir(path, .{ .iterate = true, .no_follow = true });
     defer dir.close();
     try dir.chmod(0o555);
@@ -224,11 +227,13 @@ fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !vo
     while (try walker.next()) |entry| {
         switch (entry.kind) {
             .file => {
+                if (builtin.os.tag == .windows) continue;
                 var file = try entry.dir.openFile(entry.basename, .{ .mode = .read_only });
                 defer file.close();
                 try file.chmod(0o444);
             },
             .directory => {
+                if (builtin.os.tag == .windows) continue;
                 var dir = try entry.dir.openDir(entry.basename, .{ .iterate = true, .no_follow = true });
                 defer dir.close();
                 try dir.chmod(0o555);
@@ -238,7 +243,7 @@ fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !vo
         }
     }
 
-    try root_dir.chmod(0o555);
+    if (builtin.os.tag != .windows) try root_dir.chmod(0o555);
 }
 
 fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8, target_root: []const u8) !void {
@@ -264,32 +269,24 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     try inheritEnvIfPresent(allocator, &env_map, "SSL_CERT_FILE");
     try inheritEnvIfPresent(allocator, &env_map, "SSL_CERT_DIR");
     try env_map.put("GIT_TERMINAL_PROMPT", "0");
-    try env_map.put("GIT_ASKPASS", "/bin/false");
+    if (@import("builtin").os.tag != .windows) {
+        try env_map.put("GIT_ASKPASS", "/bin/false");
+    }
     try env_map.put("GCM_INTERACTIVE", "Never");
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_alloc = arena.allocator();
 
-    const exec_argv = try arena_alloc.allocSentinel(?[*:0]const u8, argv.items.len, null);
-    for (argv.items, 0..) |arg, idx| {
-        exec_argv[idx] = (try arena_alloc.dupeZ(u8, arg)).ptr;
-    }
-    const envp = (try std.process.createNullDelimitedEnvMap(arena_alloc, &env_map)).ptr;
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv.items,
+        .env_map = &env_map,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
-    const pid = try std.posix.fork();
-    if (pid == 0) {
-        const git_z: [*:0]const u8 = "git";
-        std.posix.execvpeZ(git_z, exec_argv.ptr, envp) catch {
-            std.posix.exit(127);
-        };
-        unreachable;
+    switch (result.term) {
+        .Exited => |code| if (code == 0) return,
+        else => {},
     }
-
-    const wait_result = std.posix.waitpid(pid, 0);
-    if (wait_result.pid != pid) return error.SourceNotFound;
-    if (wait_result.status != 0) {
-        return error.SourceNotFound;
-    }
+    return error.SourceNotFound;
 }
 
 fn fetchTargetRoot(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8, global: bool) ![]u8 {
@@ -410,6 +407,7 @@ test "fetch copies a local source tree into sa_vendor" {
 }
 
 test "copyTree can set read-only permissions while skipping symlinks" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -425,18 +423,21 @@ test "copyTree can set read-only permissions while skipping symlinks" {
         _ = @errorName(err);
     };
     defer {
-        var nested = std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true }) catch null;
-        if (nested) |*dir| {
-            dir.chmod(0o755) catch {};
-            dir.close();
-        }
-        var dst = std.fs.cwd().openDir("dst", .{ .iterate = true, .no_follow = true }) catch null;
-        if (dst) |*dir| {
-            dir.chmod(0o755) catch {};
-            dir.close();
+        if (builtin.os.tag != .windows) {
+            var nested = std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true }) catch null;
+            if (nested) |*dir| {
+                dir.chmod(0o755) catch {};
+                dir.close();
+            }
+            var dst = std.fs.cwd().openDir("dst", .{ .iterate = true, .no_follow = true }) catch null;
+            if (dst) |*dir| {
+                dir.chmod(0o755) catch {};
+                dir.close();
+            }
         }
     }
 
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     try std.fs.cwd().makePath("dst");
     try copyTree("src", "dst", std.testing.allocator, .{ .read_only = true });
 
@@ -455,6 +456,7 @@ test "copyTree can set read-only permissions while skipping symlinks" {
 }
 
 test "setReadOnlyRecursive does not follow symlinked directories" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -470,18 +472,21 @@ test "setReadOnlyRecursive does not follow symlinked directories" {
         _ = @errorName(err);
     };
     defer {
-        var root = std.fs.cwd().openDir("root", .{ .iterate = true, .no_follow = true }) catch null;
-        if (root) |*dir| {
-            dir.chmod(0o755) catch {};
-            dir.close();
-        }
-        var outside = std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true }) catch null;
-        if (outside) |*dir| {
-            dir.chmod(0o755) catch {};
-            dir.close();
+        if (builtin.os.tag != .windows) {
+            var root = std.fs.cwd().openDir("root", .{ .iterate = true, .no_follow = true }) catch null;
+            if (root) |*dir| {
+                dir.chmod(0o755) catch {};
+                dir.close();
+            }
+            var outside = std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true }) catch null;
+            if (outside) |*dir| {
+                dir.chmod(0o755) catch {};
+                dir.close();
+            }
         }
     }
 
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     try setReadOnlyRecursive("root", std.testing.allocator);
 
     var outside = try std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true });
@@ -502,7 +507,7 @@ test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {
         \\echo executed > executed.marker
         \\
     );
-    try postinstall.chmod(0o755);
+    if (builtin.os.tag != .windows) try postinstall.chmod(0o755);
     postinstall.close();
 
     const source_root = try tmp.dir.realpathAlloc(std.testing.allocator, "github.com/example/smoke");
@@ -615,7 +620,9 @@ test "fetch offline reuses existing vendor without deleting it" {
 
     var result = try fetchPackage(std.testing.allocator, "github.com/example/pkg", "HEAD", .{ .offline = true });
     defer result.deinit(std.testing.allocator);
-    try std.testing.expectEqualStrings("sa_vendor/github.com/example/pkg", result.root);
+    const expected_root = try std.fs.path.join(std.testing.allocator, &.{ "sa_vendor", "github.com/example/pkg" });
+    defer std.testing.allocator.free(expected_root);
+    try std.testing.expectEqualStrings(expected_root, result.root);
     const expected_hash = try audit.hashPackageSource(std.testing.allocator, result.root);
     try std.testing.expect(std.mem.eql(u8, expected_hash[0..], result.source_sha256[0..]));
     try std.fs.cwd().access("sa_vendor/github.com/example/pkg/index.sa", .{ .mode = .read_only });

@@ -1,0 +1,6 @@
+@import "bin/beta/helpers/beta.sal"
+
+@beta_impl_value() -> i32:
+L_ENTRY:
+    value = add BETA_VALUE, 0
+    return value

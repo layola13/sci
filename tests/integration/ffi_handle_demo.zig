@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const saasm = @import("saasm");
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
@@ -44,7 +45,13 @@ test "ffi handle demo exposes an exported C ABI symbol" {
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
-    const nm_output = try runCommand(std.testing.allocator, &[_][]const u8{ "nm", "-g", "--defined-only", "handle.o" });
+    const nm_output = try runCommand(
+        std.testing.allocator,
+        if (builtin.os.tag == .windows)
+            &[_][]const u8{ "llvm-nm", "-g", "--defined-only", "handle.o" }
+        else
+            &[_][]const u8{ "nm", "-g", "--defined-only", "handle.o" },
+    );
     defer std.testing.allocator.free(nm_output);
     try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " ffi_handle_roundtrip"));
 
@@ -71,5 +78,8 @@ test "ffi handle demo exposes an exported C ABI symbol" {
 
     const output = try runCommand(std.testing.allocator, &[_][]const u8{"./handle_demo"});
     defer std.testing.allocator.free(output);
-    try std.testing.expectEqualStrings("42\n", output);
+    try std.testing.expectEqualStrings(
+        if (builtin.os.tag == .windows) "42\r\n" else "42\n",
+        output,
+    );
 }

@@ -28,6 +28,7 @@ L_ENTRY:
     br tag_ok -> L_CALL, L_TRAP
 
 L_CALL:
+    !expected
     !tag_ok
     value = call_indirect call_slot(1)
     ok = eq value, 2
@@ -38,6 +39,7 @@ L_CALL:
     br ok -> L_OK, L_ERR
 
 L_TRAP:
+    !expected
     !tag_ok
     expected_vt2 = &TARGET_VT
     expected2 = load expected_vt2+Fn_call as ptr

@@ -6,8 +6,28 @@
 #include <llvm-c/BitWriter.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/DebugInfo.h>
+#ifndef _WIN32
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
+#else
+typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
+typedef struct LLVMOpaqueTargetMachine *LLVMTargetMachineRef;
+typedef struct LLVMTarget *LLVMTargetRef;
+typedef enum { LLVMCodeGenLevelNone, LLVMCodeGenLevelLess, LLVMCodeGenLevelDefault, LLVMCodeGenLevelAggressive } LLVMCodeGenOptLevel;
+typedef enum { LLVMRelocDefault, LLVMRelocStatic, LLVMRelocPIC, LLVMRelocDynamicNoPic, LLVMRelocROPI, LLVMRelocRWPI, LLVMRelocROPI_RWPI } LLVMRelocMode;
+typedef enum { LLVMCodeModelDefault, LLVMCodeModelJITDefault, LLVMCodeModelTiny, LLVMCodeModelSmall, LLVMCodeModelKernel, LLVMCodeModelMedium, LLVMCodeModelLarge } LLVMCodeModel;
+typedef enum { LLVMAssemblyFile, LLVMObjectFile } LLVMCodeGenFileType;
+LLVMBool LLVMGetTargetFromTriple(const char *triple, LLVMTargetRef *target, char **error_message);
+LLVMTargetMachineRef LLVMCreateTargetMachine(LLVMTargetRef target, const char *triple, const char *cpu, const char *features, LLVMCodeGenOptLevel level, LLVMRelocMode reloc, LLVMCodeModel code_model);
+void LLVMDisposeTargetMachine(LLVMTargetMachineRef target_machine);
+LLVMTargetDataRef LLVMCreateTargetDataLayout(LLVMTargetMachineRef target_machine);
+LLVMBool LLVMTargetMachineEmitToFile(LLVMTargetMachineRef target_machine, LLVMModuleRef module, char *filename, LLVMCodeGenFileType codegen, char **error_message);
+char *LLVMGetDefaultTargetTriple(void);
+char *LLVMGetHostCPUName(void);
+char *LLVMGetHostCPUFeatures(void);
+char *LLVMCopyStringRepOfTargetData(LLVMTargetDataRef target_data);
+void LLVMDisposeTargetData(LLVMTargetDataRef target_data);
+#endif
 #include <llvm-c/Transforms/IPO.h>
 #include <llvm-c/Transforms/PassManagerBuilder.h>
 #include <llvm-c/Transforms/Scalar.h>
@@ -21,6 +41,13 @@ typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64
 typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22, SA_BIN_FADD=23, SA_BIN_FSUB=24, SA_BIN_FMUL=25, SA_BIN_FDIV=26, SA_BIN_FCMP_EQ=27, SA_BIN_FCMP_NE=28, SA_BIN_FCMP_LT=29, SA_BIN_FCMP_LE=30, SA_BIN_FCMP_GT=31, SA_BIN_FCMP_GE=32 } SaBinaryOp;
 typedef enum { SA_ATOMIC_RELAXED=0, SA_ATOMIC_ACQUIRE=1, SA_ATOMIC_RELEASE=2, SA_ATOMIC_ACQ_REL=3, SA_ATOMIC_SEQ_CST=4 } SaAtomicOrdering;
 typedef enum { SA_RMW_ADD=0, SA_RMW_SUB=1, SA_RMW_AND=2, SA_RMW_OR=3, SA_RMW_XOR=4, SA_RMW_XCHG=5, SA_RMW_MIN=6, SA_RMW_MAX=7, SA_RMW_UMIN=8, SA_RMW_UMAX=9 } SaAtomicRmwOp;
+
+#ifdef _WIN32
+void LLVMInitializeX86TargetInfo(void);
+void LLVMInitializeX86Target(void);
+void LLVMInitializeX86TargetMC(void);
+void LLVMInitializeX86AsmPrinter(void);
+#endif
 
 typedef struct { const char *name; const unsigned char *data; size_t len; } SaConst;
 typedef struct { const char *name; const char *const *funcs; size_t func_count; } SaVTable;
@@ -344,11 +371,39 @@ static LLVMTypeRef fallible_wire_type_of(EmitCtx *e, SaType payload_ty) {
 }
 
 static int external_fallible_i32_uses_i64_abi(const SaFunction *f) {
-    return f != NULL && f->kind == SA_F_EXTERNAL && f->return_fallible && f->ret_ty == SA_T_I32;
+    return f != NULL && f->kind == SA_F_EXTERNAL && f->return_fallible && (f->ret_ty == SA_T_I32 || f->ret_ty == SA_T_U32 || f->ret_ty == SA_T_I16 || f->ret_ty == SA_T_U16 || f->ret_ty == SA_T_I8 || f->ret_ty == SA_T_U8);
 }
+
+/* On Win64 the C ABI returns composite values larger than 8 bytes through a hidden
+ * first "sret" pointer (the callee writes the result there and returns void).
+ * LLVM does not auto-lower a directly-typed {i32, payload} struct return to sret on
+ * the windows-msvc target, so an external declared as `declare { i32, T } @f(...)` is
+ * actually called with the SysV 2-register convention while the linked C/Zig export
+ * uses sret. The caller then passes path in the sret slot and reads garbage, which is
+ * an access violation. The fix is to declare such externals with an explicit sret
+ * hidden argument and void return, mirroring how clang lowers Win64 struct returns.
+ * FallibleI32 (8-byte {i32, i32}) stays on the i64-register pack path below. */
+#ifdef _WIN32
+static int external_fallible_uses_sret_win64(const SaFunction *f) {
+    if (f == NULL || f->kind != SA_F_EXTERNAL || !f->return_fallible) return 0;
+    if (external_fallible_i32_uses_i64_abi(f)) return 0;
+    switch (f->ret_ty) {
+        case SA_T_I64:
+        case SA_T_U64:
+        case SA_T_F64:
+        case SA_T_PTR:
+            return 1;
+        default:
+            return 0;
+    }
+}
+#else
+static int external_fallible_uses_sret_win64(const SaFunction *f) { (void)f; return 0; }
+#endif
 
 static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
     if (external_fallible_i32_uses_i64_abi(f)) return e->i64_ty;
+    if (external_fallible_uses_sret_win64(f)) return LLVMVoidTypeInContext(e->ctx);
     if (f->return_fallible) return fallible_type_of(e, f->ret_ty);
     return type_of(e, f->ret_ty);
 }
@@ -367,8 +422,15 @@ static LLVMValueRef unpack_external_fallible_i32(EmitCtx *e, LLVMValueRef packed
 static int apply_native_target_layout(EmitCtx *e, char **out_error) {
     if (e == NULL || e->module == NULL || e->wasm_compat) return 0;
 
+#ifdef _WIN32
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetMC();
+    LLVMInitializeX86AsmPrinter();
+#else
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
+#endif
 
     char *triple = LLVMGetDefaultTargetTriple();
     if (triple == NULL) return set_error(out_error, "LLVMGetDefaultTargetTriple failed");
@@ -470,13 +532,18 @@ static int type_is_signed_int(SaType ty) {
 
 static LLVMTypeRef fn_type_for(EmitCtx *e, const SaFunction *f) {
     if (f->param_count > UINT_MAX) return NULL;
+    int sret = external_fallible_uses_sret_win64(f);
+    size_t extra = sret ? 1 : 0;
+    size_t total = f->param_count + extra;
     LLVMTypeRef *params = NULL;
-    if (f->param_count != 0) {
-        params = (LLVMTypeRef *)malloc(sizeof(LLVMTypeRef) * f->param_count);
+    if (total != 0) {
+        params = (LLVMTypeRef *)malloc(sizeof(LLVMTypeRef) * total);
         if (params == NULL) return NULL;
-        for (size_t i = 0; i < f->param_count; i++) params[i] = type_of(e, f->params[i].ty);
+        size_t idx = 0;
+        if (sret) params[idx++] = LLVMPointerType(fallible_type_of(e, f->ret_ty), 0);
+        for (size_t i = 0; i < f->param_count; i++) params[idx++] = type_of(e, f->params[i].ty);
     }
-    LLVMTypeRef ty = LLVMFunctionType(return_type_for(e, f), params, (unsigned)f->param_count, 0);
+    LLVMTypeRef ty = LLVMFunctionType(return_type_for(e, f), params, (unsigned)total, 0);
     free(params);
     return ty;
 }
@@ -1212,31 +1279,52 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
             case SA_OP_CALL: {
                 LLVMValueRef callee = find_function(e, in->callee);
                 if (callee == NULL) { free(regs); free(labels); return fail_body_callee(e, f, in, i, "callee not found"); }
-                LLVMValueRef *args = NULL;
-                if (in->arg_count != 0) args = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * in->arg_count);
-                if (in->arg_count != 0 && args == NULL) { free(regs); free(labels); return fail_body(e, f, in, i, "alloc call args failed"); }
+                const SaFunction *callee_sig = function_by_name(e, in->callee);
+                int sret = external_fallible_uses_sret_win64(callee_sig);
                 LLVMTypeRef fn_ty = LLVMGlobalGetValueType(callee);
                 unsigned param_count = LLVMCountParamTypes(fn_ty);
                 LLVMTypeRef *param_types = NULL;
                 if (param_count != 0) param_types = (LLVMTypeRef *)malloc(sizeof(LLVMTypeRef) * param_count);
-                if (param_count != 0 && param_types == NULL) { free(args); free(regs); free(labels); return fail_body(e, f, in, i, "alloc param types failed"); }
+                if (param_count != 0 && param_types == NULL) { free(regs); free(labels); return fail_body(e, f, in, i, "alloc param types failed"); }
                 if (param_count != 0) LLVMGetParamTypes(fn_ty, param_types);
+                size_t total_args = in->arg_count + (sret ? 1 : 0);
+                LLVMValueRef *args = NULL;
+                if (total_args != 0) args = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * total_args);
+                if (total_args != 0 && args == NULL) { free(param_types); free(regs); free(labels); return fail_body(e, f, in, i, "alloc call args failed"); }
+                size_t slot_index = 0;
+                LLVMValueRef sret_slot = NULL;
+                if (sret) {
+                    LLVMTypeRef result_struct = fallible_type_of(e, callee_sig->ret_ty);
+                    sret_slot = LLVMBuildAlloca(e->builder, result_struct, "sret_slot");
+                    LLVMSetAlignment(sret_slot, 8);
+                    args[slot_index++] = sret_slot;
+                }
                 for (size_t a = 0; a < in->arg_count; a++) {
                     SaType aty;
-                    if (operand_value(e, &in->args[a], regs, reg_count, &args[a], &aty)) { free(param_types); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "call argument unavailable"); }
-                    if (a < param_count) args[a] = coerce(e, args[a], aty, sa_type_from_llvm(param_types[a]));
+                    if (operand_value(e, &in->args[a], regs, reg_count, &args[slot_index], &aty)) { free(param_types); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "call argument unavailable"); }
+                    if ((slot_index) < param_count) args[slot_index] = coerce(e, args[slot_index], aty, sa_type_from_llvm(param_types[slot_index]));
+                    slot_index++;
                 }
                 free(param_types);
-                const SaFunction *callee_sig = function_by_name(e, in->callee);
-                LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call" : "");
+                LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)total_args, sret ? "" : (in->has_dst ? "call" : ""));
                 LLVMValueRef resultv = callv;
                 if (external_fallible_i32_uses_i64_abi(callee_sig)) resultv = unpack_external_fallible_i32(e, callv);
+                if (sret) {
+                    LLVMTypeRef result_struct = fallible_type_of(e, callee_sig->ret_ty);
+                    LLVMValueRef agg = LLVMGetUndef(result_struct);
+                    LLVMValueRef status_ptr = LLVMBuildStructGEP2(e->builder, result_struct, sret_slot, 0, "sret_status_slot");
+                    LLVMValueRef payload_ptr = LLVMBuildStructGEP2(e->builder, result_struct, sret_slot, 1, "sret_payload_slot");
+                    LLVMValueRef status = LLVMBuildLoad2(e->builder, e->i32_ty, status_ptr, "sret_status");
+                    LLVMValueRef payload = LLVMBuildLoad2(e->builder, type_of(e, callee_sig->ret_ty), payload_ptr, "sret_payload");
+                    agg = LLVMBuildInsertValue(e->builder, agg, status, 0, "sret_result_status");
+                    resultv = LLVMBuildInsertValue(e->builder, agg, payload, 1, "sret_result");
+                }
                 if (self_call_is_immediate_tail_return(f, i)) {
-                    LLVMSetTailCall(callv, 1);
+                    if (!sret) LLVMSetTailCall(callv, 1);
                     if (f->ret_ty == SA_T_VOID) {
                         LLVMBuildRetVoid(e->builder);
                     } else {
-                        LLVMBuildRet(e->builder, coerce(e, callv, in->ty, f->ret_ty));
+                        LLVMBuildRet(e->builder, coerce(e, resultv, in->ty, f->ret_ty));
                     }
                     free(args);
                     i += 1;
@@ -1912,6 +2000,12 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         LLVMTypeRef fty = fn_type_for(e, &m->functions[i]);
         if (fty == NULL) { dispose_emit_ctx(e); return set_error(out_error, "function type failed"); }
         LLVMValueRef fn = LLVMAddFunction(e->module, m->functions[i].name, fty);
+        if (external_fallible_uses_sret_win64(&m->functions[i])) {
+            unsigned sret_kind = LLVMGetEnumAttributeKindForName("sret", 4);
+            LLVMTypeRef sret_struct = fallible_type_of(e, m->functions[i].ret_ty);
+            LLVMAttributeRef sret_attr = LLVMCreateTypeAttribute(e->ctx, sret_kind, sret_struct);
+            LLVMAddAttributeAtIndex(fn, 1, sret_attr);
+        }
         if (m->functions[i].kind != SA_F_EXPORTED && strcmp(m->functions[i].name, "saasm_main") != 0)
             LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
         int direct_self_call = function_has_direct_self_call(&m->functions[i]);

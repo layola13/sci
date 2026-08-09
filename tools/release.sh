@@ -101,7 +101,14 @@ build_target() {
     
     # 2. Build SA Compiler
     working "Compiling sa compiler"
-    if ! zig build -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe -Dversion="$VERSION" -Dllvm-include-dir="$LLVM_INCLUDE_DIR" -Dllvm-lib-dir="$LLVM_LIB_DIR" -Dllvm-lib-name="$LLVM_LIB_NAME" >/dev/null 2>&1; then
+    LLVM_OPTION=""
+    if [ "$OS" = "windows" ]; then
+        # Windows release archives are explicitly bootstrap-level. Native
+        # LLVM codegen is validated by the separate CI job and can be enabled
+        # by users with explicit LLVM paths after installation.
+        LLVM_OPTION="-Dllvm=false"
+    fi
+    if ! zig build -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe -Dversion="$VERSION" $LLVM_OPTION -Dllvm-include-dir="$LLVM_INCLUDE_DIR" -Dllvm-lib-dir="$LLVM_LIB_DIR" -Dllvm-lib-name="$LLVM_LIB_NAME" >/dev/null 2>&1; then
         printf " failed.\n"
         error "Zig compilation failed for target: $ZIG_TARGET"
     fi
@@ -157,12 +164,28 @@ build_target() {
         cp -f "$REPO_ROOT/zig-out/include/sa_std.h" "$TARGET_DIR/std/"
     fi
 
+    # State the support level inside every archive. Windows is intentionally
+    # labeled bootstrap/core rather than being presented as Linux runtime
+    # parity while its unsupported ABI manifest remains non-empty.
+    if [ "$OS" = "windows" ]; then
+        cp -f "$REPO_ROOT/docs/windows_support_level.txt" "$TARGET_DIR/SUPPORT_LEVEL.txt"
+        cp -f "$REPO_ROOT/docs/runtime_abi_windows_unsupported.txt" "$TARGET_DIR/std/"
+        cp -f "$REPO_ROOT/docs/runtime_abi_windows_extra.txt" "$TARGET_DIR/std/"
+    elif [ "$OS" = "linux" ]; then
+        cp -f "$REPO_ROOT/docs/linux_support_level.txt" "$TARGET_DIR/SUPPORT_LEVEL.txt"
+    fi
+
     [ -f "$TARGET_DIR/std/io/print.sai" ] || error "Package std payload missing std/io/print.sai"
     [ -f "$TARGET_DIR/std/core/sa_core.sa" ] || error "Package std payload missing std/core/sa_core.sa"
     [ -f "$TARGET_DIR/std/core/result.sa" ] || error "Package std payload missing std/core/result.sa"
     [ -f "$TARGET_DIR/std/core/option.sa" ] || error "Package std payload missing std/core/option.sa"
     [ -f "$TARGET_DIR/std/$LIB_FILE" ] || error "Package std payload missing std/$LIB_FILE"
     [ -f "$TARGET_DIR/std/sa_std.h" ] || error "Package std payload missing std/sa_std.h"
+    [ -f "$TARGET_DIR/SUPPORT_LEVEL.txt" ] || error "Package support-level file missing"
+    if [ "$OS" = "windows" ]; then
+        [ -f "$TARGET_DIR/std/runtime_abi_windows_unsupported.txt" ] || error "Package Windows ABI manifest missing"
+        [ -f "$TARGET_DIR/std/runtime_abi_windows_extra.txt" ] || error "Package Windows extra-export manifest missing"
+    fi
     
     # 7. Compress Package
     working "Packaging archive"
@@ -174,9 +197,17 @@ build_target() {
         if command -v zip >/dev/null 2>&1; then
             zip -rq "$TARGET_NAME.zip" "$TARGET_NAME"
             success "Created $TARGET_NAME.zip"
+        elif command -v powershell.exe >/dev/null 2>&1; then
+            # GitHub's Windows images do not promise a POSIX zip utility. Use
+            # the native archive tool when running from Git Bash/MSYS, then
+            # verify the same artifact contract as the zip path above.
+            powershell.exe -NoProfile -NonInteractive -Command \
+                "Compress-Archive -Path '$TARGET_NAME' -DestinationPath '$TARGET_NAME.zip' -Force"
+            success "Created $TARGET_NAME.zip with Compress-Archive"
         else
-            warn "'zip' command not found. Copying directory raw (skipping compression)."
+            error "Neither 'zip' nor powershell.exe is available for ZIP packaging"
         fi
+        [ -f "$TARGET_NAME.zip" ] || error "ZIP packaging did not create $TARGET_NAME.zip"
     fi
     
     # Clean raw target dir after archiving

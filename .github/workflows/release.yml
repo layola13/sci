@@ -38,7 +38,16 @@ jobs:
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
             allow_failure: true
-          # Non-Linux release archives are disabled until those targets are supported.
+          - name: windows-x86_64-bootstrap
+            runner: windows-2025
+            target: "windows;x86_64;x86_64-windows-gnu;zip"
+            artifact: "sa-windows-x86_64.zip"
+            llvm_include: ""
+            llvm_lib: ""
+            llvm_name: "LLVM-C"
+            allow_failure: false
+          # Other non-Linux release archives remain disabled until their
+          # runtime support levels and native CI gates are established.
           # - name: macos-x86_64
           #   runner: macos-15-intel
           #   target: "macos;x86_64;x86_64-macos;tar.gz"
@@ -53,14 +62,6 @@ jobs:
           #   artifact: "sa-macos-aarch64.tar.gz"
           #   llvm_include: "/opt/homebrew/opt/llvm@14/include"
           #   llvm_lib: "/opt/homebrew/opt/llvm@14/lib"
-          #   llvm_name: "LLVM"
-          #   allow_failure: true
-          # - name: windows-x86_64
-          #   runner: windows-2025
-          #   target: "windows;x86_64;x86_64-windows-gnu;zip"
-          #   artifact: "sa-windows-x86_64.zip"
-          #   llvm_include: "C:/Program Files/LLVM/include"
-          #   llvm_lib: "C:/Program Files/LLVM/lib"
           #   llvm_name: "LLVM"
           #   allow_failure: true
           # - name: windows-aarch64
@@ -97,6 +98,12 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zip llvm-14-dev
 
+      - name: Verify Windows packaging tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command powershell.exe -ErrorAction SilentlyContinue)) { throw "powershell.exe is required for ZIP packaging" }
+
       # Non-Linux dependency setup is disabled with the non-Linux matrix entries above.
       # - name: Install macOS packaging dependencies
       #   if: runner.os == 'macOS'
@@ -122,7 +129,6 @@ jobs:
           name: ${{ matrix.name }}
           path: |
             dist/${{ matrix.artifact }}
-            dist/sha256sums.txt
 
   release:
     name: Create GitHub release
@@ -135,7 +141,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-          name: linux-x86_64
+          pattern: "*"
 
       - name: Generate combined checksums
         run: |
@@ -147,4 +153,5 @@ jobs:
         with:
           files: |
             dist/sa-*.tar.gz
+            dist/sa-*.zip
             dist/sha256sums.txt

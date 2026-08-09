@@ -55,6 +55,17 @@ fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
+fn containsPortablePath(allocator: std.mem.Allocator, text: []const u8, slash_path: []const u8) !bool {
+    const normalized_text = try allocator.dupe(u8, text);
+    defer allocator.free(normalized_text);
+    for (normalized_text) |*byte| {
+        if (byte.* == '\\') byte.* = '/';
+    }
+    const normalized_path = try allocator.dupe(u8, slash_path);
+    defer allocator.free(normalized_path);
+    return std.mem.containsAtLeast(u8, normalized_text, 1, normalized_path);
+}
+
 fn bytesHashHex(bytes: []const u8) [64]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     hasher.update(bytes);
@@ -232,6 +243,23 @@ fn runCommandAnyExitWithEnvMap(allocator: std.mem.Allocator, argv: []const []con
         .argv = argv,
         .env_map = env_map,
     });
+}
+fn llvmDisAvailable() bool {
+    // bc2sa invokes llvm-dis to disassemble bitcode; skip the test when the tool is absent.
+    const probes = [_][]const u8{ "llvm-dis-14", "llvm-dis" };
+    for (probes) |probe| {
+        const result = std.process.Child.run(.{
+            .allocator = std.heap.page_allocator,
+            .argv = &[_][]const u8{ probe, "--version" },
+        }) catch continue;
+        std.heap.page_allocator.free(result.stdout);
+        std.heap.page_allocator.free(result.stderr);
+        switch (result.term) {
+            .Exited => |code| if (code == 0) return true,
+            else => {},
+        }
+    }
+    return false;
 }
 
 fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
@@ -627,6 +655,53 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+}
+
+test "cli default executable suffix is target aware" {
+    if (builtin.os.tag == .windows) {
+        try std.testing.expectEqualStrings(".exe", saasm.cli.defaultExecutableSuffix());
+    } else {
+        try std.testing.expectEqualStrings("", saasm.cli.defaultExecutableSuffix());
+    }
+}
+
+test "llvm disabled build-exe reports backend diagnostic" {
+    if (saasm.build_options.llvm_enabled) return error.SkipZigTest;
+
+    const source =
+        \\@main() -> i32:
+        \\return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "minimal.sa", source);
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "minimal.sa" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "error[LLVMBackend]: llvmc backend: LLVM-C backend is disabled in this build"));
+
+    const default_out = try std.fmt.allocPrint(std.testing.allocator, "minimal{s}", .{saasm.cli.defaultExecutableSuffix()});
+    defer std.testing.allocator.free(default_out);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(default_out, .{}));
 }
 
 test "cli build-obj incremental reuses local cache layout" {
@@ -1222,6 +1297,39 @@ test "hello world demo prints through build-wasm and node wasi" {
     }
     try std.testing.expectEqualStrings("hello, saasm\n", node_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), node_result.stderr.len);
+}
+
+test "windows llvm builds and runs hello world executable" {
+    if (builtin.os.tag != .windows or !saasm.build_options.llvm_enabled) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
+    defer std.testing.allocator.free(source_path);
+    const build_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello.exe", "--no-incremental" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, &build_argv));
+
+    const file = try tmp.dir.openFile("hello.exe", .{});
+    defer file.close();
+    var magic: [2]u8 = undefined;
+    try file.reader().readNoEof(&magic);
+    try std.testing.expectEqualStrings("MZ", &magic);
+
+    const result = try runCommandAnyExit(std.testing.allocator, &.{".\\hello.exe"});
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
+    switch (result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("hello, saasm\n", result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), result.stderr.len);
 }
 
 test "hello world upstream line can break in gdb" {
@@ -3044,6 +3152,7 @@ test "bc2sa translates real llvm bitcode" {
 }
 
 test "bc2sa translates clang cmake bitcode demo" {
+    if (!llvmDisAvailable()) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -3094,6 +3203,7 @@ test "bc2sa translates clang cmake bitcode demo" {
 }
 
 test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
+    if (!llvmDisAvailable()) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -4462,7 +4572,7 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/pkg"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/pkg"));
     try tmp.dir.access("app/sa_vendor/deps/example/pkg/index.sa", .{ .mode = .read_only });
     try tmp.dir.access("app/sa.sum", .{ .mode = .read_only });
 }
@@ -4564,9 +4674,9 @@ test "workspace install aggregates member manifests at root and pkg install fall
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/shared"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/app"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/tool"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/shared"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/app"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/tool"));
     try tmp.dir.access("sa_vendor/deps/example/shared/index.sa", .{ .mode = .read_only });
     try tmp.dir.access("sa_vendor/deps/example/app/index.sa", .{ .mode = .read_only });
     try tmp.dir.access("sa_vendor/deps/example/tool/index.sa", .{ .mode = .read_only });
@@ -4583,7 +4693,7 @@ test "workspace install aggregates member manifests at root and pkg install fall
     );
     try std.testing.expectEqual(@as(u8, 0), pkg_install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/tool"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/tool"));
 }
 
 test "package preflight rejects tampered project sum as structured trap" {

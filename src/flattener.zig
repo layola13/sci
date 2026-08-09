@@ -32,6 +32,7 @@ pub const LocTable = common_upstream.LocTable;
 const max_expanded_instructions: usize = 10_000_000;
 const max_expanded_macro_lines: usize = 10_000_000;
 const max_macro_expansion_events: u64 = 10_000_000;
+const max_macro_recursion_depth: u16 = 256;
 
 fn bumpMacroExpansionCounter(counter: *u64) !u64 {
     if (counter.* >= max_macro_expansion_events) return error.MacroExpansionBudget;
@@ -2082,6 +2083,14 @@ fn includeFileAsConst(
     if (hex) |*h| h.deinit();
 }
 
+fn utf8ConstLine(allocator: std.mem.Allocator, name: []const u8, bytes: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    try out.writer().print("@const {s} = utf8:", .{name});
+    try std.json.stringify(bytes, .{}, out.writer());
+    return out.toOwnedSlice();
+}
+
 fn expandSourceLocationMacro(
     allocator: std.mem.Allocator,
     macro_name: []const u8,
@@ -2134,7 +2143,7 @@ fn expandSourceLocationMacro(
         defer allocator.free(const_name);
 
         const file_text = source_path orelse loc.file;
-        const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, file_text });
+        const const_line = try utf8ConstLine(allocator, const_name, file_text);
         defer allocator.free(const_line);
         try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -2153,7 +2162,7 @@ fn expandSourceLocationMacro(
         const const_name = try std.fmt.allocPrint(allocator, "__MODULE_PATH_{d}_{d}", .{ source_line, const_decls.items.len });
         defer allocator.free(const_name);
 
-        const const_line = try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, module_path });
+        const const_line = try utf8ConstLine(allocator, const_name, module_path);
         defer allocator.free(const_line);
         try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, const_line, source_line, instructions, const_decls, function_sigs, owned_text, current_package_identity, current_package_hash);
 
@@ -2183,11 +2192,7 @@ fn collectMacroDefinitions(
                 const name = line.classified.parts[0];
                 const parsed_params = try parseMacroParams(allocator, line.classified.parts[1]);
                 errdefer allocator.free(parsed_params.params);
-                if (macros.contains(name)) {
-                    allocator.free(parsed_params.params);
-                    idx = end;
-                    continue;
-                }
+                if (macros.contains(name)) return error.DuplicateDef;
                 const owned_body_lines = try cloneOwnedSourceLines(allocator, lines[idx + 1 .. end]);
                 errdefer deinitOwnedSourceLines(allocator, owned_body_lines);
                 try macros.put(name, .{
@@ -2995,6 +3000,7 @@ fn emitRange(
     source_line_override: ?u32,
     source_path: ?[]const u8,
     include_stack: *std.ArrayList([]const u8),
+    macro_call_stack: *std.ArrayList(*const MacroDef),
     replacements: []const Replacement,
     top_level: bool,
     macros: *std.StringHashMap(MacroDef),
@@ -3011,7 +3017,7 @@ fn emitRange(
     current_package_hash: ?[32]u8,
     expansion_counter: *u64,
 ) !void {
-    if (depth > 256) return error.MacroRecursionLimit;
+    if (depth > max_macro_recursion_depth) return error.MacroRecursionLimit;
 
     var idx = start;
     while (idx < end) : (idx += 1) {
@@ -3096,6 +3102,7 @@ fn emitRange(
                         source_line_override orelse line.line_no,
                         source_path,
                         include_stack,
+                        macro_call_stack,
                         combined,
                         false,
                         macros,
@@ -3139,6 +3146,7 @@ fn emitRange(
                         source_line_override orelse line.line_no,
                         source_path,
                         include_stack,
+                        macro_call_stack,
                         replacements,
                         false,
                         macros,
@@ -3286,6 +3294,7 @@ fn emitRange(
                         null,
                         resolved_path,
                         include_stack,
+                        macro_call_stack,
                         replacements,
                         false,
                         macros,
@@ -3321,8 +3330,13 @@ fn emitRange(
                         line.package_source_sha256 orelse current_package_hash,
                     );
                 } else {
-                    const def = macros.get(macro_name) orelse return error.InvalidMacroInvocation;
-                    const body_lines = try macroDefBodyLines(&def);
+                    const def = macros.getPtr(macro_name) orelse return error.InvalidMacroInvocation;
+                    for (macro_call_stack.items) |active_macro| {
+                        if (active_macro == def) return error.MacroRecursionLimit;
+                    }
+                    try macro_call_stack.append(def);
+                    defer _ = macro_call_stack.pop();
+                    const body_lines = try macroDefBodyLines(def);
                     const args = try parseTokenList(allocator, rendered_classified.parts[1]);
                     defer allocator.free(args);
                     if (def.variadic_param) |variadic_param| {
@@ -3358,6 +3372,7 @@ fn emitRange(
                             source_line_override orelse line.line_no,
                             source_path,
                             include_stack,
+                            macro_call_stack,
                             local_slice,
                             false,
                             macros,
@@ -3405,6 +3420,7 @@ fn emitRange(
                         source_line_override orelse line.line_no,
                         source_path,
                         include_stack,
+                        macro_call_stack,
                         local_slice,
                         false,
                         macros,
@@ -4888,6 +4904,8 @@ fn flattenInternal(
 
     var include_stack = std.ArrayList([]const u8).init(allocator);
     defer include_stack.deinit();
+    var macro_call_stack = std.ArrayList(*const MacroDef).init(allocator);
+    defer macro_call_stack.deinit();
 
     const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
     defer allocator.free(lines);
@@ -4906,6 +4924,7 @@ fn flattenInternal(
         null,
         source_path,
         &include_stack,
+        &macro_call_stack,
         empty_replacements[0..],
         true,
         &macros,
@@ -5853,6 +5872,8 @@ test "frontend cache append fragment restores imported macro defs for later expa
     }
     var include_stack = std.ArrayList([]const u8).init(std.testing.allocator);
     defer include_stack.deinit();
+    var macro_call_stack = std.ArrayList(*const MacroDef).init(std.testing.allocator);
+    defer macro_call_stack.deinit();
     var expansion_counter: u64 = 0;
 
     try emitRange(
@@ -5864,6 +5885,7 @@ test "frontend cache append fragment restores imported macro defs for later expa
         null,
         null,
         &include_stack,
+        &macro_call_stack,
         empty_replacements[0..],
         true,
         &target_macros,
@@ -6982,6 +7004,22 @@ test "macro-time conditional rejects invalid condition values" {
     ;
 
     try std.testing.expectError(error.InvalidMacroInvocation, flatten(std.testing.allocator, source));
+}
+
+test "duplicate macro definitions are rejected" {
+    const source =
+        \\[MACRO] DUP %x
+        \\    %x = add 1, 0
+        \\[END_MACRO]
+        \\[MACRO] DUP %x
+        \\    %x = add 2, 0
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\    return 0
+    ;
+
+    try std.testing.expectError(error.DuplicateDef, flatten(std.testing.allocator, source));
 }
 
 test "macro PBT rejects invalid definitions and invocations" {
