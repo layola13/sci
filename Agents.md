@@ -1,5 +1,28 @@
 ﻿-NoNewline
 
+## 2026-08-09 (installer one-shot restore; verify)
+Question:
+- The installed `sa.exe` got overwritten with a non-LLVM stub build (PE has no `LLVM-C.dll` import) by an earlier agent that assumed the host had no local LLVM-14 and could not rebuild a real LLVM-linked `sa.exe`. Did `tools/install.bat` actually rebuild + re-install the LLVM-C-linked binary end-to-end on this host, and is it durable for future loss?
+
+Evidence checked:
+- Prior state measured before restore: installed `C:\Users\zhan\AppData\Local\Programs\SCI\current\bin\sa.exe` = 10926592 B, mtime 22:30:37; ASCII-import probe of the PE found NO `LLVM-C.dll` string -> stub build (unlinked from the runtime LLVM backend). `LLVM-C.dll` (77487616 B) was still present beside it but unused.
+- Host toolchain present (contrary to the earlier agent premise): `D:\zig-x86_64-windows-0.14.1\zig.exe` OK; `D:\LLVM-14.0.6\bin\LLVM-C.dll` (77487616 B) OK; `D:\LLVM-14.0.6\lib\LLVM-C.lib` (313524 B) OK; `D:\LLVM-14.0.6\include\llvm-c\Core.h` OK. So a local LLVM rebuild IS possible here; no release-download is required.
+- `zig build install -Dllvm=true -Dllvm-include-dir=D:\LLVM-14.0.6\include -Dllvm-lib-dir=D:\LLVM-14.0.6\lib -Dllvm-lib-name=LLVM-C --summary all` -> RC=0, `Build Summary: 13/13 steps succeeded`, including line `install D:\LLVM-14.0.6\bin\LLVM-C.dll to LLVM-C.dll cached` (the `installLlvmCDll` helper added in commit `fe6576c9`, `build.zig:1181`, called at `build.zig:271` only when `enable_llvm`).
+- `E:\projects\sci\zig-out\bin\sa.exe` after that build: 11268096 B, mtime 16:12:46; ASCII-import probe -> contains `LLVM-C.dll` string -> LINKED (real LLVM backend).
+- Ran the one-shot installer end-to-end via a synchronous child: `cmd /c call "E:\projects\sci\tools\install.bat" --user` with `ZIG`/`LLVM_INC`/`LLVM_LIB` set to the D:\ paths (these are ALSO the script defaults at `tools/install.bat:62/64/66`). Output: `INSTALL_RC=0`; `== Building SCI (LLVM-C backend)`; `[install] detected sa version: 0.0.4`; `== Installing to "C:\Users\zhan\AppData\Local\Programs\SCI\0.0.4"`; `== Registering PATH` / `already in User PATH: C:\Users\zhan\AppData\Local\Programs\SCI\current\bin`; `== Installed SCI 0.0.4`. Log: `tmp_test\restore_install_real.log` (`tmp_test\` is in `.gitignore`).
+- Post-install verification: `Get-Command sa` -> `C:\Users\zhan\AppData\Local\Programs\SCI\current\bin\sa.exe`; `sa --version` -> `sa 0.0.4` (rc=0); ASCII-import probe of the installed copy now finds `LLVM-C.dll` -> LINKED OK; `sa --help` advertises `bc2sa <file>  Translate LLVM bitcode to SA assembly` (the LLVM-dependent subcommand, confirming the runtime backend, not the stub).
+- `tools/install.bat` design (audited lines 60-175): default `ZIG=D:...0.14.1\zig.exe`, `LLVM_INC=D:\LLVM-14.0.6\include`, `LLVM_LIB=D:\LLVM-14.0.6\lib`; line 93 `"%ZIG%" build install -Dllvm=true ...`; lines 116-120 `copy /y ...\zig-out\bin\{sa.exe,sa.pdb,LLVM-C.dll,hubproxy.exe,hubproxy.pdb}` into the versioned `<prefix>\SCI\<ver>\bin\`; line 140 `mklink /J <prefix>\SCI\current <DEST>` (junction); lines 156-175 add `...\SCI\current\bin` to User or Machine PATH. `--user`/`--admin`/`uninstall`/`--help` recognized; `uninstall` scrubs both `*\SCI\current\bin` and `*\SCI\current_bin` from Machine and User PATH.
+
+Answer:
+- Yes, the loss is recoverable with one command: `cmd /c "E:\projects\sci\tools\install.bat --user"` (or `--admin` when elevated). The script rebuilds `sa.exe` with the LLVM-C backend (`-Dllvm=true`), copies `sa.exe` + `LLVM-C.dll` + `hubproxy.exe` into the versioned install dir, repoints the `current` junction, and ensures `SCI\current\bin` is on PATH. Verified end-to-end on this host: installed `sa.exe` is back to 11268096 B, LINKED to `LLVM-C.dll`, `sa --version` -> `sa 0.0.4`, `sa bc2sa`/`build`/`test` subcommands all advertised.
+- The earlier agent premise (host has no local LLVM, must re-download release) was wrong for THIS host: `D:\LLVM-14.0.6` and `D:\zig-x86_64-windows-0.14.1` are both present, and the script already defaults to them, so re-build is fully local.
+- Note for the restore procedure itself: this sandbox cannot reliably capture stdout/stderr of a nested `cmd /c "..." > file` chain from inside the agent harness (the redirection was silently dropped on several runs). The reliable invocation patterns that DID produce captured output were (a) `System.Diagnostics.Process` with `RedirectStandardOutput/Error` from a `.ps1` run via `powershell -File script.ps1`, or (b) writing a `.bat` runner first. When re-verifying, prefer `powershell -NoProfile -ExecutionPolicy Bypass -File <runner.ps1>` that calls `Start-Process cmd.exe -ArgumentList /c,call install.bat --user -Wait -RedirectStandardOutput log`.
+
+Next:
+- If the installed `sa.exe` is ever found to be the stub build again (e.g. `dumpbin /dependents` or a PE import probe shows no `LLVM-C.dll`, or size ~= 10.93 MB instead of ~= 11.27 MB), run one command to restore: `cmd /c "E:\projects\sci\tools\install.bat --user"`. No manual `copy` is needed.
+- Keep `D:\LLVM-14.0.6` and `D:\zig-x86_64-windows-0.14.1\zig.exe` in place; they are the rebuild toolchain and are the script defaults. If those paths ever move, pass the new paths as env vars: `set ZIG=... & set LLVM_INC=... & set LLVM_LIB=...` before calling `install.bat`.
+- The sret helper scoped to wide fallible externals on `_WIN32` (`src/emit_llvm_llvmc_shim.c`) and the `wip-before-test-fix-2026-08-09` stash are still in force; do not drop the stash.
+
 ## 2026-08-09 (recheck pass)
 Question:
 - Re-verification pass: are both test gates still green, abi-check clean, and the demo-compile result (348/380) still accurate?
