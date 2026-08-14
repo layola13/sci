@@ -1912,6 +1912,7 @@ static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
     LLVMBuildRet(e->builder, LLVMConstInt(e->i32_ty, 0, 0));
 
     LLVMPositionBuilderAtEnd(e->builder, select_bb);
+
     LLVMBasicBlockRef current_select = select_bb;
     for (size_t i = 0; i < m->function_count; i++) {
         if (m->functions[i].kind != SA_F_TEST) continue;
@@ -1921,6 +1922,7 @@ static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
         LLVMValueRef strcmp_args[2] = { filter, test_name_ptr };
         LLVMValueRef cmp = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(strcmp_fn), strcmp_fn, strcmp_args, 2, "cmp");
         LLVMValueRef eq = LLVMBuildICmp(e->builder, LLVMIntEQ, cmp, LLVMConstInt(e->i32_ty, 0, 0), "eq");
+    
 
         LLVMBasicBlockRef match_bb = LLVMAppendBasicBlockInContext(e->ctx, main_fn, "match");
         LLVMBasicBlockRef next_select = LLVMAppendBasicBlockInContext(e->ctx, main_fn, "select_next");

@@ -2250,6 +2250,16 @@ fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.Function
     const reg_ids = if (source.reg_ids.len == 0) &.{} else try allocator.dupe(u32, source.reg_ids);
     errdefer if (reg_ids.len != 0) allocator.free(reg_ids);
 
+    const upstream_file = if (source.upstream_file) |file| try allocator.dupe(u8, file) else null;
+    errdefer if (upstream_file) |file| allocator.free(file);
+    var upstream_loc: ?upstream.UpstreamLoc = null;
+    errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+    if (source.upstream_loc) |loc| {
+        upstream_loc = .{ .file = try allocator.dupe(u8, loc.file), .line = loc.line, .col = loc.col };
+    }
+    const llvm_name = if (source.llvm_name) |nm| try allocator.dupe(u8, nm) else null;
+    errdefer if (llvm_name) |nm| allocator.free(nm);
+
     return .{
         .id = source.id,
         .name = name,
@@ -2262,6 +2272,9 @@ fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.Function
         .is_ffi_wrapper = source.is_ffi_wrapper,
         .param_ids = param_ids,
         .reg_ids = reg_ids,
+        .upstream_file = upstream_file,
+        .upstream_loc = upstream_loc,
+        .llvm_name = llvm_name,
         .ignored = source.ignored,
         .should_panic = source.should_panic,
     };
