@@ -78,7 +78,13 @@ if(-not $SkipBuild){
 if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force}
 New-Item -ItemType Directory -Force -Path $stage|Out-Null
 foreach($d in @('bin','include','std','plugins')){New-Item -ItemType Directory -Force -Path (Join-Path $stage $d)|Out-Null}
-Copy-Required (Join-Path $sciRoot 'zig-out\bin\sa.exe') (Join-Path $stage 'bin\sa.exe')
+$saCandidates=@(
+  (Join-Path $sciRoot 'zig-out\bin\sa.exe'),
+  (Join-Path $sciRoot 'zig-out\bin\sa')
+)
+$saBinary=$saCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if(-not $saBinary){throw "Missing required SA compiler binary; checked: $($saCandidates -join ', ')"}
+Copy-Required $saBinary (Join-Path $stage 'bin\sa.exe')
 foreach($n in @('sa.pdb','LLVM-C.dll','hubproxy.exe','hubproxy.pdb')){$s=Join-Path $sciRoot "zig-out\bin\$n";if(Test-Path -LiteralPath $s -PathType Leaf){Copy-Item -LiteralPath $s -Destination (Join-Path $stage "bin\$n") -Force}}
 Copy-Required (Join-Path $sciRoot 'zig-out\include\sa_std.h') (Join-Path $stage 'include\sa_std.h')
 Copy-Item -LiteralPath (Join-Path $sciRoot 'sa_std') -Destination (Join-Path $stage 'std') -Recurse -Force
