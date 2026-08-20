@@ -5,6 +5,11 @@ on:
     tags:
       - "*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish"
+        required: true
+        default: "0.1.1"
 
 permissions:
   contents: write
@@ -16,6 +21,7 @@ concurrency:
 jobs:
   package:
     name: Package ${{ matrix.name }}
+    if: ${{ false }}
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.allow_failure }}
     strategy:
@@ -30,22 +36,8 @@ jobs:
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
             allow_failure: false
-          - name: linux-aarch64
-            runner: ubuntu-24.04-arm
-            target: "linux;aarch64;aarch64-linux-gnu;tar.gz"
-            artifact: "sa-linux-aarch64.tar.gz"
-            llvm_include: "/usr/lib/llvm-14/include"
-            llvm_lib: "/usr/lib/llvm-14/lib"
-            llvm_name: "LLVM-14"
-            allow_failure: true
-          - name: windows-x86_64-bootstrap
-            runner: windows-2025
-            target: "windows;x86_64;x86_64-windows-gnu;zip"
-            artifact: "sa-windows-x86_64.zip"
-            llvm_include: ""
-            llvm_lib: ""
-            llvm_name: "LLVM-C"
-            allow_failure: false
+          # Cross-compilation targets remain disabled until their native CI
+          # gates are stable. The Windows installer below is built natively.
           # Other non-Linux release archives remain disabled until their
           # runtime support levels and native CI gates are established.
           # - name: macos-x86_64
@@ -132,7 +124,7 @@ jobs:
 
   installer:
     name: Build SCI Windows installer
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     steps:
       - name: Checkout SCI
@@ -154,16 +146,25 @@ jobs:
         with:
           version: 0.14.1
 
-      - name: Install LLVM 14
+      - name: Locate LLVM
         shell: pwsh
-        run: choco install llvm --version=14.0.6 --yes --no-progress
+        run: |
+          $llvmRoot = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-14', 'C:\LLVM') |
+            Where-Object { Test-Path (Join-Path $_ 'include\llvm-c') } |
+            Select-Object -First 1
+          if (-not $llvmRoot) { throw 'LLVM installation with llvm-c headers was not found' }
+          $llvmLib = Join-Path $llvmRoot 'lib'
+          if (-not (Test-Path (Join-Path $llvmLib 'LLVM-C.lib'))) {
+            throw "LLVM-C.lib was not found under $llvmLib"
+          }
+          "LLVM_ROOT=$llvmRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build SCI and SLA Windows artifacts
         shell: pwsh
         working-directory: sci
         run: |
-          $llvmInclude = 'C:\Program Files\LLVM\include'
-          $llvmLib = 'C:\Program Files\LLVM\lib'
+          $llvmInclude = Join-Path $env:LLVM_ROOT 'include'
+          $llvmLib = Join-Path $env:LLVM_ROOT 'lib'
           zig build install -Dllvm=true -Dllvm-include-dir=$llvmInclude -Dllvm-lib-dir=$llvmLib -Dllvm-lib-name=LLVM-C
           Push-Location ..\sa_plugin_sla
           try {
@@ -175,7 +176,7 @@ jobs:
       - name: Build full Windows bundle
         shell: pwsh
         working-directory: sci
-        run: .\tools\package_windows.ps1 -SkipBuild -Output 'dist/SCI-windows-x64-full.zip' -LlvmBin 'C:\Program Files\LLVM\bin' -TimeoutSeconds 900
+        run: .\tools\package_windows.ps1 -SkipBuild -Output 'dist/SCI-windows-x64-full.zip' -LlvmBin (Join-Path $env:LLVM_ROOT 'bin') -TimeoutSeconds 900
 
       - name: Build Electron installer
         shell: pwsh
@@ -190,8 +191,8 @@ jobs:
           if-no-files-found: error
   release:
     name: Create GitHub release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [package, installer]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [installer]
     runs-on: ubuntu-24.04
     steps:
       - name: Download archives
@@ -204,13 +205,13 @@ jobs:
       - name: Generate combined checksums
         run: |
           cd dist
-          sha256sum sa-* SCI-Setup-*.exe > sha256sums.txt
+          sha256sum SCI-Setup-*.exe > sha256sums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: SCI ${{ inputs.release_tag || github.ref_name }}
           files: |
-            dist/sa-*.tar.gz
-            dist/sa-*.zip
             dist/SCI-Setup-*.exe
             dist/sha256sums.txt
