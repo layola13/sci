@@ -149,26 +149,14 @@ jobs:
       - name: Locate LLVM
         shell: pwsh
         run: |
-          function Find-LlvmRoot {
-            $candidates = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-22.1.7', 'C:\Program Files\LLVM-20.1.8', 'C:\LLVM')
-            foreach ($candidate in $candidates) {
-              if ((Test-Path (Join-Path $candidate 'include\llvm-c\Core.h')) -and
-                  (Test-Path (Join-Path $candidate 'lib\LLVM-C.lib'))) {
-                return $candidate
-              }
-            }
-            return $null
-          }
-          $llvmRoot = Find-LlvmRoot
-          if (-not $llvmRoot) {
-            choco upgrade llvm --force --yes --no-progress --execution-timeout=900
-            if ($LASTEXITCODE -ne 0) { throw "LLVM repair failed with exit code $LASTEXITCODE" }
-            $llvmRoot = Find-LlvmRoot
-          }
-          if (-not $llvmRoot) {
-            Get-ChildItem 'C:\Program Files' -Directory -Filter 'LLVM*' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
-            throw 'LLVM installation with llvm-c/Core.h and LLVM-C.lib was not found after repair'
-          }
+          choco install llvm --version=14.0.6 --allow-downgrade --force --yes --no-progress --execution-timeout=900
+          if ($LASTEXITCODE -ne 0) { throw "LLVM 14 installation failed with exit code $LASTEXITCODE" }
+          $llvmRoot = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-14.0.6', 'C:\LLVM-14.0.6', 'D:\LLVM-14.0.6') |
+            Where-Object {
+              (Test-Path (Join-Path $_ 'include\llvm-c\Core.h')) -and
+              (Test-Path (Join-Path $_ 'lib\LLVM-C.lib'))
+            } | Select-Object -First 1
+          if (-not $llvmRoot) { throw 'LLVM 14 installation is missing llvm-c/Core.h or LLVM-C.lib' }
           $llvmLib = Join-Path $llvmRoot 'lib'
           if (-not (Test-Path (Join-Path $llvmLib 'LLVM-C.lib'))) {
             throw "LLVM-C.lib was not found under $llvmLib"
