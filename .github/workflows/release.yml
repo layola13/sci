@@ -141,6 +141,31 @@ jobs:
           path: sa_plugin_sla
           fetch-depth: 0
 
+      - name: Checkout Windows plugins
+        shell: pwsh
+        run: |
+          $plugins = @(
+            @{ name = 'sa_plugin_bc2sa'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_db'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_deno'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_http_client'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_http_server'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_mui'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_node'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_pkg'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_react'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_sax'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_tui'; ref = 'windows' },
+            @{ name = 'sa_plugin_vite'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_vm'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_wgpu'; ref = 'windows/support-windows-build' }
+          )
+          foreach ($plugin in $plugins) {
+            $url = "https://github.com/layola13/$($plugin.name).git"
+            git clone --depth 1 --branch $plugin.ref $url $plugin.name
+            if ($LASTEXITCODE -ne 0) { throw "Failed checking out $($plugin.name)@$($plugin.ref)" }
+          }
+
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
@@ -203,10 +228,105 @@ jobs:
             Pop-Location
           }
 
+      - name: Build all Windows plugin artifacts
+        shell: pwsh
+        working-directory: sci
+        run: |
+          $workspace = (Resolve-Path '..').Path
+          $sciRoot = (Get-Location).Path
+          $saBin = Join-Path $sciRoot 'zig-out\bin\sa.exe'
+          $saxBin = Join-Path (Join-Path $workspace 'sa_plugin_sax') 'zig-out\bin\sax.dll'
+          $zig = (Get-Command zig.exe -ErrorAction Stop).Source
+
+          function Invoke-Bounded([string]$Cwd, [string[]]$Arguments, [int]$TimeoutSeconds = 900) {
+            $safeName = [IO.Path]::GetFileName($Cwd)
+            $stdout = Join-Path $env:RUNNER_TEMP ("{0}-zig.stdout.log" -f $safeName)
+            $stderr = Join-Path $env:RUNNER_TEMP ("{0}-zig.stderr.log" -f $safeName)
+            $quoted = $Arguments | ForEach-Object {
+              $value = [string]$_
+              if ($value -match '[\s"]') { '"' + $value.Replace('"', '\"') + '"' } else { $value }
+            }
+            $process = Start-Process -FilePath $zig -ArgumentList ($quoted -join ' ') -WorkingDirectory $Cwd -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              try { $process.Kill() } catch {}
+              throw "Timed out after ${TimeoutSeconds}s: $Cwd zig $($Arguments -join ' ')"
+            }
+            $exitCode = $process.ExitCode
+            $process.Dispose()
+            if ($exitCode -ne 0) {
+              $details = @()
+              if (Test-Path -LiteralPath $stdout) { $details += Get-Content -LiteralPath $stdout -Raw -Encoding UTF8 }
+              if (Test-Path -LiteralPath $stderr) { $details += Get-Content -LiteralPath $stderr -Raw -Encoding UTF8 }
+              throw "Plugin build failed (exit code $exitCode) in $Cwd`n$($details -join [Environment]::NewLine)"
+            }
+          }
+
+          $llvmArgs = @(
+            ("-Dllvm-include-dir={0}" -f $env:LLVM_INCLUDE),
+            ("-Dllvm-lib-dir={0}" -f $env:LLVM_LIB),
+            '-Dllvm-lib-name=LLVM-C'
+          )
+          $pluginSpecs = @(
+            @{ Name = 'sa_plugin_http_client'; Extra = @(("-Dsci-root={0}" -f $sciRoot)) },
+            @{ Name = 'sa_plugin_http_server'; Extra = @(("-Dsci-root={0}" -f $sciRoot)) },
+            @{ Name = 'sa_plugin_deno'; Extra = @() },
+            @{ Name = 'sa_plugin_node'; Extra = @(("-Dsci-root={0}" -f $sciRoot)) },
+            @{ Name = 'sa_plugin_sax'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin)) + $llvmArgs },
+            @{ Name = 'sa_plugin_react'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin)) + $llvmArgs },
+            @{ Name = 'sa_plugin_mui'; Extra = @() },
+            @{ Name = 'sa_plugin_vite'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot)) + $llvmArgs },
+            @{ Name = 'sa_plugin_wgpu'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin), ("-Dsax-lib={0}" -f $saxBin)) },
+            @{ Name = 'sa_plugin_bc2sa'; Extra = @(("-Dsa-bin={0}" -f $saBin)) },
+            @{ Name = 'sa_plugin_db'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin)) },
+            @{ Name = 'sa_plugin_pkg'; Extra = @() },
+            @{ Name = 'sa_plugin_tui'; Extra = @() },
+            @{ Name = 'sa_plugin_vm'; Extra = @() }
+          )
+          foreach ($spec in $pluginSpecs) {
+            $pluginRoot = (Resolve-Path (Join-Path $workspace $spec.Name)).Path
+            $args = @('build', 'install', '-Dtarget=x86_64-windows', '-Doptimize=ReleaseFast') + @($spec.Extra)
+            Write-Host "Building $($spec.Name)"
+            Invoke-Bounded $pluginRoot $args 900
+            $manifestPath = Join-Path $pluginRoot 'sap.json'
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $artifact = Join-Path $pluginRoot ([string]$manifest.artifacts.'windows-x86_64'.path)
+            if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { throw "Missing Windows artifact after build: $artifact" }
+            Write-Host "Built $($manifest.name): $artifact"
+          }
+
       - name: Build full Windows bundle
         shell: pwsh
         working-directory: sci
         run: .\tools\package_windows.ps1 -SkipBuild -Output 'dist/SCI-windows-x64-full.zip' -LlvmBin (Join-Path $env:LLVM_ROOT 'bin') -TimeoutSeconds 900
+
+      - name: Verify bundled Windows plugins
+        shell: pwsh
+        working-directory: sci
+        run: |
+          $verifyRoot = Join-Path $env:RUNNER_TEMP 'sci-bundle-plugin-check'
+          if (Test-Path -LiteralPath $verifyRoot) { Remove-Item -LiteralPath $verifyRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $verifyRoot | Out-Null
+          Expand-Archive -LiteralPath 'dist/SCI-windows-x64-full.zip' -DestinationPath $verifyRoot -Force
+          $metaPath = Join-Path $verifyRoot 'bundle.json'
+          if (-not (Test-Path -LiteralPath $metaPath -PathType Leaf)) { throw 'bundle.json is missing from Windows bundle' }
+          $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $expected = @('bc2sa','db','deno','http-client','http-server','mui','node','pkg','react','sax','sla','tui','vite','vm','wgpu')
+          $actual = @($meta.plugins | ForEach-Object { [string]$_ } | Sort-Object)
+          $expectedSorted = @($expected | Sort-Object)
+          if (($actual -join '|') -ne ($expectedSorted -join '|')) {
+            throw "Windows bundle plugin set mismatch. Expected: $($expectedSorted -join ', '); Actual: $($actual -join ', ')"
+          }
+          foreach ($plugin in $actual) {
+            $pluginRoot = Get-ChildItem -LiteralPath (Join-Path $verifyRoot 'plugins') -Directory | Where-Object {
+              $manifest = Join-Path $_.FullName 'sap.json'
+              (Test-Path -LiteralPath $manifest -PathType Leaf) -and ((Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json).name -eq $plugin)
+            } | Select-Object -First 1
+            if (-not $pluginRoot) { throw "Missing bundled plugin directory for $plugin" }
+            foreach ($lock in @('sap.lock','permissions.lock')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot.FullName $lock) -PathType Leaf)) { throw "Missing $lock for $plugin" }
+            }
+          }
+          Write-Host "Verified $($actual.Count) Windows plugins with lock files: $($actual -join ', ')"
 
       - name: Build Electron installer
         shell: pwsh
