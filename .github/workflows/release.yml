@@ -151,24 +151,31 @@ jobs:
         run: |
           choco install llvm --version=14.0.6 --allow-downgrade --force --yes --no-progress --execution-timeout=900
           if ($LASTEXITCODE -ne 0) { throw "LLVM 14 installation failed with exit code $LASTEXITCODE" }
-          $llvmRoot = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-14.0.6', 'C:\LLVM-14.0.6', 'D:\LLVM-14.0.6') |
-            Where-Object {
-              (Test-Path (Join-Path $_ 'include\llvm-c\Core.h')) -and
-              (Test-Path (Join-Path $_ 'lib\LLVM-C.lib'))
-            } | Select-Object -First 1
-          if (-not $llvmRoot) { throw 'LLVM 14 installation is missing llvm-c/Core.h or LLVM-C.lib' }
-          $llvmLib = Join-Path $llvmRoot 'lib'
-          if (-not (Test-Path (Join-Path $llvmLib 'LLVM-C.lib'))) {
-            throw "LLVM-C.lib was not found under $llvmLib"
+          $roots = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-14.0.6', 'C:\LLVM-14.0.6', 'D:\LLVM-14.0.6')
+          $header = $null
+          $import = $null
+          foreach ($root in $roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            if (-not $header) { $header = Get-ChildItem -LiteralPath $root -Filter Core.h -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\llvm-c\\Core\.h$' } | Select-Object -First 1 }
+            if (-not $import) { $import = Get-ChildItem -LiteralPath $root -Filter 'LLVM-C*.lib' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
           }
+          if (-not $header -or -not $import) {
+            $roots | ForEach-Object { if (Test-Path $_) { Get-ChildItem -LiteralPath $_ -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Core\.h|LLVM-C.*\.lib' } | Select-Object -First 10 FullName | Write-Host } }
+            throw 'LLVM 14 installation is missing llvm-c/Core.h or LLVM-C import library'
+          }
+          $llvmInclude = $header.Directory.Parent.FullName
+          $llvmLib = $import.Directory.FullName
+          $llvmRoot = $header.Directory.Parent.Parent.FullName
           "LLVM_ROOT=$llvmRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_INCLUDE=$llvmInclude" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_LIB=$llvmLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build SCI and SLA Windows artifacts
         shell: pwsh
         working-directory: sci
         run: |
-          $llvmInclude = Join-Path $env:LLVM_ROOT 'include'
-          $llvmLib = Join-Path $env:LLVM_ROOT 'lib'
+          $llvmInclude = $env:LLVM_INCLUDE
+          $llvmLib = $env:LLVM_LIB
           $buildArgs = @(
             'build', 'install', '-Dllvm=true',
             ("-Dllvm-include-dir={0}" -f $llvmInclude),
