@@ -150,11 +150,14 @@ jobs:
         shell: pwsh
         run: |
           function Find-LlvmRoot {
-            $header = Get-ChildItem -Path 'C:\Program Files\LLVM*','C:\LLVM*' -Filter 'Core.h' -Recurse -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match '\\include\\llvm-c\\Core\.h$' } |
-              Select-Object -First 1
-            if (-not $header) { return $null }
-            return $header.Directory.Parent.Parent.FullName
+            $candidates = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-22.1.7', 'C:\Program Files\LLVM-20.1.8', 'C:\LLVM')
+            foreach ($candidate in $candidates) {
+              if ((Test-Path (Join-Path $candidate 'include\llvm-c\Core.h')) -and
+                  (Test-Path (Join-Path $candidate 'lib\LLVM-C.lib'))) {
+                return $candidate
+              }
+            }
+            return $null
           }
           $llvmRoot = Find-LlvmRoot
           if (-not $llvmRoot) {
@@ -162,7 +165,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "LLVM repair failed with exit code $LASTEXITCODE" }
             $llvmRoot = Find-LlvmRoot
           }
-          if (-not $llvmRoot) { throw 'LLVM installation with llvm-c/Core.h was not found after repair' }
+          if (-not $llvmRoot) {
+            Get-ChildItem 'C:\Program Files' -Directory -Filter 'LLVM*' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+            throw 'LLVM installation with llvm-c/Core.h and LLVM-C.lib was not found after repair'
+          }
           $llvmLib = Join-Path $llvmRoot 'lib'
           if (-not (Test-Path (Join-Path $llvmLib 'LLVM-C.lib'))) {
             throw "LLVM-C.lib was not found under $llvmLib"
