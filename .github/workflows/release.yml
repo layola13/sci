@@ -130,10 +130,68 @@ jobs:
           path: |
             dist/${{ matrix.artifact }}
 
+  installer:
+    name: Build SCI Windows installer
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-2025
+    steps:
+      - name: Checkout SCI
+        uses: actions/checkout@v4
+        with:
+          path: sci
+          fetch-depth: 0
+
+      - name: Checkout SLA plugin
+        uses: actions/checkout@v4
+        with:
+          repository: layola13/sa_plugin_sla
+          ref: windows/support-windows-build
+          path: sa_plugin_sla
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install LLVM 14
+        shell: pwsh
+        run: choco install llvm --version=14.0.6 --yes --no-progress
+
+      - name: Build SCI and SLA Windows artifacts
+        shell: pwsh
+        working-directory: sci
+        run: |
+          $llvmInclude = 'C:\Program Files\LLVM\include'
+          $llvmLib = 'C:\Program Files\LLVM\lib'
+          zig build install -Dllvm=true -Dllvm-include-dir=$llvmInclude -Dllvm-lib-dir=$llvmLib -Dllvm-lib-name=LLVM-C
+          Push-Location ..\sa_plugin_sla
+          try {
+            zig build install -Dtarget=x86_64-windows -Doptimize=ReleaseFast
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build full Windows bundle
+        shell: pwsh
+        working-directory: sci
+        run: .\tools\package_windows.ps1 -SkipBuild -Output 'dist/SCI-windows-x64-full.zip' -LlvmBin 'C:\Program Files\LLVM\bin' -TimeoutSeconds 900
+
+      - name: Build Electron installer
+        shell: pwsh
+        working-directory: sci
+        run: .\tools\build_electron_installer_windows.ps1 -SkipBundle -Output 'dist/SCI-windows-x64-full.zip' -TimeoutSeconds 900
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: sci/tools/electron-installer/dist/SCI-Setup-*.exe
+          if-no-files-found: error
   release:
     name: Create GitHub release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: package
+    needs: [package, installer]
     runs-on: ubuntu-24.04
     steps:
       - name: Download archives
@@ -146,7 +204,7 @@ jobs:
       - name: Generate combined checksums
         run: |
           cd dist
-          sha256sum sa-* > sha256sums.txt
+          sha256sum sa-* SCI-Setup-*.exe > sha256sums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -154,4 +212,5 @@ jobs:
           files: |
             dist/sa-*.tar.gz
             dist/sa-*.zip
+            dist/SCI-Setup-*.exe
             dist/sha256sums.txt
