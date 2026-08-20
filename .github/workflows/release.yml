@@ -154,7 +154,7 @@ jobs:
               Where-Object { $_.FullName -match '\\include\\llvm-c\\Core\.h$' } |
               Select-Object -First 1
             if (-not $header) { return $null }
-            return $header.Directory.Parent.Parent.Parent.FullName
+            return $header.Directory.Parent.Parent.FullName
           }
           $llvmRoot = Find-LlvmRoot
           if (-not $llvmRoot) {
