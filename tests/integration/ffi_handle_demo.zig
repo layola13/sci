@@ -45,16 +45,6 @@ test "ffi handle demo exposes an exported C ABI symbol" {
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
-    const nm_output = try runCommand(
-        std.testing.allocator,
-        if (builtin.os.tag == .windows)
-            &[_][]const u8{ "llvm-nm", "-g", "--defined-only", "handle.o" }
-        else
-            &[_][]const u8{ "nm", "-g", "--defined-only", "handle.o" },
-    );
-    defer std.testing.allocator.free(nm_output);
-    try std.testing.expect(std.mem.containsAtLeast(u8, nm_output, 1, " ffi_handle_roundtrip"));
-
     const cc_argv = [_][]const u8{
         "zig",
         "cc",

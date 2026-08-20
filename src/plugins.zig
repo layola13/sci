@@ -1301,7 +1301,8 @@ pub const Runtime = struct {
     }
 
     pub fn loadPathList(self: *Runtime, path_list: []const u8) !void {
-        var it = std.mem.splitScalar(u8, path_list, ':');
+        const separator: u8 = if (@import("builtin").os.tag == .windows) ';' else ':';
+        var it = std.mem.splitScalar(u8, path_list, separator);
         while (it.next()) |raw_entry| {
             const entry = std.mem.trim(u8, raw_entry, " \t\r\n");
             if (entry.len == 0) continue;
