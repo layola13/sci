@@ -159,13 +159,25 @@ jobs:
             if (-not $header) { $header = Get-ChildItem -LiteralPath $root -Filter Core.h -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\llvm-c\\Core\.h$' } | Select-Object -First 1 }
             if (-not $import) { $import = Get-ChildItem -LiteralPath $root -Filter 'LLVM-C*.lib' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
           }
+          if (-not $header) {
+            $sourceArchive = Join-Path $env:RUNNER_TEMP 'llvm-14.0.6.src.tar.xz'
+            $sourceRoot = Join-Path $env:RUNNER_TEMP 'llvm-14.0.6-src'
+            New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
+            Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/llvm-14.0.6.src.tar.xz' -OutFile $sourceArchive -TimeoutSec 300
+            $tar = (Get-Command tar.exe -ErrorAction Stop).Source
+            $tarArgs = @('-xf', ('"{0}"' -f $sourceArchive), '-C', ('"{0}"' -f $sourceRoot))
+            $tarProcess = Start-Process -FilePath $tar -ArgumentList $tarArgs -PassThru -WindowStyle Hidden
+            if (-not $tarProcess.WaitForExit(300000)) { $tarProcess.Kill(); throw 'Timed out extracting LLVM source headers' }
+            if ($tarProcess.ExitCode -ne 0) { throw "LLVM source extraction failed with exit code $($tarProcess.ExitCode)" }
+            $header = Get-ChildItem -LiteralPath $sourceRoot -Filter Core.h -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\llvm-c\\Core\.h$' } | Select-Object -First 1
+          }
           if (-not $header -or -not $import) {
-            $roots | ForEach-Object { if (Test-Path $_) { Get-ChildItem -LiteralPath $_ -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Core\.h|LLVM-C.*\.lib' } | Select-Object -First 10 FullName | Write-Host } }
-            throw 'LLVM 14 installation is missing llvm-c/Core.h or LLVM-C import library'
+            throw 'LLVM 14 is missing llvm-c/Core.h or LLVM-C import library'
           }
           $llvmInclude = $header.Directory.Parent.FullName
           $llvmLib = $import.Directory.FullName
-          $llvmRoot = $header.Directory.Parent.Parent.FullName
+          $llvmRoot = $import.Directory.Parent.FullName
           "LLVM_ROOT=$llvmRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LLVM_INCLUDE=$llvmInclude" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LLVM_LIB=$llvmLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
