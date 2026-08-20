@@ -40,6 +40,11 @@ function Write-PluginLayout([string]$PluginRoot,[string]$PluginName,[string]$Plu
     foreach($dest in @($current,$versionDir)){ $assetDest=Join-Path (Join-Path $dest 'share') $target;New-Item -ItemType Directory -Force -Path (Split-Path -Parent $assetDest)|Out-Null;Copy-Item -LiteralPath $src -Destination $assetDest -Force }
   }
   foreach($sourceDir in @('demos','examples')){ $srcDir=Join-Path $PluginRoot $sourceDir;if(Test-Path -LiteralPath $srcDir -PathType Container){foreach($dest in @($current,$versionDir)){Copy-Item -LiteralPath $srcDir -Destination (Join-Path $dest $sourceDir) -Recurse -Force}} }
+  $packagedLock=Join-Path $PluginRoot 'sap.lock';$packagedPermissions=Join-Path $PluginRoot 'permissions.lock'
+  if((Test-Path -LiteralPath $packagedLock -PathType Leaf) -and (Test-Path -LiteralPath $packagedPermissions -PathType Leaf)){
+    foreach($dest in @($current,$versionDir)){Copy-Item -LiteralPath $packagedLock -Destination (Join-Path $dest 'sap.lock') -Force;Copy-Item -LiteralPath $packagedPermissions -Destination (Join-Path $dest 'permissions.lock') -Force}
+    return
+  }
   $reviewOut=Join-Path $env:TEMP "sa_review_$PluginName.log";$reviewErr=Join-Path $env:TEMP "sa_review_$PluginName.err.log"
   $psi=New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName=$SaPath

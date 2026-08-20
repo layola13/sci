@@ -53,6 +53,24 @@ function Copy-SourceDirectory([string]$Root,[string]$Relative,[string]$Destinati
     Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
   }
 }
+function New-PackagedPluginLocks([string]$PluginRoot,[string]$PluginName,[string]$Artifact,[string]$SaPath,[string]$Destination){
+  $reviewOut=Join-Path $env:TEMP "sa_package_review_$PluginName.log"
+  $reviewErr=Join-Path $env:TEMP "sa_package_review_$PluginName.err.log"
+  $p=Start-Process -FilePath $SaPath -ArgumentList @('plugin','install','--review',$PluginRoot) -PassThru -WindowStyle Hidden -RedirectStandardOutput $reviewOut -RedirectStandardError $reviewErr -Wait
+  if($p.ExitCode -ne 0){$details=if(Test-Path -LiteralPath $reviewErr){Get-Content -LiteralPath $reviewErr -Raw -Encoding UTF8}else{''};throw "Failed generating packaged lock for $PluginName (exit code $($p.ExitCode)): $details"}
+  $perm=Get-Content -LiteralPath $reviewOut -Raw -Encoding UTF8
+  $perm=[regex]::Replace($perm,'(?m)^confirmed=.*$','confirmed=true')
+  $perm=[regex]::Replace($perm,'(?m)^dev_install=.*$','dev_install=false')
+  $perm=[regex]::Replace($perm,'(?m)^sandbox_enforced=.*$','sandbox_enforced=true')
+  $perm=$perm.TrimEnd()+[Environment]::NewLine
+  $permDigest=([regex]::Match($perm,'(?m)^permissions_sha256=([^`r`n]+)').Groups[1].Value)
+  $graphDigest=([regex]::Match($perm,'(?m)^dependency_graph_sha256=([^`r`n]+)').Groups[1].Value)
+  $manifest=Get-Content -LiteralPath (Join-Path $PluginRoot 'sap.json') -Raw -Encoding UTF8|ConvertFrom-Json
+  $hash=(Get-FileHash -LiteralPath $Artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+  $lock="name=$($manifest.name)`nversion=$($manifest.version)`nartifact=$([IO.Path]::GetFileName($Artifact))`nsha256=$hash`npermissions_sha256=$permDigest`ndependency_graph_sha256=$graphDigest`ndependencies=0`n"
+  $lock|Set-Content -LiteralPath (Join-Path $Destination 'sap.lock') -Encoding UTF8
+  $perm|Set-Content -LiteralPath (Join-Path $Destination 'permissions.lock') -Encoding UTF8
+}
 if(-not $SkipBuild){
   if(-not(Test-Path -LiteralPath $Zig -PathType Leaf)){$z=Get-Command zig.exe -ErrorAction SilentlyContinue;if($null -eq $z){throw 'zig.exe not found; pass -Zig or use -SkipBuild.'};$Zig=$z.Source}
   Invoke-Bounded $Zig @('build','install','-Dllvm=true','-Dllvm-include-dir=D:\LLVM-14.0.6\include','-Dllvm-lib-dir=D:\LLVM-14.0.6\lib','-Dllvm-lib-name=LLVM-C','--summary','all') $sciRoot $TimeoutSeconds
@@ -88,6 +106,7 @@ foreach($root in $roots){
   Copy-ManifestPaths $root.FullName $m.assets $destination
   Copy-SourceDirectory $root.FullName 'demos' $destination
   Copy-SourceDirectory $root.FullName 'examples' $destination
+  New-PackagedPluginLocks $root.FullName $name $ap (Join-Path $stage 'bin\sa.exe') $destination
   $seen[$name]=$root.Name
 }
 $meta=[ordered]@{schema='sa.bundle/1';platform='windows-x86_64';generated_utc=(Get-Date).ToUniversalTime().ToString('o');compiler='bin/sa.exe';sla='bin/sla.exe';llvm_tools_present=$llvmToolFound;plugins=@($seen.Keys|Sort-Object)}
