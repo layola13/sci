@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <title>SCI Toolchain Installer</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+    body { margin: 0; background: #f4f7fb; color: #17202a; }
+    main { max-width: 690px; margin: 0 auto; padding: 28px 34px; }
+    h1 { margin: 0 0 6px; font-size: 27px; }
+    p { color: #506070; }
+    label { display: block; margin-top: 18px; font-weight: 600; }
+    .row { display: flex; gap: 8px; margin-top: 7px; }
+    input { flex: 1; padding: 9px 10px; border: 1px solid #bdc8d5; border-radius: 5px; font-size: 14px; }
+    button { padding: 9px 15px; border: 0; border-radius: 5px; background: #1464c0; color: white; cursor: pointer; }
+    button.secondary { background: #657383; }
+    button.danger { background: #a83232; }
+    button:disabled { opacity: .5; cursor: default; }
+    .actions { display: flex; gap: 10px; margin-top: 25px; }
+    pre { margin-top: 20px; height: 190px; overflow: auto; padding: 12px; background: #111820; color: #dce8f4; border-radius: 6px; white-space: pre-wrap; }
+    #status { min-height: 22px; margin-top: 12px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>SCI Toolchain</h1>
+    <p>安装 SA 编译器、SLA、插件、标准库和示例源码。默认不包含 3D 插件。</p>
+    <label for="installRoot">程序安装目录</label>
+    <div class="row"><input id="installRoot"><button class="secondary" data-pick="installRoot">选择</button></div>
+    <label for="pluginHome">插件目录</label>
+    <div class="row"><input id="pluginHome"><button class="secondary" data-pick="pluginHome">选择</button></div>
+    <div class="actions"><button id="install">安装 / 更新</button><button id="uninstall" class="danger">卸载 SCI 文件</button></div>
+    <div id="status"></div>
+    <pre id="output">等待操作…</pre>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>

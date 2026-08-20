@@ -1,0 +1,57 @@
+{
+  "name": "sci-windows-installer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SCI and SLA Windows installer",
+  "main": "main.js",
+  "author": "SCI project",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "org.sci.toolchain",
+    "productName": "SCI Toolchain",
+    "artifactName": "SCI-Setup-${version}-${arch}.${ext}",
+    "asar": true,
+    "compression": "maximum",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../../dist/SCI-windows-x64-full.zip",
+        "to": "bundle/SCI-windows-x64-full.zip"
+      },
+      {
+        "from": "../install_bundle_windows.ps1",
+        "to": "scripts/install_bundle_windows.ps1"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "publisherName": "SCI Project"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SCI Toolchain Installer"
+    }
+  }
+}
