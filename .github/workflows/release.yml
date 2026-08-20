@@ -165,7 +165,14 @@ jobs:
         run: |
           $llvmInclude = Join-Path $env:LLVM_ROOT 'include'
           $llvmLib = Join-Path $env:LLVM_ROOT 'lib'
-          zig build install -Dllvm=true -Dllvm-include-dir=$llvmInclude -Dllvm-lib-dir=$llvmLib -Dllvm-lib-name=LLVM-C
+          $buildArgs = @(
+            'build', 'install', '-Dllvm=true',
+            ("-Dllvm-include-dir={0}" -f $llvmInclude),
+            ("-Dllvm-lib-dir={0}" -f $llvmLib),
+            '-Dllvm-lib-name=LLVM-C'
+          )
+          & zig @buildArgs
+          if ($LASTEXITCODE -ne 0) { throw "SCI build failed with exit code $LASTEXITCODE" }
           Push-Location ..\sa_plugin_sla
           try {
             zig build install -Dtarget=x86_64-windows -Doptimize=ReleaseFast
