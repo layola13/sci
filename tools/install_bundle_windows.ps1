@@ -41,10 +41,33 @@ function Write-PluginLayout([string]$PluginRoot,[string]$PluginName,[string]$Plu
   }
   foreach($sourceDir in @('demos','examples')){ $srcDir=Join-Path $PluginRoot $sourceDir;if(Test-Path -LiteralPath $srcDir -PathType Container){foreach($dest in @($current,$versionDir)){Copy-Item -LiteralPath $srcDir -Destination (Join-Path $dest $sourceDir) -Recurse -Force}} }
   $reviewOut=Join-Path $env:TEMP "sa_review_$PluginName.log";$reviewErr=Join-Path $env:TEMP "sa_review_$PluginName.err.log"
-  $p=Start-Process -FilePath $SaPath -ArgumentList @('plugin','install','--review',$PluginRoot) -PassThru -WindowStyle Hidden -RedirectStandardOutput $reviewOut -RedirectStandardError $reviewErr
-  if(-not $p.WaitForExit($Timeout*1000)){$p.Kill();throw "Timed out generating lock for $PluginName"}
-  if($p.ExitCode -ne 0){throw "Failed generating lock for $PluginName"}
-  $review=Get-Content -LiteralPath $reviewOut -Raw -Encoding UTF8
+  $psi=New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName=$SaPath
+  $quotedRoot='"'+$PluginRoot.Replace('"','\"')+'"'
+  $psi.Arguments="plugin install --review $quotedRoot"
+  $psi.WorkingDirectory=$PluginRoot
+  $psi.UseShellExecute=$false
+  $psi.CreateNoWindow=$true
+  $psi.RedirectStandardOutput=$true
+  $psi.RedirectStandardError=$true
+  $process=New-Object System.Diagnostics.Process
+  $process.StartInfo=$psi
+  [void]$process.Start()
+  $stdoutTask=$process.StandardOutput.ReadToEndAsync()
+  $stderrTask=$process.StandardError.ReadToEndAsync()
+  if(-not $process.WaitForExit($Timeout*1000)){
+    try{$process.Kill()}catch{}
+    $process.Dispose()
+    throw "Timed out generating lock for $PluginName"
+  }
+  $process.WaitForExit()
+  $exitCode=$process.ExitCode
+  $review=$stdoutTask.GetAwaiter().GetResult()
+  $details=$stderrTask.GetAwaiter().GetResult()
+  $process.Dispose()
+  $review|Set-Content -LiteralPath $reviewOut -Encoding UTF8
+  $details|Set-Content -LiteralPath $reviewErr -Encoding UTF8
+  if($exitCode -ne 0){throw "Failed generating lock for $PluginName (exit code $exitCode): $details"}
   $perm=$review
   $perm=[regex]::Replace($perm,'(?m)^confirmed=.*$','confirmed=true')
   $perm=[regex]::Replace($perm,'(?m)^dev_install=.*$','dev_install=false')
