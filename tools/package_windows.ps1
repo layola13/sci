@@ -44,7 +44,7 @@ function Copy-SourceDirectory([string]$Root,[string]$Relative,[string]$Destinati
   $excludedDirs=@('.git','.sa_cache','.zig-cache','.zig-global-cache','node_modules','zig-out','bin','target','build')
   $excludedExtensions=@('.exe','.dll','.pdb','.lib','.obj','.o','.a','.so','.dylib','.bc','.wasm','.log','.tmp')
   Get-ChildItem -LiteralPath $source -Recurse -File | ForEach-Object {
-    $relativePath=[IO.Path]::GetRelativePath($source,$_.FullName)
+    $relativePath=$_.FullName.Substring($source.Length).TrimStart('\','/')
     $parts=$relativePath -split '[\\/]'
     if($parts | Where-Object {$_ -in $excludedDirs}){return}
     if($_.Extension.ToLowerInvariant() -in $excludedExtensions){return}
@@ -73,8 +73,10 @@ if(-not $llvmToolFound){Write-Warning "No llvm-dis/llvm-as Windows tool found un
 $slaRoot=Join-Path $workspaceRoot 'sa_plugin_sla';Copy-Required (Join-Path $slaRoot 'zig-out\bin\sla.exe') (Join-Path $stage 'bin\sla.exe')
 foreach($n in @('sla.pdb','sla.dll')){$s=Join-Path $slaRoot "zig-out\bin\$n";if(Test-Path -LiteralPath $s -PathType Leaf){Copy-Item -LiteralPath $s -Destination (Join-Path $stage "bin\$n") -Force}}
 $roots=@(Get-ChildItem -LiteralPath $workspaceRoot -Directory -Filter 'sa_plugin_*');if($Include3D){$roots+=@(Get-ChildItem -LiteralPath (Join-Path $workspaceRoot 'sa_plugin_3dengines') -Directory -Filter 'sa_plugin_3d_*')}
+$excludedPluginRoots=@('sa_plugin_3dengines','sa_plugin_ts')
 $seen=@{}
 foreach($root in $roots){
+  if($root.Name -in $excludedPluginRoots){continue}
   $mp=Join-Path $root.FullName 'sap.json';if(-not(Test-Path -LiteralPath $mp -PathType Leaf)){continue}
   $m=Get-Content -LiteralPath $mp -Raw -Encoding UTF8|ConvertFrom-Json;$name=[string]$m.name;if($seen.ContainsKey($name)){continue}
   $artifact=$m.artifacts.'windows-x86_64'.path;if([string]::IsNullOrWhiteSpace($artifact)){throw "No Windows artifact: $mp"}
