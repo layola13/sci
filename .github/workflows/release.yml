@@ -171,6 +171,15 @@ jobs:
         with:
           version: 0.14.1
 
+      - name: Isolate Zig caches
+        shell: pwsh
+        run: |
+          $globalCache = Join-Path $env:RUNNER_TEMP ("zig-global-cache-{0}" -f $env:GITHUB_RUN_ID)
+          $localCache = Join-Path $env:RUNNER_TEMP ("zig-local-cache-{0}" -f $env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force -Path $globalCache, $localCache | Out-Null
+          "ZIG_GLOBAL_CACHE_DIR=$globalCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZIG_LOCAL_CACHE_DIR=$localCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Locate LLVM
         shell: pwsh
         run: |
@@ -211,19 +220,51 @@ jobs:
         shell: pwsh
         working-directory: sci
         run: |
+          function Invoke-Bounded([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory, [int]$TimeoutSeconds = 60) {
+            $safeName = [IO.Path]::GetFileNameWithoutExtension($FilePath)
+            $stdout = Join-Path $env:RUNNER_TEMP ("{0}-stdout.log" -f $safeName)
+            $stderr = Join-Path $env:RUNNER_TEMP ("{0}-stderr.log" -f $safeName)
+            $quoted = $Arguments | ForEach-Object {
+              $value = [string]$_
+              if ($value -match '[\s"]') { '"' + $value.Replace('"', '\"') + '"' } else { $value }
+            }
+            $process = Start-Process -FilePath $FilePath -ArgumentList ($quoted -join ' ') -WorkingDirectory $WorkingDirectory -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+              throw "Timed out after ${TimeoutSeconds}s: $FilePath $($Arguments -join ' ')"
+            }
+            $exitCode = $process.ExitCode
+            $process.Dispose()
+            if ($exitCode -ne 0) {
+              $details = @()
+              if (Test-Path -LiteralPath $stdout) { $details += Get-Content -LiteralPath $stdout -Raw -Encoding UTF8 }
+              if (Test-Path -LiteralPath $stderr) { $details += Get-Content -LiteralPath $stderr -Raw -Encoding UTF8 }
+              throw "Command failed (exit code $exitCode): $FilePath $($Arguments -join ' ')`n$($details -join [Environment]::NewLine)"
+            }
+          }
           $llvmInclude = $env:LLVM_INCLUDE
           $llvmLib = $env:LLVM_LIB
           $buildArgs = @(
             'build', 'install', '-Dllvm=true',
             ("-Dllvm-include-dir={0}" -f $llvmInclude),
             ("-Dllvm-lib-dir={0}" -f $llvmLib),
-            '-Dllvm-lib-name=LLVM-C'
+            '-Dllvm-lib-name=LLVM-C',
+            '-Doptimize=ReleaseFast'
           )
-          & zig @buildArgs
-          if ($LASTEXITCODE -ne 0) { throw "SCI build failed with exit code $LASTEXITCODE" }
+          $zig = (Get-Command zig.exe -ErrorAction Stop).Source
+          Invoke-Bounded $zig $buildArgs (Get-Location).Path 900
+          $saBin = Join-Path (Get-Location).Path 'zig-out\bin\sa.exe'
+          if (-not (Test-Path -LiteralPath $saBin -PathType Leaf)) { throw "Missing SCI compiler: $saBin" }
+          foreach ($check in @('--version', 'help')) {
+            Invoke-Bounded $saBin @($check) (Split-Path -Parent $saBin) 30
+          }
+          Get-FileHash -LiteralPath $saBin -Algorithm SHA256 | Format-List
+          $llvmDll = Join-Path (Split-Path -Parent $saBin) 'LLVM-C.dll'
+          if (-not (Test-Path -LiteralPath $llvmDll -PathType Leaf)) { throw "Missing LLVM runtime: $llvmDll" }
+          Get-FileHash -LiteralPath $llvmDll -Algorithm SHA256 | Format-List
           Push-Location ..\sa_plugin_sla
           try {
-            zig build install -Dtarget=x86_64-windows -Doptimize=ReleaseFast
+            Invoke-Bounded $zig @('build', 'install', '-Dtarget=x86_64-windows', '-Doptimize=ReleaseFast') (Get-Location).Path 900
           } finally {
             Pop-Location
           }
@@ -248,7 +289,7 @@ jobs:
             }
             $process = Start-Process -FilePath $zig -ArgumentList ($quoted -join ' ') -WorkingDirectory $Cwd -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-              try { $process.Kill() } catch {}
+              try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
               throw "Timed out after ${TimeoutSeconds}s: $Cwd zig $($Arguments -join ' ')"
             }
             $exitCode = $process.ExitCode
