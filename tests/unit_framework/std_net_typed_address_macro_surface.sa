@@ -230,6 +230,25 @@ L_PASS:
     return 0
 
 
+@test "sa_std ip addr unicast global dispatch"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    EXPAND NET_IPV4_NEW ipv4, 8, 8, 8, 8
+    EXPAND NET_IPV6_NEW ipv6, 8193, 18504, 18504, 0, 0, 0, 0, 34968
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_IP_ADDR_IS_UNICAST_GLOBAL v4_ok, ip4
+    EXPAND NET_IP_ADDR_IS_UNICAST_GLOBAL v6_ok, ip6
+    all_ok = and v4_ok, v6_ok
+    br all_ok -> L_GLOBAL_PASS, L_GLOBAL_FAIL
+L_GLOBAL_FAIL:
+    panic(10126)
+L_GLOBAL_PASS:
+    return 0
+
 @test "sa_std ipv6 multicast scope constants"():
 L_ENTRY:
     scope_interface = add 0, NET_IPV6_MULTICAST_SCOPE_INTERFACE_LOCAL

@@ -2893,6 +2893,23 @@ L_NET_IP_RESERVED_DONE_%out_bool:
     !__net_ip_reserved_tag_%out_bool
 [END_MACRO]
 
+[MACRO] NET_IP_ADDR_IS_UNICAST_GLOBAL %out_bool, %ipaddr
+    __net_ip_uglobal_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_uglobal_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_uglobal_is_v4_%out_bool = eq __net_ip_uglobal_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_uglobal_is_v4_%out_bool -> L_NET_IP_UGLOBAL_V4_%out_bool, L_NET_IP_UGLOBAL_V6_%out_bool
+L_NET_IP_UGLOBAL_V4_%out_bool:
+    EXPAND NET_IPV4_IS_GLOBAL %out_bool, __net_ip_uglobal_payload_%out_bool
+    jmp L_NET_IP_UGLOBAL_DONE_%out_bool
+L_NET_IP_UGLOBAL_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNICAST_GLOBAL %out_bool, __net_ip_uglobal_payload_%out_bool
+    jmp L_NET_IP_UGLOBAL_DONE_%out_bool
+L_NET_IP_UGLOBAL_DONE_%out_bool:
+    !__net_ip_uglobal_is_v4_%out_bool
+    !__net_ip_uglobal_payload_%out_bool
+    !__net_ip_uglobal_tag_%out_bool
+[END_MACRO]
+
 [MACRO] NET_IP_ADDR_IS_UNICAST %out_bool, %ipaddr
     __net_ip_unicast_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
     __net_ip_unicast_payload_%out_bool = ptr_add %ipaddr, 8
