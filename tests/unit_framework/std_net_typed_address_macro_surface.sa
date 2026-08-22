@@ -230,6 +230,47 @@ L_PASS:
     return 0
 
 
+@test "sa_std ipv6 multicast scope constants"():
+L_ENTRY:
+    scope_interface = add 0, NET_IPV6_MULTICAST_SCOPE_INTERFACE_LOCAL
+    scope_link = add 0, NET_IPV6_MULTICAST_SCOPE_LINK_LOCAL
+    scope_admin = add 0, NET_IPV6_MULTICAST_SCOPE_ADMIN_LOCAL
+    scope_site = add 0, NET_IPV6_MULTICAST_SCOPE_SITE_LOCAL
+    scope_org = add 0, NET_IPV6_MULTICAST_SCOPE_ORGANIZATION_LOCAL
+    scope_global = add 0, NET_IPV6_MULTICAST_SCOPE_GLOBAL
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_INTERFACE_LOCAL interface_ok, scope_interface
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_LINK_LOCAL link_ok, scope_link
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_ADMIN_LOCAL admin_ok, scope_admin
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_SITE_LOCAL site_ok, scope_site
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_ORGANIZATION_LOCAL org_ok, scope_org
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_GLOBAL global_ok, scope_global
+    all0 = and interface_ok, link_ok
+    all1 = and admin_ok, site_ok
+    all2 = and org_ok, global_ok
+    all3 = and all0, all1
+    all_ok = and all3, all2
+    !scope_interface
+    !scope_link
+    !scope_admin
+    !scope_site
+    !scope_org
+    !scope_global
+    !interface_ok
+    !link_ok
+    !admin_ok
+    !site_ok
+    !org_ok
+    !global_ok
+    !all0
+    !all1
+    !all2
+    !all3
+    br all_ok -> L_SCOPE_PASS, L_SCOPE_FAIL
+L_SCOPE_FAIL:
+    panic(10125)
+L_SCOPE_PASS:
+    return 0
+
 @test "sa_std net ip/socket addr default helpers"():
 L_ENTRY:
     ip = stack_alloc NetIpAddr_SIZE
