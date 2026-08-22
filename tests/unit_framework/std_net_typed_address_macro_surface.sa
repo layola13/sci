@@ -2,6 +2,11 @@
 
 @test "sa_std net typed address octet helpers"():
 L_ENTRY:
+    ipv6_bits_alias = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_FROM_BITS ipv6_bits_alias, 1311768467463790320, 1147797409030816545
+    EXPAND NET_IPV6_TO_BITS ipv6_bits_alias_hi, ipv6_bits_alias_lo, ipv6_bits_alias
+    ipv6_alias_hi_ok = eq ipv6_bits_alias_hi, 1311768467463790320
+    ipv6_alias_lo_ok = eq ipv6_bits_alias_lo, 1147797409030816545
     ipv4 = stack_alloc NetIpv4Addr_SIZE
     ipv6 = stack_alloc NetIpv6Addr_SIZE
     ip4 = stack_alloc NetIpAddr_SIZE
@@ -97,7 +102,8 @@ L_ENTRY:
     ok23 = and ok22, ok_ip6_write
     ok24 = and ok23, ok_ip6_b0
     ok25 = and ok24, ok_ip6_b15
-    ok = and ok25, ok_ip6_short
+    ok26 = and ok25, ipv6_alias_hi_ok
+    ok = and ok26, ipv6_alias_lo_ok
 
     !ipv4_oct_ptr
     br ok -> L_PASS, L_FAIL

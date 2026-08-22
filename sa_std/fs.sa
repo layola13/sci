@@ -72,8 +72,16 @@
     %out_len = load __fs_read_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] FS_READ_BYTES %out_status, %out_len, %file, %buf, %cap
+    EXPAND FS_READ %out_status, %out_len, %file, %buf, %cap
+[END_MACRO]
+
 [MACRO] FS_READ_EXACT %out_status, %file, %buf, %len
     %out_status = call @sa_fs_file_read_exact(%file, &%buf, %len)
+[END_MACRO]
+
+[MACRO] FS_READ_EXACT_BYTES %out_status, %file, %buf, %len
+    EXPAND FS_READ_EXACT %out_status, %file, %buf, %len
 [END_MACRO]
 
 [MACRO] FS_READ_AT %out_status, %out_len, %file, %buf, %cap, %offset
@@ -82,8 +90,16 @@
     %out_len = load __fs_read_at_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] FS_READ_AT_BYTES %out_status, %out_len, %file, %buf, %cap, %offset
+    EXPAND FS_READ_AT %out_status, %out_len, %file, %buf, %cap, %offset
+[END_MACRO]
+
 [MACRO] FS_READ_EXACT_AT %out_status, %file, %buf, %len, %offset
     %out_status = call @sa_std_fs_file_read_exact_at(%file, &%buf, %len, %offset)
+[END_MACRO]
+
+[MACRO] FS_READ_EXACT_AT_BYTES %out_status, %file, %buf, %len, %offset
+    EXPAND FS_READ_EXACT_AT %out_status, %file, %buf, %len, %offset
 [END_MACRO]
 
 [MACRO] FS_WRITE %out_status, %out_len, %file, %buf, %len
@@ -92,8 +108,16 @@
     %out_len = load __fs_write_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] FS_WRITE_BYTES %out_status, %out_len, %file, %buf, %len
+    EXPAND FS_WRITE %out_status, %out_len, %file, %buf, %len
+[END_MACRO]
+
 [MACRO] FS_WRITE_ALL %out_status, %file, %buf, %len
     %out_status = call @sa_fs_file_write_all(%file, &%buf, %len)
+[END_MACRO]
+
+[MACRO] FS_WRITE_ALL_BYTES %out_status, %file, %buf, %len
+    EXPAND FS_WRITE_ALL %out_status, %file, %buf, %len
 [END_MACRO]
 
 [MACRO] FS_WRITE_AT %out_status, %out_len, %file, %buf, %len, %offset
@@ -102,8 +126,16 @@
     %out_len = load __fs_write_at_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] FS_WRITE_AT_BYTES %out_status, %out_len, %file, %buf, %len, %offset
+    EXPAND FS_WRITE_AT %out_status, %out_len, %file, %buf, %len, %offset
+[END_MACRO]
+
 [MACRO] FS_WRITE_ALL_AT %out_status, %file, %buf, %len, %offset
     %out_status = call @sa_std_fs_file_write_all_at(%file, &%buf, %len, %offset)
+[END_MACRO]
+
+[MACRO] FS_WRITE_ALL_AT_BYTES %out_status, %file, %buf, %len, %offset
+    EXPAND FS_WRITE_ALL_AT %out_status, %file, %buf, %len, %offset
 [END_MACRO]
 
 [MACRO] FS_FLUSH %out_status, %file
@@ -139,6 +171,10 @@
     %out_buffer = load __fs_read_file_handle_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] FS_READ_FILE_BYTES %out_status, %out_buffer, %path, %path_len, %max_bytes
+    EXPAND FS_READ_FILE %out_status, %out_buffer, %path, %path_len, %max_bytes
+[END_MACRO]
+
 [MACRO] FS_READ_TO_STRING %out_status, %out_buffer, %path, %path_len, %max_bytes
     __fs_read_to_string_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_fs_read_to_string(&%path, %path_len, %max_bytes, &__fs_read_to_string_handle_%out_status)
@@ -147,6 +183,10 @@
 
 [MACRO] FS_WRITE_FILE %out_status, %path, %path_len, %buf, %len
     %out_status = call @sa_fs_write_file(&%path, %path_len, &%buf, %len)
+[END_MACRO]
+
+[MACRO] FS_WRITE_FILE_BYTES %out_status, %path, %path_len, %buf, %len
+    EXPAND FS_WRITE_FILE %out_status, %path, %path_len, %buf, %len
 [END_MACRO]
 
 [MACRO] FS_READ_BUFFER_DATA %out_ptr, %buffer

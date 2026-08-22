@@ -1,6 +1,7 @@
 @import "net.sal"
 @import "net.sai"
 @import "hash.sa"
+@import "io.sal"
 @import "os/fd.sa"
 
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
@@ -40,6 +41,15 @@
     %out_status = call @sa_std_net_tcp_listener_set_nonblocking(%listener, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_LISTENER_SET_ONLY_V6 %out_status, %listener, %enabled
+    %out_status = call @sa_std_net_tcp_listener_set_only_v6(%listener, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_ONLY_V6 %out_status, %out_enabled, %listener
+    __net_tcp_listener_only_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_listener_only_v6(%listener, &__net_tcp_listener_only_v6_%out_status)
+    %out_enabled = load __net_tcp_listener_only_v6_%out_status+0 as i32
+[END_MACRO]
 [MACRO] NET_TCP_LISTENER_SET_TTL %out_status, %listener, %ttl
     %out_status = call @sa_std_net_tcp_listener_set_ttl(%listener, %ttl)
 [END_MACRO]
@@ -171,6 +181,17 @@
     %out_status = call @sa_std_net_tcp_stream_set_write_timeout(%stream, %timeout_ns)
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_TRY_CLONE %out_status, %out_stream, %stream
+    __net_tcp_stream_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_try_clone(%stream, &__net_tcp_stream_clone_%out_status)
+    %out_stream = load __net_tcp_stream_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_TRY_CLONE %out_status, %out_listener, %listener
+    __net_tcp_listener_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_listener_try_clone(%listener, &__net_tcp_listener_clone_%out_status)
+    %out_listener = load __net_tcp_listener_clone_%out_status+0 as u64
+[END_MACRO]
 [MACRO] NET_TCP_STREAM_SET_NONBLOCKING %out_status, %stream, %enabled
     %out_status = call @sa_std_net_tcp_stream_set_nonblocking(%stream, %enabled)
 [END_MACRO]
@@ -816,6 +837,11 @@
     %out_addr = load __net_udp_peer_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UDP_TRY_CLONE %out_status, %out_socket, %socket
+    __net_udp_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_try_clone(%socket, &__net_udp_clone_%out_status)
+    %out_socket = load __net_udp_clone_%out_status+0 as u64
+[END_MACRO]
 [MACRO] NET_UDP_CONNECT %out_status, %socket, %host, %host_len, %port
     %out_status = call @sa_std_net_udp_connect(%socket, &%host, %host_len, %port)
 [END_MACRO]
@@ -836,6 +862,15 @@
     %out_status = call @sa_std_net_udp_set_broadcast(%socket, %enabled)
 [END_MACRO]
 
+[MACRO] NET_UDP_SET_ONLY_V6 %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_udp_set_only_v6(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UDP_ONLY_V6 %out_status, %out_enabled, %socket
+    __net_udp_only_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_only_v6(%socket, &__net_udp_only_v6_%out_status)
+    %out_enabled = load __net_udp_only_v6_%out_status+0 as i32
+[END_MACRO]
 [MACRO] NET_UDP_SET_TTL %out_status, %socket, %ttl
     %out_status = call @sa_std_net_udp_set_ttl(%socket, %ttl)
 [END_MACRO]
@@ -950,6 +985,23 @@
     %out_status = call @sa_net_udp_close(%socket)
 [END_MACRO]
 
+[MACRO] NET_TO_SOCKET_ADDR_LIST %out_status, %out_list, %host, %host_len, %port
+    __net_addr_list_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_to_socket_addr_list(&%host, %host_len, %port, &__net_addr_list_handle_%out_status)
+    %out_list = load __net_addr_list_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_NEXT %out_status, %out_ok, %out_addr, %list
+    __net_addr_list_next_ok_%out_status = stack_alloc 4
+    __net_addr_list_next_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_addr_list_next(%list, &__net_addr_list_next_ok_%out_status, &__net_addr_list_next_addr_%out_status)
+    %out_ok = load __net_addr_list_next_ok_%out_status+0 as i32
+    %out_addr = load __net_addr_list_next_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_FREE %out_status, %list
+    %out_status = call @sa_std_net_addr_list_free(%list)
+[END_MACRO]
 [MACRO] NET_TO_SOCKET_ADDR_FIRST %out_status, %out_addr, %host, %host_len, %port
     __net_to_socket_addr_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_to_socket_addr_first(&%host, %host_len, %port, &__net_to_socket_addr_%out_status)
@@ -3312,4 +3364,198 @@ L_NET_SOCKET_SET_PORT_DONE_%socket_addr:
     EXPAND NET_SOCKET_ADDR_PORT __net_sock_set_ip_port_%socket_addr, %socket_addr
     EXPAND NET_SOCKET_ADDR_NEW %socket_addr, %ipaddr, __net_sock_set_ip_port_%socket_addr
     !__net_sock_set_ip_port_%socket_addr
+[END_MACRO]
+
+// Explicit byte-oriented aliases over the existing stream/datagram ABI.
+[MACRO] NET_TCP_STREAM_READ_BYTES %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_TCP_STREAM_READ %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_PEEK_BYTES %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_TCP_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_WRITE_BYTES %out_status, %out_len, %stream, %buf, %len
+    EXPAND NET_TCP_STREAM_WRITE %out_status, %out_len, %stream, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_WRITE_ALL_BYTES %out_status, %stream, %buf, %len
+    EXPAND NET_TCP_STREAM_WRITE_ALL %out_status, %stream, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEEK_BYTES %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_UNIX_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND_BYTES %out_status, %out_len, %socket, %buf, %len
+    EXPAND NET_UNIX_DATAGRAM_SEND %out_status, %out_len, %socket, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_RECV_BYTES %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UNIX_DATAGRAM_RECV %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_BYTES %out_status, %out_len, %socket, %buf, %len
+    EXPAND NET_UDP_SEND %out_status, %out_len, %socket, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UDP_RECV_BYTES %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_RECV %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_PEEK_BYTES %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_PEEK %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_TO_BYTES %out_status, %out_len, %socket, %buf, %len, %host, %host_len, %port
+    EXPAND NET_UDP_SEND_TO %out_status, %out_len, %socket, %buf, %len, %host, %host_len, %port
+[END_MACRO]
+
+[MACRO] NET_UDP_RECV_FROM_BYTES %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    EXPAND NET_UDP_RECV_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_PEEK_FROM_BYTES %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    EXPAND NET_UDP_PEEK_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+[END_MACRO]
+
+// Rust-style spelling aliases for platform socket option helpers.
+[MACRO] NET_TCP_LISTENER_SET_REUSE_ADDR %out_status, %listener, %enabled
+    EXPAND NET_TCP_LISTENER_SET_REUSEADDR %out_status, %listener, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_SET_REUSE_PORT %out_status, %listener, %enabled
+    EXPAND NET_TCP_LISTENER_SET_REUSEPORT %out_status, %listener, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_QUICK_ACK %out_status, %stream, %enabled
+    EXPAND NET_TCP_STREAM_SET_QUICKACK %out_status, %stream, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_QUICK_ACK %out_status, %out_enabled, %stream
+    EXPAND NET_TCP_STREAM_QUICKACK %out_status, %out_enabled, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_DEFER_ACCEPT %out_status, %stream, %seconds
+    EXPAND NET_TCP_STREAM_SET_DEFERACCEPT %out_status, %stream, %seconds
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_DEFER_ACCEPT %out_status, %out_seconds, %stream
+    EXPAND NET_TCP_STREAM_DEFERACCEPT %out_status, %out_seconds, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEP_ALIVE %out_status, %stream, %enabled
+    EXPAND NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEP_ALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
+    EXPAND NET_TCP_STREAM_SET_KEEPALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
+[END_MACRO]
+// Convert the public SA status code into the stable Rust-style ErrorKind
+// discriminator. Network APIs expose SA status codes; take_error values are
+// raw errno/WSA values and intentionally are not accepted here.
+[MACRO] NET_ERROR_KIND_FROM_STATUS %out_kind, %status
+    __net_kind_invalid_arg_%out_kind = eq %status, SA_NET_STATUS_INVALID_ARGUMENT
+    br __net_kind_invalid_arg_%out_kind -> L_NET_KIND_INVALID_ARG_%out_kind, L_NET_KIND_INVALID_HANDLE_%out_kind
+L_NET_KIND_INVALID_ARG_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_INVALID_INPUT
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_INVALID_HANDLE_%out_kind:
+    __net_kind_invalid_handle_%out_kind = eq %status, SA_NET_STATUS_INVALID_HANDLE
+    br __net_kind_invalid_handle_%out_kind -> L_NET_KIND_INVALID_HANDLE_VALUE_%out_kind, L_NET_KIND_NOT_FOUND_%out_kind
+L_NET_KIND_INVALID_HANDLE_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_NOT_CONNECTED
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_NOT_FOUND_%out_kind:
+    __net_kind_not_found_%out_kind = eq %status, SA_NET_STATUS_NOT_FOUND
+    br __net_kind_not_found_%out_kind -> L_NET_KIND_NOT_FOUND_VALUE_%out_kind, L_NET_KIND_ACCESS_%out_kind
+L_NET_KIND_NOT_FOUND_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_NOT_FOUND
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_ACCESS_%out_kind:
+    __net_kind_access_%out_kind = eq %status, SA_NET_STATUS_ACCESS
+    br __net_kind_access_%out_kind -> L_NET_KIND_ACCESS_VALUE_%out_kind, L_NET_KIND_NO_MEMORY_%out_kind
+L_NET_KIND_ACCESS_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_PERMISSION_DENIED
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_NO_MEMORY_%out_kind:
+    __net_kind_no_memory_%out_kind = eq %status, SA_NET_STATUS_NO_MEMORY
+    br __net_kind_no_memory_%out_kind -> L_NET_KIND_NO_MEMORY_VALUE_%out_kind, L_NET_KIND_IO_%out_kind
+L_NET_KIND_NO_MEMORY_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OUT_OF_MEMORY
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_IO_%out_kind:
+    __net_kind_io_%out_kind = eq %status, SA_NET_STATUS_IO
+    br __net_kind_io_%out_kind -> L_NET_KIND_IO_VALUE_%out_kind, L_NET_KIND_NET_%out_kind
+L_NET_KIND_IO_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OTHER
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_NET_%out_kind:
+    __net_kind_net_%out_kind = eq %status, SA_NET_STATUS_NET
+    br __net_kind_net_%out_kind -> L_NET_KIND_NET_VALUE_%out_kind, L_NET_KIND_UNSUPPORTED_%out_kind
+L_NET_KIND_NET_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_NETWORK_UNREACHABLE
+    !__net_kind_net_%out_kind
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_UNSUPPORTED_%out_kind:
+    __net_kind_unsupported_%out_kind = eq %status, SA_NET_STATUS_UNSUPPORTED
+    br __net_kind_unsupported_%out_kind -> L_NET_KIND_UNSUPPORTED_VALUE_%out_kind, L_NET_KIND_OTHER_%out_kind
+L_NET_KIND_UNSUPPORTED_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_UNSUPPORTED
+    !__net_kind_unsupported_%out_kind
+    !__net_kind_net_%out_kind
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_OTHER_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OTHER
+    !__net_kind_unsupported_%out_kind
+    !__net_kind_net_%out_kind
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+L_NET_KIND_END_%out_kind:
+[END_MACRO]
+// Rust-style spelling aliases. SA exposes the 128-bit value as two u64
+// registers because the language has no native u128 scalar.
+[MACRO] NET_IPV6_TO_BITS %out_hi, %out_lo, %addr
+    EXPAND NET_IPV6_TO_BITS64 %out_hi, %out_lo, %addr
+[END_MACRO]
+
+[MACRO] NET_IPV6_FROM_BITS %addr, %hi, %lo
+    EXPAND NET_IPV6_FROM_BITS64 %addr, %hi, %lo
 [END_MACRO]

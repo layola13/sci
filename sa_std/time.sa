@@ -759,3 +759,92 @@ L_TIME_ABS_DIFF_END_%out_ns:
 [MACRO] TIME_SYSTEM_TIME_DEFAULT %out_system_ns
     EXPAND TIME_SYSTEM_TIME_UNIX_EPOCH %out_system_ns
 [END_MACRO]
+
+// Stable std-style aliases for Duration, Instant, and SystemTime operations.
+[MACRO] DURATION_ZERO %out_ns
+    EXPAND TIME_DURATION_ZERO %out_ns
+[END_MACRO]
+
+[MACRO] DURATION_MAX %out_ns
+    EXPAND TIME_DURATION_MAX %out_ns
+[END_MACRO]
+
+[MACRO] DURATION_FROM_NANOS %out_ns, %nanos
+    EXPAND TIME_DURATION_FROM_NANOS %out_ns, %nanos
+[END_MACRO]
+
+[MACRO] DURATION_FROM_MICROS %out_ns, %micros
+    EXPAND TIME_DURATION_FROM_MICROS %out_ns, %micros
+[END_MACRO]
+
+[MACRO] DURATION_FROM_MILLIS %out_ns, %millis
+    EXPAND TIME_DURATION_FROM_MILLIS %out_ns, %millis
+[END_MACRO]
+
+[MACRO] DURATION_FROM_SECS %out_ns, %secs
+    EXPAND TIME_DURATION_FROM_SECS %out_ns, %secs
+[END_MACRO]
+
+[MACRO] DURATION_AS_NANOS %out_ns, %duration_ns
+    EXPAND TIME_DURATION_AS_NANOS %out_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_AS_MICROS %out_us, %duration_ns
+    EXPAND TIME_DURATION_AS_MICROS %out_us, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_AS_MILLIS %out_ms, %duration_ns
+    EXPAND TIME_DURATION_AS_MILLIS %out_ms, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_AS_SECS %out_secs, %duration_ns
+    EXPAND TIME_DURATION_AS_SECS %out_secs, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_CHECKED_ADD %out_ok, %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_CHECKED_ADD %out_ok, %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_CHECKED_SUB %out_ok, %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_CHECKED_SUB %out_ok, %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_SATURATING_ADD %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_SATURATING_ADD %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_SATURATING_SUB %out_ns, %base_ns, %duration_ns
+    EXPAND TIME_DURATION_SATURATING_SUB %out_ns, %base_ns, %duration_ns
+[END_MACRO]
+
+[MACRO] DURATION_ABS_DIFF %out_ns, %left_ns, %right_ns
+    EXPAND TIME_DURATION_ABS_DIFF %out_ns, %left_ns, %right_ns
+[END_MACRO]
+
+[MACRO] INSTANT_NOW %out_instant_ns
+    EXPAND TIME_INSTANT_NOW %out_instant_ns
+[END_MACRO]
+
+[MACRO] INSTANT_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_INSTANT_DURATION_SINCE %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] INSTANT_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+    EXPAND TIME_INSTANT_CHECKED_DURATION_SINCE %out_ok, %out_ns, %later_ns, %earlier_ns
+[END_MACRO]
+
+[MACRO] INSTANT_ELAPSED %out_ns, %instant_ns
+    EXPAND TIME_INSTANT_ELAPSED %out_ns, %instant_ns
+[END_MACRO]
+
+[MACRO] SYSTEM_TIME_NOW %out_system_ns
+    EXPAND TIME_SYSTEM_TIME_NOW %out_system_ns
+[END_MACRO]
+
+[MACRO] SYSTEM_TIME_FROM_UNIX_NS %out_system_ns, %unix_ns
+    EXPAND TIME_SYSTEM_TIME_FROM_UNIX_NS %out_system_ns, %unix_ns
+[END_MACRO]
+
+[MACRO] SYSTEM_TIME_AS_UNIX_NS %out_unix_ns, %system_ns
+    EXPAND TIME_SYSTEM_TIME_AS_UNIX_NS %out_unix_ns, %system_ns
+[END_MACRO]

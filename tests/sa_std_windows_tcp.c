@@ -54,7 +54,7 @@ static int check_supported_loopback(void) {
     static const uint8_t host[] = "127.0.0.1";
     static const uint8_t request[] = "ping";
     static const uint8_t response[] = "pong";
-    uint64_t listener = 0, client = 0, server = 0, addr = 0;
+    uint64_t listener = 0, listener_clone = 0, client = 0, client_clone = 0, server = 0, addr = 0;
     uint32_t port = 0;
     uint64_t count = 0;
     uint8_t buffer[8] = {0};
@@ -69,11 +69,15 @@ static int check_supported_loopback(void) {
     CHECK(104, sa_std_net_tcp_listener_set_nonblocking(listener, 0) == SA_STD_OK);
     CHECK(105, sa_std_net_tcp_listener_set_ttl(listener, 64) == SA_STD_OK);
     CHECK(106, sa_std_net_tcp_listener_ttl(listener, &((uint32_t){0})) == SA_STD_OK);
+    CHECK(107, sa_std_net_tcp_listener_try_clone(listener, &listener_clone) == SA_STD_OK);
+    CHECK(108, listener_clone != 0);
 
     CHECK(110, sa_std_net_tcp_connect(host, sizeof(host) - 1, port, &client) == SA_STD_OK);
     CHECK(111, client != 0);
-    CHECK(112, sa_std_net_tcp_accept(listener, &server) == SA_STD_OK);
-    CHECK(113, server != 0);
+    CHECK(112, sa_std_net_tcp_stream_try_clone(client, &client_clone) == SA_STD_OK);
+    CHECK(113, client_clone != 0);
+    CHECK(114, sa_std_net_tcp_accept(listener, &server) == SA_STD_OK);
+    CHECK(115, server != 0);
     CHECK(114, sa_std_net_tcp_stream_set_nonblocking(client, 0) == SA_STD_OK);
     CHECK(115, sa_std_net_tcp_stream_set_nodelay(client, 1) == SA_STD_OK);
     CHECK(116, sa_std_net_tcp_stream_nodelay(client, &enabled) == SA_STD_OK && enabled != 0);
@@ -94,14 +98,18 @@ static int check_supported_loopback(void) {
     CHECK(131, sa_std_net_tcp_stream_peer_addr(client, &addr) == SA_STD_OK && addr != 0);
     CHECK(132, sa_std_net_tcp_stream_local_addr(client, &addr) == SA_STD_OK && addr != 0);
 
+    close_result = sa_net_tcp_stream_close(client_clone);
+    CHECK(133, close_result.status == SA_STD_OK);
     close_result = sa_net_tcp_stream_close(client);
     CHECK(140, close_result.status == SA_STD_OK);
     CHECK(141, sa_net_tcp_stream_close(client).status == SA_STD_ERR_INVALID_HANDLE);
     close_result = sa_net_tcp_stream_close(server);
     CHECK(142, close_result.status == SA_STD_OK);
+    close_result = sa_net_tcp_listener_close(listener_clone);
+    CHECK(144, close_result.status == SA_STD_OK);
     close_result = sa_net_tcp_listener_close(listener);
     CHECK(143, close_result.status == SA_STD_OK);
-    CHECK(144, sa_net_tcp_listener_close(listener).status == SA_STD_ERR_INVALID_HANDLE);
+    CHECK(145, sa_net_tcp_listener_close(listener).status == SA_STD_ERR_INVALID_HANDLE);
     return 0;
 }
 

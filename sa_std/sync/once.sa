@@ -203,9 +203,16 @@ L_ONCE_GET_MUT_DONE_%out_ok:
 [MACRO] ONCE_TAKE %out_ok, %out_value, %once_reg
     __once_take_ok_slot_%out_ok = stack_alloc 8
     __once_take_value_slot_%out_ok = stack_alloc 8
+    store __once_take_ok_slot_%out_ok+0, 0 as u64
+    store __once_take_value_slot_%out_ok+0, 0 as u64
+    __once_take_claimed_state_%out_ok = 0
+    __once_take_claimed_%out_ok = 0
     __once_take_state_%out_ok = atomic_load %once_reg+Once_state as u32 acquire
     __once_take_ready_%out_ok = eq __once_take_state_%out_ok, Once_STATE_READY
-    br __once_take_ready_%out_ok -> L_ONCE_TAKE_READY_%out_ok, L_ONCE_TAKE_EMPTY_%out_ok
+    br __once_take_ready_%out_ok -> L_ONCE_TAKE_CLAIM_%out_ok, L_ONCE_TAKE_EMPTY_%out_ok
+L_ONCE_TAKE_CLAIM_%out_ok:
+    __once_take_claimed_state_%out_ok, __once_take_claimed_%out_ok = cmpxchg %once_reg+Once_state, Once_STATE_READY, Once_STATE_RUNNING as u32 acq_rel acquire
+    br __once_take_claimed_%out_ok -> L_ONCE_TAKE_READY_%out_ok, L_ONCE_TAKE_EMPTY_%out_ok
 L_ONCE_TAKE_READY_%out_ok:
     __once_take_value_%out_ok = load %once_reg+Once_value as u64
     store __once_take_value_slot_%out_ok+0, __once_take_value_%out_ok as u64
@@ -213,10 +220,12 @@ L_ONCE_TAKE_READY_%out_ok:
     atomic_store %once_reg+Once_state, Once_STATE_UNINIT as u32 release
     store __once_take_ok_slot_%out_ok+0, 1 as u64
     !__once_take_value_%out_ok
+    !__once_take_claimed_state_%out_ok
+    !__once_take_claimed_%out_ok
     jmp L_ONCE_TAKE_DONE_%out_ok
 L_ONCE_TAKE_EMPTY_%out_ok:
-    store __once_take_value_slot_%out_ok+0, 0 as u64
-    store __once_take_ok_slot_%out_ok+0, 0 as u64
+    !__once_take_claimed_state_%out_ok
+    !__once_take_claimed_%out_ok
     jmp L_ONCE_TAKE_DONE_%out_ok
 L_ONCE_TAKE_DONE_%out_ok:
     %out_value = load __once_take_value_slot_%out_ok+0 as u64

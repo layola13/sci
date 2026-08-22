@@ -31,7 +31,7 @@ fn spawnDebugLog(message: []const u8) void {
     @memcpy(buf[0..len], message);
     buf[len] = '\n';
     buf[len + 1] = 0;
-    const sentinel_slice: [:0]u8 = buf[0..len + 1 :0];
+    const sentinel_slice: [:0]u8 = buf[0 .. len + 1 :0];
     _ = fputs(sentinel_slice.ptr, file);
     _ = fclose(file);
 }
@@ -228,6 +228,15 @@ const NetAddrResource = struct {
     }
 };
 
+const NetAddrListResource = struct {
+    addresses: []std.net.Address,
+    next_index: usize = 0,
+
+    fn close(self: *NetAddrListResource) void {
+        if (self.addresses.len != 0) std.heap.page_allocator.free(self.addresses);
+        self.* = undefined;
+    }
+};
 const TcpStreamResource = struct {
     stream: std.net.Stream,
     fn close(self: *TcpStreamResource) void {
@@ -397,6 +406,7 @@ const dir_entries_handle_tag: u64 = 0x7600_0000_0000_0000;
 const dir_entry_handle_tag: u64 = 0x7700_0000_0000_0000;
 const dynamic_library_handle_tag: u64 = 0x7800_0000_0000_0000;
 const net_addr_handle_tag: u64 = 0x7900_0000_0000_0000;
+const net_addr_list_handle_tag: u64 = 0x7c00_0000_0000_0000;
 const tcp_stream_handle_tag: u64 = 0x7a00_0000_0000_0000;
 const tcp_listener_handle_tag: u64 = 0x7b00_0000_0000_0000;
 const udp_handle_tag: u64 = 0x7a00_0000_0000_0000;
@@ -431,6 +441,9 @@ var dynamic_library_error: [:0]const u8 = "";
 var net_addr_mutex: std.Thread.Mutex = .{};
 var net_addr_slots = std.ArrayList(?NetAddrResource).init(std.heap.page_allocator);
 var net_addr_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var net_addr_list_mutex: std.Thread.Mutex = .{};
+var net_addr_list_slots = std.ArrayList(?NetAddrListResource).init(std.heap.page_allocator);
+var net_addr_list_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
 var tcp_mutex: std.Thread.Mutex = .{};
 var tcp_stream_slots = std.ArrayList(?TcpStreamResource).init(std.heap.page_allocator);
 var tcp_stream_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
@@ -1044,6 +1057,40 @@ fn closeNetAddr(handle: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+fn registerNetAddrList(host: []const u8, port: u16) !u64 {
+    const list = try std.net.getAddressList(std.heap.page_allocator, host, port);
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
+    const addresses = try std.heap.page_allocator.dupe(std.net.Address, list.addrs);
+    errdefer std.heap.page_allocator.free(addresses);
+    net_addr_list_mutex.lock();
+    defer net_addr_list_mutex.unlock();
+    while (net_addr_list_free_slots.items.len != 0) {
+        const idx = net_addr_list_free_slots.pop().?;
+        if (idx >= net_addr_list_slots.items.len or net_addr_list_slots.items[idx] != null) continue;
+        net_addr_list_slots.items[idx] = .{ .addresses = addresses };
+        return net_addr_list_handle_tag | @as(u64, @intCast(idx + 1));
+    }
+    try net_addr_list_slots.append(.{ .addresses = addresses });
+    return net_addr_list_handle_tag | @as(u64, @intCast(net_addr_list_slots.items.len));
+}
+
+fn netAddrListSlotLocked(handle: u64) ?usize {
+    const idx = taggedSlot(handle, net_addr_list_handle_tag) orelse return null;
+    if (idx >= net_addr_list_slots.items.len or net_addr_list_slots.items[idx] == null) return null;
+    return idx;
+}
+
+fn closeNetAddrList(handle: u64) i32 {
+    net_addr_list_mutex.lock();
+    defer net_addr_list_mutex.unlock();
+    const idx = netAddrListSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var resource = net_addr_list_slots.items[idx].?;
+    resource.close();
+    net_addr_list_slots.items[idx] = null;
+    net_addr_list_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
+    return finish(SA_STD_OK);
+}
 fn registerTcpStreamLocked(stream: std.net.Stream) !u64 {
     while (tcp_stream_free_slots.items.len != 0) {
         const idx = tcp_stream_free_slots.pop().?;
@@ -1078,6 +1125,14 @@ fn tcpListenerSlotLocked(handle: u64) ?usize {
     return idx;
 }
 
+fn duplicateWinSocket(socket: std.posix.socket_t) !std.posix.socket_t {
+    const ws = std.os.windows.ws2_32;
+    var info: ws.WSAPROTOCOL_INFOW = undefined;
+    if (ws.WSADuplicateSocketW(socket, std.os.windows.GetCurrentProcessId(), &info) != 0) return error.NetworkSubsystemFailed;
+    const duplicate = ws.WSASocketW(info.iAddressFamily, info.iSocketType, info.iProtocol, &info, 0, 0);
+    if (duplicate == ws.INVALID_SOCKET) return error.NetworkSubsystemFailed;
+    return duplicate;
+}
 fn closeTcpHandle(handle: u64) i32 {
     tcp_mutex.lock();
     defer tcp_mutex.unlock();
@@ -1516,13 +1571,13 @@ fn spawnProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: Proce
     child.stdout_behavior = if (mode == .inherit) .Inherit else .Pipe;
     child.stderr_behavior = if (mode == .inherit) .Inherit else .Pipe;
     child.cwd = cwd;
-    spawnDebugLogFmt( "spawnProcessCwd: attempting spawn argv_len={d}", .{compat.argv.len});
-    for (compat.argv) |a| spawnDebugLogFmt( "  argv: {s}", .{a});
+    spawnDebugLogFmt("spawnProcessCwd: attempting spawn argv_len={d}", .{compat.argv.len});
+    for (compat.argv) |a| spawnDebugLogFmt("  argv: {s}", .{a});
     child.spawn() catch |err| {
-        spawnDebugLogFmt( "spawnProcessCwd: spawn FAILED err={s}", .{@errorName(err)});
+        spawnDebugLogFmt("spawnProcessCwd: spawn FAILED err={s}", .{@errorName(err)});
         return err;
     };
-    spawnDebugLogFmt( "spawnProcessCwd: spawn succeeded pid={d}", .{child.id});
+    spawnDebugLogFmt("spawnProcessCwd: spawn succeeded pid={d}", .{child.id});
     errdefer _ = child.kill() catch {};
 
     const resource = try std.heap.page_allocator.create(ProcessResource);
@@ -2074,7 +2129,6 @@ pub export fn sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, file: ?
     std.debug.print("PANIC[{d}]: {s}:{d}:{d}: expected={d} actual={d}\n", .{ code, file_slice, line, col, expected, actual });
     std.process.exit(if (code < 0) 1 else @as(u8, @truncate(@as(u32, @bitCast(code)))));
 }
-
 
 const test_debug_slots = 16;
 
@@ -3259,10 +3313,10 @@ pub export fn sa_thread_into_pthread_t(handle_id: i32, out_raw: ?*u64) i32 {
     const idx: usize = @intCast(handle_id - 1);
     win_thread_mutex.lock();
     defer win_thread_mutex.unlock();
-        if (idx >= win_thread_slots.items.len) {
-            if (out_raw) |o| o.* = 0;
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        }
+    if (idx >= win_thread_slots.items.len) {
+        if (out_raw) |o| o.* = 0;
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    }
     const slot = win_thread_slots.items[idx] orelse {
         if (out_raw) |o| o.* = 0;
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -3312,7 +3366,6 @@ fn windowsCreateThread(task: *WinThreadTask) !std.os.windows.HANDLE {
     return handle;
 }
 
-
 pub export fn sa_std_process_id() u32 {
     return std.os.windows.GetCurrentProcessId();
 }
@@ -3357,9 +3410,13 @@ pub export fn sa_std_process_parent_id() u32 {
     return currentParentProcessId();
 }
 
-pub export fn sa_std_process_user_id() u32 { return 0; }
+pub export fn sa_std_process_user_id() u32 {
+    return 0;
+}
 
-pub export fn sa_std_process_group_id() u32 { return 0; }
+pub export fn sa_std_process_group_id() u32 {
+    return 0;
+}
 
 pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
     const input = constBytes(json_bytes, len) catch return 0;
@@ -3928,7 +3985,8 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
 pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
-    _ = has_process_group; _ = setsid;
+    _ = has_process_group;
+    _ = setsid;
     _ = process_group;
     const arg0 = if (has_arg0 != 0) constBytes(arg0_ptr, arg0_len) catch |err| return finishErr(err) else null;
     const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
@@ -3988,12 +4046,18 @@ pub export fn sa_std_process_run_command_ext_uid_gid(argv_ptr: ?[*]const SaProce
 }
 
 pub export fn sa_std_process_spawn_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
-    _ = uid; _ = has_uid; _ = gid; _ = has_gid;
+    _ = uid;
+    _ = has_uid;
+    _ = gid;
+    _ = has_gid;
     return sa_std_process_spawn_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_handle);
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    _ = uid; _ = has_uid; _ = gid; _ = has_gid;
+    _ = uid;
+    _ = has_uid;
+    _ = gid;
+    _ = has_gid;
     return sa_std_process_spawn_stream_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, out_process, out_stdout, out_stderr);
 }
 
@@ -4022,7 +4086,16 @@ pub export fn sa_std_process_spawn_stream_command_ext_chroot(argv_ptr: ?[*]const
 }
 
 pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) i32 {
-    _ = uid; _ = has_uid; _ = gid; _ = has_gid; _ = groups_ptr; _ = groups_len; _ = has_groups; _ = chroot_ptr; _ = chroot_len; _ = has_chroot;
+    _ = uid;
+    _ = has_uid;
+    _ = gid;
+    _ = has_gid;
+    _ = groups_ptr;
+    _ = groups_len;
+    _ = has_groups;
+    _ = chroot_ptr;
+    _ = chroot_len;
+    _ = has_chroot;
     var handle: u64 = 0;
     const status = sa_std_process_run_command_ext(argv_ptr, argv_len, cwd_ptr, cwd_len, has_cwd, arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, &handle);
     if (status != SA_STD_OK) return status;
@@ -4435,7 +4508,6 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
-
 pub export fn sa_std_process_send_signal(handle: u64, signal: i32) i32 {
     _ = handle;
     _ = signal;
@@ -4470,6 +4542,7 @@ pub export fn sa_std_process_close(handle: u64) i32 {
 
 pub export fn sa_std_fd_as_raw(handle: u64, out_fd: ?*i32) i32 {
     const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    fd_ptr.* = -1;
     if ((handle & tagged_handle_mask) == process_handle_tag) {
         fd_ptr.* = @as(i32, @intCast(handle));
         return finish(SA_STD_OK);
@@ -4479,25 +4552,29 @@ pub export fn sa_std_fd_as_raw(handle: u64, out_fd: ?*i32) i32 {
 
 pub export fn sa_std_fd_dup(handle: u64, out_handle: ?*u64) i32 {
     _ = handle;
-    _ = out_handle;
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_fd_dup_raw(fd: i32, out_handle: ?*u64) i32 {
     _ = fd;
-    _ = out_handle;
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
     _ = fd;
-    _ = out_handle;
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_fd_into_raw(handle: u64, out_fd: ?*i32) i32 {
     _ = handle;
-    _ = out_fd;
+    const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    fd_ptr.* = -1;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
@@ -4508,7 +4585,8 @@ pub export fn sa_std_fd_close_raw(fd: i32) i32 {
 
 pub export fn sa_std_fd_is_terminal(handle: u64, out_flag: ?*u8) i32 {
     _ = handle;
-    _ = out_flag;
+    const flag_ptr = out_flag orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    flag_ptr.* = 0;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
@@ -4540,6 +4618,7 @@ pub export fn sa_std_close(handle: u64) i32 {
     if ((handle & tagged_handle_mask) == dir_entry_handle_tag) return closeDirEntryHandle(handle);
     if ((handle & tagged_handle_mask) == dynamic_library_handle_tag) return closeDynamicLibrary(handle);
     if ((handle & tagged_handle_mask) == net_addr_handle_tag) return closeNetAddr(handle);
+    if ((handle & tagged_handle_mask) == net_addr_list_handle_tag) return closeNetAddrList(handle);
     if ((handle & tagged_handle_mask) == tcp_stream_handle_tag or (handle & tagged_handle_mask) == tcp_listener_handle_tag) return closeTcpHandle(handle);
     if ((handle & tagged_handle_mask) == udp_handle_tag) return closeUdp(handle);
     registry_mutex.lock();
@@ -4726,6 +4805,38 @@ pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out
     return 1;
 }
 
+pub export fn sa_std_net_to_socket_addr_list(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    if (port > std.math.maxInt(u16)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = registerNetAddrList(host, @intCast(port)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_addr: ?*u64) i32 {
+    const ok_ptr = out_ok orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ok_ptr.* = 0;
+    addr_ptr.* = 0;
+    net_addr_list_mutex.lock();
+    defer net_addr_list_mutex.unlock();
+    const idx = netAddrListSlotLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const list = &net_addr_list_slots.items[idx].?;
+    if (list.next_index >= list.addresses.len) return finish(SA_STD_OK);
+    const address = list.addresses[list.next_index];
+    list.next_index += 1;
+    addr_ptr.* = registerSocketAddress(address) catch |err| {
+        list.next_index -= 1;
+        return finishErr(err);
+    };
+    ok_ptr.* = 1;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_addr_list_free(list_handle: u64) i32 {
+    return closeNetAddrList(list_handle);
+}
 pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -4896,8 +5007,44 @@ fn tcpGetOption(handle: u64, listener: bool, level: i32, option: i32, out: ?*i32
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpStreamSlotLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const duplicate = duplicateWinSocket(tcp_stream_slots.items[idx].?.stream.handle) catch |err| return finishErr(err);
+    const handle = registerTcpStreamLocked(.{ .handle = duplicate }) catch |err| {
+        std.os.windows.closesocket(duplicate) catch {};
+        return finishErr(err);
+    };
+    out.* = handle;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpListenerSlotLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const server = tcp_listener_slots.items[idx].?.server;
+    const duplicate = duplicateWinSocket(server.stream.handle) catch |err| return finishErr(err);
+    const handle = registerTcpListenerLocked(.{ .listen_address = server.listen_address, .stream = .{ .handle = duplicate } }) catch |err| {
+        std.os.windows.closesocket(duplicate) catch {};
+        return finishErr(err);
+    };
+    out.* = handle;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_tcp_stream_set_nonblocking(h: u64, enabled: i32) i32 {
     return tcpSetNonblocking(h, false, enabled);
+}
+pub export fn sa_std_net_tcp_listener_set_only_v6(h: u64, enabled: i32) i32 {
+    return tcpSetOption(h, true, windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY, if (enabled != 0) 1 else 0);
+}
+pub export fn sa_std_net_tcp_listener_only_v6(h: u64, out: ?*i32) i32 {
+    return tcpGetOption(h, true, windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY, out);
 }
 pub export fn sa_std_net_tcp_listener_set_nonblocking(h: u64, enabled: i32) i32 {
     return tcpSetNonblocking(h, true, enabled);
@@ -4961,8 +5108,30 @@ pub export fn sa_std_net_tcp_stream_write_timeout(h: u64, out_timeout_ns: ?*u64)
 pub export fn sa_std_net_tcp_stream_take_error(h: u64, out: ?*i32) i32 {
     return tcpGetOption(h, false, std.posix.SOL.SOCKET, std.posix.SO.ERROR, out);
 }
+pub export fn sa_std_net_tcp_stream_set_keepalive(h: u64, enabled: i32) i32 {
+    _ = h;
+    _ = enabled;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_stream_set_keepalive_params(h: u64, idle_secs: u32, interval_secs: u32, count: u32) i32 {
+    _ = h;
+    _ = idle_secs;
+    _ = interval_secs;
+    _ = count;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
 pub export fn sa_std_net_tcp_listener_take_error(h: u64, out: ?*i32) i32 {
     return tcpGetOption(h, true, std.posix.SOL.SOCKET, std.posix.SO.ERROR, out);
+}
+pub export fn sa_std_net_tcp_listener_set_reuseaddr(h: u64, enabled: i32) i32 {
+    _ = h;
+    _ = enabled;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_listener_set_reuseport(h: u64, enabled: i32) i32 {
+    _ = h;
+    _ = enabled;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 pub export fn sa_std_net_tcp_stream_set_quickack(h: u64, enabled: i32) i32 {
     _ = h;
@@ -5172,6 +5341,27 @@ fn udpReceiveFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr:
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const idx = udpSlotLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const duplicate = duplicateWinSocket(udp_slots.items[idx].?.socket) catch |err| return finishErr(err);
+    while (udp_free_slots.items.len != 0) {
+        const free_idx = udp_free_slots.pop().?;
+        if (free_idx >= udp_slots.items.len or udp_slots.items[free_idx] != null) continue;
+        udp_slots.items[free_idx] = .{ .socket = duplicate };
+        out.* = udp_handle_tag | @as(u64, @intCast(free_idx + 1));
+        return finish(SA_STD_OK);
+    }
+    udp_slots.append(.{ .socket = duplicate }) catch |err| {
+        std.os.windows.closesocket(duplicate) catch {};
+        return finishErr(err);
+    };
+    out.* = udp_handle_tag | @as(u64, @intCast(udp_slots.items.len));
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -5225,6 +5415,25 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(
+        udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE),
+        windows_ipproto_ipv6,
+        std.os.windows.ws2_32.IPV6_V6ONLY,
+        if (enabled != 0) 1 else 0,
+    ) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_only_v6(socket: u64, out: ?*i32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    result.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
     udp_mutex.lock();
     defer udp_mutex.unlock();
@@ -5791,6 +6000,115 @@ pub export fn sa_term_epoll_close(_: u64) i32 {
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
+// HTTP/2 is not linked into the Windows bootstrap runtime yet. Keep the
+// complete sa_std HTTP/2 ABI present so callers receive a deterministic
+// unsupported result instead of a link-time failure.
+fn unsupportedHttp2U64(out: ?*u64) i32 {
+    const slot = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    slot.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_http2_supported(out_supported: ?*u32) i32 {
+    const slot = out_supported orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    slot.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_http2_client_request(
+    url_ptr: ?[*]const u8,
+    url_len: u64,
+    method_ptr: ?[*]const u8,
+    method_len: u64,
+    body_ptr: ?[*]const u8,
+    body_len: u64,
+    out_handle: ?*u64,
+) i32 {
+    _ = url_ptr;
+    _ = url_len;
+    _ = method_ptr;
+    _ = method_len;
+    _ = body_ptr;
+    _ = body_len;
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_nghttp2_version_json(out_handle: ?*u64) i32 {
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_status_json(out_handle: ?*u64) i32 {
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_constants_json(out_handle: ?*u64) i32 {
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_sensitive_headers(out_handle: ?*u64) i32 {
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_get_default_settings_json(out_handle: ?*u64) i32 {
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_get_packed_settings(
+    settings_json_ptr: ?[*]const u8,
+    settings_json_len: u64,
+    out_handle: ?*u64,
+) i32 {
+    _ = settings_json_ptr;
+    _ = settings_json_len;
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_get_unpacked_settings_json(
+    buf_ptr: ?[*]const u8,
+    buf_len: u64,
+    out_handle: ?*u64,
+) i32 {
+    _ = buf_ptr;
+    _ = buf_len;
+    return unsupportedHttp2U64(out_handle);
+}
+
+pub export fn sa_std_http2_perform_server_handshake(
+    input_ptr: ?[*]const u8,
+    input_len: u64,
+    settings_json_ptr: ?[*]const u8,
+    settings_json_len: u64,
+    out_bytes_handle: ?*u64,
+    out_json_handle: ?*u64,
+) i32 {
+    _ = input_ptr;
+    _ = input_len;
+    _ = settings_json_ptr;
+    _ = settings_json_len;
+    const bytes = out_bytes_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const json = out_json_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    bytes.* = 0;
+    json.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+pub export fn sa_std_http2_buffer_data(handle: u64) ?[*]const u8 {
+    _ = handle;
+    _ = finish(SA_STD_ERR_UNSUPPORTED);
+    return null;
+}
+
+pub export fn sa_std_http2_buffer_len(handle: u64) u64 {
+    _ = handle;
+    _ = finish(SA_STD_ERR_UNSUPPORTED);
+    return 0;
+}
+
+pub export fn sa_std_http2_buffer_free(handle: u64) i32 {
+    _ = handle;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
 // Compatibility shims for the rosetta demos that model host APIs directly.
 // These export plain C ABI symbols matching the names the demos `@extern`.
 // They mirror the Linux sa_std.zig mock surface (src/runtime/sa_std.zig:5947),
@@ -6051,4 +6369,3 @@ pub export fn sa_http_server_free(server: u64) u32 {
     last_error = SA_STD_OK;
     return SA_STD_OK;
 }
-

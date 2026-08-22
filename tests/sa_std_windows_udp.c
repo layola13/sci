@@ -57,6 +57,10 @@ static int bind_loopback(uint64_t *out_socket) {
     }
     CHECK(11, status == SA_STD_OK);
     CHECK(12, *out_socket != 0);
+    uint64_t clone = 0;
+    CHECK(15, sa_std_net_udp_try_clone(*out_socket, &clone) == SA_STD_OK);
+    CHECK(16, clone != 0);
+    CHECK(17, sa_net_udp_close(clone) == SA_STD_OK);
     return SA_STD_OK;
 }
 

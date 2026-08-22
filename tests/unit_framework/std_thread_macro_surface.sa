@@ -259,3 +259,48 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+@test "sa_std thread invalid raw conversions are deterministic"():
+L_ENTRY:
+    EXPAND THREAD_AS_PTHREAD_T as_status, as_raw, 0
+    EXPAND THREAD_INTO_PTHREAD_T into_status, into_raw, 0
+    raw_out = stack_alloc 4
+    store raw_out+0, 77 as i32
+    EXPAND THREAD_RAW_PTHREAD_JOIN_STATUS raw_join_status, 0, raw_out
+    raw_join_result = load raw_out+0 as i32
+
+    as_error = ne as_status, 0
+    into_error = ne into_status, 0
+    raw_join_error = ne raw_join_status, 0
+    as_zero = eq as_raw, 0
+    into_zero = eq into_raw, 0
+    raw_zero = eq raw_join_result, 0
+    ok01 = and as_error, into_error
+    ok02 = and ok01, raw_join_error
+    ok03 = and ok02, as_zero
+    ok04 = and ok03, into_zero
+    ok = and ok04, raw_zero
+
+    !as_status
+    !as_raw
+    !into_status
+    !into_raw
+    !raw_join_status
+    !raw_join_result
+    !as_error
+    !into_error
+    !raw_join_error
+    !as_zero
+    !into_zero
+    !raw_zero
+    !ok01
+    !ok02
+    !ok03
+    !ok04
+    br ok -> L_INVALID_PASS, L_INVALID_FAIL
+L_INVALID_FAIL:
+    !ok
+    panic(1514)
+L_INVALID_PASS:
+    !ok
+    return 0

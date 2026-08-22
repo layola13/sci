@@ -1,0 +1,2 @@
+// ABI/layout companion for memory namespace aggregation.
+@import "../mem.sal"

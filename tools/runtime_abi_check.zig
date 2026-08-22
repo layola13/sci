@@ -121,6 +121,30 @@ fn collectHeaderSymbols(symbols: *SymbolSet, contents: []const u8) !void {
 fn collectZigSymbols(symbols: *SymbolSet, contents: []const u8) !void {
     var index: usize = 0;
     while (index < contents.len) {
+        if (contents[index] == '&') {
+            var cursor = index + 1;
+            while (cursor < contents.len and isWhitespace(contents[cursor])) : (cursor += 1) {}
+            var last_start: usize = cursor;
+            var last_end: usize = cursor;
+            var saw_dot = false;
+            while (cursor < contents.len) {
+                const part_start = cursor;
+                const part_end = identifierEnd(contents, part_start);
+                if (part_end == part_start) break;
+                last_start = part_start;
+                last_end = part_end;
+                cursor = part_end;
+                if (cursor >= contents.len or contents[cursor] != '.') break;
+                saw_dot = true;
+                cursor += 1;
+            }
+            if (saw_dot and last_end > last_start and std.mem.startsWith(u8, contents[last_start..last_end], "sa_")) {
+                try symbols.put(contents[last_start..last_end], {});
+            }
+            index = @max(cursor, index + 1);
+            continue;
+        }
+
         if (std.mem.startsWith(u8, contents[index..], "export fn")) {
             var name_start = index + "export fn".len;
             while (name_start < contents.len and isWhitespace(contents[name_start])) : (name_start += 1) {}

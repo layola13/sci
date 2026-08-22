@@ -7,7 +7,20 @@ const builtin = @import("builtin");
 // here to be kept and emitted into libsa_std alongside the rest of the sa_std
 // surface. This is purely a link-time union; nothing calls these directly.
 comptime {
-    _ = &@import("sa_http2.zig").sa_std_http2_supported;
+    const http2 = @import("sa_http2.zig");
+    _ = &http2.sa_std_http2_supported;
+    _ = &http2.sa_std_http2_client_request;
+    _ = &http2.sa_std_http2_nghttp2_version_json;
+    _ = &http2.sa_std_http2_status_json;
+    _ = &http2.sa_std_http2_constants_json;
+    _ = &http2.sa_std_http2_sensitive_headers;
+    _ = &http2.sa_std_http2_get_default_settings_json;
+    _ = &http2.sa_std_http2_get_packed_settings;
+    _ = &http2.sa_std_http2_get_unpacked_settings_json;
+    _ = &http2.sa_std_http2_perform_server_handshake;
+    _ = &http2.sa_std_http2_buffer_data;
+    _ = &http2.sa_std_http2_buffer_len;
+    _ = &http2.sa_std_http2_buffer_free;
     _ = &@import("sa_tls_server.zig").sa_std_tls_server_supported;
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
@@ -263,6 +276,17 @@ const NetAddrHandle = struct {
     }
 };
 
+const NetAddrListHandle = struct {
+    allocator: std.mem.Allocator,
+    addresses: []std.net.Address,
+    next_index: usize = 0,
+
+    fn deinit(self: *NetAddrListHandle) void {
+        if (self.addresses.len != 0) self.allocator.free(self.addresses);
+        self.addresses = &.{};
+        self.next_index = 0;
+    }
+};
 const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
 const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
 const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
@@ -344,6 +368,17 @@ fn unixSockAddrFromHandle(handle: u64) !struct { addr: std.posix.sockaddr.un, le
     };
 }
 
+fn registerNetAddrList(host: []const u8, port: u16) !u64 {
+    const list = try std.net.getAddressList(std.heap.page_allocator, host, port);
+    defer list.deinit();
+    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
+    const addresses = try std.heap.page_allocator.dupe(std.net.Address, list.addrs);
+    errdefer std.heap.page_allocator.free(addresses);
+    return registerResource(.{ .net_addr_list = .{
+        .allocator = std.heap.page_allocator,
+        .addresses = addresses,
+    } });
+}
 fn registerNetAddrOutLocked(address: std.net.Address, out_handle: *u64) i32 {
     var net_addr = NetAddrHandle.init(std.heap.page_allocator, address) catch |err| return finishErr(err);
     const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
@@ -1037,6 +1072,7 @@ const Resource = union(enum) {
     dir_entries: DirEntriesHandle,
     dir_entry: DirEntryHandle,
     net_addr: NetAddrHandle,
+    net_addr_list: NetAddrListHandle,
     unix_addr: UnixAddrHandle,
     fmt: FmtHandle,
     env: EnvHandle,
@@ -1066,6 +1102,7 @@ const Resource = union(enum) {
             .dir_entries => |*entries| entries.deinit(),
             .dir_entry => |*entry| entry.deinit(),
             .net_addr => |*addr| addr.deinit(),
+            .net_addr_list => |*list| list.deinit(),
             .unix_addr => |*addr| addr.deinit(),
             .fmt => |*fmt| fmt.deinit(),
             .env => |*env| env.deinit(),
@@ -6041,6 +6078,7 @@ pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
 
 pub fn sa_thread_as_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
     const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     const handle_ptr = takePthreadHandle(handle) catch |err| return finish(mapError(err));
     out.* = pthreadToRaw(handle_ptr.thread);
     last_error = SA_STD_OK;
@@ -6049,6 +6087,7 @@ pub fn sa_thread_as_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
 
 pub fn sa_thread_into_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
     const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
     const transfer = transferPthreadHandleToRaw(handle) catch |err| return finish(mapError(err));
     out.* = transfer.raw;
     std.heap.page_allocator.destroy(transfer.handle);
@@ -6058,6 +6097,7 @@ pub fn sa_thread_into_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
 
 pub fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) callconv(.c) i32 {
     const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    std.mem.writeInt(u32, out_ptr[0..4], 0, .little);
     const task = findRawPthreadTask(raw) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     joinPthreadHandle(rawToPthread(raw)) catch |err| return finishErr(err);
     const removed_task = removeRawPthreadOwner(raw) orelse task;
@@ -8562,6 +8602,42 @@ pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u3
     return ok(u64, handle);
 }
 
+pub export fn sa_std_net_to_socket_addr_list(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    out.* = registerNetAddrList(host, port16) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_addr: ?*u64) i32 {
+    const ok_ptr = out_ok orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ok_ptr.* = 0;
+    addr_ptr.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const list = switch (resource.*) {
+        .net_addr_list => |*value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    if (list.next_index >= list.addresses.len) return finish(SA_STD_OK);
+    const address = list.addresses[list.next_index];
+    list.next_index += 1;
+    const status = registerNetAddrOutLocked(address, addr_ptr);
+    if (status != SA_STD_OK) {
+        list.next_index -= 1;
+        return status;
+    }
+    ok_ptr.* = 1;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_addr_list_free(list_handle: u64) i32 {
+    return sa_std_close(list_handle);
+}
 pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -8744,6 +8820,24 @@ pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {
     return ok(i32, 0);
 }
 
+pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .tcp_stream => |value| value.handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const handle = registerResourceLocked(.{ .tcp_stream = .{ .handle = dup_fd } }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    out.* = handle;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -8916,6 +9010,48 @@ pub export fn sa_std_net_tcp_stream_take_error(stream: u64, out_error: ?*i32) i3
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var listen_address: std.net.Address = undefined;
+    const fd = switch (resource.*) {
+        .tcp_listener => |server| blk: {
+            listen_address = server.listen_address;
+            break :blk server.stream.handle;
+        },
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const cloned = std.net.Server{ .listen_address = listen_address, .stream = .{ .handle = dup_fd } };
+    const handle = registerResourceLocked(.{ .tcp_listener = cloned }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    out.* = handle;
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_tcp_listener_set_only_v6(listener: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
+    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_listener_only_v6(listener: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
+    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -8956,6 +9092,24 @@ pub export fn sa_std_net_tcp_listener_take_error(listener: u64, out_error: ?*i32
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const dup_fd = std.posix.dup(fd) catch |err| return finishErr(err);
+    const handle = registerResourceLocked(.{ .udp_socket = dup_fd }) catch |err| {
+        std.posix.close(dup_fd);
+        return finishErr(err);
+    };
+    out.* = handle;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -9086,6 +9240,25 @@ pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]con
     return sa_std_net_udp_leave_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
 }
 
+pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
+    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_only_v6(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
+    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);

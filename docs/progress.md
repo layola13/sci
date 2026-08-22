@@ -1,5 +1,21 @@
 # Progress Assessment
 
+## sa_std Sync Behavior Pass 2026-08-21
+
+- Added `MUTEX_TRY_UNLOCK` and `RWLOCK_TRY_RELEASE_WRITE` checked release helpers. They return `1` when the corresponding lock state was observed held and avoid silently accepting duplicate releases in single-owner paths; they are not an ownership token for concurrent handoff.
+- `BARRIER_NEW` now normalizes `n == 0` to a one-party barrier so a zero-party barrier cannot spin forever.
+- Added `tests/unit_framework/std_sync_checked_behavior.sa`, covering duplicate unlocks, writer release state, zero-party barrier normalization, and condvar waiter initialization.
+- Hardened `MPSC_TRY_RECV_TIMEOUT_NS` to initialize the output payload on timeout and added a zero-timeout regression test.
+- Added millisecond timeout aliases for MPSC send/receive paths and `std_mpsc_timeout_ms_macro_surface.sa` coverage.
+- Hardened the millisecond aliases with checked nanosecond conversion and an overflow regression case.
+- Hardened `CONDVAR_WAIT_TIMEOUT_MS` against `u64` nanosecond conversion overflow and added a locked-mutex regression case.
+- Added checked `MUTEX_TRY_LOCK_TIMEOUT_MS` with overflow behavior coverage.
+- Added timeout aliases and deterministic empty payloads to the linked-list MPSC facade, plus explicit `MPSC_LIST_FREE`/`MUTEX_FREE` cleanup paths.
+- Synchronized linked-list MPSC `LEN`/`IS_EMPTY` metadata reads with the channel mutex and re-ran both list behavior tests.
+- Added idempotent concrete `JoinHandle` completion state via `JOIN_HANDLE_IS_FINISHED` and repeated-join status reuse; added `std_join_handle_state_macro_surface.sa`.
+- Focused `sa check` passes for the changed thread and MPSC files. The earlier managed-Windows Zig cache `manifest_create AccessDenied` issue is no longer blocking validation.
+- Focused validation passed: `sa check` and `sa test` for the new behavior test (`1/1`). Full std-smoke, ABI, and LLVM unit-framework validation is now also passing; see the final validation entry below.
+
 ## Core Issue Pass 2026-06-10 C
 
 - Progress: 100% for the current low-risk core std safety/performance slice. Completed container capacity hardening beyond the original Vec/HashMap/MPSC fixes: `binary_heap`, `vec_deque`, `btree_map`, and `hashset` now use checked add/mul on reserve, grow, realloc, drain, and clear byte-count paths before allocation or bulk zeroing.
@@ -345,3 +361,67 @@ Targeted verification passed:
 - `zig build install --summary all` — 14/14 build/install steps succeeded locally
 - `sh tools/install.sh --no-shell` — installed `sa 0.0.3.3` to `/home/vscode/.sa/bin/sa`
 - Native panic smoke: `panic(1703)` now prints `PANIC: code=1703`
+
+- Hardened `ONCE_TAKE` against duplicate concurrent consumption: the macro now atomically claims `READY` with `cmpxchg` before clearing the payload, initializes output slots deterministically, and has focused empty/set/repeat behavior coverage in `std_once_take_behavior.sa`.
+
+- Strengthened checked mutex and writer-lock release helpers to single-step `cmpxchg(1 -> 0)` transitions, preventing duplicate success reports under concurrent release attempts; focused sync behavior and lock suites remain green.
+
+- Final standard-library validation on 2026-08-21: `sa check` passed for all 226 `.sa/.sal` files; `zig build std-smoke --summary all` passed 8/8; `zig build runtime-abi-check --summary all` covered 492 public symbols on both platforms; `zig build unit-framework -Dllvm=true --summary all` passed its 4 tests with 1 intentional skip.
+
+- Hardened `RWLOCK_RELEASE_READ` against reader-count underflow: it now checks for a positive count and uses CAS retry before decrementing; unbalanced release retains panic code `1601` without corrupting lock state.
+
+- Added `RWLOCK_TRY_RELEASE_READ` with CAS-based positive-count validation, covering empty release, successful release, and duplicate release without reader-count underflow.
+
+- Hardened Condvar waiter accounting with CAS-based decrement/retry on timeout and notification paths; timeout and notified tests now assert `CONDVAR_WAITERS == 0` after completion.
+
+- Final Condvar validation on 2026-08-22 with `ZIG_GLOBAL_CACHE_DIR` redirected into the workspace: all 226 `.sa/.sal` files passed `sa check`; `zig build std-smoke --summary all` passed 8/8; `zig build runtime-abi-check --summary all` passed 492 public symbols on both platforms; `zig build unit-framework -Dllvm=true --summary all` passed 4 tests with 1 intentional queued-failure skip.
+
+- Added ABI-preserving MPSC endpoint lifecycle helpers (`MPSC_TX/RX_DROP`, `MPSC_TX/RX_IS_DISCONNECTED`) and null-safe split-endpoint send/receive short-circuits; `std_mpsc_endpoint_drop_behavior.sa` passes at runtime.
+
+- Final MPSC endpoint validation on 2026-08-22 with workspace-local Zig cache: all 226 `.sa/.sal` files passed `sa check`; `std-smoke` passed 8/8; runtime ABI covered 492 public symbols on both platforms; LLVM unit framework passed 4 tests with 1 intentional queued-failure skip.
+
+- Extended MPSC endpoint safety to timeout aliases: disconnected TX/RX handles now return immediately from NS/MS timeout helpers; drop behavior tests cover normal and timeout paths.
+
+- Added aggregate `MPSC_CHANNEL_IS_DISCONNECTED` state querying and covered initial, TX-only-drop, and both-endpoint-drop transitions in the endpoint behavior test.
+
+- Added concrete MPSC error constructors/accessors for SendError, TrySendError, TryRecvError, and RecvTimeoutError layouts; `std_mpsc_error_behavior.sa` passes at runtime.
+
+- Added bool-to-error MPSC wrappers (`MPSC_TRY_SEND_ERROR`, `MPSC_TRY_RECV_ERROR`) covering full, empty, and disconnected outcomes; the concrete error behavior suite remains green.
+
+- Final MPSC error-wrapper validation on 2026-08-22: all 226 `.sa/.sal` files passed `sa check`; `std-smoke` 8/8; runtime ABI 492 public symbols on both platforms; LLVM unit framework 4 passed with 1 intentional queued-failure skip. Workspace-local `ZIG_GLOBAL_CACHE_DIR` avoids the managed user-cache AccessDenied issue.
+
+- Added NS/MS MPSC receive-timeout error wrappers and receiver aliases; `std_mpsc_timeout_error_behavior.sa` covers timeout, success, disconnected, and checked-overflow paths.
+
+- Added stable `sync/poison.sa` constructors/accessors and predicates for the existing poison/TryLock error layouts; `std_sync_poison_error_behavior.sa` passes at runtime.
+- Added idempotent close semantics to the linked-list MPSC facade: `MPSC_LIST_DROP`/`MPSC_LIST_FREE` calls a fixed cleanup function, clears internal pointers, and remains safe across repeated drops; send/receive/timeout/len/empty operations are safe after close. Added drop-state behavior coverage to `std_mpsc_list_unbounded_macro_surface.sa`; the file now passes 4/4 tests.
+
+- Added JoinHandle behavior coverage in tests/unit_framework/std_join_handle_state_macro_surface.sa: zero raw state and repeated join/cache semantics now pass 2/2 via direct sa test. The subsequent full unit-framework validation completed successfully with 4 tests passed and 1 intentional queued-failure skip.
+
+- Hardened src/runtime/sa_std.zig thread raw conversion APIs to clear output slots before handle validation; added std_thread_macro_surface invalid zero-handle/raw behavior coverage (targeted test passed 1/1).
+
+- Added `sa_std/ffi/prelude.sa` and `.sal` as stable FFI namespace aggregation entries and imported them from the root `sa_std/prelude.sa/.sal`.
+- Extended `tests/unit_framework/std_prelude_import_surface.sa` with a concrete `CString` construction/query/free test; the prelude suite now passes 2/2.
+
+- Closed the remaining named namespace entry gap with `sa_std/marker/prelude.{sa,sal}`, `mem/prelude`, `num/prelude`, `thread/prelude`, and `time/prelude`; corrected marker relative imports and routed root prelude exports through these aggregators.
+- Revalidated `std_prelude_import_surface.sa` at 2/2 after the namespace closure; all new namespace entries pass `sa check`.
+
+- Hardened `src/runtime/sa_std_windows.zig` FD capability stubs: `sa_std_fd_as_raw`, dup/from/into raw, and terminal queries now validate out pointers and initialize output slots before returning `UNSUPPORTED`.
+- Added invalid FD behavior coverage to `tests/unit_framework/std_os_fd_macro_surface.sa`; direct installed-runtime tests accept the explicit unsupported platform boundary while supported paths verify deterministic outputs.
+
+- Corrected the Windows FD runtime stubs in `src/runtime/sa_std_windows.zig` after a source audit found the first replacement had not matched; all six output-bearing stubs now initialize outputs and validate null out-pointers.
+- Updated `tests/sa_std_windows_process_terminal.c` for the deterministic unsupported-output contract; `zig build windows-runtime -Dtarget=x86_64-windows --summary all` passes 22/22.
+- Final host validation after the correction: 239 `.sa/.sal` files pass `sa check`; `std-smoke` 8/8; runtime ABI 492 symbols; LLVM unit framework 4 passed with 1 intentional queued-failure skip.
+
+- Replaced the empty `sa_std/sa.mod` placeholder with `package "sa_std"`; `tests/std_smoke_core.zig` now verifies the package declaration and zero dependency/mirror entries.
+- `zig build std-smoke --summary all` passes 7/7 after the manifest update.
+- Hardened `src/pkg/manifest.zig` string parsing: quoted values decode common escapes and reject malformed trailing text; permission/workspace string lists now respect quoted commas. Added parser regression coverage in the package core suite; `zig build pkg-core-test --summary all` passes 44 tests with 3 intentional skips.
+- Added the missing `sa_std/testing/prelude.{sa,sal}` namespace entry over `assert.sai` and `mock_io`; `std_testing_prelude_import_surface.sa` validates concrete mock read/write behavior and passes 2/2 in direct SA execution.
+- Extended `src/pkg/manifest.zig` with backward-compatible `package { name, version, abi, features }` metadata blocks, deep-clone/equality/deinit support, escaped string serialization, and round-trip coverage. `zig build pkg-core-test --summary all` now passes 45 tests with 3 intentional skips; `sa_std/sa.mod` remains minimal until a release ABI policy is fixed.
+- Added a `std_smoke` metadata fixture for the package block grammar; `zig build std-smoke --summary all` remains 7/7 after the parser extension.
+- Fixed HTTP/2 buffer ownership: `HTTP2_BUFFER_DATA`/`HTTP2_BUFFER_LEN` borrow handles and `HTTP2_BUFFER_FREE` consumes them. Added `std_http2_macro_surface.sa` (1/1 static surface pass) and a std-smoke ownership-contract assertion; source facades and refreshed artifacts now cover the complete ABI contract.
+- Closed the HTTP/2 ABI deployment gap in source and artifacts: Windows exports all 13 `sa_std_http2_*` declarations with deterministic unsupported outputs, Linux `artifacts/sa_std/libsa_std.a` was refreshed successfully, and `zig build runtime-abi-check --summary all` passes with 505 public symbols on both platforms.
+- Improved `tools/runtime_abi_check.zig` parsing for comptime-qualified references such as `&http2.sa_std_http2_supported`; `.name = "..."` export parsing remains intact, preventing false missing-symbol reports for retained Zig exports.
+- Made `src/runtime/sa_pthread_host.c` portable across Zig's cross libc headers: glibc keeps `dlvsym` version probing, while non-glibc targets use `dlsym` without relying on an unavailable declaration.
+- Extended `src/pkg/manifest.zig` block-field parsing to accept `name value`, `name: value`, and `name = value` forms while preserving colon-bearing URLs. String/capability lists accept one trailing comma but reject interior empty elements. Manifest unit tests pass 11/11 and package-core tests pass 47 with 3 intentional skips.
+- Audited Windows `unit-framework` parallel execution: two-worker runs still exceed the timeout, while the serial path completes with 4 passed and 1 intentional skip. A `--no-incremental` worker experiment was rejected because it made large suites dramatically slower without proving stability; the blocker remains isolated to test scheduling/resource contention.
+- Closed a network deployment gap: added Rust-style TCP option aliases, exported Windows stubs for keep-alive and listener reuse options, refreshed both static artifacts, and verified `runtime-abi-check` at 509 symbols. `std_net_option_alias_surface.sa` passes 1/1 and `windows-runtime` passes 22/22.- Extended `std::net` concrete resolution with `NET_TO_SOCKET_ADDR_LIST`, `NET_ADDR_LIST_NEXT`, and `NET_ADDR_LIST_FREE`. Linux and Windows runtimes now own resolver result snapshots, advance deterministically, return owned `NetAddr` handles, and free list state through the normal handle ABI. Added `std_net_addr_list_behavior.sa` and a stable `NET_ERROR_KIND_FROM_STATUS` mapping test; Linux/Windows static builds pass.- Added concrete `TcpStream`, `TcpListener`, and `UdpSocket` `try_clone` APIs with independent ownership on Linux and Windows. Windows uses Winsock protocol duplication; `std_net_clone_behavior.sa` validates listener/UDP clone and close behavior.

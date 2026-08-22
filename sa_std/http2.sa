@@ -66,11 +66,11 @@
 // buffer handle accessors (sci convention)
 
 [MACRO] HTTP2_BUFFER_DATA %out_ptr, %buffer
-    %out_ptr = call @sa_std_http2_buffer_data(^%buffer)
+    %out_ptr = call @sa_std_http2_buffer_data(%buffer)
 [END_MACRO]
 
 [MACRO] HTTP2_BUFFER_LEN %out_len, %buffer
-    %out_len = call @sa_std_http2_buffer_len(^%buffer)
+    %out_len = call @sa_std_http2_buffer_len(%buffer)
 [END_MACRO]
 
 [MACRO] HTTP2_BUFFER_FREE %out_status, %buffer

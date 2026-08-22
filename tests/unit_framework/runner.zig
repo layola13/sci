@@ -370,6 +370,7 @@ fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask, index: usize, tot
     errdefer |err| errorSaFileLog(task.path, "process", index, total, err);
 
     const argv = [_][]const u8{ sa_bin, "test", suite_path, "--jobs", task.jobs_arg, "--trace-panic" };
+
     const result = try std.process.Child.run(.{
         .allocator = std.heap.page_allocator,
         .argv = argv[0..],
@@ -630,6 +631,15 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_cmp_reverse_macro_surface.sa",
         "tests/unit_framework/std_cow_clone_eq_macro_surface.sa",
         "tests/unit_framework/std_cow_is_owned_macro_surface.sa",
+        "tests/unit_framework/std_named_aliases_macro_surface.sa",
+        "tests/unit_framework/std_env_named_aliases_macro_surface.sa",
+        "tests/unit_framework/std_prelude_import_surface.sa",
+        "tests/unit_framework/std_bufio_alias_surface.sa",
+        "tests/unit_framework/std_io_bytes_alias_surface.sa",
+        "tests/unit_framework/std_io_named_alias_surface.sa",
+        "tests/unit_framework/std_fs_bytes_alias_surface.sa",
+        "tests/unit_framework/std_net_bytes_alias_surface.sa",
+        "tests/unit_framework/std_path_process_bytes_alias_surface.sa",
         "tests/unit_framework/std_cmp_reverse_hash_one_macro_surface.sa",
         "tests/unit_framework/std_cmp_reverse_clone_default_macro_surface.sa",
         "tests/unit_framework/std_default_convert_macro_surface.sa",
@@ -848,6 +858,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_io_error_kinds_macro_surface.sa",
         "tests/unit_framework/std_atomic_macro_surface.sa",
         "tests/unit_framework/std_once_macro_surface.sa",
+        "tests/unit_framework/std_once_take_behavior.sa",
         "tests/unit_framework/std_once_call_once_alias_macro_surface.sa",
         "tests/unit_framework/std_once_is_completed_alias_macro_surface.sa",
         "tests/unit_framework/std_once_lazy_default_macro_surface.sa",
@@ -879,12 +890,19 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_linked_list_default_macro_surface.sa",
         "tests/unit_framework/std_rwlock_macro_surface.sa",
         "tests/unit_framework/std_rwlock_lock_spin_macro_surface.sa",
+        "tests/unit_framework/std_sync_checked_behavior.sa",
+        "tests/unit_framework/std_join_handle_state_macro_surface.sa",
         "tests/unit_framework/std_sync_poison_error_layout_macro_surface.sa",
+        "tests/unit_framework/std_sync_poison_error_behavior.sa",
         "tests/unit_framework/std_once_state_layout_macro_surface.sa",
         "tests/unit_framework/std_mpsc_error_layout_macro_surface.sa",
+        "tests/unit_framework/std_mpsc_error_behavior.sa",
+        "tests/unit_framework/std_mpsc_timeout_error_behavior.sa",
         "tests/unit_framework/std_mpsc_macro_surface.sa",
         "tests/unit_framework/std_mpsc_channel_split_macro_surface.sa",
+        "tests/unit_framework/std_mpsc_endpoint_drop_behavior.sa",
         "tests/unit_framework/std_mpsc_recv_timeout_macro_surface.sa",
+        "tests/unit_framework/std_mpsc_timeout_ms_macro_surface.sa",
         "tests/unit_framework/std_mpsc_unbounded_macro_surface.sa",
         "tests/unit_framework/std_mpsc_send_timeout_macro_surface.sa",
         "tests/unit_framework/std_mpsc_list_unbounded_macro_surface.sa",
@@ -953,6 +971,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_hash_signed_write_macro_surface.sa",
         "tests/unit_framework/std_hash_build_hasher_default_traits_macro_surface.sa",
         "tests/unit_framework/std_string_macro_surface.sa",
+        "tests/unit_framework/std_string_format_concrete_macro_surface.sa",
         "tests/unit_framework/std_string_chars_bare_alias_macro_surface.sa",
         "tests/unit_framework/std_str_byte_at_alias_macro_surface.sa",
         "tests/unit_framework/std_str_char_at_alias_macro_surface.sa",
@@ -1194,6 +1213,10 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_fs_unix_ext_macro_surface.sa",
         "tests/unit_framework/std_fs_file_as_fd_macro_surface.sa",
         "tests/unit_framework/std_net_macro_surface.sa",
+        "tests/unit_framework/std_net_option_alias_surface.sa",
+        "tests/unit_framework/std_net_error_kind_macro_surface.sa",
+        "tests/unit_framework/std_net_addr_list_behavior.sa",
+        "tests/unit_framework/std_net_clone_behavior.sa",
         "tests/unit_framework/std_net_ipv4_new_octets_macro_surface.sa",
         "tests/unit_framework/std_net_as_fd_macro_surface.sa",
         "tests/unit_framework/std_net_addr_macro_surface.sa",
@@ -1306,6 +1329,7 @@ test "native unit framework covers sa_std macro surface suites" {
 
     if (builtin.os.tag == .windows) {
         try runSaTestFileAuto("tests/unit_framework/std_process_windows_macro_surface.sa");
+        try runSaTestFileAuto("tests/unit_framework/std_env_windows_macro_surface.sa");
     }
 
     try runQueuedSaTestFiles();

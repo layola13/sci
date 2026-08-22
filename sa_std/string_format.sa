@@ -1,7 +1,10 @@
 @import "fmt.sai"
+@import "io.sai"
 @import "vec.sa"
 @import "core/slice.sal"
 @import "core/slice.sa"
+
+@const FORMAT_NEWLINE = utf8:"\n"
 
 [MACRO] STRFMT_I64 %out_buf, %value, %base
     %out_buf = call @sa_fmt_i64(%value, %base)
@@ -154,4 +157,113 @@
 
 [MACRO] FORMAT_FREE %string_reg
     call @sa_vec_free(^%string_reg)
+[END_MACRO]
+
+// Fixed-arity formatting facades for the common Rust/std scalar surfaces.
+[MACRO] FORMAT_U64_TO_STRING %out_buf, %value
+    EXPAND STRFMT_U64 %out_buf, %value, 10
+[END_MACRO]
+
+[MACRO] FORMAT_I64_TO_STRING %out_buf, %value
+    EXPAND STRFMT_I64 %out_buf, %value, 10
+[END_MACRO]
+
+[MACRO] FORMAT_F64_TO_STRING %out_buf, %value, %precision
+    EXPAND STRFMT_F64 %out_buf, %value, %precision
+[END_MACRO]
+
+[MACRO] FORMAT_BOOL_TO_STRING %out_buf, %value
+    EXPAND STRFMT_BOOL %out_buf, %value
+[END_MACRO]
+
+// Bare aliases default to the u64 concrete lowering, matching the existing
+// method-name alias convention used throughout sa_std.
+[MACRO] FORMAT_TO_STRING %out_buf, %value
+    EXPAND FORMAT_U64_TO_STRING %out_buf, %value
+[END_MACRO]
+
+// Concrete formatted writes. The returned status is zero on success; the
+// writeln variants combine the value and newline write statuses.
+[MACRO] FORMAT_WRITE_U64 %out_status, %handle, %value
+    EXPAND FORMAT_U64_TO_STRING __format_write_u64_buf_%out_status, %value
+    EXPAND STRFMT_DATA __format_write_u64_ptr_%out_status, __format_write_u64_buf_%out_status
+    EXPAND STRFMT_LEN __format_write_u64_len_%out_status, __format_write_u64_buf_%out_status
+    %out_status = call @sa_io_write_all(%handle, __format_write_u64_ptr_%out_status, __format_write_u64_len_%out_status)
+    EXPAND STRFMT_FREE __format_write_u64_free_%out_status, __format_write_u64_buf_%out_status
+    !__format_write_u64_free_%out_status
+    !__format_write_u64_len_%out_status
+    !__format_write_u64_ptr_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITE_I64 %out_status, %handle, %value
+    EXPAND FORMAT_I64_TO_STRING __format_write_i64_buf_%out_status, %value
+    EXPAND STRFMT_DATA __format_write_i64_ptr_%out_status, __format_write_i64_buf_%out_status
+    EXPAND STRFMT_LEN __format_write_i64_len_%out_status, __format_write_i64_buf_%out_status
+    %out_status = call @sa_io_write_all(%handle, __format_write_i64_ptr_%out_status, __format_write_i64_len_%out_status)
+    EXPAND STRFMT_FREE __format_write_i64_free_%out_status, __format_write_i64_buf_%out_status
+    !__format_write_i64_free_%out_status
+    !__format_write_i64_len_%out_status
+    !__format_write_i64_ptr_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITE_F64 %out_status, %handle, %value, %precision
+    EXPAND FORMAT_F64_TO_STRING __format_write_f64_buf_%out_status, %value, %precision
+    EXPAND STRFMT_DATA __format_write_f64_ptr_%out_status, __format_write_f64_buf_%out_status
+    EXPAND STRFMT_LEN __format_write_f64_len_%out_status, __format_write_f64_buf_%out_status
+    %out_status = call @sa_io_write_all(%handle, __format_write_f64_ptr_%out_status, __format_write_f64_len_%out_status)
+    EXPAND STRFMT_FREE __format_write_f64_free_%out_status, __format_write_f64_buf_%out_status
+    !__format_write_f64_free_%out_status
+    !__format_write_f64_len_%out_status
+    !__format_write_f64_ptr_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITE_BOOL %out_status, %handle, %value
+    EXPAND FORMAT_BOOL_TO_STRING __format_write_bool_buf_%out_status, %value
+    EXPAND STRFMT_DATA __format_write_bool_ptr_%out_status, __format_write_bool_buf_%out_status
+    EXPAND STRFMT_LEN __format_write_bool_len_%out_status, __format_write_bool_buf_%out_status
+    %out_status = call @sa_io_write_all(%handle, __format_write_bool_ptr_%out_status, __format_write_bool_len_%out_status)
+    EXPAND STRFMT_FREE __format_write_bool_free_%out_status, __format_write_bool_buf_%out_status
+    !__format_write_bool_free_%out_status
+    !__format_write_bool_len_%out_status
+    !__format_write_bool_ptr_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITELN_U64 %out_status, %handle, %value
+    EXPAND FORMAT_WRITE_U64 __format_writeln_u64_value_status_%out_status, %handle, %value
+    __format_writeln_u64_newline_status_%out_status = call @sa_io_write_all(%handle, &FORMAT_NEWLINE, 1)
+    %out_status = add __format_writeln_u64_value_status_%out_status, __format_writeln_u64_newline_status_%out_status
+    !__format_writeln_u64_value_status_%out_status
+    !__format_writeln_u64_newline_status_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITELN_I64 %out_status, %handle, %value
+    EXPAND FORMAT_WRITE_I64 __format_writeln_i64_value_status_%out_status, %handle, %value
+    __format_writeln_i64_newline_status_%out_status = call @sa_io_write_all(%handle, &FORMAT_NEWLINE, 1)
+    %out_status = add __format_writeln_i64_value_status_%out_status, __format_writeln_i64_newline_status_%out_status
+    !__format_writeln_i64_value_status_%out_status
+    !__format_writeln_i64_newline_status_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITELN_F64 %out_status, %handle, %value, %precision
+    EXPAND FORMAT_WRITE_F64 __format_writeln_f64_value_status_%out_status, %handle, %value, %precision
+    __format_writeln_f64_newline_status_%out_status = call @sa_io_write_all(%handle, &FORMAT_NEWLINE, 1)
+    %out_status = add __format_writeln_f64_value_status_%out_status, __format_writeln_f64_newline_status_%out_status
+    !__format_writeln_f64_value_status_%out_status
+    !__format_writeln_f64_newline_status_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITELN_BOOL %out_status, %handle, %value
+    EXPAND FORMAT_WRITE_BOOL __format_writeln_bool_value_status_%out_status, %handle, %value
+    __format_writeln_bool_newline_status_%out_status = call @sa_io_write_all(%handle, &FORMAT_NEWLINE, 1)
+    %out_status = add __format_writeln_bool_value_status_%out_status, __format_writeln_bool_newline_status_%out_status
+    !__format_writeln_bool_value_status_%out_status
+    !__format_writeln_bool_newline_status_%out_status
+[END_MACRO]
+
+[MACRO] FORMAT_WRITE %out_status, %handle, %value
+    EXPAND FORMAT_WRITE_U64 %out_status, %handle, %value
+[END_MACRO]
+
+[MACRO] FORMAT_WRITELN %out_status, %handle, %value
+    EXPAND FORMAT_WRITELN_U64 %out_status, %handle, %value
 [END_MACRO]

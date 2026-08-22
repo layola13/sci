@@ -300,6 +300,7 @@ pub fn build(b: *std.Build) void {
         .filters = &.{
             "bc2sa translates real llvm bitcode",
             "bc2sa translates clang cmake bitcode demo",
+            "bc2sa translates sqlite3 api probe bitcode",
             "cli build-exe prunes unused imported functions before llvm emission",
             "extern i32 fallible return uses ABI-aligned payload offset",
         },
@@ -1195,4 +1196,3 @@ fn linkWindowsNetworkingToCompile(compile: *std.Build.Step.Compile, os_tag: std.
     compile.linkSystemLibrary("ws2_32");
     compile.linkSystemLibrary("iphlpapi");
 }
-

@@ -7,9 +7,17 @@
     !__buf_writer_write_status
 [END_MACRO]
 
+[MACRO] BUF_WRITER_WRITE_BYTES %out_count, %handle, %buf, %len
+    EXPAND BUF_WRITER_WRITE %out_count, %handle, %buf, %len
+[END_MACRO]
+
 [MACRO] BUF_WRITER_WRITE_ALL %out_ok, %handle, %buf, %len
     __buf_writer_write_all = call @sa_io_write_all(%handle, &%buf, %len)
     %out_ok = __buf_writer_write_all
+[END_MACRO]
+
+[MACRO] BUF_WRITER_WRITE_ALL_BYTES %out_ok, %handle, %buf, %len
+    EXPAND BUF_WRITER_WRITE_ALL %out_ok, %handle, %buf, %len
 [END_MACRO]
 
 [MACRO] BUF_WRITER_FLUSH %out_ok, %handle

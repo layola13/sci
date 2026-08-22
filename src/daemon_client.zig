@@ -9,6 +9,9 @@ const std = @import("std");
 // Request always sends the full argv (including argv[0] = "sa") so the daemon
 // can reuse executeWithWritersAndOptions unchanged.
 
+pub const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+pub const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+
 pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype) !?u8 {
     const sock_path = std.process.getEnvVarOwned(allocator, "SA_DAEMON_SOCKET") catch return null;
     defer allocator.free(sock_path);
@@ -49,6 +52,7 @@ pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, s
         try appendJsonString(&req, c);
     }
     try req.appendSlice("}\n");
+    if (req.items.len > MAX_REQUEST_BYTES) return null;
     stream.writeAll(req.items) catch return null;
 
     var resp = std.ArrayList(u8).init(allocator);
@@ -57,6 +61,7 @@ pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, s
     while (true) {
         const n = stream.read(buf[0..]) catch break;
         if (n == 0) break;
+        if (resp.items.len > MAX_RESPONSE_BYTES - n) return null;
         try resp.appendSlice(buf[0..n]);
     }
 

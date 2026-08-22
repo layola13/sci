@@ -24,12 +24,18 @@
 @extern sa_std_net_tcp_stream_peer_addr(stream: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_stream_local_addr(stream: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_to_socket_addr_first(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
+@extern sa_std_net_to_socket_addr_list(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
+@extern sa_std_net_addr_list_next(list: u64, &out_ok: ptr, &out_addr: ptr) -> i32
+@extern sa_std_net_addr_list_free(list: u64) -> i32
 @extern sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_listener_ttl(listener: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_tcp_listener_take_error(listener: u64, &out_error: ptr) -> i32
 @extern sa_std_net_tcp_listener_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_stream_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_stream_try_clone(stream: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_listener_try_clone(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_udp_try_clone(socket: u64, &out_handle: ptr) -> i32
 
 // Unix domain sockets (stream). Handles reuse the tcp_stream/tcp_listener kinds,
 // so NET_TCP_STREAM_READ/WRITE/CLOSE and NET_TCP_LISTENER_CLOSE work on them.
@@ -77,6 +83,10 @@
 @extern sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, intvl_secs: u32, cnt: u32) -> i32
 @extern sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_listener_set_only_v6(listener: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_listener_only_v6(listener: u64, &out_enabled: ptr) -> i32
+@extern sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) -> i32
+@extern sa_std_net_udp_only_v6(socket: u64, &out_enabled: ptr) -> i32
 
 // TLS ClientHello fingerprint digests (JA3 = MD5 hex, JA4 segment = SHA256 first 12 hex chars).
 @extern sa_std_net_ja3_hash(&ja3: ptr, ja3_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
@@ -187,4 +197,3 @@
 @extern sa_net_ipv6_format_ascii(&addr: ptr, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_net_socket_addr_v4_format_ascii(&addr: ptr, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_net_socket_addr_v6_format_ascii(&addr: ptr, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
-

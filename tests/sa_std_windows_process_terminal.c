@@ -33,6 +33,10 @@ int main(void) {
     SaTermEpollEvent event = {UINT32_C(0xffffffff), UINT64_C(0xcccccccccccccccc)};
     uint64_t count = UINT64_C(0xdddddddddddddddd);
     uint64_t unsupported_handle = UINT64_C(0xeeeeeeeeeeeeeeee);
+    uint64_t http2_handle = UINT64_C(0x1111111111111111);
+    uint64_t http2_bytes = UINT64_C(0x2222222222222222);
+    uint64_t http2_json = UINT64_C(0x3333333333333333);
+    uint32_t http2_supported = UINT32_C(0xffffffff);
     int32_t ready = INT32_C(0x12345678);
     int32_t raw_status = INT32_C(0x2468ace0);
     uint32_t code = UINT32_C(0xdeadbeef);
@@ -65,12 +69,12 @@ int main(void) {
     /* Raw fd conversion is not valid for Windows HANDLE/SOCKET values. */
     CHECK(20, sa_std_fd_as_raw(stdout_handle, &raw) == SA_STD_ERR_UNSUPPORTED,
           "fd_as_raw must be unsupported");
-    CHECK(21, raw == INT32_C(0x13579bdf), "fd_as_raw must clear neither unrelated state nor fake output");
+    CHECK(21, raw == INT32_C(-1), "fd_as_raw must initialize the unsupported output");
     CHECK(22, sa_std_fd_into_raw(stdout_handle, &raw) == SA_STD_ERR_UNSUPPORTED,
           "fd_into_raw must be unsupported");
     CHECK(23, sa_std_fd_dup(stdout_handle, &duplicate) == SA_STD_ERR_UNSUPPORTED,
           "fd_dup must be unsupported");
-    CHECK(24, duplicate == UINT64_C(0xaaaaaaaaaaaaaaaa), "fd_dup must not write output");
+    CHECK(24, duplicate == UINT64_C(0), "fd_dup must initialize the unsupported output");
     CHECK(25, sa_std_fd_dup_raw(3, &duplicate) == SA_STD_ERR_UNSUPPORTED,
           "fd_dup_raw must be unsupported");
     CHECK(26, sa_std_fd_from_raw(3, &duplicate) == SA_STD_ERR_UNSUPPORTED,
@@ -79,7 +83,7 @@ int main(void) {
           "fd_close_raw must be unsupported");
     CHECK(28, sa_std_fd_is_terminal(stdout_handle, &is_terminal) == SA_STD_ERR_UNSUPPORTED,
           "fd_is_terminal must be unsupported until console mapping exists");
-    CHECK(29, is_terminal == UINT8_C(0xa5), "fd_is_terminal must not write output");
+    CHECK(29, is_terminal == UINT8_C(0), "fd_is_terminal must initialize the unsupported output");
 
     /* Raw terminal and epoll are distinct unsupported boundaries. */
     CHECK(30, sa_term_raw_enter(stdin_handle, &session) == SA_STD_ERR_UNSUPPORTED,
@@ -101,6 +105,25 @@ int main(void) {
     CHECK(39, count == UINT64_C(0xdddddddddddddddd), "epoll_wait must not write count");
     CHECK(40, sa_term_epoll_close(UINT64_C(0xfeedface)) == SA_STD_ERR_UNSUPPORTED,
           "epoll_close must be unsupported");
+
+    /* HTTP/2 has a stable Windows ABI boundary even though nghttp2 is not
+     * linked into the bootstrap runtime. */
+    CHECK(50, sa_std_http2_supported(&http2_supported) == SA_STD_ERR_UNSUPPORTED,
+          "http2_supported must be unsupported in the bootstrap runtime");
+    CHECK(51, http2_supported == UINT32_C(0), "http2_supported must initialize its output");
+    CHECK(52, sa_std_http2_status_json(&http2_handle) == SA_STD_ERR_UNSUPPORTED,
+          "http2 status json must be unsupported");
+    CHECK(53, http2_handle == UINT64_C(0), "http2 status json must initialize its handle");
+    CHECK(54, sa_std_http2_perform_server_handshake(NULL, 0, NULL, 0, &http2_bytes, &http2_json) == SA_STD_ERR_UNSUPPORTED,
+          "http2 handshake must be unsupported");
+    CHECK(55, http2_bytes == UINT64_C(0) && http2_json == UINT64_C(0),
+          "http2 handshake must initialize both output handles");
+    CHECK(56, sa_std_http2_buffer_data(UINT64_C(1)) == NULL,
+          "http2 buffer data must return null when unsupported");
+    CHECK(57, sa_std_http2_buffer_len(UINT64_C(1)) == UINT64_C(0),
+          "http2 buffer len must return zero when unsupported");
+    CHECK(58, sa_std_http2_buffer_free(UINT64_C(1)) == SA_STD_ERR_UNSUPPORTED,
+          "http2 buffer free must be unsupported");
 
     (void)code;
     return 0;

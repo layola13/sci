@@ -1,0 +1,36 @@
+@import "poison.sal"
+
+[MACRO] POISON_ERROR_NEW %out_error, %data
+    %out_error = alloc PoisonErrorU64_SIZE
+    store %out_error+PoisonErrorU64_data, %data as u64
+[END_MACRO]
+
+[MACRO] POISON_ERROR_DATA %out_data, %error_reg
+    %out_data = load %error_reg+PoisonErrorU64_data as u64
+[END_MACRO]
+
+[MACRO] TRY_LOCK_ERROR_NEW %out_error, %kind, %data
+    %out_error = alloc TryLockErrorU64_SIZE
+    store %out_error+TryLockErrorU64_kind, %kind as u64
+    store %out_error+TryLockErrorU64_data, %data as u64
+[END_MACRO]
+
+[MACRO] TRY_LOCK_ERROR_KIND %out_kind, %error_reg
+    %out_kind = load %error_reg+TryLockErrorU64_kind as u64
+[END_MACRO]
+
+[MACRO] TRY_LOCK_ERROR_DATA %out_data, %error_reg
+    %out_data = load %error_reg+TryLockErrorU64_data as u64
+[END_MACRO]
+
+[MACRO] TRY_LOCK_ERROR_IS_POISONED %out_bool, %error_reg
+    __try_lock_error_kind_%out_bool = load %error_reg+TryLockErrorU64_kind as u64
+    %out_bool = eq __try_lock_error_kind_%out_bool, TRY_LOCK_ERROR_POISONED
+    !__try_lock_error_kind_%out_bool
+[END_MACRO]
+
+[MACRO] TRY_LOCK_ERROR_IS_WOULD_BLOCK %out_bool, %error_reg
+    __try_lock_error_kind_block_%out_bool = load %error_reg+TryLockErrorU64_kind as u64
+    %out_bool = eq __try_lock_error_kind_block_%out_bool, TRY_LOCK_ERROR_WOULD_BLOCK
+    !__try_lock_error_kind_block_%out_bool
+[END_MACRO]

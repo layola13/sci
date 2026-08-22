@@ -3150,3 +3150,23 @@ L_PB_POP_END_%out_ok:
     EXPAND PATH_MAKE_DIR_WITH_MODE %out_status, __pb_make_dir_mode_view_%out_status, %mode
     !__pb_make_dir_mode_view_%out_status
 [END_MACRO]
+
+[MACRO] PATH_READ_FILE_BYTES %out_status, %out_buffer, %path_slice, %max_bytes
+    EXPAND PATH_READ_FILE %out_status, %out_buffer, %path_slice, %max_bytes
+[END_MACRO]
+
+[MACRO] PATH_WRITE_FILE_BYTES %out_status, %path_slice, %buf, %len
+    EXPAND PATH_WRITE_FILE %out_status, %path_slice, %buf, %len
+[END_MACRO]
+
+[MACRO] PATH_READ_TO_STRING_BYTES %out_status, %out_buffer, %path_slice, %max_bytes
+    EXPAND PATH_READ_TO_STRING %out_status, %out_buffer, %path_slice, %max_bytes
+[END_MACRO]
+
+[MACRO] PATH_BUF_READ_FILE_BYTES %out_status, %out_buffer, %path_buf, %max_bytes
+    EXPAND PATH_BUF_READ_FILE %out_status, %out_buffer, %path_buf, %max_bytes
+[END_MACRO]
+
+[MACRO] PATH_BUF_WRITE_FILE_BYTES %out_status, %path_buf, %buf, %len
+    EXPAND PATH_BUF_WRITE_FILE %out_status, %path_buf, %buf, %len
+[END_MACRO]

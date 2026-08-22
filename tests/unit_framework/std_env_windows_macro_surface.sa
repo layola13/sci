@@ -20,138 +20,140 @@
 #def PATH_SEGMENT_LEN = 4
 #def PATH_LIST_JSON_LEN = 24
 
-@test "sa_std env buffer and slice macros"():
+@test "sa_std env buffer and slice read macros"():
 L_ENTRY:
     key = stack_alloc Slice_SIZE
     slice = stack_alloc Slice_SIZE
     EXPAND SLICE_NEW key, &PATH_KEY, PATH_KEY_LEN
+    EXPAND SLICE_NEW slice, &PATH_KEY, PATH_KEY_LEN
     EXPAND ENV_EXISTS exists, key
-    EXPAND SLICE_GET_PTR raw_key_ptr, key
-    EXPAND ENV_EXISTS_PTR exists_ptr, raw_key_ptr, PATH_KEY_LEN
-    EXPAND ENV_HAS_PTR has_status_ptr, raw_key_ptr, PATH_KEY_LEN
-    EXPAND ENV_STATUS_IS_OK has_ok_ptr, has_status_ptr
-    br exists -> L_FETCH, L_FAIL_EXISTS
+    EXPAND ENV_GET_SLICE buffer, slice, key
+    EXPAND ENV_BUFFER_DATA data_ptr, buffer
+    EXPAND ENV_BUFFER_LEN data_len, buffer
+    EXPAND SLICE_GET_PTR slice_ptr, slice
+    EXPAND SLICE_GET_LEN slice_len, slice
+    EXPAND ENV_BUFFER_FREE free_status, buffer
+    EXPAND ENV_STATUS_IS_OK free_ok, free_status
+    data_nonzero = ne data_ptr, 0
+    lens_eq = eq data_len, slice_len
+    ptrs_eq = eq data_ptr, slice_ptr
+    ok01 = and exists, data_nonzero
+    ok02 = and ok01, lens_eq
+    ok03 = and ok02, ptrs_eq
+    ok = and ok03, free_ok
+    !data_ptr
+    !data_len
+    !slice_ptr
+    !slice_len
+    !exists
+    !free_status
+    !free_ok
+    !data_nonzero
+    !lens_eq
+    !ptrs_eq
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(1101)
+L_PASS:
+    !ok
+    return 0
 
-L_FETCH:
+@test "sa_std env try buffer and slice macros"():
+L_ENTRY:
+    key = stack_alloc Slice_SIZE
     try_slice = stack_alloc Slice_SIZE
     try_slice_ptr_slice = stack_alloc Slice_SIZE
-    EXPAND ENV_GET_SLICE buffer, slice, key
-    EXPAND ENV_TRY_GET try_buffer_ok, try_buffer, key
+    EXPAND SLICE_NEW key, &PATH_KEY, PATH_KEY_LEN
+    EXPAND SLICE_NEW try_slice, &PATH_KEY, PATH_KEY_LEN
+    EXPAND SLICE_NEW try_slice_ptr_slice, &PATH_KEY, PATH_KEY_LEN
+    EXPAND SLICE_GET_PTR raw_key_ptr, key
+    EXPAND ENV_TRY_GET try_ok, try_buffer, key
     EXPAND ENV_TRY_GET_PTR try_ptr_ok, try_ptr_buffer, raw_key_ptr, PATH_KEY_LEN
     EXPAND ENV_TRY_GET_SLICE try_slice_ok, try_slice_buffer, try_slice, key
     EXPAND ENV_TRY_GET_SLICE_PTR try_slice_ptr_ok, try_slice_ptr_buffer, try_slice_ptr_slice, raw_key_ptr, PATH_KEY_LEN
-    EXPAND ENV_GET_PARTS_PTR parts_buffer, parts_ptr, parts_len, raw_key_ptr, PATH_KEY_LEN
-    EXPAND ENV_BUFFER_DATA data_ptr, buffer
-    EXPAND ENV_BUFFER_LEN data_len, buffer
-    EXPAND ENV_BUFFER_LEN try_data_len, try_buffer
-    EXPAND ENV_BUFFER_LEN try_slice_data_len, try_slice_buffer
-    EXPAND SLICE_GET_LEN try_slice_len, try_slice
-    EXPAND ENV_BUFFER_LEN try_slice_ptr_data_len, try_slice_ptr_buffer
-    EXPAND SLICE_GET_LEN try_slice_ptr_len, try_slice_ptr_slice
-    EXPAND SLICE_GET_PTR slice_ptr, slice
-    EXPAND SLICE_GET_LEN slice_len, slice
-
-    data_nonzero = ne data_ptr, 0
-    parts_ptr_nonzero = ne parts_ptr, 0
-    lens_eq = eq data_len, slice_len
-    try_lens_eq = eq try_data_len, data_len
-    try_slice_lens_eq = eq try_slice_data_len, try_slice_len
-    try_slice_ptr_lens_eq = eq try_slice_ptr_data_len, try_slice_ptr_len
-    parts_lens_eq = eq parts_len, data_len
-    ptrs_eq = eq data_ptr, slice_ptr
-    EXPAND SLICE_IS_EMPTY slice_empty, slice
-    slice_not_empty = eq slice_empty, 0
-    ok01 = and exists, data_nonzero
-    ok02 = and ok01, exists_ptr
-    ok03 = and ok02, has_ok_ptr
-    ok04 = and ok03, parts_ptr_nonzero
-    ok05 = and ok04, parts_lens_eq
-    ok06 = and ok05, lens_eq
-    ok07 = and ok06, ptrs_eq
-    ok08 = and ok07, slice_not_empty
-    EXPAND ENV_BUFFER_FREE parts_free_status, parts_buffer
-    EXPAND ENV_STATUS_IS_OK parts_free_ok, parts_free_status
     EXPAND ENV_BUFFER_FREE try_free_status, try_buffer
-    EXPAND ENV_STATUS_IS_OK try_free_ok, try_free_status
     EXPAND ENV_BUFFER_FREE try_ptr_free_status, try_ptr_buffer
-    EXPAND ENV_STATUS_IS_OK try_ptr_free_ok, try_ptr_free_status
     EXPAND ENV_BUFFER_FREE try_slice_free_status, try_slice_buffer
-    EXPAND ENV_STATUS_IS_OK try_slice_free_ok, try_slice_free_status
     EXPAND ENV_BUFFER_FREE try_slice_ptr_free_status, try_slice_ptr_buffer
+    EXPAND ENV_STATUS_IS_OK try_free_ok, try_free_status
+    EXPAND ENV_STATUS_IS_OK try_ptr_free_ok, try_ptr_free_status
+    EXPAND ENV_STATUS_IS_OK try_slice_free_ok, try_slice_free_status
     EXPAND ENV_STATUS_IS_OK try_slice_ptr_free_ok, try_slice_ptr_free_status
-    EXPAND ENV_BUFFER_FREE free_status, buffer
-    EXPAND ENV_STATUS_IS_OK free_ok, free_status
-    ok09 = and ok08, parts_free_ok
-    ok10 = and ok09, try_buffer_ok
-    ok11 = and ok10, try_ptr_ok
-    ok12 = and ok11, try_slice_ok
-    ok13 = and ok12, try_slice_ptr_ok
-    ok14 = and ok13, try_lens_eq
-    ok15 = and ok14, try_slice_lens_eq
-    ok16 = and ok15, try_slice_ptr_lens_eq
-    ok17 = and ok16, try_free_ok
-    ok = and ok17, free_ok
-
-    !data_ptr
-    !parts_ptr
-    !data_len
-    !try_data_len
-    !try_slice_data_len
-    !try_slice_len
-    !try_slice_ptr_data_len
-    !try_slice_ptr_len
-    !slice_ptr
-    !slice_len
-    !parts_len
-    !data_nonzero
-    !parts_ptr_nonzero
-    !lens_eq
-    !try_lens_eq
-    !try_slice_lens_eq
-    !try_slice_ptr_lens_eq
-    !parts_lens_eq
-    !ptrs_eq
-    !slice_not_empty
-    !exists
-    !exists_ptr
-    !has_ok_ptr
-    !parts_free_ok
-    !try_buffer_ok
+    ok01 = and try_ok, try_ptr_ok
+    ok02 = and ok01, try_slice_ok
+    ok03 = and ok02, try_slice_ptr_ok
+    ok04 = and ok03, try_free_ok
+    ok05 = and ok04, try_ptr_free_ok
+    ok06 = and ok05, try_slice_free_ok
+    ok = and ok06, try_slice_ptr_free_ok
+    !raw_key_ptr
+    !try_ok
     !try_ptr_ok
     !try_slice_ok
     !try_slice_ptr_ok
+    !try_free_status
+    !try_ptr_free_status
+    !try_slice_free_status
+    !try_slice_ptr_free_status
     !try_free_ok
     !try_ptr_free_ok
     !try_slice_free_ok
     !try_slice_ptr_free_ok
-    !free_ok
     !ok01
     !ok02
     !ok03
     !ok04
     !ok05
     !ok06
-    !ok07
-    !ok08
-    !ok09
-    !ok10
-    !ok11
-    !ok12
-    !ok13
-    !ok14
-    !ok15
-    !ok16
-    !ok17
     br ok -> L_PASS, L_FAIL
-
 L_FAIL:
     !ok
-    panic(1001)
-
+    panic(1102)
 L_PASS:
     !ok
     return 0
 
+@test "sa_std env pointer parts and status macros"():
+L_ENTRY:
+    key = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW key, &PATH_KEY, PATH_KEY_LEN
+    EXPAND SLICE_GET_PTR raw_key_ptr, key
+    EXPAND ENV_EXISTS_PTR exists_ptr, raw_key_ptr, PATH_KEY_LEN
+    EXPAND ENV_HAS_PTR has_status, raw_key_ptr, PATH_KEY_LEN
+    EXPAND ENV_STATUS_IS_OK has_ok, has_status
+    EXPAND ENV_GET_PARTS_PTR parts_buffer, parts_ptr, parts_len, raw_key_ptr, PATH_KEY_LEN
+    EXPAND ENV_BUFFER_FREE parts_free_status, parts_buffer
+    EXPAND ENV_STATUS_IS_OK parts_free_ok, parts_free_status
+    parts_nonzero = ne parts_ptr, 0
+    parts_len_nonzero = ne parts_len, 0
+    ok01 = and exists_ptr, has_ok
+    ok02 = and ok01, parts_nonzero
+    ok03 = and ok02, parts_len_nonzero
+    ok = and ok03, parts_free_ok
+    !raw_key_ptr
+    !exists_ptr
+    !has_status
+    !has_ok
+    !parts_ptr
+    !parts_len
+    !parts_free_status
+    !parts_free_ok
+    !parts_nonzero
+    !parts_len_nonzero
+    !ok01
+    !ok02
+    !ok03
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    !ok
+    panic(1103)
+L_PASS:
+    !ok
+    return 0
 @test "sa_std env set and remove var macros"():
 L_ENTRY:
     key = stack_alloc Slice_SIZE
@@ -174,6 +176,8 @@ L_ENTRY:
     !remove_ok
     !exists_after_remove
     !not_exists_after_remove
+    !set_status
+    !remove_status
     !ok01
     br ok -> L_PASS, L_FAIL
 
@@ -190,7 +194,7 @@ L_ENTRY:
     key = stack_alloc Slice_SIZE
     EXPAND SLICE_NEW key, &PATH_KEY, PATH_KEY_LEN
     EXPAND ENV_EXISTS has_path, key
-    EXPAND ENV_EXISTS has_missing, &MISSING_KEY, MISSING_KEY_LEN
+    EXPAND ENV_EXISTS_PTR has_missing, &MISSING_KEY, MISSING_KEY_LEN
     not_has_missing = eq has_missing, 0
     ok = and has_path, not_has_missing
 
@@ -209,8 +213,10 @@ L_PASS:
 
 @test "sa_std env cwd mutation and home query macros"():
 L_ENTRY:
+    cwd_slice = stack_alloc Slice_SIZE
     EXPAND ENV_CWD_GET cwd_buffer
-    EXPAND ENV_CWD_SET set_status, cwd_buffer
+    EXPAND ENV_BUFFER_AS_SLICE cwd_slice, cwd_buffer
+    EXPAND ENV_CWD_SET set_status, cwd_slice
     EXPAND ENV_STATUS_IS_OK set_ok, set_status
     EXPAND ENV_HOME home_buffer
     cwd_nonzero = ne cwd_buffer, 0
@@ -229,6 +235,9 @@ L_ENTRY:
     !set_ok
     !cwd_free_ok
     !home_free_ok
+    !cwd_free
+    !home_free
+    !set_status
     !ok01
     !ok02
     !ok03
@@ -244,7 +253,7 @@ L_PASS:
 
 @test "sa_std env try macros return none for missing key"():
 L_ENTRY:
-    EXPAND ENV_TRY_GET try_ok, try_buffer, &MISSING_KEY, MISSING_KEY_LEN
+    EXPAND ENV_TRY_GET_PTR try_ok, try_buffer, &MISSING_KEY, MISSING_KEY_LEN
     br try_ok -> L_FAIL, L_PASS
 
 L_FAIL:
@@ -253,6 +262,7 @@ L_FAIL:
 
 L_PASS:
     !try_ok
+    !try_buffer
     return 0
 
 @test "sa_std env join paths JSON macros"():
@@ -325,6 +335,8 @@ L_ENTRY:
     !vars_nonzero
     !args_free_ok
     !vars_free_ok
+    !args_free
+    !vars_free
     !ok01
     !ok02
     br ok -> L_PASS, L_FAIL
@@ -355,6 +367,8 @@ L_ENTRY:
     !vars_nonzero
     !args_free_ok
     !vars_free_ok
+    !args_free
+    !vars_free
     !ok01
     !ok02
     br ok -> L_PASS, L_FAIL
@@ -377,6 +391,7 @@ L_ENTRY:
 
     !json_nonzero
     !json_free_ok
+    !json_free
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
@@ -389,7 +404,7 @@ L_PASS:
 
 @test "sa_std env split paths JSON macros"():
 L_ENTRY:
-    EXPAND ENV_SPLIT_PATHS_JSON split_buffer, &PATH_LIST_JSON, PATH_LIST_JSON_LEN
+    EXPAND ENV_SPLIT_PATHS_JSON_PTR split_buffer, &PATH_LIST_JSON, PATH_LIST_JSON_LEN
     split_nonzero = ne split_buffer, 0
     EXPAND ENV_BUFFER_FREE split_free, split_buffer
     EXPAND ENV_STATUS_IS_OK split_free_ok, split_free
@@ -397,6 +412,7 @@ L_ENTRY:
 
     !split_nonzero
     !split_free_ok
+    !split_free
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
@@ -417,6 +433,7 @@ L_ENTRY:
 
     !json_nonzero
     !json_free_ok
+    !json_free
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
@@ -429,8 +446,12 @@ L_PASS:
 
 @test "sa_std env split_paths_os/join_paths_os aliases macro surface"():
 L_ENTRY:
-    EXPAND ENV_SPLIT_PATHS_OS split_buffer
-    EXPAND ENV_JOIN_PATHS_OS join_buffer
+    path_list_slice = stack_alloc Slice_SIZE
+    paths_json_slice = stack_alloc Slice_SIZE
+    EXPAND SLICE_NEW path_list_slice, &PATH_LIST, PATH_LIST_LEN
+    EXPAND SLICE_NEW paths_json_slice, &PATH_LIST_JSON, PATH_LIST_JSON_LEN
+    EXPAND ENV_SPLIT_PATHS_OS split_buffer, path_list_slice
+    EXPAND ENV_JOIN_PATHS_OS join_buffer, paths_json_slice
     split_nonzero = ne split_buffer, 0
     join_nonzero = ne join_buffer, 0
     EXPAND ENV_BUFFER_FREE split_free, split_buffer
@@ -445,6 +466,8 @@ L_ENTRY:
     !join_nonzero
     !split_free_ok
     !join_free_ok
+    !split_free
+    !join_free
     !ok01
     !ok02
     br ok -> L_PASS, L_FAIL
@@ -475,6 +498,8 @@ L_ENTRY:
     !config_nonzero
     !data_free_ok
     !config_free_ok
+    !data_free
+    !config_free
     !ok01
     !ok02
     br ok -> L_PASS, L_FAIL
@@ -505,6 +530,8 @@ L_ENTRY:
     !current_os_nonzero
     !temp_os_free_ok
     !current_os_free_ok
+    !temp_os_free
+    !current_os_free
     !ok01
     !ok02
     br ok -> L_PASS, L_FAIL
@@ -519,14 +546,17 @@ L_PASS:
 
 @test "sa_std env home_dir_os alias"():
 L_ENTRY:
-    EXPAND ENV_HOME_DIR_OS home_os_buffer
+    EXPAND ENV_HOME_DIR_OS home_os_ok, home_os_buffer
     home_os_nonzero = ne home_os_buffer, 0
     EXPAND ENV_BUFFER_FREE home_os_free, home_os_buffer
     EXPAND ENV_STATUS_IS_OK home_os_free_ok, home_os_free
-    ok = and home_os_nonzero, home_os_free_ok
+    ok01 = and home_os_nonzero, home_os_ok
+    ok = and ok01, home_os_free_ok
 
     !home_os_nonzero
     !home_os_free_ok
+    !home_os_free
+    !ok01
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:
@@ -551,6 +581,8 @@ L_ENTRY:
 
     !set_ok
     !remove_ok
+    !set_status
+    !remove_status
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:

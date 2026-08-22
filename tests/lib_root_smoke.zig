@@ -142,6 +142,18 @@ test "cli command help covers built-in commands" {
     for (cases) |case| try expectCliHelp(case.argv, case.expected);
 }
 
+test "bc2sa rejects extra positional arguments" {
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const argv = [_][]const u8{ "sa", "bc2sa", "input.bc", "extra" };
+    try std.testing.expectError(error.UnexpectedArgument, saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer()));
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
 test "release packager defaults to latest git tag" {
     const release_script = try std.fs.cwd().readFileAlloc(std.testing.allocator, "tools/release.sh", 1024 * 1024);
     defer std.testing.allocator.free(release_script);

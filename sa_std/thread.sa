@@ -102,3 +102,59 @@ L_THREAD_BUILDER_SPAWN_END_%out_handle:
 [MACRO] THREAD_SLEEP_DURATION_NS %duration_ns
     EXPAND THREAD_SLEEP_NS %duration_ns
 [END_MACRO]
+
+// JoinHandle value facade over the pthread-backed thread handle.
+[MACRO] JOIN_HANDLE_NEW %out_join_handle, %raw_handle
+    %out_join_handle = alloc JoinHandle_SIZE
+    store %out_join_handle+JoinHandle_handle, %raw_handle as i32
+    store %out_join_handle+JoinHandle_result, 0 as u64
+[END_MACRO]
+
+[MACRO] JOIN_HANDLE_JOIN_STATUS %out_status, %join_handle, %out_ptr
+    __join_handle_raw_%out_status = load %join_handle+JoinHandle_handle as i32
+    __join_handle_joinable_%out_status = ne __join_handle_raw_%out_status, 0
+    br __join_handle_joinable_%out_status -> L_JOIN_HANDLE_JOIN_CALL_%out_status, L_JOIN_HANDLE_JOINED_%out_status
+L_JOIN_HANDLE_JOIN_CALL_%out_status:
+    %out_status = call @pthread_join(__join_handle_raw_%out_status, *%out_ptr)
+    store %join_handle+JoinHandle_result, %out_status as u64
+    store %join_handle+JoinHandle_handle, 0 as i32
+    !__join_handle_joinable_%out_status
+    !__join_handle_raw_%out_status
+    jmp L_JOIN_HANDLE_JOIN_DONE_%out_status
+L_JOIN_HANDLE_JOINED_%out_status:
+    %out_status = load %join_handle+JoinHandle_result as i32
+    !__join_handle_joinable_%out_status
+    !__join_handle_raw_%out_status
+L_JOIN_HANDLE_JOIN_DONE_%out_status:
+[END_MACRO]
+
+[MACRO] JOIN_HANDLE_IS_FINISHED %out_done, %join_handle
+    __join_handle_state_%out_done = load %join_handle+JoinHandle_handle as i32
+    %out_done = eq __join_handle_state_%out_done, 0
+    !__join_handle_state_%out_done
+[END_MACRO]
+
+[MACRO] JOIN_HANDLE_JOIN %out_status, %join_handle, %out_ptr
+    EXPAND JOIN_HANDLE_JOIN_STATUS %out_status, %join_handle, %out_ptr
+[END_MACRO]
+
+[MACRO] JOIN_HANDLE_DROP %join_handle
+    __join_handle_drop_raw_%join_handle = load %join_handle+JoinHandle_handle as i32
+    __join_handle_drop_live_%join_handle = ne __join_handle_drop_raw_%join_handle, 0
+    br __join_handle_drop_live_%join_handle -> L_JOIN_HANDLE_DROP_CALL_%join_handle, L_JOIN_HANDLE_DROP_DONE_%join_handle
+L_JOIN_HANDLE_DROP_CALL_%join_handle:
+    call @pthread_drop(__join_handle_drop_raw_%join_handle)
+L_JOIN_HANDLE_DROP_DONE_%join_handle:
+    store %join_handle+JoinHandle_handle, 0 as i32
+    !__join_handle_drop_raw_%join_handle
+    !__join_handle_drop_live_%join_handle
+    !%join_handle
+[END_MACRO]
+
+[MACRO] JOIN_HANDLE_AS_RAW %out_raw, %join_handle
+    %out_raw = load %join_handle+JoinHandle_handle as u64
+[END_MACRO]
+
+[MACRO] JOIN_HANDLE_RESULT_STATUS %out_status, %join_handle
+    %out_status = load %join_handle+JoinHandle_result as i32
+[END_MACRO]

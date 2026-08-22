@@ -18,7 +18,7 @@ test "sa_std core primitives are concrete and verifiable" {
         \\#def TryFromSliceError_code = +0
         \\#def TRY_FROM_SLICE_ERROR_LENGTH_MISMATCH = 0
         \\
-        ,
+    ,
         slice_layout,
     );
 
@@ -304,7 +304,7 @@ test "sa_std core primitives are concrete and verifiable" {
     }
 }
 
-test "sa_std package manifest parses as an empty package boundary" {
+test "sa_std package manifest declares the std package boundary" {
     const manifest_src = try common.readFileAlloc(std.testing.allocator, "sa_std/sa.mod");
     defer std.testing.allocator.free(manifest_src);
 
@@ -313,6 +313,33 @@ test "sa_std package manifest parses as an empty package boundary" {
 
     try std.testing.expectEqual(@as(usize, 0), manifest_file.requires.len);
     try std.testing.expectEqual(@as(usize, 0), manifest_file.mirrors.len);
+}
+
+test "sa_std package manifest metadata grammar round trips" {
+    const source =
+        \\package {
+        \\  name "sa_std"
+        \\  version "0.1.0"
+        \\  abi 7
+        \\  features ["core", "windows"]
+        \\}
+    ;
+    var manifest_file = try saasm.pkg.manifest.parseManifestWithFile(std.testing.allocator, source, "fixture/sa.mod");
+    defer manifest_file.deinit(std.testing.allocator);
+    try std.testing.expect(manifest_file.package_decl != null);
+    try std.testing.expectEqualStrings("sa_std", manifest_file.package_decl.?.name);
+    try std.testing.expectEqualStrings("0.1.0", manifest_file.package_decl.?.version.?);
+    try std.testing.expectEqual(@as(?u32, 7), manifest_file.package_decl.?.abi);
+    try std.testing.expectEqual(@as(usize, 2), manifest_file.package_decl.?.features.len);
+}
+
+test "sa_std http2 buffer accessors borrow handles before free" {
+    const http2_src = try common.readFileAlloc(std.testing.allocator, "sa_std/http2.sa");
+    defer std.testing.allocator.free(http2_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, http2_src, 1, "sa_std_http2_buffer_data(%buffer)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, http2_src, 1, "sa_std_http2_buffer_len(%buffer)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, http2_src, 1, "sa_std_http2_buffer_free(^%buffer)"));
+    try std.testing.expect(!std.mem.containsAtLeast(u8, http2_src, 1, "sa_std_http2_buffer_len(^%buffer)"));
 }
 
 test "sa_std io and process interfaces match native resource ABI" {
@@ -1248,7 +1275,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
         \\#def OptionPairU64_value1 = +8
         \\#def OptionPairU64_value2 = +16
         \\
-        ,
+    ,
         option_layout,
     );
 
@@ -1451,7 +1478,7 @@ test "sa_std rust core helpers are concrete and verifiable" {
         \\#def BorrowMutError_SIZE = 0
         \\#def BorrowMutError_ALIGN = 1
         \\
-        ,
+    ,
         refcell_layout,
     );
 

@@ -127,10 +127,15 @@ pub const MirrorRule = struct {
 
 pub const PackageDecl = struct {
     name: []const u8,
+    version: ?[]const u8 = null,
+    abi: ?u32 = null,
+    features: []const []const u8,
     upstream_loc: UpstreamLoc,
 
     pub fn deinit(self: *PackageDecl, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
+        if (self.version) |version| allocator.free(version);
+        freeStringList(allocator, self.features);
         allocator.free(self.upstream_loc.file);
         self.* = undefined;
     }
@@ -300,6 +305,9 @@ fn cloneMirrorRule(allocator: std.mem.Allocator, rule: MirrorRule) ParseError!Mi
 fn clonePackageDecl(allocator: std.mem.Allocator, package_decl: PackageDecl) ParseError!PackageDecl {
     return .{
         .name = try allocator.dupe(u8, package_decl.name),
+        .version = if (package_decl.version) |version| try allocator.dupe(u8, version) else null,
+        .abi = package_decl.abi,
+        .features = try cloneStringList(allocator, package_decl.features),
         .upstream_loc = try cloneUpstreamLoc(allocator, package_decl.upstream_loc),
     };
 }
@@ -359,7 +367,17 @@ fn permissionSetExists(entries: []const PermissionSet, name: []const u8) bool {
 }
 
 fn packageDeclEqual(a: PackageDecl, b: PackageDecl) bool {
-    return std.mem.eql(u8, a.name, b.name);
+    if (!std.mem.eql(u8, a.name, b.name) or a.abi != b.abi) return false;
+    if (a.version == null or b.version == null) {
+        if (a.version != null or b.version != null) return false;
+    } else if (!std.mem.eql(u8, a.version.?, b.version.?)) {
+        return false;
+    }
+    if (a.features.len != b.features.len) return false;
+    for (a.features, b.features) |left, right| {
+        if (!std.mem.eql(u8, left, right)) return false;
+    }
+    return true;
 }
 
 fn requireEntryEquivalentForInstall(a: RequireEntry, b: RequireEntry) bool {
@@ -661,6 +679,10 @@ fn stripInlineComment(line: []const u8) []const u8 {
                     }
                 }
             },
+            '#' => {
+                const prev = if (i == 0) ' ' else line[i - 1];
+                if (i == 0 or std.ascii.isWhitespace(prev)) return line[0..i];
+            },
             else => {},
         }
     }
@@ -707,12 +729,56 @@ fn splitAssignment(text: []const u8) ?struct { key: []const u8, value: []const u
     return null;
 }
 
+fn parseNamedValue(line: []const u8) ?struct { key: []const u8, value: []const u8 } {
+    const trimmed = trim(line);
+    if (trimmed.len == 0) return null;
+    var key_end: usize = 0;
+    while (key_end < trimmed.len and !std.ascii.isWhitespace(trimmed[key_end]) and trimmed[key_end] != ':' and trimmed[key_end] != '=') : (key_end += 1) {}
+    if (key_end == 0) return null;
+    const key = trimmed[0..key_end];
+    var value_start = key_end;
+    while (value_start < trimmed.len and std.ascii.isWhitespace(trimmed[value_start])) : (value_start += 1) {}
+    if (value_start < trimmed.len and (trimmed[value_start] == ':' or trimmed[value_start] == '=')) value_start += 1;
+    const value = trim(trimmed[value_start..]);
+    if (value.len == 0) return null;
+    return .{ .key = key, .value = value };
+}
+
 fn parseTextValue(allocator: std.mem.Allocator, text: []const u8) ParseError![]const u8 {
     const trimmed = trim(text);
-    if (trimmed.len >= 2 and trimmed[0] == '"' and trimmed[trimmed.len - 1] == '"') {
-        return allocator.dupe(u8, trimmed[1 .. trimmed.len - 1]);
-    }
     if (trimmed.len == 0) return ParseError.InvalidFormat;
+
+    if (trimmed[0] == '"') {
+        if (trimmed.len < 2 or trimmed[trimmed.len - 1] != '"') return ParseError.InvalidFormat;
+
+        var value = std.ArrayList(u8).init(allocator);
+        errdefer value.deinit();
+
+        var index: usize = 1;
+        while (index < trimmed.len - 1) : (index += 1) {
+            const c = trimmed[index];
+            if (c == '"') return ParseError.InvalidFormat;
+            if (c != '\\') {
+                try value.append(c);
+                continue;
+            }
+
+            index += 1;
+            if (index >= trimmed.len - 1) return ParseError.InvalidFormat;
+            try value.append(switch (trimmed[index]) {
+                '"' => '"',
+                '\\' => '\\',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                else => return ParseError.InvalidFormat,
+            });
+        }
+
+        return try value.toOwnedSlice();
+    }
+
+    if (std.mem.indexOfScalar(u8, trimmed, '"') != null) return ParseError.InvalidFormat;
     return allocator.dupe(u8, trimmed);
 }
 
@@ -774,13 +840,19 @@ fn parseCapabilityList(allocator: std.mem.Allocator, text: []const u8) ParseErro
 
     if (body.len == 0) return try list.toOwnedSlice();
 
-    var it = std.mem.splitScalar(u8, body, ',');
-    while (it.next()) |fragment| {
-        const token = trim(fragment);
-        if (token.len == 0) return ParseError.InvalidFormat;
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= body.len) : (index += 1) {
+        if (index < body.len and body[index] != ',') continue;
+        const token = trim(body[start..index]);
+        if (token.len == 0) {
+            if (index == body.len and start == body.len and body.len != 0 and body[body.len - 1] == ',') break;
+            return ParseError.InvalidFormat;
+        }
         const cap = parseCapability(token) orelse return ParseError.InvalidCapability;
         if (containsCapability(list.items, cap)) return ParseError.DuplicateEntry;
         try list.append(cap);
+        start = index + 1;
     }
 
     return try list.toOwnedSlice();
@@ -928,12 +1000,67 @@ fn parsePackageDecl(
     if (!std.mem.eql(u8, keyword, "package")) return ParseError.InvalidFormat;
     const name = try parseTextValue(allocator, trim(line[pos..]));
     errdefer allocator.free(name);
+    const features = try allocator.alloc([]const u8, 0);
+    errdefer allocator.free(features);
     const file_copy = try allocator.dupe(u8, source_file);
     errdefer allocator.free(file_copy);
     return .{
         .name = name,
+        .version = null,
+        .abi = null,
+        .features = features,
         .upstream_loc = .{ .file = file_copy, .line = line_no, .col = 1 },
     };
+}
+
+const PackageBuilder = struct {
+    allocator: std.mem.Allocator,
+    file: []const u8,
+    line: u32,
+    name: ?[]const u8 = null,
+    version: ?[]const u8 = null,
+    abi: ?u32 = null,
+    features: std.ArrayList([]const u8),
+
+    fn init(allocator: std.mem.Allocator, source_file: []const u8, line_no: u32) ParseError!PackageBuilder {
+        return .{
+            .allocator = allocator,
+            .file = try allocator.dupe(u8, source_file),
+            .line = line_no,
+            .features = std.ArrayList([]const u8).init(allocator),
+        };
+    }
+
+    fn deinit(self: *PackageBuilder) void {
+        self.allocator.free(self.file);
+        if (self.name) |name| self.allocator.free(name);
+        if (self.version) |version| self.allocator.free(version);
+        freeArrayListStrings(self.allocator, &self.features);
+        self.* = undefined;
+    }
+
+    fn finish(self: *PackageBuilder) ParseError!PackageDecl {
+        const name = self.name orelse return ParseError.InvalidFormat;
+        const result = PackageDecl{
+            .name = name,
+            .version = self.version,
+            .abi = self.abi,
+            .features = try self.features.toOwnedSlice(),
+            .upstream_loc = .{ .file = self.file, .line = self.line, .col = 1 },
+        };
+        self.name = null;
+        self.version = null;
+        self.file = &.{};
+        return result;
+    }
+};
+
+fn parsePackageHeader(allocator: std.mem.Allocator, line: []const u8, source_file: []const u8, line_no: u32) ParseError!PackageBuilder {
+    var pos: usize = 0;
+    const keyword = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, keyword, "package")) return ParseError.InvalidFormat;
+    if (!std.mem.eql(u8, trim(line[pos..]), "{")) return ParseError.InvalidFormat;
+    return try PackageBuilder.init(allocator, source_file, line_no);
 }
 
 const WorkspaceBuilder = struct {
@@ -980,6 +1107,33 @@ fn parseWorkspaceHeader(allocator: std.mem.Allocator, line: []const u8, source_f
     return try WorkspaceBuilder.init(allocator, source_file, line_no);
 }
 
+fn parsePackageItem(builder: *PackageBuilder, line: []const u8) ParseError!void {
+    const assignment = parseNamedValue(line) orelse return ParseError.InvalidFormat;
+    const key = assignment.key;
+    const value = assignment.value;
+    if (std.mem.eql(u8, key, "name")) {
+        if (builder.name != null) return ParseError.DuplicateEntry;
+        builder.name = try parseTextValue(builder.allocator, value);
+        return;
+    }
+    if (std.mem.eql(u8, key, "version")) {
+        if (builder.version != null) return ParseError.DuplicateEntry;
+        builder.version = try parseTextValue(builder.allocator, value);
+        return;
+    }
+    if (std.mem.eql(u8, key, "abi")) {
+        if (builder.abi != null) return ParseError.DuplicateEntry;
+        const parsed = std.fmt.parseInt(u64, value, 10) catch return ParseError.InvalidFormat;
+        if (parsed > std.math.maxInt(u32)) return ParseError.InvalidFormat;
+        builder.abi = @as(u32, @intCast(parsed));
+        return;
+    }
+    if (std.mem.eql(u8, key, "features")) {
+        return parseUniqueStringListInto(builder.allocator, value, &builder.features);
+    }
+    return ParseError.InvalidFormat;
+}
+
 fn stringListContains(items: []const []const u8, needle: []const u8) bool {
     for (items) |item| {
         if (std.mem.eql(u8, item, needle)) return true;
@@ -992,11 +1146,40 @@ fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *st
     if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') return ParseError.InvalidFormat;
     const body = trim(trimmed[1 .. trimmed.len - 1]);
     if (body.len == 0) return;
-    var it = std.mem.splitScalar(u8, body, ',');
-    while (it.next()) |fragment| {
-        const token = trim(fragment);
-        if (token.len == 0) return ParseError.InvalidFormat;
+
+    var start: usize = 0;
+    var in_string = false;
+    var escape = false;
+    var index: usize = 0;
+    while (index <= body.len) : (index += 1) {
+        const at_end = index == body.len;
+        if (!at_end) {
+            const c = body[index];
+            if (in_string) {
+                if (escape) {
+                    escape = false;
+                } else if (c == '\\') {
+                    escape = true;
+                } else if (c == '"') {
+                    in_string = false;
+                }
+                continue;
+            }
+            if (c == '"') {
+                in_string = true;
+                continue;
+            }
+            if (c != ',') continue;
+        }
+
+        if (in_string or escape) return ParseError.InvalidFormat;
+        const token = trim(body[start..index]);
+        if (token.len == 0) {
+            if (!(index == body.len and start == body.len and body.len != 0 and body[body.len - 1] == ',')) return ParseError.InvalidFormat;
+            break;
+        }
         try list.append(try parseTextValue(allocator, token));
+        start = index + 1;
     }
 }
 
@@ -1021,9 +1204,9 @@ fn parseUniqueStringListInto(allocator: std.mem.Allocator, text: []const u8, lis
 }
 
 fn parsePermissionSetItem(builder: *PermissionSetBuilder, line: []const u8) ParseError!void {
-    var pos: usize = 0;
-    const key = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
-    const value = trim(line[pos..]);
+    const assignment = parseNamedValue(line) orelse return ParseError.InvalidFormat;
+    const key = assignment.key;
+    const value = assignment.value;
     if (std.mem.eql(u8, key, "env")) return parseStringListInto(builder.allocator, value, &builder.env);
     if (std.mem.eql(u8, key, "read")) return parseStringListInto(builder.allocator, value, &builder.read);
     if (std.mem.eql(u8, key, "write")) return parseStringListInto(builder.allocator, value, &builder.write);
@@ -1033,9 +1216,9 @@ fn parsePermissionSetItem(builder: *PermissionSetBuilder, line: []const u8) Pars
 }
 
 fn parseWorkspaceItem(builder: *WorkspaceBuilder, line: []const u8) ParseError!void {
-    var pos: usize = 0;
-    const key = nextToken(line, &pos) orelse return ParseError.InvalidFormat;
-    const value = trim(line[pos..]);
+    const assignment = parseNamedValue(line) orelse return ParseError.InvalidFormat;
+    const key = assignment.key;
+    const value = assignment.value;
     if (std.mem.eql(u8, key, "members")) return parseUniqueStringListInto(builder.allocator, value, &builder.members);
     if (std.mem.eql(u8, key, "default_member")) {
         if (builder.default_member != null) return ParseError.DuplicateEntry;
@@ -1150,6 +1333,8 @@ pub fn parseManifestWithFile(
     defer if (permission_builder) |*builder| builder.deinit();
     var workspace_builder: ?WorkspaceBuilder = null;
     defer if (workspace_builder) |*builder| builder.deinit();
+    var package_builder: ?PackageBuilder = null;
+    defer if (package_builder) |*builder| builder.deinit();
     var line_no: u32 = 0;
     var it = std.mem.splitScalar(u8, source, '\n');
     while (it.next()) |raw_line| {
@@ -1157,6 +1342,17 @@ pub fn parseManifestWithFile(
         const line = cleanLine(raw_line);
         if (line.len == 0) continue;
         if (line[0] == '#') continue;
+
+        if (package_builder) |*builder| {
+            if (std.mem.eql(u8, line, "}")) {
+                if (package_decl != null) return ParseError.DuplicateEntry;
+                package_decl = try builder.finish();
+                package_builder = null;
+                continue;
+            }
+            try parsePackageItem(builder, line);
+            continue;
+        }
 
         if (permission_builder) |*builder| {
             if (std.mem.eql(u8, line, "}")) {
@@ -1199,7 +1395,13 @@ pub fn parseManifestWithFile(
 
         if (startsWithWord(line, "package")) {
             if (package_decl != null) return ParseError.DuplicateEntry;
-            package_decl = try parsePackageDecl(allocator, line, line_no, source_file);
+            var package_pos: usize = 0;
+            _ = nextToken(line, &package_pos) orelse return ParseError.InvalidFormat;
+            if (std.mem.eql(u8, trim(line[package_pos..]), "{")) {
+                package_builder = try parsePackageHeader(allocator, line, source_file, line_no);
+            } else {
+                package_decl = try parsePackageDecl(allocator, line, line_no, source_file);
+            }
             continue;
         }
 
@@ -1236,7 +1438,7 @@ pub fn parseManifestWithFile(
         return ParseError.InvalidFormat;
     }
 
-    if (permission_builder != null or workspace_builder != null) return ParseError.InvalidFormat;
+    if (package_builder != null or permission_builder != null or workspace_builder != null) return ParseError.InvalidFormat;
 
     return .{
         .package_decl = package_decl,
@@ -1252,11 +1454,50 @@ pub fn parseManifest(allocator: std.mem.Allocator, source: []const u8) ParseErro
     return parseManifestWithFile(allocator, source, "sa.mod");
 }
 
+fn writeTextValue(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('"');
+    for (value) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(c),
+        }
+    }
+    try writer.writeByte('"');
+}
+
 pub fn writeManifest(writer: anytype, manifest: Manifest) !void {
     var wrote_section = false;
 
     if (manifest.package_decl) |package_decl| {
-        try writer.print("package \"{s}\"\n", .{package_decl.name});
+        const has_metadata = package_decl.version != null or package_decl.abi != null or package_decl.features.len != 0;
+        if (!has_metadata) {
+            try writer.writeAll("package ");
+            try writeTextValue(writer, package_decl.name);
+            try writer.writeByte('\n');
+        } else {
+            try writer.writeAll("package {\n  name ");
+            try writeTextValue(writer, package_decl.name);
+            try writer.writeByte('\n');
+            if (package_decl.version) |version| {
+                try writer.writeAll("  version ");
+                try writeTextValue(writer, version);
+                try writer.writeByte('\n');
+            }
+            if (package_decl.abi) |abi| try writer.print("  abi {d}\n", .{abi});
+            if (package_decl.features.len != 0) {
+                try writer.writeAll("  features [");
+                for (package_decl.features, 0..) |feature, idx| {
+                    if (idx != 0) try writer.writeAll(", ");
+                    try writeTextValue(writer, feature);
+                }
+                try writer.writeAll("]\n");
+            }
+            try writer.writeAll("}\n");
+        }
         wrote_section = true;
     }
 
@@ -1705,6 +1946,63 @@ test "manifest parser preserves requires and mirrors" {
     try std.testing.expectEqualStrings(manifest.requires[1].url, manifest2.requires[1].url);
 }
 
+test "manifest parser decodes escaped text and comma-containing lists" {
+    const decoded = try parseTextValue(std.testing.allocator, "\"a,b\\n\\t\\\\\\\"\"");
+    defer std.testing.allocator.free(decoded);
+    try std.testing.expectEqualStrings("a,b\n\t\\\"", decoded);
+    try std.testing.expectError(ParseError.InvalidFormat, parseTextValue(std.testing.allocator, "\"unterminated"));
+
+    const source =
+        \\package "quoted" # inline comment
+        \\permission_set default {
+        \\  env ["A,B", "C"]
+        \\  read ["path with spaces", "other"]
+        \\}
+    ;
+    var manifest = try parseManifestWithFile(std.testing.allocator, source, "pkg/sa.mod");
+    defer manifest.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), manifest.permission_sets.len);
+    try std.testing.expectEqualStrings("A,B", manifest.permission_sets[0].env[0]);
+    try std.testing.expectEqualStrings("C", manifest.permission_sets[0].env[1]);
+    try std.testing.expectEqualStrings("path with spaces", manifest.permission_sets[0].read[0]);
+}
+
+test "manifest parser accepts assignment separators and trailing list commas" {
+    const source =
+        \\package {
+        \\  name = "assigned"
+        \\  version: "0.2.0"
+        \\  abi = 9
+        \\  features: ["core", "windows",]
+        \\}
+        \\permission_set dev {
+        \\  env: ["HOME",]
+        \\  read = ["/tmp",]
+        \\}
+        \\require github.com/acme/lib @main sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef grants [net_tx,]
+    ;
+
+    var manifest = try parseManifestWithFile(std.testing.allocator, source, "pkg/sa.mod");
+    defer manifest.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("assigned", manifest.package_decl.?.name);
+    try std.testing.expectEqualStrings("0.2.0", manifest.package_decl.?.version.?);
+    try std.testing.expectEqual(@as(u32, 9), manifest.package_decl.?.abi.?);
+    try std.testing.expectEqual(@as(usize, 2), manifest.package_decl.?.features.len);
+    try std.testing.expectEqual(@as(usize, 1), manifest.permission_sets.len);
+    try std.testing.expectEqualStrings("HOME", manifest.permission_sets[0].env[0]);
+    try std.testing.expectEqual(@as(usize, 1), manifest.requires[0].grants.len);
+    try std.testing.expectEqual(Capability.net_tx, manifest.requires[0].grants[0]);
+}
+
+test "manifest parser rejects interior empty list elements" {
+    try std.testing.expectError(ParseError.InvalidFormat, parseManifest(
+        std.testing.allocator,
+        "permission_set dev {\n  env [\"HOME\",,]\n}\n",
+    ));
+}
+
 test "manifest parser preserves package and workspace declarations" {
     const source =
         \\package "root"
@@ -1738,6 +2036,34 @@ test "manifest parser preserves package and workspace declarations" {
     try std.testing.expect(reparsed.workspace != null);
     try std.testing.expectEqualStrings("root", reparsed.package_decl.?.name);
     try std.testing.expectEqualStrings("app", reparsed.workspace.?.default_member.?);
+}
+
+test "manifest parser preserves package metadata block" {
+    const source =
+        \\package {
+        \\  name "sa_std"
+        \\  version "0.1.0"
+        \\  abi 7
+        \\  features ["core", "with,comma"]
+        \\}
+    ;
+
+    var parsed = try parseManifestWithFile(std.testing.allocator, source, "pkg/sa.mod");
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expect(parsed.package_decl != null);
+    try std.testing.expectEqualStrings("sa_std", parsed.package_decl.?.name);
+    try std.testing.expectEqualStrings("0.1.0", parsed.package_decl.?.version.?);
+    try std.testing.expectEqual(@as(?u32, 7), parsed.package_decl.?.abi);
+    try std.testing.expectEqual(@as(usize, 2), parsed.package_decl.?.features.len);
+    try std.testing.expectEqualStrings("with,comma", parsed.package_decl.?.features[1]);
+
+    var out = std.ArrayList(u8).init(std.testing.allocator);
+    defer out.deinit();
+    try writeManifest(out.writer(), parsed);
+    var reparsed = try parseManifestWithFile(std.testing.allocator, out.items, "pkg/sa.mod");
+    defer reparsed.deinit(std.testing.allocator);
+    try std.testing.expect(reparsed.package_decl != null);
+    try std.testing.expect(packageDeclEqual(parsed.package_decl.?, reparsed.package_decl.?));
 }
 
 test "mergeWorkspaceManifests combines workspace root and member metadata" {

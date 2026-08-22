@@ -1,0 +1,2 @@
+// ABI/layout companion for FFI namespace aggregation.
+@import "cstring.sal"

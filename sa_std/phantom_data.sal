@@ -1,0 +1,2 @@
+// PhantomData has no runtime payload.
+@import "marker.sal"

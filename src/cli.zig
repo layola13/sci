@@ -1908,8 +1908,8 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         },
         error.LlvmDisNotFound => .{
             .code = "SA-CLI-016",
-            .message = "llvm-dis not found",
-            .hint = "install llvm-dis-14 or make llvm-dis available on PATH before running bc2sa",
+            .message = "LLVM bitcode disassembler not found",
+            .hint = "install llvm-dis-14/llvm-dis or clang and make one of them available on PATH before running bc2sa",
         },
         error.LlvmDisFailed => .{
             .code = "SA-CLI-017",
@@ -3282,13 +3282,28 @@ fn daemonWorker(allocator: std.mem.Allocator, conn: std.net.Server.Connection, i
 
 var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
 var daemon_in_flight_global = std.atomic.Value(usize).init(0);
+var daemon_cwd_lock: std.Thread.RwLock = .{};
 
 fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Connection) void {
     defer conn.stream.close();
-    var read_buf: [65536]u8 = undefined;
-    const n = conn.stream.read(read_buf[0..]) catch return;
-    if (n == 0) return;
-    const request_line = std.mem.trimRight(u8, read_buf[0..n], "\n\r ");
+    var request_buf = std.ArrayList(u8).init(allocator);
+    defer request_buf.deinit();
+    var read_buf: [4096]u8 = undefined;
+    var request_line: []const u8 = &.{};
+    while (true) {
+        const n = conn.stream.read(read_buf[0..]) catch return;
+        if (n == 0) return;
+        if (request_buf.items.len > daemon_client.MAX_REQUEST_BYTES - n) {
+            conn.stream.writeAll("{\"status\":\"error\",\"message\":\"request too large\"}\n") catch {};
+            return;
+        }
+        request_buf.appendSlice(read_buf[0..n]) catch return;
+        if (std.mem.indexOfScalar(u8, request_buf.items, '\n')) |newline| {
+            request_line = std.mem.trimRight(u8, request_buf.items[0..newline], "\r ");
+            break;
+        }
+    }
+    if (request_line.len == 0) return;
 
     // Control ops that don't need argv execution.
     if (std.mem.indexOf(u8, request_line, "\"op\":\"ping\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"ping\"") != null) {
@@ -3355,11 +3370,21 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
     };
     defer freeDaemonArgv(allocator, parsed);
 
-    // Optional cwd change for project isolation.
+    const requested_cwd = daemon_cancel.parseJsonStrField(request_line, "\"cwd\"");
+    if (requested_cwd != null) {
+        daemon_cwd_lock.lock();
+    } else {
+        daemon_cwd_lock.lockShared();
+    }
+    defer if (requested_cwd != null) daemon_cwd_lock.unlock() else daemon_cwd_lock.unlockShared();
+
     var old_cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const old_cwd = std.fs.cwd().realpath(".", &old_cwd_buf) catch null;
-    if (daemon_cancel.parseJsonStrField(request_line, "\"cwd\"")) |cwd| {
-        std.posix.chdir(cwd) catch {};
+    const old_cwd = if (requested_cwd != null) std.fs.cwd().realpath(".", &old_cwd_buf) catch null else null;
+    if (requested_cwd) |cwd| {
+        std.posix.chdir(cwd) catch {
+            conn.stream.writeAll("{\"status\":\"error\",\"message\":\"invalid cwd\"}\n") catch {};
+            return;
+        };
     }
     defer if (old_cwd) |c| std.posix.chdir(c) catch {};
 
@@ -3487,6 +3512,14 @@ fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
     allocator.free(argv);
 }
 
+fn restrictDaemonSocket(socket_path: []const u8) bool {
+    if (comptime builtin.os.tag != .linux) return true;
+    var path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+    const path_z = std.fmt.bufPrintZ(path_buf[0..], "{s}", .{socket_path}) catch return false;
+    const rc = std.os.linux.chmod(path_z, 0o600);
+    return std.posix.errno(rc) == .SUCCESS;
+}
+
 fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     var socket_path: []const u8 = "/tmp/sa-daemon.sock";
     var max_workers: usize = 8;
@@ -3510,6 +3543,10 @@ fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout:
         return 1;
     };
     defer server.deinit();
+    if (!restrictDaemonSocket(socket_path)) {
+        try stderr.print("daemon: failed to restrict socket permissions for {s}\n", .{socket_path});
+        return 1;
+    }
     try stdout.print("sa daemon listening on {s} (max_workers={d})\n", .{ socket_path, max_workers });
 
     var in_flight = std.atomic.Value(usize).init(0);
@@ -8349,6 +8386,7 @@ pub fn executeWithWritersAndOptions(
         },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
+            if (args.len > 3) return error.UnexpectedArgument;
             const source_path = args[2];
             const translated = bc2sa.translateBitcodeFile(allocator, source_path) catch |err| {
                 try printCliError(stderr, err, if (json_mode) .json else .human);

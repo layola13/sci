@@ -3,16 +3,34 @@
 
 @__rwlock_release_read(lock: ptr) -> void:
 L_ENTRY:
-    old_readers = atomic_rmw_sub lock+RwLock_readers, 1 as i32 acq_rel
-    had_reader = sgt old_readers, 0
-    br had_reader -> L_RELEASE_OK, L_RELEASE_UNDERFLOW
+    readers = atomic_load lock+RwLock_readers as i32 acquire
+    had_reader = sgt readers, 0
+    br had_reader -> L_RELEASE_CLAIM, L_RELEASE_UNDERFLOW
+
+L_RELEASE_CLAIM:
+    next_readers = sub readers, 1
+    old_readers, released = cmpxchg lock+RwLock_readers, readers, next_readers as i32 acq_rel acquire
+    br released -> L_RELEASE_OK, L_RELEASE_RETRY
+
+L_RELEASE_RETRY:
+    !released
+    !old_readers
+    !next_readers
+    !had_reader
+    !readers
+    jmp L_ENTRY
 
 L_RELEASE_UNDERFLOW:
+    !had_reader
+    !readers
     panic(1601)
 
 L_RELEASE_OK:
-    !had_reader
+    !released
     !old_readers
+    !next_readers
+    !had_reader
+    !readers
     !lock
     return
 
@@ -201,8 +219,36 @@ L_RWLOCK_TRY_WRITE_END_%out_ok:
     call @__rwlock_release_read(%lock_reg)
 [END_MACRO]
 
+[MACRO] RWLOCK_TRY_RELEASE_READ %out_ok, %lock_reg
+L_RWLOCK_TRY_RELEASE_READ_ENTRY_%out_ok:
+    __rwlock_try_release_read_state_%out_ok = atomic_load %lock_reg+RwLock_readers as i32 acquire
+    __rwlock_try_release_read_has_%out_ok = sgt __rwlock_try_release_read_state_%out_ok, 0
+    br __rwlock_try_release_read_has_%out_ok -> L_RWLOCK_TRY_RELEASE_READ_CLAIM_%out_ok, L_RWLOCK_TRY_RELEASE_READ_EMPTY_%out_ok
+L_RWLOCK_TRY_RELEASE_READ_CLAIM_%out_ok:
+    __rwlock_try_release_read_next_%out_ok = sub __rwlock_try_release_read_state_%out_ok, 1
+    __rwlock_try_release_read_old_%out_ok, %out_ok = cmpxchg %lock_reg+RwLock_readers, __rwlock_try_release_read_state_%out_ok, __rwlock_try_release_read_next_%out_ok as i32 acq_rel acquire
+    br %out_ok -> L_RWLOCK_TRY_RELEASE_READ_DONE_%out_ok, L_RWLOCK_TRY_RELEASE_READ_RETRY_%out_ok
+L_RWLOCK_TRY_RELEASE_READ_RETRY_%out_ok:
+    !__rwlock_try_release_read_old_%out_ok
+    !__rwlock_try_release_read_next_%out_ok
+    !__rwlock_try_release_read_has_%out_ok
+    !__rwlock_try_release_read_state_%out_ok
+    jmp L_RWLOCK_TRY_RELEASE_READ_ENTRY_%out_ok
+L_RWLOCK_TRY_RELEASE_READ_EMPTY_%out_ok:
+    %out_ok = add 0, 0
+L_RWLOCK_TRY_RELEASE_READ_DONE_%out_ok:
+    !__rwlock_try_release_read_old_%out_ok
+    !__rwlock_try_release_read_next_%out_ok
+    !__rwlock_try_release_read_has_%out_ok
+    !__rwlock_try_release_read_state_%out_ok
+[END_MACRO]
 [MACRO] RWLOCK_RELEASE_WRITE %lock_reg
     atomic_store %lock_reg+RwLock_writing, 0 as i32 release
+[END_MACRO]
+
+[MACRO] RWLOCK_TRY_RELEASE_WRITE %out_ok, %lock_reg
+    __rwlock_release_state_%out_ok, %out_ok = cmpxchg %lock_reg+RwLock_writing, 1, 0 as i32 acq_rel acquire
+    !__rwlock_release_state_%out_ok
 [END_MACRO]
 
 [MACRO] RWLOCK_FORCE_UNLOCKED %lock_reg
@@ -259,6 +305,7 @@ L_KEEP:
     jmp L_TRY
 L_DONE:
     !still_busy
+    !lock
     return
 
 @__rwlock_lock_write_spin(lock: ptr) -> void:
@@ -302,6 +349,7 @@ L_WKEEP:
     jmp L_WTRY
 L_WDONE:
     !no_readers
+    !lock
     return
 
 [MACRO] RWLOCK_READ %lock_reg

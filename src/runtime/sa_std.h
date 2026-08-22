@@ -414,6 +414,9 @@ int32_t sa_std_fs_read_link(const uint8_t *path, uint64_t path_len, uint64_t *ou
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_first(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_to_socket_addr_list(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_addr_list_next(uint64_t list, int32_t *out_ok, uint64_t *out_addr);
+int32_t sa_std_net_addr_list_free(uint64_t list);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
 int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);
@@ -427,6 +430,8 @@ int32_t sa_std_net_tcp_stream_set_read_timeout(uint64_t stream_handle, uint64_t 
 int32_t sa_std_net_tcp_stream_set_write_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nonblocking(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_set_nodelay(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_keepalive(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_keepalive_params(uint64_t stream_handle, uint32_t idle_secs, uint32_t interval_secs, uint32_t count);
 int32_t sa_std_net_tcp_stream_set_quickack(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_quickack(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_tcp_stream_set_deferaccept(uint64_t stream_handle, uint32_t seconds);
@@ -446,8 +451,17 @@ int32_t sa_std_net_tcp_listener_set_nonblocking(uint64_t listener_handle, int32_
 int32_t sa_std_net_tcp_listener_set_ttl(uint64_t listener_handle, uint32_t ttl);
 int32_t sa_std_net_tcp_listener_ttl(uint64_t listener_handle, uint32_t *out_ttl);
 int32_t sa_std_net_tcp_listener_take_error(uint64_t listener_handle, int32_t *out_error);
+int32_t sa_std_net_tcp_listener_set_reuseaddr(uint64_t listener_handle, int32_t enabled);
+int32_t sa_std_net_tcp_listener_set_reuseport(uint64_t listener_handle, int32_t enabled);
+int32_t sa_std_net_tcp_listener_set_only_v6(uint64_t listener_handle, int32_t enabled);
+int32_t sa_std_net_tcp_listener_only_v6(uint64_t listener_handle, int32_t *out_enabled);
+int32_t sa_std_net_udp_set_only_v6(uint64_t socket, int32_t enabled);
+int32_t sa_std_net_udp_only_v6(uint64_t socket, int32_t *out_enabled);
 int32_t sa_std_net_tcp_listener_from_raw_fd(int32_t fd, uint64_t *out_handle);
 int32_t sa_std_net_tcp_stream_from_raw_fd(int32_t fd, uint64_t *out_handle);
+int32_t sa_std_net_tcp_stream_try_clone(uint64_t stream, uint64_t *out_handle);
+int32_t sa_std_net_tcp_listener_try_clone(uint64_t listener, uint64_t *out_handle);
+int32_t sa_std_net_udp_try_clone(uint64_t socket, uint64_t *out_handle);
 
 int32_t sa_std_net_unix_listen(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_accept(uint64_t listener_handle, uint64_t *out_handle);
@@ -688,6 +702,20 @@ int32_t sa_fmt_u64_into(uint64_t value, uint32_t base, uint8_t *out, uint64_t ou
 int32_t sa_fmt_f64_into(double value, uint32_t precision, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_fmt_bool_into(uint8_t value, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_fmt_bytes_into(const uint8_t *buf, uint64_t len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+
+int32_t sa_std_http2_supported(uint32_t *out_supported);
+int32_t sa_std_http2_client_request(const uint8_t *url, uint64_t url_len, const uint8_t *method, uint64_t method_len, const uint8_t *body, uint64_t body_len, uint64_t *out_handle);
+int32_t sa_std_http2_nghttp2_version_json(uint64_t *out_handle);
+int32_t sa_std_http2_status_json(uint64_t *out_handle);
+int32_t sa_std_http2_constants_json(uint64_t *out_handle);
+int32_t sa_std_http2_sensitive_headers(uint64_t *out_handle);
+int32_t sa_std_http2_get_default_settings_json(uint64_t *out_handle);
+int32_t sa_std_http2_get_packed_settings(const uint8_t *settings_json, uint64_t settings_json_len, uint64_t *out_handle);
+int32_t sa_std_http2_get_unpacked_settings_json(const uint8_t *buf, uint64_t buf_len, uint64_t *out_handle);
+int32_t sa_std_http2_perform_server_handshake(const uint8_t *input, uint64_t input_len, const uint8_t *settings_json, uint64_t settings_json_len, uint64_t *out_bytes, uint64_t *out_json);
+const uint8_t *sa_std_http2_buffer_data(uint64_t handle);
+uint64_t sa_std_http2_buffer_len(uint64_t handle);
+int32_t sa_std_http2_buffer_free(uint64_t handle);
 
 #ifdef __cplusplus
 }

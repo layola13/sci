@@ -1,0 +1,4 @@
+// ABI/layout companion for marker namespace aggregation.
+@import "phantom_data.sal"
+@import "../manually_drop.sal"
+@import "../marker.sal"

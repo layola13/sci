@@ -177,6 +177,46 @@ L_MPSC_NEW_ALLOC_%out_chan:
     EXPAND MPSC_NEW %out_chan, 16
 [END_MACRO]
 
+[MACRO] MPSC_SEND_ERROR_NEW %out_error, %value
+    %out_error = alloc SendErrorU64_SIZE
+    store %out_error+SendErrorU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] MPSC_SEND_ERROR_VALUE %out_value, %error_reg
+    %out_value = load %error_reg+SendErrorU64_value as u64
+[END_MACRO]
+
+[MACRO] MPSC_TRY_SEND_ERROR_NEW %out_error, %kind, %value
+    %out_error = alloc TrySendErrorU64_SIZE
+    store %out_error+TrySendErrorU64_kind, %kind as u64
+    store %out_error+TrySendErrorU64_value, %value as u64
+[END_MACRO]
+
+[MACRO] MPSC_TRY_SEND_ERROR_KIND %out_kind, %error_reg
+    %out_kind = load %error_reg+TrySendErrorU64_kind as u64
+[END_MACRO]
+
+[MACRO] MPSC_TRY_SEND_ERROR_VALUE %out_value, %error_reg
+    %out_value = load %error_reg+TrySendErrorU64_value as u64
+[END_MACRO]
+
+[MACRO] MPSC_TRY_RECV_ERROR_NEW %out_error, %kind
+    %out_error = alloc TryRecvError_SIZE
+    store %out_error+TryRecvError_kind, %kind as u64
+[END_MACRO]
+
+[MACRO] MPSC_TRY_RECV_ERROR_KIND %out_kind, %error_reg
+    %out_kind = load %error_reg+TryRecvError_kind as u64
+[END_MACRO]
+
+[MACRO] MPSC_RECV_TIMEOUT_ERROR_NEW %out_error, %kind
+    %out_error = alloc RecvTimeoutError_SIZE
+    store %out_error+RecvTimeoutError_kind, %kind as u64
+[END_MACRO]
+
+[MACRO] MPSC_RECV_TIMEOUT_ERROR_KIND %out_kind, %error_reg
+    %out_kind = load %error_reg+RecvTimeoutError_kind as u64
+[END_MACRO]
 [MACRO] MPSC_FREE %chan
     !%chan
 [END_MACRO]
@@ -250,6 +290,42 @@ L_MPSC_FULL_CALC_%out_bool:
     !__mpsc_full_cap_%out_bool
 [END_MACRO]
 
+[MACRO] MPSC_TRY_SEND_ERROR %out_ok, %out_error, %chan, %value
+    __mpsc_send_error_disconnected_%out_ok = eq %chan, 0
+    br __mpsc_send_error_disconnected_%out_ok -> L_MPSC_SEND_ERROR_DISCONNECTED_%out_ok, L_MPSC_SEND_ERROR_CALL_%out_ok
+L_MPSC_SEND_ERROR_CALL_%out_ok:
+    EXPAND MPSC_TRY_SEND %out_ok, %chan, %value
+    br %out_ok -> L_MPSC_SEND_ERROR_OK_%out_ok, L_MPSC_SEND_ERROR_FULL_%out_ok
+L_MPSC_SEND_ERROR_OK_%out_ok:
+    %out_error = add 0, 0
+    jmp L_MPSC_SEND_ERROR_DONE_%out_ok
+L_MPSC_SEND_ERROR_FULL_%out_ok:
+    EXPAND MPSC_TRY_SEND_ERROR_NEW %out_error, TRY_SEND_ERROR_FULL, %value
+    jmp L_MPSC_SEND_ERROR_DONE_%out_ok
+L_MPSC_SEND_ERROR_DISCONNECTED_%out_ok:
+    EXPAND MPSC_TRY_SEND_ERROR_NEW %out_error, TRY_SEND_ERROR_DISCONNECTED, %value
+L_MPSC_SEND_ERROR_DONE_%out_ok:
+    !__mpsc_send_error_disconnected_%out_ok
+[END_MACRO]
+
+[MACRO] MPSC_TRY_RECV_ERROR %out_ok, %out_error, %out_value, %chan
+    __mpsc_recv_error_disconnected_%out_ok = eq %chan, 0
+    br __mpsc_recv_error_disconnected_%out_ok -> L_MPSC_RECV_ERROR_DISCONNECTED_%out_ok, L_MPSC_RECV_ERROR_CALL_%out_ok
+L_MPSC_RECV_ERROR_CALL_%out_ok:
+    EXPAND MPSC_TRY_RECV %out_ok, %out_value, %chan
+    br %out_ok -> L_MPSC_RECV_ERROR_OK_%out_ok, L_MPSC_RECV_ERROR_EMPTY_%out_ok
+L_MPSC_RECV_ERROR_OK_%out_ok:
+    %out_error = add 0, 0
+    jmp L_MPSC_RECV_ERROR_DONE_%out_ok
+L_MPSC_RECV_ERROR_EMPTY_%out_ok:
+    EXPAND MPSC_TRY_RECV_ERROR_NEW %out_error, TRY_RECV_ERROR_EMPTY
+    jmp L_MPSC_RECV_ERROR_DONE_%out_ok
+L_MPSC_RECV_ERROR_DISCONNECTED_%out_ok:
+    %out_value = add 0, 0
+    EXPAND MPSC_TRY_RECV_ERROR_NEW %out_error, TRY_RECV_ERROR_DISCONNECTED
+L_MPSC_RECV_ERROR_DONE_%out_ok:
+    !__mpsc_recv_error_disconnected_%out_ok
+[END_MACRO]
 [MACRO] MPSC_TRY_SEND %out_ok, %chan, %value
     __mpsc_value_slot_%out_ok = stack_alloc 8
     store __mpsc_value_slot_%out_ok+0, %value as u64
@@ -324,37 +400,105 @@ L_MPSC_RECV_DONE_%out_value:
     !__mpsc_ch_chan_%out_tx
 [END_MACRO]
 
+[MACRO] MPSC_TX_IS_DISCONNECTED %out_bool, %tx
+    __mpsc_tx_disconnected_chan_%out_bool = load %tx+MpscSender_chan as ptr
+    %out_bool = eq __mpsc_tx_disconnected_chan_%out_bool, 0
+    !__mpsc_tx_disconnected_chan_%out_bool
+[END_MACRO]
+
+[MACRO] MPSC_RX_IS_DISCONNECTED %out_bool, %rx
+    __mpsc_rx_disconnected_chan_%out_bool = load %rx+MpscReceiver_chan as ptr
+    %out_bool = eq __mpsc_rx_disconnected_chan_%out_bool, 0
+    !__mpsc_rx_disconnected_chan_%out_bool
+[END_MACRO]
+
+[MACRO] MPSC_CHANNEL_IS_DISCONNECTED %out_bool, %tx, %rx
+    __mpsc_channel_tx_chan_%out_bool = load %tx+MpscSender_chan as ptr
+    __mpsc_channel_rx_chan_%out_bool = load %rx+MpscReceiver_chan as ptr
+    __mpsc_channel_tx_empty_%out_bool = eq __mpsc_channel_tx_chan_%out_bool, 0
+    __mpsc_channel_rx_empty_%out_bool = eq __mpsc_channel_rx_chan_%out_bool, 0
+    %out_bool = and __mpsc_channel_tx_empty_%out_bool, __mpsc_channel_rx_empty_%out_bool
+    !__mpsc_channel_rx_empty_%out_bool
+    !__mpsc_channel_tx_empty_%out_bool
+    !__mpsc_channel_rx_chan_%out_bool
+    !__mpsc_channel_tx_chan_%out_bool
+[END_MACRO]
+[MACRO] MPSC_TX_DROP %tx
+    store %tx+MpscSender_chan, 0 as ptr
+[END_MACRO]
+
+[MACRO] MPSC_RX_DROP %rx
+    store %rx+MpscReceiver_chan, 0 as ptr
+[END_MACRO]
+
 [MACRO] MPSC_TX_TRY_SEND %out_ok, %tx, %value
     __mpsc_tx_chan_%out_ok = load %tx+MpscSender_chan as ptr
+    __mpsc_tx_disconnected_%out_ok = eq __mpsc_tx_chan_%out_ok, 0
+    br __mpsc_tx_disconnected_%out_ok -> L_MPSC_TX_TRY_SEND_FAIL_%out_ok, L_MPSC_TX_TRY_SEND_CALL_%out_ok
+L_MPSC_TX_TRY_SEND_CALL_%out_ok:
     EXPAND MPSC_TRY_SEND %out_ok, __mpsc_tx_chan_%out_ok, %value
+    !__mpsc_tx_disconnected_%out_ok
     !__mpsc_tx_chan_%out_ok
+    jmp L_MPSC_TX_TRY_SEND_DONE_%out_ok
+L_MPSC_TX_TRY_SEND_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__mpsc_tx_disconnected_%out_ok
+    !__mpsc_tx_chan_%out_ok
+L_MPSC_TX_TRY_SEND_DONE_%out_ok:
 [END_MACRO]
 
 [MACRO] MPSC_TX_SEND %tx, %value
     __mpsc_tx_chan_s_%tx = load %tx+MpscSender_chan as ptr
+    __mpsc_tx_disconnected_s_%tx = eq __mpsc_tx_chan_s_%tx, 0
+    br __mpsc_tx_disconnected_s_%tx -> L_MPSC_TX_SEND_DONE_%tx, L_MPSC_TX_SEND_CALL_%tx
+L_MPSC_TX_SEND_CALL_%tx:
     EXPAND MPSC_SEND __mpsc_tx_chan_s_%tx, %value
+    !__mpsc_tx_disconnected_s_%tx
+    !__mpsc_tx_chan_s_%tx
+L_MPSC_TX_SEND_DONE_%tx:
+    !__mpsc_tx_disconnected_s_%tx
     !__mpsc_tx_chan_s_%tx
 [END_MACRO]
 
 [MACRO] MPSC_RX_TRY_RECV %out_ok, %out_value, %rx
     __mpsc_rx_chan_%out_ok = load %rx+MpscReceiver_chan as ptr
+    __mpsc_rx_disconnected_%out_ok = eq __mpsc_rx_chan_%out_ok, 0
+    br __mpsc_rx_disconnected_%out_ok -> L_MPSC_RX_TRY_RECV_FAIL_%out_ok, L_MPSC_RX_TRY_RECV_CALL_%out_ok
+L_MPSC_RX_TRY_RECV_CALL_%out_ok:
     EXPAND MPSC_TRY_RECV %out_ok, %out_value, __mpsc_rx_chan_%out_ok
+    !__mpsc_rx_disconnected_%out_ok
     !__mpsc_rx_chan_%out_ok
+    jmp L_MPSC_RX_TRY_RECV_DONE_%out_ok
+L_MPSC_RX_TRY_RECV_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__mpsc_rx_disconnected_%out_ok
+    !__mpsc_rx_chan_%out_ok
+L_MPSC_RX_TRY_RECV_DONE_%out_ok:
 [END_MACRO]
 
 [MACRO] MPSC_RX_RECV %out_value, %rx
     __mpsc_rx_chan_r_%out_value = load %rx+MpscReceiver_chan as ptr
+    __mpsc_rx_disconnected_r_%out_value = eq __mpsc_rx_chan_r_%out_value, 0
+    br __mpsc_rx_disconnected_r_%out_value -> L_MPSC_RX_RECV_EMPTY_%out_value, L_MPSC_RX_RECV_CALL_%out_value
+L_MPSC_RX_RECV_CALL_%out_value:
     EXPAND MPSC_RECV %out_value, __mpsc_rx_chan_r_%out_value
+    !__mpsc_rx_disconnected_r_%out_value
+    !__mpsc_rx_chan_r_%out_value
+    jmp L_MPSC_RX_RECV_DONE_%out_value
+L_MPSC_RX_RECV_EMPTY_%out_value:
+    %out_value = add 0, 0
+L_MPSC_RX_RECV_DONE_%out_value:
+    !__mpsc_rx_disconnected_r_%out_value
     !__mpsc_rx_chan_r_%out_value
 [END_MACRO]
 
 [MACRO] MPSC_CHANNEL_FREE %tx, %rx
     __mpsc_cf_chan_%tx = load %tx+MpscSender_chan as ptr
     EXPAND MPSC_FREE __mpsc_cf_chan_%tx
-    !%tx
-    !%rx
+    EXPAND MPSC_TX_DROP %tx
+    EXPAND MPSC_RX_DROP %rx
 [END_MACRO]
-
 // Unbounded-style channel: large fixed capacity ring (not growable; SA subset).
 [MACRO] MPSC_UNBOUNDED %out_tx, %out_rx
     EXPAND MPSC_CHANNEL %out_tx, %out_rx, 1024
@@ -411,16 +555,105 @@ L_TO_TIMEOUT:
     !timeout_ns
     return 0
 
+[MACRO] MPSC_TRY_RECV_TIMEOUT_ERROR %out_ok, %out_error, %out_value, %chan, %timeout_ns
+    __mpsc_recv_timeout_error_disconnected_%out_ok = eq %chan, 0
+    br __mpsc_recv_timeout_error_disconnected_%out_ok -> L_MPSC_RECV_TIMEOUT_ERROR_DISCONNECTED_%out_ok, L_MPSC_RECV_TIMEOUT_ERROR_CALL_%out_ok
+L_MPSC_RECV_TIMEOUT_ERROR_CALL_%out_ok:
+    EXPAND MPSC_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %chan, %timeout_ns
+    br %out_ok -> L_MPSC_RECV_TIMEOUT_ERROR_OK_%out_ok, L_MPSC_RECV_TIMEOUT_ERROR_TIMEOUT_%out_ok
+L_MPSC_RECV_TIMEOUT_ERROR_OK_%out_ok:
+    %out_error = add 0, 0
+    jmp L_MPSC_RECV_TIMEOUT_ERROR_DONE_%out_ok
+L_MPSC_RECV_TIMEOUT_ERROR_TIMEOUT_%out_ok:
+    EXPAND MPSC_RECV_TIMEOUT_ERROR_NEW %out_error, RECV_TIMEOUT_ERROR_TIMEOUT
+    jmp L_MPSC_RECV_TIMEOUT_ERROR_DONE_%out_ok
+L_MPSC_RECV_TIMEOUT_ERROR_DISCONNECTED_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    EXPAND MPSC_RECV_TIMEOUT_ERROR_NEW %out_error, RECV_TIMEOUT_ERROR_DISCONNECTED
+L_MPSC_RECV_TIMEOUT_ERROR_DONE_%out_ok:
+    !__mpsc_recv_timeout_error_disconnected_%out_ok
+[END_MACRO]
+
+[MACRO] MPSC_RX_TRY_RECV_TIMEOUT_ERROR %out_ok, %out_error, %out_value, %rx, %timeout_ns
+    __mpsc_rx_timeout_error_chan_%out_ok = load %rx+MpscReceiver_chan as ptr
+    EXPAND MPSC_TRY_RECV_TIMEOUT_ERROR %out_ok, %out_error, %out_value, __mpsc_rx_timeout_error_chan_%out_ok, %timeout_ns
+    !__mpsc_rx_timeout_error_chan_%out_ok
+[END_MACRO]
 [MACRO] MPSC_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %chan, %timeout_ns
     __mpsc_to_slot_%out_ok = stack_alloc 8
+    store __mpsc_to_slot_%out_ok+0, 0 as u64
     %out_ok = call @__mpsc_try_recv_timeout_ns(&%chan, &__mpsc_to_slot_%out_ok, %timeout_ns)
     %out_value = load __mpsc_to_slot_%out_ok+0 as u64
 [END_MACRO]
 
 [MACRO] MPSC_RX_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %rx, %timeout_ns
     __mpsc_rx_to_chan_%out_ok = load %rx+MpscReceiver_chan as ptr
+    __mpsc_rx_to_disconnected_%out_ok = eq __mpsc_rx_to_chan_%out_ok, 0
+    br __mpsc_rx_to_disconnected_%out_ok -> L_MPSC_RX_TIMEOUT_EMPTY_%out_ok, L_MPSC_RX_TIMEOUT_CALL_%out_ok
+L_MPSC_RX_TIMEOUT_CALL_%out_ok:
     EXPAND MPSC_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, __mpsc_rx_to_chan_%out_ok, %timeout_ns
+    jmp L_MPSC_RX_TIMEOUT_DONE_%out_ok
+L_MPSC_RX_TIMEOUT_EMPTY_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+L_MPSC_RX_TIMEOUT_DONE_%out_ok:
+    !__mpsc_rx_to_disconnected_%out_ok
     !__mpsc_rx_to_chan_%out_ok
+[END_MACRO]
+
+[MACRO] MPSC_TRY_RECV_TIMEOUT_MS %out_ok, %out_value, %chan, %timeout_ms
+    EXPAND NUM_U64_CHECKED_MUL __mpsc_recv_timeout_mul_ok_%out_ok, __mpsc_recv_timeout_ns_%out_ok, %timeout_ms, 1000000
+    br __mpsc_recv_timeout_mul_ok_%out_ok -> L_MPSC_RECV_TIMEOUT_MS_OK_%out_ok, L_MPSC_RECV_TIMEOUT_MS_FAIL_%out_ok
+L_MPSC_RECV_TIMEOUT_MS_OK_%out_ok:
+    EXPAND MPSC_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %chan, __mpsc_recv_timeout_ns_%out_ok
+    !__mpsc_recv_timeout_ns_%out_ok
+    !__mpsc_recv_timeout_mul_ok_%out_ok
+    jmp L_MPSC_RECV_TIMEOUT_MS_DONE_%out_ok
+L_MPSC_RECV_TIMEOUT_MS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__mpsc_recv_timeout_ns_%out_ok
+    !__mpsc_recv_timeout_mul_ok_%out_ok
+L_MPSC_RECV_TIMEOUT_MS_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] MPSC_TRY_RECV_TIMEOUT_ERROR_MS %out_ok, %out_error, %out_value, %chan, %timeout_ms
+    EXPAND NUM_U64_CHECKED_MUL __mpsc_recv_error_timeout_mul_ok_%out_ok, __mpsc_recv_error_timeout_ns_%out_ok, %timeout_ms, 1000000
+    br __mpsc_recv_error_timeout_mul_ok_%out_ok -> L_MPSC_RECV_ERROR_TIMEOUT_MS_OK_%out_ok, L_MPSC_RECV_ERROR_TIMEOUT_MS_FAIL_%out_ok
+L_MPSC_RECV_ERROR_TIMEOUT_MS_OK_%out_ok:
+    EXPAND MPSC_TRY_RECV_TIMEOUT_ERROR %out_ok, %out_error, %out_value, %chan, __mpsc_recv_error_timeout_ns_%out_ok
+    !__mpsc_recv_error_timeout_ns_%out_ok
+    !__mpsc_recv_error_timeout_mul_ok_%out_ok
+    jmp L_MPSC_RECV_ERROR_TIMEOUT_MS_DONE_%out_ok
+L_MPSC_RECV_ERROR_TIMEOUT_MS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    EXPAND MPSC_RECV_TIMEOUT_ERROR_NEW %out_error, RECV_TIMEOUT_ERROR_TIMEOUT
+    !__mpsc_recv_error_timeout_ns_%out_ok
+    !__mpsc_recv_error_timeout_mul_ok_%out_ok
+L_MPSC_RECV_ERROR_TIMEOUT_MS_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] MPSC_RX_TRY_RECV_TIMEOUT_ERROR_MS %out_ok, %out_error, %out_value, %rx, %timeout_ms
+    __mpsc_rx_error_timeout_chan_%out_ok = load %rx+MpscReceiver_chan as ptr
+    EXPAND MPSC_TRY_RECV_TIMEOUT_ERROR_MS %out_ok, %out_error, %out_value, __mpsc_rx_error_timeout_chan_%out_ok, %timeout_ms
+    !__mpsc_rx_error_timeout_chan_%out_ok
+[END_MACRO]
+[MACRO] MPSC_RX_TRY_RECV_TIMEOUT_MS %out_ok, %out_value, %rx, %timeout_ms
+    EXPAND NUM_U64_CHECKED_MUL __mpsc_rx_timeout_mul_ok_%out_ok, __mpsc_rx_timeout_ns_%out_ok, %timeout_ms, 1000000
+    br __mpsc_rx_timeout_mul_ok_%out_ok -> L_MPSC_RX_TIMEOUT_MS_OK_%out_ok, L_MPSC_RX_TIMEOUT_MS_FAIL_%out_ok
+L_MPSC_RX_TIMEOUT_MS_OK_%out_ok:
+    EXPAND MPSC_RX_TRY_RECV_TIMEOUT_NS %out_ok, %out_value, %rx, __mpsc_rx_timeout_ns_%out_ok
+    !__mpsc_rx_timeout_ns_%out_ok
+    !__mpsc_rx_timeout_mul_ok_%out_ok
+    jmp L_MPSC_RX_TIMEOUT_MS_DONE_%out_ok
+L_MPSC_RX_TIMEOUT_MS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    %out_value = add 0, 0
+    !__mpsc_rx_timeout_ns_%out_ok
+    !__mpsc_rx_timeout_mul_ok_%out_ok
+L_MPSC_RX_TIMEOUT_MS_DONE_%out_ok:
 [END_MACRO]
 
 @__mpsc_try_send_timeout_ns(&chan: ptr, &value_slot: ptr, timeout_ns: u64) -> i32:
@@ -433,6 +666,8 @@ L_ST_TRY:
     ok = call @__mpsc_try_send(&chan, &value_slot)
     br ok -> L_ST_OK, L_ST_CHECK
 L_ST_OK:
+    !chan
+    !value_slot
     !start
     !timeout_ns
     return 1
@@ -464,6 +699,8 @@ L_ST_KEEP:
     !ok
     jmp L_ST_TRY
 L_ST_TIMEOUT:
+    !chan
+    !value_slot
     !timed_out
     !ok
     !start
@@ -478,6 +715,44 @@ L_ST_TIMEOUT:
 
 [MACRO] MPSC_TX_TRY_SEND_TIMEOUT_NS %out_ok, %tx, %value, %timeout_ns
     __mpsc_tx_st_chan_%out_ok = load %tx+MpscSender_chan as ptr
+    __mpsc_tx_st_disconnected_%out_ok = eq __mpsc_tx_st_chan_%out_ok, 0
+    br __mpsc_tx_st_disconnected_%out_ok -> L_MPSC_TX_TIMEOUT_FAIL_%out_ok, L_MPSC_TX_TIMEOUT_CALL_%out_ok
+L_MPSC_TX_TIMEOUT_CALL_%out_ok:
     EXPAND MPSC_TRY_SEND_TIMEOUT_NS %out_ok, __mpsc_tx_st_chan_%out_ok, %value, %timeout_ns
+    jmp L_MPSC_TX_TIMEOUT_DONE_%out_ok
+L_MPSC_TX_TIMEOUT_FAIL_%out_ok:
+    %out_ok = add 0, 0
+L_MPSC_TX_TIMEOUT_DONE_%out_ok:
+    !__mpsc_tx_st_disconnected_%out_ok
     !__mpsc_tx_st_chan_%out_ok
+[END_MACRO]
+
+[MACRO] MPSC_TRY_SEND_TIMEOUT_MS %out_ok, %chan, %value, %timeout_ms
+    EXPAND NUM_U64_CHECKED_MUL __mpsc_send_timeout_mul_ok_%out_ok, __mpsc_send_timeout_ns_%out_ok, %timeout_ms, 1000000
+    br __mpsc_send_timeout_mul_ok_%out_ok -> L_MPSC_SEND_TIMEOUT_MS_OK_%out_ok, L_MPSC_SEND_TIMEOUT_MS_FAIL_%out_ok
+L_MPSC_SEND_TIMEOUT_MS_OK_%out_ok:
+    EXPAND MPSC_TRY_SEND_TIMEOUT_NS %out_ok, %chan, %value, __mpsc_send_timeout_ns_%out_ok
+    !__mpsc_send_timeout_ns_%out_ok
+    !__mpsc_send_timeout_mul_ok_%out_ok
+    jmp L_MPSC_SEND_TIMEOUT_MS_DONE_%out_ok
+L_MPSC_SEND_TIMEOUT_MS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__mpsc_send_timeout_ns_%out_ok
+    !__mpsc_send_timeout_mul_ok_%out_ok
+L_MPSC_SEND_TIMEOUT_MS_DONE_%out_ok:
+[END_MACRO]
+
+[MACRO] MPSC_TX_TRY_SEND_TIMEOUT_MS %out_ok, %tx, %value, %timeout_ms
+    EXPAND NUM_U64_CHECKED_MUL __mpsc_tx_timeout_mul_ok_%out_ok, __mpsc_tx_timeout_ns_%out_ok, %timeout_ms, 1000000
+    br __mpsc_tx_timeout_mul_ok_%out_ok -> L_MPSC_TX_TIMEOUT_MS_OK_%out_ok, L_MPSC_TX_TIMEOUT_MS_FAIL_%out_ok
+L_MPSC_TX_TIMEOUT_MS_OK_%out_ok:
+    EXPAND MPSC_TX_TRY_SEND_TIMEOUT_NS %out_ok, %tx, %value, __mpsc_tx_timeout_ns_%out_ok
+    !__mpsc_tx_timeout_ns_%out_ok
+    !__mpsc_tx_timeout_mul_ok_%out_ok
+    jmp L_MPSC_TX_TIMEOUT_MS_DONE_%out_ok
+L_MPSC_TX_TIMEOUT_MS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__mpsc_tx_timeout_ns_%out_ok
+    !__mpsc_tx_timeout_mul_ok_%out_ok
+L_MPSC_TX_TIMEOUT_MS_DONE_%out_ok:
 [END_MACRO]

@@ -279,13 +279,13 @@ fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usiz
     return file.readToEndAlloc(allocator, max_bytes) catch error.PackageNotResolved;
 }
 
-fn mapFileReadOnly(path: []const u8) ResolveError!struct { mapped: []align(std.heap.page_size_min) u8, source: []u8 } {
+fn mapFileReadOnly(path: []const u8, max_bytes: usize) ResolveError!struct { mapped: []align(std.heap.page_size_min) u8, source: []u8 } {
     if (builtin.os.tag == .windows) {
         var file = std.fs.cwd().openFile(path, .{}) catch return error.PackageNotResolved;
         defer file.close();
         const end_pos = file.getEndPos() catch return error.PackageNotResolved;
         const len = std.math.cast(usize, end_pos) orelse return error.PackageNotResolved;
-        if (len == 0) return error.PackageNotResolved;
+        if (len == 0 or len > max_bytes) return error.PackageNotResolved;
         const source = file.readToEndAlloc(std.heap.page_allocator, len) catch return error.PackageNotResolved;
         const mapped = try std.heap.page_allocator.alignedAlloc(u8, std.heap.page_size_min, source.len);
         @memcpy(mapped, source);
@@ -298,7 +298,7 @@ fn mapFileReadOnly(path: []const u8) ResolveError!struct { mapped: []align(std.h
 
     const end_pos = file.getEndPos() catch return error.PackageNotResolved;
     const len = std.math.cast(usize, end_pos) orelse return error.PackageNotResolved;
-    if (len == 0) return error.PackageNotResolved;
+    if (len == 0 or len > max_bytes) return error.PackageNotResolved;
 
     const mapped = std.posix.mmap(
         null,
@@ -408,7 +408,7 @@ fn resolveFromPackageRoot(
         if (!pathWithinRoot(canonical_root, canonical_entry)) return error.InvalidImportPath;
 
         if (global) {
-            const mapped = try mapFileReadOnly(canonical_entry);
+            const mapped = try mapFileReadOnly(canonical_entry, max_bytes);
             const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, mapped.source);
             var resolved: ResolvedImport = .{
                 .entry_path = canonical_entry,
@@ -885,4 +885,30 @@ test "resolveImport falls back to declared plugin interface roots" {
     try std.testing.expect(resolved.is_global);
     try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "plugins/installed/deno/current/sa/deno.sal"));
     try std.testing.expectEqualStrings("@const DENO_OK: u64 = 1\n", resolved.source);
+}
+
+test "resolveImport bounds globally mapped source size" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath(".sa/pkg/github.com/example/large@v1");
+    try tmp.dir.writeFile(.{
+        .sub_path = ".sa/pkg/github.com/example/large@v1/index.sa",
+        .data = "@large() -> i32:\n    return 123456789\n",
+    });
+
+    const home = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(home);
+    const dependency = Dependency{ .url = "github.com/example/large", .ref = "v1" };
+
+    try std.testing.expectError(
+        error.PackageNotResolved,
+        resolveImport(
+            std.testing.allocator,
+            &.{dependency},
+            home,
+            "github.com/example/large",
+            .{ .project_root = home, .home_dir = home, .max_local_file_bytes = 8 },
+        ),
+    );
 }

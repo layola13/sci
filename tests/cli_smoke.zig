@@ -262,6 +262,23 @@ fn llvmDisAvailable() bool {
     return false;
 }
 
+fn clangAvailable() bool {
+    const probes = [_][]const u8{ "clang", "clang.exe" };
+    for (probes) |probe| {
+        const result = std.process.Child.run(.{
+            .allocator = std.heap.page_allocator,
+            .argv = &[_][]const u8{ probe, "--version" },
+        }) catch continue;
+        std.heap.page_allocator.free(result.stdout);
+        std.heap.page_allocator.free(result.stderr);
+        switch (result.term) {
+            .Exited => |code| if (code == 0) return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
 fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
     const args_json = try std.json.stringifyAlloc(allocator, args, .{});
     defer allocator.free(args_json);
@@ -3200,6 +3217,52 @@ test "bc2sa translates clang cmake bitcode demo" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export scale(arg0: i32) -> i32:") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "sgt r10, 4") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @scale(r13)") != null);
+}
+
+test "bc2sa translates sqlite3 api probe bitcode" {
+    if (!clangAvailable()) return error.SkipZigTest;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_sqlite3");
+    defer std.testing.allocator.free(demo_root);
+    const source_path = try std.fs.path.join(std.testing.allocator, &.{ demo_root, "sqlite3_probe.c" });
+    defer std.testing.allocator.free(source_path);
+    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(build_dir);
+    const bc_path = try std.fs.path.join(std.testing.allocator, &.{ build_dir, "sqlite3_probe.bc" });
+    defer std.testing.allocator.free(bc_path);
+
+    const clang_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "clang", "-std=c11", "-O0", "-emit-llvm", "-c", source_path, "-o", bc_path },
+    });
+    defer std.testing.allocator.free(clang_result.stdout);
+    defer std.testing.allocator.free(clang_result.stderr);
+    switch (clang_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", bc_path };
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@extern sqlite3_open(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export sqlite3_bc2sa_chain_probe(arg0: ptr) -> i32:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@const ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "file:memdb1?mode=memory&cache=shared") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "select 1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_open(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_prepare_v2(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_step(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_finalize(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_close(") != null);
 }
 
 test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
