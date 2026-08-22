@@ -5820,9 +5820,45 @@ fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
 }
 
 fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
-    return std.fmt.bufPrint(buffer, "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}", .{
-        segments[0], segments[1], segments[2], segments[3], segments[4], segments[5], segments[6], segments[7],
-    });
+    var longest_start: usize = 8;
+    var longest_len: usize = 0;
+    var current_start: usize = 0;
+    var current_len: usize = 0;
+    for (segments.*, 0..) |segment, index| {
+        if (segment == 0) {
+            if (current_len == 0) current_start = index;
+            current_len += 1;
+            if (current_len > longest_len) {
+                longest_start = current_start;
+                longest_len = current_len;
+            }
+        } else {
+            current_len = 0;
+        }
+    }
+    if (longest_len < 2) {
+        longest_start = 8;
+        longest_len = 0;
+    }
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
+    var i: usize = 0;
+    var abbreviated = false;
+    while (i < segments.len) : (i += 1) {
+        if (i == longest_start) {
+            if (!abbreviated) {
+                try writer.writeAll(if (i == 0) "::" else ":");
+                abbreviated = true;
+            }
+            i += longest_len - 1;
+            continue;
+        }
+        if (abbreviated) abbreviated = false;
+        try writer.print("{x}", .{segments[i]});
+        if (i != segments.len - 1) try writer.writeByte(':');
+    }
+    return buffer[0..stream.pos];
 }
 
 pub export fn sa_net_ipv4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {

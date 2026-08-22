@@ -138,6 +138,8 @@ L_ENTRY:
     EXPAND NET_IPV6_LOCALHOST ipv6
     EXPAND NET_IPV6_FORMAT_ASCII v6_ok, v6_len, ipv6, out, 64
     v6_b0 = load out+0 as u8
+    v6_b1 = load out+1 as u8
+    v6_b2 = load out+2 as u8
 
     EXPAND NET_SOCKET_ADDR_V6_NEW sock6, ipv6, 443, 0, 0
     EXPAND NET_SOCKET_ADDR_V6_FORMAT_ASCII s6_ok, s6_len, sock6, out, 64
@@ -155,10 +157,12 @@ L_ENTRY:
     ok_s4_len = eq s4_len, 14
     ok_s4_colon = eq s4_colon, 58
     ok_v6 = eq v6_ok, 1
-    ok_v6_len = ugt v6_len, 0
-    ok_v6_b0 = eq v6_b0, 48
+    ok_v6_len = eq v6_len, 3
+    ok_v6_b0 = eq v6_b0, 58
+    ok_v6_b1 = eq v6_b1, 58
+    ok_v6_b2 = eq v6_b2, 49
     ok_s6 = eq s6_ok, 1
-    ok_s6_len = ugt s6_len, 0
+    ok_s6_len = eq s6_len, 9
     ok_s6_lb = eq s6_lb, 91
     ok_ip = eq ip_ok, 1
     ok_ip_len = eq ip_len, 9
@@ -173,6 +177,8 @@ L_ENTRY:
     ok = and ok, ok_v6
     ok = and ok, ok_v6_len
     ok = and ok, ok_v6_b0
+    ok = and ok, ok_v6_b1
+    ok = and ok, ok_v6_b2
     ok = and ok, ok_s6
     ok = and ok, ok_s6_len
     ok = and ok, ok_s6_lb
@@ -192,6 +198,8 @@ L_ENTRY:
     !v6_ok
     !v6_len
     !v6_b0
+    !v6_b1
+    !v6_b2
     !s6_ok
     !s6_len
     !s6_lb
