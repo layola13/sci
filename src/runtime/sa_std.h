@@ -429,6 +429,8 @@ int32_t sa_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t ca
 int32_t sa_std_net_tcp_stream_set_read_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_write_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nonblocking(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_linger(uint64_t stream_handle, int32_t enabled, uint64_t timeout_ns);
+int32_t sa_std_net_tcp_stream_linger(uint64_t stream_handle, int32_t *out_enabled, uint64_t *out_timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nodelay(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_set_keepalive(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_set_keepalive_params(uint64_t stream_handle, uint32_t idle_secs, uint32_t interval_secs, uint32_t count);

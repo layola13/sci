@@ -10,6 +10,8 @@
 @extern sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) -> i32
 @extern sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) -> i32
 @extern sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_set_linger(stream: u64, enabled: i32, timeout_ns: u64) -> i32
+@extern sa_std_net_tcp_stream_linger(stream: u64, &out_enabled: ptr, &out_timeout_ns: ptr) -> i32
 @extern sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_stream_set_quickack(stream: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_stream_quickack(stream: u64, &out_enabled: ptr) -> i32

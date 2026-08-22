@@ -196,6 +196,17 @@
     %out_status = call @sa_std_net_tcp_stream_set_nonblocking(%stream, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_SET_LINGER %out_status, %stream, %enabled, %timeout_ns
+    %out_status = call @sa_std_net_tcp_stream_set_linger(%stream, %enabled, %timeout_ns)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_LINGER %out_status, %out_enabled, %out_timeout_ns, %stream
+    __net_tcp_linger_enabled_%out_status = stack_alloc 4
+    __net_tcp_linger_timeout_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_linger(%stream, &__net_tcp_linger_enabled_%out_status, &__net_tcp_linger_timeout_%out_status)
+    %out_enabled = load __net_tcp_linger_enabled_%out_status+0 as i32
+    %out_timeout_ns = load __net_tcp_linger_timeout_%out_status+0 as u64
+[END_MACRO]
 [MACRO] NET_TCP_STREAM_SET_NODELAY %out_status, %stream, %enabled
     %out_status = call @sa_std_net_tcp_stream_set_nodelay(%stream, %enabled)
 [END_MACRO]

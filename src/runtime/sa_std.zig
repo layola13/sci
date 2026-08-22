@@ -990,6 +990,7 @@ const SaNetAddr = extern struct {
 const Timeval = std.posix.timeval;
 const TimevalSec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).sec);
 const TimevalUsec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).usec);
+const LingerOption = extern struct { onoff: i32, linger: i32 };
 const Timespec = std.posix.timespec;
 const TimespecSec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).sec);
 const TimespecNsec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).nsec);
@@ -1535,6 +1536,30 @@ fn setSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32, value: u8) !vo
 
 fn setSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, bytes: []const u8) !void {
     try std.posix.setsockopt(fd, level, optname, bytes);
+}
+
+fn lingerSeconds(timeout_ns: u64) !i32 {
+    const seconds = timeout_ns / std.time.ns_per_s;
+    return std.math.cast(i32, seconds) orelse error.InvalidArgument;
+}
+
+fn setSocketOptLinger(fd: std.posix.fd_t, enabled: bool, timeout_ns: u64) !void {
+    const seconds = if (enabled) try lingerSeconds(timeout_ns) else 0;
+    var value = LingerOption{ .onoff = if (enabled) 1 else 0, .linger = seconds };
+    try std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.LINGER, std.mem.asBytes(&value));
+}
+
+fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
+    var value = LingerOption{ .onoff = 0, .linger = 0 };
+    var len: std.posix.socklen_t = @sizeOf(LingerOption);
+    const rc = std.os.linux.getsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.LINGER, @as([*]u8, @ptrCast(&value)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            if (len != @sizeOf(LingerOption)) return error.UnexpectedSize;
+            return value;
+        },
+        else => return error.InvalidArgument,
+    }
 }
 
 fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
@@ -8856,6 +8881,28 @@ pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY, enabled != 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_linger(stream: u64, enabled: i32, timeout_ns: u64) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptLinger(handle.fd, enabled != 0, timeout_ns) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_linger(stream: u64, out_enabled: ?*i32, out_timeout_ns: ?*u64) i32 {
+    const enabled = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const timeout_ns = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    enabled.* = 0;
+    timeout_ns.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = getSocketOptLinger(handle.fd) catch |err| return finishErr(err);
+    if (value.onoff == 0) return finish(SA_STD_OK);
+    if (value.linger < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    timeout_ns.* = std.math.mul(u64, @as(u64, @intCast(value.linger)), std.time.ns_per_s) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    enabled.* = 1;
     return finish(SA_STD_OK);
 }
 

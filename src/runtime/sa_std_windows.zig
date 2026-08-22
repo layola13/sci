@@ -5007,6 +5007,32 @@ fn tcpGetOption(handle: u64, listener: bool, level: i32, option: i32, out: ?*i32
     return finish(SA_STD_OK);
 }
 
+fn tcpSetLinger(handle: u64, enabled: i32, timeout_ns: u64) i32 {
+    const seconds = if (enabled != 0) std.math.cast(u16, timeout_ns / std.time.ns_per_s) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT) else 0;
+    var value = WindowsLingerOption{ .onoff = if (enabled != 0) 1 else 0, .linger = seconds };
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const socket = tcpSocket(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.LINGER, std.mem.asBytes(&value)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+fn tcpGetLinger(handle: u64, out_enabled: *i32, out_timeout_ns: *u64) i32 {
+    out_enabled.* = 0;
+    out_timeout_ns.* = 0;
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const socket = tcpSocket(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var value = WindowsLingerOption{ .onoff = 0, .linger = 0 };
+    var len: i32 = @sizeOf(WindowsLingerOption);
+    const ws = std.os.windows.ws2_32;
+    if (ws.getsockopt(socket, std.posix.SOL.SOCKET, ws.SO.LINGER, @ptrCast(&value), &len) == ws.SOCKET_ERROR) return finish(SA_STD_ERR_NET);
+    if (len != @sizeOf(WindowsLingerOption)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (value.onoff == 0) return finish(SA_STD_OK);
+    out_enabled.* = 1;
+    out_timeout_ns.* = std.math.mul(u64, @as(u64, value.linger), std.time.ns_per_s) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -5039,6 +5065,14 @@ pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64
 }
 pub export fn sa_std_net_tcp_stream_set_nonblocking(h: u64, enabled: i32) i32 {
     return tcpSetNonblocking(h, false, enabled);
+}
+pub export fn sa_std_net_tcp_stream_set_linger(h: u64, enabled: i32, timeout_ns: u64) i32 {
+    return tcpSetLinger(h, enabled, timeout_ns);
+}
+pub export fn sa_std_net_tcp_stream_linger(h: u64, out_enabled: ?*i32, out_timeout_ns: ?*u64) i32 {
+    const enabled = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const timeout_ns = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return tcpGetLinger(h, enabled, timeout_ns);
 }
 pub export fn sa_std_net_tcp_listener_set_only_v6(h: u64, enabled: i32) i32 {
     return tcpSetOption(h, true, windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY, if (enabled != 0) 1 else 0);
@@ -5558,6 +5592,7 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
 const IpMreq = extern struct { multicast: u32, interface: u32 };
 const Ipv6Mreq = extern struct { multicast: [16]u8, interface: u32 };
 const windows_ipproto_ipv6: i32 = 41;
+const WindowsLingerOption = extern struct { onoff: u16, linger: u16 };
 fn udpMembership4(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_ptr: ?[*]const u8, interface_len: u64, join: bool) i32 {
     const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
     const interface = udpHost(interface_ptr, interface_len) catch |err| return finishErr(err);
