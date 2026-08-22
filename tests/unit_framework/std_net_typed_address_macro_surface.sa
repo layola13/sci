@@ -230,6 +230,102 @@ L_PASS:
     return 0
 
 
+@test "sa_std socket addr v6 metadata dispatch"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    sock4 = stack_alloc NetSocketAddr_SIZE
+    sock6 = stack_alloc NetSocketAddr_SIZE
+    EXPAND NET_IPV4_NEW ipv4, 127, 0, 0, 1
+    EXPAND NET_IPV6_LOCALHOST ipv6
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_SOCKET_ADDR_NEW sock4, ip4, 80
+    EXPAND NET_SOCKET_ADDR_NEW sock6, ip6, 443
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow4_ok, flow4, sock4
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow6_ok, flow6, sock6
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO set4_ok, sock4, 11
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO set6_ok, sock6, 22
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope4_ok, scope4, sock4
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope6_ok, scope6, sock6
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID set_scope4_ok, sock4, 33
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID set_scope6_ok, sock6, 44
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow6b_ok, flow6b, sock6
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope6b_ok, scope6b, sock6
+    bad4 = eq flow4_ok, 0
+    br bad4 -> L_CHECK_B4B, L_META_FAIL1
+L_CHECK_B4B:
+    bad4b = eq flow4, 0
+    br bad4b -> L_CHECK_B4C, L_META_FAIL2
+L_CHECK_B4C:
+    bad4c = eq set4_ok, 0
+    br bad4c -> L_CHECK_B4D, L_META_FAIL3
+L_CHECK_B4D:
+    bad4d = eq scope4_ok, 0
+    br bad4d -> L_CHECK_B4E, L_META_FAIL4
+L_CHECK_B4E:
+    bad4e = eq scope4, 0
+    br bad4e -> L_CHECK_B4F, L_META_FAIL5
+L_CHECK_B4F:
+    bad4f = eq set_scope4_ok, 0
+    br bad4f -> L_CHECK_G6, L_META_FAIL6
+L_CHECK_G6:
+    good6 = eq flow6_ok, 1
+    br good6 -> L_CHECK_G6B, L_META_FAIL7
+L_CHECK_G6B:
+    good6b = eq flow6, 0
+    br good6b -> L_CHECK_G6C, L_META_FAIL8
+L_CHECK_G6C:
+    good6c = eq set6_ok, 1
+    br good6c -> L_CHECK_G6D, L_META_FAIL9
+L_CHECK_G6D:
+    good6d = eq scope6_ok, 1
+    br good6d -> L_CHECK_G6E, L_META_FAIL10
+L_CHECK_G6E:
+    good6e = eq scope6, 0
+    br good6e -> L_CHECK_G6F, L_META_FAIL11
+L_CHECK_G6F:
+    good6f = eq set_scope6_ok, 1
+    br good6f -> L_CHECK_G6G, L_META_FAIL12
+L_CHECK_G6G:
+    good6g = eq flow6b, 22
+    br good6g -> L_CHECK_G6H, L_META_FAIL13
+L_CHECK_G6H:
+    good6h = eq scope6b, 44
+    br good6h -> L_META_PASS, L_META_FAIL14
+L_META_FAIL1:
+    panic(10129)
+L_META_FAIL2:
+    panic(10130)
+L_META_FAIL3:
+    panic(10131)
+L_META_FAIL4:
+    panic(10132)
+L_META_FAIL5:
+    panic(10133)
+L_META_FAIL6:
+    panic(10134)
+L_META_FAIL7:
+    panic(10135)
+L_META_FAIL8:
+    panic(10136)
+L_META_FAIL9:
+    panic(10137)
+L_META_FAIL10:
+    panic(10138)
+L_META_FAIL11:
+    panic(10139)
+L_META_FAIL12:
+    panic(10140)
+L_META_FAIL13:
+    panic(10141)
+L_META_FAIL14:
+    panic(10142)
+L_META_PASS:
+    return 0
+
 @test "sa_std ip addr unicast global dispatch"():
 L_ENTRY:
     ipv4 = stack_alloc NetIpv4Addr_SIZE

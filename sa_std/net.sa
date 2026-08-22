@@ -3487,6 +3487,80 @@ L_NET_SOCKET_SET_PORT_DONE_%socket_addr:
     !__net_sock_set_ip_port_%socket_addr
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_FLOWINFO %out_ok, %out_flowinfo, %socket_addr
+    __net_sock_flow_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_flow_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_flow_is_v6_%out_ok = eq __net_sock_flow_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_flow_is_v6_%out_ok -> L_NET_SOCKET_FLOW_V6_%out_ok, L_NET_SOCKET_FLOW_V4_%out_ok
+L_NET_SOCKET_FLOW_V6_%out_ok:
+    %out_ok = add 0, 1
+    EXPAND NET_SOCKET_ADDR_V6_FLOWINFO %out_flowinfo, __net_sock_flow_payload_%out_ok
+    jmp L_NET_SOCKET_FLOW_DONE_%out_ok
+L_NET_SOCKET_FLOW_V4_%out_ok:
+    %out_ok = add 0, 0
+    %out_flowinfo = add 0, 0
+    jmp L_NET_SOCKET_FLOW_DONE_%out_ok
+L_NET_SOCKET_FLOW_DONE_%out_ok:
+    !__net_sock_flow_is_v6_%out_ok
+    !__net_sock_flow_payload_%out_ok
+    !__net_sock_flow_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SET_FLOWINFO %out_ok, %socket_addr, %flowinfo
+    __net_sock_set_flow_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_flow_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_set_flow_is_v6_%out_ok = eq __net_sock_set_flow_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_set_flow_is_v6_%out_ok -> L_NET_SOCKET_SET_FLOW_V6_%out_ok, L_NET_SOCKET_SET_FLOW_V4_%out_ok
+L_NET_SOCKET_SET_FLOW_V6_%out_ok:
+    EXPAND NET_SOCKET_ADDR_V6_SET_FLOWINFO __net_sock_set_flow_payload_%out_ok, %flowinfo
+    %out_ok = add 0, 1
+    jmp L_NET_SOCKET_SET_FLOW_DONE_%out_ok
+L_NET_SOCKET_SET_FLOW_V4_%out_ok:
+    %out_ok = add 0, 0
+    jmp L_NET_SOCKET_SET_FLOW_DONE_%out_ok
+L_NET_SOCKET_SET_FLOW_DONE_%out_ok:
+    !__net_sock_set_flow_is_v6_%out_ok
+    !__net_sock_set_flow_payload_%out_ok
+    !__net_sock_set_flow_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SCOPE_ID %out_ok, %out_scope_id, %socket_addr
+    __net_sock_scope_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_scope_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_scope_is_v6_%out_ok = eq __net_sock_scope_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_scope_is_v6_%out_ok -> L_NET_SOCKET_SCOPE_V6_%out_ok, L_NET_SOCKET_SCOPE_V4_%out_ok
+L_NET_SOCKET_SCOPE_V6_%out_ok:
+    %out_ok = add 0, 1
+    EXPAND NET_SOCKET_ADDR_V6_SCOPE_ID %out_scope_id, __net_sock_scope_payload_%out_ok
+    jmp L_NET_SOCKET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SCOPE_V4_%out_ok:
+    %out_ok = add 0, 0
+    %out_scope_id = add 0, 0
+    jmp L_NET_SOCKET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SCOPE_DONE_%out_ok:
+    !__net_sock_scope_is_v6_%out_ok
+    !__net_sock_scope_payload_%out_ok
+    !__net_sock_scope_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SET_SCOPE_ID %out_ok, %socket_addr, %scope_id
+    __net_sock_set_scope_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_scope_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_set_scope_is_v6_%out_ok = eq __net_sock_set_scope_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_set_scope_is_v6_%out_ok -> L_NET_SOCKET_SET_SCOPE_V6_%out_ok, L_NET_SOCKET_SET_SCOPE_V4_%out_ok
+L_NET_SOCKET_SET_SCOPE_V6_%out_ok:
+    EXPAND NET_SOCKET_ADDR_V6_SET_SCOPE_ID __net_sock_set_scope_payload_%out_ok, %scope_id
+    %out_ok = add 0, 1
+    jmp L_NET_SOCKET_SET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SET_SCOPE_V4_%out_ok:
+    %out_ok = add 0, 0
+    jmp L_NET_SOCKET_SET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SET_SCOPE_DONE_%out_ok:
+    !__net_sock_set_scope_is_v6_%out_ok
+    !__net_sock_set_scope_payload_%out_ok
+    !__net_sock_set_scope_tag_%out_ok
+[END_MACRO]
+
 // Explicit byte-oriented aliases over the existing stream/datagram ABI.
 [MACRO] NET_TCP_STREAM_READ_BYTES %out_status, %out_len, %stream, %buf, %cap
     EXPAND NET_TCP_STREAM_READ %out_status, %out_len, %stream, %buf, %cap
