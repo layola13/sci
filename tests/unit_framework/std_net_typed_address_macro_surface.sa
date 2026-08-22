@@ -264,6 +264,40 @@ L_SET_IP_META_FAIL:
 L_SET_IP_META_PASS:
     return 0
 
+@test "sa_std socket addr set ip cross family resets metadata"():
+L_ENTRY:
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    socket_addr = stack_alloc NetSocketAddr_SIZE
+    EXPAND NET_IPV6_LOCALHOST ipv6
+    EXPAND NET_IPV4_LOCALHOST ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_SOCKET_ADDR_NEW socket_addr, ip6, 443
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO initial_flow_ok, socket_addr, 22
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID initial_scope_ok, socket_addr, 44
+    EXPAND NET_SOCKET_ADDR_SET_IP socket_addr, ip4
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow_ok, flow_value, socket_addr
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope_ok, scope_value, socket_addr
+    initial_flow_value_ok = eq initial_flow_ok, 1
+    initial_scope_value_ok = eq initial_scope_ok, 1
+    flow_status_ok = eq flow_ok, 0
+    scope_status_ok = eq scope_ok, 0
+    flow_value_ok = eq flow_value, 0
+    scope_value_ok = eq scope_value, 0
+    ok0 = and initial_flow_value_ok, initial_scope_value_ok
+    ok1 = and flow_status_ok, scope_status_ok
+    ok2 = and flow_value_ok, scope_value_ok
+    ok3 = and ok0, ok1
+    all_ok = and ok3, ok2
+    br all_ok -> L_CROSS_META_PASS, L_CROSS_META_FAIL
+L_CROSS_META_FAIL:
+    panic(10144)
+L_CROSS_META_PASS:
+    return 0
+
 @test "sa_std socket addr v6 metadata dispatch"():
 L_ENTRY:
     ipv4 = stack_alloc NetIpv4Addr_SIZE
