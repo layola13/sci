@@ -5785,7 +5785,7 @@ fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
 }
 
 fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
-    const parsed = std.net.Ip6Address.parse(text, 0) catch return null;
+    const parsed = std.net.Ip6Address.resolve(text, 0) catch return null;
     return .{ .octets = parsed.sa.addr, .scope_id = parsed.sa.scope_id };
 }
 
