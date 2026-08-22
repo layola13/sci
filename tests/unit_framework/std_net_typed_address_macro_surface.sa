@@ -249,6 +249,38 @@ L_GLOBAL_FAIL:
 L_GLOBAL_PASS:
     return 0
 
+@test "sa_std ipv6 multicast extended scopes"():
+L_ENTRY:
+    realm = add 0, NET_IPV6_MULTICAST_SCOPE_REALM_LOCAL
+    reserved0 = add 0, NET_IPV6_MULTICAST_SCOPE_RESERVED_ZERO
+    reservedf = add 0, NET_IPV6_MULTICAST_SCOPE_RESERVED_F
+    unassigned6 = add 0, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED6
+    unassignedd = add 0, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED_D
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_REALM_LOCAL realm_ok, realm
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_RESERVED reserved0_ok, reserved0
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_RESERVED reservedf_ok, reservedf
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_UNASSIGNED unassigned6_ok, unassigned6
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_UNASSIGNED unassignedd_ok, unassignedd
+    ok0 = and realm_ok, reserved0_ok
+    ok1 = and reservedf_ok, unassigned6_ok
+    ok2 = and unassignedd_ok, ok0
+    ok3 = and ok1, ok2
+    !realm
+    !reserved0
+    !reservedf
+    !unassigned6
+    !unassignedd
+    !realm_ok
+    !reserved0_ok
+    !reservedf_ok
+    !unassigned6_ok
+    !unassignedd_ok
+    br ok3 -> L_EXT_SCOPE_PASS, L_EXT_SCOPE_FAIL
+L_EXT_SCOPE_FAIL:
+    panic(10127)
+L_EXT_SCOPE_PASS:
+    return 0
+
 @test "sa_std ipv6 multicast scope constants"():
 L_ENTRY:
     scope_interface = add 0, NET_IPV6_MULTICAST_SCOPE_INTERFACE_LOCAL

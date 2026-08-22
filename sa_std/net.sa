@@ -2356,6 +2356,33 @@ L_NET_IPV6_WRITE_OCTETS_END_%out_ok:
     EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_LINK_LOCAL
 [END_MACRO]
 
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_REALM_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_REALM_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_RESERVED %out_bool, %scope
+    __net_ipv6_scope_reserved_zero_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_RESERVED_ZERO
+    __net_ipv6_scope_reserved_f_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_RESERVED_F
+    %out_bool = or __net_ipv6_scope_reserved_zero_%out_bool, __net_ipv6_scope_reserved_f_%out_bool
+    !__net_ipv6_scope_reserved_f_%out_bool
+    !__net_ipv6_scope_reserved_zero_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_UNASSIGNED %out_bool, %scope
+    __net_ipv6_scope_unassigned6_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED6
+    __net_ipv6_scope_unassigned7_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED7
+    __net_ipv6_scope_unassigned9_%out_bool = uge %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED9
+    __net_ipv6_scope_unassignedd_%out_bool = ule %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED_D
+    __net_ipv6_scope_unassigned9d_%out_bool = and __net_ipv6_scope_unassigned9_%out_bool, __net_ipv6_scope_unassignedd_%out_bool
+    %out_bool = or __net_ipv6_scope_unassigned6_%out_bool, __net_ipv6_scope_unassigned7_%out_bool
+    %out_bool = or %out_bool, __net_ipv6_scope_unassigned9d_%out_bool
+    !__net_ipv6_scope_unassigned9d_%out_bool
+    !__net_ipv6_scope_unassignedd_%out_bool
+    !__net_ipv6_scope_unassigned9_%out_bool
+    !__net_ipv6_scope_unassigned7_%out_bool
+    !__net_ipv6_scope_unassigned6_%out_bool
+[END_MACRO]
+
 [MACRO] NET_IPV6_MULTICAST_SCOPE_IS_ADMIN_LOCAL %out_bool, %scope
     EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_ADMIN_LOCAL
 [END_MACRO]
