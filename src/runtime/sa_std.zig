@@ -100,12 +100,14 @@ pub const SA_FS_FILE_OTHER: u32 = 255;
 
 const IP_MULTICAST_TTL_OPT: u32 = 33;
 const IP_MULTICAST_LOOP_OPT: u32 = 34;
+const IP_MULTICAST_IF_OPT: u32 = 32;
 const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
 const IP_DROP_MEMBERSHIP_OPT: u32 = 36;
 const IPV6_JOIN_GROUP_OPT: u32 = 20;
 const IPV6_LEAVE_GROUP_OPT: u32 = 21;
 const IPV6_MULTICAST_HOPS_OPT: u32 = 18;
 const IPV6_MULTICAST_LOOP_OPT: u32 = 19;
+const IPV6_MULTICAST_IF_OPT: u32 = 17;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
@@ -1628,6 +1630,30 @@ fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
         .SUCCESS => {
             if (len != @sizeOf(u8)) return error.UnexpectedSize;
             return value;
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
+    var value: u32 = 0;
+    var len: std.posix.socklen_t = @sizeOf(u32);
+    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            if (len != @sizeOf(u32)) return error.UnexpectedSize;
+            return value;
+        },
+        else => return error.InvalidArgument,
+    }
+}
+
+fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !void {
+    var len: std.posix.socklen_t = @intCast(out.len);
+    const rc = std.os.linux.getsockopt(fd, level, optname, out.ptr, &len);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            if (len != out.len) return error.UnexpectedSize;
         },
         else => return error.InvalidArgument,
     }
@@ -9443,6 +9469,38 @@ pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32
     out.* = @intCast(hops);
     return finish(SA_STD_OK);
 }
+pub export fn sa_std_net_udp_set_multicast_if_v4(socket: u64, interface_addr_ptr: ?[*]const u8) i32 {
+    const interface_addr = constBytes(interface_addr_ptr, 4) catch |err| return finishErr(err);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_IF_OPT, interface_addr) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_multicast_if_v4(socket: u64, out_interface_addr: ?[*]u8) i32 {
+    const out = out_interface_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    getSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_IF_OPT, out[0..4]) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_multicast_if_v6(socket: u64, interface_index: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptU32(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_IF_OPT, interface_index) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_multicast_if_v6(socket: u64, out_interface_index: ?*u32) i32 {
+    const out = out_interface_index orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = getSocketOptU32(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_IF_OPT) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);

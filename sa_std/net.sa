@@ -950,6 +950,24 @@
     %out_hops = load __net_udp_multicast_hops_v6_%out_status+0 as u32
 [END_MACRO]
 
+[MACRO] NET_UDP_SET_MULTICAST_IF_V4 %out_status, %socket, %interface_addr
+    %out_status = call @sa_std_net_udp_set_multicast_if_v4(%socket, &%interface_addr)
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_IF_V4 %out_status, %out_interface_addr, %socket
+    %out_status = call @sa_std_net_udp_multicast_if_v4(%socket, &%out_interface_addr)
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_IF_V6 %out_status, %socket, %interface_index
+    %out_status = call @sa_std_net_udp_set_multicast_if_v6(%socket, %interface_index)
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_IF_V6 %out_status, %out_interface_index, %socket
+    __net_udp_multicast_if_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_if_v6(%socket, &__net_udp_multicast_if_v6_%out_status)
+    %out_interface_index = load __net_udp_multicast_if_v6_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_UDP_TAKE_ERROR %out_status, %out_error, %socket
     __net_udp_error_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_udp_take_error(%socket, &__net_udp_error_%out_status)

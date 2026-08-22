@@ -5665,6 +5665,37 @@ pub export fn sa_std_net_udp_multicast_loop_v6(socket: u64, out_enabled: ?*i32) 
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_LOOP, out);
 }
+pub export fn sa_std_net_udp_set_multicast_if_v4(socket: u64, interface_addr_ptr: ?[*]const u8) i32 {
+    const interface_addr = constBytes(interface_addr_ptr, 4) catch |err| return finishErr(err);
+    const value_u32 = std.mem.readInt(u32, interface_addr[0..4], .little);
+    return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_IF, @bitCast(value_u32));
+}
+
+pub export fn sa_std_net_udp_multicast_if_v4(socket: u64, out_interface_addr: ?[*]u8) i32 {
+    const out = out_interface_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var value: i32 = 0;
+    const status = udpGetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_IF, &value);
+    if (status != SA_STD_OK) return status;
+    std.mem.writeInt(u32, out[0..4], @bitCast(value), .little);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_multicast_if_v6(socket: u64, interface_index: u32) i32 {
+    if (interface_index > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpSetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_IF, @intCast(interface_index));
+}
+
+pub export fn sa_std_net_udp_multicast_if_v6(socket: u64, out_interface_index: ?*u32) i32 {
+    const out = out_interface_index orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var value: i32 = 0;
+    const status = udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_IF, &value);
+    if (status != SA_STD_OK) return status;
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32 {
     const out = out_hops orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;

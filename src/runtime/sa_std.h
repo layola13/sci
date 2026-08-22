@@ -525,6 +525,10 @@ int32_t sa_std_net_udp_multicast_loop_v4(uint64_t socket_handle, int32_t *out_en
 int32_t sa_std_net_udp_multicast_ttl_v4(uint64_t socket_handle, uint32_t *out_ttl);
 int32_t sa_std_net_udp_multicast_loop_v6(uint64_t socket_handle, int32_t *out_enabled);
 int32_t sa_std_net_udp_multicast_hops_v6(uint64_t socket_handle, uint32_t *out_hops);
+int32_t sa_std_net_udp_set_multicast_if_v4(uint64_t socket_handle, const uint8_t *interface_addr);
+int32_t sa_std_net_udp_multicast_if_v4(uint64_t socket_handle, uint8_t *out_interface_addr);
+int32_t sa_std_net_udp_set_multicast_if_v6(uint64_t socket_handle, uint32_t interface_index);
+int32_t sa_std_net_udp_multicast_if_v6(uint64_t socket_handle, uint32_t *out_interface_index);
 int32_t sa_std_net_udp_take_error(uint64_t socket_handle, int32_t *out_error);
 int32_t sa_std_net_udp_send(uint64_t socket_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
 int32_t sa_std_net_udp_recv(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);

@@ -126,6 +126,10 @@
 @extern sa_std_net_udp_multicast_ttl_v4(socket: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_udp_multicast_loop_v6(socket: u64, &out_enabled: ptr) -> i32
 @extern sa_std_net_udp_multicast_hops_v6(socket: u64, &out_hops: ptr) -> i32
+@extern sa_std_net_udp_set_multicast_if_v4(socket: u64, &interface_addr: ptr) -> i32
+@extern sa_std_net_udp_multicast_if_v4(socket: u64, &out_interface_addr: ptr) -> i32
+@extern sa_std_net_udp_set_multicast_if_v6(socket: u64, interface_index: u32) -> i32
+@extern sa_std_net_udp_multicast_if_v6(socket: u64, &out_interface_index: ptr) -> i32
 @extern sa_std_net_udp_take_error(socket: u64, &out_error: ptr) -> i32
 @extern sa_std_net_udp_send(socket: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
 @extern sa_std_net_udp_recv(socket: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
