@@ -104,6 +104,8 @@ const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
 const IP_DROP_MEMBERSHIP_OPT: u32 = 36;
 const IPV6_JOIN_GROUP_OPT: u32 = 20;
 const IPV6_LEAVE_GROUP_OPT: u32 = 21;
+const IPV6_MULTICAST_HOPS_OPT: u32 = 18;
+const IPV6_MULTICAST_LOOP_OPT: u32 = 19;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
@@ -9360,6 +9362,40 @@ pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_udp_set_multicast_loop_v6(socket: u64, enabled: i32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_multicast_hops_v6(socket: u64, hops: u32) i32 {
+    if (hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    setSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_HOPS_OPT, @intCast(hops)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_multicast_loop_v6(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = if ((getSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32 {
+    const out = out_hops orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const hops = getSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_HOPS_OPT) catch |err| return finishErr(err);
+    if (hops < 0 or hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @intCast(hops);
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);

@@ -5606,6 +5606,40 @@ fn udpGetIpOption(socket: u64, option: i32, out: *i32) i32 {
     out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
+fn udpSetIpv6Option(socket: u64, option: u32, value: i32) i32 {
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, option, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+fn udpGetIpv6Option(socket: u64, option: i32, out: *i32) i32 {
+    out.* = 0;
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, option) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_set_multicast_loop_v6(socket: u64, enabled: i32) i32 {
+    return udpSetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_LOOP, if (enabled != 0) 1 else 0);
+}
+pub export fn sa_std_net_udp_set_multicast_hops_v6(socket: u64, hops: u32) i32 {
+    if (hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpSetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_HOPS, @intCast(hops));
+}
+pub export fn sa_std_net_udp_multicast_loop_v6(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_LOOP, out);
+}
+pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32 {
+    const out = out_hops orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    var value: i32 = 0;
+    const status = udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_HOPS, &value);
+    if (status != SA_STD_OK) return status;
+    if (value < 0 or value > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @intCast(value);
+    return finish(SA_STD_OK);
+}
 pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
     return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_LOOP, if (enabled != 0) 1 else 0);
 }

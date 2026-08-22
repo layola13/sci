@@ -883,6 +883,14 @@
     %out_status = call @sa_std_net_udp_set_multicast_ttl_v4(%socket, %ttl)
 [END_MACRO]
 
+[MACRO] NET_UDP_SET_MULTICAST_LOOP_V6 %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_udp_set_multicast_loop_v6(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_HOPS_V6 %out_status, %socket, %hops
+    %out_status = call @sa_std_net_udp_set_multicast_hops_v6(%socket, %hops)
+[END_MACRO]
+
 [MACRO] NET_UDP_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
     __net_udp_read_timeout_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_udp_read_timeout(%socket, &__net_udp_read_timeout_%out_status)
@@ -917,6 +925,18 @@
     __net_udp_multicast_ttl_v4_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_udp_multicast_ttl_v4(%socket, &__net_udp_multicast_ttl_v4_%out_status)
     %out_ttl = load __net_udp_multicast_ttl_v4_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_LOOP_V6 %out_status, %out_enabled, %socket
+    __net_udp_multicast_loop_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_loop_v6(%socket, &__net_udp_multicast_loop_v6_%out_status)
+    %out_enabled = load __net_udp_multicast_loop_v6_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_HOPS_V6 %out_status, %out_hops, %socket
+    __net_udp_multicast_hops_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_hops_v6(%socket, &__net_udp_multicast_hops_v6_%out_status)
+    %out_hops = load __net_udp_multicast_hops_v6_%out_status+0 as u32
 [END_MACRO]
 
 [MACRO] NET_UDP_TAKE_ERROR %out_status, %out_error, %socket
