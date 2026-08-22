@@ -3482,9 +3482,33 @@ L_NET_SOCKET_SET_PORT_DONE_%socket_addr:
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_SET_IP %socket_addr, %ipaddr
+    __net_sock_set_ip_old_tag_%socket_addr = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_ip_new_tag_%socket_addr = load %ipaddr+NetIpAddr_tag as u64
+    __net_sock_set_ip_old_payload_%socket_addr = ptr_add %socket_addr, 8
+    __net_sock_set_ip_new_payload_%socket_addr = ptr_add %ipaddr, 8
+    __net_sock_set_ip_same_%socket_addr = eq __net_sock_set_ip_old_tag_%socket_addr, __net_sock_set_ip_new_tag_%socket_addr
+    br __net_sock_set_ip_same_%socket_addr -> L_NET_SOCKET_SET_IP_SAME_%socket_addr, L_NET_SOCKET_SET_IP_REBUILD_%socket_addr
+L_NET_SOCKET_SET_IP_SAME_%socket_addr:
+    __net_sock_set_ip_is_v4_%socket_addr = eq __net_sock_set_ip_new_tag_%socket_addr, NET_IP_ADDR_V4
+    br __net_sock_set_ip_is_v4_%socket_addr -> L_NET_SOCKET_SET_IP_SAME_V4_%socket_addr, L_NET_SOCKET_SET_IP_SAME_V6_%socket_addr
+L_NET_SOCKET_SET_IP_SAME_V4_%socket_addr:
+    EXPAND NET_SOCKET_ADDR_V4_SET_IP __net_sock_set_ip_old_payload_%socket_addr, __net_sock_set_ip_new_payload_%socket_addr
+    jmp L_NET_SOCKET_SET_IP_DONE_%socket_addr
+L_NET_SOCKET_SET_IP_SAME_V6_%socket_addr:
+    EXPAND NET_SOCKET_ADDR_V6_SET_IP __net_sock_set_ip_old_payload_%socket_addr, __net_sock_set_ip_new_payload_%socket_addr
+    jmp L_NET_SOCKET_SET_IP_DONE_%socket_addr
+L_NET_SOCKET_SET_IP_REBUILD_%socket_addr:
     EXPAND NET_SOCKET_ADDR_PORT __net_sock_set_ip_port_%socket_addr, %socket_addr
     EXPAND NET_SOCKET_ADDR_NEW %socket_addr, %ipaddr, __net_sock_set_ip_port_%socket_addr
     !__net_sock_set_ip_port_%socket_addr
+    jmp L_NET_SOCKET_SET_IP_DONE_%socket_addr
+L_NET_SOCKET_SET_IP_DONE_%socket_addr:
+    !__net_sock_set_ip_is_v4_%socket_addr
+    !__net_sock_set_ip_same_%socket_addr
+    !__net_sock_set_ip_new_payload_%socket_addr
+    !__net_sock_set_ip_old_payload_%socket_addr
+    !__net_sock_set_ip_new_tag_%socket_addr
+    !__net_sock_set_ip_old_tag_%socket_addr
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_FLOWINFO %out_ok, %out_flowinfo, %socket_addr

@@ -230,6 +230,36 @@ L_PASS:
     return 0
 
 
+@test "sa_std socket addr set ip preserves v6 metadata"():
+L_ENTRY:
+    old_ipv6 = stack_alloc NetIpv6Addr_SIZE
+    new_ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip_old = stack_alloc NetIpAddr_SIZE
+    ip_new = stack_alloc NetIpAddr_SIZE
+    socket_addr = stack_alloc NetSocketAddr_SIZE
+    EXPAND NET_IPV6_LOCALHOST old_ipv6
+    EXPAND NET_IPV6_NEW new_ipv6, 8193, 3512, 0, 0, 0, 0, 0, 1
+    EXPAND NET_IP_ADDR_V6_NEW ip_old, old_ipv6
+    EXPAND NET_IP_ADDR_V6_NEW ip_new, new_ipv6
+    EXPAND NET_SOCKET_ADDR_NEW socket_addr, ip_old, 443
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO set_flow_status, socket_addr, 22
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID set_scope_status, socket_addr, 44
+    EXPAND NET_SOCKET_ADDR_SET_IP socket_addr, ip_new
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow_ok, flow_value, socket_addr
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope_ok, scope_value, socket_addr
+    flow_value_ok = eq flow_value, 22
+    scope_value_ok = eq scope_value, 44
+    flow_status_ok = eq flow_ok, 1
+    scope_status_ok = eq scope_ok, 1
+    all0 = and flow_value_ok, scope_value_ok
+    all1 = and flow_status_ok, scope_status_ok
+    all_ok = and all0, all1
+    br all_ok -> L_SET_IP_META_PASS, L_SET_IP_META_FAIL
+L_SET_IP_META_FAIL:
+    panic(10143)
+L_SET_IP_META_PASS:
+    return 0
+
 @test "sa_std socket addr v6 metadata dispatch"():
 L_ENTRY:
     ipv4 = stack_alloc NetIpv4Addr_SIZE
