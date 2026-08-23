@@ -10768,6 +10768,39 @@ pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port
     return finish(SA_STD_OK);
 }
 
+fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
+    if (timeout_ns == 0) return error.InvalidArgument;
+    const whole_ms = timeout_ns / std.time.ns_per_ms;
+    const rounded_ms = whole_ms + @intFromBool(timeout_ns % std.time.ns_per_ms != 0);
+    return std.math.cast(i32, rounded_ms) orelse error.InvalidArgument;
+}
+
+pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
+    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
+    const fd = std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP) catch |err| return finishErr(err);
+    var stream = std.net.Stream{ .handle = fd };
+    errdefer stream.close();
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
+        error.WouldBlock, error.ConnectionPending => {
+            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
+            const ready = std.posix.poll(&poll_fds, timeout_ms) catch |poll_err| return finishErr(poll_err);
+            if (ready == 0) return finishErr(error.ConnectionTimedOut);
+            std.posix.getsockoptError(fd) catch |socket_err| return finishErr(socket_err);
+        },
+        else => return finishErr(err),
+    };
+    const flags = std.posix.fcntl(fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
+    const blocking_flags = flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
+    _ = std.posix.fcntl(fd, std.posix.F.SETFL, blocking_flags) catch |err| return finishErr(err);
+    handle_ptr.* = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -11742,4 +11775,11 @@ test "network error code names are stable" {
 test "native network error facade reports POSIX platform" {
     try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_platform());
     try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_native_error(111));
+}
+
+test "TCP connect timeout rejects zero duration" {
+    var handle: u64 = 99;
+    const host = "127.0.0.1";
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_connect_timeout(host.ptr, host.len, 80, 0, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
 }

@@ -723,7 +723,7 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 以下项目是当前 sa_std/net.sa 仍值得加入的能力；完成任一项后必须同步更新本节为已实现，并附对应行为测试与 ABI 验证。
 
 #### P0：优先加入的可实现 API
-- TcpSocket 建造器闭环：new_v4、new_v6、bind、listen、connect，以及 reuseaddr、reuseport、only_v6、nonblocking、ttl 等选项。
+- `TcpSocket` 建造器不属于 Rust `std::net`（它是 `socket2` 等扩展 crate 的 API），不再作为 std 对齐目标；sa_std 已有 listener/stream 的 socket option facade。真正的 std API `TcpStream::connect_timeout` 已加入 `NET_TCP_CONNECT_TIMEOUT` 与 `sa_std_net_tcp_connect_timeout`，Linux/Windows 均使用非阻塞 connect + poll/WSAPoll + `SO_ERROR`，成功后恢复阻塞模式并注册为标准 TCP stream handle。
 - 向量 I/O：TcpStream/UdpSocket 的 read_vectored、write_vectored、send_vectored、recv_vectored，并明确部分读写语义。 当前 runtime 尚未发现 readv/writev/sendmsg/recvmsg/WSASend/WSARecv 或 iovec ABI；实现前必须先补 Linux/Windows runtime 与符号清单。
 - 超时与轮询：连接超时、接受超时、统一 deadline、poll/selector 结果结构，以及 Linux epoll 与 Windows IOCP 的能力矩阵。
 - 地址列表完整迭代：在已有 NET_ADDR_LIST_* 快照迭代器上补 next 的结束状态、重复地址过滤策略、IPv4/IPv6 排序策略和 DNS 错误分类。
@@ -784,3 +784,5 @@ Rust `io::Error` 风格调用链现在可具体降低为：保留 `take_error` �
 
 #### 明确阻塞项
 - Rust 泛型 trait（ToSocketAddrs、Read、Write）、借用生命周期、Option<Duration>、u128 原生 ABI、真实 io::Error 对象和自动 trait 推导无法由当前 SA 宏/布局模型直接提供；这些需要编译器前端 lowering 或新的类型系统支持。
+
+`connect_timeout` 当前接受具体纳秒整数而不是 `Option<Duration>`；零 duration 返回 `InvalidInput`，非零值向上取整为毫秒并拒绝超出平台 poll 超时整数范围的值。多地址 lazy `ToSocketAddrs` 仍由现有 snapshot facade 提供；尚未实现 Rust 的逐地址重试、连接拒绝后继续尝试和借用迭代器生命周期。

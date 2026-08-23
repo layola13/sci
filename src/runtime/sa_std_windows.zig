@@ -4991,6 +4991,32 @@ pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    if (timeout_ns == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const timeout_ms = timeoutMs(timeout_ns) catch |err| return finishErr(err);
+    const address = resolveSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
+    const fd = std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK, std.posix.IPPROTO.TCP) catch |err| return finishErr(err);
+    var stream = std.net.Stream{ .handle = fd };
+    errdefer stream.close();
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
+        error.WouldBlock, error.ConnectionPending => {
+            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
+            const ready = std.posix.poll(&poll_fds, timeout_ms) catch |poll_err| return finishErr(poll_err);
+            if (ready == 0) return finishErr(error.ConnectionTimedOut);
+            std.posix.getsockoptError(fd) catch |socket_err| return finishErr(socket_err);
+        },
+        else => return finishErr(err),
+    };
+    var blocking: u32 = 0;
+    if (std.os.windows.ws2_32.ioctlsocket(fd, std.os.windows.ws2_32.FIONBIO, &blocking) != 0) return finish(SA_STD_ERR_NET);
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    out.* = registerTcpStreamLocked(stream) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64, out_bound_port: ?*u32) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -6698,4 +6724,11 @@ test "network error code names are stable" {
 test "native network error facade reports Windows platform" {
     try std.testing.expectEqual(@as(i32, 2), sa_std_net_error_platform());
     try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_native_error(10061));
+}
+
+test "TCP connect timeout rejects zero duration" {
+    var handle: u64 = 99;
+    const host = "127.0.0.1";
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_connect_timeout(host.ptr, host.len, 80, 0, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
 }

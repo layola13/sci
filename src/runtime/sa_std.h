@@ -419,6 +419,7 @@ int32_t sa_fs_mkfifo(const uint8_t *path, uint64_t path_len, uint32_t mode);
 int32_t sa_std_fs_read_link(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_tcp_connect_timeout(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_first(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_list(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_addr_list_next(uint64_t list, int32_t *out_ok, uint64_t *out_addr);

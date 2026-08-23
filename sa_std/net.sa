@@ -3931,6 +3931,12 @@ L_NET_SOCKET_SET_SCOPE_DONE_%out_ok:
     %out_code = call @sa_std_net_error_code_from_status(%status)
 [END_MACRO]
 
+[MACRO] NET_TCP_CONNECT_TIMEOUT %out_status, %out_stream, %host, %host_len, %port, %timeout_ns
+    __net_tcp_connect_timeout_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_connect_timeout(&%host, %host_len, %port, %timeout_ns, &__net_tcp_connect_timeout_handle_%out_status)
+    %out_stream = load __net_tcp_connect_timeout_handle_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_ERROR_CODE_FROM_POSIX_ERRNO %out_code, %errno
     %out_code = call @sa_std_net_error_code_from_posix_errno(%errno)
 [END_MACRO]
