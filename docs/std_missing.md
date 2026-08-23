@@ -724,6 +724,7 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 
 #### P0：优先加入的可实现 API
 - `TcpSocket` 建造器不属于 Rust `std::net`（它是 `socket2` 等扩展 crate 的 API），不再作为 std 对齐目标；sa_std 已有 listener/stream 的 socket option facade。真正的 std API `TcpStream::connect_timeout` 已加入 `NET_TCP_CONNECT_TIMEOUT` 与 `sa_std_net_tcp_connect_timeout`，Linux/Windows 均使用非阻塞 connect + poll/WSAPoll + `SO_ERROR`，成功后恢复阻塞模式并注册为标准 TCP stream handle。
+- 多地址连接重试已加入 `NET_TCP_CONNECT_TIMEOUT_ALL` 与 `sa_std_net_tcp_connect_timeout_all`：Linux/Windows 均解析完整地址列表，按解析顺序逐地址使用独立 timeout 尝试连接，失败地址自动关闭并继续，成功后恢复阻塞模式并返回已注册 stream；全部失败时返回最后一个原生网络错误。该 concrete API 已纳入 `.sai`、C ABI、runtime-ABI 审计和 unit-framework 参数边界夹具。
 - 向量 I/O：TcpStream/UdpSocket 的 read_vectored、write_vectored、send_vectored、recv_vectored，并明确部分读写语义。 当前 runtime 尚未发现 readv/writev/sendmsg/recvmsg/WSASend/WSARecv 或 iovec ABI；实现前必须先补 Linux/Windows runtime 与符号清单。
 - 超时与轮询：连接超时、接受超时、统一 deadline、poll/selector 结果结构，以及 Linux epoll 与 Windows IOCP 的能力矩阵。
 - 地址列表完整迭代：在已有 NET_ADDR_LIST_* 快照迭代器上补 next 的结束状态、重复地址过滤策略、IPv4/IPv6 排序策略和 DNS 错误分类。
@@ -770,7 +771,7 @@ Rust `io::Error` 风格调用链现在可具体降低为：保留 `take_error` �
 `SaNetError` 现在提供一个 16 字节、4 字节对齐的具体错误记录，字段依次为稳定 `code`、原生错误 `platform`、`raw` OS error 和公开 SA `status`。`NET_ERROR_NEW` 可直接构造记录；`NET_ERROR_FROM_STATUS` 与 `NET_ERROR_FROM_NATIVE` 分别降低 Rust `io::Error::from(ErrorKind)` 和 `io::Error::from_raw_os_error` 的可实现形态；`NET_ERROR_KIND`、`NET_ERROR_PLATFORM_OF`、`NET_ERROR_RAW_OS_ERROR`、`NET_ERROR_STATUS`、`NET_ERROR_IS_OK` 提供无 trait 的具体访问器。纯宏行为测试覆盖有 raw OS error 与无 raw OS error 两种记录，`zig build unit-framework -Dllvm=true --summary all` 于 2026-08-23 通过（8/8 build steps，4/5 tests passed，1 skipped；内部 `queued_fail` 是框架预置的预期失败夹具）。该记录不拥有消息字符串或 source chain，因此不会伪装成完整 Rust `io::Error` 对象。
 
 #### P1：重要 parity 项
-- ToSocketAddrs 的多地址/lazy iterator 语义；当前实现是 concrete snapshot，不提供 Rust trait、借用和惰性解析生命周期。
+- ToSocketAddrs 的泛型 trait、借用和惰性解析生命周期仍未实现；当前 `NET_ADDR_LIST_*` 是 concrete snapshot 迭代器，而 `NET_TCP_CONNECT_TIMEOUT_ALL` 已提供可直接消费地址列表的顺序重试语义。
 - SocketAddr/IpAddr 的稳定 Display/Debug/FromStr 入口，以及格式化缓冲区不足、非法 scope、非法端口的统一错误结果。
 - IPv6 zone/interface API：接口名与数值 scope 的双向转换、接口不存在、跨平台名称差异和 scope 保留规则。
 - Unix domain socket 完整选项：abstract namespace（Linux）、pathname 长度限制、peer credentials、非阻塞 connect/listen 语义。
@@ -785,4 +786,4 @@ Rust `io::Error` 风格调用链现在可具体降低为：保留 `take_error` �
 #### 明确阻塞项
 - Rust 泛型 trait（ToSocketAddrs、Read、Write）、借用生命周期、Option<Duration>、u128 原生 ABI、真实 io::Error 对象和自动 trait 推导无法由当前 SA 宏/布局模型直接提供；这些需要编译器前端 lowering 或新的类型系统支持。
 
-`connect_timeout` 当前接受具体纳秒整数而不是 `Option<Duration>`；零 duration 返回 `InvalidInput`，非零值向上取整为毫秒并拒绝超出平台 poll 超时整数范围的值。多地址 lazy `ToSocketAddrs` 仍由现有 snapshot facade 提供；尚未实现 Rust 的逐地址重试、连接拒绝后继续尝试和借用迭代器生命周期。
+`connect_timeout` 与 `connect_timeout_all` 当前接受具体纳秒整数而不是 `Option<Duration>`；零 duration 返回 `InvalidInput`，非零值向上取整为毫秒并拒绝超出平台 poll 超时整数范围的值。`connect_timeout_all` 已实现 Rust 逐地址重试和连接拒绝后继续尝试的 concrete 语义，但仍不提供 lazy `ToSocketAddrs` trait、借用迭代器生命周期或跨地址共享总 deadline 的 Rust 泛型模型。

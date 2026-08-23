@@ -10801,6 +10801,49 @@ pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u
     return finish(SA_STD_OK);
 }
 
+fn tcpConnectAddressTimeout(address: std.net.Address, timeout_ms: i32) !std.net.Stream {
+    const fd = try std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP);
+    var stream = std.net.Stream{ .handle = fd };
+    errdefer stream.close();
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
+        error.WouldBlock, error.ConnectionPending => {
+            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
+            const ready = try std.posix.poll(&poll_fds, timeout_ms);
+            if (ready == 0) return error.ConnectionTimedOut;
+            try std.posix.getsockoptError(fd);
+        },
+        else => return err,
+    };
+    const flags = try std.posix.fcntl(fd, std.posix.F.GETFL, 0);
+    const blocking_flags = flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
+    _ = try std.posix.fcntl(fd, std.posix.F.SETFL, blocking_flags);
+    return stream;
+}
+
+pub export fn sa_std_net_tcp_connect_timeout_all(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
+    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    const list = std.net.getAddressList(std.heap.page_allocator, host, port16) catch |err| return finishErr(err);
+    defer list.deinit();
+    if (list.addrs.len == 0) return finishErr(error.HostLacksNetworkAddresses);
+    var last_connect_error: anyerror = error.ConnectionRefused;
+    for (list.addrs) |address| {
+        var stream = tcpConnectAddressTimeout(address, timeout_ms) catch |err| {
+            last_connect_error = err;
+            continue;
+        };
+        handle_ptr.* = registerResource(.{ .tcp_stream = stream }) catch |err| {
+            stream.close();
+            return finishErr(err);
+        };
+        return finish(SA_STD_OK);
+    }
+    return finishErr(last_connect_error);
+}
+
 pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
