@@ -767,6 +767,8 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 
 Rust `io::Error` 风格调用链现在可具体降低为：保留 `take_error` 返回值作为 `raw_os_error()`；用 `NET_ERROR_PLATFORM` 得到 `SA_NET_ERROR_PLATFORM_POSIX` 或 `SA_NET_ERROR_PLATFORM_WINDOWS`；用 `NET_ERROR_CODE_FROM_NATIVE_ERROR` 得到稳定 `kind()`；需要日志或协议传输时再用 `NET_ERROR_CODE_NAME` 取得稳定名称。该模型保留 raw code 与 kind 的分离，但不提供 Rust 的 owned error payload、source chain、Display 本地化文本或 trait 实现。
 
+`SaNetError` 现在提供一个 16 字节、4 字节对齐的具体错误记录，字段依次为稳定 `code`、原生错误 `platform`、`raw` OS error 和公开 SA `status`。`NET_ERROR_NEW` 可直接构造记录；`NET_ERROR_FROM_STATUS` 与 `NET_ERROR_FROM_NATIVE` 分别降低 Rust `io::Error::from(ErrorKind)` 和 `io::Error::from_raw_os_error` 的可实现形态；`NET_ERROR_KIND`、`NET_ERROR_PLATFORM_OF`、`NET_ERROR_RAW_OS_ERROR`、`NET_ERROR_STATUS`、`NET_ERROR_IS_OK` 提供无 trait 的具体访问器。纯宏行为测试覆盖有 raw OS error 与无 raw OS error 两种记录，`zig build unit-framework -Dllvm=true --summary all` 于 2026-08-23 通过（8/8 build steps，4/5 tests passed，1 skipped；内部 `queued_fail` 是框架预置的预期失败夹具）。该记录不拥有消息字符串或 source chain，因此不会伪装成完整 Rust `io::Error` 对象。
+
 #### P1：重要 parity 项
 - ToSocketAddrs 的多地址/lazy iterator 语义；当前实现是 concrete snapshot，不提供 Rust trait、借用和惰性解析生命周期。
 - SocketAddr/IpAddr 的稳定 Display/Debug/FromStr 入口，以及格式化缓冲区不足、非法 scope、非法端口的统一错误结果。

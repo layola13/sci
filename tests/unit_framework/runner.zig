@@ -1218,6 +1218,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_multicast_v6_macro_surface.sa",
         "tests/unit_framework/std_net_multicast_if_macro_surface.sa",
         "tests/unit_framework/std_net_error_kind_macro_surface.sa",
+        "tests/unit_framework/std_net_error_record_macro_surface.sa",
         "tests/unit_framework/std_net_last_error_macro_surface.sa",
         "tests/unit_framework/std_net_addr_list_behavior.sa",
         "tests/unit_framework/std_net_conversion_behavior.sa",

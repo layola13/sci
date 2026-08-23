@@ -3950,6 +3950,52 @@ L_NET_SOCKET_SET_SCOPE_DONE_%out_ok:
 [MACRO] NET_ERROR_CODE_FROM_NATIVE_ERROR %out_code, %error
     %out_code = call @sa_std_net_error_code_from_native_error(%error)
 [END_MACRO]
+
+[MACRO] NET_ERROR_NEW %error_ptr, %code, %platform, %raw, %status
+    store %error_ptr+SaNetError_code, %code as i32
+    store %error_ptr+SaNetError_platform, %platform as i32
+    store %error_ptr+SaNetError_raw, %raw as i32
+    store %error_ptr+SaNetError_status, %status as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_FROM_STATUS %error_ptr, %status
+    EXPAND NET_ERROR_CODE_FROM_STATUS __net_error_status_code_%error_ptr, %status
+    EXPAND NET_ERROR_NEW %error_ptr, __net_error_status_code_%error_ptr, SA_NET_ERROR_PLATFORM_NONE, 0, %status
+    !__net_error_status_code_%error_ptr
+[END_MACRO]
+
+[MACRO] NET_ERROR_FROM_NATIVE %error_ptr, %raw
+    EXPAND NET_ERROR_PLATFORM __net_error_native_platform_%error_ptr
+    EXPAND NET_ERROR_CODE_FROM_NATIVE_ERROR __net_error_native_code_%error_ptr, %raw
+    EXPAND NET_ERROR_NEW %error_ptr, __net_error_native_code_%error_ptr, __net_error_native_platform_%error_ptr, %raw, SA_NET_STATUS_NET
+    !__net_error_native_code_%error_ptr
+    !__net_error_native_platform_%error_ptr
+[END_MACRO]
+
+[MACRO] NET_ERROR_KIND %out_code, %error_ptr
+    %out_code = load %error_ptr+SaNetError_code as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_PLATFORM_OF %out_platform, %error_ptr
+    %out_platform = load %error_ptr+SaNetError_platform as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_RAW_OS_ERROR %out_has, %out_raw, %error_ptr
+    __net_error_raw_platform_%out_has = load %error_ptr+SaNetError_platform as i32
+    %out_raw = load %error_ptr+SaNetError_raw as i32
+    %out_has = ne __net_error_raw_platform_%out_has, SA_NET_ERROR_PLATFORM_NONE
+    !__net_error_raw_platform_%out_has
+[END_MACRO]
+
+[MACRO] NET_ERROR_STATUS %out_status, %error_ptr
+    %out_status = load %error_ptr+SaNetError_status as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_IS_OK %out_bool, %error_ptr
+    __net_error_ok_code_%out_bool = load %error_ptr+SaNetError_code as i32
+    %out_bool = eq __net_error_ok_code_%out_bool, SA_NET_ERROR_CODE_OK
+    !__net_error_ok_code_%out_bool
+[END_MACRO]
 [MACRO] NET_ERROR_KIND_FROM_STATUS %out_kind, %status
     __net_kind_invalid_arg_%out_kind = eq %status, SA_NET_STATUS_INVALID_ARGUMENT
     br __net_kind_invalid_arg_%out_kind -> L_NET_KIND_INVALID_ARG_%out_kind, L_NET_KIND_INVALID_HANDLE_%out_kind

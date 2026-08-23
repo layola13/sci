@@ -42,6 +42,13 @@
 #def SA_NET_ERROR_PLATFORM_POSIX = 1
 #def SA_NET_ERROR_PLATFORM_WINDOWS = 2
 
+#def SaNetError_SIZE = 16
+#def SaNetError_ALIGN = 4
+#def SaNetError_code = +0
+#def SaNetError_platform = +4
+#def SaNetError_raw = +8
+#def SaNetError_status = +12
+
 #def SA_NET_AF_UNSPEC = 0
 #def SA_NET_AF_IPV4 = 4
 #def SA_NET_AF_IPV6 = 6
