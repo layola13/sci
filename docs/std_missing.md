@@ -714,3 +714,6 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 `NET_IPV6_AS_OCTETS_PTR` and `NET_IP_ADDR_AS_OCTETS_PTR` now expose borrowed octet views using Rust/network byte order. The IPv6 and enum helpers materialize a temporary 16-byte view, while IPv4 preserves the existing direct four-byte view; callers must consume the pointer before the macro scope ends. This closes the concrete `as_octets` pointer surface without claiming Rust slice lifetimes, mutable aliasing rules, or a stable borrowed view beyond the current SA macro expansion.
 
 解析 facade 现在提供 `NET_*_PARSE_ASCII_DETAIL` / `NET_*_TRY_PARSE_ASCII_DETAIL` 宏，返回 `ok + AddrParseError.kind`：IPv4、IPv6、`IpAddr`、`SocketAddrV4`、`SocketAddrV6` 与通用 `SocketAddr` 分别标记具体解析器类别；失败时仍保持 `ok=0`，不伪造 Rust `AddrParseError` 文本或 trait 对象。
+
+
+`NET_IPV4_TO_IPV6_COMPATIBLE`, `NET_IPV4_TO_IPV6_MAPPED`, `NET_IPV6_TO_IPV4`, `NET_IPV6_TO_IPV4_MAPPED`, `NET_IPV6_TO_CANONICAL`, and the `NET_IP_ADDR_TO_*` aliases now have a behavior-matrix test covering compatible versus mapped IPv6 layouts, reverse-conversion success/failure, enum IpAddr conversion, and mapped-address canonicalization. The facade intentionally keeps concrete u16 segments and status booleans; it does not claim Rust u128, generic From trait dispatch, or borrowed lifetime semantics.
