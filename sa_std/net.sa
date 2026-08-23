@@ -163,6 +163,12 @@
     !__net_tcp_write_all_%out_status
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_READ_EXACT %out_status, %stream, %buf, %len
+    __net_tcp_read_exact_%out_status = call @sa_net_tcp_stream_read_exact(%stream, &%buf, %len)
+    %out_status = load __net_tcp_read_exact_%out_status+0 as i32
+    !__net_tcp_read_exact_%out_status
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_FLUSH %out_status, %stream
     %out_status = call @sa_net_tcp_stream_flush(%stream)
 [END_MACRO]

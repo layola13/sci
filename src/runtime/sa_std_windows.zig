@@ -5536,6 +5536,19 @@ pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u
     if (status != SA_STD_OK) return .{ .status = finish(status), .value = 0 };
     return .{ .status = finish(SA_STD_OK), .value = 0 };
 }
+pub export fn sa_net_tcp_stream_read_exact(stream: u64, out: ?[*]u8, len: u64) FallibleI32 {
+    var remaining: u64 = len;
+    var cursor: u64 = 0;
+    while (remaining != 0) {
+        var chunk: u64 = 0;
+        const status = sa_std_net_tcp_stream_read(stream, if (out) |p| p + cursor else null, remaining, &chunk);
+        if (status != SA_STD_OK) return .{ .status = finish(status), .value = 0 };
+        if (chunk == 0) return .{ .status = finish(SA_STD_ERR_IO), .value = 0 };
+        cursor += chunk;
+        remaining -= chunk;
+    }
+    return .{ .status = finish(SA_STD_OK), .value = 0 };
+}
 pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
     _ = stream;
     return finish(SA_STD_OK);
