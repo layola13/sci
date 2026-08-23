@@ -37,6 +37,8 @@
 @extern sa_std_net_to_socket_addr_first(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_to_socket_addr_list(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_addr_list_next(list: u64, &out_ok: ptr, &out_addr: ptr) -> i32
+@extern sa_std_net_addr_list_remaining(list: u64, &out_remaining: ptr) -> i32
+@extern sa_std_net_addr_list_reset(list: u64) -> i32
 @extern sa_std_net_addr_list_free(list: u64) -> i32
 @extern sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) -> i32

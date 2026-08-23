@@ -1052,6 +1052,16 @@
     %out_addr = load __net_addr_list_next_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_ADDR_LIST_REMAINING %out_status, %out_remaining, %list
+    __net_addr_list_remaining_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_addr_list_remaining(%list, &__net_addr_list_remaining_%out_status)
+    %out_remaining = load __net_addr_list_remaining_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_RESET %out_status, %list
+    %out_status = call @sa_std_net_addr_list_reset(%list)
+[END_MACRO]
+
 [MACRO] NET_ADDR_LIST_FREE %out_status, %list
     %out_status = call @sa_std_net_addr_list_free(%list)
 [END_MACRO]

@@ -8819,6 +8819,32 @@ pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_add
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_addr_list_remaining(list_handle: u64, out_remaining: ?*u64) i32 {
+    const out = out_remaining orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const list = switch (resource.*) {
+        .net_addr_list => |*value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    out.* = @as(u64, @intCast(list.addresses.len -| list.next_index));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_addr_list_reset(list_handle: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const list = switch (resource.*) {
+        .net_addr_list => |*value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    list.next_index = 0;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_addr_list_free(list_handle: u64) i32 {
     return sa_std_close(list_handle);
 }

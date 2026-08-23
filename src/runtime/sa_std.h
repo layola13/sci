@@ -424,6 +424,8 @@ int32_t sa_std_net_tcp_connect_timeout_all(const uint8_t *host, uint64_t host_le
 int32_t sa_std_net_to_socket_addr_first(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_list(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_addr_list_next(uint64_t list, int32_t *out_ok, uint64_t *out_addr);
+int32_t sa_std_net_addr_list_remaining(uint64_t list, uint64_t *out_remaining);
+int32_t sa_std_net_addr_list_reset(uint64_t list);
 int32_t sa_std_net_addr_list_free(uint64_t list);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);

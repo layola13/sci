@@ -4965,6 +4965,25 @@ pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_add
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_addr_list_remaining(list_handle: u64, out_remaining: ?*u64) i32 {
+    const out = out_remaining orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    net_addr_list_mutex.lock();
+    defer net_addr_list_mutex.unlock();
+    const idx = netAddrListSlotLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const list = &net_addr_list_slots.items[idx].?;
+    out.* = @as(u64, @intCast(list.addresses.len -| list.next_index));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_addr_list_reset(list_handle: u64) i32 {
+    net_addr_list_mutex.lock();
+    defer net_addr_list_mutex.unlock();
+    const idx = netAddrListSlotLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    net_addr_list_slots.items[idx].?.next_index = 0;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_addr_list_free(list_handle: u64) i32 {
     return closeNetAddrList(list_handle);
 }
