@@ -1494,16 +1494,34 @@ L_NET_SOCKET_HASH_DONE_%hasher:
     %out_ok = call @sa_net_ipv4_parse_ascii(&%ptr, %len, &%addr)
 [END_MACRO]
 
+[MACRO] NET_IPV4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_IPV4
+    EXPAND NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IPV4_PARSE_ASCII %out_ok, %addr, %ptr, %len
     EXPAND NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_IPV4_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    EXPAND NET_IPV4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
     %out_ok = call @sa_net_ipv6_parse_ascii(&%ptr, %len, &%addr)
 [END_MACRO]
 
+[MACRO] NET_IPV6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_IPV6
+    EXPAND NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IPV6_PARSE_ASCII %out_ok, %addr, %ptr, %len
     EXPAND NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_IPV6_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    EXPAND NET_IPV6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
 [END_MACRO]
 
 
@@ -2796,8 +2814,17 @@ L_NET_IP_PARSE_FAIL_%out_ok:
 L_NET_IP_PARSE_DONE_%out_ok:
 [END_MACRO]
 
+[MACRO] NET_IP_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %ipaddr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_IP
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IP_ADDR_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
     EXPAND NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_PARSE_ASCII_DETAIL %out_ok, %out_kind, %ipaddr, %ptr, %len
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %ipaddr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_IP_ADDR_COPY %dst_ipaddr, %src_ipaddr
@@ -3337,16 +3364,34 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     %out_ok = call @sa_net_socket_addr_v4_parse_ascii(&%ptr, %len, &%socket_addr)
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_SOCKET_V4
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V4_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     %out_ok = call @sa_net_socket_addr_v6_parse_ascii(&%ptr, %len, &%socket_addr)
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_SOCKET_V6
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V6_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
 [END_MACRO]
 
 
@@ -3386,6 +3431,15 @@ L_NET_SOCKET_PARSE_DONE_%out_ok:
 
 [MACRO] NET_SOCKET_ADDR_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_SOCKET
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_NEW %socket_addr, %ipv6, %port, %flowinfo, %scope_id
