@@ -5863,6 +5863,35 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
+    net_addr_mutex.lock();
+    const idx = netAddrSlotLocked(addr_handle) orelse {
+        net_addr_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    const resource = net_addr_slots.items[idx].?;
+    if (resource.family != 2 and resource.family != 10) {
+        net_addr_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    }
+    var address = std.net.Address.resolveIp(resource.host, resource.port) catch |err| {
+        net_addr_mutex.unlock();
+        return finishErr(err);
+    };
+    if ((resource.family == 2 and address.any.family != std.posix.AF.INET) or
+        (resource.family == 10 and address.any.family != std.posix.AF.INET6)) {
+        net_addr_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    }
+    if (resource.family == 10 and resource.scope_id != 0) address.in6.sa.scope_id = @intCast(resource.scope_id);
+    net_addr_mutex.unlock();
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
     udp_mutex.lock();
     defer udp_mutex.unlock();

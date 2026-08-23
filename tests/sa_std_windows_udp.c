@@ -254,6 +254,7 @@ static int check_connected_loopback(void) {
     uint64_t server = 0;
     uint64_t client = 0;
     uint64_t server_addr = 0;
+    uint64_t target_addr = 0;
     uint64_t peer_addr = 0;
     uint32_t port = 0;
     uint8_t peeked[64] = {0};
@@ -275,24 +276,27 @@ static int check_connected_loopback(void) {
     server_addr = 0;
 
     CHECK(103, sa_std_net_udp_bind(loopback, sizeof(loopback) - 1, 0, &client) == SA_STD_OK);
-    CHECK(104, sa_std_net_udp_connect(client, loopback, sizeof(loopback) - 1, port) == SA_STD_OK);
-    CHECK(105, sa_std_net_udp_peer_addr(client, &peer_addr) == SA_STD_OK);
-    CHECK(106, sa_net_addr_family(peer_addr) == 2);
-    CHECK(107, sa_net_addr_port(peer_addr) == port);
-    CHECK(108, sa_net_addr_free(peer_addr).status == SA_STD_OK);
+    CHECK(104, sa_std_net_to_socket_addr_first(loopback, sizeof(loopback) - 1, port, &target_addr) == SA_STD_OK);
+    CHECK(105, sa_std_net_udp_connect_addr(client, target_addr) == SA_STD_OK);
+    CHECK(106, sa_net_addr_free(target_addr).status == SA_STD_OK);
+    target_addr = 0;
+    CHECK(107, sa_std_net_udp_peer_addr(client, &peer_addr) == SA_STD_OK);
+    CHECK(108, sa_net_addr_family(peer_addr) == 2);
+    CHECK(109, sa_net_addr_port(peer_addr) == port);
+    CHECK(110, sa_net_addr_free(peer_addr).status == SA_STD_OK);
     peer_addr = 0;
 
-    CHECK(109, sa_std_net_udp_set_read_timeout(server, UINT64_C(500000000)) == SA_STD_OK);
-    CHECK(110, sa_std_net_udp_send(client, message, sizeof(message) - 1, &written) == SA_STD_OK);
-    CHECK(111, written == sizeof(message) - 1);
-    CHECK(112, sa_std_net_udp_peek(server, peeked, sizeof(peeked), &read) == SA_STD_OK);
-    CHECK(113, read == sizeof(message) - 1);
-    CHECK(114, memcmp(peeked, message, read) == 0);
-    CHECK(115, sa_std_net_udp_recv(server, received, sizeof(received), &read) == SA_STD_OK);
-    CHECK(116, read == sizeof(message) - 1);
-    CHECK(117, memcmp(received, message, read) == 0);
+    CHECK(111, sa_std_net_udp_set_read_timeout(server, UINT64_C(500000000)) == SA_STD_OK);
+    CHECK(112, sa_std_net_udp_send(client, message, sizeof(message) - 1, &written) == SA_STD_OK);
+    CHECK(113, written == sizeof(message) - 1);
+    CHECK(114, sa_std_net_udp_peek(server, peeked, sizeof(peeked), &read) == SA_STD_OK);
+    CHECK(115, read == sizeof(message) - 1);
+    CHECK(116, memcmp(peeked, message, read) == 0);
+    CHECK(117, sa_std_net_udp_recv(server, received, sizeof(received), &read) == SA_STD_OK);
+    CHECK(118, read == sizeof(message) - 1);
+    CHECK(119, memcmp(received, message, read) == 0);
 
-    CHECK(118, close_udp(&client) == 0);
+    CHECK(120, close_udp(&client) == 0);
     return close_udp(&server);
 }
 

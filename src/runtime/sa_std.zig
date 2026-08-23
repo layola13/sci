@@ -9609,6 +9609,23 @@ pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]con
     return sa_std_net_udp_leave_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
 }
 
+pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const socket_resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (socket_resource.*) {
+        .udp_socket => |value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    const addr_resource = getResourceLocked(addr_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const address = switch (addr_resource.*) {
+        .net_addr => |value| value.addr,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -12284,4 +12301,33 @@ test "TCP connect timeout rejects zero duration" {
     const host = "127.0.0.1";
     try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_connect_timeout(host.ptr, host.len, 80, 0, &handle));
     try std.testing.expectEqual(@as(u64, 0), handle);
+}
+
+test "UDP connect by resolved address" {
+    const host = "127.0.0.1";
+    var server: u64 = 0;
+    var client: u64 = 0;
+    var server_addr: u64 = 0;
+    var target_addr: u64 = 0;
+    var peer_addr: u64 = 0;
+    var port: u32 = 0;
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &server));
+    defer _ = sa_std_close(server);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(server, &server_addr));
+    defer _ = sa_net_addr_free(server_addr);
+    port = sa_net_addr_port(server_addr);
+    try std.testing.expect(port != 0);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &target_addr));
+    defer _ = sa_net_addr_free(target_addr);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &client));
+    defer _ = sa_std_close(client);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect_addr(client, target_addr));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_peer_addr(client, &peer_addr));
+    defer _ = sa_net_addr_free(peer_addr);
+    try std.testing.expectEqual(port, sa_net_addr_port(peer_addr));
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(peer_addr));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_connect_addr(client, 0));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_connect_addr(0, target_addr));
 }

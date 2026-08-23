@@ -2273,13 +2273,36 @@ L_UDP_CONNECT:
     udp_local_free_ok = eq udp_local_free_status, 0
     EXPAND NET_UDP_CONNECT udp_connect_status, udp_socket, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, udp_local_port
     udp_connect_ok = eq udp_connect_status, 0
+    EXPAND NET_TO_SOCKET_ADDR_FIRST udp_addr_status, udp_addr, NET_TEST_LOOPBACK, NET_TEST_LOOPBACK_LEN, udp_local_port
+    EXPAND NET_UDP_CONNECT_ADDR udp_addr_connect_status, udp_socket, udp_addr
+    EXPAND NET_ADDR_FREE udp_addr_free_status, udp_addr
+    udp_addr_ok = ne udp_addr, 0
+    udp_addr_status_ok = eq udp_addr_status, 0
+    udp_addr_connect_ok = eq udp_addr_connect_status, 0
+    udp_addr_free_ok = eq udp_addr_free_status, 0
     udp_connect_phase01 = and udp_local_port_ok, udp_local_free_ok
-    udp_connect_phase_ok = and udp_connect_phase01, udp_connect_ok
+    udp_connect_phase02 = and udp_connect_phase01, udp_connect_ok
+    udp_connect_phase03 = and udp_addr_ok, udp_addr_status_ok
+    udp_connect_phase04 = and udp_connect_phase03, udp_addr_connect_ok
+    udp_connect_phase05 = and udp_connect_phase04, udp_addr_free_ok
+    udp_connect_phase_ok = and udp_connect_phase02, udp_connect_phase05
     br udp_connect_phase_ok -> L_UDP_PEER, L_FAIL_UDP_CONNECT
 
 L_FAIL_UDP_CONNECT:
     !udp_connect_phase_ok
+    !udp_connect_phase05
+    !udp_connect_phase04
+    !udp_connect_phase03
+    !udp_connect_phase02
     !udp_connect_phase01
+    !udp_addr_free_ok
+    !udp_addr_connect_ok
+    !udp_addr_status_ok
+    !udp_addr_ok
+    !udp_addr_free_status
+    !udp_addr_connect_status
+    !udp_addr_status
+    !udp_addr
     !udp_connect_ok
     !udp_connect_status
     !udp_local_free_ok
@@ -2341,7 +2364,19 @@ L_FAIL_DONE:
     !udp_peer_addr
     !udp_peer_status
     !udp_connect_phase_ok
+    !udp_connect_phase05
+    !udp_connect_phase04
+    !udp_connect_phase03
+    !udp_connect_phase02
     !udp_connect_phase01
+    !udp_addr_free_ok
+    !udp_addr_connect_ok
+    !udp_addr_status_ok
+    !udp_addr_ok
+    !udp_addr_free_status
+    !udp_addr_connect_status
+    !udp_addr_status
+    !udp_addr
     !udp_connect_ok
     !udp_connect_status
     !udp_local_free_ok
@@ -2381,7 +2416,19 @@ L_OK:
     !udp_peer_addr
     !udp_peer_status
     !udp_connect_phase_ok
+    !udp_connect_phase05
+    !udp_connect_phase04
+    !udp_connect_phase03
+    !udp_connect_phase02
     !udp_connect_phase01
+    !udp_addr_free_ok
+    !udp_addr_connect_ok
+    !udp_addr_status_ok
+    !udp_addr_ok
+    !udp_addr_free_status
+    !udp_addr_connect_status
+    !udp_addr_status
+    !udp_addr
     !udp_connect_ok
     !udp_connect_status
     !udp_local_free_ok

@@ -915,6 +915,10 @@
     %out_status = call @sa_std_net_udp_connect(%socket, &%host, %host_len, %port)
 [END_MACRO]
 
+[MACRO] NET_UDP_CONNECT_ADDR %out_status, %socket, %addr
+    %out_status = call @sa_std_net_udp_connect_addr(%socket, %addr)
+[END_MACRO]
+
 [MACRO] NET_UDP_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns
     %out_status = call @sa_std_net_udp_set_read_timeout(%socket, %timeout_ns)
 [END_MACRO]

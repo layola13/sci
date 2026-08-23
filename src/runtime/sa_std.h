@@ -536,6 +536,7 @@ int32_t sa_std_net_udp_bind(const uint8_t *host, uint64_t host_len, uint32_t por
 int32_t sa_std_net_udp_local_addr(uint64_t socket_handle, uint64_t *out_handle);
 int32_t sa_std_net_udp_peer_addr(uint64_t socket_handle, uint64_t *out_handle);
 int32_t sa_std_net_udp_connect(uint64_t socket_handle, const uint8_t *host, uint64_t host_len, uint32_t port);
+int32_t sa_std_net_udp_connect_addr(uint64_t socket_handle, uint64_t addr_handle);
 int32_t sa_std_net_udp_set_read_timeout(uint64_t socket_handle, uint64_t timeout_ns);
 int32_t sa_std_net_udp_set_write_timeout(uint64_t socket_handle, uint64_t timeout_ns);
 int32_t sa_std_net_udp_set_nonblocking(uint64_t socket_handle, int32_t enabled);
