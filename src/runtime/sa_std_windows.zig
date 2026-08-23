@@ -5056,6 +5056,41 @@ pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: u64, out_handle: ?*u64) i32 {
+    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const timeout_ms = timeoutMs(timeout_ns) catch |err| return finishErr(err);
+    net_addr_mutex.lock();
+    const address = blk: {
+        const idx = netAddrSlotLocked(addr_handle) orelse {
+            net_addr_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        };
+        const resource = net_addr_slots.items[idx].?;
+        if (resource.family != 2 and resource.family != 10) {
+            net_addr_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        }
+        var parsed = std.net.Address.resolveIp(resource.host, resource.port) catch |err| {
+            net_addr_mutex.unlock();
+            return finishErr(err);
+        };
+        if ((resource.family == 2 and parsed.any.family != std.posix.AF.INET) or
+            (resource.family == 10 and parsed.any.family != std.posix.AF.INET6)) {
+            net_addr_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        }
+        if (resource.family == 10 and resource.scope_id != 0) parsed.in6.sa.scope_id = @intCast(resource.scope_id);
+        break :blk parsed;
+    };
+    net_addr_mutex.unlock();
+    var stream = tcpConnectAddressTimeout(address, timeout_ms) catch |err| return finishErr(err);
+    errdefer stream.close();
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    out.* = registerTcpStreamLocked(stream) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
 fn tcpConnectAddressTimeout(address: std.net.Address, timeout_ms: i32) !std.net.Stream {
     const fd = try std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK, std.posix.IPPROTO.TCP);
     var stream = std.net.Stream{ .handle = fd };

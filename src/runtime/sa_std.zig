@@ -11171,6 +11171,30 @@ pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
+    registry_mutex.lock();
+    const address = blk: {
+        const resource = getResourceLocked(addr_handle) orelse {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        };
+        break :blk switch (resource.*) {
+            .net_addr => |net_addr| net_addr.addr,
+            else => {
+                registry_mutex.unlock();
+                return finish(SA_STD_ERR_INVALID_HANDLE);
+            },
+        };
+    };
+    registry_mutex.unlock();
+    var stream = tcpConnectAddressTimeout(address, timeout_ms) catch |err| return finishErr(err);
+    errdefer stream.close();
+    handle_ptr.* = registerResource(.{ .tcp_stream = stream }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
 fn tcpConnectAddressTimeout(address: std.net.Address, timeout_ms: i32) !std.net.Stream {
     const fd = try std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP);
     var stream = std.net.Stream{ .handle = fd };
@@ -12230,6 +12254,31 @@ test "native network error facade reports POSIX platform" {
     try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_native_error(111));
 }
 
+test "TCP connect timeout by resolved address" {
+    const host = "127.0.0.1";
+    var listener: u64 = 0;
+    var port: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &port));
+    defer _ = sa_std_close(listener);
+
+    var address: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &address));
+    defer _ = sa_net_addr_free(address);
+
+    var client: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect_timeout_addr(address, 500_000_000, &client));
+    defer _ = sa_std_close(client);
+
+    var accepted: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &accepted));
+    defer _ = sa_std_close(accepted);
+
+    var untouched: u64 = 99;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_connect_timeout_addr(address, 0, &untouched));
+    try std.testing.expectEqual(@as(u64, 0), untouched);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_connect_timeout_addr(0, 500_000_000, &untouched));
+    try std.testing.expectEqual(@as(u64, 0), untouched);
+}
 test "TCP connect timeout rejects zero duration" {
     var handle: u64 = 99;
     const host = "127.0.0.1";

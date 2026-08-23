@@ -10,6 +10,7 @@
 @extern sa_std_net_hostname(&out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_net_tcp_connect(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_connect_timeout(&host: ptr, host_len: u64, port: u32, timeout_ns: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_connect_timeout_addr(addr: u64, timeout_ns: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_connect_timeout_all(&host: ptr, host_len: u64, port: u32, timeout_ns: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_listen(&host: ptr, host_len: u64, port: u32, &out_handle: ptr, &out_bound_port: ptr) -> i32
 @extern sa_std_net_tcp_accept(listener: u64, &out_handle: ptr) -> i32

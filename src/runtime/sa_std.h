@@ -426,6 +426,7 @@ int32_t sa_std_fs_read_link(const uint8_t *path, uint64_t path_len, uint64_t *ou
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_hostname(uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_std_net_tcp_connect_timeout(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
+int32_t sa_std_net_tcp_connect_timeout_addr(uint64_t addr_handle, uint64_t timeout_ns, uint64_t *out_handle);
 int32_t sa_std_net_tcp_connect_timeout_all(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_first(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_list(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
