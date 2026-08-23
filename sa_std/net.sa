@@ -145,6 +145,18 @@
     %out_len = load __net_tcp_write_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_READ_VECTORED %out_status, %out_len, %stream, %iovs, %iov_count
+    __net_tcp_read_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_read_vectored(%stream, &%iovs, %iov_count, &__net_tcp_read_vec_len_%out_status)
+    %out_len = load __net_tcp_read_vec_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_WRITE_VECTORED %out_status, %out_len, %stream, %iovs, %iov_count
+    __net_tcp_write_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_write_vectored(%stream, &%iovs, %iov_count, &__net_tcp_write_vec_len_%out_status)
+    %out_len = load __net_tcp_write_vec_len_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_WRITE_ALL %out_status, %stream, %buf, %len
     __net_tcp_write_all_%out_status = call @sa_net_tcp_stream_write_all(%stream, &%buf, %len)
     %out_status = load __net_tcp_write_all_%out_status+0 as i32
@@ -1068,6 +1080,26 @@
     %out_status = call @sa_std_net_udp_peek_from(%socket, &%buf, %cap, &__net_udp_peek_from_len_%out_status, &__net_udp_peek_from_addr_%out_status)
     %out_len = load __net_udp_peek_from_len_%out_status+0 as u64
     %out_addr = load __net_udp_peek_from_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_VECTORED %out_status, %out_len, %socket, %iovs, %iov_count
+    __net_udp_send_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_send_vectored(%socket, &%iovs, %iov_count, &__net_udp_send_vec_len_%out_status)
+    %out_len = load __net_udp_send_vec_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_TO_VECTORED %out_status, %out_len, %socket, %iovs, %iov_count, %host, %host_len, %port
+    __net_udp_send_to_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_send_to_vectored(%socket, &%iovs, %iov_count, &%host, %host_len, %port, &__net_udp_send_to_vec_len_%out_status)
+    %out_len = load __net_udp_send_to_vec_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_RECV_FROM_VECTORED %out_status, %out_len, %out_addr, %socket, %iovs, %iov_count
+    __net_udp_recv_from_vec_len_%out_status = stack_alloc 8
+    __net_udp_recv_from_vec_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_recv_from_vectored(%socket, &%iovs, %iov_count, &__net_udp_recv_from_vec_len_%out_status, &__net_udp_recv_from_vec_addr_%out_status)
+    %out_len = load __net_udp_recv_from_vec_len_%out_status+0 as u64
+    %out_addr = load __net_udp_recv_from_vec_addr_%out_status+0 as u64
 [END_MACRO]
 
 [MACRO] NET_UDP_CLOSE %out_status, %socket

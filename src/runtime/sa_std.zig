@@ -89,6 +89,16 @@ pub const SA_STD_ERR_UNSUPPORTED: i32 = 8;
 pub const SA_STD_ERR_TRUNCATED: i32 = 9;
 pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 
+/// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
+pub const sa_net_iov = extern struct {
+    base: [*]u8,
+    len: usize,
+};
+
+/// Cap on iovec entries accepted per vectored call. Matches POSIX IOV_MAX where
+/// available and stays comfortably below common OS hard limits.
+pub const SA_NET_IOV_MAX: usize = 1024;
+
 pub const SA_STD_STDIN: u64 = 1;
 pub const SA_STD_STDOUT: u64 = 2;
 pub const SA_STD_STDERR: u64 = 3;
@@ -8864,6 +8874,64 @@ pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: 
 pub export fn sa_std_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     return sa_std_read(stream, out, cap, out_read);
 }
+
+pub export fn sa_std_net_tcp_stream_read_vectored(stream: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .tcp_stream => |s| s.handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        ziovec[filled] = .{ .base = slot.base, .len = len };
+        filled += 1;
+    }
+    const read = std.posix.readv(fd, ziovec[0..filled]) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_write_vectored(stream: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .tcp_stream => |s| s.handle,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        ziovec[filled] = .{ .base = slot.base, .len = len };
+        filled += 1;
+    }
+    const written = std.posix.writev(fd, ziovec[0..filled]) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
+}
 pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) {
     var read: u64 = 0;
     const status = sa_std_net_tcp_stream_read(stream, out, cap, &read);
@@ -9903,6 +9971,129 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
         ptr.* = handle;
     }
     return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        ziovec[filled] = .{ .base = slot.base, .len = len };
+        filled += 1;
+    }
+    const written = std.posix.writev(fd, ziovec[0..filled]) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    written_ptr.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
+    const port16 = portFromU32(port) catch |err| return finishErr(err);
+    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        ziovec[filled] = .{ .base = slot.base, .len = len };
+        filled += 1;
+    }
+
+    var msg: std.posix.msghdr = std.mem.zeroes(std.posix.msghdr);
+    msg.msg_name = @as(*std.posix.sockaddr, @ptrCast(&address.any));
+    msg.msg_namelen = address.getOsSockLen();
+    msg.msg_iov = ziovec[0..filled].ptr;
+    msg.msg_iovlen = @as(c_int, @intCast(filled));
+
+    const rc = std.os.linux.sendmsg(fd, &msg, 0);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            written_ptr.* = @as(u64, @intCast(rc));
+            return finish(SA_STD_OK);
+        },
+        else => |err| return finishErr(err),
+    }
+}
+
+pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        ziovec[filled] = .{ .base = slot.base, .len = len };
+        filled += 1;
+    }
+
+    var addr: std.net.Address = undefined;
+    var msg: std.posix.msghdr = std.mem.zeroes(std.posix.msghdr);
+    msg.msg_name = @as(*std.posix.sockaddr, @ptrCast(&addr.any));
+    msg.msg_namelen = @sizeOf(std.net.Address);
+    msg.msg_iov = ziovec[0..filled].ptr;
+    msg.msg_iovlen = @as(c_int, @intCast(filled));
+
+    const rc = std.os.linux.recvmsg(fd, &msg, 0);
+    switch (std.posix.errno(rc)) {
+        .SUCCESS => {
+            read_ptr.* = @as(u64, @intCast(rc));
+            if (out_addr) |ptr| {
+                var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+                const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                    net_addr.deinit();
+                    return finishErr(err);
+                };
+                ptr.* = handle;
+            }
+            return finish(SA_STD_OK);
+        },
+        else => |err| return finishErr(err),
+    }
 }
 
 pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {

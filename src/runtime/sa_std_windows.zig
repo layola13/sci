@@ -55,6 +55,14 @@ pub const SA_STD_ERR_UNSUPPORTED: i32 = 8;
 pub const SA_STD_ERR_TRUNCATED: i32 = 9;
 pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 
+/// Mirrors C sa_net_iov in sa_std.h.
+pub const sa_net_iov = extern struct {
+    base: [*]u8,
+    len: usize,
+};
+
+pub const SA_NET_IOV_MAX: usize = 1024;
+
 pub const SA_JSON_KIND_INVALID: u32 = std.math.maxInt(u32);
 pub const SA_JSON_KIND_NULL: u32 = 0;
 pub const SA_JSON_KIND_BOOL: u32 = 1;
@@ -5172,6 +5180,65 @@ pub export fn sa_std_net_tcp_stream_write(handle: u64, buf: ?[*]const u8, len: u
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_stream_read_vectored(handle: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64) i32 {
+    const result = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const socket = tcp_stream_slots.items[idx].?.stream.handle;
+
+    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        wbufs[filled] = .{ .len = len, .buf = slot.base };
+        filled += 1;
+    }
+
+    var bytes_read: u32 = 0;
+    var flags: u32 = 0;
+    const rc = std.os.windows.ws2_32.WSARecv(socket, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_read, &flags, null, null);
+    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+    result.* = bytes_read;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_write_vectored(handle: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
+    const result = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    tcp_mutex.lock();
+    defer tcp_mutex.unlock();
+    const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const socket = tcp_stream_slots.items[idx].?.stream.handle;
+
+    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        wbufs[filled] = .{ .len = len, .buf = slot.base };
+        filled += 1;
+    }
+
+    var bytes_sent: u32 = 0;
+    const rc = std.os.windows.ws2_32.WSASend(socket, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_sent, 0, null, null);
+    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+    result.* = bytes_sent;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_stream_peek(handle: u64, out_ptr: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     const result = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
@@ -5866,6 +5933,112 @@ pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_r
 }
 pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
     return udpReceiveFrom(socket, out, cap, out_read, out_addr, true);
+}
+
+pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
+    const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+
+    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        wbufs[filled] = .{ .len = len, .buf = slot.base };
+        filled += 1;
+    }
+
+    var bytes_sent: u32 = 0;
+    const rc = std.os.windows.ws2_32.WSASend(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_sent, 0, null, null);
+    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+    out.* = bytes_sent;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
+    const address = udpAddress(host, port) catch |err| return finishErr(err);
+
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+
+    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        wbufs[filled] = .{ .len = len, .buf = slot.base };
+        filled += 1;
+    }
+
+    var bytes_sent: u32 = 0;
+    const rc = std.os.windows.ws2_32.WSASendTo(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_sent, 0, @as(*const std.posix.sockaddr, @ptrCast(&address.any)), @as(i32, @intCast(address.getOsSockLen())), null, null);
+    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+    out.* = bytes_sent;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    const out = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const slices = iovs[0..count];
+    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+
+    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
+    var filled: usize = 0;
+    for (slices) |slot| {
+        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        wbufs[filled] = .{ .len = len, .buf = slot.base };
+        filled += 1;
+    }
+
+    var addr: std.net.Address = undefined;
+    var addr_len: i32 = @sizeOf(std.net.Address);
+    var bytes_read: u32 = 0;
+    var flags: u32 = 0;
+    const rc = std.os.windows.ws2_32.WSARecvFrom(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_read, &flags, @as(*std.posix.sockaddr, @ptrCast(&addr.any)), &addr_len, null, null);
+    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+    out.* = bytes_read;
+
+    if (out_addr) |ptr| {
+        var host_buf: [64]u8 = undefined;
+        const host_str = std.fmt.bufPrint(&host_buf, "{}", .{addr}) catch return finish(SA_STD_ERR_IO);
+        const host_copy = std.heap.page_allocator.dupe(u8, host_str) catch return finish(SA_STD_ERR_NO_MEMORY);
+        const family: u32 = switch (addr.any.family) {
+            std.posix.AF.INET => 2,
+            std.posix.AF.INET6 => 10,
+            else => 0,
+        };
+        const scope_id: u64 = if (addr.any.family == std.posix.AF.INET6) addr.in6.sa.scope_id else 0;
+        const handle = registerNetAddr(.{ .host = host_copy, .family = family, .port = addr.getPort(), .scope_id = scope_id }) catch |err| {
+            std.heap.page_allocator.free(host_copy);
+            return finishErr(err);
+        };
+        ptr.* = handle;
+    }
+    return finish(SA_STD_OK);
 }
 
 const IpMreq = extern struct { multicast: u32, interface: u32 };

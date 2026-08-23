@@ -15,6 +15,8 @@
 @extern sa_std_net_tcp_listener_local_addr(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_stream_read(stream: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
 @extern sa_std_net_tcp_stream_peek(stream: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_net_tcp_stream_read_vectored(stream: u64, &iovs: ptr, iov_count: u64, &out_read: ptr) -> i32
+@extern sa_std_net_tcp_stream_write_vectored(stream: u64, &iovs: ptr, iov_count: u64, &out_written: ptr) -> i32
 @extern sa_std_net_tcp_stream_write(stream: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
 @extern sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) -> i32
 @extern sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) -> i32
@@ -29,6 +31,10 @@
 @extern sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_stream_read_timeout(stream: u64, &out_timeout_ns: ptr) -> i32
 @extern sa_std_net_tcp_stream_write_timeout(stream: u64, &out_timeout_ns: ptr) -> i32
+@extern sa_std_net_tcp_stream_set_recv_buffer_size(stream: u64, size: u32) -> i32
+@extern sa_std_net_tcp_stream_recv_buffer_size(stream: u64, &out_size: ptr) -> i32
+@extern sa_std_net_tcp_stream_set_send_buffer_size(stream: u64, size: u32) -> i32
+@extern sa_std_net_tcp_stream_send_buffer_size(stream: u64, &out_size: ptr) -> i32
 @extern sa_std_net_tcp_stream_nodelay(stream: u64, &out_enabled: ptr) -> i32
 @extern sa_std_net_tcp_stream_ttl(stream: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_tcp_stream_take_error(stream: u64, &out_error: ptr) -> i32
@@ -131,6 +137,10 @@
 @extern sa_std_net_udp_set_multicast_hops_v6(socket: u64, hops: u32) -> i32
 @extern sa_std_net_udp_read_timeout(socket: u64, &out_timeout_ns: ptr) -> i32
 @extern sa_std_net_udp_write_timeout(socket: u64, &out_timeout_ns: ptr) -> i32
+@extern sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) -> i32
+@extern sa_std_net_udp_recv_buffer_size(socket: u64, &out_size: ptr) -> i32
+@extern sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) -> i32
+@extern sa_std_net_udp_send_buffer_size(socket: u64, &out_size: ptr) -> i32
 @extern sa_std_net_udp_broadcast(socket: u64, &out_enabled: ptr) -> i32
 @extern sa_std_net_udp_ttl(socket: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_udp_multicast_loop_v4(socket: u64, &out_enabled: ptr) -> i32
@@ -148,6 +158,9 @@
 @extern sa_std_net_udp_send_to(socket: u64, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u32, &out_written: ptr) -> i32
 @extern sa_std_net_udp_recv_from(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr) -> i32
 @extern sa_std_net_udp_peek_from(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr) -> i32
+@extern sa_std_net_udp_send_vectored(socket: u64, &iovs: ptr, iov_count: u64, &out_written: ptr) -> i32
+@extern sa_std_net_udp_send_to_vectored(socket: u64, &iovs: ptr, iov_count: u64, &host: ptr, host_len: u64, port: u32, &out_written: ptr) -> i32
+@extern sa_std_net_udp_recv_from_vectored(socket: u64, &iovs: ptr, iov_count: u64, &out_read: ptr, &out_addr: ptr) -> i32
 @extern sa_std_net_udp_join_multicast_v4(socket: u64, &multi_host: ptr, multi_host_len: u64, &interface_host: ptr, interface_host_len: u64) -> i32
 @extern sa_std_net_udp_leave_multicast_v4(socket: u64, &multi_host: ptr, multi_host_len: u64, &interface_host: ptr, interface_host_len: u64) -> i32
 @extern sa_std_net_udp_join_multicast_v6(socket: u64, &multi_host: ptr, multi_host_len: u64, interface_index: u32) -> i32

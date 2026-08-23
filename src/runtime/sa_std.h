@@ -138,6 +138,11 @@ typedef struct sa_std_fallible_i32 {
 
 uint32_t sa_std_version(void);
 int32_t sa_std_last_error(void);
+typedef struct sa_net_iov {
+    uint8_t *base;
+    size_t len;
+} sa_net_iov;
+
 int32_t sa_std_net_error_code_from_status(int32_t status);
 int32_t sa_std_net_error_code_from_posix_errno(int32_t error);
 int32_t sa_std_net_error_code_from_wsa_error(int32_t error);
@@ -433,6 +438,8 @@ int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *o
 int32_t sa_std_net_tcp_stream_read(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_write(uint64_t stream_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+int32_t sa_std_net_tcp_stream_read_vectored(uint64_t stream_handle, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_read);
+int32_t sa_std_net_tcp_stream_write_vectored(uint64_t stream_handle, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_written);
 int32_t sa_std_net_tcp_stream_peer_addr(uint64_t stream_handle, uint64_t *out_handle);
 int32_t sa_std_net_tcp_stream_local_addr(uint64_t stream_handle, uint64_t *out_handle);
 int32_t sa_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap);
@@ -556,6 +563,9 @@ int32_t sa_std_net_udp_send(uint64_t socket_handle, const uint8_t *buf, uint64_t
 int32_t sa_std_net_udp_recv(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_udp_peek(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_udp_send_to(uint64_t socket_handle, const uint8_t *buf, uint64_t len, const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_written);
+int32_t sa_std_net_udp_send_vectored(uint64_t socket, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_written);
+int32_t sa_std_net_udp_send_to_vectored(uint64_t socket, const sa_net_iov *iovs, uint64_t iov_count, const uint8_t *host_ptr, uint64_t host_len, uint32_t port, uint64_t *out_written);
+int32_t sa_std_net_udp_recv_from_vectored(uint64_t socket, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_read, uint64_t *out_addr);
 int32_t sa_std_net_udp_recv_from(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read, uint64_t *out_addr_handle);
 int32_t sa_std_net_udp_peek_from(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read, uint64_t *out_addr_handle);
 int32_t sa_std_net_udp_join_multicast_v4(uint64_t socket_handle, const uint8_t *multi_host, uint64_t multi_host_len, const uint8_t *interface_host, uint64_t interface_host_len);

@@ -67,6 +67,12 @@
 #def SA_NET_SOCKET_OPTION_ENABLE = 1
 #def SA_NET_SOCKET_OPTION_DISABLE = 0
 
+#def SA_NET_IOV_MAX = 1024
+#def SaNetIov_SIZE = 16
+#def SaNetIov_ALIGN = 8
+#def SaNetIov_base = +0
+#def SaNetIov_len = +8
+
 #def SaNetAddr_SIZE = 32
 #def SaNetAddr_family = +0
 #def SaNetAddr_port = +4
