@@ -763,7 +763,7 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 | 27 | `network_down` | `NetworkDown` | `ENETDOWN`、`WSAENETDOWN/WSAENETRESET` |
 | 28 | `write_zero` | `WriteZero` | 预留给高层 `write_all` 在零字节写入时返回 |
 
-该表刻意使用稳定 SA 整数，不承诺与 Rust 私有 discriminant 数值相同；调用方应按 `NET_ERROR_CODE_NAME` 或 `SA_NET_ERROR_CODE_*` 常量解释。`connection_closed`、`unexpected_eof`、`write_zero` 是高层语义，不能仅靠一次原生 errno 自动推导；`invalid_handle` 也包含 SA 句柄注册表语义。 
+该表刻意使用稳定 SA 整数，不承诺与 Rust 私有 discriminant 数值相同；调用方应按 `NET_ERROR_CODE_NAME` 或 `SA_NET_ERROR_CODE_*` 常量解释。`connection_closed`、`unexpected_eof`、`write_zero` 是高层语义，不能仅靠一次原生 errno 自动推导；`invalid_handle` 也包含 SA 句柄注册表语义。
 
 #### P1：重要 parity 项
 - ToSocketAddrs 的多地址/lazy iterator 语义；当前实现是 concrete snapshot，不提供 Rust trait、借用和惰性解析生命周期。
