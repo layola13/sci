@@ -729,6 +729,42 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 - 地址列表完整迭代：在已有 NET_ADDR_LIST_* 快照迭代器上补 next 的结束状态、重复地址过滤策略、IPv4/IPv6 排序策略和 DNS 错误分类。
 - 统一网络错误：NET_LAST_ERROR 已暴露 runtime 原始 last-error；新增 SA_NET_ERROR_CODE_* 与 NET_ERROR_CODE_FROM_STATUS，按 Rust io::ErrorKind 思路提供稳定的 unknown、invalid argument/handle、not found、access denied、no memory、I/O、network unreachable、unsupported 等分类。已进一步加入 host unreachable、broken pipe、already exists、interrupted、unexpected EOF、invalid data、network down、write zero；`NET_ERROR_CODE_FROM_POSIX_ERRNO` 和 `NET_ERROR_CODE_FROM_WSA_ERROR` 对常见 Linux errno、EAI_* 与 Windows WSA 错误提供稳定映射，双平台 Zig 单测覆盖拒绝连接、超时、阻塞、地址冲突、地址不可用、网络不可达、连接重置/中止、未连接、DNS 和未知值。`NET_ERROR_CODE_NAME` 及 `sa_std_net_error_code_name` 现在提供稳定的 snake_case 名称、长度查询和截断状态。仍未伪造 Rust `io::Error` 对象或完整 Display 文本；对应 SA fixture 暂不加入 runner，因为此前同一 extern 错误码调用路径触发 verifier 内部 `readCheck` 越界，属于编译器测试基础设施阻塞，不是 runtime/ABI 失败。
 
+#### Rust 风格错误码审计表
+
+| SA code | 稳定名称 | Rust `io::ErrorKind` 近似 | 已覆盖的原生来源 |
+|---:|---|---|---|
+| 0 | `ok` | 成功返回，不是 `ErrorKind` | SA status `OK`、errno/WSA `0` |
+| 1 | `unknown` | `Other` | 未知 status、未知 errno/WSA |
+| 2 | `dns` | `Other`（解析阶段错误） | Linux `EAI_NONAME/EAI_FAIL`、Windows `WSAHOST_NOT_FOUND/WSANO_RECOVERY/WSANO_DATA` |
+| 3 | `connection_refused` | `ConnectionRefused` | `ECONNREFUSED`、`WSAECONNREFUSED` |
+| 4 | `timed_out` | `TimedOut` | `ETIMEDOUT`、`WSAETIMEDOUT`、临时 DNS 超时 |
+| 5 | `connection_closed` | `UnexpectedEof` 近似 | SA stream closed 状态；原生 EOF 仍由读 API 的字节数判定 |
+| 6 | `would_block` | `WouldBlock` | `EAGAIN/EWOULDBLOCK`、`WSAEWOULDBLOCK` |
+| 7 | `invalid_address` | `InvalidInput` | 地址解析/地址族输入失败 |
+| 8 | `permission_denied` | `PermissionDenied` | `EPERM/EACCES`、`WSAEACCES` |
+| 9 | `unsupported` | `Unsupported` | 不支持的地址族、协议或平台能力 |
+| 10 | `invalid_input` | `InvalidInput` | `EINVAL`、`WSAEINVAL`、空指针/长度/端口参数错误 |
+| 11 | `invalid_handle` | `Other` 近似 | `EBADF`、`WSAEBADF`、失效 SA opaque handle |
+| 12 | `not_found` | `NotFound` | `ENOENT/ENOTDIR`、名称不存在 |
+| 13 | `out_of_memory` | `OutOfMemory` | `ENOMEM/ENOBUFS`、Windows 资源耗尽 |
+| 14 | `io` | `Other` | 未细分的 I/O、系统调用失败 |
+| 15 | `network_unreachable` | `NetworkUnreachable` | `ENETUNREACH`、`WSAENETUNREACH` |
+| 16 | `addr_in_use` | `AddrInUse` | `EADDRINUSE`、`WSAEADDRINUSE` |
+| 17 | `addr_not_available` | `AddrNotAvailable` | `EADDRNOTAVAIL`、`WSAEADDRNOTAVAIL` |
+| 18 | `connection_reset` | `ConnectionReset` | `ECONNRESET`、`WSAECONNRESET` |
+| 19 | `connection_aborted` | `ConnectionAborted` | `ECONNABORTED`、`WSAECONNABORTED` |
+| 20 | `not_connected` | `NotConnected` | `ENOTCONN`、`WSAENOTCONN/WSAESHUTDOWN` |
+| 21 | `host_unreachable` | `HostUnreachable` | `EHOSTUNREACH`、`WSAEHOSTUNREACH` |
+| 22 | `broken_pipe` | `BrokenPipe` | `EPIPE`、写入已关闭连接 |
+| 23 | `already_exists` | `AlreadyExists` | `EEXIST` |
+| 24 | `interrupted` | `Interrupted` | `EINTR`、`WSAEINTR` |
+| 25 | `unexpected_eof` | `UnexpectedEof` | 预留给读到非预期 EOF 的高层包装 |
+| 26 | `invalid_data` | `InvalidData` | `EMSGSIZE`、`WSAEMSGSIZE`、协议数据过大/损坏 |
+| 27 | `network_down` | `NetworkDown` | `ENETDOWN`、`WSAENETDOWN/WSAENETRESET` |
+| 28 | `write_zero` | `WriteZero` | 预留给高层 `write_all` 在零字节写入时返回 |
+
+该表刻意使用稳定 SA 整数，不承诺与 Rust 私有 discriminant 数值相同；调用方应按 `NET_ERROR_CODE_NAME` 或 `SA_NET_ERROR_CODE_*` 常量解释。`connection_closed`、`unexpected_eof`、`write_zero` 是高层语义，不能仅靠一次原生 errno 自动推导；`invalid_handle` 也包含 SA 句柄注册表语义。 
+
 #### P1：重要 parity 项
 - ToSocketAddrs 的多地址/lazy iterator 语义；当前实现是 concrete snapshot，不提供 Rust trait、借用和惰性解析生命周期。
 - SocketAddr/IpAddr 的稳定 Display/Debug/FromStr 入口，以及格式化缓冲区不足、非法 scope、非法端口的统一错误结果。
