@@ -4726,6 +4726,13 @@ pub export fn sa_std_net_error_code_from_native_error(native_error: i32) i32 {
     return sa_std_net_error_code_from_posix_errno(native_error);
 }
 
+pub export fn sa_std_net_hostname(out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var buffer: [std.posix.HOST_NAME_MAX]u8 = undefined;
+    const name = std.posix.gethostname(&buffer) catch |err| return finishErr(err);
+    return writeFormattedInto(out, out_cap, out_len, name);
+}
+
 
 pub export fn sa_std_error_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const name = statusName(code);
@@ -9219,6 +9226,16 @@ pub export fn sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) i32
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_stream_keepalive(stream: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
+    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.KEEPALIVE) catch |err| return finishErr(err)) 1 else 0;
+    return finish(SA_STD_OK);
+}
+
 // Tune the Linux TCP keepalive timers (idle before first probe, interval
 // between probes, probe count before dropping). All three are in whole units
 // (seconds for idle/interval, count for cnt) matching the kernel option ABI.
@@ -11023,6 +11040,51 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    const stream_ptr = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    stream_ptr.* = 0;
+    addr_ptr.* = 0;
+    registry_mutex.lock();
+    const resource = getResourceLocked(listener_handle) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    const listener = switch (resource.*) {
+        .tcp_listener => |server| server,
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
+    };
+    registry_mutex.unlock();
+
+    var listener_copy = listener;
+    const connection = listener_copy.accept() catch |err| return finishErr(err);
+    var stream = connection.stream;
+    var peer_addr = NetAddrHandle.init(std.heap.page_allocator, connection.address) catch |err| {
+        stream.close();
+        return finishErr(err);
+    };
+    registry_mutex.lock();
+    const stream_handle = registerResourceLocked(.{ .tcp_stream = stream }) catch |err| {
+        registry_mutex.unlock();
+        peer_addr.deinit();
+        stream.close();
+        return finishErr(err);
+    };
+    const addr_handle = registerResourceLocked(.{ .net_addr = peer_addr }) catch |err| {
+        if (takeResourceLocked(stream_handle)) |*resource_to_close| resource_to_close.close() catch {};
+        registry_mutex.unlock();
+        peer_addr.deinit();
+        return finishErr(err);
+    };
+    registry_mutex.unlock();
+    stream_ptr.* = stream_handle;
+    addr_ptr.* = addr_handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_listener_local_addr(listener_handle: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -12030,12 +12092,39 @@ test "exported tcp and udp socket setters update live handles" {
 
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(server_handle, 1));
     try std.testing.expect(try getSocketOptBool(server.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
+    var keepalive_enabled: i32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_keepalive(server_handle, &keepalive_enabled));
+    try std.testing.expectEqual(@as(i32, 1), keepalive_enabled);
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_ttl(server_handle, 64));
     try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(server.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(server_handle, 250_000_000));
     try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_write_timeout(server_handle, 250_000_000));
     try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO));
+}
+
+test "tcp accept_addr returns peer stream and socket address" {
+    const host = "127.0.0.1";
+    var listener_handle: u64 = 0;
+    var bound_port: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener_handle, &bound_port));
+    defer _ = sa_std_close(listener_handle);
+    try std.testing.expect(bound_port != 0);
+
+    var client_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client_handle));
+    defer _ = sa_std_close(client_handle);
+
+    var server_handle: u64 = 0;
+    var peer_addr_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept_addr(listener_handle, &server_handle, &peer_addr_handle));
+    defer _ = sa_std_close(server_handle);
+    defer _ = sa_net_addr_free(peer_addr_handle);
+
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(peer_addr_handle));
+    try std.testing.expect(sa_net_addr_port(peer_addr_handle) != 0);
+    try std.testing.expect(sa_net_addr_host_len(peer_addr_handle) != 0);
 }
 
 test "unix socket setters treat tcp-only options as successful no-op" {
@@ -12077,6 +12166,19 @@ test "network status maps to stable Rust-style error codes" {
     try std.testing.expectEqual(@as(i32, 9), sa_std_net_error_code_from_status(SA_STD_ERR_UNSUPPORTED));
     try std.testing.expectEqual(@as(i32, 14), sa_std_net_error_code_from_status(SA_STD_ERR_TRUNCATED));
     try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_status(SA_STD_ERR_UNKNOWN));
+}
+
+test "hostname reports required length and validates buffers" {
+    var length: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_hostname(null, 0, &length));
+    try std.testing.expect(length > 0);
+
+    var small: [1]u8 = undefined;
+    var small_length: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_hostname(&small, small.len, &small_length));
+    try std.testing.expectEqual(length, small_length);
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_hostname(null, 1, &small_length));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_hostname(&small, small.len, null));
 }
 
 test "POSIX errno maps to Rust-style network error kinds" {

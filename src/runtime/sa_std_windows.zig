@@ -20,6 +20,7 @@ extern "kernel32" fn WaitForSingleObject(h: std.os.windows.HANDLE, ms: std.os.wi
 extern "kernel32" fn CreateThread(lp_thread_attributes: ?*anyopaque, dw_stack_size: std.os.windows.DWORD, lp_start_address: ?*anyopaque, lp_parameter: ?*anyopaque, dw_creation_flags: std.os.windows.DWORD, lp_thread_id: ?*std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
 extern "kernel32" fn GetCurrentThreadId() callconv(.winapi) std.os.windows.DWORD;
 extern "kernel32" fn SwitchToThread() callconv(.winapi) std.os.windows.BOOL;
+extern "ws2_32" fn gethostname(name: [*]u8, len: i32) callconv(.winapi) i32;
 
 const DEBUG_LOG_PATH = "E:\\projects\\sci\\spawn_debug.log";
 
@@ -1864,6 +1865,17 @@ pub export fn sa_std_net_error_platform() i32 {
 
 pub export fn sa_std_net_error_code_from_native_error(native_error: i32) i32 {
     return sa_std_net_error_code_from_wsa_error(native_error);
+}
+
+pub export fn sa_std_net_hostname(out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    std.os.windows.callWSAStartup() catch |err| return finishErr(err);
+    var buffer: [256]u8 = undefined;
+    if (gethostname(&buffer, @intCast(buffer.len)) != 0) {
+        return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+    }
+    const name = std.mem.sliceTo(&buffer, 0);
+    return writeFormattedInto(out, out_cap, out_len, name);
 }
 
 
@@ -5126,6 +5138,41 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    const stream_out = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const addr_out = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    stream_out.* = 0;
+    addr_out.* = 0;
+    tcp_mutex.lock();
+    const idx = tcpListenerSlotLocked(listener_handle) orelse {
+        tcp_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
+    var server = tcp_listener_slots.items[idx].?.server;
+    tcp_mutex.unlock();
+    var connection = server.accept() catch |err| return finishErr(err);
+    tcp_mutex.lock();
+    const stream_handle = registerTcpStreamLocked(connection.stream) catch |err| {
+        tcp_mutex.unlock();
+        connection.stream.close();
+        return finishErr(err);
+    };
+    const addr_handle = registerSocketAddress(connection.address) catch |err| {
+        if (tcpStreamSlotLocked(stream_handle)) |stream_idx| {
+            var stream_resource = tcp_stream_slots.items[stream_idx].?;
+            stream_resource.close();
+            tcp_stream_slots.items[stream_idx] = null;
+            tcp_stream_free_slots.append(stream_idx) catch {};
+        }
+        tcp_mutex.unlock();
+        return finishErr(err);
+    };
+    tcp_mutex.unlock();
+    stream_out.* = stream_handle;
+    addr_out.* = addr_handle;
+    return finish(SA_STD_OK);
+}
+
 fn tcpAddress(handle: u64, peer: bool, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -5433,6 +5480,11 @@ pub export fn sa_std_net_tcp_stream_take_error(h: u64, out: ?*i32) i32 {
 pub export fn sa_std_net_tcp_stream_set_keepalive(h: u64, enabled: i32) i32 {
     _ = h;
     _ = enabled;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+pub export fn sa_std_net_tcp_stream_keepalive(h: u64, out: ?*i32) i32 {
+    _ = h;
+    if (out) |value| value.* = 0 else return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 pub export fn sa_std_net_tcp_stream_set_keepalive_params(h: u64, idle_secs: u32, interval_secs: u32, count: u32) i32 {

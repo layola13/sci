@@ -424,6 +424,7 @@ int32_t sa_fs_mkfifo(const uint8_t *path, uint64_t path_len, uint32_t mode);
 int32_t sa_std_fs_read_link(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_hostname(uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_std_net_tcp_connect_timeout(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
 int32_t sa_std_net_tcp_connect_timeout_all(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_first(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
@@ -434,6 +435,7 @@ int32_t sa_std_net_addr_list_reset(uint64_t list);
 int32_t sa_std_net_addr_list_free(uint64_t list);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_tcp_accept_addr(uint64_t listener_handle, uint64_t *out_stream, uint64_t *out_addr);
 int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);
 int32_t sa_std_net_tcp_stream_read(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
@@ -451,6 +453,7 @@ int32_t sa_std_net_tcp_stream_set_linger(uint64_t stream_handle, int32_t enabled
 int32_t sa_std_net_tcp_stream_linger(uint64_t stream_handle, int32_t *out_enabled, uint64_t *out_timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nodelay(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_set_keepalive(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_keepalive(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_tcp_stream_set_keepalive_params(uint64_t stream_handle, uint32_t idle_secs, uint32_t interval_secs, uint32_t count);
 int32_t sa_std_net_tcp_stream_set_quickack(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_quickack(uint64_t stream_handle, int32_t *out_enabled);

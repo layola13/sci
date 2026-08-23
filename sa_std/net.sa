@@ -8,6 +8,10 @@
     %out_error = call @sa_std_last_error()
 [END_MACRO]
 
+[MACRO] NET_HOSTNAME %out_status, %out_ptr, %out_cap, %out_len
+    %out_status = call @sa_std_net_hostname(%out_ptr, %out_cap, %out_len)
+[END_MACRO]
+
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
     __net_tcp_connect_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_tcp_connect(&%host, %host_len, %port, &__net_tcp_connect_handle_%out_status)
@@ -321,6 +325,20 @@
 
 [MACRO] NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled
     %out_status = call @sa_std_net_tcp_stream_set_keepalive(%stream, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_ACCEPT_ADDR %out_status, %out_stream, %out_addr, %listener
+    __net_tcp_accept_addr_stream_%out_status = stack_alloc 8
+    __net_tcp_accept_addr_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_accept_addr(%listener, &__net_tcp_accept_addr_stream_%out_status, &__net_tcp_accept_addr_addr_%out_status)
+    %out_stream = load __net_tcp_accept_addr_stream_%out_status+0 as u64
+    %out_addr = load __net_tcp_accept_addr_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_KEEPALIVE %out_status, %out_enabled, %stream
+    __net_tcp_keepalive_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_keepalive(%stream, &__net_tcp_keepalive_%out_status)
+    %out_enabled = load __net_tcp_keepalive_%out_status+0 as i32
 [END_MACRO]
 
 [MACRO] NET_TCP_STREAM_SET_KEEPALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt

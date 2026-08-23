@@ -720,6 +720,27 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 
 ### std::net 后续补充清单（2026-08-23）
 
+#### Rust source audit (rust-lang/rust `library/std/src/net` + `library/core/src/net`)
+
+| Rust std API | SA status | Evidence / exact gap |
+|---|---|---|
+| `TcpStream::connect`, `connect_timeout`, `peer_addr`, `local_addr`, `shutdown`, `try_clone`, read/write/peek, timeout, nodelay, ttl, nonblocking, take_error | Partial / concrete | SA has corresponding macros and ABI, but uses opaque `u64` handles and integer statuses instead of `io::Result<T>` and typed `SocketAddr`/`Duration`. `try_clone` now has runtime ABI and a registered lifecycle fixture; standalone execution currently hits the same compiler `ForbiddenSyntax: InvalidLiteral` blocker as existing network behavior fixtures. |
+| `TcpListener::bind`, `local_addr`, `try_clone`, `accept`, `incoming`, `set_ttl`, `ttl`, `set_only_v6`, `only_v6`, `take_error`, `set_nonblocking` | Partial / concrete | SA exposes bind/accept/incoming and most options. `NET_TCP_LISTENER_ACCEPT_ADDR` and `sa_std_net_tcp_accept_addr` now return the accepted stream plus a registered peer `SocketAddr`-compatible handle, with Linux loopback behavior coverage. Rust's `Incoming<'a>` and `IntoIncoming` iterator ownership/lifetime model is not represented; `into_incoming(self)` has no exact typed equivalent. |
+| `UdpSocket::bind`, recv/send/peek variants, `peer_addr`, `local_addr`, `try_clone`, timeout, broadcast, multicast, ttl, connect, nonblocking, take_error | Partial / concrete | SA exposes socket operations and clone/options. Rust tuple returns `(usize, SocketAddr)`, `Option<Duration>`, and `io::Error` payloads are flattened into out-values/status codes. |
+| `Shutdown::{Read, Write, Both}` | Concrete constants only | SA has `SA_NET_SHUTDOWN_*` and `NET_TCP_STREAM_SHUTDOWN`; no Rust enum value/type or method dispatch. |
+| `ToSocketAddrs` trait and its standard impls | Missing as typed trait | SA has `NET_TO_SOCKET_ADDR_FIRST` and snapshot `NET_ADDR_LIST_*`; no generic trait, associated iterator type, borrowed input lifetime, or lazy iterator semantics. |
+| `hostname()` | Partial / concrete | SA now exposes `NET_HOSTNAME` and `sa_std_net_hostname`, returning UTF-8 bytes through the standard `status + out_len + caller buffer` ABI. Linux uses `gethostname`; Windows uses Winsock `gethostname`. Rust `OsString` ownership, platform-native encoding, and `io::Error` object semantics remain flattened. |
+| `TcpStream::set_keepalive` / `keepalive` | Partial / concrete getter | Linux now exposes `NET_TCP_STREAM_KEEPALIVE` and the `sa_std_net_tcp_stream_keepalive` ABI using `SO_KEEPALIVE`; Windows returns the documented `SA_STD_ERR_UNSUPPORTED` platform status. The Rust `io::Result<bool>` type remains flattened to status plus out-value. |
+| `IpAddr`, `Ipv4Addr`, `Ipv6Addr`, `Ipv6MulticastScope` types | Concrete layout/facade | SA has constructors, predicates, parsing, formatting, octets/bits/segments, mapped/canonical helpers and scope predicates, but no Rust enum/struct type system, trait impls, or `Option<Ipv4Addr>` return model. |
+| `Ipv4Addr` and `Ipv6Addr` classification/conversion methods | Broad concrete coverage | Rust core source includes private/global/link-local/shared/reserved/documentation/benchmarking, multicast/unicast, mapped/compatible conversion, canonicalization, octets/segments/bits; SA has corresponding macro surface. Return types and trait semantics remain concrete SA values. |
+| `SocketAddr`, `SocketAddrV4`, `SocketAddrV6` constructors/accessors/setters | Broad concrete coverage | SA has new/ip/port/family/flowinfo/scope/setter/parse/format macros. Rust enum/struct layout and `From`/`Display`/`Debug`/`Hash` trait behavior are not represented as native types. |
+| `AddrParseError` and `FromStr` parsing | Partial | SA has ASCII parse macros with status/detail codes; no Rust error object, `FromStr` trait, or exact error-kind/display contract. |
+| `Read`/`Write` trait implementations for `TcpStream` and `&TcpStream` | Missing as typed traits | SA has direct read/write/read_exact/write_all macros; no trait dispatch, borrow semantics, or generic `Read`/`Write` integration. |
+| `AsInner`/`FromInner`/`IntoInner` and `Debug` impls | Missing as Rust trait impls | SA has raw/owned fd aliases and formatting helpers, but no Rust private-inner trait contracts or native `Debug` implementation. |
+| Platform behavior and `io::Error` | Partial | Linux/Windows runtime symbols and stable SA error categories exist; no owned Rust `io::Error`, source chain, `Display`, raw-error object, or exact platform-specific conversion. |
+
+This table is based on the checked-in Rust source at `E:/projects/Rust/library/std/src/net` and `E:/projects/Rust/library/core/src/net`, not inferred API names. SA extensions such as vectored I/O, async reactor helpers, Unix sockets, buffer-size options, and error-record objects are intentionally excluded from the Rust-std parity column.
+
 以下项目是当前 sa_std/net.sa 仍值得加入的能力；完成任一项后必须同步更新本节为已实现，并附对应行为测试与 ABI 验证。
 
 #### P0：优先加入的可实现 API

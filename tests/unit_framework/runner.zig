@@ -1228,6 +1228,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_format_edge_behavior.sa",
         "tests/unit_framework/std_net_conversion_behavior.sa",
         "tests/unit_framework/std_net_clone_behavior.sa",
+        "tests/unit_framework/std_net_tcp_stream_clone_behavior.sa",
         "tests/unit_framework/std_net_buffer_size_behavior.sa",
         "tests/unit_framework/std_net_vectored_io_behavior.sa",
         "tests/unit_framework/std_net_read_exact_behavior.sa",

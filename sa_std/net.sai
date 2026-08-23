@@ -7,11 +7,13 @@
 @extern sa_std_net_error_code_name(code: i32, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_net_error_platform() -> i32
 @extern sa_std_net_error_code_from_native_error(error: i32) -> i32
+@extern sa_std_net_hostname(&out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_net_tcp_connect(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_connect_timeout(&host: ptr, host_len: u64, port: u32, timeout_ns: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_connect_timeout_all(&host: ptr, host_len: u64, port: u32, timeout_ns: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_listen(&host: ptr, host_len: u64, port: u32, &out_handle: ptr, &out_bound_port: ptr) -> i32
 @extern sa_std_net_tcp_accept(listener: u64, &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_accept_addr(listener: u64, &out_stream: ptr, &out_addr: ptr) -> i32
 @extern sa_std_net_tcp_listener_local_addr(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_stream_read(stream: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
 @extern sa_std_net_tcp_stream_peek(stream: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
@@ -99,6 +101,7 @@
 
 // Additional stream/listener socket options.
 @extern sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) -> i32
+@extern sa_std_net_tcp_stream_keepalive(stream: u64, &out_enabled: ptr) -> i32
 @extern sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, intvl_secs: u32, cnt: u32) -> i32
 @extern sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) -> i32
