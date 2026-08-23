@@ -1224,6 +1224,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_connect_timeout_all_macro_surface.sa",
         "tests/unit_framework/std_net_addr_list_behavior.sa",
         "tests/unit_framework/std_net_addr_list_cursor_behavior.sa",
+        "tests/unit_framework/std_net_addr_list_exhaustion_behavior.sa",
         "tests/unit_framework/std_net_conversion_behavior.sa",
         "tests/unit_framework/std_net_clone_behavior.sa",
         "tests/unit_framework/std_net_ipv4_new_octets_macro_surface.sa",

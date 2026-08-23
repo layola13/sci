@@ -98,6 +98,8 @@ L_FAIL:
     !invalid_status
     !list_status_ok
     !list_status
+    !reset_status
+    !reset_remaining_status
     !reset_all
     !reset_all1
     !reset_equal
@@ -135,6 +137,8 @@ L_OK:
     !invalid_status
     !list_status_ok
     !list_status
+    !reset_status
+    !reset_remaining_status
     !reset_all
     !reset_all1
     !reset_equal
