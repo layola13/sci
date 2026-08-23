@@ -1232,6 +1232,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_vectored_io_behavior.sa",
         "tests/unit_framework/std_net_read_exact_behavior.sa",
         "tests/unit_framework/std_net_shutdown_behavior.sa",
+        "tests/unit_framework/std_net_shutdown_both_behavior.sa",
         "tests/unit_framework/std_net_ipv4_new_octets_macro_surface.sa",
         "tests/unit_framework/std_net_as_fd_macro_surface.sa",
         "tests/unit_framework/std_net_addr_macro_surface.sa",
