@@ -1850,6 +1850,14 @@ pub export fn sa_std_net_error_code_name(code: i32, out: ?[*]u8, out_cap: u64, o
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_error_platform() i32 {
+    return 2;
+}
+
+pub export fn sa_std_net_error_code_from_native_error(native_error: i32) i32 {
+    return sa_std_net_error_code_from_wsa_error(native_error);
+}
+
 
 pub export fn sa_std_error_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const name = statusName(code);
@@ -6685,4 +6693,9 @@ test "network error code names are stable" {
     try std.testing.expectEqual(@as(i32, 9), sa_std_net_error_code_name(3, &buffer, 9, &length));
     try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_name(999, null, 0, &length));
     try std.testing.expectEqualStrings("unknown", netErrorCodeName(999));
+}
+
+test "native network error facade reports Windows platform" {
+    try std.testing.expectEqual(@as(i32, 2), sa_std_net_error_platform());
+    try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_native_error(10061));
 }

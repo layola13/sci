@@ -142,6 +142,8 @@ int32_t sa_std_net_error_code_from_status(int32_t status);
 int32_t sa_std_net_error_code_from_posix_errno(int32_t error);
 int32_t sa_std_net_error_code_from_wsa_error(int32_t error);
 int32_t sa_std_net_error_code_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_error_platform(void);
+int32_t sa_std_net_error_code_from_native_error(int32_t error);
 sa_std_fallible_i32 sa_test_fallible_i32_value(int32_t value);
 int32_t sa_std_error_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 

@@ -5,6 +5,8 @@
 @extern sa_std_net_error_code_from_posix_errno(errno: i32) -> i32
 @extern sa_std_net_error_code_from_wsa_error(error: i32) -> i32
 @extern sa_std_net_error_code_name(code: i32, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_net_error_platform() -> i32
+@extern sa_std_net_error_code_from_native_error(error: i32) -> i32
 @extern sa_std_net_tcp_connect(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_listen(&host: ptr, host_len: u64, port: u32, &out_handle: ptr, &out_bound_port: ptr) -> i32
 @extern sa_std_net_tcp_accept(listener: u64, &out_handle: ptr) -> i32

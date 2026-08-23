@@ -727,7 +727,7 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 - 向量 I/O：TcpStream/UdpSocket 的 read_vectored、write_vectored、send_vectored、recv_vectored，并明确部分读写语义。 当前 runtime 尚未发现 readv/writev/sendmsg/recvmsg/WSASend/WSARecv 或 iovec ABI；实现前必须先补 Linux/Windows runtime 与符号清单。
 - 超时与轮询：连接超时、接受超时、统一 deadline、poll/selector 结果结构，以及 Linux epoll 与 Windows IOCP 的能力矩阵。
 - 地址列表完整迭代：在已有 NET_ADDR_LIST_* 快照迭代器上补 next 的结束状态、重复地址过滤策略、IPv4/IPv6 排序策略和 DNS 错误分类。
-- 统一网络错误：NET_LAST_ERROR 已暴露 runtime 原始 last-error；新增 SA_NET_ERROR_CODE_* 与 NET_ERROR_CODE_FROM_STATUS，按 Rust io::ErrorKind 思路提供稳定的 unknown、invalid argument/handle、not found、access denied、no memory、I/O、network unreachable、unsupported 等分类。已进一步加入 host unreachable、broken pipe、already exists、interrupted、unexpected EOF、invalid data、network down、write zero；`NET_ERROR_CODE_FROM_POSIX_ERRNO` 和 `NET_ERROR_CODE_FROM_WSA_ERROR` 对常见 Linux errno、EAI_* 与 Windows WSA 错误提供稳定映射，双平台 Zig 单测覆盖拒绝连接、超时、阻塞、地址冲突、地址不可用、网络不可达、连接重置/中止、未连接、DNS 和未知值。`NET_ERROR_CODE_NAME` 及 `sa_std_net_error_code_name` 现在提供稳定的 snake_case 名称、长度查询和截断状态。仍未伪造 Rust `io::Error` 对象或完整 Display 文本；对应 SA fixture 暂不加入 runner，因为此前同一 extern 错误码调用路径触发 verifier 内部 `readCheck` 越界，属于编译器测试基础设施阻塞，不是 runtime/ABI 失败。
+- 统一网络错误：NET_LAST_ERROR 已暴露 runtime 原始 last-error；新增 SA_NET_ERROR_CODE_* 与 NET_ERROR_CODE_FROM_STATUS，按 Rust io::ErrorKind 思路提供稳定的 unknown、invalid argument/handle、not found、access denied、no memory、I/O、network unreachable、unsupported 等分类。已进一步加入 host unreachable、broken pipe、already exists、interrupted、unexpected EOF、invalid data、network down、write zero；`NET_ERROR_CODE_FROM_POSIX_ERRNO` 和 `NET_ERROR_CODE_FROM_WSA_ERROR` 对常见 Linux errno、EAI_* 与 Windows WSA 错误提供稳定映射，双平台 Zig 单测覆盖拒绝连接、超时、阻塞、地址冲突、地址不可用、网络不可达、连接重置/中止、未连接、DNS 和未知值。`NET_ERROR_PLATFORM` 返回当前网络 runtime 的原生错误域，`NET_ERROR_CODE_FROM_NATIVE_ERROR` 可直接把 `TcpStream/TcpListener/UdpSocket::take_error` 风格接口返回的原生错误值映射为稳定类别，无需调用方自行分支 POSIX/WSA；`NET_ERROR_CODE_NAME` 及 `sa_std_net_error_code_name` 提供稳定的 snake_case 名称、长度查询和截断状态。仍未伪造 Rust `io::Error` 对象或完整 Display 文本；对应 SA fixture 暂不加入 runner，因为此前同一 extern 错误码调用路径触发 verifier 内部 `readCheck` 越界，属于编译器测试基础设施阻塞，不是 runtime/ABI 失败。
 
 #### Rust 风格错误码审计表
 
@@ -764,6 +764,8 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 | 28 | `write_zero` | `WriteZero` | 预留给高层 `write_all` 在零字节写入时返回 |
 
 该表刻意使用稳定 SA 整数，不承诺与 Rust 私有 discriminant 数值相同；调用方应按 `NET_ERROR_CODE_NAME` 或 `SA_NET_ERROR_CODE_*` 常量解释。`connection_closed`、`unexpected_eof`、`write_zero` 是高层语义，不能仅靠一次原生 errno 自动推导；`invalid_handle` 也包含 SA 句柄注册表语义。
+
+Rust `io::Error` 风格调用链现在可具体降低为：保留 `take_error` 返回值作为 `raw_os_error()`；用 `NET_ERROR_PLATFORM` 得到 `SA_NET_ERROR_PLATFORM_POSIX` 或 `SA_NET_ERROR_PLATFORM_WINDOWS`；用 `NET_ERROR_CODE_FROM_NATIVE_ERROR` 得到稳定 `kind()`；需要日志或协议传输时再用 `NET_ERROR_CODE_NAME` 取得稳定名称。该模型保留 raw code 与 kind 的分离，但不提供 Rust 的 owned error payload、source chain、Display 本地化文本或 trait 实现。
 
 #### P1：重要 parity 项
 - ToSocketAddrs 的多地址/lazy iterator 语义；当前实现是 concrete snapshot，不提供 Rust trait、借用和惰性解析生命周期。

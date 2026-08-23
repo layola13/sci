@@ -3942,6 +3942,14 @@ L_NET_SOCKET_SET_SCOPE_DONE_%out_ok:
 [MACRO] NET_ERROR_CODE_NAME %out_status, %code, %out_ptr, %out_cap, %out_len
     %out_status = call @sa_std_net_error_code_name(%code, %out_ptr, %out_cap, %out_len)
 [END_MACRO]
+
+[MACRO] NET_ERROR_PLATFORM %out_platform
+    %out_platform = call @sa_std_net_error_platform()
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_FROM_NATIVE_ERROR %out_code, %error
+    %out_code = call @sa_std_net_error_code_from_native_error(%error)
+[END_MACRO]
 [MACRO] NET_ERROR_KIND_FROM_STATUS %out_kind, %status
     __net_kind_invalid_arg_%out_kind = eq %status, SA_NET_STATUS_INVALID_ARGUMENT
     br __net_kind_invalid_arg_%out_kind -> L_NET_KIND_INVALID_ARG_%out_kind, L_NET_KIND_INVALID_HANDLE_%out_kind
