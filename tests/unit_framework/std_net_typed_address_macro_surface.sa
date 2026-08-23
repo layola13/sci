@@ -637,3 +637,53 @@ L_FAIL:
 L_PASS:
     !ok
     return 0
+
+
+@test "sa_std socket typed octet pointer aliases"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    sock4 = stack_alloc NetSocketAddrV4_SIZE
+    sock6 = stack_alloc NetSocketAddrV6_SIZE
+
+    EXPAND NET_IPV4_NEW ipv4, 198, 51, 100, 7
+    EXPAND NET_IPV6_NEW ipv6, 8193, 3512, 0, 0, 0, 0, 0, 2
+    EXPAND NET_SOCKET_ADDR_V4_NEW sock4, ipv4, 80
+    EXPAND NET_SOCKET_ADDR_V6_NEW sock6, ipv6, 443, 0, 0
+
+    EXPAND NET_SOCKET_ADDR_V4_AS_OCTETS_PTR sock4_ptr, sock4
+    EXPAND NET_SOCKET_ADDR_V6_AS_OCTETS_PTR sock6_ptr, sock6
+    sock4_first = load sock4_ptr+0 as u8
+    sock4_last = load sock4_ptr+3 as u8
+    sock6_first = load sock6_ptr+0 as u8
+    sock6_last = load sock6_ptr+15 as u8
+
+    sock4_first_ok = eq sock4_first, 198
+    sock4_last_ok = eq sock4_last, 7
+    sock6_first_ok = eq sock6_first, 32
+    sock6_last_ok = eq sock6_last, 2
+    ok01 = and sock4_first_ok, sock4_last_ok
+    ok02 = and ok01, sock6_first_ok
+    ok = and ok02, sock6_last_ok
+
+    !sock4_first
+    !sock4_last
+    !sock6_first
+    !sock6_last
+    !sock4_first_ok
+    !sock4_last_ok
+    !sock6_first_ok
+    !sock6_last_ok
+    !ok01
+    !ok02
+    !sock4_ptr
+    !sock6_ptr
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10594)
+
+L_PASS:
+    !ok
+    return 0

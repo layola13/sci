@@ -3293,6 +3293,10 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     %out_ptr = ptr_add %socket_addr, 0
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V4_AS_OCTETS_PTR %out_ptr, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR %out_ptr, %socket_addr
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V4_IP %out_ipv4, %socket_addr
     EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_v4_ip_src_%out_ipv4, %socket_addr
     EXPAND NET_IPV4_COPY %out_ipv4, __net_sock_v4_ip_src_%out_ipv4
@@ -3425,6 +3429,12 @@ L_NET_SOCKET_PARSE_DONE_%out_ok:
 
 [MACRO] NET_SOCKET_ADDR_V6_IP_PTR %out_ptr, %socket_addr
     %out_ptr = ptr_add %socket_addr, 0
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_AS_OCTETS_PTR %out_ptr, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_octets_ip_%out_ptr, %socket_addr
+    EXPAND NET_IPV6_AS_OCTETS_PTR %out_ptr, __net_sock_v6_octets_ip_%out_ptr
+    !__net_sock_v6_octets_ip_%out_ptr
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_IP %out_ipv6, %socket_addr
