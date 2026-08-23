@@ -1315,6 +1315,165 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_sock_v4_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_NET_IPV6 %hasher, %addr
+    __net_ipv6_hash_s0_%hasher = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_hash_s1_%hasher = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_hash_s2_%hasher = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_hash_s3_%hasher = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_hash_s4_%hasher = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_hash_s5_%hasher = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_hash_s6_%hasher = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_hash_s7_%hasher = load %addr+NetIpv6Addr_s7 as u16
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s0_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s1_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s2_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s3_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s4_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s5_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s6_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s7_%hasher
+    !__net_ipv6_hash_s7_%hasher
+    !__net_ipv6_hash_s6_%hasher
+    !__net_ipv6_hash_s5_%hasher
+    !__net_ipv6_hash_s4_%hasher
+    !__net_ipv6_hash_s3_%hasher
+    !__net_ipv6_hash_s2_%hasher
+    !__net_ipv6_hash_s1_%hasher
+    !__net_ipv6_hash_s0_%hasher
+[END_MACRO]
+
+[MACRO] NET_IPV6_HASH %out_hash, %addr
+    __net_ipv6_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_ipv6_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 __net_ipv6_hash_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_ipv6_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_IPV6 %out_hash, %builder, %addr
+    __build_hash_one_ipv6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ipv6_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 __build_hash_one_ipv6_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ipv6_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_IPV6 %out_hash, %state, %addr
+    __random_state_hash_one_ipv6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ipv6_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 __random_state_hash_one_ipv6_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ipv6_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 %hasher, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_hash_ip_%hasher, %socket_addr
+    __net_sock_v6_hash_port_%hasher = load %socket_addr+NetSocketAddrV6_port as u16
+    __net_sock_v6_hash_flow_%hasher = load %socket_addr+NetSocketAddrV6_flowinfo as u32
+    __net_sock_v6_hash_scope_%hasher = load %socket_addr+NetSocketAddrV6_scope_id as u32
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 %hasher, __net_sock_v6_hash_ip_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_sock_v6_hash_port_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __net_sock_v6_hash_flow_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __net_sock_v6_hash_scope_%hasher
+    !__net_sock_v6_hash_scope_%hasher
+    !__net_sock_v6_hash_flow_%hasher
+    !__net_sock_v6_hash_port_%hasher
+    !__net_sock_v6_hash_ip_%hasher
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_HASH %out_hash, %socket_addr
+    __net_sock_v6_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_sock_v6_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 __net_sock_v6_hash_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_sock_v6_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_SOCKET_ADDR_V6 %out_hash, %builder, %socket_addr
+    __build_hash_one_sock_v6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_sock_v6_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 __build_hash_one_sock_v6_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_sock_v6_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_SOCKET_ADDR_V6 %out_hash, %state, %socket_addr
+    __random_state_hash_one_sock_v6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_sock_v6_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 __random_state_hash_one_sock_v6_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_sock_v6_hasher_%out_hash
+[END_MACRO]
+[MACRO] DEFAULT_HASHER_WRITE_NET_IP_ADDR %hasher, %ipaddr
+    __net_ip_hash_tag_%hasher = load %ipaddr+NetIpAddr_tag as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __net_ip_hash_tag_%hasher
+    __net_ip_hash_payload_%hasher = ptr_add %ipaddr, 8
+    __net_ip_hash_is_v4_%hasher = eq __net_ip_hash_tag_%hasher, NET_IP_ADDR_V4
+    br __net_ip_hash_is_v4_%hasher -> L_NET_IP_HASH_V4_%hasher, L_NET_IP_HASH_V6_%hasher
+L_NET_IP_HASH_V4_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 %hasher, __net_ip_hash_payload_%hasher
+    jmp L_NET_IP_HASH_DONE_%hasher
+L_NET_IP_HASH_V6_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 %hasher, __net_ip_hash_payload_%hasher
+L_NET_IP_HASH_DONE_%hasher:
+    !__net_ip_hash_is_v4_%hasher
+    !__net_ip_hash_payload_%hasher
+    !__net_ip_hash_tag_%hasher
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_HASH %out_hash, %ipaddr
+    __net_ip_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_ip_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_IP_ADDR __net_ip_hash_hasher_%out_hash, %ipaddr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_ip_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_IP_ADDR %out_hash, %builder, %ipaddr
+    __build_hash_one_ip_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ip_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_IP_ADDR __build_hash_one_ip_hasher_%out_hash, %ipaddr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ip_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_IP_ADDR %out_hash, %state, %ipaddr
+    __random_state_hash_one_ip_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ip_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_IP_ADDR __random_state_hash_one_ip_hasher_%out_hash, %ipaddr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ip_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR %hasher, %socket_addr
+    __net_socket_hash_tag_%hasher = load %socket_addr+NetSocketAddr_tag as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __net_socket_hash_tag_%hasher
+    __net_socket_hash_payload_%hasher = ptr_add %socket_addr, 8
+    __net_socket_hash_is_v4_%hasher = eq __net_socket_hash_tag_%hasher, NET_IP_ADDR_V4
+    br __net_socket_hash_is_v4_%hasher -> L_NET_SOCKET_HASH_V4_%hasher, L_NET_SOCKET_HASH_V6_%hasher
+L_NET_SOCKET_HASH_V4_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V4 %hasher, __net_socket_hash_payload_%hasher
+    jmp L_NET_SOCKET_HASH_DONE_%hasher
+L_NET_SOCKET_HASH_V6_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 %hasher, __net_socket_hash_payload_%hasher
+L_NET_SOCKET_HASH_DONE_%hasher:
+    !__net_socket_hash_is_v4_%hasher
+    !__net_socket_hash_payload_%hasher
+    !__net_socket_hash_tag_%hasher
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_HASH %out_hash, %socket_addr
+    __net_socket_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_socket_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR __net_socket_hash_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_socket_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_SOCKET_ADDR %out_hash, %builder, %socket_addr
+    __build_hash_one_socket_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_socket_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR __build_hash_one_socket_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_socket_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_SOCKET_ADDR %out_hash, %state, %socket_addr
+    __random_state_hash_one_socket_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_socket_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR __random_state_hash_one_socket_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_socket_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] NET_IPV4_FROM_BITS %addr, %bits
     __net_ipv4_from_a_%addr = lshr %bits, 24
     __net_ipv4_from_b_raw_%addr = lshr %bits, 16
