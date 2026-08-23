@@ -9233,6 +9233,45 @@ pub export fn sa_std_net_tcp_stream_ttl(stream: u64, out_ttl: ?*u32) i32 {
     return finish(SA_STD_OK);
 }
 
+
+pub export fn sa_std_net_tcp_stream_set_recv_buffer_size(stream: u64, size: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_recv_buffer_size(stream: u64, out_size: ?*u32) i32 {
+    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF) catch |err| return finishErr(err);
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @as(u32, @intCast(value));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_set_send_buffer_size(stream: u64, size: u32) i32 {
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_tcp_stream_send_buffer_size(stream: u64, out_size: ?*u32) i32 {
+    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
+    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF) catch |err| return finishErr(err);
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @as(u32, @intCast(value));
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_stream_take_error(stream: u64, out_error: ?*i32) i32 {
     const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -9529,6 +9568,45 @@ pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+
+pub export fn sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_recv_buffer_size(socket: u64, out_size: ?*u32) i32 {
+    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF) catch |err| return finishErr(err);
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @as(u32, @intCast(value));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) i32 {
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_udp_send_buffer_size(socket: u64, out_size: ?*u32) i32 {
+    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF) catch |err| return finishErr(err);
+    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @as(u32, @intCast(value));
     return finish(SA_STD_OK);
 }
 

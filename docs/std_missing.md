@@ -776,7 +776,7 @@ Rust `io::Error` 风格调用链现在可具体降低为：保留 `take_error` �
 - SocketAddr/IpAddr 的稳定 Display/Debug/FromStr 入口，以及格式化缓冲区不足、非法 scope、非法端口的统一错误结果。
 - IPv6 zone/interface API：接口名与数值 scope 的双向转换、接口不存在、跨平台名称差异和 scope 保留规则。
 - Unix domain socket 完整选项：abstract namespace（Linux）、pathname 长度限制、peer credentials、非阻塞 connect/listen 语义。
-- 平台 socket 选项闭包：keepalive 参数、快速打开、拥塞控制、接收/发送 buffer、reuse address/port 的 Linux/Windows 对照测试。
+- 平台 socket 选项闭包：keepalive 参数、快速打开、拥塞控制、接收/发送 buffer（已补齐 NET_*_SET_RECV/SEND_BUFFER_SIZE 与对应 Getter，Linux/Windows 双端）、reuse address/port 的 Linux/Windows 对照测试。
 - 网络资源生命周期：明确 owned/borrowed handle、重复 close、clone 后独立关闭、线程转移和失败路径输出初始化。
 
 #### P2：生态与测试

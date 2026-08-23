@@ -309,6 +309,24 @@
     %out_status = call @sa_std_net_tcp_stream_set_keepalive_params(%stream, %idle_secs, %intvl_secs, %cnt)
 [END_MACRO]
 
+
+[MACRO] NET_TCP_STREAM_SET_RECV_BUFFER_SIZE %out_status, %stream, %size
+    %out_status = call @sa_std_net_tcp_stream_set_recv_buffer_size(%stream, %size)
+[END_MACRO]
+[MACRO] NET_TCP_STREAM_RECV_BUFFER_SIZE %out_status, %out_size, %stream
+    __net_tcp_stream_recv_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_recv_buffer_size(%stream, &__net_tcp_stream_recv_buffer_size_%out_status)
+    %out_size = load __net_tcp_stream_recv_buffer_size_%out_status+0 as u32
+[END_MACRO]
+[MACRO] NET_TCP_STREAM_SET_SEND_BUFFER_SIZE %out_status, %stream, %size
+    %out_status = call @sa_std_net_tcp_stream_set_send_buffer_size(%stream, %size)
+[END_MACRO]
+[MACRO] NET_TCP_STREAM_SEND_BUFFER_SIZE %out_status, %out_size, %stream
+    __net_tcp_stream_send_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_send_buffer_size(%stream, &__net_tcp_stream_send_buffer_size_%out_status)
+    %out_size = load __net_tcp_stream_send_buffer_size_%out_status+0 as u32
+[END_MACRO]
+
 [MACRO] NET_TCP_LISTENER_SET_REUSEADDR %out_status, %listener, %enabled
     %out_status = call @sa_std_net_tcp_listener_set_reuseaddr(%listener, %enabled)
 [END_MACRO]
@@ -875,6 +893,24 @@
 
 [MACRO] NET_UDP_SET_BROADCAST %out_status, %socket, %enabled
     %out_status = call @sa_std_net_udp_set_broadcast(%socket, %enabled)
+[END_MACRO]
+
+
+[MACRO] NET_UDP_SET_RECV_BUFFER_SIZE %out_status, %socket, %size
+    %out_status = call @sa_std_net_udp_set_recv_buffer_size(%socket, %size)
+[END_MACRO]
+[MACRO] NET_UDP_RECV_BUFFER_SIZE %out_status, %out_size, %socket
+    __net_udp_recv_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_recv_buffer_size(%socket, &__net_udp_recv_buffer_size_%out_status)
+    %out_size = load __net_udp_recv_buffer_size_%out_status+0 as u32
+[END_MACRO]
+[MACRO] NET_UDP_SET_SEND_BUFFER_SIZE %out_status, %socket, %size
+    %out_status = call @sa_std_net_udp_set_send_buffer_size(%socket, %size)
+[END_MACRO]
+[MACRO] NET_UDP_SEND_BUFFER_SIZE %out_status, %out_size, %socket
+    __net_udp_send_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_send_buffer_size(%socket, &__net_udp_send_buffer_size_%out_status)
+    %out_size = load __net_udp_send_buffer_size_%out_status+0 as u32
 [END_MACRO]
 
 [MACRO] NET_UDP_SET_ONLY_V6 %out_status, %socket, %enabled

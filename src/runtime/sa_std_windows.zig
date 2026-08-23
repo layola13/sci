@@ -5388,6 +5388,32 @@ pub export fn sa_std_net_tcp_listener_set_reuseport(h: u64, enabled: i32) i32 {
     _ = enabled;
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
+
+pub export fn sa_std_net_tcp_stream_set_recv_buffer_size(h: u64, size: u32) i32 {
+    if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return tcpSetOption(h, false, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.RCVBUF, @intCast(size));
+}
+pub export fn sa_std_net_tcp_stream_recv_buffer_size(h: u64, out: ?*u32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    var value: i32 = 0;
+    const status = tcpGetOption(h, false, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.RCVBUF, &value);
+    if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
+    return status;
+}
+pub export fn sa_std_net_tcp_stream_set_send_buffer_size(h: u64, size: u32) i32 {
+    if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return tcpSetOption(h, false, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.SNDBUF, @intCast(size));
+}
+pub export fn sa_std_net_tcp_stream_send_buffer_size(h: u64, out: ?*u32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    var value: i32 = 0;
+    const status = tcpGetOption(h, false, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.SNDBUF, &value);
+    if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
+    return status;
+}
+
 pub export fn sa_std_net_tcp_stream_set_quickack(h: u64, enabled: i32) i32 {
     _ = h;
     _ = enabled;
@@ -5721,6 +5747,38 @@ fn udpGetOption(socket: u64, option: i32, out: *i32) i32 {
     defer udp_mutex.unlock();
     out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, option) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
+}
+
+
+pub export fn sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) i32 {
+    if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.RCVBUF, @intCast(size)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_recv_buffer_size(socket: u64, out: ?*u32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    var value: i32 = 0;
+    const status = udpGetOption(socket, std.os.windows.ws2_32.SO.RCVBUF, &value);
+    if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
+    return status;
+}
+pub export fn sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) i32 {
+    if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    udp_mutex.lock();
+    defer udp_mutex.unlock();
+    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.SNDBUF, @intCast(size)) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+pub export fn sa_std_net_udp_send_buffer_size(socket: u64, out: ?*u32) i32 {
+    const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    result.* = 0;
+    var value: i32 = 0;
+    const status = udpGetOption(socket, std.os.windows.ws2_32.SO.SNDBUF, &value);
+    if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
+    return status;
 }
 
 pub export fn sa_std_net_udp_read_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {

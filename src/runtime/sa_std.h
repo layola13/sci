@@ -451,6 +451,12 @@ int32_t sa_std_net_tcp_stream_deferaccept(uint64_t stream_handle, uint32_t *out_
 int32_t sa_std_net_tcp_stream_set_ttl(uint64_t stream_handle, uint32_t ttl);
 int32_t sa_std_net_tcp_stream_read_timeout(uint64_t stream_handle, uint64_t *out_timeout_ns);
 int32_t sa_std_net_tcp_stream_write_timeout(uint64_t stream_handle, uint64_t *out_timeout_ns);
+
+int32_t sa_std_net_tcp_stream_set_recv_buffer_size(uint64_t stream_handle, uint32_t size);
+int32_t sa_std_net_tcp_stream_recv_buffer_size(uint64_t stream_handle, uint32_t *out_size);
+int32_t sa_std_net_tcp_stream_set_send_buffer_size(uint64_t stream_handle, uint32_t size);
+int32_t sa_std_net_tcp_stream_send_buffer_size(uint64_t stream_handle, uint32_t *out_size);
+
 int32_t sa_std_net_tcp_stream_nodelay(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_tcp_stream_ttl(uint64_t stream_handle, uint32_t *out_ttl);
 int32_t sa_std_net_tcp_stream_take_error(uint64_t stream_handle, int32_t *out_error);
@@ -529,6 +535,12 @@ int32_t sa_std_net_udp_set_multicast_loop_v6(uint64_t socket_handle, int32_t ena
 int32_t sa_std_net_udp_set_multicast_hops_v6(uint64_t socket_handle, uint32_t hops);
 int32_t sa_std_net_udp_read_timeout(uint64_t socket_handle, uint64_t *out_timeout_ns);
 int32_t sa_std_net_udp_write_timeout(uint64_t socket_handle, uint64_t *out_timeout_ns);
+
+int32_t sa_std_net_udp_set_recv_buffer_size(uint64_t socket_handle, uint32_t size);
+int32_t sa_std_net_udp_recv_buffer_size(uint64_t socket_handle, uint32_t *out_size);
+int32_t sa_std_net_udp_set_send_buffer_size(uint64_t socket_handle, uint32_t size);
+int32_t sa_std_net_udp_send_buffer_size(uint64_t socket_handle, uint32_t *out_size);
+
 int32_t sa_std_net_udp_broadcast(uint64_t socket_handle, int32_t *out_enabled);
 int32_t sa_std_net_udp_ttl(uint64_t socket_handle, uint32_t *out_ttl);
 int32_t sa_std_net_udp_multicast_loop_v4(uint64_t socket_handle, int32_t *out_enabled);
