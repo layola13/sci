@@ -1,4 +1,10 @@
-﻿-NoNewline
+# PowerShell 与文本编码约定
+
+- Windows 终端命令统一使用 `C:\Program Files\PowerShell\7\pwsh.exe -NoLogo -NoProfile`，不要使用 Windows PowerShell 5.1。
+- 读取包含中文的文本、Markdown、TOML、JSON 时显式使用 `Get-Content -Encoding UTF8`。
+- 写入文本优先使用 `apply_patch`；必须使用 PowerShell 写入时显式使用 `Set-Content -Encoding UTF8` 或 `Add-Content -Encoding UTF8`。
+- 终端输出出现乱码时，先按 UTF-8 重新读取确认，不要直接认定文件损坏。
+-NoNewline
 
 ## 2026-08-09 (installer one-shot restore; verify)
 Question:

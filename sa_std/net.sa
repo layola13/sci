@@ -4,6 +4,10 @@
 @import "io.sal"
 @import "os/fd.sa"
 
+[MACRO] NET_LAST_ERROR %out_error
+    %out_error = call @sa_std_last_error()
+[END_MACRO]
+
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
     __net_tcp_connect_handle_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_tcp_connect(&%host, %host_len, %port, &__net_tcp_connect_handle_%out_status)
@@ -3921,6 +3925,23 @@ L_NET_SOCKET_SET_SCOPE_DONE_%out_ok:
 // Convert the public SA status code into the stable Rust-style ErrorKind
 // discriminator. Network APIs expose SA status codes; take_error values are
 // raw errno/WSA values and intentionally are not accepted here.
+
+// Rust-style stable network error code facade over public SA status values.
+[MACRO] NET_ERROR_CODE_FROM_STATUS %out_code, %status
+    %out_code = call @sa_std_net_error_code_from_status(%status)
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_FROM_POSIX_ERRNO %out_code, %errno
+    %out_code = call @sa_std_net_error_code_from_posix_errno(%errno)
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_FROM_WSA_ERROR %out_code, %error
+    %out_code = call @sa_std_net_error_code_from_wsa_error(%error)
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_NAME %out_status, %code, %out_ptr, %out_cap, %out_len
+    %out_status = call @sa_std_net_error_code_name(%code, %out_ptr, %out_cap, %out_len)
+[END_MACRO]
 [MACRO] NET_ERROR_KIND_FROM_STATUS %out_kind, %status
     __net_kind_invalid_arg_%out_kind = eq %status, SA_NET_STATUS_INVALID_ARGUMENT
     br __net_kind_invalid_arg_%out_kind -> L_NET_KIND_INVALID_ARG_%out_kind, L_NET_KIND_INVALID_HANDLE_%out_kind

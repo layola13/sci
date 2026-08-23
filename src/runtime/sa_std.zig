@@ -4586,6 +4586,129 @@ pub export fn sa_std_last_error() i32 {
     return last_error;
 }
 
+pub export fn sa_std_net_error_code_from_status(status: i32) i32 {
+    return switch (status) {
+        SA_STD_OK => 0,
+        SA_STD_ERR_INVALID_ARGUMENT => 10,
+        SA_STD_ERR_INVALID_HANDLE => 11,
+        SA_STD_ERR_NOT_FOUND => 12,
+        SA_STD_ERR_ACCESS => 8,
+        SA_STD_ERR_NO_MEMORY => 13,
+        SA_STD_ERR_IO => 14,
+        SA_STD_ERR_NET => 15,
+        SA_STD_ERR_UNSUPPORTED => 9,
+        SA_STD_ERR_TRUNCATED => 14,
+        else => 1,
+    };
+}
+
+pub export fn sa_std_net_error_code_from_posix_errno(errno: i32) i32 {
+    return switch (errno) {
+        0 => 0,
+        1, 13 => 8,
+        2, 20 => 12,
+        4 => 24,
+        9 => 11,
+        11 => 6,
+        12 => 13,
+        14, 22 => 10,
+        17 => 23,
+        32 => 22,
+        98 => 16,
+        99 => 17,
+        100 => 27,
+        101 => 15,
+        103 => 19,
+        104 => 18,
+        107 => 20,
+        110 => 4,
+        111 => 3,
+        113 => 21,
+        -2, -4, -5 => 2,
+        -3 => 4,
+        -6, -7 => 9,
+        -8 => 10,
+        -10 => 13,
+        -11 => 14,
+        else => 1,
+    };
+}
+
+pub export fn sa_std_net_error_code_from_wsa_error(native_error: i32) i32 {
+    return switch (native_error) {
+        0 => 0,
+        10004 => 24,
+        10013 => 8,
+        10022 => 10,
+        10024, 10055 => 13,
+        10035, 10036, 10037 => 6,
+        10038 => 11,
+        10040 => 26,
+        10041, 10042, 10043, 10044, 10045, 10046, 10047 => 9,
+        10048 => 16,
+        10049 => 17,
+        10050, 10052 => 27,
+        10051 => 15,
+        10053 => 19,
+        10054 => 18,
+        10057, 10058 => 20,
+        10060 => 4,
+        10061 => 3,
+        10064, 10065 => 21,
+        11001, 11003, 11004 => 2,
+        11002 => 4,
+        else => 1,
+    };
+}
+
+fn netErrorCodeName(code: i32) []const u8 {
+    return switch (code) {
+        0 => "ok",
+        1 => "unknown",
+        2 => "dns",
+        3 => "connection_refused",
+        4 => "timed_out",
+        5 => "connection_closed",
+        6 => "would_block",
+        7 => "invalid_address",
+        8 => "permission_denied",
+        9 => "unsupported",
+        10 => "invalid_input",
+        11 => "invalid_handle",
+        12 => "not_found",
+        13 => "out_of_memory",
+        14 => "io",
+        15 => "network_unreachable",
+        16 => "addr_in_use",
+        17 => "addr_not_available",
+        18 => "connection_reset",
+        19 => "connection_aborted",
+        20 => "not_connected",
+        21 => "host_unreachable",
+        22 => "broken_pipe",
+        23 => "already_exists",
+        24 => "interrupted",
+        25 => "unexpected_eof",
+        26 => "invalid_data",
+        27 => "network_down",
+        28 => "write_zero",
+        else => "unknown",
+    };
+}
+
+pub export fn sa_std_net_error_code_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const name = netErrorCodeName(code);
+    if (out_len) |len_ptr| len_ptr.* = @as(u64, @intCast(name.len));
+    if (out_cap == 0) return finish(SA_STD_OK);
+    const cap = lenAsUsize(out_cap) catch |err| return finishErr(err);
+    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const copy_len = @min(cap, name.len);
+    @memcpy(out_ptr[0..copy_len], name[0..copy_len]);
+    if (copy_len != name.len) return finish(SA_STD_ERR_TRUNCATED);
+    return finish(SA_STD_OK);
+}
+
+
 pub export fn sa_std_error_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const name = statusName(code);
     if (out_len) |len_ptr| len_ptr.* = @as(u64, @intCast(name.len));
@@ -11548,4 +11671,62 @@ test "unix socket setters treat tcp-only options as successful no-op" {
 
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive_params(server_handle, 60, 10, 5));
+}
+
+test "network status maps to stable Rust-style error codes" {
+    try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_from_status(SA_STD_OK));
+    try std.testing.expectEqual(@as(i32, 10), sa_std_net_error_code_from_status(SA_STD_ERR_INVALID_ARGUMENT));
+    try std.testing.expectEqual(@as(i32, 11), sa_std_net_error_code_from_status(SA_STD_ERR_INVALID_HANDLE));
+    try std.testing.expectEqual(@as(i32, 12), sa_std_net_error_code_from_status(SA_STD_ERR_NOT_FOUND));
+    try std.testing.expectEqual(@as(i32, 8), sa_std_net_error_code_from_status(SA_STD_ERR_ACCESS));
+    try std.testing.expectEqual(@as(i32, 13), sa_std_net_error_code_from_status(SA_STD_ERR_NO_MEMORY));
+    try std.testing.expectEqual(@as(i32, 14), sa_std_net_error_code_from_status(SA_STD_ERR_IO));
+    try std.testing.expectEqual(@as(i32, 15), sa_std_net_error_code_from_status(SA_STD_ERR_NET));
+    try std.testing.expectEqual(@as(i32, 9), sa_std_net_error_code_from_status(SA_STD_ERR_UNSUPPORTED));
+    try std.testing.expectEqual(@as(i32, 14), sa_std_net_error_code_from_status(SA_STD_ERR_TRUNCATED));
+    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_status(SA_STD_ERR_UNKNOWN));
+}
+
+test "POSIX errno maps to Rust-style network error kinds" {
+    try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_posix_errno(111));
+    try std.testing.expectEqual(@as(i32, 4), sa_std_net_error_code_from_posix_errno(110));
+    try std.testing.expectEqual(@as(i32, 6), sa_std_net_error_code_from_posix_errno(11));
+    try std.testing.expectEqual(@as(i32, 15), sa_std_net_error_code_from_posix_errno(101));
+    try std.testing.expectEqual(@as(i32, 21), sa_std_net_error_code_from_posix_errno(113));
+    try std.testing.expectEqual(@as(i32, 16), sa_std_net_error_code_from_posix_errno(98));
+    try std.testing.expectEqual(@as(i32, 17), sa_std_net_error_code_from_posix_errno(99));
+    try std.testing.expectEqual(@as(i32, 18), sa_std_net_error_code_from_posix_errno(104));
+    try std.testing.expectEqual(@as(i32, 19), sa_std_net_error_code_from_posix_errno(103));
+    try std.testing.expectEqual(@as(i32, 20), sa_std_net_error_code_from_posix_errno(107));
+    try std.testing.expectEqual(@as(i32, 22), sa_std_net_error_code_from_posix_errno(32));
+    try std.testing.expectEqual(@as(i32, 24), sa_std_net_error_code_from_posix_errno(4));
+    try std.testing.expectEqual(@as(i32, 2), sa_std_net_error_code_from_posix_errno(-2));
+    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_posix_errno(99999));
+}
+
+test "WSA error maps to Rust-style network error kinds" {
+    try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_wsa_error(10061));
+    try std.testing.expectEqual(@as(i32, 4), sa_std_net_error_code_from_wsa_error(10060));
+    try std.testing.expectEqual(@as(i32, 6), sa_std_net_error_code_from_wsa_error(10035));
+    try std.testing.expectEqual(@as(i32, 15), sa_std_net_error_code_from_wsa_error(10051));
+    try std.testing.expectEqual(@as(i32, 21), sa_std_net_error_code_from_wsa_error(10065));
+    try std.testing.expectEqual(@as(i32, 16), sa_std_net_error_code_from_wsa_error(10048));
+    try std.testing.expectEqual(@as(i32, 17), sa_std_net_error_code_from_wsa_error(10049));
+    try std.testing.expectEqual(@as(i32, 18), sa_std_net_error_code_from_wsa_error(10054));
+    try std.testing.expectEqual(@as(i32, 19), sa_std_net_error_code_from_wsa_error(10053));
+    try std.testing.expectEqual(@as(i32, 20), sa_std_net_error_code_from_wsa_error(10057));
+    try std.testing.expectEqual(@as(i32, 24), sa_std_net_error_code_from_wsa_error(10004));
+    try std.testing.expectEqual(@as(i32, 2), sa_std_net_error_code_from_wsa_error(11001));
+    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_wsa_error(99999));
+}
+
+test "network error code names are stable" {
+    var buffer: [32]u8 = undefined;
+    var length: u64 = 0;
+    try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_name(3, &buffer, buffer.len, &length));
+    try std.testing.expectEqual(@as(u64, 18), length);
+    try std.testing.expectEqualStrings("connection_refused", buffer[0..length]);
+    try std.testing.expectEqual(@as(i32, 9), sa_std_net_error_code_name(3, &buffer, 9, &length));
+    try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_name(999, null, 0, &length));
+    try std.testing.expectEqualStrings("unknown", netErrorCodeName(999));
 }

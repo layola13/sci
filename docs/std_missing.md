@@ -717,3 +717,30 @@ Windows runtime verification now includes the updated FD unsupported-output cont
 
 
 `NET_IPV4_TO_IPV6_COMPATIBLE`, `NET_IPV4_TO_IPV6_MAPPED`, `NET_IPV6_TO_IPV4`, `NET_IPV6_TO_IPV4_MAPPED`, `NET_IPV6_TO_CANONICAL`, and the `NET_IP_ADDR_TO_*` aliases now have a behavior-matrix test covering compatible versus mapped IPv6 layouts, reverse-conversion success/failure, enum IpAddr conversion, and mapped-address canonicalization. The facade intentionally keeps concrete u16 segments and status booleans; it does not claim Rust u128, generic From trait dispatch, or borrowed lifetime semantics.
+
+### std::net 后续补充清单（2026-08-23）
+
+以下项目是当前 sa_std/net.sa 仍值得加入的能力；完成任一项后必须同步更新本节为已实现，并附对应行为测试与 ABI 验证。
+
+#### P0：优先加入的可实现 API
+- TcpSocket 建造器闭环：new_v4、new_v6、bind、listen、connect，以及 reuseaddr、reuseport、only_v6、nonblocking、ttl 等选项。
+- 向量 I/O：TcpStream/UdpSocket 的 read_vectored、write_vectored、send_vectored、recv_vectored，并明确部分读写语义。 当前 runtime 尚未发现 readv/writev/sendmsg/recvmsg/WSASend/WSARecv 或 iovec ABI；实现前必须先补 Linux/Windows runtime 与符号清单。
+- 超时与轮询：连接超时、接受超时、统一 deadline、poll/selector 结果结构，以及 Linux epoll 与 Windows IOCP 的能力矩阵。
+- 地址列表完整迭代：在已有 NET_ADDR_LIST_* 快照迭代器上补 next 的结束状态、重复地址过滤策略、IPv4/IPv6 排序策略和 DNS 错误分类。
+- 统一网络错误：NET_LAST_ERROR 已暴露 runtime 原始 last-error；新增 SA_NET_ERROR_CODE_* 与 NET_ERROR_CODE_FROM_STATUS，按 Rust io::ErrorKind 思路提供稳定的 unknown、invalid argument/handle、not found、access denied、no memory、I/O、network unreachable、unsupported 等分类。已进一步加入 host unreachable、broken pipe、already exists、interrupted、unexpected EOF、invalid data、network down、write zero；`NET_ERROR_CODE_FROM_POSIX_ERRNO` 和 `NET_ERROR_CODE_FROM_WSA_ERROR` 对常见 Linux errno、EAI_* 与 Windows WSA 错误提供稳定映射，双平台 Zig 单测覆盖拒绝连接、超时、阻塞、地址冲突、地址不可用、网络不可达、连接重置/中止、未连接、DNS 和未知值。`NET_ERROR_CODE_NAME` 及 `sa_std_net_error_code_name` 现在提供稳定的 snake_case 名称、长度查询和截断状态。仍未伪造 Rust `io::Error` 对象或完整 Display 文本；对应 SA fixture 暂不加入 runner，因为此前同一 extern 错误码调用路径触发 verifier 内部 `readCheck` 越界，属于编译器测试基础设施阻塞，不是 runtime/ABI 失败。
+
+#### P1：重要 parity 项
+- ToSocketAddrs 的多地址/lazy iterator 语义；当前实现是 concrete snapshot，不提供 Rust trait、借用和惰性解析生命周期。
+- SocketAddr/IpAddr 的稳定 Display/Debug/FromStr 入口，以及格式化缓冲区不足、非法 scope、非法端口的统一错误结果。
+- IPv6 zone/interface API：接口名与数值 scope 的双向转换、接口不存在、跨平台名称差异和 scope 保留规则。
+- Unix domain socket 完整选项：abstract namespace（Linux）、pathname 长度限制、peer credentials、非阻塞 connect/listen 语义。
+- 平台 socket 选项闭包：keepalive 参数、快速打开、拥塞控制、接收/发送 buffer、reuse address/port 的 Linux/Windows 对照测试。
+- 网络资源生命周期：明确 owned/borrowed handle、重复 close、clone 后独立关闭、线程转移和失败路径输出初始化。
+
+#### P2：生态与测试
+- 为 TCP、UDP、Unix socket、地址解析、DNS、IPv6 scope 建立 Linux/Windows 双平台行为矩阵。
+- 增加网络 API 的 fuzz/property 测试：地址解析、格式化、IPv6 压缩、端口边界、scope、DNS 结果和错误码转换。
+- 生成网络 ABI inventory，自动检查 .sa 宏、.sai 声明、runtime export、Linux/Windows 符号的一致性。
+
+#### 明确阻塞项
+- Rust 泛型 trait（ToSocketAddrs、Read、Write）、借用生命周期、Option<Duration>、u128 原生 ABI、真实 io::Error 对象和自动 trait 推导无法由当前 SA 宏/布局模型直接提供；这些需要编译器前端 lowering 或新的类型系统支持。

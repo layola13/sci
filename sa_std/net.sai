@@ -1,5 +1,10 @@
 // SA-facing contracts for the Zig-backed sa_std.net module.
 // TcpStream, TcpListener, UdpSocket, and NetAddr values are opaque u64 handles.
+@extern sa_std_last_error() -> i32
+@extern sa_std_net_error_code_from_status(status: i32) -> i32
+@extern sa_std_net_error_code_from_posix_errno(errno: i32) -> i32
+@extern sa_std_net_error_code_from_wsa_error(error: i32) -> i32
+@extern sa_std_net_error_code_name(code: i32, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_net_tcp_connect(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_listen(&host: ptr, host_len: u64, port: u32, &out_handle: ptr, &out_bound_port: ptr) -> i32
 @extern sa_std_net_tcp_accept(listener: u64, &out_handle: ptr) -> i32
