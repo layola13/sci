@@ -1966,6 +1966,13 @@ L_NET_SOCK_FMT_DONE_%out_ok:
     !__net_ipv6_oct_s0_%out_b0
 [END_MACRO]
 
+[MACRO] NET_IPV6_AS_OCTETS_PTR %out_ptr, %addr
+    __net_ipv6_octets_view_%out_ptr = stack_alloc 16
+    EXPAND NET_IPV6_WRITE_OCTETS __net_ipv6_octets_view_ok_%out_ptr, __net_ipv6_octets_view_%out_ptr, 16, %addr
+    %out_ptr = ptr_add __net_ipv6_octets_view_%out_ptr, 0
+    !__net_ipv6_octets_view_ok_%out_ptr
+[END_MACRO]
+
 [MACRO] NET_IPV6_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %addr
     __net_ipv6_write_fits_%out_ok = uge %dst_len, 16
     br __net_ipv6_write_fits_%out_ok -> L_NET_IPV6_WRITE_OCTETS_OK_%out_ok, L_NET_IPV6_WRITE_OCTETS_FAIL_%out_ok
@@ -2857,6 +2864,24 @@ L_NET_IP_OCTET_LEN_V6_%out_len:
 L_NET_IP_OCTET_LEN_DONE_%out_len:
     !__net_ip_octet_len_v4_%out_len
     !__net_ip_octet_len_tag_%out_len
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_AS_OCTETS_PTR %out_ptr, %ipaddr
+    __net_ip_octets_view_%out_ptr = stack_alloc 16
+    __net_ip_octets_tag_%out_ptr = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_octets_payload_%out_ptr = ptr_add %ipaddr, 8
+    __net_ip_octets_is_v4_%out_ptr = eq __net_ip_octets_tag_%out_ptr, NET_IP_ADDR_V4
+    br __net_ip_octets_is_v4_%out_ptr -> L_NET_IP_OCTETS_PTR_V4_%out_ptr, L_NET_IP_OCTETS_PTR_V6_%out_ptr
+L_NET_IP_OCTETS_PTR_V4_%out_ptr:
+    EXPAND NET_IPV4_WRITE_OCTETS __net_ip_octets_v4_ok_%out_ptr, __net_ip_octets_view_%out_ptr, 16, __net_ip_octets_payload_%out_ptr
+    jmp L_NET_IP_OCTETS_PTR_DONE_%out_ptr
+L_NET_IP_OCTETS_PTR_V6_%out_ptr:
+    EXPAND NET_IPV6_WRITE_OCTETS __net_ip_octets_v6_ok_%out_ptr, __net_ip_octets_view_%out_ptr, 16, __net_ip_octets_payload_%out_ptr
+L_NET_IP_OCTETS_PTR_DONE_%out_ptr:
+    %out_ptr = ptr_add __net_ip_octets_view_%out_ptr, 0
+    !__net_ip_octets_is_v4_%out_ptr
+    !__net_ip_octets_payload_%out_ptr
+    !__net_ip_octets_tag_%out_ptr
 [END_MACRO]
 
 [MACRO] NET_IP_ADDR_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %ipaddr

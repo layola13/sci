@@ -576,7 +576,6 @@ L_ENTRY:
     !ok01
     !ok02
     !ok03
-    !ok04
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
@@ -584,3 +583,57 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+
+@test "sa_std net borrowed octet pointer helpers"():
+L_ENTRY:
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip = stack_alloc NetIpAddr_SIZE
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+
+    EXPAND NET_IPV6_NEW ipv6, 8193, 3512, 0, 0, 0, 0, 0, 1
+    EXPAND NET_IPV6_AS_OCTETS_PTR ipv6_ptr, ipv6
+    ipv6_first = load ipv6_ptr+0 as u8
+    ipv6_second = load ipv6_ptr+1 as u8
+    ipv6_last = load ipv6_ptr+15 as u8
+
+    EXPAND NET_IPV4_NEW ipv4, 192, 0, 2, 9
+    EXPAND NET_IP_ADDR_V4_NEW ip, ipv4
+    EXPAND NET_IP_ADDR_AS_OCTETS_PTR ip_ptr, ip
+    ip_first = load ip_ptr+0 as u8
+    ip_last = load ip_ptr+3 as u8
+
+    ipv6_first_ok = eq ipv6_first, 32
+    ipv6_second_ok = eq ipv6_second, 1
+    ipv6_last_ok = eq ipv6_last, 1
+    ip_first_ok = eq ip_first, 192
+    ip_last_ok = eq ip_last, 9
+    ok01 = and ipv6_first_ok, ipv6_second_ok
+    ok02 = and ok01, ipv6_last_ok
+    ok03 = and ok02, ip_first_ok
+    ok = and ok03, ip_last_ok
+
+    !ipv6_first
+    !ipv6_second
+    !ipv6_last
+    !ip_first
+    !ip_last
+    !ipv6_first_ok
+    !ipv6_second_ok
+    !ipv6_last_ok
+    !ip_first_ok
+    !ip_last_ok
+    !ok01
+    !ok02
+    !ok03
+    !ipv6_ptr
+    !ip_ptr
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10593)
+
+L_PASS:
+    !ok
+    return 0
