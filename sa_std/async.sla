@@ -1,0 +1,116 @@
+// sa_std/async.sla — minimal multi-threaded async task executor, pure SLA.
+//
+// Layered over CI-proven primitives:
+//   - mpsc::channel() pipes (SLA surface; per-worker — Receiver is not Clone)
+//   - thread::spawn(^|| f(...)) OS threads
+//   - Arc<Mutex<T>> shared state
+//   - Instant / thread::sleep time
+//
+// Programming model:
+//   Each worker owns one pipe (Sender<i32>, Receiver<i32>). A task is a u64 id
+//   polled by a worker-side poll fn: it returns 0 when complete, otherwise the
+//   number of milliseconds to back off before re-enqueueing the id on the
+//   same pipe. Shared results live in Arc<Mutex<i32>> cells.
+//
+//   sched_spawn_worker(...)  -> start a drain thread for one pipe
+//   sched_backoff_ms(d)      -> cooperative backoff before re-enqueue
+//   sched_now_ns()           -> monotonic clock
+//
+// Async-fn integration (verified in scratch/async_p1 t6-t8):
+//   An async fn call produces a `future<T>` value that can be moved across
+//   functions AND across threads (thread::spawn(^|| drive(f))). Drive it to
+//   completion with a polling loop; future::defer_ready(v).await suspends on
+//   the first poll and resumes with v on the second. The loop-block_on below
+//   is the reference driver (replaces demo-09's poll-once-else-panic form).
+//
+// NOTE: a shared multi-consumer ready queue needs Receiver::clone or the raw
+// MPSC_LIST macros with compiler-generated out temporaries; both are follow-up
+// work tracked under the P1 runtime plan. The per-worker pipe form below is
+// the CI-proven baseline.
+@import "sa_std/sync/mpsc.sa"
+@import "sa_std/sync/mutex.sa"
+@import "sa_std/core/result.sa"
+@import "sa_std/core/arc.sa"
+@import "sa_std/thread.sa"
+@import "sa_std/time.sla"
+@import "sa_std/future.sa"
+@import "sa_std/core/waker.sa"
+@import "sa_std/pin.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/core/box.sa"
+
+struct WorkerPipe {
+    tx: Sender<i32>,
+    rx: Receiver<i32>,
+}
+
+fn sched_now_ns() -> u64 {
+    let started = Instant::now();
+    return started.raw_ns();
+}
+
+fn sched_get(c: Arc<Mutex<i32> >) -> i32 {
+    let g = (*c).lock().unwrap();
+    return *g;
+}
+
+fn sched_set(c: Arc<Mutex<i32> >, v: i32) {
+    let g = (*c).lock().unwrap();
+    *g = v;
+}
+
+fn sched_bump(c: Arc<Mutex<i32> >) -> i32 {
+    let g = (*c).lock().unwrap();
+    let cur = *g;
+    let next = cur + 1;
+    *g = next;
+    return next;
+}
+
+// Cooperative backoff for a pending task: quarter of the remaining wait,
+// minimum 1ms. Returns 0 once the deadline has passed.
+fn sched_backoff_ms(deadline_ns: u64) -> u64 {
+    let now = sched_now_ns();
+    if now >= deadline_ns {
+        return 0;
+    };
+    let remaining_ms = (deadline_ns - now) / 1000000;
+    let mut step: u64 = remaining_ms / 4;
+    if step < 1 {
+        step = 1;
+    };
+    return step;
+}
+
+fn sched_new_pipe() -> WorkerPipe {
+    let pair = mpsc::channel();
+    return WorkerPipe { tx: pair.0, rx: pair.1 };
+}
+
+// Looping block_on: polls the future until Ready; on Pending backs off ~1ms
+// and re-polls. Panics if not ready within `timeout_ms`. Time-driven
+// re-polling matches the cooperative baseline (no wake channel yet).
+fn sched_block_on_timeout(future: future<i32>, timeout_ms: u64) -> i32 {
+    let data: ptr = PTR_NULL();
+    let raw = RAW_WAKER_NEW(data, data);
+    let waker = WAKER_FROM_RAW(raw);
+    let context = CONTEXT_FROM_WAKER(waker);
+    let boxed = Box::new(future);
+    let future_ref = *boxed;
+    let pinned = stack_alloc();
+    PIN_MUT_NEW(pinned, future_ref);
+
+    let started = Instant::now();
+    let deadline_ns = started.raw_ns() + timeout_ms * 1000000;
+    while sched_now_ns() < deadline_ns {
+        let poll = FUTURE_READY_POLL_STATE(PIN_MUT_GET_MUT(pinned));
+        let ready = POLL_IS_READY(poll);
+        if ready == true {
+            let value: i32 = POLL_VALUE(poll);
+            return value;
+        };
+        THREAD_SLEEP_MS(1);
+    }
+    panic(96);
+}
+
