@@ -262,7 +262,9 @@ L_ONCE_INNER_DONE_%out_ok:
     __once_owner = call @__once_try_claim(&%once_reg)
     br __once_owner -> L_ONCE_GET_OR_INIT_INIT_%out_value, L_ONCE_GET_OR_INIT_READY_%out_value
 L_ONCE_GET_OR_INIT_INIT_%out_value:
-    __once_init_value = call %init_fn()
+    __once_init_vt_%out_value = load %init_fn+8 as ptr
+    __once_init_call_%out_value = load __once_init_vt_%out_value+0 as ptr
+    __once_init_value = call_indirect __once_init_call_%out_value()
     EXPAND ONCE_PUBLISH %once_reg, __once_init_value
     %out_value = __once_init_value
     !__once_owner
