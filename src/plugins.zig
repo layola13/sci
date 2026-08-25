@@ -1627,9 +1627,31 @@ pub const Runtime = struct {
             return;
         }
 
-        var lib = std.DynLib.open(path) catch |err| {
-            try self.addDiagnostic(path, @errorName(err));
-            return;
+        var lib = blk: {
+            if (@import("builtin").os.tag == .windows) {
+                // Plugin DLLs live outside the executable directory, so their
+                // own dependencies (LLVM-C.dll, sibling plugin DLLs) must be
+                // resolved relative to the DLL's install directory.
+                const path_z = std.fmt.allocPrintZ(self.allocator, "{s}", .{path}) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                defer self.allocator.free(path_z);
+                const path_w = std.unicode.utf8ToUtf16LeAllocZ(self.allocator, path_z) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                defer self.allocator.free(path_w);
+                const handle = std.os.windows.LoadLibraryExW(path_w.ptr, .load_with_altered_search_path) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                break :blk std.DynLib{ .inner = .{ .dll = handle } };
+            }
+            break :blk std.DynLib.open(path) catch |err| {
+                try self.addDiagnostic(path, @errorName(err));
+                return;
+            };
         };
         var keep_lib = false;
         defer if (!keep_lib) lib.close();

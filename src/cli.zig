@@ -8090,6 +8090,9 @@ pub fn executeWithWritersAndOptions(
         var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
         defer plugin_runtime.deinit();
         if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
+        for (plugin_runtime.diagnostics.items) |diagnostic| {
+            try stderr.print("note: plugin load skipped: {s}: {s}\n", .{ diagnostic.path, diagnostic.reason });
+        }
         return error.UnknownCommand;
     };
 
