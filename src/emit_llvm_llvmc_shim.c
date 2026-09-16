@@ -1556,6 +1556,416 @@ static void emit_sa_print_bytes(EmitCtx *e) {
     LLVMBuildRetVoid(e->builder);
 }
 
+/* ------------------------------------------------------------------ */
+/* wasm32-wasi fmt runtime.                                            */
+/* `sa build-wasm` links only the emitted bitcode, so the sa_fmt_*     */
+/* externs injected by the flattener would stay undefined (native      */
+/* build-exe links artifacts/sa_std/libsa_std.a instead). Define them */
+/* here with the same ABI as src/runtime/sa_std.zig: owned-buffer     */
+/* handles are 1-based slot indices, 0 means failure/invalid. Slot    */
+/* payloads are backed by wasi libc malloc/free, already declared for */
+/* every module by declare_runtime.                                   */
+/* ------------------------------------------------------------------ */
+#define SA_FMT_WASM_SLOTS 32
+#define SA_FMT_WASM_SCRATCH 128
+#define SA_FMT_WASM_F64_SCRATCH 512
+
+typedef struct {
+    LLVMValueRef used;
+    LLVMValueRef ptrs;
+    LLVMValueRef lens;
+    LLVMValueRef digits_lo;
+    LLVMValueRef digits_hi;
+    LLVMValueRef f64fmt;
+    LLVMTypeRef used_ty;
+    LLVMTypeRef ptrs_ty;
+    LLVMTypeRef lens_ty;
+    LLVMTypeRef digits_ty;
+    LLVMTypeRef f64fmt_ty;
+} FmtWasmState;
+
+static LLVMValueRef fmt_wasm_global(EmitCtx *e, const char *name, LLVMTypeRef ty, LLVMValueRef init) {
+    LLVMValueRef g = LLVMGetNamedGlobal(e->module, name);
+    if (g == NULL) {
+        g = LLVMAddGlobal(e->module, ty, name);
+        LLVMSetLinkage(g, LLVMInternalLinkage);
+        LLVMSetInitializer(g, init);
+    }
+    return g;
+}
+
+static LLVMValueRef fmt_wasm_elem(EmitCtx *e, LLVMTypeRef el_ty, LLVMValueRef base, LLVMValueRef idx) {
+    LLVMValueRef sub[2] = { LLVMConstInt(e->i32_ty, 0, 0), idx };
+    return LLVMBuildGEP2(e->builder, el_ty, base, sub, 2, "");
+}
+
+static void fmt_wasm_ensure_state(EmitCtx *e, FmtWasmState *s) {
+    s->used_ty = LLVMArrayType(e->i8_ty, SA_FMT_WASM_SLOTS);
+    s->ptrs_ty = LLVMArrayType(e->ptr_ty, SA_FMT_WASM_SLOTS);
+    s->lens_ty = LLVMArrayType(e->i64_ty, SA_FMT_WASM_SLOTS);
+    s->digits_ty = LLVMArrayType(e->i8_ty, 16);
+    s->f64fmt_ty = LLVMArrayType(e->i8_ty, 5);
+    s->used = fmt_wasm_global(e, "sa_fmt_wasm_used", s->used_ty, LLVMConstNull(s->used_ty));
+    s->ptrs = fmt_wasm_global(e, "sa_fmt_wasm_ptrs", s->ptrs_ty, LLVMConstNull(s->ptrs_ty));
+    s->lens = fmt_wasm_global(e, "sa_fmt_wasm_lens", s->lens_ty, LLVMConstNull(s->lens_ty));
+    s->digits_lo = fmt_wasm_global(e, "sa_fmt_wasm_digits_lo", s->digits_ty,
+        LLVMConstStringInContext(e->ctx, "0123456789abcdef", 16, 1));
+    s->digits_hi = fmt_wasm_global(e, "sa_fmt_wasm_digits_hi", s->digits_ty,
+        LLVMConstStringInContext(e->ctx, "0123456789ABCDEF", 16, 1));
+    s->f64fmt = fmt_wasm_global(e, "sa_fmt_wasm_f64fmt", s->f64fmt_ty,
+        LLVMConstStringInContext(e->ctx, "%.*f", 4, 0));
+}
+
+static LLVMValueRef fmt_wasm_snprintf_fn(EmitCtx *e) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "snprintf");
+    if (fn == NULL) {
+        LLVMTypeRef params[3] = { e->ptr_ty, size_type(e), e->ptr_ty };
+        fn = LLVMAddFunction(e->module, "snprintf", LLVMFunctionType(e->i32_ty, params, 3, 1));
+    }
+    return fn;
+}
+
+static LLVMValueRef fmt_wasm_call_malloc(EmitCtx *e, LLVMValueRef len_i64) {
+    LLVMValueRef sz = LLVMBuildTrunc(e->builder, len_i64, size_type(e), "");
+    return LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->malloc_fn), e->malloc_fn, &sz, 1, "");
+}
+
+static LLVMValueRef fmt_wasm_call_memcpy(EmitCtx *e, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef len_i64) {
+    LLVMValueRef args[3] = { dst, src, LLVMBuildTrunc(e->builder, len_i64, size_type(e), "") };
+    return LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->memcpy_fn), e->memcpy_fn, args, 3, "");
+}
+
+/* sa_fmt_wasm_alloc(len: i64) -> i64 handle (0 on failure). */
+static LLVMValueRef fmt_wasm_ensure_alloc(EmitCtx *e, const FmtWasmState *s) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_wasm_alloc");
+    if (fn != NULL) return fn;
+    LLVMTypeRef i64 = e->i64_ty;
+    LLVMTypeRef params[1] = { i64 };
+    fn = LLVMAddFunction(e->module, "sa_fmt_wasm_alloc", LLVMFunctionType(i64, params, 1, 0));
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
+    LLVMValueRef len = LLVMGetParam(fn, 0);
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef loop = LLVMAppendBasicBlockInContext(e->ctx, fn, "loop");
+    LLVMBasicBlockRef body = LLVMAppendBasicBlockInContext(e->ctx, fn, "body");
+    LLVMBasicBlockRef next = LLVMAppendBasicBlockInContext(e->ctx, fn, "next");
+    LLVMBasicBlockRef take = LLVMAppendBasicBlockInContext(e->ctx, fn, "take");
+    LLVMBasicBlockRef fill = LLVMAppendBasicBlockInContext(e->ctx, fn, "fill");
+    LLVMBasicBlockRef fail = LLVMAppendBasicBlockInContext(e->ctx, fn, "fail");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMBuildBr(e->builder, loop);
+    LLVMPositionBuilderAtEnd(e->builder, loop);
+    LLVMValueRef phi = LLVMBuildPhi(e->builder, i64, "i");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntULT, phi, LLVMConstInt(i64, SA_FMT_WASM_SLOTS, 0), ""), body, fail);
+    LLVMPositionBuilderAtEnd(e->builder, body);
+    LLVMValueRef ucell = fmt_wasm_elem(e, s->used_ty, s->used, phi);
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntEQ,
+            LLVMBuildLoad2(e->builder, e->i8_ty, ucell, ""), LLVMConstInt(e->i8_ty, 0, 0), ""),
+        take, next);
+    LLVMPositionBuilderAtEnd(e->builder, next);
+    LLVMValueRef inc = LLVMBuildAdd(e->builder, phi, LLVMConstInt(i64, 1, 0), "");
+    LLVMBuildBr(e->builder, loop);
+    {
+        LLVMValueRef vals[2] = { LLVMConstInt(i64, 0, 0), inc };
+        LLVMBasicBlockRef blocks[2] = { entry, next };
+        LLVMAddIncoming(phi, vals, blocks, 2);
+    }
+    LLVMPositionBuilderAtEnd(e->builder, take);
+    LLVMValueRef mem = fmt_wasm_call_malloc(e, len);
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntEQ, mem, LLVMConstPointerNull(e->ptr_ty), ""), fail, fill);
+    LLVMPositionBuilderAtEnd(e->builder, fill);
+    LLVMBuildStore(e->builder, mem, fmt_wasm_elem(e, s->ptrs_ty, s->ptrs, phi));
+    LLVMBuildStore(e->builder, len, fmt_wasm_elem(e, s->lens_ty, s->lens, phi));
+    LLVMBuildStore(e->builder, LLVMConstInt(e->i8_ty, 1, 0), ucell);
+    LLVMBuildRet(e->builder, LLVMBuildAdd(e->builder, phi, LLVMConstInt(i64, 1, 0), ""));
+    LLVMPositionBuilderAtEnd(e->builder, fail);
+    LLVMBuildRet(e->builder, LLVMConstInt(i64, 0, 0));
+    return fn;
+}
+
+/* sa_fmt_wasm_slot(handle: i64) -> i64 slot index, or -1 if invalid. */
+static LLVMValueRef fmt_wasm_ensure_slot(EmitCtx *e, const FmtWasmState *s) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_wasm_slot");
+    if (fn != NULL) return fn;
+    LLVMTypeRef i64 = e->i64_ty;
+    LLVMTypeRef params[1] = { i64 };
+    fn = LLVMAddFunction(e->module, "sa_fmt_wasm_slot", LLVMFunctionType(i64, params, 1, 0));
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
+    LLVMValueRef handle = LLVMGetParam(fn, 0);
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef check_hi = LLVMAppendBasicBlockInContext(e->ctx, fn, "check_hi");
+    LLVMBasicBlockRef check_used = LLVMAppendBasicBlockInContext(e->ctx, fn, "check_used");
+    LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(e->ctx, fn, "ok");
+    LLVMBasicBlockRef fail = LLVMAppendBasicBlockInContext(e->ctx, fn, "fail");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntSLT, handle, LLVMConstInt(i64, 1, 0), ""), fail, check_hi);
+    LLVMPositionBuilderAtEnd(e->builder, check_hi);
+    LLVMValueRef idx = LLVMBuildSub(e->builder, handle, LLVMConstInt(i64, 1, 0), "");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, idx, LLVMConstInt(i64, SA_FMT_WASM_SLOTS, 0), ""), fail, check_used);
+    LLVMPositionBuilderAtEnd(e->builder, check_used);
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntEQ,
+            LLVMBuildLoad2(e->builder, e->i8_ty, fmt_wasm_elem(e, s->used_ty, s->used, idx), ""),
+            LLVMConstInt(e->i8_ty, 0, 0), ""),
+        fail, ok);
+    LLVMPositionBuilderAtEnd(e->builder, ok);
+    LLVMBuildRet(e->builder, idx);
+    LLVMPositionBuilderAtEnd(e->builder, fail);
+    LLVMBuildRet(e->builder, LLVMBuildSub(e->builder, LLVMConstInt(i64, 0, 0), LLVMConstInt(i64, 1, 0), ""));
+    return fn;
+}
+
+/* sa_fmt_wasm_uint(uval: i64 bits, base: i32, neg: i1) -> i64 handle. */
+static LLVMValueRef fmt_wasm_ensure_uint(EmitCtx *e, const FmtWasmState *s, LLVMValueRef alloc_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_wasm_uint");
+    if (fn != NULL) return fn;
+    LLVMTypeRef i64 = e->i64_ty;
+    LLVMTypeRef i32 = e->i32_ty;
+    LLVMTypeRef i1 = LLVMInt1TypeInContext(e->ctx);
+    LLVMTypeRef params[3] = { i64, i32, i1 };
+    fn = LLVMAddFunction(e->module, "sa_fmt_wasm_uint", LLVMFunctionType(i64, params, 3, 0));
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
+    LLVMValueRef uval = LLVMGetParam(fn, 0);
+    LLVMValueRef base = LLVMGetParam(fn, 1);
+    LLVMValueRef neg = LLVMGetParam(fn, 2);
+    LLVMTypeRef buf_ty = LLVMArrayType(e->i8_ty, SA_FMT_WASM_SCRATCH);
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef loop = LLVMAppendBasicBlockInContext(e->ctx, fn, "loop");
+    LLVMBasicBlockRef exit = LLVMAppendBasicBlockInContext(e->ctx, fn, "exit");
+    LLVMBasicBlockRef sign = LLVMAppendBasicBlockInContext(e->ctx, fn, "sign");
+    LLVMBasicBlockRef nosign = LLVMAppendBasicBlockInContext(e->ctx, fn, "nosign");
+    LLVMBasicBlockRef collect = LLVMAppendBasicBlockInContext(e->ctx, fn, "collect");
+    LLVMBasicBlockRef linked = LLVMAppendBasicBlockInContext(e->ctx, fn, "linked");
+    LLVMBasicBlockRef ret0 = LLVMAppendBasicBlockInContext(e->ctx, fn, "ret0");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef is2 = LLVMBuildICmp(e->builder, LLVMIntEQ, base, LLVMConstInt(i32, 2, 0), "");
+    LLVMValueRef is8 = LLVMBuildICmp(e->builder, LLVMIntEQ, base, LLVMConstInt(i32, 8, 0), "");
+    LLVMValueRef is10 = LLVMBuildICmp(e->builder, LLVMIntEQ, base, LLVMConstInt(i32, 10, 0), "");
+    LLVMValueRef is16 = LLVMBuildICmp(e->builder, LLVMIntEQ, base, LLVMConstInt(i32, 16, 0), "");
+    LLVMValueRef is17 = LLVMBuildICmp(e->builder, LLVMIntEQ, base, LLVMConstInt(i32, 17, 0), "");
+    LLVMValueRef valid = LLVMBuildOr(e->builder,
+        LLVMBuildOr(e->builder, is2, is8, ""),
+        LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, is10, is16, ""), is17, ""), "");
+    LLVMValueRef b32 = LLVMBuildSelect(e->builder, valid, base, LLVMConstInt(i32, 10, 0), "");
+    LLVMValueRef b64 = LLVMBuildZExt(e->builder, b32, i64, "");
+    LLVMValueRef lut = LLVMBuildSelect(e->builder, is17, s->digits_hi, s->digits_lo, "");
+    LLVMValueRef buf = LLVMBuildAlloca(e->builder, buf_ty, "buf");
+    LLVMValueRef pos = LLVMBuildAlloca(e->builder, i64, "pos");
+    LLVMValueRef vslot = LLVMBuildAlloca(e->builder, i64, "v");
+    LLVMBuildStore(e->builder, LLVMConstInt(i64, SA_FMT_WASM_SCRATCH, 0), pos);
+    LLVMBuildStore(e->builder, uval, vslot);
+    LLVMBuildBr(e->builder, loop);
+    LLVMPositionBuilderAtEnd(e->builder, loop);
+    LLVMValueRef vv = LLVMBuildLoad2(e->builder, i64, vslot, "");
+    LLVMValueRef pp = LLVMBuildLoad2(e->builder, i64, pos, "");
+    LLVMValueRef digit = LLVMBuildURem(e->builder, vv, b64, "");
+    LLVMBuildStore(e->builder, LLVMBuildUDiv(e->builder, vv, b64, ""), vslot);
+    LLVMValueRef pp2 = LLVMBuildSub(e->builder, pp, LLVMConstInt(i64, 1, 0), "");
+    LLVMBuildStore(e->builder, pp2, pos);
+    LLVMValueRef ch = LLVMBuildLoad2(e->builder, e->i8_ty, fmt_wasm_elem(e, s->digits_ty, lut, digit), "");
+    LLVMBuildStore(e->builder, ch, fmt_wasm_elem(e, buf_ty, buf, pp2));
+    LLVMValueRef rest = LLVMBuildLoad2(e->builder, i64, vslot, "");
+    LLVMBuildCondBr(e->builder, LLVMBuildICmp(e->builder, LLVMIntNE, rest, LLVMConstInt(i64, 0, 0), ""), loop, exit);
+    LLVMPositionBuilderAtEnd(e->builder, exit);
+    LLVMBuildCondBr(e->builder, neg, sign, nosign);
+    LLVMPositionBuilderAtEnd(e->builder, sign);
+    LLVMValueRef sp = LLVMBuildLoad2(e->builder, i64, pos, "");
+    LLVMValueRef sp2 = LLVMBuildSub(e->builder, sp, LLVMConstInt(i64, 1, 0), "");
+    LLVMBuildStore(e->builder, sp2, pos);
+    LLVMBuildStore(e->builder, LLVMConstInt(e->i8_ty, 45, 0), fmt_wasm_elem(e, buf_ty, buf, sp2));
+    LLVMBuildBr(e->builder, collect);
+    LLVMPositionBuilderAtEnd(e->builder, nosign);
+    LLVMBuildBr(e->builder, collect);
+    LLVMPositionBuilderAtEnd(e->builder, collect);
+    LLVMValueRef posf = LLVMBuildLoad2(e->builder, i64, pos, "");
+    LLVMValueRef data = fmt_wasm_elem(e, buf_ty, buf, posf);
+    LLVMValueRef len = LLVMBuildSub(e->builder, LLVMConstInt(i64, SA_FMT_WASM_SCRATCH, 0), posf, "");
+    LLVMValueRef h = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(alloc_fn), alloc_fn, &len, 1, "");
+    LLVMBuildCondBr(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, h, LLVMConstInt(i64, 0, 0), ""), ret0, linked);
+    LLVMPositionBuilderAtEnd(e->builder, linked);
+    LLVMValueRef idx = LLVMBuildSub(e->builder, h, LLVMConstInt(i64, 1, 0), "");
+    LLVMValueRef dst = LLVMBuildLoad2(e->builder, e->ptr_ty, fmt_wasm_elem(e, s->ptrs_ty, s->ptrs, idx), "");
+    fmt_wasm_call_memcpy(e, dst, data, len);
+    LLVMBuildRet(e->builder, h);
+    LLVMPositionBuilderAtEnd(e->builder, ret0);
+    LLVMBuildRet(e->builder, LLVMConstInt(i64, 0, 0));
+    return fn;
+}
+
+static void fmt_wasm_define_u64(EmitCtx *e, LLVMValueRef uint_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_u64");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMPositionBuilderAtEnd(e->builder, bb);
+    LLVMValueRef args[3] = {
+        LLVMGetParam(fn, 0), LLVMGetParam(fn, 1), LLVMConstInt(LLVMInt1TypeInContext(e->ctx), 0, 0)
+    };
+    LLVMBuildRet(e->builder, LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(uint_fn), uint_fn, args, 3, ""));
+}
+
+static void fmt_wasm_define_i64(EmitCtx *e, LLVMValueRef uint_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_i64");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMValueRef val = LLVMGetParam(fn, 0);
+    LLVMValueRef base = LLVMGetParam(fn, 1);
+    LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMPositionBuilderAtEnd(e->builder, bb);
+    LLVMValueRef is10 = LLVMBuildICmp(e->builder, LLVMIntEQ, base, LLVMConstInt(e->i32_ty, 10, 0), "");
+    LLVMValueRef isneg0 = LLVMBuildICmp(e->builder, LLVMIntSLT, val, LLVMConstInt(e->i64_ty, 0, 0), "");
+    LLVMValueRef neg = LLVMBuildAnd(e->builder, is10, isneg0, "");
+    LLVMValueRef mag = LLVMBuildSelect(e->builder, neg,
+        LLVMBuildSub(e->builder, LLVMConstInt(e->i64_ty, 0, 0), val, ""), val, "");
+    LLVMValueRef args[3] = { mag, base, neg };
+    LLVMBuildRet(e->builder, LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(uint_fn), uint_fn, args, 3, ""));
+}
+
+static void fmt_wasm_define_f64(EmitCtx *e, const FmtWasmState *s, LLVMValueRef alloc_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_f64");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMValueRef val = LLVMGetParam(fn, 0);
+    LLVMValueRef prec = LLVMGetParam(fn, 1);
+    LLVMTypeRef buf_ty = LLVMArrayType(e->i8_ty, SA_FMT_WASM_F64_SCRATCH);
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef sized = LLVMAppendBasicBlockInContext(e->ctx, fn, "sized");
+    LLVMBasicBlockRef copy = LLVMAppendBasicBlockInContext(e->ctx, fn, "copy");
+    LLVMBasicBlockRef ret0 = LLVMAppendBasicBlockInContext(e->ctx, fn, "ret0");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef buf = LLVMBuildAlloca(e->builder, buf_ty, "buf");
+    LLVMValueRef data = fmt_wasm_elem(e, buf_ty, buf, LLVMConstInt(e->i32_ty, 0, 0));
+    LLVMValueRef fmtp = fmt_wasm_elem(e, s->f64fmt_ty, s->f64fmt, LLVMConstInt(e->i32_ty, 0, 0));
+    LLVMValueRef snprintf = fmt_wasm_snprintf_fn(e);
+    LLVMValueRef snargs[5] = {
+        data, LLVMConstInt(size_type(e), SA_FMT_WASM_F64_SCRATCH, 0), fmtp, prec, val
+    };
+    LLVMValueRef n = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(snprintf), snprintf, snargs, 5, "");
+    LLVMBuildCondBr(e->builder, LLVMBuildICmp(e->builder, LLVMIntSLT, n, LLVMConstInt(e->i32_ty, 0, 0), ""), ret0, sized);
+    LLVMPositionBuilderAtEnd(e->builder, sized);
+    LLVMValueRef len64 = LLVMBuildSExt(e->builder, n, e->i64_ty, "");
+    LLVMValueRef over = LLVMBuildICmp(e->builder, LLVMIntSGT, len64,
+        LLVMConstInt(e->i64_ty, SA_FMT_WASM_F64_SCRATCH - 1, 0), "");
+    LLVMValueRef len = LLVMBuildSelect(e->builder, over,
+        LLVMConstInt(e->i64_ty, SA_FMT_WASM_F64_SCRATCH - 1, 0), len64, "");
+    LLVMValueRef h = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(alloc_fn), alloc_fn, &len, 1, "");
+    LLVMBuildCondBr(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, h, LLVMConstInt(e->i64_ty, 0, 0), ""), ret0, copy);
+    LLVMPositionBuilderAtEnd(e->builder, copy);
+    LLVMValueRef idx = LLVMBuildSub(e->builder, h, LLVMConstInt(e->i64_ty, 1, 0), "");
+    LLVMValueRef dst = LLVMBuildLoad2(e->builder, e->ptr_ty, fmt_wasm_elem(e, s->ptrs_ty, s->ptrs, idx), "");
+    fmt_wasm_call_memcpy(e, dst, data, len);
+    LLVMBuildRet(e->builder, h);
+    LLVMPositionBuilderAtEnd(e->builder, ret0);
+    LLVMBuildRet(e->builder, LLVMConstInt(e->i64_ty, 0, 0));
+}
+
+static void fmt_wasm_define_bytes(EmitCtx *e, LLVMValueRef alloc_fn, const FmtWasmState *s) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_bytes");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMValueRef src = LLVMGetParam(fn, 0);
+    LLVMValueRef len = LLVMGetParam(fn, 1);
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef copy = LLVMAppendBasicBlockInContext(e->ctx, fn, "copy");
+    LLVMBasicBlockRef ret0 = LLVMAppendBasicBlockInContext(e->ctx, fn, "ret0");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef is_empty = LLVMBuildICmp(e->builder, LLVMIntEQ, len, LLVMConstInt(e->i64_ty, 0, 0), "");
+    LLVMValueRef eff = LLVMBuildSelect(e->builder, is_empty, LLVMConstInt(e->i64_ty, 1, 0), len, "");
+    LLVMValueRef h = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(alloc_fn), alloc_fn, &eff, 1, "");
+    LLVMBuildCondBr(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, h, LLVMConstInt(e->i64_ty, 0, 0), ""), ret0, copy);
+    LLVMPositionBuilderAtEnd(e->builder, copy);
+    LLVMValueRef idx = LLVMBuildSub(e->builder, h, LLVMConstInt(e->i64_ty, 1, 0), "");
+    LLVMValueRef dst = LLVMBuildLoad2(e->builder, e->ptr_ty, fmt_wasm_elem(e, s->ptrs_ty, s->ptrs, idx), "");
+    fmt_wasm_call_memcpy(e, dst, src, len);
+    LLVMBuildStore(e->builder, len, fmt_wasm_elem(e, s->lens_ty, s->lens, idx));
+    LLVMBuildRet(e->builder, h);
+    LLVMPositionBuilderAtEnd(e->builder, ret0);
+    LLVMBuildRet(e->builder, LLVMConstInt(e->i64_ty, 0, 0));
+}
+
+static void fmt_wasm_define_buffer_data(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_data");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
+    LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef handle = LLVMGetParam(fn, 0);
+    LLVMValueRef idx = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(slot_fn), slot_fn, &handle, 1, "");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntSLT, idx, LLVMConstInt(e->i64_ty, 0, 0), ""), miss, found);
+    LLVMPositionBuilderAtEnd(e->builder, found);
+    LLVMBuildRet(e->builder, LLVMBuildLoad2(e->builder, e->ptr_ty, fmt_wasm_elem(e, s->ptrs_ty, s->ptrs, idx), ""));
+    LLVMPositionBuilderAtEnd(e->builder, miss);
+    LLVMBuildRet(e->builder, LLVMConstPointerNull(e->ptr_ty));
+}
+
+static void fmt_wasm_define_buffer_len(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_len");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
+    LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef handle = LLVMGetParam(fn, 0);
+    LLVMValueRef idx = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(slot_fn), slot_fn, &handle, 1, "");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntSLT, idx, LLVMConstInt(e->i64_ty, 0, 0), ""), miss, found);
+    LLVMPositionBuilderAtEnd(e->builder, found);
+    LLVMBuildRet(e->builder, LLVMBuildLoad2(e->builder, e->i64_ty, fmt_wasm_elem(e, s->lens_ty, s->lens, idx), ""));
+    LLVMPositionBuilderAtEnd(e->builder, miss);
+    LLVMBuildRet(e->builder, LLVMConstInt(e->i64_ty, 0, 0));
+}
+
+static void fmt_wasm_define_buffer_free(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_free");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
+    LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef handle = LLVMGetParam(fn, 0);
+    LLVMValueRef idx = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(slot_fn), slot_fn, &handle, 1, "");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntSLT, idx, LLVMConstInt(e->i64_ty, 0, 0), ""), miss, found);
+    LLVMPositionBuilderAtEnd(e->builder, found);
+    LLVMValueRef cell = fmt_wasm_elem(e, s->ptrs_ty, s->ptrs, idx);
+    LLVMValueRef free_arg = LLVMBuildLoad2(e->builder, e->ptr_ty, cell, "");
+    LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->free_fn), e->free_fn, &free_arg, 1, "");
+    LLVMBuildStore(e->builder, LLVMConstInt(e->i8_ty, 0, 0), fmt_wasm_elem(e, s->used_ty, s->used, idx));
+    LLVMBuildStore(e->builder, LLVMConstPointerNull(e->ptr_ty), cell);
+    LLVMBuildStore(e->builder, LLVMConstInt(e->i64_ty, 0, 0), fmt_wasm_elem(e, s->lens_ty, s->lens, idx));
+    LLVMBuildRet(e->builder, LLVMConstInt(e->i32_ty, 0, 0));
+    LLVMPositionBuilderAtEnd(e->builder, miss);
+    LLVMValueRef neg = LLVMBuildSub(e->builder, LLVMConstInt(e->i32_ty, 0, 0), LLVMConstInt(e->i32_ty, 1, 0), "");
+    LLVMBuildRet(e->builder, neg);
+}
+
+static void emit_sa_fmt_wasm_runtime(EmitCtx *e) {
+    static const char *names[] = {
+        "sa_fmt_u64", "sa_fmt_i64", "sa_fmt_f64", "sa_fmt_bytes",
+        "sa_fmt_buffer_data", "sa_fmt_buffer_len", "sa_fmt_buffer_free"
+    };
+    int need = 0;
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        LLVMValueRef fn = LLVMGetNamedFunction(e->module, names[i]);
+        if (fn != NULL && LLVMCountBasicBlocks(fn) == 0) { need = 1; break; }
+    }
+    if (!need) return;
+    FmtWasmState s;
+    fmt_wasm_ensure_state(e, &s);
+    LLVMValueRef alloc_fn = fmt_wasm_ensure_alloc(e, &s);
+    LLVMValueRef slot_fn = fmt_wasm_ensure_slot(e, &s);
+    LLVMValueRef uint_fn = fmt_wasm_ensure_uint(e, &s, alloc_fn);
+    fmt_wasm_define_u64(e, uint_fn);
+    fmt_wasm_define_i64(e, uint_fn);
+    fmt_wasm_define_f64(e, &s, alloc_fn);
+    fmt_wasm_define_bytes(e, alloc_fn, &s);
+    fmt_wasm_define_buffer_data(e, &s, slot_fn);
+    fmt_wasm_define_buffer_len(e, &s, slot_fn);
+    fmt_wasm_define_buffer_free(e, &s, slot_fn);
+}
+
 static void emit_sys_print(EmitCtx *e) {
     LLVMTypeRef params[2] = { e->ptr_ty, e->i64_ty };
     LLVMValueRef fn = LLVMAddFunction(e->module, "sys_print", LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), params, 2, 0));
@@ -2024,7 +2434,10 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
             add_inline_hint(e, fn);
         }
     }
-    if (m->wasm_compat) emit_sa_print_bytes(e);
+    if (m->wasm_compat) {
+        emit_sa_print_bytes(e);
+        emit_sa_fmt_wasm_runtime(e);
+    }
     emit_sys_runtime(e);
 
     for (size_t i = 0; i < m->vtable_count; i++) {
