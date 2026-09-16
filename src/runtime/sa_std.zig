@@ -10077,11 +10077,11 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
         filled += 1;
     }
 
-    var msg: std.posix.msghdr = std.mem.zeroes(std.posix.msghdr);
-    msg.msg_name = @as(*std.posix.sockaddr, @ptrCast(&address.any));
-    msg.msg_namelen = address.getOsSockLen();
-    msg.msg_iov = ziovec[0..filled].ptr;
-    msg.msg_iovlen = @as(c_int, @intCast(filled));
+    var msg: std.posix.msghdr_const = std.mem.zeroes(std.posix.msghdr_const);
+    msg.name = @as(?*const std.posix.sockaddr, @ptrCast(&address.any));
+    msg.namelen = address.getOsSockLen();
+    msg.iov = ziovec[0..filled].ptr;
+    msg.iovlen = @as(c_int, @intCast(filled));
 
     const rc = std.os.linux.sendmsg(fd, &msg, 0);
     switch (std.posix.errno(rc)) {
@@ -10089,7 +10089,11 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
             written_ptr.* = @as(u64, @intCast(rc));
             return finish(SA_STD_OK);
         },
-        else => |err| return finishErr(err),
+        .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
+        .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
+        .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
+        else => return finish(SA_STD_ERR_IO),
     }
 }
 
@@ -10120,10 +10124,10 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
 
     var addr: std.net.Address = undefined;
     var msg: std.posix.msghdr = std.mem.zeroes(std.posix.msghdr);
-    msg.msg_name = @as(*std.posix.sockaddr, @ptrCast(&addr.any));
-    msg.msg_namelen = @sizeOf(std.net.Address);
-    msg.msg_iov = ziovec[0..filled].ptr;
-    msg.msg_iovlen = @as(c_int, @intCast(filled));
+    msg.name = @as(*std.posix.sockaddr, @ptrCast(&addr.any));
+    msg.namelen = @as(std.posix.socklen_t, @intCast(@sizeOf(std.net.Address)));
+    msg.iov = ziovec[0..filled].ptr;
+    msg.iovlen = @as(c_int, @intCast(filled));
 
     const rc = std.os.linux.recvmsg(fd, &msg, 0);
     switch (std.posix.errno(rc)) {
@@ -10139,7 +10143,11 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
             }
             return finish(SA_STD_OK);
         },
-        else => |err| return finishErr(err),
+        .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
+        .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
+        .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
+        .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
+        else => return finish(SA_STD_ERR_IO),
     }
 }
 
@@ -11091,7 +11099,10 @@ pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64
         return finishErr(err);
     };
     const addr_handle = registerResourceLocked(.{ .net_addr = peer_addr }) catch |err| {
-        if (takeResourceLocked(stream_handle)) |*resource_to_close| resource_to_close.close() catch {};
+        if (takeResourceLocked(stream_handle)) |taken| {
+            var mutable = taken;
+            mutable.close() catch {};
+        }
         registry_mutex.unlock();
         peer_addr.deinit();
         return finishErr(err);
@@ -11432,7 +11443,10 @@ pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
     const left_handle = registerResourceLocked(.{ .tcp_stream = .{ .handle = fds[0] } }) catch |err| return finishErr(err);
     owns_left_fd = false;
     errdefer {
-        if (takeResourceLocked(left_handle)) |*resource| resource.close() catch {};
+        if (takeResourceLocked(left_handle)) |taken| {
+            var mutable = taken;
+            mutable.close() catch {};
+        }
     }
     const right_handle = registerResourceLocked(.{ .tcp_stream = .{ .handle = fds[1] } }) catch |err| return finishErr(err);
     owns_right_fd = false;
@@ -11678,7 +11692,10 @@ pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i
     const left_handle = registerResourceLocked(.{ .udp_socket = fds[0] }) catch |err| return finishErr(err);
     owns_left_fd = false;
     errdefer {
-        if (takeResourceLocked(left_handle)) |*resource| resource.close() catch {};
+        if (takeResourceLocked(left_handle)) |taken| {
+            var mutable = taken;
+            mutable.close() catch {};
+        }
     }
     const right_handle = registerResourceLocked(.{ .udp_socket = fds[1] }) catch |err| return finishErr(err);
     owns_right_fd = false;
