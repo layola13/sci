@@ -4581,12 +4581,11 @@ pub fn fail(comptime T: type, status: i32) Fallible(T) {
     return .{ .status = status, .value = @as(T, @bitCast(@as(std.meta.Int(.unsigned, @bitSizeOf(T)), 0))) };
 }
 
-pub export fn sa_http_client_resp_body_slice(resp: ?*anyopaque, out_body_ptr: ?*?[*]const u8, out_body_len: ?*u64) u32 {
-    _ = resp;
-    if (out_body_ptr) |ptr| ptr.* = null;
-    if (out_body_len) |len| len.* = 0;
-    return SA_STD_OK;
-}
+// NOTE: sa_http_client_resp_body_slice must NOT be stubbed here. A previous
+// stub returned OK with null/0 and shadowed the real http-client plugin
+// implementation at link time (executable's T beats the .so's U), silently
+// breaking response body reads. The symbol must stay undefined so it
+// resolves to the plugin at runtime.
 
 pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;
