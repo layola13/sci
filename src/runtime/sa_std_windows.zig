@@ -3358,7 +3358,7 @@ fn removeRawWinThreadOwner(raw: u64) ?*WinThreadTask {
 }
 
 pub export fn pthread_spawn(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const u8) callconv(.c) i32 {
-    const entry_fn: PthreadEntryFn = @ptrCast(entry_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const entry_fn: PthreadEntryFn = @alignCast(@ptrCast(entry_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
     const task = std.heap.page_allocator.create(WinThreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
     task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg_ptr)) };
 
@@ -3385,7 +3385,7 @@ pub export fn pthread_spawn(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const u8) call
 }
 
 pub export fn pthread_spawn_detached(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const u8) callconv(.c) i32 {
-    const entry_fn: PthreadEntryFn = @ptrCast(entry_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const entry_fn: PthreadEntryFn = @alignCast(@ptrCast(entry_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
     const task = std.heap.page_allocator.create(WinThreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
     task.* = .{
         .entry = entry_fn,
