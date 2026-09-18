@@ -436,6 +436,11 @@ static void normalize_triple_for_llvm(const char *triple, char *out, size_t out_
         snprintf(out, out_len, "%.*s-pc%s", (int)arch_len, triple, dash1);
         return;
     }
+    if (second_len == 5 && strncmp(dash1 + 1, "macos", 5) == 0) {
+        size_t arch_len = (size_t)(dash1 - triple);
+        snprintf(out, out_len, "%.*s-apple-macosx", (int)arch_len, triple);
+        return;
+    }
     snprintf(out, out_len, "%s", triple);
 }
 
