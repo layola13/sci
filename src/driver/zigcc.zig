@@ -47,6 +47,13 @@ pub fn argvForExe(
     if (target_triple) |triple| {
         try argv.items.append("-target");
         try argv.items.append(triple);
+        if (std.mem.indexOf(u8, triple, "windows") != null) {
+            // sa_std_windows.zig needs Winsock plus the usual base system libs
+            for ([_][]const u8{ "ws2_32", "kernel32", "ntdll", "advapi32", "user32", "bcrypt", "iphlpapi" }) |lib| {
+                try argv.items.append("-l");
+                try argv.items.append(lib);
+            }
+        }
     }
     if (debug) {
         try argv.items.append("-g");
@@ -89,6 +96,13 @@ pub fn argvForObj(
     if (target_triple) |triple| {
         try argv.items.append("-target");
         try argv.items.append(triple);
+        if (std.mem.indexOf(u8, triple, "windows") != null) {
+            // sa_std_windows.zig needs Winsock plus the usual base system libs
+            for ([_][]const u8{ "ws2_32", "kernel32", "ntdll", "advapi32", "user32", "bcrypt", "iphlpapi" }) |lib| {
+                try argv.items.append("-l");
+                try argv.items.append(lib);
+            }
+        }
     }
     if (debug) {
         try argv.items.append("-g");

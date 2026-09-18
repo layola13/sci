@@ -24,7 +24,9 @@ comptime {
     _ = &@import("sa_tls_server.zig").sa_std_tls_server_supported;
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
-    _ = &@import("sa_net_uring.zig").sa_netx_init;
+    if (builtin.os.tag == .linux) {
+        _ = &@import("sa_net_uring.zig").sa_netx_init;
+    }
 }
 
 const RegexC = extern struct {
@@ -86,6 +88,32 @@ pub const SA_STD_ERR_NO_MEMORY: i32 = 5;
 pub const SA_STD_ERR_IO: i32 = 6;
 pub const SA_STD_ERR_NET: i32 = 7;
 pub const SA_STD_ERR_UNSUPPORTED: i32 = 8;
+
+// --- Cross-platform compat: Linux-first, macOS via conditionals ---
+// waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
+const w_exited: u32 = if (builtin.os.tag == .linux) std.posix.W.EXITED else 0;
+const w_nohang: u32 = if (builtin.os.tag == .linux) std.posix.W.NOHANG else 0;
+// MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
+const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
+// zig 0.14's std.posix has sendmsg but not recvmsg; std.os.linux.recvmsg is Linux-only.
+extern "c" fn c_recvmsg(sockfd: std.posix.fd_t, msg: *std.posix.msghdr, flags: c_int) isize;
+extern "c" fn __error() *c_int;
+fn portableRecvmsg(fd: std.posix.fd_t, msg: *std.posix.msghdr, flags: u32) !usize {
+    if (builtin.os.tag == .linux) {
+        const rc = std.os.linux.recvmsg(fd, @as(*std.os.linux.msghdr, @ptrCast(msg)), flags);
+        return switch (std.posix.errno(rc)) {
+            .SUCCESS => @as(usize, @intCast(rc)),
+            else => |e| std.posix.unexpectedErrno(e),
+        };
+    } else {
+        const rc = c_recvmsg(fd, msg, @as(c_int, @intCast(flags)));
+        if (rc < 0) {
+            const e = @as(std.posix.E, @enumFromInt(__error().*));
+            return std.posix.unexpectedErrno(e);
+        }
+        return @as(usize, @intCast(rc));
+    }
+}
 pub const SA_STD_ERR_TRUNCATED: i32 = 9;
 pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 
@@ -1832,6 +1860,16 @@ fn handleToFd(handle: u64) !std.posix.fd_t {
     };
 }
 
+fn statTimeFieldName(comptime field: []const u8) []const u8 {
+    // zig names stat timespec fields atim/mtim/ctim on Linux, atimespec/... on Darwin.
+    if (builtin.os.tag == .macos) {
+        if (std.mem.eql(u8, field, "atim")) return "atimespec";
+        if (std.mem.eql(u8, field, "mtim")) return "mtimespec";
+        if (std.mem.eql(u8, field, "ctim")) return "ctimespec";
+    }
+    return field;
+}
+
 fn timeSpecMs(ts: anytype) i64 {
     const sec = @as(i128, @intCast(ts.sec));
     const nsec = @as(i128, @intCast(ts.nsec));
@@ -1853,7 +1891,7 @@ fn metadataI64TimeFieldMs(handle: u64, comptime field: []const u8) i64 {
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return 0;
     return switch (resource.*) {
-        .metadata => |*metadata| timeSpecMs(@field(metadata.raw, field)),
+        .metadata => |*metadata| timeSpecMs(@field(metadata.raw, statTimeFieldName(field))),
         else => 0,
     };
 }
@@ -1863,7 +1901,7 @@ fn metadataI64TimeFieldSec(handle: u64, comptime field: []const u8) i64 {
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return 0;
     return switch (resource.*) {
-        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, field).sec)),
+        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, statTimeFieldName(field)).sec)),
         else => 0,
     };
 }
@@ -1873,7 +1911,7 @@ fn metadataI64TimeFieldNsec(handle: u64, comptime field: []const u8) i64 {
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return 0;
     return switch (resource.*) {
-        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, field).nsec)),
+        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, statTimeFieldName(field)).nsec)),
         else => 0,
     };
 }
@@ -2156,6 +2194,7 @@ fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
 }
 
 fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
+    if (comptime builtin.os.tag != .linux) return null;
     const fd = std.os.linux.pidfd_open(pid, 0);
     return switch (std.posix.errno(fd)) {
         .SUCCESS => @as(std.posix.fd_t, @intCast(fd)),
@@ -2164,6 +2203,7 @@ fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
 }
 
 fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, InvalidArgument, PermissionDenied, Unexpected }!?u32 {
+    if (comptime builtin.os.tag != .linux) return null;
     var siginfo: std.posix.siginfo_t = undefined;
     while (true) {
         const result = std.os.linux.waitid(.PIDFD, fd, &siginfo, options);
@@ -6892,7 +6932,7 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
         .process => |*proc| {
             if (!proc.exited) {
                 if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| return finishErr(err);
+                    const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
                     finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
                 } else {
                     const waited = std.posix.waitpid(proc.pid, 0);
@@ -6916,7 +6956,7 @@ pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
         .process => |*proc| {
             if (!proc.exited) {
                 if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| return finishErr(err);
+                    const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
                     finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
                 } else {
                     const waited = std.posix.waitpid(proc.pid, 0);
@@ -6942,7 +6982,7 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
         .process => |*proc| {
             if (!proc.exited) {
                 if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| return finishErr(err);
+                    const raw_status = waitPidfdStatus(fd, w_exited | w_nohang) catch |err| return finishErr(err);
                     if (raw_status == null) return finish(SA_STD_OK);
                     finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
                 } else {
@@ -6971,7 +7011,7 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
         .process => |*proc| {
             if (!proc.exited) {
                 if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| return finishErr(err);
+                    const raw_status = waitPidfdStatus(fd, w_exited | w_nohang) catch |err| return finishErr(err);
                     if (raw_status == null) return finish(SA_STD_OK);
                     finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
                 } else {
@@ -7000,7 +7040,7 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
                         error.ProcessNotFound => {},
                         else => return finishErr(err),
                     };
-                    const raw_status = waitPidfdStatus(fd, std.posix.W.EXITED) catch |err| return finishErr(err);
+                    const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
                     finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
                 } else {
                     std.posix.kill(proc.pid, std.posix.SIG.KILL) catch |err| switch (err) {
@@ -7158,7 +7198,7 @@ pub export fn sa_std_pidfd_wait_raw(handle: u64, out_raw: ?*i32) i32 {
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED) catch |err| switch (err) {
+            const raw_status = waitPidfdStatus(fd.fd, w_exited) catch |err| switch (err) {
                 error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
                 else => return finishErr(err),
             };
@@ -7177,7 +7217,7 @@ pub export fn sa_std_pidfd_wait(handle: u64, out_code: ?*u32) i32 {
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED) catch |err| switch (err) {
+            const raw_status = waitPidfdStatus(fd.fd, w_exited) catch |err| switch (err) {
                 error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
                 else => return finishErr(err),
             };
@@ -7198,7 +7238,7 @@ pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: 
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
+            const raw_status = waitPidfdStatus(fd.fd, w_exited | w_nohang) catch |err| switch (err) {
                 error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
                 else => return finishErr(err),
             };
@@ -7221,7 +7261,7 @@ pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, std.posix.W.EXITED | std.posix.W.NOHANG) catch |err| switch (err) {
+            const raw_status = waitPidfdStatus(fd.fd, w_exited | w_nohang) catch |err| switch (err) {
                 error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
                 else => return finishErr(err),
             };
@@ -7529,6 +7569,11 @@ pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
 }
 
 pub export fn sa_term_epoll_create(flags: u32, out_handle: ?*u64) i32 {
+    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    return sa_term_epoll_create_linux(flags, out_handle);
+}
+
+fn sa_term_epoll_create_linux(flags: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
@@ -7545,6 +7590,11 @@ pub export fn sa_term_epoll_create(flags: u32, out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_term_epoll_ctl(epoll_handle: u64, op: u32, target_handle: u64, events: u32, data: u64) i32 {
+    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    return sa_term_epoll_ctl_linux(epoll_handle, op, target_handle, events, data);
+}
+
+fn sa_term_epoll_ctl_linux(epoll_handle: u64, op: u32, target_handle: u64, events: u32, data: u64) i32 {
     if (op != std.os.linux.EPOLL.CTL_ADD and op != std.os.linux.EPOLL.CTL_MOD and op != std.os.linux.EPOLL.CTL_DEL) {
         return finish(SA_STD_ERR_INVALID_ARGUMENT);
     }
@@ -7564,6 +7614,11 @@ pub export fn sa_term_epoll_ctl(epoll_handle: u64, op: u32, target_handle: u64, 
 }
 
 pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollEvent, max_events: u64, timeout_ms: i32, out_count: ?*u64) i32 {
+    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    return sa_term_epoll_wait_linux(epoll_handle, out_events, max_events, timeout_ms, out_count);
+}
+
+fn sa_term_epoll_wait_linux(epoll_handle: u64, out_events: ?[*]SaTermEpollEvent, max_events: u64, timeout_ms: i32, out_count: ?*u64) i32 {
     const events_ptr = out_events orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     count_ptr.* = 0;
@@ -7589,6 +7644,11 @@ pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollE
 }
 
 pub export fn sa_term_epoll_close(handle: u64) i32 {
+    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    return sa_term_epoll_close_linux(handle);
+}
+
+fn sa_term_epoll_close_linux(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
@@ -8965,7 +9025,7 @@ pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out
     };
     registry_mutex.unlock();
 
-    const read = std.posix.recv(fd, buffer, std.posix.MSG.PEEK) catch |err| return finishErr(err);
+    const read = std.posix.recv(fd, buffer, msg_peek) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
     return finish(SA_STD_OK);
 }
@@ -9956,7 +10016,7 @@ pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: 
         .udp_socket => |fd| fd,
         else => return finish(SA_STD_ERR_INVALID_HANDLE),
     };
-    const read = std.posix.recv(fd, buffer, std.posix.MSG.PEEK) catch |err| return finishErr(err);
+    const read = std.posix.recv(fd, buffer, msg_peek) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
     return finish(SA_STD_OK);
 }
@@ -10006,7 +10066,7 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     const fd = handleToFd(socket) catch |err| return finishErr(err);
     var addr: std.net.Address = undefined;
     var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
-    const read = std.posix.recvfrom(fd, buffer, std.posix.MSG.PEEK, &addr.any, &addr_len) catch |err| return finishErr(err);
+    const read = std.posix.recvfrom(fd, buffer, msg_peek, &addr.any, &addr_len) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
     if (out_addr) |ptr| {
         var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
@@ -10082,18 +10142,9 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
     msg.iov = ziovec[0..filled].ptr;
     msg.iovlen = @as(c_int, @intCast(filled));
 
-    const rc = std.os.linux.sendmsg(fd, &msg, 0);
-    switch (std.posix.errno(rc)) {
-        .SUCCESS => {
-            written_ptr.* = @as(u64, @intCast(rc));
-            return finish(SA_STD_OK);
-        },
-        .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-        .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
-        .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
-        .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-        else => return finish(SA_STD_ERR_IO),
-    }
+    const written = std.posix.sendmsg(fd, &msg, 0) catch |err| return finishErr(err);
+    written_ptr.* = @as(u64, @intCast(written));
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
@@ -10128,26 +10179,17 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
     msg.iov = ziovec[0..filled].ptr;
     msg.iovlen = @as(c_int, @intCast(filled));
 
-    const rc = std.os.linux.recvmsg(fd, &msg, 0);
-    switch (std.posix.errno(rc)) {
-        .SUCCESS => {
-            read_ptr.* = @as(u64, @intCast(rc));
-            if (out_addr) |ptr| {
-                var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-                const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                    net_addr.deinit();
-                    return finishErr(err);
-                };
-                ptr.* = handle;
-            }
-            return finish(SA_STD_OK);
-        },
-        .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-        .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
-        .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
-        .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-        else => return finish(SA_STD_ERR_IO),
+    const read_n = portableRecvmsg(fd, &msg, 0) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read_n));
+    if (out_addr) |ptr| {
+        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+            net_addr.deinit();
+            return finishErr(err);
+        };
+        ptr.* = handle;
     }
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
@@ -11886,7 +11928,7 @@ pub export fn sa_std_net_unix_datagram_recv_from(socket: u64, out: ?[*]u8, cap: 
 }
 
 pub export fn sa_std_net_unix_datagram_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    return unixDatagramRecvFrom(socket, out, cap, std.posix.MSG.PEEK, out_read, out_addr);
+    return unixDatagramRecvFrom(socket, out, cap, msg_peek, out_read, out_addr);
 }
 
 pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
