@@ -111,6 +111,7 @@ typedef struct {
     size_t vtable_count;
     const SaFunction *functions;
     size_t function_count;
+    const char *target_triple;
 } SaModule;
 
 typedef struct { const char *name; LLVMBasicBlockRef block; } LabelEntry;
@@ -157,6 +158,7 @@ typedef struct {
     LLVMMetadataRef di_f64_type;
     LLVMMetadataRef di_ptr_type;
     char body_error[256];
+    const char *target_triple;
 } EmitCtx;
 
 static int set_error(char **out_error, const char *message) {
@@ -419,28 +421,51 @@ static LLVMValueRef unpack_external_fallible_i32(EmitCtx *e, LLVMValueRef packed
     return LLVMBuildInsertValue(e->builder, agg, payload, 1, "fallible_payload");
 }
 
+/* LLVM's triple parser needs an explicit vendor to select the object format:
+   "x86_64-windows-gnu" is misparsed and emits ELF, while "x86_64-pc-windows-gnu"
+   correctly emits COFF. Normalize <arch>-windows[-<abi>...] to
+   <arch>-pc-windows[-<abi>...]. Other triples pass through unchanged. */
+static void normalize_triple_for_llvm(const char *triple, char *out, size_t out_len) {
+    if (triple == NULL || out_len == 0) { if (out_len > 0) out[0] = '\0'; return; }
+    const char *dash1 = strchr(triple, '-');
+    if (dash1 == NULL) { snprintf(out, out_len, "%s", triple); return; }
+    const char *dash2 = strchr(dash1 + 1, '-');
+    size_t second_len = dash2 ? (size_t)(dash2 - dash1 - 1) : strlen(dash1 + 1);
+    if (second_len == 7 && strncmp(dash1 + 1, "windows", 7) == 0) {
+        size_t arch_len = (size_t)(dash1 - triple);
+        snprintf(out, out_len, "%.*s-pc%s", (int)arch_len, triple, dash1);
+        return;
+    }
+    snprintf(out, out_len, "%s", triple);
+}
+
 static int apply_native_target_layout(EmitCtx *e, char **out_error) {
     if (e == NULL || e->module == NULL || e->wasm_compat) return 0;
 
-#ifdef _WIN32
-    LLVMInitializeX86TargetInfo();
-    LLVMInitializeX86Target();
-    LLVMInitializeX86TargetMC();
-    LLVMInitializeX86AsmPrinter();
-#else
-    LLVMInitializeNativeTarget();
-    LLVMInitializeNativeAsmPrinter();
-#endif
+    /* Cross-compilation: initialize every LLVM target, not just the host one. */
+    LLVMInitializeAllTargetInfos();
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmPrinters();
 
-    char *triple = LLVMGetDefaultTargetTriple();
-    if (triple == NULL) return set_error(out_error, "LLVMGetDefaultTargetTriple failed");
+    char triple_buf[128];
+    char *triple = NULL;
+    int triple_owned = 0;
+    if (e->target_triple != NULL && e->target_triple[0] != '\0') {
+        normalize_triple_for_llvm(e->target_triple, triple_buf, sizeof(triple_buf));
+        triple = triple_buf;
+    } else {
+        triple = LLVMGetDefaultTargetTriple();
+        if (triple == NULL) return set_error(out_error, "LLVMGetDefaultTargetTriple failed");
+        triple_owned = 1;
+    }
 
     LLVMTargetRef target;
     char *err_msg = NULL;
     if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
         int status = set_error(out_error, err_msg ? err_msg : "target lookup failed");
         if (err_msg) LLVMDisposeMessage(err_msg);
-        LLVMDisposeMessage(triple);
+        if (triple_owned) LLVMDisposeMessage(triple);
         return status;
     }
 
@@ -449,7 +474,7 @@ static int apply_native_target_layout(EmitCtx *e, char **out_error) {
         LLVMCodeGenLevelDefault, LLVMRelocDefault, LLVMCodeModelDefault
     );
     if (tm == NULL) {
-        LLVMDisposeMessage(triple);
+        if (triple_owned) LLVMDisposeMessage(triple);
         return set_error(out_error, "TargetMachine creation failed");
     }
 
@@ -460,7 +485,7 @@ static int apply_native_target_layout(EmitCtx *e, char **out_error) {
     LLVMDisposeMessage(dl_str);
     LLVMDisposeTargetData(dl);
     LLVMDisposeTargetMachine(tm);
-    LLVMDisposeMessage(triple);
+    if (triple_owned) LLVMDisposeMessage(triple);
     return 0;
 }
 
@@ -2371,6 +2396,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     e->size_bits = m->size_bits;
     e->is_cgu = m->is_cgu;
     e->wasm_compat = m->wasm_compat;
+    e->target_triple = m->target_triple;
     if (m->function_count > UINT_MAX) {
         dispose_emit_ctx(e);
         return set_error(out_error, "function table too large");
@@ -2528,13 +2554,23 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
     EmitCtx e;
     if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
 
-    char *triple = LLVMGetDefaultTargetTriple();
+    char triple_buf[128];
+    char *triple = NULL;
+    int triple_owned = 0;
+    if (m->target_triple != NULL && m->target_triple[0] != '\0') {
+        normalize_triple_for_llvm(m->target_triple, triple_buf, sizeof(triple_buf));
+        triple = triple_buf;
+    } else {
+        triple = LLVMGetDefaultTargetTriple();
+        triple_owned = 1;
+    }
+    const int is_cross = (m->target_triple != NULL && m->target_triple[0] != '\0');
     LLVMTargetRef target;
     char *err_msg = NULL;
     if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
         int s = set_error(out_error, err_msg ? err_msg : "target lookup failed");
         if (err_msg) LLVMDisposeMessage(err_msg);
-        LLVMDisposeMessage(triple);
+        if (triple_owned) LLVMDisposeMessage(triple);
         dispose_emit_ctx(&e);
         return s;
     }
@@ -2547,16 +2583,21 @@ int sa_llvmc_emit_module_object(const SaModule *m, const char *out_path, int opt
         default: cg_opt = LLVMCodeGenLevelAggressive;  break;
     }
 
-    /* Use the host CPU so we get tuned codegen (equivalent to -mcpu=native) */
-    char *cpu      = LLVMGetHostCPUName();
-    char *features = LLVMGetHostCPUFeatures();
+    /* Use the host CPU so we get tuned codegen (equivalent to -mcpu=native);
+       for cross targets use the generic CPU instead. */
+    char *cpu;
+    char *features;
+    if (is_cross) { cpu = (char *)""; features = (char *)""; }
+    else { cpu = LLVMGetHostCPUName(); features = LLVMGetHostCPUFeatures(); }
     LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
         target, triple, cpu, features,
         cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
     );
-    LLVMDisposeMessage(cpu);
-    LLVMDisposeMessage(features);
-    LLVMDisposeMessage(triple);
+    if (!is_cross) {
+        LLVMDisposeMessage(cpu);
+        LLVMDisposeMessage(features);
+    }
+    if (triple_owned) LLVMDisposeMessage(triple);
 
     if (tm == NULL) {
         dispose_emit_ctx(&e);
@@ -2588,13 +2629,23 @@ int sa_llvmc_emit_module_artifacts(const SaModule *m, const char *out_bitcode_pa
     EmitCtx e;
     if (build_sa_llvm_module(m, &e, out_error) != 0) return 1;
 
-    char *triple = LLVMGetDefaultTargetTriple();
+    char triple_buf[128];
+    char *triple = NULL;
+    int triple_owned = 0;
+    if (m->target_triple != NULL && m->target_triple[0] != '\0') {
+        normalize_triple_for_llvm(m->target_triple, triple_buf, sizeof(triple_buf));
+        triple = triple_buf;
+    } else {
+        triple = LLVMGetDefaultTargetTriple();
+        triple_owned = 1;
+    }
+    const int is_cross = (m->target_triple != NULL && m->target_triple[0] != '\0');
     LLVMTargetRef target;
     char *err_msg = NULL;
     if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
         int s = set_error(out_error, err_msg ? err_msg : "target lookup failed");
         if (err_msg) LLVMDisposeMessage(err_msg);
-        LLVMDisposeMessage(triple);
+        if (triple_owned) LLVMDisposeMessage(triple);
         dispose_emit_ctx(&e);
         return s;
     }
@@ -2607,15 +2658,19 @@ int sa_llvmc_emit_module_artifacts(const SaModule *m, const char *out_bitcode_pa
         default: cg_opt = LLVMCodeGenLevelAggressive;  break;
     }
 
-    char *cpu      = LLVMGetHostCPUName();
-    char *features = LLVMGetHostCPUFeatures();
+    char *cpu;
+    char *features;
+    if (is_cross) { cpu = (char *)""; features = (char *)""; }
+    else { cpu = LLVMGetHostCPUName(); features = LLVMGetHostCPUFeatures(); }
     LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
         target, triple, cpu, features,
         cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
     );
-    LLVMDisposeMessage(cpu);
-    LLVMDisposeMessage(features);
-    LLVMDisposeMessage(triple);
+    if (!is_cross) {
+        LLVMDisposeMessage(cpu);
+        LLVMDisposeMessage(features);
+    }
+    if (triple_owned) LLVMDisposeMessage(triple);
 
     if (tm == NULL) {
         dispose_emit_ctx(&e);

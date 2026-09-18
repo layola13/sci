@@ -38,11 +38,16 @@ pub fn argvForExe(
     sa_std_archive_path: []const u8,
     extra_inputs: []const []const u8,
     debug: bool,
+    target_triple: ?[]const u8,
 ) !Argv {
     var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    if (target_triple) |triple| {
+        try argv.items.append("-target");
+        try argv.items.append(triple);
+    }
     if (debug) {
         try argv.items.append("-g");
     }
@@ -75,11 +80,16 @@ pub fn argvForObj(
     out_path: []const u8,
     optimization: Optimization,
     debug: bool,
+    target_triple: ?[]const u8,
 ) !Argv {
     var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    if (target_triple) |triple| {
+        try argv.items.append("-target");
+        try argv.items.append(triple);
+    }
     if (debug) {
         try argv.items.append("-g");
     }
@@ -200,8 +210,9 @@ pub fn compileExe(
     extra_inputs: []const []const u8,
     debug: bool,
     stderr: anytype,
+    target_triple: ?[]const u8,
 ) !void {
-    var argv = try argvForExe(allocator, artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
+    var argv = try argvForExe(allocator, artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug, target_triple);
     defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {
@@ -232,8 +243,9 @@ pub fn compileObj(
     optimization: Optimization,
     debug: bool,
     stderr: anytype,
+    target_triple: ?[]const u8,
 ) !void {
-    var argv = try argvForObj(allocator, artifact_path, out_path, optimization, debug);
+    var argv = try argvForObj(allocator, artifact_path, out_path, optimization, debug, target_triple);
     defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {

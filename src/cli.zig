@@ -584,6 +584,7 @@ const CompileOptions = struct {
     diagnostic_writer: ?std.io.AnyWriter = null,
     sab_selected_test_names: []const []const u8 = &.{},
     sab_skip_verify: bool = false,
+    target_triple: ?[]const u8 = null,
 };
 
 const TestCommandOptions = struct {
@@ -888,6 +889,26 @@ const WasmTarget = struct {
 
 fn nativeSizeBits() u16 {
     return @as(u16, @bitSizeOf(usize));
+}
+
+/// Pointer size for a cross-compilation triple (zig-style arch-os-abi).
+/// Unknown triples default to 64-bit.
+fn sizeBitsForTriple(triple: ?[]const u8) u16 {
+    const t = triple orelse return nativeSizeBits();
+    const arch = if (std.mem.indexOfScalar(u8, t, '-')) |i| t[0..i] else t;
+    for ([_][]const u8{ "wasm32", "i386", "i486", "i586", "i686", "arm", "armeb", "thumb", "riscv32", "mips", "mipsel", "mips64el", "powerpc", "sparc", "sparcel", "s390", "xcore", "nvptx", "amdgcn", "bpfel", "bpfeb", "csky", "hexagon", "m68k", "msp430", "avr", "arc", "xtensa" }) |a32| {
+        if (std.mem.eql(u8, arch, a32)) return 32;
+    }
+    return 64;
+}
+
+fn tripleIsWindows(triple: ?[]const u8) bool {
+    const t = triple orelse return builtin.os.tag == .windows;
+    return std.mem.indexOf(u8, t, "windows") != null;
+}
+
+fn executableSuffixForTriple(triple: ?[]const u8) []const u8 {
+    return if (tripleIsWindows(triple)) ".exe" else "";
 }
 
 fn boolEnv(name: []const u8) bool {
@@ -1197,6 +1218,7 @@ fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8, include_incremen
     try writer.writeAll("  --no-debug                     Disable debug information\n");
     try writer.writeAll("  --release-small                Optimize for small release output\n");
     try writer.writeAll("  --release-fast                 Optimize for fast release output\n");
+    try writer.writeAll("  --target <triple>              Cross-compile for a zig-style target triple (e.g. aarch64-linux-gnu)\n");
     if (include_incremental) try writer.writeAll("  --incremental                  Reuse per-function cached objects when building .o\n");
     try writeCompileOptionsHelp(writer);
 }
@@ -4192,6 +4214,20 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
         options.ci = true;
         return true;
     }
+    if (std.mem.startsWith(u8, arg, "--target=")) {
+        const triple = arg["--target=".len..];
+        if (triple.len == 0) return error.InvalidTarget;
+        options.target_triple = triple;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--target")) {
+        if (index.* + 1 >= args.len) return error.InvalidTarget;
+        const triple = args[index.* + 1];
+        if (triple.len == 0) return error.InvalidTarget;
+        options.target_triple = triple;
+        index.* += 1;
+        return true;
+    }
     if (std.mem.eql(u8, arg, "--allow-unaudited-risks")) {
         options.allow_unaudited_risks = true;
         return true;
@@ -6806,6 +6842,29 @@ fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
     return try allocator.dupe(u8, build_options.sa_std_archive_path);
 }
 
+/// Locate the sa_std static archive for an optional cross-compilation triple.
+/// Layout: $SA_STD_DIR/<triple>/libsa_std.a (or sa_std.lib for windows triples).
+/// Returns error.ArchiveNotFoundForTarget when the triple archive is missing.
+fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]const u8) ![]u8 {
+    const triple = target_triple orelse return saStdArchivePath(allocator);
+    const archive_name: []const u8 = if (tripleIsWindows(target_triple)) "sa_std.lib" else "libsa_std.a";
+    const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    if (env_root) |root| {
+        defer allocator.free(root);
+        const archive = try std.fs.path.join(allocator, &.{ root, triple, archive_name });
+        errdefer allocator.free(archive);
+        if (std.fs.cwd().openFile(archive, .{})) |file| {
+            file.close();
+            return archive;
+        } else |_| {}
+        return error.ArchiveNotFoundForTarget;
+    }
+    return error.ArchiveNotFoundForTarget;
+}
+
 fn executeRun(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -6846,7 +6905,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -6874,8 +6933,17 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer owned.deinit(allocator);
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            const std_archive_path = try saStdArchivePath(allocator);
+            const std_archive_path = saStdArchivePathForTarget(allocator, compile_options.target_triple) catch |err| {
+                if (err == error.ArchiveNotFoundForTarget) {
+                    try stderr.print("error: no sa_std archive for target '{s}'. Build it with:\n", .{compile_options.target_triple.?});
+                    try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
+                    try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
+                    return 1;
+                }
+                return err;
+            };
             defer allocator.free(std_archive_path);
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
 
             const worker_count = blk: {
                 if (compile_options.jobs) |j| {
@@ -6920,6 +6988,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     object_path_val: []const u8,
                     opt_level_val: u8,
                     std_root_val: []const u8,
+                    target_triple_val: ?[]const u8,
                     err: ?anyerror = null,
 
                     pub fn run(self: *@This()) void {
@@ -6938,6 +7007,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                                 .codegen_unit_count = self.cgu_count_val,
                                 .dce = self.dce_val,
                                 .std_root = self.std_root_val,
+                                .target_triple = self.target_triple_val,
                             },
                             self.object_path_val,
                             self.opt_level_val,
@@ -6957,7 +7027,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .def_dict_ptr = &owned.flat.def_dict,
                         .loc_table_val = owned.flat.loc_table,
                         .source_path_val = source_path,
-                        .size_bits_val = nativeSizeBits(),
+                        .size_bits_val = size_bits,
                         .debug_val = debug,
                         .jobs_val = if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
                         .dce_val = compile_options.dce,
@@ -6966,6 +7036,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .object_path_val = cgu_obj_paths[i],
                         .opt_level_val = emitOptLevel(debug, optimization),
                         .std_root_val = emit_std_root,
+                        .target_triple_val = compile_options.target_triple,
                     };
                 }
 
@@ -7010,10 +7081,19 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 for (1..cgu_count) |i| {
                     try link_inputs.append(cgu_obj_paths[i]);
                 }
-                try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                if (compile_options.target_triple) |triple| {
+                    const extern_names = try collectExternalSymbolNames(allocator, &owned.verified);
+                    defer allocator.free(extern_names);
+                    if (extern_names.len != 0) {
+                        try stderr.print("error: --target {s} does not support native plugins yet (program uses extern symbol '{s}')\n", .{ triple, extern_names[0] });
+                        return 1;
+                    }
+                } else {
+                    try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                }
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
+                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -7026,7 +7106,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
@@ -7042,8 +7122,17 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     for (owned_link_inputs.items) |arg| allocator.free(arg);
                     owned_link_inputs.deinit();
                 }
-                try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
-                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
+                if (compile_options.target_triple) |triple| {
+                    const extern_names = try collectExternalSymbolNames(allocator, &owned.verified);
+                    defer allocator.free(extern_names);
+                    if (extern_names.len != 0) {
+                        try stderr.print("error: --target {s} does not support native plugins yet (program uses extern symbol '{s}')\n", .{ triple, extern_names[0] });
+                        return 1;
+                    }
+                } else {
+                    try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                }
+                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -7072,7 +7161,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7102,15 +7191,20 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
+            if (compile_options.target_triple != null and incremental) {
+                try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
+                return 1;
+            }
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
             if (incremental) {
                 const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
             } else {
-                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
@@ -7989,7 +8083,7 @@ fn executeTestInner(
             }
 
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -8174,7 +8268,7 @@ pub fn executeWithWritersAndOptions(
             const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer if (owned_source_path) |path| allocator.free(path);
             const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, defaultExecutableSuffix());
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8211,7 +8305,7 @@ pub fn executeWithWritersAndOptions(
             defer allocator.free(project_root);
             const final_source_path = try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer allocator.free(final_source_path);
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, defaultExecutableSuffix());
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8284,7 +8378,7 @@ pub fn executeWithWritersAndOptions(
             const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer if (owned_source_path) |path| allocator.free(path);
             const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, defaultExecutableSuffix());
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);

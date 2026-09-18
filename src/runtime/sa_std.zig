@@ -6221,7 +6221,7 @@ pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
 }
 
 pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
-    const entry_fn: PthreadEntryFn = @ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const entry_fn: PthreadEntryFn = @alignCast(@ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
     const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
     task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg)) };
     const thread = spawnPthread(task) catch |err| {
@@ -6245,7 +6245,7 @@ pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
 }
 
 pub fn pthread_spawn_detached(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
-    const entry_fn: PthreadEntryFn = @ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT));
+    const entry_fn: PthreadEntryFn = @alignCast(@ptrCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
     const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
     task.* = .{
         .entry = entry_fn,

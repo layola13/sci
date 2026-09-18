@@ -113,6 +113,7 @@ const CModule = extern struct {
     vtable_count: usize,
     functions: [*]const CFunction,
     function_count: usize,
+    target_triple: ?[*:0]const u8,
 };
 
 fn takeOwnedBitcode(allocator: std.mem.Allocator, bytes: *?[*]u8, len: *usize) ![]u8 {
@@ -1533,6 +1534,9 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         try c_funcs.append(job.result orelse return error.Failed);
     }
 
+    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeZ(u8, t)).ptr else null;
+    defer if (target_triple_z) |z| a.free(std.mem.span(z));
+
     const module = CModule{
         .size_bits = size_bits,
         .wasm_compat = options.wasm_compat,
@@ -1547,6 +1551,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .vtable_count = c_vtables.items.len,
         .functions = c_funcs.items.ptr,
         .function_count = c_funcs.items.len,
+        .target_triple = target_triple_z,
     };
 
     if (obj_path) |path| {
@@ -1806,6 +1811,9 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         try c_funcs.append(job.result orelse return error.Failed);
     }
 
+    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeZ(u8, t)).ptr else null;
+    defer if (target_triple_z) |z| a.free(std.mem.span(z));
+
     const module = CModule{
         .size_bits = size_bits,
         .wasm_compat = options.wasm_compat,
@@ -1820,6 +1828,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .vtable_count = c_vtables.items.len,
         .functions = c_funcs.items.ptr,
         .function_count = c_funcs.items.len,
+        .target_triple = target_triple_z,
     };
 
     const bc_z = try a.dupeZ(u8, bitcode_path);
