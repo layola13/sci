@@ -11,6 +11,7 @@ const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const sab = @import("sab.zig");
+const plugin_bridge = @import("plugin_bridge.zig");
 const plugins = @import("plugins.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_audit = @import("pkg/audit.zig");
@@ -1338,7 +1339,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         .cache => try printCacheHelp(writer, args),
         .build => {
             try writer.writeAll("usage: sa build <file> [options]\n\n");
-            try writer.writeAll("Compile a .sa source file or experimental .sab binary to a native executable.\n\n");
+            try writer.writeAll("Compile a .sa source file or .sab binary to a native executable.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the executable", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1359,14 +1360,14 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .build_obj => {
             try writer.writeAll("usage: sa build-obj <file> [options]\n\n");
-            try writer.writeAll("Build a native object file from a .sa source file or experimental .sab binary.\n\n");
+            try writer.writeAll("Build a native object file from a .sa source file or .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the object file", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_wasm => {
             try writer.writeAll("usage: sa build-wasm <file> [options]\n\n");
-            try writer.writeAll("Build a WebAssembly module from a .sa source file or experimental .sab binary.\n\n");
+            try writer.writeAll("Build a WebAssembly module from a .sa source file or .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
             try writeBuildOptionsHelp(writer, "the wasm module", false);
@@ -1374,7 +1375,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .run => {
             try writer.writeAll("usage: sa run <file> [compile-options] [args...]\n\n");
-            try writer.writeAll("Compile and execute a .sa source file or experimental .sab binary.\n\n");
+            try writer.writeAll("Compile and execute a .sa source file or .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1440,6 +1441,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Uses the process/daemon-scoped verdict cache so unchanged streams skip re-verify.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --json                         Emit JSON report\n");
+            try writer.writeAll("  --emit-sab <path>              Write the verified program as a .sab binary\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -7368,10 +7370,17 @@ fn executeCheck(
 ) !u8 {
     var compile_options = newCompileOptions(exec_options, stderr.any());
     var source_arg: ?[]const u8 = null;
+    var emit_sab_path: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (try consumeCompileOption(arg, args, &i, &compile_options)) continue;
+        if (std.mem.eql(u8, arg, "--emit-sab")) {
+            if (i + 1 >= args.len) return error.MissingOutputPath;
+            emit_sab_path = args[i + 1];
+            i += 1;
+            continue;
+        }
         if (source_arg == null) {
             source_arg = arg;
             continue;
@@ -7395,6 +7404,26 @@ fn executeCheck(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            if (emit_sab_path) |sab_path| {
+                // SAB encode path is standalone: it never falls back to .sa text.
+                // encodeSabFromFlat re-verifies and returns error.VerificationTrap
+                // on failure, which we surface as a check failure.
+                const sab_bytes = plugin_bridge.encodeSabFromFlat(allocator, &owned.flat) catch |err| {
+                    if (err == error.VerificationTrap) {
+                        try stderr.print("check: SAB encode failed: verification trap\n", .{});
+                        return 1;
+                    }
+                    return err;
+                };
+                defer allocator.free(sab_bytes);
+                const cwd = std.fs.cwd();
+                const sab_file = try cwd.createFile(sab_path, .{});
+                defer sab_file.close();
+                try sab_file.writeAll(sab_bytes);
+                if (!json_mode) {
+                    try stdout.print("check ok: wrote SAB binary: {s} ({d} bytes)\n", .{ sab_path, sab_bytes.len });
+                }
+            }
             if (json_mode) {
                 try stdout.writeAll("{\"status\":\"ok\",\"metrics\":");
                 try writeMetricsJson(stdout, owned.metrics);
@@ -8900,4 +8929,57 @@ test "compileSource accepts true SAB without text flattener" {
         },
         .trap => return error.TestUnexpectedResult,
     }
+}
+
+test "check --emit-sab roundtrips through compileSource without text fallback" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    // Write a minimal .sa program, compile it, encode to SAB via the same
+    // plugin_bridge.encodeSabFromFlat that `check --emit-sab` uses, then
+    // reload the .sab and verify the decoded program matches. The SAB path
+    // must be standalone: a corrupt .sab must fail loudly, never silently
+    // fall back to text.
+    const sa_source =
+        \\@main():
+        \\L_ENTRY:
+        \\    x = add 40, 2
+        \\    return x
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "rt.sa", .data = sa_source });
+
+    var compiled_sa = try compileSource(std.testing.allocator, "rt.sa", .{});
+    var ok_sa = switch (compiled_sa) {
+        .ok => |*ok| ok,
+        .trap => return error.TestUnexpectedResult,
+    };
+    defer ok_sa.deinit(std.testing.allocator);
+
+    const sab_bytes = try plugin_bridge.encodeSabFromFlat(std.testing.allocator, &ok_sa.flat);
+    defer std.testing.allocator.free(sab_bytes);
+    // SAB magic "SAB\x00", version 4.0.
+    try std.testing.expect(sab_bytes.len > 6);
+    try std.testing.expectEqualStrings("SAB\x00", sab_bytes[0..4]);
+    try std.testing.expectEqual(@as(u8, 4), sab_bytes[4]);
+    try tmp.dir.writeFile(.{ .sub_path = "rt.sab", .data = sab_bytes });
+
+    var compiled_sab = try compileSource(std.testing.allocator, "rt.sab", .{});
+    switch (compiled_sab) {
+        .ok => |*ok| {
+            defer ok.deinit(std.testing.allocator);
+            try std.testing.expectEqual(ok_sa.flat.instructions.len, ok.flat.instructions.len);
+            try std.testing.expectEqual(ok_sa.flat.symbols.names.items.len, ok.flat.symbols.names.items.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+
+    // Corrupt SAB must fail with a SAB-specific error, not fall back to text.
+    try tmp.dir.writeFile(.{ .sub_path = "bad.sab", .data = sab_bytes[0..10] });
+    try std.testing.expectError(error.TruncatedSab, compileSource(std.testing.allocator, "bad.sab", .{}));
+    try tmp.dir.writeFile(.{ .sub_path = "fake.sab", .data = "this is not a sab binary" });
+    try std.testing.expectError(error.InvalidSabMagic, compileSource(std.testing.allocator, "fake.sab", .{}));
 }
