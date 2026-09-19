@@ -1,6 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+// TLS client: reuse the shared pure-Zig implementation
+// (src/runtime/sa_tls_client.zig, std.crypto.tls.Client + std.net.Stream, no
+// OpenSSL). std.crypto.Certificate.Bundle.rescan covers Windows (CryptAPI
+// system store), so the real backend works here -- unlike HTTP/2 below, there
+// is no external native library to link. Same comptime strong-reference
+// trick as sa_std.zig so every `pub export fn` is kept in the archive.
+comptime {
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
+}
+
 extern fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]u8;
 extern fn _putenv_s(name: [*:0]const u8, value: [*:0]const u8) callconv(.c) c_int;
 extern "kernel32" fn CreateHardLinkW(new_file_name: [*:0]const u16, existing_file_name: [*:0]const u16, security_attributes: ?*anyopaque) callconv(.winapi) std.os.windows.BOOL;

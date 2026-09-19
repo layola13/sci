@@ -735,6 +735,21 @@ pub fn build(b: *std.Build) void {
     if (is_linux) test_step.dependOn(&run_sa_tls_server_tests.step);
     const sa_tls_server_test_step = b.step("sa-tls-server-test", "Run TLS-server (OpenSSL) runtime tests");
     sa_tls_server_test_step.dependOn(&run_sa_tls_server_tests.step);
+    const sa_tls_client_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_tls_client.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sa_tls_client_module.addOptions("build_options", build_options);
+    const sa_tls_client_tests = b.addTest(.{
+        .root_module = sa_tls_client_module,
+    });
+    const run_sa_tls_client_tests = b.addRunArtifact(sa_tls_client_tests);
+    run_sa_tls_client_tests.setCwd(repo_root_lazy);
+    if (is_linux) test_step.dependOn(&run_sa_tls_client_tests.step);
+    const sa_tls_client_test_step = b.step("sa-tls-client-test", "Run TLS-client (std.crypto.tls) runtime tests");
+    sa_tls_client_test_step.dependOn(&run_sa_tls_client_tests.step);
     const sa_dtls_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_dtls.zig"),
         .target = target,
@@ -817,6 +832,7 @@ pub fn build(b: *std.Build) void {
         linux_runtime_step.dependOn(&run_sa_net_uring_tests.step);
         linux_runtime_step.dependOn(&run_sa_http2_tests.step);
         linux_runtime_step.dependOn(&run_sa_tls_server_tests.step);
+        linux_runtime_step.dependOn(&run_sa_tls_client_tests.step);
         linux_runtime_step.dependOn(&run_sa_dtls_tests.step);
         linux_runtime_step.dependOn(&run_sa_quic_tests.step);
         linux_runtime_step.dependOn(&run_sa_term_runtime.step);
