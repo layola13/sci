@@ -21,6 +21,11 @@
 @extern sa_std_tls_client_connect(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
 
 @extern sa_std_tls_client_add_ca_file(&path: ptr, path_len: u64) -> i32
+// Trust-anchor rule (std.crypto.Bundle): the bundle keeps only the FIRST
+// certificate seen for a given subject name. Pinning a second, different
+// certificate with an identical subject is silently ignored -- it returns
+// OK but changes nothing. Regenerate with a distinguishing subject field
+// if you must re-pin.
 
 @extern sa_std_tls_client_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
 @extern sa_std_tls_client_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32

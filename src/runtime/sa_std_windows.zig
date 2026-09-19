@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 // trick as sa_std.zig so every `pub export fn` is kept in the archive.
 comptime {
     _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
+    _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
 }
 
 extern fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]u8;

@@ -23,6 +23,7 @@ comptime {
     _ = &http2.sa_std_http2_buffer_free;
     _ = &@import("sa_tls_server.zig").sa_std_tls_server_supported;
     _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
+    _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
     if (builtin.os.tag == .linux) {

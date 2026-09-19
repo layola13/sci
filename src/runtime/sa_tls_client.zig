@@ -130,35 +130,44 @@ pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, p
     if (port == 0 or port > 65535) return SA_STD_ERR_INVALID_ARGUMENT;
 
     // 1. TCP dial first, outside the bundle mutex (DNS resolution can block).
+    // NOTE: this function returns i32, so errdefer is dead code here -- every
+    // failure path below frees/closes explicitly.
     const stream = std.net.tcpConnectToHost(std.heap.page_allocator, host_slice, @intCast(port)) catch |err| {
         return mapDialErr(err);
     };
-    errdefer stream.close();
 
     // 2. Owned copy of the hostname: Client.init only borrows it during the
     // call, but we keep it on the handle for status/debug.
-    const host_owned = std.heap.page_allocator.dupe(u8, host_slice) catch return SA_STD_ERR_NO_MEMORY;
-    errdefer std.heap.page_allocator.free(host_owned);
+    const host_owned = std.heap.page_allocator.dupe(u8, host_slice) catch {
+        stream.close();
+        return SA_STD_ERR_NO_MEMORY;
+    };
 
     // 3. Snapshot the bundle and run the blocking TLS handshake under the
     // mutex: the copied Bundle shares the singleton's byte storage, and this
     // keeps add_ca_file from reallocating it mid-handshake.
     bundle_mutex.lock();
     defer bundle_mutex.unlock();
-    const bundle_copy = (ensureBundleLocked() catch |err| return mapBundleErr(err)).*;
+    const bundle_copy = (ensureBundleLocked() catch |err| {
+        std.heap.page_allocator.free(host_owned);
+        stream.close();
+        return mapBundleErr(err);
+    }).*;
     var client = std.crypto.tls.Client.init(stream, .{
         .host = .{ .explicit = host_owned },
         .ca = .{ .bundle = bundle_copy },
     }) catch |err| {
+        std.heap.page_allocator.free(host_owned);
+        stream.close();
         return mapTlsErr(err);
     };
     client.allow_truncation_attacks = true;
 
     const h = std.heap.page_allocator.create(TlsClientHandle) catch {
         // Extremely unlikely, but don't leak the live TLS session: try a
-        // clean close_notify before dropping the socket. (host_owned is freed
-        // by the errdefer above.)
+        // clean close_notify before dropping the socket.
         _ = client.writeEnd(stream, "", true) catch 0;
+        std.heap.page_allocator.free(host_owned);
         stream.close();
         return SA_STD_ERR_NO_MEMORY;
     };
@@ -260,7 +269,10 @@ fn registerString(bytes: []u8, slot: *u64) i32 {
             return SA_STD_OK;
         }
     }
-    string_registry.append(std.heap.page_allocator, bytes) catch return SA_STD_ERR_NO_MEMORY;
+    string_registry.append(std.heap.page_allocator, bytes) catch {
+        std.heap.page_allocator.free(bytes);
+        return SA_STD_ERR_NO_MEMORY;
+    };
     slot.* = @intCast(string_registry.items.len);
     return SA_STD_OK;
 }
