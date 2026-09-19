@@ -1,0 +1,34 @@
+// sa_std TLS-client surface — real std.crypto.tls backend living in the sci runtime.
+//
+// A TLS client connection is an opaque u64 handle (0 == invalid). connect()
+// performs the TCP dial and the TLS handshake in one call and always verifies
+// the peer: the hostname is sent as SNI and checked against the peer
+// certificate, and the chain is verified against the process-wide CA bundle
+// (OS trust store, optionally extended with sa_std_tls_client_add_ca_file).
+// There is no verification-disabled mode.
+//
+// Error codes: 0 = OK; negative = error (-1 unsupported, -5 I/O,
+// -12 out of memory, -22 invalid argument, -100 certificate verification
+// failure). close() consumes the handle.
+//
+// String/JSON outputs are returned as registered u64 buffer handles, following
+// the same convention as sa_std.fs.read_* and sa_std.http2: read bytes/length
+// with sa_std_tls_client_buffer_data / sa_std_tls_client_buffer_len and
+// release with sa_std_tls_client_buffer_free.
+
+@extern sa_std_tls_client_supported(&out_supported: ptr) -> i32
+
+@extern sa_std_tls_client_connect(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
+
+@extern sa_std_tls_client_add_ca_file(&path: ptr, path_len: u64) -> i32
+
+@extern sa_std_tls_client_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_tls_client_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_std_tls_client_close(handle: u64) -> i32
+
+@extern sa_std_tls_client_status_json(&out_handle: ptr) -> i32
+
+// buffer handle accessors (sci convention)
+@extern sa_std_tls_client_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_tls_client_buffer_len(buffer: u64) -> u64
+@extern sa_std_tls_client_buffer_free(^buffer: u64) -> i32
