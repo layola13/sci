@@ -4006,11 +4006,17 @@ fn fileExistsInProject(allocator: std.mem.Allocator, root_dir: []const u8, rel: 
 fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout: anytype, optimize: []const u8) !u8 {
     const optimize_arg = try std.fmt.allocPrint(allocator, "-Doptimize={s}", .{optimize});
     defer allocator.free(optimize_arg);
-    const result = try std.process.Child.run(.{
+    const result = std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "zig", "build", optimize_arg, "--summary", "all" },
         .cwd = root_dir,
-    });
+    }) catch |err| switch (err) {
+        error.FileNotFound => {
+            try stdout.writeAll("error: cannot build plugin project: 'zig' not found in PATH (sa plugin install builds the plugin with zig; install zig 0.14.1+ or add it to PATH)\n");
+            return 1;
+        },
+        else => return err,
+    };
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
@@ -4031,6 +4037,29 @@ fn dirExistsAbsolute(path: []const u8) bool {
     var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
     dir.close();
     return true;
+}
+
+test "plugin build reports clear error when zig is missing from PATH" {
+    const c = @cImport(@cInclude("stdlib.h"));
+    const allocator = std.testing.allocator;
+    const old_path = std.process.getEnvVarOwned(allocator, "PATH") catch null;
+    defer if (old_path) |p| allocator.free(p);
+    // Point PATH at a nonexistent dir so `zig` cannot be resolved; buildPluginProject
+    // must return 1 with a clear message instead of propagating error.FileNotFound.
+    if (c.setenv("PATH", "/tmp/sa-test-no-such-path-dir", 1) != 0) return error.SetEnvFailed;
+    defer blk: {
+        if (old_path) |p| {
+            const z = allocator.dupeZ(u8, p) catch break :blk;
+            defer allocator.free(z);
+            _ = c.setenv("PATH", z.ptr, 1);
+        }
+    }
+    var out = std.ArrayList(u8).init(allocator);
+    defer out.deinit();
+    const rc = try buildPluginProject(allocator, "/tmp", out.writer(), "ReleaseFast");
+    try std.testing.expectEqual(@as(u8, 1), rc);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "PATH") != null);
 }
 
 fn readFileAbsoluteAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
