@@ -410,13 +410,20 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "call_indirect")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["call_indirect".len..], " \t");
-        if (rest.len == 0) return false;
-        line.* = makeLine(.instruction, line.raw, line.trimmed);
-        line.inst_form = .call_indirect;
-        addPart(line, 0, lhs);
-        addPart(line, 1, rest);
-        return true;
+        // Must be a word boundary: "call_indirect_foo" is a variable, not a call.
+        // Check that the char after "call_indirect" is not alphanumeric or underscore.
+        const after = simple_rhs["call_indirect".len..];
+        if (after.len > 0 and (std.ascii.isAlphanumeric(after[0]) or after[0] == '_')) {
+            // Not a call_indirect keyword, fall through to other handlers.
+        } else {
+            const rest = std.mem.trimLeft(u8, after, " \t");
+            if (rest.len == 0) return false;
+            line.* = makeLine(.instruction, line.raw, line.trimmed);
+            line.inst_form = .call_indirect;
+            addPart(line, 0, lhs);
+            addPart(line, 1, rest);
+            return true;
+        }
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "ptr_add")) {
@@ -432,13 +439,20 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "call")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["call".len..], " \t");
-        if (rest.len == 0) return false;
-        line.* = makeLine(.instruction, line.raw, line.trimmed);
-        line.inst_form = .call;
-        addPart(line, 0, lhs);
-        addPart(line, 1, rest);
-        return true;
+        // Must be a word boundary: "calls_ptr" is a variable, not a call.
+        // Check that the char after "call" is not alphanumeric or underscore.
+        const after = simple_rhs["call".len..];
+        if (after.len > 0 and (std.ascii.isAlphanumeric(after[0]) or after[0] == '_')) {
+            // Not a call keyword, fall through to other handlers.
+        } else {
+            const rest = std.mem.trimLeft(u8, after, " \t");
+            if (rest.len == 0) return false;
+            line.* = makeLine(.instruction, line.raw, line.trimmed);
+            line.inst_form = .call;
+            addPart(line, 0, lhs);
+            addPart(line, 1, rest);
+            return true;
+        }
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "atomic_load")) {

@@ -3273,6 +3273,26 @@ fn verifyBody(
                 const idx: usize = @intCast(item.operands[0].reg);
                 if ((state[idx] & maskOf(.borrow_view)) != 0) {
                     clearBorrow(state, flags, origins, locks, item.operands[0].reg, &interior);
+                } else if ((flags[idx] & (regFlagRawPointer | regFlagEphemeralScalar)) != 0 and
+                    state[idx] == maskOf(.active))
+                {
+                    // Plain raw pointers and ephemeral scalars carry no
+                    // ownership: release is a no-op and must not mark the
+                    // register Consumed. Otherwise a `!tp`/`!tn` (e.g. at a
+                    // loop back-edge) poisons the phi snapshot for later
+                    // redefinitions of the same register name, producing a
+                    // false PhiStateConflict (Active vs Consumed).
+                    // NOTE: check borrow_view first above: setBorrowState
+                    // reuses bit 0x01 for FFI borrows, which collides with
+                    // regFlagRawPointer; FFI borrows must still go through
+                    // clearBorrow.
+                    // NOTE: only apply to PLAIN Active values. A raw ptr
+                    // loaded from a borrow view carries InteriorPtr state
+                    // (Active|InteriorPtr composite); it is borrow-tracked
+                    // and must go through the normal release path so macro
+                    // temps (e.g. VEC_AS_SLICE's __vec_ptr_...) are properly
+                    // cleared for loop-head phi merges.
+                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 } else {
                     if (isImmutableConst(state, flags, item.operands[0].reg)) {
                         return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], state[idx], "immutable registers cannot be released");
@@ -6461,6 +6481,82 @@ test "raw pointer load temp live at exit is not a memory leak" {
         \\@main() -> i32:
         \\data = stack_alloc 8
         \\tmp = load data+0 as ptr
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "raw pointer release is a no-op and does not poison phi snapshots" {
+    // Releasing a raw pointer (`!tp` where tp was loaded as ptr) must not
+    // mark the register Consumed: raw pointers carry no ownership. The
+    // pre-fix behavior poisoned the loop-head phi snapshot, so a later
+    // redefinition of the same register name (Active) clashed with the
+    // snapshot (Consumed) and produced a false PhiStateConflict.
+    // Mirrors the SA-text pattern from sla__ap_parse: tp is released at the
+    // first loop's back-edge, then redefined in a second loop.
+    const source =
+        \\@main() -> i32:
+        \\data = stack_alloc 8
+        \\i = stack_alloc 8
+        \\n = 2
+        \\tmp0 = 0
+        \\store i+0, tmp0 as u64
+        \\!tmp0
+        \\jmp L_HEAD1
+        \\L_HEAD1:
+        \\tmp1 = load i+0 as u64
+        \\tmp2 = ult tmp1, n
+        \\!tmp1
+        \\br tmp2 -> L_BODY1, L_EXIT1
+        \\L_BODY1:
+        \\!tmp2
+        \\tp = load data+0 as ptr
+        \\tmp3 = load i+0 as u64
+        \\tmp4 = 1
+        \\tmp5 = add tmp3, tmp4
+        \\!tmp3
+        \\!tmp4
+        \\store i+0, tmp5 as u64
+        \\!tmp5
+        \\!tp
+        \\jmp L_HEAD1
+        \\L_EXIT1:
+        \\!tmp2
+        \\tmp6 = 0
+        \\store i+0, tmp6 as u64
+        \\!tmp6
+        \\jmp L_HEAD2
+        \\L_HEAD2:
+        \\tmp7 = load i+0 as u64
+        \\tmp8 = ult tmp7, n
+        \\!tmp7
+        \\br tmp8 -> L_BODY2, L_EXIT2
+        \\L_BODY2:
+        \\!tmp8
+        \\tp = load data+0 as ptr
+        \\tmp9 = load i+0 as u64
+        \\tmp10 = 1
+        \\tmp11 = add tmp9, tmp10
+        \\!tmp9
+        \\!tmp10
+        \\store i+0, tmp11 as u64
+        \\!tmp11
+        \\jmp L_HEAD2
+        \\L_EXIT2:
+        \\!tmp8
         \\return 0
     ;
     var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
