@@ -842,7 +842,16 @@ fn mergeJoinMask(left: u16, right: u16) ?u16 {
     // This fixes SLA PhiStateConflict in while loops and if-without-else patterns
     const active_mask = maskOf(.active);
     if ((left == 0 and right == active_mask) or (right == 0 and left == active_mask)) {
-        return 0;  // Merge to Uninitialized (safe: uninit is the conservative state)
+        return 0; // Merge to Uninitialized (safe: uninit is the conservative state)
+    }
+
+    // PATCH 1b: Allow (Active|BorrowView) ↔ Uninitialized merging.
+    // A borrow created on one if/else branch but not the other merges to
+    // Uninitialized (the borrow is dead on the merged path). This mirrors
+    // the Active ↔ Uninitialized patch above.
+    const borrow_active_mask = maskOf(.active) | maskOf(.borrow_view);
+    if ((left == 0 and right == borrow_active_mask) or (right == 0 and left == borrow_active_mask)) {
+        return 0;
     }
 
     // PATCH 2: Allow Active ↔ Untracked merging for primitive types
