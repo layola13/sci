@@ -2944,9 +2944,40 @@ fn verifyBody(
                     current_scope = null;
                 }
 
+                // A corrupted artifact (e.g. a hand-edited or truncated .sab) may carry
+                // a signature whose param_ids do not line up with its params or whose
+                // param register ids are not declared in the function scope. Both
+                // are reported as structured traps; the old `orelse unreachable`
+                // panicked and the bare `param_ids[pidx]` indexing could read out
+                // of bounds.
+                if (decl_sig.param_ids.len < decl_sig.params.len) {
+                    return trapReport(
+                        .corrupted_signature,
+                        item,
+                        current_function_text,
+                        current_is_ffi_wrapper,
+                        null,
+                        null,
+                        null,
+                        "corrupted function signature: parameter count exceeds param_ids count",
+                        "rebuild the module from source; the artifact's signature metadata is inconsistent",
+                    );
+                }
                 for (decl_sig.params, 0..) |param, pidx| {
                     const reg_id = decl_sig.param_ids[pidx];
-                    const reg_slot = current_scope.?.slotOf(reg_id) orelse unreachable;
+                    const reg_slot = current_scope.?.slotOf(reg_id) orelse {
+                        return trapReport(
+                            .corrupted_signature,
+                            item,
+                            current_function_text,
+                            current_is_ffi_wrapper,
+                            param.name,
+                            null,
+                            null,
+                            "corrupted function signature: parameter references a register id that is not declared in this function scope",
+                            "rebuild the module from source; the artifact's param_ids are inconsistent with its register scope",
+                        );
+                    };
                     const reg_idx: usize = @intCast(reg_slot);
                     state[reg_idx] = switch (param.cap) {
                         .by_value, .move => maskOf(.active),

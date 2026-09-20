@@ -60,6 +60,7 @@ pub const Trap = enum(u8) {
     missing_tty_for_confirmation,
     forbidden_global_config,
     sum_hash_mismatch,
+    corrupted_signature,
 };
 
 pub const TrapReport = struct {
@@ -168,6 +169,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .missing_tty_for_confirmation => "MissingTtyForConfirmation",
         .forbidden_global_config => "ForbiddenGlobalConfig",
         .sum_hash_mismatch => "SumHashMismatch",
+        .corrupted_signature => "CorruptedSignature",
     };
 }
 
@@ -230,6 +232,7 @@ pub fn trapCode(trap: Trap) u32 {
         .missing_tty_for_confirmation => 1055,
         .forbidden_global_config => 1056,
         .sum_hash_mismatch => 1057,
+        .corrupted_signature => 1058,
     };
 }
 
@@ -440,6 +443,7 @@ test "trap names are stable" {
     try std.testing.expectEqualStrings("ImportResolutionFailed", trapName(.import_resolution_failed));
     try std.testing.expectEqualStrings("ForbiddenGlobalConfig", trapName(.forbidden_global_config));
     try std.testing.expectEqualStrings("SumHashMismatch", trapName(.sum_hash_mismatch));
+    try std.testing.expectEqualStrings("CorruptedSignature", trapName(.corrupted_signature));
 }
 
 test "trap codes are explicit and stable" {
@@ -452,6 +456,7 @@ test "trap codes are explicit and stable" {
     try std.testing.expectEqual(@as(u32, 1050), trapCode(.import_resolution_failed));
     try std.testing.expectEqual(@as(u32, 1056), trapCode(.forbidden_global_config));
     try std.testing.expectEqual(@as(u32, 1057), trapCode(.sum_hash_mismatch));
+    try std.testing.expectEqual(@as(u32, 1058), trapCode(.corrupted_signature));
 }
 
 test "trap json serialization is stable" {
