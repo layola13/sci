@@ -3630,6 +3630,10 @@ fn verifyBody(
                     if ((mask & maskOf(.active)) == 0 and (mask & maskOf(.locked_read)) == 0 and (mask & maskOf(.locked_mut)) == 0) continue;
                     if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
                     if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
+                    // Raw pointers carry no ownership (release is a no-op for
+                    // them); a live raw-pointer temp is never a leak, same as
+                    // an ephemeral scalar temp.
+                    if ((flags[idx] & regFlagRawPointer) != 0) continue;
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
                     if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
                     const src_name = current_scope.?.nameOf(&metadata.symbols, src_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(src_id)) orelse "";
@@ -3744,6 +3748,10 @@ fn verifyBody(
             if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
             if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
             if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
+            // Raw pointers carry no ownership (release is a no-op for them);
+            // a live raw-pointer temp is never a leak, same as an ephemeral
+            // scalar temp.
+            if ((flags[idx] & regFlagRawPointer) != 0) continue;
             if ((flags[idx] & regFlagBranchCondition) != 0) continue;
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
             if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
@@ -6438,6 +6446,75 @@ test "ffi wrapper allows raw params in branch control flow" {
             try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "raw pointer load temp live at exit is not a memory leak" {
+    // A `load` whose type is .ptr is flagged regFlagRawPointer. Raw pointers
+    // carry no ownership (release is a no-op for them), so a live raw-pointer
+    // temp at function exit must not trap -- same as an ephemeral scalar.
+    // This is the verifier side of the SAB/SA-text parity fix for
+    // PhiStateConflict on ptr phi joins: the flag must be assignable without
+    // forcing the compiler to emit a release for every compiler-generated
+    // ptr temp.
+    const source =
+        \\@main() -> i32:
+        \\data = stack_alloc 8
+        \\tmp = load data+0 as ptr
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "owned alloc live at exit still traps memory leak" {
+    // Negative control for the raw-pointer leak exemption: a genuinely owned
+    // value (heap alloc, not a raw pointer) left live at function exit must
+    // still trap .memory_leak.
+    const source =
+        \\@main() -> i32:
+        \\leak_0 = alloc 8
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "redefining live owned register still traps register redefinition" {
+    // Negative control for the raw-pointer redefinition exemption: an owned
+    // (non-raw-pointer, non-ephemeral) live register must still trap
+    // .register_redefinition when reassigned.
+    const source =
+        \\@main() -> i32:
+        \\leak_0 = alloc 8
+        \\leak_0 = alloc 16
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.register_redefinition, report.trap),
+        .ok => return error.TestUnexpectedResult,
     }
 }
 
