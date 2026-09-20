@@ -594,6 +594,9 @@ const TestCommandOptions = struct {
     compile_only: bool = false,
     trace_panic: bool = false,
     affected: bool = false,
+    // Test binaries are dev-time artifacts: link with zero optimization by
+    // default; --release-small/--release-fast opt in to LLVM optimization.
+    optimization: driver.Optimization = .none,
 };
 
 pub const DiagnosticsMode = enum {
@@ -1432,6 +1435,8 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("  --ignored                      Run only ignored tests\n");
             try writer.writeAll("  --include-ignored              Run all tests including ignored\n");
             try writer.writeAll("  --affected                     Run only tests impacted by changed functions\n");
+            try writer.writeAll("  --release-small                Link test binaries with -O1 (default: -O0)\n");
+            try writer.writeAll("  --release-fast                 Link test binaries with -O3 (default: -O0)\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -8113,7 +8118,7 @@ fn executeTestInner(
             }
 
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .none, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, test_options.optimization, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -8537,11 +8542,16 @@ pub fn executeWithWritersAndOptions(
             var compile_only = false;
             var trace_panic = false;
             var affected_flag = false;
+            var test_optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (source_path == null) {
                     source_path = args[i];
+                    continue;
+                }
+                if (parseOptimizationFlag(args[i])) |mode| {
+                    test_optimization = mode;
                     continue;
                 }
                 if (std.mem.eql(u8, args[i], "--list")) {
@@ -8604,6 +8614,7 @@ pub fn executeWithWritersAndOptions(
                 .compile_only = compile_only,
                 .trace_panic = trace_panic,
                 .affected = affected_flag,
+                .optimization = test_optimization,
             }, stdout, stderr, if (json_mode) .json else .human);
         },
     }
