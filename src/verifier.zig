@@ -996,6 +996,11 @@ fn snapshotStatesCompatible(snapshot: *const LabelSnapshot, state: []const u16) 
         // PATCH: Allow Active ↔ Uninitialized
         if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
 
+        // PATCH: Allow (Active|BorrowView) ↔ Uninitialized (while-loop back-edge
+        // with a borrow created inside the loop but not at entry).
+        const borrow_active_mask: u16 = 0x01 | 0x10; // active | borrow_view
+        if ((snap_mask == 0 and mask == borrow_active_mask) or (mask == 0 and snap_mask == borrow_active_mask)) continue;
+
         // PATCH: Allow Active (0x01) ↔ Untracked (0x40)
         if (snap_mask == active_mask and mask == untracked_mask) continue;
         if (mask == active_mask and snap_mask == untracked_mask) continue;
@@ -1029,6 +1034,11 @@ fn snapshotFirstMismatch(snapshot: *const LabelSnapshot, state: []const u16, sym
         const active_mask = maskOf(.active);
         if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
 
+        // PATCH: Allow (Active|BorrowView) ↔ Uninitialized (while-loop back-edge
+        // with a borrow created inside the loop but not at entry).
+        const borrow_active_mask = maskOf(.active) | maskOf(.borrow_view);
+        if ((snap_mask == 0 and mask == borrow_active_mask) or (mask == 0 and snap_mask == borrow_active_mask)) continue;
+
         // PATCH: Allow Active ↔ Untracked
         const untracked_mask = maskOf(.untracked);
         if ((snap_mask == active_mask and mask == untracked_mask) or (mask == active_mask and snap_mask == untracked_mask)) continue;
@@ -1055,6 +1065,11 @@ fn snapshotFirstMismatchInScope(snapshot: *const LabelSnapshot, state: []const u
         // PATCH: Allow Active ↔ Uninitialized
         const active_mask = maskOf(.active);
         if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
+
+        // PATCH: Allow (Active|BorrowView) ↔ Uninitialized (while-loop back-edge
+        // with a borrow created inside the loop but not at entry).
+        const borrow_active_mask = maskOf(.active) | maskOf(.borrow_view);
+        if ((snap_mask == 0 and mask == borrow_active_mask) or (mask == 0 and snap_mask == borrow_active_mask)) continue;
 
         // PATCH: Allow Active ↔ Untracked
         const untracked_mask = maskOf(.untracked);
