@@ -6499,14 +6499,14 @@ test "raw pointer load temp live at exit is not a memory leak" {
     }
 }
 
-test "raw pointer release is a no-op and does not poison phi snapshots" {
-    // Releasing a raw pointer (`!tp` where tp was loaded as ptr) must not
-    // mark the register Consumed: raw pointers carry no ownership. The
-    // pre-fix behavior poisoned the loop-head phi snapshot, so a later
-    // redefinition of the same register name (Active) clashed with the
-    // snapshot (Consumed) and produced a false PhiStateConflict.
-    // Mirrors the SA-text pattern from sla__ap_parse: tp is released at the
-    // first loop's back-edge, then redefined in a second loop.
+test "raw pointer release is a no-op: no false PhiStateConflict at diamond merge" {
+    // Releasing a plain raw pointer (`!tp` where tp was loaded `as ptr`)
+    // must not mark the register Consumed: raw pointers carry no ownership.
+    // Pre-fix, `!tp` marked tp Consumed, so at L_M the path via L_B
+    // (tp=Consumed) clashed with the path via L_A (tp=Active after
+    // redefinition), producing a false PhiStateConflict. Post-fix both
+    // paths carry tp=Active and the join succeeds.
+    // This test FAILS on the pre-fix verifier (trap PhiStateConflict).
     const source =
         \\@main() -> i32:
         \\data = stack_alloc 8
@@ -6515,48 +6515,66 @@ test "raw pointer release is a no-op and does not poison phi snapshots" {
         \\tmp0 = 0
         \\store i+0, tmp0 as u64
         \\!tmp0
-        \\jmp L_HEAD1
-        \\L_HEAD1:
+        \\tp = load data+0 as ptr
+        \\!tp
         \\tmp1 = load i+0 as u64
         \\tmp2 = ult tmp1, n
         \\!tmp1
-        \\br tmp2 -> L_BODY1, L_EXIT1
-        \\L_BODY1:
+        \\br tmp2 -> L_A, L_B
+        \\L_A:
         \\!tmp2
         \\tp = load data+0 as ptr
-        \\tmp3 = load i+0 as u64
-        \\tmp4 = 1
-        \\tmp5 = add tmp3, tmp4
-        \\!tmp3
-        \\!tmp4
-        \\store i+0, tmp5 as u64
-        \\!tmp5
-        \\!tp
-        \\jmp L_HEAD1
-        \\L_EXIT1:
+        \\jmp L_M
+        \\L_B:
         \\!tmp2
-        \\tmp6 = 0
-        \\store i+0, tmp6 as u64
-        \\!tmp6
-        \\jmp L_HEAD2
-        \\L_HEAD2:
-        \\tmp7 = load i+0 as u64
-        \\tmp8 = ult tmp7, n
-        \\!tmp7
-        \\br tmp8 -> L_BODY2, L_EXIT2
-        \\L_BODY2:
-        \\!tmp8
-        \\tp = load data+0 as ptr
-        \\tmp9 = load i+0 as u64
-        \\tmp10 = 1
-        \\tmp11 = add tmp9, tmp10
-        \\!tmp9
-        \\!tmp10
-        \\store i+0, tmp11 as u64
-        \\!tmp11
-        \\jmp L_HEAD2
-        \\L_EXIT2:
-        \\!tmp8
+        \\jmp L_M
+        \\L_M:
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "ephemeral scalar release is a no-op: no false PhiStateConflict at diamond merge" {
+    // Same shape as the raw-pointer test, but for an ephemeral scalar
+    // (`tmp0 = 0`, an immediate assignment). Pre-fix, `!tmp0` marked it
+    // Consumed and the L_M join of Active (L_A, redefined) vs Consumed
+    // (L_B) trapped with a false PhiStateConflict. Post-fix both paths
+    // stay Active.
+    // This test FAILS on the pre-fix verifier (trap PhiStateConflict).
+    const source =
+        \\@main() -> i32:
+        \\data = stack_alloc 8
+        \\i = stack_alloc 8
+        \\n = 2
+        \\tmp0 = 0
+        \\store i+0, tmp0 as u64
+        \\!tmp0
+        \\tmp1 = load i+0 as u64
+        \\tmp2 = ult tmp1, n
+        \\!tmp1
+        \\br tmp2 -> L_A, L_B
+        \\L_A:
+        \\!tmp2
+        \\tmp0 = 5
+        \\jmp L_M
+        \\L_B:
+        \\!tmp2
+        \\jmp L_M
+        \\L_M:
+        \\!tmp0
         \\return 0
     ;
     var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
