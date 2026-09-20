@@ -2435,7 +2435,7 @@ fn assignValueCtx(
         return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
     }
     const current = state[idx];
-    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
+    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0 and (flags[idx] & regFlagRawPointer) == 0) {
         return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
     }
     if (hasInteriorPtr(current) or interior.interior_first_child[idx] != null) {
@@ -3092,7 +3092,7 @@ fn verifyBody(
                     ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0);
                 const new_mask = maskOf(.active) | if (load_is_borrowed_ptr) maskOf(.interior_ptr) else 0;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, new_mask, &interior)) |tr| return tr;
-                flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty != .ptr) regFlagEphemeralScalar else 0;
+                flags[@intCast(item.operands[0].reg)] = if (item.kind == .load) (if (loaded_ty == .ptr) regFlagRawPointer else regFlagEphemeralScalar) else 0;
                 if (item.kind == .take and ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg))) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
                     setInteriorOffsetFromBase(&interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
@@ -3256,6 +3256,12 @@ fn verifyBody(
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 }
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                if (item.operands[1] == .reg) {
+                    const src_flags = flags[@intCast(item.operands[1].reg)];
+                    if ((src_flags & regFlagRawPointer) != 0) {
+                        flags[@intCast(dst_id)] |= regFlagRawPointer;
+                    }
+                }
                 if (source_is_ephemeral) {
                     flags[@intCast(dst_id)] = regFlagEphemeralScalar;
                 }
@@ -3551,7 +3557,29 @@ fn verifyBody(
                         if (current_scope) |scope| {
                             if (resolveScopedRegId(&scope, &metadata.symbols, dest)) |dest_id| {
                                 const idx: usize = @intCast(dest_id);
-                                if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
+                                // The stdlib VEC_PUSH macro expands to:
+                                //   %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
+                                // In SA IR, `^` is the .move prefix (not .borrow; `&` is .borrow).
+                                // This "update via move" pattern is legal SA: the dest is moved
+                                // into the call via ^, then reassigned with the (mutated) result.
+                                // SA-text verifies the EXPAND directive and never sees the expanded
+                                // form; SAB contains the expanded instructions, so the SAB verifier
+                                // must allow the pattern here to maintain SAB/SA-text parity.
+                                // Note: if the moved arg has regFlagRawPointer, the .move handler
+                                // above does `continue` without marking it consumed, so the dest
+                                // check below would falsely report redefinition without this allowance.
+                                var dest_is_moved_arg = false;
+                                for (parsed.args) |arg| {
+                                    if (arg.prefix != .move) continue;
+                                    if (!isIdentLike(arg.text)) continue;
+                                    if (resolveScopedRegId(&scope, &metadata.symbols, arg.text)) |arg_id| {
+                                        if (arg_id == dest_id) {
+                                            dest_is_moved_arg = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!dest_is_moved_arg and state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
                                     return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                                 }
                                 if (isImmutableConst(state, flags, dest_id)) {
