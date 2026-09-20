@@ -7703,6 +7703,7 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
 fn emitOptLevel(debug: bool, optimization: driver.Optimization) u8 {
     if (debug) return 0;
     return switch (optimization) {
+        .none => 0,
         .release_small => 1,
         .release_fast => 3,
     };
@@ -8264,7 +8265,7 @@ pub fn executeWithWritersAndOptions(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8306,7 +8307,7 @@ pub fn executeWithWritersAndOptions(
             var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8374,7 +8375,7 @@ pub fn executeWithWritersAndOptions(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8417,7 +8418,7 @@ pub fn executeWithWritersAndOptions(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var incremental = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
@@ -8466,7 +8467,7 @@ pub fn executeWithWritersAndOptions(
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;

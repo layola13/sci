@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const Optimization = enum {
+    none,
     release_small,
     release_fast,
 };
@@ -59,6 +60,7 @@ pub fn argvForExe(
         try argv.items.append("-g");
     }
     try argv.items.append(if (debug) "-O0" else switch (optimization) {
+        .none => "-O0",
         .release_small => "-O1",
         .release_fast => "-O3",
     });
@@ -108,6 +110,7 @@ pub fn argvForObj(
         try argv.items.append("-g");
     }
     try argv.items.append(if (debug) "-O0" else switch (optimization) {
+        .none => "-O0",
         .release_small => "-O1",
         .release_fast => "-O3",
     });
@@ -159,6 +162,7 @@ pub fn argvForWasm(
     }
 
     try argv.items.append(if (debug) "-O0" else switch (optimization) {
+        .none => "-O0",
         .release_small => "-O1",
         .release_fast => "-O3",
     });
