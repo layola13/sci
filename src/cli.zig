@@ -8113,7 +8113,7 @@ fn executeTestInner(
             }
 
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, .none, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
