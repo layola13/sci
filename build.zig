@@ -389,6 +389,24 @@ pub fn build(b: *std.Build) void {
     const workspace_smoke_step = b.step("workspace-smoke", "Run workspace package-management smoke tests");
     workspace_smoke_step.dependOn(&run_workspace_smoke.step);
 
+    const sab_corrupt_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    sab_corrupt_smoke_module.addImport("saasm", lib_module);
+    sab_corrupt_smoke_module.addOptions("build_options", build_options);
+    const sab_corrupt_smoke = b.addTest(.{
+        .root_module = sab_corrupt_smoke_module,
+        .filters = &.{"sab with corrupted param_ids traps CorruptedSignature without panic or text fallback"},
+    });
+    const run_sab_corrupt_smoke = b.addRunArtifact(sab_corrupt_smoke);
+    run_sab_corrupt_smoke.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_sab_corrupt_smoke, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    test_step.dependOn(&run_sab_corrupt_smoke.step);
+    const sab_corrupt_smoke_step = b.step("sab-corrupt-smoke", "Run the corrupted SAB param_ids regression smoke test");
+    sab_corrupt_smoke_step.dependOn(&run_sab_corrupt_smoke.step);
+
     const pthread_vtable_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,

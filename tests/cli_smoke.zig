@@ -5271,3 +5271,118 @@ test "agent capability: affected selects impacted tests" {
             std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests=0"),
     );
 }
+
+test "sab with corrupted param_ids traps CorruptedSignature without panic or text fallback" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    // The program needs a function with parameters so param_ids is populated
+    // in the encoded SAB.
+    const sa_source =
+        \\@add2(a: u64, b: u64) -> u64:
+        \\L_ENTRY:
+        \\    c = add a, b
+        \\    return c
+        \\@main() -> i32:
+        \\L_MAIN:
+        \\    call @add2(20, 22)
+        \\    return 0
+    ;
+    try writeSource(tmp.dir, "params.sa", sa_source);
+
+    // Produce a valid SAB through the real `check --emit-sab` CLI path.
+    // NOTE: use executeWithWriters (not execute): execute writes to the real
+    // process stdout, which corrupts the `zig build` --listen test protocol
+    // and hangs the run.
+    const emit_argv = [_][]const u8{ "sa", "check", "params.sa", "--emit-sab", "params.sab" };
+    var emit_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    defer emit_stdout.deinit();
+    var emit_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    defer emit_stderr.deinit();
+    const emit_code = try saasm.cli.executeWithWriters(std.testing.allocator, emit_argv[0..], emit_stdout.writer(), emit_stderr.writer());
+    try std.testing.expectEqual(@as(u8, 0), emit_code);
+
+    const sab_file = try tmp.dir.openFile("params.sab", .{});
+    const sab_bytes = try sab_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    sab_file.close();
+    defer std.testing.allocator.free(sab_bytes);
+    try std.testing.expect(sab_bytes.len > 0);
+
+    // Sanity: the encoded @add2 signature really carries params/param_ids.
+    {
+        var module = try saasm.sab.decodeModule(std.testing.allocator, sab_bytes);
+        defer module.deinit(std.testing.allocator);
+        const sig = for (module.function_sigs) |*fsig| {
+            if (std.mem.eql(u8, fsig.name, "add2")) break fsig;
+        } else return error.TestUnexpectedResult;
+        try std.testing.expectEqual(@as(usize, 2), sig.params.len);
+        try std.testing.expectEqual(@as(usize, 2), sig.param_ids.len);
+    }
+
+    // Corrupt param_ids through decode/mutate/re-encode. The corrupted file
+    // stays a structurally valid SAB (magic and complete sections intact), so
+    // the failure must surface as a verifier trap -- never a decode error and
+    // never a silent text fallback. Before the fix, the bad param_id hit
+    // `orelse unreachable` (panic) and the short param_ids indexed OOB.
+    //
+    // Each case runs the real CLI (`sa check <file>.sab`) and asserts:
+    //   - explicit non-zero exit (1),
+    //   - stderr names the CorruptedSignature trap with numeric code 1058
+    //     and the "corrupted function signature" message,
+    //   - stderr never contains "panic".
+    const Case = enum { bad_reg_id, short_param_ids };
+    for ([_]Case{ .bad_reg_id, .short_param_ids }) |case| {
+        const bad_name = switch (case) {
+            .bad_reg_id => "bad_param_id.sab",
+            .short_param_ids => "short_param_ids.sab",
+        };
+        {
+            var module = try saasm.sab.decodeModule(std.testing.allocator, sab_bytes);
+            defer module.deinit(std.testing.allocator);
+            const sig = for (module.function_sigs) |*fsig| {
+                if (std.mem.eql(u8, fsig.name, "add2")) break fsig;
+            } else return error.TestUnexpectedResult;
+            switch (case) {
+                .bad_reg_id => {
+                    // param_id references a register id not declared in this
+                    // function scope.
+                    try std.testing.expectEqual(@as(usize, 2), sig.param_ids.len);
+                    const mutable_ids: []u32 = @constCast(sig.param_ids);
+                    mutable_ids[0] = std.math.maxInt(u32);
+                },
+                .short_param_ids => {
+                    // param_ids shorter than params.
+                    try std.testing.expect(sig.params.len == 2);
+                    std.testing.allocator.free(sig.param_ids);
+                    sig.param_ids = &.{};
+                },
+            }
+            const bad_bytes = try saasm.sab.encodeProgramWithConsts(
+                std.testing.allocator,
+                module.symbols,
+                module.const_decls,
+                module.function_sigs,
+                module.instructions,
+            );
+            defer std.testing.allocator.free(bad_bytes);
+            try writeBytes(tmp.dir, bad_name, bad_bytes);
+        }
+
+        var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+        defer stdout_buffer.deinit();
+        var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+        defer stderr_buffer.deinit();
+        const argv = [_][]const u8{ "sa", "check", bad_name };
+        const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+        try std.testing.expectEqual(@as(u8, 1), code);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "CorruptedSignature") != null);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "corrupted function signature") != null);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "\"trap_code\":1058") != null);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "panic") == null);
+    }
+}
