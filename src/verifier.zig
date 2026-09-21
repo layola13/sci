@@ -4798,6 +4798,47 @@ fn fieldBorrowInstruction(kind: inst.InstKind, source_line: u32, expanded_line: 
     return item;
 }
 
+test "borrowed views trap when escaping across ffi boundary" {
+    const source =
+        \\@ffi_wrapper sink(*p: ptr) -> i32:
+        \\return 0
+        \\@ffi_wrapper wrap() -> i32:
+        \\base = alloc 8
+        \\view = & base
+        \\ip = take view+0
+        \\call @sink(*ip)
+        \\!view
+        \\!base
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.interior_ptr_escape, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "borrowed views trap when source is released while borrowed" {
+    const source =
+        \\@main() -> i32:
+        \\base = alloc 8
+        \\view = & base
+        \\!base
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
 test "field-level mutable borrows allow distinct static offsets" {
     const program = [_]inst.Instruction{
         fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
