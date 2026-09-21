@@ -478,7 +478,12 @@ const Reactor = struct {
     accept_addr_len: posix.socklen_t = @sizeOf(posix.sockaddr),
 
     fn init(id: u32, ticket_capacity: usize) !Reactor {
-        var ring = try linux.IoUring.init(256, 0);
+        var ring = linux.IoUring.init(256, 0) catch |err| switch (err) {
+            // Container seccomp policies or old kernels prohibit io_uring outright.
+            // Surface this distinctly so callers can report UNSUPPORTED instead of IO.
+            error.PermissionDenied, error.SystemOutdated => return error.IoUringUnavailable,
+            else => return err,
+        };
         errdefer ring.deinit();
         const tickets = try TicketQueue.init(ticket_capacity);
         errdefer {
@@ -1918,13 +1923,13 @@ pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
 
     var i: usize = 0;
     while (i < reactors.len) : (i += 1) {
-        reactors[i] = Reactor.init(@as(u32, @intCast(i)), ticket_capacity) catch {
+        reactors[i] = Reactor.init(@as(u32, @intCast(i)), ticket_capacity) catch |err| {
             var j: usize = 0;
             while (j < i) : (j += 1) reactors[j].deinit();
             std.heap.page_allocator.free(reactors);
             var pool_owned = pool;
             pool_owned.deinit();
-            return SA_NETX_ERR_IO;
+            return if (err == error.IoUringUnavailable) SA_NETX_ERR_UNSUPPORTED else SA_NETX_ERR_IO;
         };
     }
 
@@ -2323,7 +2328,9 @@ test "vector line scanners find crlf and header end" {
 test "websocket upgrade and binary frame work end to end" {
     if (builtin.os.tag != .linux) return;
 
-    try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_init(8, 1));
+    const ws_init_rc = sa_netx_init(8, 1);
+    if (ws_init_rc == SA_NETX_ERR_UNSUPPORTED) return; // io_uring unavailable in this environment
+    try std.testing.expectEqual(@as(i32, SA_NETX_OK), ws_init_rc);
     defer _ = sa_netx_shutdown();
 
     const listen_host = "127.0.0.1";
@@ -2435,14 +2442,18 @@ test "websocket frame parser handles masked payloads" {
 
 test "init and shutdown round-trip on linux" {
     if (builtin.os.tag != .linux) return;
-    try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_init(8, 1));
+    const rt_init_rc = sa_netx_init(8, 1);
+    if (rt_init_rc == SA_NETX_ERR_UNSUPPORTED) return; // io_uring unavailable in this environment
+    try std.testing.expectEqual(@as(i32, SA_NETX_OK), rt_init_rc);
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_shutdown());
 }
 
 test "listen accept recv_ticket and outbound commands work end to end" {
     if (builtin.os.tag != .linux) return;
 
-    try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_init(16, 1));
+    const la_init_rc = sa_netx_init(16, 1);
+    if (la_init_rc == SA_NETX_ERR_UNSUPPORTED) return; // io_uring unavailable in this environment
+    try std.testing.expectEqual(@as(i32, SA_NETX_OK), la_init_rc);
     defer _ = sa_netx_shutdown();
 
     const listen_host = "127.0.0.1";
