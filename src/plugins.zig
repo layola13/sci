@@ -2560,9 +2560,13 @@ fn extractArchiveToDirectory(
     stdout: anytype,
 ) !void {
     const argv: []const []const u8 = switch (format) {
-        .tar_gz, .tgz => &.{ "tar", "-xzf", archive_path, "-C", extract_dir },
-        .tar_xz => &.{ "tar", "-xJf", archive_path, "-C", extract_dir },
-        .tar_zst => &.{ "tar", "--zstd", "-xf", archive_path, "-C", extract_dir },
+        // --no-same-owner: never restore uid/gid from the archive. GNU tar
+        // defaults to --same-owner when run as root, which fails in
+        // containers without chown permission (and would be a security
+        // hole for remote archives anyway).
+        .tar_gz, .tgz => &.{ "tar", "--no-same-owner", "-xzf", archive_path, "-C", extract_dir },
+        .tar_xz => &.{ "tar", "--no-same-owner", "-xJf", archive_path, "-C", extract_dir },
+        .tar_zst => &.{ "tar", "--no-same-owner", "--zstd", "-xf", archive_path, "-C", extract_dir },
     };
     const result = try std.process.Child.run(.{
         .allocator = allocator,
