@@ -1,6 +1,7 @@
 #ifndef SA_STD_H
 #define SA_STD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
