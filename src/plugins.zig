@@ -2527,7 +2527,7 @@ fn fetchRemoteArchivePluginSource(allocator: std.mem.Allocator, spec: RemotePlug
 fn downloadRemoteFile(allocator: std.mem.Allocator, url: []const u8, dst_path: []const u8, stdout: anytype) !void {
     const curl_result = std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "curl", "-L", "--fail", "--silent", "--show-error", "-o", dst_path, url },
+        .argv = &.{ "curl", "-L", "--fail", "--silent", "--show-error", "--noproxy", "127.0.0.1,localhost,::1", "-o", dst_path, url },
     }) catch |err| switch (err) {
         error.FileNotFound => {
             const wget_result = try std.process.Child.run(.{
