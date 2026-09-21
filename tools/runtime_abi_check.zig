@@ -49,27 +49,32 @@ pub fn main() !void {
     const windows_source = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std_windows.zig", 32 * 1024 * 1024);
     const unsupported_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_unsupported.txt", 1 * 1024 * 1024);
     const extra_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_extra.txt", 1 * 1024 * 1024);
+    const plugin_provided_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_plugin_provided.txt", 1 * 1024 * 1024);
 
     var header_symbols = SymbolSet.init(allocator);
     var linux_symbols = SymbolSet.init(allocator);
     var windows_symbols = SymbolSet.init(allocator);
     var unsupported_windows_symbols = SymbolSet.init(allocator);
     var extra_windows_symbols = SymbolSet.init(allocator);
+    var plugin_provided_symbols = SymbolSet.init(allocator);
     var unsupported_stats = ManifestStats.init(allocator);
     var extra_stats = ManifestStats.init(allocator);
+    var plugin_provided_stats = ManifestStats.init(allocator);
 
     try collectHeaderSymbols(&header_symbols, header);
     try collectZigSymbols(&linux_symbols, linux_source);
     try collectZigSymbols(&windows_symbols, windows_source);
     try collectManifestSymbols(&unsupported_windows_symbols, unsupported_source, &unsupported_stats);
     try collectManifestSymbols(&extra_windows_symbols, extra_source, &extra_stats);
+    try collectManifestSymbols(&plugin_provided_symbols, plugin_provided_source, &plugin_provided_stats);
 
     reportManifestStats("unsupported", &unsupported_windows_symbols, &unsupported_stats);
     reportManifestStats("extra", &extra_windows_symbols, &extra_stats);
+    reportManifestStats("plugin-provided", &plugin_provided_symbols, &plugin_provided_stats);
 
     var errors: usize = 0;
     if (std.mem.eql(u8, config.platform, "linux") or std.mem.eql(u8, config.platform, "both")) {
-        errors += reportMissing("Linux runtime is missing public ABI symbols", &header_symbols, &linux_symbols);
+        errors += reportLinuxMismatch(&header_symbols, &linux_symbols, &plugin_provided_symbols);
     }
 
     if (std.mem.eql(u8, config.platform, "windows") or std.mem.eql(u8, config.platform, "both")) {
@@ -278,6 +283,33 @@ fn reportMissing(message: []const u8, expected: *const SymbolSet, actual: *const
             errors += 1;
         }
     }
+    return errors;
+}
+
+fn reportLinuxMismatch(header: *const SymbolSet, actual: *const SymbolSet, plugin_provided: *const SymbolSet) usize {
+    var errors: usize = 0;
+
+    var provided_iterator = plugin_provided.keyIterator();
+    while (provided_iterator.next()) |name| {
+        if (!header.contains(name.*)) {
+            std.debug.print("[runtime-abi] Plugin-provided manifest names unknown ABI symbol: {s}\n", .{name.*});
+            errors += 1;
+        } else if (actual.contains(name.*)) {
+            // A runtime stub here would shadow the real plugin implementation
+            // at link time (the executable's T beats the plugin .so's U).
+            std.debug.print("[runtime-abi] Plugin-provided symbol must not be exported by the runtime: {s}\n", .{name.*});
+            errors += 1;
+        }
+    }
+
+    var header_iterator = header.keyIterator();
+    while (header_iterator.next()) |name| {
+        if (actual.contains(name.*)) continue;
+        if (plugin_provided.contains(name.*)) continue;
+        std.debug.print("[runtime-abi] Linux runtime is missing public ABI symbols: {s}\n", .{name.*});
+        errors += 1;
+    }
+
     return errors;
 }
 
