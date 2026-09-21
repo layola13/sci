@@ -2516,6 +2516,7 @@ fn formatBytes(bytes: []const u8) ![]u8 {
 
 fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u8) i32 {
     if (out_len) |ptr| ptr.* = @as(u64, @intCast(text.len));
+    if (out_cap == 0) return finish(SA_STD_OK);
     const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
     if (buffer.len < text.len) return finish(SA_STD_ERR_TRUNCATED);
     if (text.len != 0) @memcpy(buffer[0..text.len], text);
