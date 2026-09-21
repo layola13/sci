@@ -25,21 +25,21 @@
     __path_cursor_slot = stack_alloc 8
     store __path_end_slot+0, __path_len as u64
     __path_is_empty = eq __path_len, 0
-    br __path_is_empty -> L_PATH_BASENAME_EMPTY, L_PATH_BASENAME_TRIM
+    br __path_is_empty -> L_PATH_BASENAME_EMPTY_%out_slice, L_PATH_BASENAME_TRIM_%out_slice
 
-L_PATH_BASENAME_TRIM:
+L_PATH_BASENAME_TRIM_%out_slice:
     __path_end = load __path_end_slot+0 as u64
     __path_end_is_zero = eq __path_end, 0
-    br __path_end_is_zero -> L_PATH_BASENAME_ROOT, L_PATH_BASENAME_CHECK
+    br __path_end_is_zero -> L_PATH_BASENAME_ROOT_%out_slice, L_PATH_BASENAME_CHECK_%out_slice
 
-L_PATH_BASENAME_CHECK:
+L_PATH_BASENAME_CHECK_%out_slice:
     __path_prev_end = sub __path_end, 1
     __path_ch_ip = ptr_add __path_ptr, __path_prev_end
     __path_ch = load __path_ch_ip+0 as u8
     __path_is_slash = eq __path_ch, 47
-    br __path_is_slash -> L_PATH_BASENAME_TRIM_NEXT, L_PATH_BASENAME_SCAN
+    br __path_is_slash -> L_PATH_BASENAME_TRIM_NEXT_%out_slice, L_PATH_BASENAME_SCAN_%out_slice
 
-L_PATH_BASENAME_TRIM_NEXT:
+L_PATH_BASENAME_TRIM_NEXT_%out_slice:
     store __path_end_slot+0, __path_prev_end as u64
     !__path_prev_end
     !__path_ch_ip
@@ -47,30 +47,30 @@ L_PATH_BASENAME_TRIM_NEXT:
     !__path_is_slash
     !__path_end
     !__path_end_is_zero
-    jmp L_PATH_BASENAME_TRIM
+    jmp L_PATH_BASENAME_TRIM_%out_slice
 
-L_PATH_BASENAME_SCAN:
+L_PATH_BASENAME_SCAN_%out_slice:
     store __path_cursor_slot+0, __path_end as u64
     !__path_prev_end
     !__path_ch_ip
     !__path_ch
     !__path_is_slash
     !__path_end_is_zero
-    jmp L_PATH_BASENAME_SCAN_LOOP
+    jmp L_PATH_BASENAME_SCAN_LOOP_%out_slice
 
-L_PATH_BASENAME_SCAN_LOOP:
+L_PATH_BASENAME_SCAN_LOOP_%out_slice:
     __path_cursor = load __path_cursor_slot+0 as u64
     __path_cursor_is_zero = eq __path_cursor, 0
-    br __path_cursor_is_zero -> L_PATH_BASENAME_NO_SLASH, L_PATH_BASENAME_SCAN_CHECK
+    br __path_cursor_is_zero -> L_PATH_BASENAME_NO_SLASH_%out_slice, L_PATH_BASENAME_SCAN_CHECK_%out_slice
 
-L_PATH_BASENAME_SCAN_CHECK:
+L_PATH_BASENAME_SCAN_CHECK_%out_slice:
     __path_prev = sub __path_cursor, 1
     __path_ch_ip = ptr_add __path_ptr, __path_prev
     __path_ch = load __path_ch_ip+0 as u8
     __path_is_slash = eq __path_ch, 47
-    br __path_is_slash -> L_PATH_BASENAME_FOUND, L_PATH_BASENAME_SCAN_NEXT
+    br __path_is_slash -> L_PATH_BASENAME_FOUND_%out_slice, L_PATH_BASENAME_SCAN_NEXT_%out_slice
 
-L_PATH_BASENAME_SCAN_NEXT:
+L_PATH_BASENAME_SCAN_NEXT_%out_slice:
     __path_next_cursor = sub __path_cursor, 1
     store __path_cursor_slot+0, __path_next_cursor as u64
     !__path_cursor
@@ -80,13 +80,12 @@ L_PATH_BASENAME_SCAN_NEXT:
     !__path_ch
     !__path_is_slash
     !__path_next_cursor
-    jmp L_PATH_BASENAME_SCAN_LOOP
+    jmp L_PATH_BASENAME_SCAN_LOOP_%out_slice
 
-L_PATH_BASENAME_FOUND:
+L_PATH_BASENAME_FOUND_%out_slice:
     __path_start = add __path_cursor, 0
     __path_basename_len = sub __path_end, __path_start
     EXPAND STR_SLICE %out_slice, %path_slice, __path_start, __path_basename_len
-    !__path_start
     !__path_basename_len
     !__path_cursor
     !__path_cursor_is_zero
@@ -95,30 +94,29 @@ L_PATH_BASENAME_FOUND:
     !__path_ch
     !__path_is_slash
     !__path_end
-    jmp L_PATH_BASENAME_END
+    jmp L_PATH_BASENAME_END_%out_slice
 
-L_PATH_BASENAME_NO_SLASH:
+L_PATH_BASENAME_NO_SLASH_%out_slice:
     __path_start = 0 as u64
     __path_basename_len = add __path_end, 0
     EXPAND STR_SLICE %out_slice, %path_slice, __path_start, __path_basename_len
-    !__path_start
     !__path_basename_len
     !__path_cursor
     !__path_cursor_is_zero
     !__path_end
-    jmp L_PATH_BASENAME_END
+    jmp L_PATH_BASENAME_END_%out_slice
 
-L_PATH_BASENAME_ROOT:
+L_PATH_BASENAME_ROOT_%out_slice:
     EXPAND STR_SLICE %out_slice, %path_slice, 0, 1
     !__path_end
     !__path_end_is_zero
-    jmp L_PATH_BASENAME_END
+    jmp L_PATH_BASENAME_END_%out_slice
 
-L_PATH_BASENAME_EMPTY:
+L_PATH_BASENAME_EMPTY_%out_slice:
     EXPAND PATH_MAKE_EMPTY %out_slice
-    jmp L_PATH_BASENAME_END
+    jmp L_PATH_BASENAME_END_%out_slice
 
-L_PATH_BASENAME_END:
+L_PATH_BASENAME_END_%out_slice:
     !__path_ptr
     !__path_len
     !__path_is_empty
@@ -242,26 +240,26 @@ L_PATH_DIRNAME_END:
 [END_MACRO]
 
 [MACRO] PATH_STEM %out_slice, %path_slice
-    EXPAND PATH_BASENAME __path_base, %path_slice
-    __path_base_ptr = load __path_base+Slice_ptr as ptr
-    __path_base_len = load __path_base+Slice_len as u64
+    EXPAND PATH_BASENAME __path_base_%out_slice, %path_slice
+    __path_base_ptr = load __path_base_%out_slice+Slice_ptr as ptr
+    __path_base_len = load __path_base_%out_slice+Slice_len as u64
     __path_dot_cursor_slot = stack_alloc 8
     store __path_dot_cursor_slot+0, __path_base_len as u64
-    jmp L_PATH_STEM_SCAN
+    jmp L_PATH_STEM_SCAN_%out_slice
 
-L_PATH_STEM_SCAN:
+L_PATH_STEM_SCAN_%out_slice:
     __path_dot_cursor = load __path_dot_cursor_slot+0 as u64
     __path_dot_cursor_is_zero = eq __path_dot_cursor, 0
-    br __path_dot_cursor_is_zero -> L_PATH_STEM_NO_DOT_EMPTY, L_PATH_STEM_SCAN_CHECK
+    br __path_dot_cursor_is_zero -> L_PATH_STEM_NO_DOT_EMPTY_%out_slice, L_PATH_STEM_SCAN_CHECK_%out_slice
 
-L_PATH_STEM_SCAN_CHECK:
+L_PATH_STEM_SCAN_CHECK_%out_slice:
     __path_dot_prev = sub __path_dot_cursor, 1
     __path_dot_ch_ip = ptr_add __path_base_ptr, __path_dot_prev
     __path_dot_ch = load __path_dot_ch_ip+0 as u8
     __path_is_dot = eq __path_dot_ch, 46
-    br __path_is_dot -> L_PATH_STEM_DOT, L_PATH_STEM_SCAN_NEXT
+    br __path_is_dot -> L_PATH_STEM_DOT_%out_slice, L_PATH_STEM_SCAN_NEXT_%out_slice
 
-L_PATH_STEM_SCAN_NEXT:
+L_PATH_STEM_SCAN_NEXT_%out_slice:
     __path_next_dot_cursor = sub __path_dot_cursor, 1
     store __path_dot_cursor_slot+0, __path_next_dot_cursor as u64
     !__path_dot_cursor
@@ -271,15 +269,15 @@ L_PATH_STEM_SCAN_NEXT:
     !__path_dot_ch
     !__path_is_dot
     !__path_next_dot_cursor
-    jmp L_PATH_STEM_SCAN
+    jmp L_PATH_STEM_SCAN_%out_slice
 
-L_PATH_STEM_DOT:
+L_PATH_STEM_DOT_%out_slice:
     __path_leading_dot = eq __path_dot_prev, 0
-    br __path_leading_dot -> L_PATH_STEM_NO_DOT_LEADING, L_PATH_STEM_VALID
+    br __path_leading_dot -> L_PATH_STEM_NO_DOT_LEADING_%out_slice, L_PATH_STEM_VALID_%out_slice
 
-L_PATH_STEM_VALID:
+L_PATH_STEM_VALID_%out_slice:
     __path_stem_len = add __path_dot_prev, 0
-    EXPAND STR_SLICE %out_slice, __path_base, 0, __path_stem_len
+    EXPAND STR_SLICE %out_slice, __path_base_%out_slice, 0, __path_stem_len
     !__path_stem_len
     !__path_leading_dot
     !__path_dot_cursor
@@ -290,20 +288,20 @@ L_PATH_STEM_VALID:
     !__path_is_dot
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_STEM_END
+    !__path_base_%out_slice
+    jmp L_PATH_STEM_END_%out_slice
 
-L_PATH_STEM_NO_DOT_EMPTY:
-    EXPAND STR_SLICE %out_slice, __path_base, 0, __path_base_len
+L_PATH_STEM_NO_DOT_EMPTY_%out_slice:
+    EXPAND STR_SLICE %out_slice, __path_base_%out_slice, 0, __path_base_len
     !__path_dot_cursor
     !__path_dot_cursor_is_zero
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_STEM_END
+    !__path_base_%out_slice
+    jmp L_PATH_STEM_END_%out_slice
 
-L_PATH_STEM_NO_DOT_LEADING:
-    EXPAND STR_SLICE %out_slice, __path_base, 0, __path_base_len
+L_PATH_STEM_NO_DOT_LEADING_%out_slice:
+    EXPAND STR_SLICE %out_slice, __path_base_%out_slice, 0, __path_base_len
     !__path_leading_dot
     !__path_dot_cursor
     !__path_dot_cursor_is_zero
@@ -313,33 +311,33 @@ L_PATH_STEM_NO_DOT_LEADING:
     !__path_is_dot
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_STEM_END
+    !__path_base_%out_slice
+    jmp L_PATH_STEM_END_%out_slice
 
-L_PATH_STEM_END:
+L_PATH_STEM_END_%out_slice:
 [END_MACRO]
 
 [MACRO] PATH_EXT %out_slice, %path_slice
-    EXPAND PATH_BASENAME __path_base, %path_slice
-    __path_base_ptr = load __path_base+Slice_ptr as ptr
-    __path_base_len = load __path_base+Slice_len as u64
+    EXPAND PATH_BASENAME __path_base_%out_slice, %path_slice
+    __path_base_ptr = load __path_base_%out_slice+Slice_ptr as ptr
+    __path_base_len = load __path_base_%out_slice+Slice_len as u64
     __path_dot_cursor_slot = stack_alloc 8
     store __path_dot_cursor_slot+0, __path_base_len as u64
-    jmp L_PATH_EXT_SCAN
+    jmp L_PATH_EXT_SCAN_%out_slice
 
-L_PATH_EXT_SCAN:
+L_PATH_EXT_SCAN_%out_slice:
     __path_dot_cursor = load __path_dot_cursor_slot+0 as u64
     __path_dot_cursor_is_zero = eq __path_dot_cursor, 0
-    br __path_dot_cursor_is_zero -> L_PATH_EXT_NO_DOT_EMPTY, L_PATH_EXT_SCAN_CHECK
+    br __path_dot_cursor_is_zero -> L_PATH_EXT_NO_DOT_EMPTY_%out_slice, L_PATH_EXT_SCAN_CHECK_%out_slice
 
-L_PATH_EXT_SCAN_CHECK:
+L_PATH_EXT_SCAN_CHECK_%out_slice:
     __path_dot_prev = sub __path_dot_cursor, 1
     __path_dot_ch_ip = ptr_add __path_base_ptr, __path_dot_prev
     __path_dot_ch = load __path_dot_ch_ip+0 as u8
     __path_is_dot = eq __path_dot_ch, 46
-    br __path_is_dot -> L_PATH_EXT_DOT, L_PATH_EXT_SCAN_NEXT
+    br __path_is_dot -> L_PATH_EXT_DOT_%out_slice, L_PATH_EXT_SCAN_NEXT_%out_slice
 
-L_PATH_EXT_SCAN_NEXT:
+L_PATH_EXT_SCAN_NEXT_%out_slice:
     __path_next_dot_cursor = sub __path_dot_cursor, 1
     store __path_dot_cursor_slot+0, __path_next_dot_cursor as u64
     !__path_dot_cursor
@@ -349,20 +347,20 @@ L_PATH_EXT_SCAN_NEXT:
     !__path_dot_ch
     !__path_is_dot
     !__path_next_dot_cursor
-    jmp L_PATH_EXT_SCAN
+    jmp L_PATH_EXT_SCAN_%out_slice
 
-L_PATH_EXT_DOT:
+L_PATH_EXT_DOT_%out_slice:
     __path_leading_dot = eq __path_dot_prev, 0
-    br __path_leading_dot -> L_PATH_EXT_NO_DOT_LEADING, L_PATH_EXT_TRAILING
+    br __path_leading_dot -> L_PATH_EXT_NO_DOT_LEADING_%out_slice, L_PATH_EXT_TRAILING_%out_slice
 
-L_PATH_EXT_TRAILING:
+L_PATH_EXT_TRAILING_%out_slice:
     __path_trailing_dot = eq __path_dot_cursor, __path_base_len
-    br __path_trailing_dot -> L_PATH_EXT_NO_DOT_TRAILING, L_PATH_EXT_VALID
+    br __path_trailing_dot -> L_PATH_EXT_NO_DOT_TRAILING_%out_slice, L_PATH_EXT_VALID_%out_slice
 
-L_PATH_EXT_VALID:
+L_PATH_EXT_VALID_%out_slice:
     __path_ext_start = add __path_dot_prev, 1
     __path_ext_len = sub __path_base_len, __path_ext_start
-    EXPAND STR_SLICE %out_slice, __path_base, __path_ext_start, __path_ext_len
+    EXPAND STR_SLICE %out_slice, __path_base_%out_slice, __path_ext_start, __path_ext_len
     !__path_ext_start
     !__path_ext_len
     !__path_trailing_dot
@@ -375,19 +373,19 @@ L_PATH_EXT_VALID:
     !__path_is_dot
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_EXT_END
+    !__path_base_%out_slice
+    jmp L_PATH_EXT_END_%out_slice
 
-L_PATH_EXT_NO_DOT_EMPTY:
+L_PATH_EXT_NO_DOT_EMPTY_%out_slice:
     EXPAND PATH_MAKE_EMPTY %out_slice
     !__path_dot_cursor
     !__path_dot_cursor_is_zero
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_EXT_END
+    !__path_base_%out_slice
+    jmp L_PATH_EXT_END_%out_slice
 
-L_PATH_EXT_NO_DOT_LEADING:
+L_PATH_EXT_NO_DOT_LEADING_%out_slice:
     EXPAND PATH_MAKE_EMPTY %out_slice
     !__path_leading_dot
     !__path_dot_cursor
@@ -398,10 +396,10 @@ L_PATH_EXT_NO_DOT_LEADING:
     !__path_is_dot
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_EXT_END
+    !__path_base_%out_slice
+    jmp L_PATH_EXT_END_%out_slice
 
-L_PATH_EXT_NO_DOT_TRAILING:
+L_PATH_EXT_NO_DOT_TRAILING_%out_slice:
     EXPAND PATH_MAKE_EMPTY %out_slice
     !__path_trailing_dot
     !__path_leading_dot
@@ -413,10 +411,10 @@ L_PATH_EXT_NO_DOT_TRAILING:
     !__path_is_dot
     !__path_base_ptr
     !__path_base_len
-    !__path_base
-    jmp L_PATH_EXT_END
+    !__path_base_%out_slice
+    jmp L_PATH_EXT_END_%out_slice
 
-L_PATH_EXT_END:
+L_PATH_EXT_END_%out_slice:
 [END_MACRO]
 
 [MACRO] PATH_IS_ABSOLUTE %out_bool, %path_slice
