@@ -15,6 +15,7 @@ L_ENTRY:
     EXPAND MPSC_TRY_SEND full_send0, full_chan, 1
     EXPAND MPSC_TRY_SEND_ERROR full_send1, full_error, full_chan, 2
     EXPAND MPSC_TRY_SEND_ERROR_KIND full_kind, full_error
+    EXPAND MPSC_TRY_RECV drain_ok, drain_value, full_chan
     EXPAND MPSC_TRY_RECV_ERROR empty_recv, empty_error, empty_value, full_chan
     EXPAND MPSC_TRY_RECV_ERROR_KIND empty_kind, empty_error
     EXPAND MPSC_FREE full_chan
@@ -39,6 +40,8 @@ L_ENTRY:
     c13 = eq disconnected_recv, 0
     c14 = eq disconnected_value, 0
     c15 = eq disconnected_recv_kind, TRY_RECV_ERROR_DISCONNECTED
+    drain_c0 = eq drain_ok, 1
+    drain_c1 = eq drain_value, 1
     a0 = and c0, c1
     a1 = and a0, c2
     a2 = and a1, c3
@@ -53,7 +56,9 @@ L_ENTRY:
     a11 = and a10, c12
     a12 = and a11, c13
     a13 = and a12, c14
-    ok = and a13, c15
+    a14 = and a13, c15
+    a15 = and a14, drain_c0
+    ok = and a15, drain_c1
     !send_error
     !send_value
     !try_send_error
@@ -94,6 +99,10 @@ L_ENTRY:
     !c13
     !c14
     !c15
+    !drain_c0
+    !drain_c1
+    !drain_ok
+    !drain_value
     !a0
     !a1
     !a2
@@ -108,6 +117,8 @@ L_ENTRY:
     !a11
     !a12
     !a13
+    !a14
+    !a15
     br ok -> L_OK, L_FAIL
 L_OK:
     !ok
