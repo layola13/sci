@@ -76,7 +76,6 @@ L_ENTRY:
     closed = eq mtx, null_ptr
     br closed -> L_FREE_ALREADY, L_FREE_CLOSE
 L_FREE_ALREADY:
-    !list
     !mtx
     !closed
     !null_ptr
