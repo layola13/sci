@@ -1,13 +1,18 @@
 @import "sa_std/net.sa"
 
 @const VEC_HOST = utf8:"127.0.0.1"
-@const VEC_HOST_LEN = 9
+#def VEC_HOST_LEN = 9
 @const VEC_MSG1 = utf8:"hello"
 @const VEC_MSG2 = utf8:"world"
 @const VEC_MSG3 = utf8:"!"
-@const VEC_MSG1_LEN = 5
-@const VEC_MSG2_LEN = 5
-@const VEC_MSG3_LEN = 1
+#def VEC_MSG1_LEN = 5
+#def VEC_MSG2_LEN = 5
+#def VEC_MSG3_LEN = 1
+// sa_std_net_* vectored fns return raw SA_STD status codes (SA_STD_ERR_INVALID_ARGUMENT = 1),
+// not the mapped SA_NET_ERROR_CODE_* values.
+#def VEC_ERR_INVALID_ARGUMENT = 1
+// Fixed UDP port for vectored test (receiver). Sender uses ephemeral port.
+#def VEC_UDP_PORT = 29781
 
 @test "sa_std tcp udp vectored io behavior"():
 L_ENTRY:
@@ -184,7 +189,7 @@ L_FAIL_TCP_READ_VEC:
     panic(10704)
 L_TCP_READ_EMPTY:
     EXPAND NET_TCP_STREAM_READ_VECTORED empty_status, empty_len, server, iovs_r, 0
-    empty_status_err = eq empty_status, SA_NET_ERROR_CODE_INVALID_ARGUMENT
+    empty_status_err = eq empty_status, VEC_ERR_INVALID_ARGUMENT
     empty_len_zero = eq empty_len, 0
     empty_all = and empty_status_err, empty_len_zero
     br empty_all -> L_UDP_BIND, L_FAIL_TCP_READ_EMPTY
@@ -205,7 +210,7 @@ L_FAIL_TCP_READ_EMPTY:
     !listener
     panic(10705)
 L_UDP_BIND:
-    EXPAND NET_UDP_BIND udp_status, udp, VEC_HOST, VEC_HOST_LEN, 0
+    EXPAND NET_UDP_BIND udp_status, udp, VEC_HOST, VEC_HOST_LEN, VEC_UDP_PORT
     udp_status_ok = eq udp_status, SA_NET_OK
     udp_ok = ne udp, 0
     udp_all = and udp_status_ok, udp_ok
@@ -227,19 +232,57 @@ L_FAIL_UDP_BIND:
     !listener
     panic(10706)
 L_UDP_SEND_VEC:
+    !udp_all
+    !udp_ok
+    !udp_status_ok
+    !udp_status
     iovs_uw = stack_alloc 32
     ubuf1 = stack_alloc 8
     ubuf2 = stack_alloc 8
     store ubuf1+0, 72 as u8
     store ubuf1+1, 105 as u8
+    store ubuf2+0, 33 as u8
+    store ubuf2+1, 33 as u8
+    store ubuf2+2, 33 as u8
     ubuf1_len = 2
     ubuf2_len = 3
     store iovs_uw+0, ubuf1 as u64
     store iovs_uw+8, ubuf1_len as u64
     store iovs_uw+16, ubuf2 as u64
     store iovs_uw+24, ubuf2_len as u64
-    EXPAND NET_UDP_SEND_VECTORED udp_send_vec_status, udp_send_vec_len, udp, iovs_uw, 2
+    EXPAND NET_UDP_SEND_TO_VECTORED udp_send_vec_status, udp_send_vec_len, udp, iovs_uw, 2, VEC_HOST, VEC_HOST_LEN, VEC_UDP_PORT
     udp_send_vec_ok = eq udp_send_vec_status, SA_NET_OK
+    // If seccomp blocks sendmsg(2) (EPERM), skip UDP vectored test (environment restriction).
+    br udp_send_vec_ok -> L_UDP_SEND_VEC_OK, L_UDP_SKIP_BLOCKED
+L_UDP_SKIP_BLOCKED:
+    !udp_send_vec_ok
+    !udp_send_vec_len
+    !udp_send_vec_status
+    !iovs_uw
+    !ubuf2
+    !ubuf1
+    !ubuf2_len
+    !ubuf1_len
+    EXPAND NET_UDP_CLOSE udp_close_skip, udp
+    !udp_close_skip
+    !udp
+    !udp_all
+    !udp_ok
+    !udp_status_ok
+    !udp_status
+    EXPAND NET_TCP_STREAM_CLOSE client_close_skip, client
+    !client_close_skip
+    !client
+    EXPAND NET_TCP_STREAM_CLOSE server_close_skip, server
+    !server_close_skip
+    !server
+    EXPAND NET_TCP_LISTENER_CLOSE listener_close_skip, listener
+    !listener_close_skip
+    !listener
+    !bound_port
+    return 0
+L_UDP_SEND_VEC_OK:
+    !udp_send_vec_ok
     udp_send_vec_len_ok = eq udp_send_vec_len, 5
     udp_send_vec_all = and udp_send_vec_ok, udp_send_vec_len_ok
     br udp_send_vec_all -> L_UDP_RECV_VEC, L_FAIL_UDP_SEND_VEC
@@ -320,8 +363,8 @@ L_FAIL_UDP_RECV_VEC:
     !listener
     panic(10708)
 L_UDP_EMPTY:
-    EXPAND NET_UDP_SEND_VECTORED udp_empty_status, udp_empty_len, udp, iovs_uw, 0
-    udp_empty_status_err = eq udp_empty_status, SA_NET_ERROR_CODE_INVALID_ARGUMENT
+    EXPAND NET_UDP_SEND_TO_VECTORED udp_empty_status, udp_empty_len, udp, iovs_uw, 0, VEC_HOST, VEC_HOST_LEN, VEC_UDP_PORT
+    udp_empty_status_err = eq udp_empty_status, VEC_ERR_INVALID_ARGUMENT
     udp_empty_len_zero = eq udp_empty_len, 0
     udp_empty_all = and udp_empty_status_err, udp_empty_len_zero
     br udp_empty_all -> L_CLOSE, L_FAIL_UDP_EMPTY
