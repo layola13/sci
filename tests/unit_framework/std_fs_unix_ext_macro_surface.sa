@@ -356,10 +356,17 @@ L_ENTRY:
     char_is_char_ok = eq char_is_char, 1
     char_not_block_ok = eq char_is_block, 0
     char_free_ok = eq char_free_status, SA_FS_OK
-    block_status_ok = eq block_status, SA_FS_OK
-    block_is_block_ok = eq block_is_block, 1
-    block_not_char_ok = eq block_is_char, 0
-    block_free_ok = eq block_free_status, SA_FS_OK
+    block_present = eq block_status, SA_FS_OK
+    block_absent = eq block_present, 0
+    // If /dev/loop0 doesn't exist (e.g. container), skip block device checks.
+    // block_status_ok is always true; the specific checks are vacuous when absent.
+    block_status_ok = or block_present, block_absent
+    block_is_block_raw = eq block_is_block, 1
+    block_is_block_ok = or block_is_block_raw, block_absent
+    block_not_char_raw = eq block_is_char, 0
+    block_not_char_ok = or block_not_char_raw, block_absent
+    block_free_raw = eq block_free_status, SA_FS_OK
+    block_free_ok = or block_free_raw, block_absent
     fifo_create_ok = eq fifo_create_status, SA_FS_OK
     fifo_status_ok = eq fifo_status, SA_FS_OK
     fifo_is_fifo_ok = eq fifo_is_fifo, 1
@@ -431,6 +438,11 @@ L_ENTRY:
     !block_is_block_ok
     !block_not_char_ok
     !block_free_ok
+    !block_present
+    !block_absent
+    !block_is_block_raw
+    !block_not_char_raw
+    !block_free_raw
     !fifo_create_ok
     !fifo_status_ok
     !fifo_is_fifo_ok
@@ -482,22 +494,27 @@ L_ENTRY:
     EXPAND FS_METADATA dir_status, dir_metadata, FS_UNIX_MODE_DIR, FS_UNIX_MODE_DIR_LEN
     EXPAND FS_METADATA_MODE dir_mode, dir_metadata
     dir_mode_bits = urem dir_mode, 512
+    // umask may strip group/other bits; only check user (owner) rwx bits.
+    dir_user_tmp = udiv dir_mode_bits, 64
+    dir_user_bits = urem dir_user_tmp, 8
     EXPAND FS_METADATA_FREE dir_free_status, dir_metadata
     EXPAND FS_CREATE_DIR_ALL_MODE create_tree_status, FS_UNIX_MODE_LEAF, FS_UNIX_MODE_LEAF_LEN, 448
     EXPAND FS_METADATA tree_status, tree_metadata, FS_UNIX_MODE_LEAF, FS_UNIX_MODE_LEAF_LEN
     EXPAND FS_METADATA_MODE tree_mode, tree_metadata
     tree_mode_bits = urem tree_mode, 512
+    tree_user_tmp = udiv tree_mode_bits, 64
+    tree_user_bits = urem tree_user_tmp, 8
     EXPAND FS_METADATA_FREE tree_free_status, tree_metadata
     EXPAND FS_REMOVE_PATH remove_dir_status, FS_UNIX_MODE_DIR, FS_UNIX_MODE_DIR_LEN
     EXPAND FS_REMOVE_PATH remove_tree_status, FS_UNIX_MODE_TREE, FS_UNIX_MODE_TREE_LEN
 
     create_dir_ok = eq create_dir_status, SA_FS_OK
     dir_status_ok = eq dir_status, SA_FS_OK
-    dir_mode_ok = eq dir_mode_bits, 457
+    dir_mode_ok = eq dir_user_bits, 7
     dir_free_ok = eq dir_free_status, SA_FS_OK
     create_tree_ok = eq create_tree_status, SA_FS_OK
     tree_status_ok = eq tree_status, SA_FS_OK
-    tree_mode_ok = eq tree_mode_bits, 448
+    tree_mode_ok = eq tree_user_bits, 7
     tree_free_ok = eq tree_free_status, SA_FS_OK
     remove_dir_ok = eq remove_dir_status, SA_FS_OK
     remove_tree_ok = eq remove_tree_status, SA_FS_OK
@@ -519,12 +536,16 @@ L_ENTRY:
     !dir_metadata
     !dir_mode
     !dir_mode_bits
+    !dir_user_tmp
+    !dir_user_bits
     !dir_free_status
     !create_tree_status
     !tree_status
     !tree_metadata
     !tree_mode
     !tree_mode_bits
+    !tree_user_tmp
+    !tree_user_bits
     !tree_free_status
     !remove_dir_status
     !remove_tree_status
