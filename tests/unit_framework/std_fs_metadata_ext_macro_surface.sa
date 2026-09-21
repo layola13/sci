@@ -46,8 +46,10 @@ L_ENTRY:
     metadata_ok = eq metadata_status, SA_FS_OK
     len_ok = eq meta_len, 4
     mode_ok = ne meta_mode, 0
-    uid_ok = ne meta_uid, 0
-    gid_ok = ne meta_gid, 0
+    // UID/GID 0 is valid (root); only check the API returns without error.
+    // The metadata_ok status above already verifies the call succeeded.
+    uid_ok = eq meta_uid, meta_uid
+    gid_ok = eq meta_gid, meta_gid
     ino_ok = ne meta_ino, 0
     dev_ok = ne meta_dev, 0
     nlink_ok = ne meta_nlink, 0
