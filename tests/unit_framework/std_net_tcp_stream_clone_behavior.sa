@@ -1,8 +1,8 @@
 @import "sa_std/net.sa"
 
 @const TC_HOST = utf8:"127.0.0.1"
-@const TC_HOST_LEN = 9
-@const TC_MSG_LEN = 5
+#def TC_HOST_LEN = 9
+#def TC_MSG_LEN = 5
 
 @test "sa_std tcp stream try_clone survives original close"():
 L_ENTRY:

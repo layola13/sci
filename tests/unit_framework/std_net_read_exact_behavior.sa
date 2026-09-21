@@ -1,12 +1,12 @@
 @import "sa_std/net.sa"
 
 @const RE_HOST = utf8:"127.0.0.1"
-@const RE_HOST_LEN = 9
+#def RE_HOST_LEN = 9
 @const RE_MSG1 = utf8:"abcde"
-@const RE_MSG1_LEN = 5
+#def RE_MSG1_LEN = 5
 @const RE_MSG2 = utf8:"fghij"
-@const RE_MSG2_LEN = 5
-@const RE_TOTAL_LEN = 10
+#def RE_MSG2_LEN = 5
+#def RE_TOTAL_LEN = 10
 
 @test "sa_std tcp read exact behavior"():
 L_ENTRY:

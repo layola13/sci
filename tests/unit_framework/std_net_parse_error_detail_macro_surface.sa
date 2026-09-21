@@ -1,15 +1,15 @@
 @import "sa_std/net.sa"
 
 @const IPV4_TEXT = utf8:"192.0.2.9"
-@const IPV4_TEXT_LEN = 10
+#def IPV4_TEXT_LEN = 10
 @const IPV6_TEXT = utf8:"2001:db8::1"
-@const IPV6_TEXT_LEN = 11
+#def IPV6_TEXT_LEN = 11
 @const SOCKET4_TEXT = utf8:"192.0.2.9:8080"
-@const SOCKET4_TEXT_LEN = 14
+#def SOCKET4_TEXT_LEN = 14
 @const SOCKET6_TEXT = utf8:"[2001:db8::1]:443"
-@const SOCKET6_TEXT_LEN = 17
+#def SOCKET6_TEXT_LEN = 17
 @const BAD_TEXT = utf8:"not-an-address"
-@const BAD_TEXT_LEN = 14
+#def BAD_TEXT_LEN = 14
 
 @test "sa_std net parse error detail kinds"():
 L_ENTRY:
@@ -32,36 +32,74 @@ L_ENTRY:
     EXPAND NET_IPV4_PARSE_ASCII_DETAIL ipv4_bad_ok, ipv4_bad_kind, ipv4_bad, BAD_TEXT, BAD_TEXT_LEN
     EXPAND NET_IPV6_PARSE_ASCII_DETAIL ipv6_bad_ok, ipv6_bad_kind, ipv6_bad, BAD_TEXT, BAD_TEXT_LEN
 
-    ok01 = and ipv4_ok, eq ipv4_kind, ADDR_PARSE_ERROR_IPV4
+    ipv4_kind_ok = eq ipv4_kind, ADDR_PARSE_ERROR_IPV4
+    ok01 = and ipv4_ok, ipv4_kind_ok
     ok02 = and ok01, ipv6_ok
-    ok03 = and ok02, eq ipv6_kind, ADDR_PARSE_ERROR_IPV6
+    ipv6_kind_ok = eq ipv6_kind, ADDR_PARSE_ERROR_IPV6
+    ok03 = and ok02, ipv6_kind_ok
     ok04 = and ok03, ip_ok
-    ok05 = and ok04, eq ip_kind, ADDR_PARSE_ERROR_IP
+    ip_kind_ok = eq ip_kind, ADDR_PARSE_ERROR_IP
+    ok05 = and ok04, ip_kind_ok
     ok06 = and ok05, sock4_ok
-    ok07 = and ok06, eq sock4_kind, ADDR_PARSE_ERROR_SOCKET_V4
+    sock4_kind_ok = eq sock4_kind, ADDR_PARSE_ERROR_SOCKET_V4
+    ok07 = and ok06, sock4_kind_ok
     ok08 = and ok07, sock6_ok
-    ok09 = and ok08, eq sock6_kind, ADDR_PARSE_ERROR_SOCKET_V6
-    ok10 = and ok09, eq socket_ok, 0
-    ok11 = and ok10, eq socket_kind, ADDR_PARSE_ERROR_SOCKET
-    ok12 = and ok11, eq ipv4_bad_ok, 0
-    ok13 = and ok12, eq ipv4_bad_kind, ADDR_PARSE_ERROR_IPV4
-    ok14 = and ok13, eq ipv6_bad_ok, 0
-    ok = and ok14, eq ipv6_bad_kind, ADDR_PARSE_ERROR_IPV6
+    sock6_kind_ok = eq sock6_kind, ADDR_PARSE_ERROR_SOCKET_V6
+    ok09 = and ok08, sock6_kind_ok
+    socket_ok_zero = eq socket_ok, 0
+    ok10 = and ok09, socket_ok_zero
+    socket_kind_ok = eq socket_kind, ADDR_PARSE_ERROR_SOCKET
+    ok11 = and ok10, socket_kind_ok
+    ipv4_bad_ok_zero = eq ipv4_bad_ok, 0
+    ok12 = and ok11, ipv4_bad_ok_zero
+    ipv4_bad_kind_ok = eq ipv4_bad_kind, ADDR_PARSE_ERROR_IPV4
+    ok13 = and ok12, ipv4_bad_kind_ok
+    ipv6_bad_ok_zero = eq ipv6_bad_ok, 0
+    ok14 = and ok13, ipv6_bad_ok_zero
+    ipv6_bad_kind_ok = eq ipv6_bad_kind, ADDR_PARSE_ERROR_IPV6
+    ok = and ok14, ipv6_bad_kind_ok
 
-    !ok01
-    !ok02
-    !ok03
-    !ok04
-    !ok05
-    !ok06
-    !ok07
-    !ok08
-    !ok09
-    !ok10
-    !ok11
-    !ok12
-    !ok13
+    !ipv6_bad_kind_ok
     !ok14
+    !ipv6_bad_ok_zero
+    !ok13
+    !ipv4_bad_kind_ok
+    !ok12
+    !ipv4_bad_ok_zero
+    !ok11
+    !socket_kind_ok
+    !ok10
+    !socket_ok_zero
+    !ok09
+    !sock6_kind_ok
+    !ok08
+    !ok07
+    !sock4_kind_ok
+    !ok06
+    !ok05
+    !ip_kind_ok
+    !ok04
+    !ok03
+    !ipv6_kind_ok
+    !ok02
+    !ok01
+    !ipv4_kind_ok
+    !ipv4_ok
+    !ipv4_kind
+    !ipv6_ok
+    !ipv6_kind
+    !ip_ok
+    !ip_kind
+    !sock4_ok
+    !sock4_kind
+    !sock6_ok
+    !sock6_kind
+    !socket_ok
+    !socket_kind
+    !ipv4_bad_ok
+    !ipv4_bad_kind
+    !ipv6_bad_ok
+    !ipv6_bad_kind
     br ok -> L_PASS, L_FAIL
 
 L_FAIL:

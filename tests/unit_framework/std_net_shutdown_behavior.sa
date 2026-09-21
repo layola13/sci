@@ -1,7 +1,7 @@
 @import "sa_std/net.sa"
 
 @const SH_HOST = utf8:"127.0.0.1"
-@const SH_HOST_LEN = 9
+#def SH_HOST_LEN = 9
 
 @test "sa_std tcp shutdown write behavior"():
 L_ENTRY:

@@ -1,8 +1,8 @@
 @import "sa_std/net.sa"
 
 @const BUFFER_HOST = utf8:"127.0.0.1"
-@const BUFFER_HOST_LEN = 9
-@const BUFFER_SET_SIZE = 65536
+#def BUFFER_HOST_LEN = 9
+#def BUFFER_SET_SIZE = 65536
 
 @test "sa_std tcp udp socket buffer size behavior"():
 L_ENTRY:
@@ -94,6 +94,23 @@ L_FAIL_TCP_BUFFER:
     !listener
     panic(10623)
 L_UDP_BUFFER:
+    !tcp_buffer_all
+    !tcp_buffer_ok4
+    !tcp_buffer_ok3
+    !tcp_buffer_ok2
+    !tcp_buffer_ok
+    !tcp_send_nonzero
+    !tcp_recv_nonzero
+    !tcp_get_send_ok
+    !tcp_set_send_ok
+    !tcp_get_recv_ok
+    !tcp_set_recv_ok
+    !tcp_send_size
+    !tcp_recv_size
+    !tcp_get_send_status
+    !tcp_set_send_status
+    !tcp_get_recv_status
+    !tcp_set_recv_status
     EXPAND NET_UDP_SET_RECV_BUFFER_SIZE udp_set_recv_status, udp, BUFFER_SET_SIZE
     EXPAND NET_UDP_RECV_BUFFER_SIZE udp_get_recv_status, udp_recv_size, udp
     EXPAND NET_UDP_SET_SEND_BUFFER_SIZE udp_set_send_status, udp, BUFFER_SET_SIZE
@@ -129,6 +146,23 @@ L_FAIL_UDP_BUFFER:
     !listener
     panic(10624)
 L_CLOSE:
+    !udp_buffer_all
+    !udp_buffer_ok4
+    !udp_buffer_ok3
+    !udp_buffer_ok2
+    !udp_buffer_ok
+    !udp_send_nonzero
+    !udp_recv_nonzero
+    !udp_get_send_ok
+    !udp_set_send_ok
+    !udp_get_recv_ok
+    !udp_set_recv_ok
+    !udp_send_size
+    !udp_recv_size
+    !udp_get_send_status
+    !udp_set_send_status
+    !udp_get_recv_status
+    !udp_set_recv_status
     EXPAND NET_UDP_CLOSE udp_close_status, udp
     EXPAND NET_TCP_STREAM_CLOSE stream_close_status, stream
     EXPAND NET_TCP_LISTENER_CLOSE listener_close_status, listener
