@@ -52,9 +52,6 @@ L_FAIL:
     !zero_sock_ok
     !zero_v4_len
     !zero_v4_ok
-    !sock4
-    !ipv4
-    !out
     panic(10111)
 L_PASS:
     !ok
@@ -80,7 +77,4 @@ L_PASS:
     !zero_sock_ok
     !zero_v4_len
     !zero_v4_ok
-    !sock4
-    !ipv4
-    !out
     return 0
