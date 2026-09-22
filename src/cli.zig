@@ -4886,6 +4886,10 @@ fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionS
 }
 
 fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
+    // Verdict-cache fast path: the reused sigs never went through scope
+    // finalization, so rebuild verifier-equivalent reg scopes (and localize
+    // body regs to slots) before codegen, which requires populated reg_ids.
+    try referee.populateTrustedRegScopes(allocator, flat.instructions, flat.const_decls, flat.function_sigs, &flat.symbols);
     var annotated = std.ArrayList(referee.AnnotatedInstruction).init(allocator);
     errdefer annotated.deinit();
     var fatal_terminated = false;

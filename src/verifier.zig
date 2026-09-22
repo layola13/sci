@@ -2016,6 +2016,91 @@ fn resolveScopedRegId(
     return scope.slotOf(global_id);
 }
 
+/// Rebuild per-function register scopes for a trusted (previously verified)
+/// instruction stream. The verdict-cache fast path reuses FlattenResult sigs
+/// whose `reg_ids` were never finalized, which leaves every `regSlot`/`slotOf`
+/// lookup in codegen failing with `InvalidOperand`. This mirrors the scope
+/// collection order of `collectMetadata` (params, body `.reg` operands and
+/// call dests interleaved per instruction, then const decl names), assigns
+/// owned `reg_ids` on each sig, and localizes body `.reg` operands to slots
+/// exactly like full verification output.
+pub fn populateTrustedRegScopes(
+    allocator: std.mem.Allocator,
+    instructions: []inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    function_sigs: []sig.FunctionSig,
+    symbols: *const symbol.SymbolTable,
+) !void {
+    var sig_index: usize = 0;
+    var range_start: ?usize = null;
+    var idx: usize = 0;
+    while (idx <= instructions.len) : (idx += 1) {
+        const at_decl = idx < instructions.len and isDecl(instructions[idx].kind);
+        if (idx == instructions.len or at_decl) {
+            if (range_start) |start| {
+                if (sig_index >= function_sigs.len) return error.InvalidTrustedScope;
+                try populateTrustedFunctionScope(allocator, instructions[start..idx], const_decls, &function_sigs[sig_index], symbols);
+                sig_index += 1;
+            }
+            if (idx < instructions.len) range_start = idx + 1;
+        }
+    }
+    if (sig_index != function_sigs.len) return error.InvalidTrustedScope;
+}
+
+fn populateTrustedFunctionScope(
+    allocator: std.mem.Allocator,
+    body: []inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    function_sig: *sig.FunctionSig,
+    symbols: *const symbol.SymbolTable,
+) !void {
+    var reg_ids = std.ArrayList(u32).init(allocator);
+    errdefer reg_ids.deinit();
+    var seen = std.AutoHashMap(u32, void).init(allocator);
+    defer seen.deinit();
+
+    for (function_sig.param_ids) |reg_id| {
+        try addScopeReg(&reg_ids, &seen, reg_id);
+    }
+    for (body) |item| {
+        for (item.operands) |operand| {
+            if (operand == .reg) {
+                try addScopeReg(&reg_ids, &seen, operand.reg);
+            }
+        }
+        if (parseInstructionCallForVerifier(allocator, symbols, item)) |parsed0| {
+            var parsed = parsed0;
+            defer parsed.deinit(allocator);
+            if (parsed.dest) |dest| {
+                if (isIdentLike(dest)) {
+                    if (symbols.findId(dest)) |id| {
+                        try addScopeReg(&reg_ids, &seen, id);
+                    }
+                }
+            }
+        } else |_| {}
+    }
+    for (const_decls) |decl| {
+        if (symbols.findId(decl.name)) |id| {
+            try addScopeReg(&reg_ids, &seen, id);
+        }
+    }
+
+    var scope = try FunctionRegScope.init(allocator, try reg_ids.toOwnedSlice());
+    errdefer scope.deinit();
+    for (body) |*item| {
+        for (&item.operands) |*operand| {
+            if (operand.* == .reg) {
+                operand.* = .{ .reg = scope.slotOf(operand.reg) orelse return error.InvalidTrustedScope };
+            }
+        }
+    }
+    function_sig.reg_ids = scope.reg_ids;
+    scope.owns_reg_ids = false;
+    scope.deinit();
+}
+
 fn collectMetadata(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,

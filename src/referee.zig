@@ -14,6 +14,7 @@ pub const VerifyStageReporter = verifier.VerifyStageReporter;
 pub const SaxValidationContext = verifier.SaxValidationContext;
 pub const verify = verifier.verify;
 pub const verifyWithOptions = verifier.verifyWithOptions;
+pub const populateTrustedRegScopes = verifier.populateTrustedRegScopes;
 
 test "referee exports real modules" {
     _ = CapabilityTable;
