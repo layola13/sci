@@ -15,6 +15,21 @@ fn expectNotContains(text: []const u8, needle: []const u8) !void {
     try std.testing.expect(std.mem.indexOf(u8, text, needle) == null);
 }
 
+/// Probe whether the host permits IPv6 multicast joins. Some containers
+/// lack a multicast-capable interface (join returns ENODEV) while IPv4
+/// multicast works; the v6-only macro surface suite is then skipped
+/// instead of reporting environment incapability as product failure.
+/// Precedent: udpSendtoPermitted / udpMulticastV6JoinPermitted in
+/// tests/sa_std_runtime.zig (sci@71e02f12).
+fn udpMulticastV6JoinPermitted() bool {
+    const sock = std.posix.socket(std.posix.AF.INET6, std.posix.SOCK.DGRAM, 0) catch return false;
+    defer std.posix.close(sock);
+    if (builtin.os.tag != .linux) return false;
+    var mreq = [_]u8{ 0xFF, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x14, 0, 0, 0, 0 };
+    const rc = std.os.linux.setsockopt(sock, 41, 20, &mreq, mreq.len);
+    return std.os.linux.E.init(rc) == .SUCCESS;
+}
+
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
@@ -1239,7 +1254,9 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_net_addr_macro_surface.sa",
         "tests/unit_framework/std_net_typed_address_macro_surface.sa",
         "tests/unit_framework/std_net_ip_hash_one_macro_surface.sa",
-        "tests/unit_framework/std_net_multicast_macro_surface.sa",
+                "tests/unit_framework/std_net_multicast_macro_surface.sa",
+                "tests/unit_framework/std_net_multicast_v6_join_macro_surface.sa",
+                "tests/unit_framework/std_net_multicast_v6_macro_surface.sa",
         "tests/unit_framework/std_net_wsurl_macro_surface.sa",
         "tests/unit_framework/std_netx_macro_surface.sa",
         "tests/unit_framework/std_net_unix_macro_surface.sa",
@@ -1341,6 +1358,11 @@ test "native unit framework covers sa_std macro surface suites" {
             }
             if (skip) continue;
         }
+        // IPv6 multicast needs a multicast-capable interface; without it the
+        // v6 join fails with ENODEV (environment, not product). The v4 suite
+        // above still verifies unconditionally.
+        if (std.mem.eql(u8, path, "tests/unit_framework/std_net_multicast_v6_join_macro_surface.sa") and
+            !udpMulticastV6JoinPermitted()) continue;
         try runSaTestFileAuto(path);
     }
 
