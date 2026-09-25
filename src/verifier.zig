@@ -4668,6 +4668,44 @@ test "borrowed views trap on write when shared" {
     }
 }
 
+test "borrow view of stack_alloc traps on return escape" {
+    const source =
+        \\@helper() -> &ptr:
+        \\tmp = stack_alloc 8
+        \\view = & tmp
+        \\return view
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.stack_escape, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "borrow view of stack_alloc traps on move escape" {
+    const source =
+        \\@extern sink(^owned: ptr) -> i32
+        \\@main() -> i32:
+        \\tmp = stack_alloc 8
+        \\view = & tmp
+        \\value = call @sink(^view)
+        \\!view
+        \\!tmp
+        \\return value
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.stack_escape, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
 fn fieldBorrowInstruction(kind: inst.InstKind, source_line: u32, expanded_line: u32, raw_text: []const u8, operands: [4]inst.Operand) inst.Instruction {
     var item = inst.makeInstruction(kind, source_line, expanded_line, null, raw_text);
     item.operands = operands;
