@@ -873,8 +873,10 @@ fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, o
         freeDecodedInstructionMetadata(allocator, instructions[0..initialized]);
         allocator.free(instructions);
     }
-    for (instructions, 0..) |*item, idx| {
+    for (instructions) |*item| {
         const kind = std.meta.intToEnum(inst.InstKind, try cursor.readByte()) catch return error.InvalidTag;
+        // SA-text 为语义标准：保留编码中的 expanded_line（宏展开行号），
+        // 不得以解码序号覆盖，否则诊断行号/const 交错与文本路径分歧。
         item.* = inst.makeInstruction(kind, @intCast(try decodeUleb128(&cursor)), @intCast(try decodeUleb128(&cursor)), null, "");
         var item_initialized = false;
         errdefer if (!item_initialized) freeDecodedInstructionMetadataOne(allocator, item);
@@ -910,7 +912,6 @@ fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, o
             item.upstream_loc = try readOptionalAllocUpstreamLoc(allocator, symbols, &cursor);
         }
         if (synthesize_debug_text and item.raw_text.len == 0) try synthesizeRawText(allocator, symbols, owned_text, item);
-        item.expanded_line = @intCast(idx);
         item_initialized = true;
         initialized += 1;
     }
@@ -1268,6 +1269,42 @@ test "sab borrow roundtrip preserves structured operands" {
     try std.testing.expectEqual(@as(u32, 0), decoded.instructions[0].operands[1].reg);
     try std.testing.expectEqualStrings("read", decoded.instructions[0].operands[2].text);
     try std.testing.expectEqualStrings("", decoded.instructions[0].raw_text);
+}
+
+test "sab roundtrip preserves expanded_line from SA-text" {
+    // SA-text 为语义标准：解码不得以指令序号覆盖 expanded_line（宏展开行号），
+    // 否则 Referee 诊断行号/const 交错与文本路径分歧。
+    const symbols = [_][]const u8{ "a", "b", "c" };
+    var items = [_]inst.Instruction{
+        inst.makeInstruction(.assign, 5, 10, null, ""),
+        inst.makeInstruction(.assign, 9, 42, null, ""),
+        inst.makeInstruction(.assign, 30, 7, null, ""),
+        // 边界：expanded_line = 0 必须原样保留（旧逻辑会写成指令序号 3）。
+        inst.makeInstruction(.assign, 100, 0, null, ""),
+    };
+    items[0].operands[0] = .{ .reg = 0 };
+    items[0].operands[1] = .{ .imm_i64 = 1 };
+    items[1].operands[0] = .{ .reg = 1 };
+    items[1].operands[1] = .{ .imm_i64 = 2 };
+    items[2].operands[0] = .{ .reg = 2 };
+    items[2].operands[1] = .{ .imm_i64 = 3 };
+    items[3].operands[0] = .{ .reg = 0 };
+    items[3].operands[1] = .{ .imm_i64 = 4 };
+
+    const encoded = try encodeModule(std.testing.allocator, symbols[0..], items[0..]);
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decodeModule(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 4), decoded.instructions.len);
+    try std.testing.expectEqual(@as(u32, 5), decoded.instructions[0].source_line);
+    try std.testing.expectEqual(@as(u32, 10), decoded.instructions[0].expanded_line);
+    try std.testing.expectEqual(@as(u32, 9), decoded.instructions[1].source_line);
+    try std.testing.expectEqual(@as(u32, 42), decoded.instructions[1].expanded_line);
+    try std.testing.expectEqual(@as(u32, 30), decoded.instructions[2].source_line);
+    try std.testing.expectEqual(@as(u32, 7), decoded.instructions[2].expanded_line);
+    try std.testing.expectEqual(@as(u32, 100), decoded.instructions[3].source_line);
+    try std.testing.expectEqual(@as(u32, 0), decoded.instructions[3].expanded_line);
 }
 
 fn decodedOwnsPooledText(module: *const Module, text: []const u8) bool {
