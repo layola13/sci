@@ -5574,6 +5574,18 @@ fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
     hasher.update(&.{if (value) 1 else 0});
 }
 
+const RuntimeArchiveFingerprint = struct { size: u64, mtime_ns: u64 };
+
+fn runtimeArchiveFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
+    const archive_path = saStdArchivePath(allocator) catch return null;
+    defer allocator.free(archive_path);
+    const stat = std.fs.cwd().statFile(archive_path) catch return null;
+    return .{
+        .size = stat.size,
+        .mtime_ns = @as(u64, @truncate(@as(u128, @bitCast(stat.mtime)))),
+    };
+}
+
 fn cacheCompilerVersion() []const u8 {
     if (builtin.is_test) return "test";
     return build_options.version;
@@ -5855,6 +5867,15 @@ fn computeProjectBuildKey(
     cacheBool(&hasher, release_fast);
     cacheBool(&hasher, incremental);
     cacheBytes(&hasher, dce.name());
+    // Fingerprint the linked sa_std runtime archive (size+mtime): a rebuilt
+    // runtime must invalidate cached exes, otherwise stale-linked binaries
+    // are silently reused (observed: AVX-512-linked test exes kept running
+    // after the archive was rebuilt without AVX-512, SIGILL). Cheap stat,
+    // no content hashing; missing archive keeps old behavior.
+    if (runtimeArchiveFingerprint(allocator)) |fp| {
+        cacheU64(&hasher, fp.size);
+        cacheU64(&hasher, fp.mtime_ns);
+    }
     if (wasm) |target| {
         cacheBytes(&hasher, target.triple);
         cacheBool(&hasher, target.no_entry);
