@@ -520,6 +520,8 @@ const InteriorContext = struct {
     interior_root: []?u32,
     interior_offset: []u64,
     interior_offset_known: []bool,
+    alloc_size: []u64,
+    alloc_size_known: []bool,
 };
 
 const LabelStateChange = struct {
@@ -534,6 +536,8 @@ const LabelStateChange = struct {
     interior_root: ?u32 = null,
     interior_offset: ?u64 = null,
     interior_offset_known: ?bool = null,
+    alloc_size: ?u64 = null,
+    alloc_size_known: ?bool = null,
 };
 
 const LabelSnapshot = struct {
@@ -892,6 +896,8 @@ fn captureLabelSnapshot(
     interior_root: []const ?u32,
     interior_offset: []const u64,
     interior_offset_known: []const bool,
+    alloc_size: []const u64,
+    alloc_size_known: []const bool,
 ) !LabelSnapshot {
     var changes = std.ArrayList(LabelStateChange).init(allocator);
     errdefer changes.deinit();
@@ -905,7 +911,8 @@ fn captureLabelSnapshot(
         const next_sibling = interior_next_sibling[idx];
         const root = interior_root[idx];
         const offset_known = interior_offset_known[idx];
-        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null or root != null or offset_known;
+        const size_known = alloc_size_known[idx];
+        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null or root != null or offset_known or size_known;
         if (!changed) continue;
         try changes.append(.{
             .reg = @intCast(idx),
@@ -919,6 +926,8 @@ fn captureLabelSnapshot(
             .interior_root = root,
             .interior_offset = if (offset_known) interior_offset[idx] else null,
             .interior_offset_known = if (offset_known) true else null,
+            .alloc_size = if (size_known) alloc_size[idx] else null,
+            .alloc_size_known = if (size_known) true else null,
         });
     }
 
@@ -937,6 +946,8 @@ fn restoreLabelSnapshot(
     interior_root: []?u32,
     interior_offset: []u64,
     interior_offset_known: []bool,
+    alloc_size: []u64,
+    alloc_size_known: []bool,
 ) void {
     @memset(state, 0);
     @memset(origins, null);
@@ -948,6 +959,8 @@ fn restoreLabelSnapshot(
     @memset(interior_root, null);
     @memset(interior_offset, 0);
     @memset(interior_offset_known, false);
+    @memset(alloc_size, 0);
+    @memset(alloc_size_known, false);
 
     for (snapshot.changes) |change| {
         const idx: usize = @intCast(change.reg);
@@ -961,6 +974,8 @@ fn restoreLabelSnapshot(
         if (change.interior_root) |value| interior_root[idx] = value;
         if (change.interior_offset) |value| interior_offset[idx] = value;
         if (change.interior_offset_known) |value| interior_offset_known[idx] = value;
+        if (change.alloc_size) |value| alloc_size[idx] = value;
+        if (change.alloc_size_known) |value| alloc_size_known[idx] = value;
     }
 }
 
@@ -1322,6 +1337,157 @@ fn staticByteOffset(operand: inst.Operand) ?u64 {
         .imm_i64 => |value| if (value >= 0) @as(u64, @intCast(value)) else null,
         else => null,
     };
+}
+
+fn parseAllocSizeOperand(operand: inst.Operand) ?u64 {
+    return switch (operand) {
+        .imm_u64 => |value| value,
+        .imm_i64 => |value| if (value > 0) @as(u64, @intCast(value)) else null,
+        .text => |t| std.fmt.parseInt(u64, std.mem.trim(u8, t, " \t\r\n"), 10) catch null,
+        else => null,
+    };
+}
+
+fn clearAllocSizeMeta(interior: *InteriorContext, id: u32) void {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.alloc_size.len) return;
+    interior.alloc_size[idx] = 0;
+    interior.alloc_size_known[idx] = false;
+}
+
+fn recordAllocSize(interior: *InteriorContext, id: u32, maybe_size: ?u64) void {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.alloc_size.len) return;
+    if (maybe_size) |size| {
+        interior.alloc_size[idx] = size;
+        interior.alloc_size_known[idx] = true;
+    } else {
+        interior.alloc_size[idx] = 0;
+        interior.alloc_size_known[idx] = false;
+    }
+}
+
+/// Follow interior_root, then borrow origins, to the ultimate allocation.
+/// Returns the allocation register id, or null when the chain is unknown.
+fn resolveAllocRoot(
+    interior: *const InteriorContext,
+    origins: []const ?u32,
+    id: u32,
+) ?u32 {
+    var current: u32 = id;
+    var hops: usize = 0;
+    while (hops < origins.len + 1) : (hops += 1) {
+        const idx: usize = @intCast(current);
+        if (idx >= interior.interior_root.len or idx >= origins.len) return null;
+        if (interior.interior_root[idx]) |root| {
+            if (root == current) break;
+            current = root;
+            continue;
+        }
+        if (origins[idx]) |origin| {
+            if (origin == current) break;
+            current = origin;
+            continue;
+        }
+        break;
+    }
+    return current;
+}
+
+/// Total static byte offset of `id` relative to its allocation root, or null
+/// when any step of the chain is dynamic/unknown.
+/// A fresh borrow view or allocation root with no recorded offset counts as
+/// zero and the walk continues through origins; a derived pointer
+/// (interior_root set) with unknown offset denotes a dynamic offset and
+/// stays permissive.
+fn chainBaseOffset(
+    interior: *const InteriorContext,
+    origins: []const ?u32,
+    id: u32,
+) ?u64 {
+    var total: u64 = 0;
+    var current: u32 = id;
+    var hops: usize = 0;
+    const bound: usize = origins.len + 1;
+    while (hops < bound) : (hops += 1) {
+        const idx: usize = @intCast(current);
+        if (idx >= interior.interior_offset_known.len or idx >= interior.interior_root.len or idx >= origins.len) return null;
+        if (interior.interior_offset_known[idx]) {
+            const sum = @addWithOverflow(total, interior.interior_offset[idx]);
+            if (sum[1] != 0) return null;
+            total = sum[0];
+        } else if (interior.interior_root[idx] == null and origins[idx] == null) {
+            // Allocation root (or plain value) with no offset: contributes 0.
+        } else if (interior.interior_root[idx] == null and origins[idx] != null) {
+            // Fresh borrow view directly on its source: contributes 0.
+        } else {
+            // Derived pointer with dynamic/unknown offset: permissive.
+            return null;
+        }
+        if (interior.interior_root[idx]) |root| {
+            if (root == current) {
+                // Root link resolved; continue through borrow origins if any.
+                if (origins[idx]) |origin| {
+                    if (origin == current) break;
+                    current = origin;
+                    continue;
+                }
+                break;
+            }
+            current = root;
+            continue;
+        }
+        if (origins[idx]) |origin| {
+            if (origin == current) break;
+            current = origin;
+            continue;
+        }
+        break;
+    }
+    return total;
+}
+
+/// Total static byte offset of `id` relative to its allocation root, or null
+/// when any step of the chain is dynamic/unknown.
+fn totalStaticOffset(interior: *const InteriorContext, id: u32) ?u64 {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.interior_offset_known.len) return null;
+    if (!interior.interior_offset_known[idx]) return null;
+    return interior.interior_offset[idx];
+}
+
+fn checkStaticOffsetInBounds(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    interior: *const InteriorContext,
+    origins: []const ?u32,
+    state: []const u16,
+    id: u32,
+    static_offset: ?u64,
+) ?VerifyBodyResult {
+    const off = static_offset orelse return null;
+    const root = resolveAllocRoot(interior, origins, id) orelse return null;
+    const root_idx: usize = @intCast(root);
+    if (root_idx >= interior.alloc_size_known.len) return null;
+    if (!interior.alloc_size_known[root_idx]) return null;
+    const size = interior.alloc_size[root_idx];
+    // Base offset accumulated along the interior/borrow chain (fresh views
+    // count as zero; dynamic steps stay permissive).
+    const base_off = chainBaseOffset(interior, origins, id) orelse return null;
+    const sum = @addWithOverflow(base_off, off);
+    if (sum[1] != 0) {
+        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[@intCast(id)], "pointer offset exceeds allocation size", "shrink the constant offset or widen the allocation");
+    }
+    const total = sum[0];
+    // Offset equal to size is one-past-the-end: forming it is legal only if
+    // never dereferenced, but our load/store/ptr_add use sites all denote an
+    // actual access here, so require strict containment.
+    if (total >= size) {
+        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[@intCast(id)], "pointer offset exceeds allocation size", "shrink the constant offset or widen the allocation");
+    }
+    return null;
 }
 
 fn setInteriorOffsetFromBase(interior: *InteriorContext, base_id: u32, child_id: u32, maybe_offset: ?u64) void {
@@ -2553,6 +2719,7 @@ fn assignValueCtx(
         clearInteriorNode(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
     }
     clearInteriorOffsetMeta(interior, id);
+    clearAllocSizeMeta(interior, id);
     state[idx] = mask;
     flags[idx] &= ~(regFlagBranchCondition | regFlagEphemeralScalar);
     return null;
@@ -2769,16 +2936,18 @@ fn updateLabel(
     interior_root: []?u32,
     interior_offset: []u64,
     interior_offset_known: []bool,
+    alloc_size: []u64,
+    alloc_size_known: []bool,
     allocator: std.mem.Allocator,
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
 ) ?VerifyBodyResult {
     const label_id = item.operands[1].label;
     if (labels.getPtr(label_id)) |entry| {
-        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known);
+        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known);
         return null;
     }
-    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     labels.put(label_id, dup) catch {
@@ -2855,6 +3024,8 @@ const VerifierBufferPool = struct {
     interior_root: []?u32 = &.{},
     interior_offset: []u64 = &.{},
     interior_offset_known: []bool = &.{},
+    alloc_size: []u64 = &.{},
+    alloc_size_known: []bool = &.{},
 
     fn init(allocator: std.mem.Allocator) VerifierBufferPool {
         return .{ .allocator = allocator };
@@ -2873,6 +3044,8 @@ const VerifierBufferPool = struct {
         if (self.interior_root.len != 0) self.allocator.free(self.interior_root);
         if (self.interior_offset.len != 0) self.allocator.free(self.interior_offset);
         if (self.interior_offset_known.len != 0) self.allocator.free(self.interior_offset_known);
+        if (self.alloc_size.len != 0) self.allocator.free(self.alloc_size);
+        if (self.alloc_size_known.len != 0) self.allocator.free(self.alloc_size_known);
         self.* = .{ .allocator = allocator };
     }
 
@@ -2892,6 +3065,8 @@ const VerifierBufferPool = struct {
         next.interior_root = try self.allocator.alloc(?u32, reg_count);
         next.interior_offset = try self.allocator.alloc(u64, reg_count);
         next.interior_offset_known = try self.allocator.alloc(bool, reg_count);
+        next.alloc_size = try self.allocator.alloc(u64, reg_count);
+        next.alloc_size_known = try self.allocator.alloc(bool, reg_count);
 
         self.deinit();
         self.* = next;
@@ -2922,6 +3097,8 @@ fn verifyBody(
     var interior_root: []?u32 = &.{};
     var interior_offset: []u64 = &.{};
     var interior_offset_known: []bool = &.{};
+    var alloc_size: []u64 = &.{};
+    var alloc_size_known: []bool = &.{};
     var buffers = VerifierBufferPool.init(allocator);
     defer buffers.deinit();
     var current_scope: ?FunctionRegScope = null;
@@ -2936,6 +3113,8 @@ fn verifyBody(
         .interior_root = interior_root,
         .interior_offset = interior_offset,
         .interior_offset_known = interior_offset_known,
+        .alloc_size = alloc_size,
+        .alloc_size_known = alloc_size_known,
     };
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
@@ -3006,6 +3185,8 @@ fn verifyBody(
             interior_root = &.{};
             interior_offset = &.{};
             interior_offset_known = &.{};
+            alloc_size = &.{};
+            alloc_size_known = &.{};
 
             if (current_sig) |decl_sig| {
                 var next_scope = try FunctionRegScope.initBorrowed(allocator, decl_sig.reg_ids);
@@ -3037,6 +3218,10 @@ fn verifyBody(
                 @memset(interior_offset, 0);
                 interior_offset_known = buffers.interior_offset_known[0..reg_count];
                 @memset(interior_offset_known, false);
+                alloc_size = buffers.alloc_size[0..reg_count];
+                @memset(alloc_size, 0);
+                alloc_size_known = buffers.alloc_size_known[0..reg_count];
+                @memset(alloc_size_known, false);
                 interior = .{
                     .state = state,
                     .interior_parent = interior_parent,
@@ -3045,6 +3230,8 @@ fn verifyBody(
                     .interior_root = interior_root,
                     .interior_offset = interior_offset,
                     .interior_offset_known = interior_offset_known,
+                    .alloc_size = alloc_size,
+                    .alloc_size_known = alloc_size_known,
                 };
                 current_scope = next_scope;
                 computeFunctionConsumedRegs(allocator, instructions, inst_idx, &metadata.symbols, &current_scope.?, consumed_in_function);
@@ -3140,7 +3327,7 @@ fn verifyBody(
             if (defined_labels.contains(item.operands[1].label)) {
                 return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
             }
-            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
+            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
                 return tr;
             }
             defined_labels.put(item.operands[1].label, {}) catch {
@@ -3172,6 +3359,7 @@ fn verifyBody(
             .alloc => {
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
+                recordAllocSize(&interior, item.operands[0].reg, parseAllocSizeOperand(item.operands[1]));
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
                     .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
@@ -3182,6 +3370,7 @@ fn verifyBody(
             .stack_alloc => {
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = regFlagStackAlloc;
+                recordAllocSize(&interior, item.operands[0].reg, parseAllocSizeOperand(item.operands[1]));
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
                     .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
@@ -3191,6 +3380,7 @@ fn verifyBody(
             },
             .load, .take => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (checkStaticOffsetInBounds(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], &interior, origins, state, item.operands[1].reg, staticByteOffset(item.operands[2]))) |tr| return tr;
                 const loaded_ty: sig.PrimType = if (item.operands[3] == .ty) blk: {
                     break :blk sig.primTypeFromTag(item.operands[3].ty) orelse if (item.kind == .take) .ptr else .i64;
                 } else if (item.kind == .take) .ptr else .i64;
@@ -3215,6 +3405,7 @@ fn verifyBody(
                     }
                 }
                 if (writeCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks)) |tr| return tr;
+                if (checkStaticOffsetInBounds(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], &interior, origins, state, item.operands[0].reg, staticByteOffset(item.operands[1]))) |tr| return tr;
                 const dst_idx: usize = @intCast(item.operands[0].reg);
                 if ((state[dst_idx] & maskOf(.borrow_view)) != 0) {
                     const origin_id = origins[dst_idx] orelse unreachable;
@@ -3309,6 +3500,10 @@ fn verifyBody(
                 const src_idx: usize = @intCast(item.operands[1].reg);
                 const has_field_identity = (state[src_idx] & (maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
                 const has_borrow_lifetime = (state[src_idx] & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg);
+                // Static OOB check before linking the child: forming an
+                // out-of-bounds derived pointer is rejected even if it is
+                // never dereferenced.
+                if (checkStaticOffsetInBounds(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], &interior, origins, state, item.operands[1].reg, staticByteOffset(item.operands[2]))) |tr| return tr;
                 const dst_mask: u16 = if (has_borrow_lifetime) maskOf(.active) | maskOf(.interior_ptr) else maskOf(.active);
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, dst_mask, &interior)) |tr| return tr;
                 if (has_borrow_lifetime) {
@@ -3472,7 +3667,7 @@ fn verifyBody(
                         }
                     }
                 } else {
-                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                     labels.put(target, snapshot) catch {
@@ -3505,7 +3700,7 @@ fn verifyBody(
                             }
                         }
                     } else {
-                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                         labels.put(target, snapshot) catch {
@@ -3540,7 +3735,7 @@ fn verifyBody(
                             }
                         }
                     } else {
-                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                         labels.put(target, snapshot) catch {
@@ -5006,6 +5201,87 @@ test "field-level mutable borrows reject identical static offsets" {
             owned.deinit(std.testing.allocator);
             return error.TestUnexpectedResult;
         },
+    }
+}
+
+test "ptr_add beyond allocation size traps borrow_conflict" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 8", .{ .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 3, 2, "far = ptr_add base, 8", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "borrow view ptr_add beyond allocation size traps borrow_conflict" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 8", .{ .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 3, 2, "view = borrow base", .{ .{ .reg = 2 }, .{ .text = "read" }, .{ .reg = 1 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 4, 3, "far = ptr_add view, 8", .{ .{ .reg = 3 }, .{ .reg = 2 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 5, 4, "!view", .{ .{ .reg = 2 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 6, 5, "!far", .{ .{ .reg = 3 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 7, 6, "!base", .{ .{ .reg = 1 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.return_, 8, 7, "return 0", .{ .{ .imm_i64 = 0 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "load with offset beyond allocation size traps borrow_conflict" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 8", .{ .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.load, 3, 2, "v = load base+8 as u64", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .ty = @intFromEnum(sig.PrimType.u64) } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "in-bounds borrow view offsets still verify" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 16", .{ .{ .reg = 1 }, .{ .imm_u64 = 16 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 3, 2, "view = borrow base", .{ .{ .reg = 2 }, .{ .text = "read" }, .{ .reg = 1 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 4, 3, "field = ptr_add view, 8", .{ .{ .reg = 3 }, .{ .reg = 2 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 5, 4, "!field", .{ .{ .reg = 3 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 6, 5, "!view", .{ .{ .reg = 2 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 7, 6, "!base", .{ .{ .reg = 1 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.return_, 8, 7, "return 0", .{ .{ .imm_i64 = 0 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => return error.TestUnexpectedResult,
     }
 }
 
