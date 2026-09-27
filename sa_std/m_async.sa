@@ -1,0 +1,137 @@
+// m-async compatibility facade for SA.
+// Structured cancellation/task-group lifecycle over the existing Future/Task
+// layouts. Scheduling remains cooperative and explicit.
+@import "m_async.sal"
+
+[MACRO] M_ASYNC_CANCEL_TOKEN_NEW %out_token
+    %out_token = alloc MAsyncCancelToken_SIZE
+    store %out_token+MAsyncCancelToken_cancelled, MAsyncCancelToken_ACTIVE as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_CANCEL_TOKEN_CANCEL %token
+    store %token+MAsyncCancelToken_cancelled, MAsyncCancelToken_CANCELLED as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_CANCEL_TOKEN_RESET %token
+    store %token+MAsyncCancelToken_cancelled, MAsyncCancelToken_ACTIVE as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_CANCEL_TOKEN_IS_CANCELLED %out_bool, %token
+    __m_async_cancel_state_%out_bool = load %token+MAsyncCancelToken_cancelled as u64
+    %out_bool = eq __m_async_cancel_state_%out_bool, MAsyncCancelToken_CANCELLED
+    !__m_async_cancel_state_%out_bool
+[END_MACRO]
+
+[MACRO] M_ASYNC_TASK_NEW %out_task, %future_ptr, %context_ptr, %cancel_ptr
+    %out_task = alloc MAsyncTask_SIZE
+    store %out_task+MAsyncTask_future, %future_ptr as ptr
+    store %out_task+MAsyncTask_context, %context_ptr as ptr
+    store %out_task+MAsyncTask_cancel, %cancel_ptr as ptr
+    store %out_task+MAsyncTask_state, MAsyncTask_PENDING as u64
+    store %out_task+MAsyncTask_result, 0 as u64
+    store %out_task+MAsyncTask_error, 0 as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_TASK_STATE %out_state, %task
+    %out_state = load %task+MAsyncTask_state as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_TASK_RESULT %out_value, %task
+    %out_value = load %task+MAsyncTask_result as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_TASK_ERROR %out_error, %task
+    %out_error = load %task+MAsyncTask_error as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_TASK_IS_DONE %out_bool, %task
+    __m_async_task_done_state_%out_bool = load %task+MAsyncTask_state as u64
+    __m_async_task_done_ready_%out_bool = eq __m_async_task_done_state_%out_bool, MAsyncTask_READY
+    __m_async_task_done_failed_%out_bool = eq __m_async_task_done_state_%out_bool, MAsyncTask_FAILED
+    __m_async_task_done_cancelled_%out_bool = eq __m_async_task_done_state_%out_bool, MAsyncTask_CANCELLED
+    __m_async_task_done_terminal_%out_bool = or __m_async_task_done_ready_%out_bool, __m_async_task_done_failed_%out_bool
+    %out_bool = or __m_async_task_done_terminal_%out_bool, __m_async_task_done_cancelled_%out_bool
+    !__m_async_task_done_cancelled_%out_bool
+    !__m_async_task_done_terminal_%out_bool
+    !__m_async_task_done_failed_%out_bool
+    !__m_async_task_done_ready_%out_bool
+    !__m_async_task_done_state_%out_bool
+[END_MACRO]
+
+[MACRO] M_ASYNC_TASK_CANCEL %task
+    store %task+MAsyncTask_state, MAsyncTask_CANCELLED as u64
+    store %task+MAsyncTask_error, 97 as u64
+    __m_async_task_cancel_token_%task = load %task+MAsyncTask_cancel as ptr
+    __m_async_task_has_cancel_token_%task = ne __m_async_task_cancel_token_%task, 0
+    br __m_async_task_has_cancel_token_%task -> L_M_ASYNC_TASK_CANCEL_TOKEN_%task, L_M_ASYNC_TASK_CANCEL_DONE_%task
+L_M_ASYNC_TASK_CANCEL_TOKEN_%task:
+    EXPAND M_ASYNC_CANCEL_TOKEN_CANCEL __m_async_task_cancel_token_%task
+    !__m_async_task_has_cancel_token_%task
+    !__m_async_task_cancel_token_%task
+    jmp L_M_ASYNC_TASK_CANCEL_DONE_%task
+L_M_ASYNC_TASK_CANCEL_DONE_%task:
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_NEW %out_group, %cancel
+    %out_group = alloc MAsyncGroup_SIZE
+    store %out_group+MAsyncGroup_cancel, %cancel as ptr
+    store %out_group+MAsyncGroup_children, 0 as u64
+    store %out_group+MAsyncGroup_completed, 0 as u64
+    store %out_group+MAsyncGroup_failed, 0 as u64
+    store %out_group+MAsyncGroup_error, 0 as u64
+    store %out_group+MAsyncGroup_state, MAsyncGroup_ACTIVE as u64
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_TOKEN %out_token, %group
+    %out_token = load %group+MAsyncGroup_cancel as ptr
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_ADD %group
+    __m_async_group_children_%group = load %group+MAsyncGroup_children as u64
+    __m_async_group_children_next_%group = add __m_async_group_children_%group, 1
+    store %group+MAsyncGroup_children, __m_async_group_children_next_%group as u64
+    !__m_async_group_children_next_%group
+    !__m_async_group_children_%group
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_COMPLETE %group
+    __m_async_group_completed_%group = load %group+MAsyncGroup_completed as u64
+    __m_async_group_completed_next_%group = add __m_async_group_completed_%group, 1
+    store %group+MAsyncGroup_completed, __m_async_group_completed_next_%group as u64
+    !__m_async_group_completed_next_%group
+    !__m_async_group_completed_%group
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_FAIL %group, %error
+    store %group+MAsyncGroup_failed, 1 as u64
+    store %group+MAsyncGroup_error, %error as u64
+    store %group+MAsyncGroup_state, MAsyncGroup_FAILED as u64
+    __m_async_group_fail_token_%group = load %group+MAsyncGroup_cancel as ptr
+    EXPAND M_ASYNC_CANCEL_TOKEN_CANCEL __m_async_group_fail_token_%group
+    !__m_async_group_fail_token_%group
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_CANCEL %group
+    store %group+MAsyncGroup_state, MAsyncGroup_CANCELLED as u64
+    __m_async_group_cancel_token_%group = load %group+MAsyncGroup_cancel as ptr
+    EXPAND M_ASYNC_CANCEL_TOKEN_CANCEL __m_async_group_cancel_token_%group
+    !__m_async_group_cancel_token_%group
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_IS_COMPLETE %out_bool, %group
+    __m_async_group_children_%out_bool = load %group+MAsyncGroup_children as u64
+    __m_async_group_completed_%out_bool = load %group+MAsyncGroup_completed as u64
+    %out_bool = eq __m_async_group_children_%out_bool, __m_async_group_completed_%out_bool
+    !__m_async_group_completed_%out_bool
+    !__m_async_group_children_%out_bool
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_IS_FAILED %out_bool, %group
+    __m_async_group_failed_%out_bool = load %group+MAsyncGroup_failed as u64
+    %out_bool = ne __m_async_group_failed_%out_bool, 0
+    !__m_async_group_failed_%out_bool
+[END_MACRO]
+
+[MACRO] M_ASYNC_GROUP_ERROR %out_error, %group
+    %out_error = load %group+MAsyncGroup_error as u64
+[END_MACRO]

@@ -1,0 +1,4 @@
+// SLA import surface for plugin async adapters.
+@import "sa_std/plugin_async.sa"
+@import "sa_std/plugin_http_async.sa"
+@import "sa_std/plugin_http_server.sla"

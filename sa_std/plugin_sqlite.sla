@@ -1,0 +1,2 @@
+// SLA import surface for the synchronous Node SQLite facade.
+@import "sa_std/plugin_sqlite.sa"
