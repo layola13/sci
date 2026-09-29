@@ -706,6 +706,7 @@ uint64_t sa_fmt_buffer_len(uint64_t buffer);
 int32_t sa_fmt_buffer_write_to(uint64_t buffer, uint64_t writer);
 int32_t sa_fmt_buffer_free(uint64_t buffer);
 uint64_t sa_string_concat(const uint8_t *left, uint64_t left_len, const uint8_t *right, uint64_t right_len);
+uint64_t sa_string_from_char_code(int32_t code);
 int32_t sa_str_is_ascii(const uint8_t *ptr, uint64_t len);
 int32_t sa_str_eq_ignore_ascii_case(const uint8_t *left, uint64_t left_len, const uint8_t *right, uint64_t right_len);
 uint64_t sa_str_trim_ascii_start_index(const uint8_t *ptr, uint64_t len);

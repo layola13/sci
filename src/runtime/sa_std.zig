@@ -10858,6 +10858,17 @@ pub export fn sa_string_concat(left_ptr: ?[*]const u8, left_len: u64, right_ptr:
     return openOwnedBuffer(owned) catch return 0;
 }
 
+/// Single-byte string from a char code (JS `String.fromCharCode` over the
+/// subset's byte-oriented strings; exact inverse of byte `charCodeAt`).
+/// Only the low byte is stored (documented); returns a buffer handle read
+/// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
+pub export fn sa_string_from_char_code(code: i32) u64 {
+    const byte: u8 = @truncate(@as(u32, @bitCast(code)));
+    const owned = std.heap.page_allocator.alloc(u8, 1) catch return 0;
+    owned[0] = byte;
+    return openOwnedBuffer(owned) catch return 0;
+}
+
 pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(ptr, len) catch return 0;
     for (bytes) |byte| {
