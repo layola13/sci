@@ -595,6 +595,13 @@ static unsigned int infer_indirect_sig_index(EmitCtx *e, const SaInstruction *in
     for (size_t i = 0; i < e->function_count; i++) {
         const SaFunction *candidate = &e->functions[i];
         if (candidate->kind == SA_F_EXTERNAL) continue;
+        // A valued indirect call can never target a void function: the old
+        // first-match would pick an earlier same-arity void (a ctor, or an
+        // imported helper like sa_mem_set inlined ahead of the closures)
+        // and mistype the call as void, crashing LLVM codegen downstream.
+        // Skipping void here only changes outcomes that previously failed
+        // to build, so working programs are unaffected.
+        if (in->has_dst && candidate->ret_ty == SA_T_VOID && !candidate->return_fallible) continue;
 
         size_t param_count = in->indirect_param_count != 0 ? in->indirect_param_count : candidate->param_count;
         if (param_count != in->arg_count) continue;

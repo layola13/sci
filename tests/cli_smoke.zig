@@ -1519,6 +1519,10 @@ test "callback registration demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/rosetta/253_contract_callback_registration/main.sa", "253\n");
 }
 
+test "indirect calls shadowed by an early import resolve to valued callees" {
+    try assertBuildExeStdout("demos/rosetta/334_indirect_import_shadow/main.sa", "334\n");
+}
+
 test "pkg lib dynamic demo compiles via object archive and prints through native link" {
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();

@@ -361,6 +361,7 @@ const BuildState = struct {
     const_decls: []const const_decl.ConstDecl,
     function_sigs: []const sig.FunctionSig,
     function_sig_index: *const std.StringHashMap(usize),
+    emitted_sig_index: *const std.StringHashMap(usize),
 
     fn init(
         allocator: std.mem.Allocator,
@@ -370,12 +371,13 @@ const BuildState = struct {
         const_decls: []const const_decl.ConstDecl,
         function_sigs: []const sig.FunctionSig,
         function_sig_index: *const std.StringHashMap(usize),
+        emitted_sig_index: *const std.StringHashMap(usize),
         anon_string_names: *const std.StringHashMap([*:0]const u8),
     ) !BuildState {
         var const_names = std.StringHashMap(void).init(allocator);
         errdefer const_names.deinit();
         for (const_decls) |decl| try const_names.put(decl.name, {});
-        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index };
+        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index, .emitted_sig_index = emitted_sig_index };
     }
 
     fn deinit(self: *BuildState) void {
@@ -590,6 +592,22 @@ fn buildFunctionSigIndex(allocator: std.mem.Allocator, sigs: []const sig.Functio
         try putFunctionSigAlias(&index, candidate.name, idx);
         if (candidate.llvm_name) |llvm_name| try putFunctionSigAlias(&index, llvm_name, idx);
         try putFunctionSigAlias(&index, emittedFunctionName(candidate), idx);
+    }
+    return index;
+}
+
+/// Index over EMITTED task order (not source order): DCE drops unreachable
+/// functions from emission, so positions in the C function table only match
+/// task order. Indirect-call inference must resolve through this map, or a
+/// Zig-side index lands on the wrong C function (e.g. a void ctor shadowing
+/// a closure) whenever anything was pruned.
+fn buildEmittedSigIndex(allocator: std.mem.Allocator, tasks: []const ParallelEmitTask) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    for (tasks, 0..) |task, pos| {
+        try putFunctionSigAlias(&index, task.fsig.name, pos);
+        if (task.fsig.llvm_name) |llvm_name| try putFunctionSigAlias(&index, llvm_name, pos);
+        try putFunctionSigAlias(&index, emittedFunctionName(task.fsig), pos);
     }
     return index;
 }
@@ -869,7 +887,7 @@ fn inferIndirectSigIndexFromSlot(state: *BuildState, slot_name: []const u8) ?usi
             .vtable => |literal| {
                 for (literal.slots) |slot| {
                     if (!std.mem.eql(u8, slot.name, slot_name)) continue;
-                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
+                    const idx = state.emitted_sig_index.get(slot.func_name) orelse continue;
                     resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
                 }
             },
@@ -891,7 +909,7 @@ fn inferIndirectSigIndexFromSlotWithPrefix(state: *BuildState, slot_name: []cons
                     if (!std.mem.eql(u8, slot.name, slot_name)) continue;
                     var func_buf: [256]u8 = undefined;
                     if (!decl_match and !normalizedContainsKey(&func_buf, slot.func_name, prefix_key)) continue;
-                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
+                    const idx = state.emitted_sig_index.get(slot.func_name) orelse continue;
                     resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
                 }
             },
@@ -909,7 +927,7 @@ fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
         switch (decl.value) {
             .vtable => |literal| {
                 if (slot_index >= literal.slots.len) continue;
-                const idx = state.function_sig_index.get(literal.slots[slot_index].func_name) orelse continue;
+                const idx = state.emitted_sig_index.get(literal.slots[slot_index].func_name) orelse continue;
                 resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
             },
             else => {},
@@ -1168,6 +1186,7 @@ fn ParallelEmitContext(comptime VerifiedType: type) type {
         options: EmitOptions,
         anon_string_names: *const std.StringHashMap([*:0]const u8),
         function_sig_index: *const std.StringHashMap(usize),
+        emitted_sig_index: *const std.StringHashMap(usize),
         tasks: []const ParallelEmitTask,
         jobs: []ParallelEmitJob,
         next_task: std.atomic.Value(usize),
@@ -1242,7 +1261,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
 
         if (task.decl_kind != .extern_decl) {
             const body = context.verified.annotated[task.start_idx + 1 .. task.end_idx];
-            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.anon_string_names) catch |err| {
+            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.emitted_sig_index, context.anon_string_names) catch |err| {
                 job.err = err;
                 return;
             };
@@ -1479,6 +1498,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         }
     }
 
+    var emitted_sig_index = try buildEmittedSigIndex(a, tasks.items);
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
@@ -1498,6 +1518,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .options = options,
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
+        .emitted_sig_index = &emitted_sig_index,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1760,6 +1781,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         }
     }
 
+    var emitted_sig_index = try buildEmittedSigIndex(a, tasks.items);
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
@@ -1775,6 +1797,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .options = options,
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
+        .emitted_sig_index = &emitted_sig_index,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1920,6 +1943,8 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .reg_ids = reg_ids[0..],
     };
 
+    var emitted_sig_index_test = std.StringHashMap(usize).init(std.testing.allocator);
+    defer emitted_sig_index_test.deinit();
     var state = BuildState{
         .allocator = std.testing.allocator,
         .symbols = &symbols,
@@ -1930,6 +1955,7 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .const_decls = &.{},
         .function_sigs = &.{},
         .function_sig_index = &function_sig_index,
+        .emitted_sig_index = &emitted_sig_index_test,
     };
     state.const_names = std.StringHashMap(void).init(std.testing.allocator);
     defer state.const_names.deinit();

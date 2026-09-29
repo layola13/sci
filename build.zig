@@ -303,6 +303,7 @@ pub fn build(b: *std.Build) void {
             "bc2sa translates sqlite3 api probe bitcode",
             "cli build-exe prunes unused imported functions before llvm emission",
             "extern i32 fallible return uses ABI-aligned payload offset",
+            "indirect calls shadowed by an early import resolve to valued callees",
         },
     });
     const run_cli_smoke = b.addRunArtifact(cli_smoke);
