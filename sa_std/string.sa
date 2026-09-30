@@ -12214,3 +12214,27 @@ L_STRING_REPLACE_END_%out_ok:
 [MACRO] STRING_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
     EXPAND STRING_TRY_REPLACE_RANGE %out_ok, %string_reg, %start, %length, %replace_slice
 [END_MACRO]
+
+// Exact byte-equality over (ptr,len) pairs, composed from existing
+// contracts only (length check + sa_string_index_of == 0); no new ABI.
+// Branch-free by construction, so macro expansion never introduces a
+// Phi merge (see sala 06_limitations). Inputs are caller-owned: like
+// SLICE_NEW, callers may pass &CONST expressions (which must never be
+// released), so reg inputs stay caller-owned.
+[MACRO] STRING_EQ %out_eq, %left_ptr, %left_len, %right_ptr, %right_len
+    // inputs: caller-owned (may be &CONST; never release inside)
+    __string_eq_len_eq_%out_eq = eq %left_len, %right_len
+    __string_eq_at_%out_eq = call @sa_string_index_of(%left_ptr, %left_len, %right_ptr, %right_len, 0)
+    __string_eq_zero_%out_eq = eq __string_eq_at_%out_eq, 0
+    %out_eq = and __string_eq_len_eq_%out_eq, __string_eq_zero_%out_eq
+    !__string_eq_len_eq_%out_eq
+    !__string_eq_at_%out_eq
+    !__string_eq_zero_%out_eq
+[END_MACRO]
+
+// Negated alias over STRING_EQ.
+[MACRO] STRING_NEQ %out_ne, %left_ptr, %left_len, %right_ptr, %right_len
+    EXPAND STRING_EQ __string_neq_tmp_%out_ne, %left_ptr, %left_len, %right_ptr, %right_len
+    %out_ne = xor __string_neq_tmp_%out_ne, 1
+    !__string_neq_tmp_%out_ne
+[END_MACRO]
