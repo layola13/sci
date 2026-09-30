@@ -3397,7 +3397,45 @@ pub export fn sa_string_replace(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[
     }
     std.mem.copyForwards(u8, owned[o..][0..(hay.len - s)], hay[s..]);
     o += hay.len - s;
-    return openOwnedBuffer(owned[0..o]) catch return 0;
+    return openOwnedByteBuffer(owned[0..o]) catch return 0;
+}
+
+/// JS `String.prototype.charCodeAt` (mirrors the non-Windows variant):
+/// byte at `idx`, -1 when out of bounds.
+pub export fn sa_string_code_point_at(ptr: ?[*]const u8, len: u64, idx: u64) i32 {
+    const bytes = constBytes(ptr, len) catch return -1;
+    const i = lenAsUsize(idx) catch return -1;
+    if (i >= bytes.len) return -1;
+    return @as(i32, bytes[i]);
+}
+
+/// JS `String.fromCodePoint` (mirrors the non-Windows variant): UTF-8
+/// encoding of one scalar; out-of-range yields U+FFFD bytes.
+pub export fn sa_string_from_code_point(code: i32) u64 {
+    const scalar: u32 = if (code < 0) 0xfffd else @as(u32, @intCast(code));
+    const cp: u32 = if (scalar > 0x10ffff or (scalar >= 0xd800 and scalar <= 0xdfff)) 0xfffd else scalar;
+    var buf: [4]u8 = undefined;
+    const n: usize = if (cp < 0x80) blk: {
+        buf[0] = @as(u8, @intCast(cp));
+        break :blk 1;
+    } else if (cp < 0x800) blk: {
+        buf[0] = @as(u8, @intCast(0xc0 | (cp >> 6)));
+        buf[1] = @as(u8, @intCast(0x80 | (cp & 0x3f)));
+        break :blk 2;
+    } else if (cp < 0x10000) blk: {
+        buf[0] = @as(u8, @intCast(0xe0 | (cp >> 12)));
+        buf[1] = @as(u8, @intCast(0x80 | ((cp >> 6) & 0x3f)));
+        buf[2] = @as(u8, @intCast(0x80 | (cp & 0x3f)));
+        break :blk 3;
+    } else blk: {
+        buf[0] = @as(u8, @intCast(0xf0 | (cp >> 18)));
+        buf[1] = @as(u8, @intCast(0x80 | ((cp >> 12) & 0x3f)));
+        buf[2] = @as(u8, @intCast(0x80 | ((cp >> 6) & 0x3f)));
+        buf[3] = @as(u8, @intCast(0x80 | (cp & 0x3f)));
+        break :blk 4;
+    };
+    const owned = std.heap.page_allocator.dupe(u8, buf[0..n]) catch return 0;
+    return openOwnedByteBuffer(owned) catch return 0;
 }
 
 pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
