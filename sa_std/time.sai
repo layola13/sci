@@ -8,3 +8,6 @@
 @extern sa_time_utc_now(&out: ptr) -> i32
 @extern sa_time_sleep_ns(ns: u64) -> i32
 @extern sa_time_sleep_ms(ms: u64) -> i32
+// JS Date.toISOString shape for an i64 unix-millis value (UTC, millis
+// precision, fresh buffer handle read back via sa_fmt_buffer_data/len).
+@extern sa_time_iso_from_unix_ms(ms: i64) -> u64

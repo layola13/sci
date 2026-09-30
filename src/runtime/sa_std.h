@@ -693,6 +693,7 @@ int64_t sa_time_unix_s(void);
 int64_t sa_time_unix_ms(void);
 int64_t sa_time_unix_ns(void);
 int32_t sa_time_utc_now(SaTimeDate *out_date);
+uint64_t sa_time_iso_from_unix_ms(int64_t ms);
 int32_t sa_time_sleep_ns(uint64_t ns);
 int32_t sa_time_sleep_ms(uint64_t ms);
 

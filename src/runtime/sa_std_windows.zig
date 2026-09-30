@@ -2107,23 +2107,45 @@ pub export fn sa_deno_build_platform_family() u64 {
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
+/// Zero-padded decimal append (mirrors the non-Windows variant; std.fmt
+/// `{d:04}` on 0.14 misplaces the sign).
+fn appendPaddedWin(out: *std.ArrayList(u8), val: i64, width: usize) !void {
+    if (val < 0) {
+        try out.append('-');
+        const rest = if (width > 0) width - 1 else 0;
+        return appendPaddedWin(out, -val, rest);
+    }
+    var tmp: [32]u8 = undefined;
+    const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
+    var i: usize = s.len;
+    while (i < width) : (i += 1) try out.append('0');
+    try out.appendSlice(s);
+}
+
+/// UTC ISO append (mirrors the non-Windows variant).
+fn appendIsoUtcWin(out: *std.ArrayList(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
+    try appendPaddedWin(out, year, 4);
+    try out.append('-');
+    try appendPaddedWin(out, month, 2);
+    try out.append('-');
+    try appendPaddedWin(out, day, 2);
+    try out.append('T');
+    try appendPaddedWin(out, hour, 2);
+    try out.append(':');
+    try appendPaddedWin(out, minute, 2);
+    try out.append(':');
+    try appendPaddedWin(out, second, 2);
+    try out.append('.');
+    try appendPaddedWin(out, milli, 3);
+    try out.append('Z');
+}
+
 pub export fn sa_deno_date_now_iso() u64 {
     var date: TimeDate = undefined;
     fillUtcNow(&date) catch return 0;
-    const text = std.fmt.allocPrint(
-        std.heap.page_allocator,
-        "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}Z",
-        .{
-            date.year,
-            date.month,
-            date.day,
-            date.hour,
-            date.minute,
-            date.second,
-            date.millisecond,
-        },
-    ) catch return 0;
-    return openOwnedByteBuffer(text) catch return 0;
+    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    appendIsoUtcWin(&out, date.year, date.month, date.day, date.hour, date.minute, date.second, date.millisecond) catch return 0;
+    return openOwnedByteBuffer(out.toOwnedSlice() catch return 0) catch return 0;
 }
 
 pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {
@@ -3553,6 +3575,34 @@ pub export fn sa_time_unix_s() i64 {
 
 pub export fn sa_time_unix_ms() i64 {
     return std.time.milliTimestamp();
+}
+
+/// JS `Date.toISOString` shape (mirrors the non-Windows variant).
+pub export fn sa_time_iso_from_unix_ms(ms: i64) u64 {
+    const ms_per_day: i64 = 86400000;
+    var days = @divFloor(ms, ms_per_day);
+    var day_ms = @mod(ms, ms_per_day);
+    if (day_ms < 0) {
+        day_ms += ms_per_day;
+        days -= 1;
+    }
+    const z: i64 = days + 719468;
+    const era: i64 = if (z >= 0) @divFloor(z, 146097) else @divFloor(z - 146096, 146097);
+    const doe: i64 = z - era * 146097;
+    const yoe: i64 = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const y: i64 = yoe + era * 400;
+    const doy: i64 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp: i64 = @divFloor(5 * doy + 2, 153);
+    const day: i64 = doy - @divFloor(153 * mp + 2, 5) + 1;
+    const month: i64 = if (mp < 10) mp + 3 else mp - 9;
+    const year: i64 = if (month <= 2) y + 1 else y;
+    const hour: i64 = @divFloor(day_ms, 3600000);
+    const minute: i64 = @divFloor(@mod(day_ms, 3600000), 60000);
+    const second: i64 = @divFloor(@mod(day_ms, 60000), 1000);
+    const milli: i64 = @mod(day_ms, 1000);
+    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    appendIsoUtcWin(&out, year, month, day, hour, minute, second, milli) catch return 0;
+    return openOwnedByteBuffer(out.toOwnedSlice() catch return 0) catch return 0;
 }
 
 pub export fn sa_time_unix_ns() i64 {
