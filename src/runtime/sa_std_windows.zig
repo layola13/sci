@@ -3149,6 +3149,53 @@ pub export fn sa_string_from_char_code(code: i32) u64 {
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
+/// JS `String.prototype.indexOf` over byte-oriented strings (mirrors the
+/// non-Windows variant): first needle index at/after `from`, or -1.
+pub export fn sa_string_index_of(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64, from: u64) i32 {
+    const hay = constBytes(hay_ptr, hay_len) catch return -1;
+    const ndl = constBytes(ndl_ptr, ndl_len) catch return -1;
+    const start: usize = @as(usize, @intCast(@min(from, hay_len)));
+    if (ndl.len == 0) return @as(i32, @intCast(@min(start, hay.len)));
+    if (ndl.len > hay.len) return -1;
+    var i: usize = start;
+    while (i + ndl.len <= hay.len) : (i += 1) {
+        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) return @as(i32, @intCast(i));
+    }
+    return -1;
+}
+
+/// JS `String.prototype.lastIndexOf` (mirrors the non-Windows variant).
+pub export fn sa_string_last_index_of(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64, from: u64) i32 {
+    const hay = constBytes(hay_ptr, hay_len) catch return -1;
+    const ndl = constBytes(ndl_ptr, ndl_len) catch return -1;
+    const start: usize = @as(usize, @intCast(@min(from, hay_len)));
+    if (ndl.len == 0) return @as(i32, @intCast(@min(start, hay.len)));
+    if (ndl.len > hay.len) return -1;
+    var i: usize = @min(start, hay.len - ndl.len);
+    while (true) {
+        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) return @as(i32, @intCast(i));
+        if (i == 0) break;
+        i -= 1;
+    }
+    return -1;
+}
+
+/// JS `String.prototype.startsWith` (mirrors the non-Windows variant): 1/0.
+pub export fn sa_string_starts_with(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) i32 {
+    const hay = constBytes(hay_ptr, hay_len) catch return 0;
+    const ndl = constBytes(ndl_ptr, ndl_len) catch return 0;
+    if (ndl.len > hay.len) return 0;
+    return if (std.mem.eql(u8, hay[0..ndl.len], ndl)) 1 else 0;
+}
+
+/// JS `String.prototype.endsWith` (mirrors the non-Windows variant): 1/0.
+pub export fn sa_string_ends_with(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) i32 {
+    const hay = constBytes(hay_ptr, hay_len) catch return 0;
+    const ndl = constBytes(ndl_ptr, ndl_len) catch return 0;
+    if (ndl.len > hay.len) return 0;
+    return if (std.mem.eql(u8, hay[hay.len - ndl.len ..], ndl)) 1 else 0;
+}
+
 pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(ptr, len) catch return 0;
     for (bytes) |byte| {

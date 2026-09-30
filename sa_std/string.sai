@@ -10,3 +10,7 @@
 @extern sa_str_utf8_char_range_at(ptr: ptr, len: u64, char_index: u64, out_start: ptr, out_len: ptr) -> i32
 @extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> u64
 @extern sa_string_from_char_code(code: i32) -> u64
+@extern sa_string_index_of(hay_ptr: ptr, hay_len: u64, ndl_ptr: ptr, ndl_len: u64, from: u64) -> i32
+@extern sa_string_last_index_of(hay_ptr: ptr, hay_len: u64, ndl_ptr: ptr, ndl_len: u64, from: u64) -> i32
+@extern sa_string_starts_with(hay_ptr: ptr, hay_len: u64, ndl_ptr: ptr, ndl_len: u64) -> i32
+@extern sa_string_ends_with(hay_ptr: ptr, hay_len: u64, ndl_ptr: ptr, ndl_len: u64) -> i32
