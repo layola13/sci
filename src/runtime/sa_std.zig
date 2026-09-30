@@ -6197,6 +6197,101 @@ pub export fn sa_time_iso_from_unix_ms(ms: i64) u64 {
     return openOwnedBuffer(out.toOwnedSlice() catch return 0) catch return 0;
 }
 
+/// Strict-ISO `Date.parse`: `YYYY-MM-DD[THH:MM:SS[.sss]][Z|±HH:MM]`
+/// to unix millis. Plain i32 status (0 ok, 2 invalid); range-checked
+/// (leap days, h<24, m/s<60); date-only means UTC midnight per JS.
+/// Inverse Hinnant days_from_civil; years 0..9999 keep i64 arithmetic
+/// exact (bounded well inside range, no checked ops needed).
+pub export fn sa_time_parse_iso(iso_ptr: ?[*]const u8, iso_len: u64, out_ms: ?*i64) i32 {
+    const out = out_ms orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = 0;
+    const bytes = constBytes(iso_ptr, iso_len) catch |err| return finishErr(err);
+    const bad = finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var p: usize = 0;
+    const take = struct {
+        fn digits(b: []const u8, pos: *usize, n: usize) ?i64 {
+            if (pos.* + n > b.len) return null;
+            var v: i64 = 0;
+            for (b[pos.*..][0..n]) |c| {
+                if (c < '0' or c > '9') return null;
+                v = v * 10 + @as(i64, c - '0');
+            }
+            pos.* += n;
+            return v;
+        }
+    }.digits;
+    const year = take(bytes, &p, 4) orelse return bad;
+    if (p >= bytes.len or bytes[p] != '-') return bad;
+    p += 1;
+    const month = take(bytes, &p, 2) orelse return bad;
+    if (p >= bytes.len or bytes[p] != '-') return bad;
+    p += 1;
+    const day = take(bytes, &p, 2) orelse return bad;
+    var hour: i64 = 0;
+    var minute: i64 = 0;
+    var second: i64 = 0;
+    var milli: i64 = 0;
+    if (p < bytes.len) {
+        if (bytes[p] != 'T' and bytes[p] != 't' and bytes[p] != ' ') return bad;
+        p += 1;
+        hour = take(bytes, &p, 2) orelse return bad;
+        if (p >= bytes.len or bytes[p] != ':') return bad;
+        p += 1;
+        minute = take(bytes, &p, 2) orelse return bad;
+        if (p >= bytes.len or bytes[p] != ':') return bad;
+        p += 1;
+        second = take(bytes, &p, 2) orelse return bad;
+        if (p < bytes.len and bytes[p] == '.') {
+            p += 1;
+            const fstart = p;
+            while (p < bytes.len and bytes[p] >= '0' and bytes[p] <= '9') : (p += 1) {}
+            const flen = p - fstart;
+            if (flen == 0 or flen > 3) return bad;
+            var f: i64 = 0;
+            for (bytes[fstart..p]) |c| f = f * 10 + @as(i64, c - '0');
+            milli = if (flen == 1) f * 100 else if (flen == 2) f * 10 else f;
+        }
+    }
+    var offset_min: i64 = 0;
+    if (p < bytes.len) {
+        if (bytes[p] == 'Z' or bytes[p] == 'z') {
+            p += 1;
+        } else if (bytes[p] == '+' or bytes[p] == '-') {
+            const neg = bytes[p] == '-';
+            p += 1;
+            const oh = take(bytes, &p, 2) orelse return bad;
+            if (p >= bytes.len or bytes[p] != ':') return bad;
+            p += 1;
+            const om = take(bytes, &p, 2) orelse return bad;
+            if (oh > 23 or om > 59) return bad;
+            offset_min = oh * 60 + om;
+            if (neg) offset_min = -offset_min;
+        } else {
+            return bad;
+        }
+    }
+    if (p != bytes.len) return bad;
+    if (month < 1 or month > 12) return bad;
+    const leap = @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
+    const dim: i64 = switch (month) {
+        1, 3, 5, 7, 8, 10, 12 => 31,
+        4, 6, 9, 11 => 30,
+        else => if (leap) 29 else 28,
+    };
+    if (day < 1 or day > dim) return bad;
+    if (hour > 23 or minute > 59 or second > 59) return bad;
+    // days_from_civil (Hinnant), April-based.
+    const y: i64 = if (month <= 2) year - 1 else year;
+    const era: i64 = if (y >= 0) @divFloor(y, 400) else @divFloor(y - 399, 400);
+    const yoe: i64 = y - era * 400;
+    const mp: i64 = @mod(month - 3, 12);
+    const doy: i64 = @divFloor(153 * mp + 2, 5) + day - 1;
+    const doe: i64 = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    const days: i64 = era * 146097 + doe - 719468;
+    out.* = ((days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + milli) - offset_min * 60000;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_time_unix_ns() i64 {
     const ts = std.time.nanoTimestamp();
     return @as(i64, @intCast(ts));

@@ -11,3 +11,8 @@
 // JS Date.toISOString shape for an i64 unix-millis value (UTC, millis
 // precision, fresh buffer handle read back via sa_fmt_buffer_data/len).
 @extern sa_time_iso_from_unix_ms(ms: i64) -> u64
+// Strict-ISO Date.parse: `YYYY-MM-DD`, optional `THH:MM:SS[.sss]`,
+// optional `Z`/`±HH:MM` (date-only means UTC midnight, like JS).
+// Returns plain i32 status (0 ok, 1 invalid); anything else
+// (RFC2822, 2-digit years, words) is out of the subset.
+@extern sa_time_parse_iso(&iso: ptr, len: u64, &out_ms: ptr) -> i32
