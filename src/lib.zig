@@ -47,6 +47,7 @@ pub const runtime = struct {
     pub const sa_ws_client = @import("runtime/sa_ws_client.zig");
     pub const sa_dtls = @import("runtime/sa_dtls.zig");
     pub const sa_quic = @import("runtime/sa_quic.zig");
+    pub const sa_thread_local = @import("runtime/sa_thread_local.zig");
 };
 pub const referee = @import("referee.zig");
 pub const cli = @import("cli.zig");

@@ -784,6 +784,21 @@ pub fn build(b: *std.Build) void {
     if (is_linux) test_step.dependOn(&run_sa_ws_client_tests.step);
     const sa_ws_client_test_step = b.step("sa-ws-client-test", "Run WebSocket-client (pure Zig RFC 6455) runtime tests");
     sa_ws_client_test_step.dependOn(&run_sa_ws_client_tests.step);
+    const sa_thread_local_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_thread_local.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sa_thread_local_module.addOptions("build_options", build_options);
+    const sa_thread_local_tests = b.addTest(.{
+        .root_module = sa_thread_local_module,
+    });
+    const run_sa_thread_local_tests = b.addRunArtifact(sa_thread_local_tests);
+    run_sa_thread_local_tests.setCwd(repo_root_lazy);
+    if (is_linux) test_step.dependOn(&run_sa_thread_local_tests.step);
+    const sa_thread_local_test_step = b.step("sa-thread-local-test", "Run thread-local storage runtime tests");
+    sa_thread_local_test_step.dependOn(&run_sa_thread_local_tests.step);
     const sa_dtls_module = b.createModule(.{
         .root_source_file = b.path("src/runtime/sa_dtls.zig"),
         .target = target,
@@ -868,6 +883,7 @@ pub fn build(b: *std.Build) void {
         linux_runtime_step.dependOn(&run_sa_tls_server_tests.step);
         linux_runtime_step.dependOn(&run_sa_tls_client_tests.step);
         linux_runtime_step.dependOn(&run_sa_dtls_tests.step);
+        linux_runtime_step.dependOn(&run_sa_thread_local_tests.step);
         linux_runtime_step.dependOn(&run_sa_quic_tests.step);
         linux_runtime_step.dependOn(&run_sa_term_runtime.step);
     }

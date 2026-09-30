@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 comptime {
     _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
     _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
+    _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
 }
 
 extern fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]u8;

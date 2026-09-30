@@ -26,6 +26,7 @@ comptime {
     _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
+    _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_net_uring.zig").sa_netx_init;
     }
