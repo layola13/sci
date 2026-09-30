@@ -3103,6 +3103,37 @@ pub export fn sa_fmt_u64_into(value: u64, base: u32, out: ?[*]u8, out_cap: u64, 
     return writeFormattedInto(out, out_cap, out_len, text);
 }
 
+/// Float math for frontends (v0.24a; Haxe Math.* surface).
+/// Pure f64 functions; random yields [0, 1) from 53 crypto bits.
+pub export fn sa_math_floor(x: f64) f64 {
+    return @floor(x);
+}
+
+pub export fn sa_math_ceil(x: f64) f64 {
+    return @ceil(x);
+}
+
+pub export fn sa_math_sqrt(x: f64) f64 {
+    return @sqrt(x);
+}
+
+pub export fn sa_math_sin(x: f64) f64 {
+    return @sin(x);
+}
+
+pub export fn sa_math_cos(x: f64) f64 {
+    return @cos(x);
+}
+
+pub export fn sa_math_pow(base: f64, exp: f64) f64 {
+    return std.math.pow(f64, base, exp);
+}
+
+pub export fn sa_math_random() f64 {
+    const u = std.crypto.random.int(u64);
+    return @as(f64, @floatFromInt(u >> 11)) * (1.0 / 9007199254740992.0);
+}
+
 pub export fn sa_fmt_f64(value: f64, precision: u32) u64 {
     const bytes = formatFloat(value, precision) catch return 0;
     return openOwnedByteBuffer(bytes) catch return 0;
