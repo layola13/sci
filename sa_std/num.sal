@@ -246,3 +246,96 @@
 #def NONZERO_I64_BYTES = 8
 #def NONZERO_ISIZE_BITS = 64
 #def NONZERO_ISIZE_BYTES = 8
+
+// Checked signed arithmetic (mirrors sa_std/num.sai). Overflow traps with
+// panic(PANIC_ARITH_OVERFLOW) instead of wrapping, matching rustc's
+// `*WithOverflow` + overflow `Assert` pair. Guards are the standard sign
+// tests: an addition overflows when both operands share a sign that the
+// result does not, a subtraction when the operands' signs differ and the
+// result takes the subtrahend's sign.
+#def PANIC_ARITH_OVERFLOW = 9001
+
+[MACRO] NUM_ADD_CHECKED %out, %a, %b
+    %out = add %a, %b
+    %num_ac_pos_a_%out = gt %a, 0
+    %num_ac_pos_b_%out = gt %b, 0
+    %num_ac_both_pos_%out = and %num_ac_pos_a_%out, %num_ac_pos_b_%out
+    %num_ac_res_neg_%out = lt %out, 0
+    %num_ac_ovf_pos_%out = and %num_ac_both_pos_%out, %num_ac_res_neg_%out
+    %num_ac_neg_a_%out = lt %a, 0
+    %num_ac_neg_b_%out = lt %b, 0
+    %num_ac_both_neg_%out = and %num_ac_neg_a_%out, %num_ac_neg_b_%out
+    %num_ac_res_nonneg_%out = ge %out, 0
+    %num_ac_ovf_neg_%out = and %num_ac_both_neg_%out, %num_ac_res_nonneg_%out
+    %num_ac_ovf_%out = or %num_ac_ovf_pos_%out, %num_ac_ovf_neg_%out
+    br %num_ac_ovf_%out -> L_NUM_ADD_CHECKED_OVF_%out, L_NUM_ADD_CHECKED_OK_%out
+L_NUM_ADD_CHECKED_OVF_%out:
+    panic(PANIC_ARITH_OVERFLOW)
+L_NUM_ADD_CHECKED_OK_%out:
+    !%num_ac_ovf_neg_%out
+    !%num_ac_res_nonneg_%out
+    !%num_ac_both_neg_%out
+    !%num_ac_neg_b_%out
+    !%num_ac_neg_a_%out
+    !%num_ac_ovf_pos_%out
+    !%num_ac_res_neg_%out
+    !%num_ac_both_pos_%out
+    !%num_ac_pos_b_%out
+    !%num_ac_pos_a_%out
+[END_MACRO]
+
+[MACRO] NUM_SUB_CHECKED %out, %a, %b
+    %out = sub %a, %b
+    %num_sc_pos_a_%out = gt %a, 0
+    %num_sc_neg_b_%out = lt %b, 0
+    %num_sc_mixed_%out = and %num_sc_pos_a_%out, %num_sc_neg_b_%out
+    %num_sc_res_neg_%out = lt %out, 0
+    %num_sc_ovf_pos_%out = and %num_sc_mixed_%out, %num_sc_res_neg_%out
+    %num_sc_neg_a_%out = lt %a, 0
+    %num_sc_pos_b_%out = gt %b, 0
+    %num_sc_mixed2_%out = and %num_sc_neg_a_%out, %num_sc_pos_b_%out
+    %num_sc_res_nonneg_%out = ge %out, 0
+    %num_sc_ovf_neg_%out = and %num_sc_mixed2_%out, %num_sc_res_nonneg_%out
+    %num_sc_ovf_%out = or %num_sc_ovf_pos_%out, %num_sc_ovf_neg_%out
+    br %num_sc_ovf_%out -> L_NUM_SUB_CHECKED_OVF_%out, L_NUM_SUB_CHECKED_OK_%out
+L_NUM_SUB_CHECKED_OVF_%out:
+    panic(PANIC_ARITH_OVERFLOW)
+L_NUM_SUB_CHECKED_OK_%out:
+    !%num_sc_res_nonneg_%out
+    !%num_sc_mixed2_%out
+    !%num_sc_pos_b_%out
+    !%num_sc_neg_a_%out
+    !%num_sc_ovf_neg_%out
+    !%num_sc_res_neg_%out
+    !%num_sc_mixed_%out
+    !%num_sc_neg_b_%out
+    !%num_sc_pos_a_%out
+[END_MACRO]
+
+[MACRO] NUM_MUL_CHECKED %out, %a, %b
+    %out = mul %a, %b
+    // Divide back: the product is exact iff it divides without remainder and
+    // neither factor is -1 with a minimal result.
+    %num_mc_amin_%out = eq %a, -1
+    %num_mc_bmin_%out = eq %b, -1
+    %num_mc_back_%out = sub %out, 0
+    br %num_mc_amin_%out -> L_NUM_MUL_CHECKED_MIN_%out, L_NUM_MUL_CHECKED_DIV_%out
+L_NUM_MUL_CHECKED_MIN_%out:
+    br %num_mc_bmin_%out -> L_NUM_MUL_CHECKED_OK_%out, L_NUM_MUL_CHECKED_DIV_%out
+L_NUM_MUL_CHECKED_DIV_%out:
+    %num_mc_div_%out = div %out, %a
+    %num_mc_rem_%out = rem %num_mc_div_%out, %a
+    %num_mc_ovf_%out = ne %num_mc_rem_%out, 0
+    br %num_mc_ovf_%out -> L_NUM_MUL_CHECKED_OVF_%out, L_NUM_MUL_CHECKED_OK_%out
+L_NUM_MUL_CHECKED_OVF_%out:
+    panic(PANIC_ARITH_OVERFLOW)
+L_NUM_MUL_CHECKED_OK_%out:
+    !%num_mc_ovf_%out
+    !%num_mc_rem_%out
+    !%num_mc_div_%out
+    br L_NUM_MUL_CHECKED_TAIL_%out
+L_NUM_MUL_CHECKED_TAIL_%out:
+    !%num_mc_back_%out
+    !%num_mc_bmin_%out
+    !%num_mc_amin_%out
+[END_MACRO]
