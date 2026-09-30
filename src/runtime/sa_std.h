@@ -703,6 +703,7 @@ int64_t sa_time_get_minutes(int64_t ms);
 int64_t sa_time_get_seconds(int64_t ms);
 int64_t sa_time_get_milliseconds(int64_t ms);
 int64_t sa_time_get_day(int64_t ms);
+int64_t sa_time_set_field(int64_t ms, uint64_t field, int64_t value);
 int32_t sa_time_sleep_ns(uint64_t ns);
 int32_t sa_time_sleep_ms(uint64_t ms);
 

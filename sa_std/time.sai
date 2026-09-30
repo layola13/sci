@@ -25,3 +25,8 @@
 @extern sa_time_get_seconds(ms: i64) -> i64
 @extern sa_time_get_milliseconds(ms: i64) -> i64
 @extern sa_time_get_day(ms: i64) -> i64
+// Date setters over i64 unix millis (field 0..6 = FullYear..Milliseconds,
+// month 0-based in). Out-of-range components roll over like JS (month 13
+// -> next January, date 0 -> last of previous month, hours 25 -> +1 day).
+// Returns the new millis; unknown field ids return the input unchanged.
+@extern sa_time_set_field(ms: i64, field: u64, value: i64) -> i64

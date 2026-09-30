@@ -6369,6 +6369,53 @@ pub export fn sa_time_get_day(ms: i64) i64 {
     return @mod(days + 4, 7);
 }
 
+fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
+    const y: i64 = if (m_in <= 2) y_in - 1 else y_in;
+    const era: i64 = if (y >= 0) @divFloor(y, 400) else @divFloor(y - 399, 400);
+    const yoe: i64 = y - era * 400;
+    const mp: i64 = @mod(m_in - 3, 12);
+    const doy: i64 = @divFloor(153 * mp + 2, 5) + d - 1;
+    const doe: i64 = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    return era * 146097 + doe - 719468;
+}
+
+/// JS Date setters over i64 unix millis (field 0..6). Components apply
+/// then normalize with floored divmod, so out-of-range values roll over
+/// exactly like JS (setMonth(13), setDate(0), setHours(25), negatives).
+/// Unknown field ids return the input unchanged (frontends only ever
+/// send 0..6 via fixed table extras).
+pub export fn sa_time_set_field(ms: i64, field: u64, value: i64) i64 {
+    const c = civilParts(ms);
+    var y = c.year;
+    var mo = c.month;
+    var d = c.day;
+    var tod: i64 = c.hour * 3600000 + c.minute * 60000 + c.second * 1000 + c.milli;
+    switch (field) {
+        0 => y = value,
+        1 => {
+            const tm = y * 12 + value;
+            y = @divFloor(tm, 12);
+            mo = @mod(tm, 12) + 1;
+        },
+        2 => d = value,
+        3 => tod = value * 3600000 + @mod(tod, 3600000),
+        4 => tod = (tod - @mod(tod, 3600000)) + value * 60000 + @mod(tod, 60000),
+        5 => tod = (tod - @mod(tod, 60000)) + value * 1000 + @mod(tod, 1000),
+        6 => tod = tod - @mod(tod, 1000) + value,
+        else => return ms,
+    }
+    // Fold months once more (setFullYear keeps mo; setMonth pre-folded).
+    const tm = y * 12 + (mo - 1);
+    const y2 = @divFloor(tm, 12);
+    const m2 = @mod(tm, 12) + 1;
+    // Day overflow rolls through the 1st plus offset.
+    const days = daysFromCivil(y2, m2, 1) + (d - 1);
+    // Time-of-day overflow rolls across days.
+    const total_days = days + @divFloor(tod, 86400000);
+    const tod_norm = tod - @divFloor(tod, 86400000) * 86400000;
+    return (total_days * 86400) * 1000 + tod_norm;
+}
+
 pub export fn sa_time_unix_ns() i64 {
     const ts = std.time.nanoTimestamp();
     return @as(i64, @intCast(ts));
