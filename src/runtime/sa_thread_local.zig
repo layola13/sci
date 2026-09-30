@@ -58,6 +58,28 @@ pub export fn sa_thread_local_slot(key: u64) ?*u64 {
     return slot;
 }
 
+// ---- module-state value facades (satsgo top-level `let`) ----
+//
+// Same registry, value semantics: no pointers cross into SA, so frontend
+// callers hold no registry memory (none of the borrow/release dynamics of
+// the raw slot pointer above). Width discipline (i32/u32/f64) lives in the
+// frontend (trunc/zext plus scratch-spill bit round-trips); slots store
+// opaque u64 bits. Status follows the sci convention: 0 = SA_STD_OK;
+// get has no failure channel and yields 0 on OOM, indistinguishable from
+// a fresh slot (see sa_std/modstate.sai).
+const SA_STD_ERR_NO_MEMORY: i32 = 5;
+
+pub export fn sa_modstate_get_u64(key: u64) u64 {
+    const slot = sa_thread_local_slot(key) orelse return 0;
+    return slot.*;
+}
+
+pub export fn sa_modstate_set_u64(key: u64, value: u64) i32 {
+    const slot = sa_thread_local_slot(key) orelse return SA_STD_ERR_NO_MEMORY;
+    slot.* = value;
+    return SA_STD_OK;
+}
+
 // ---- unit tests (honest registry semantics, same-file style as sa_dtls.zig)
 const testing = std.testing;
 
@@ -109,4 +131,16 @@ test "slots are isolated across OS threads" {
     try testing.expect(ctx.child_slot != parent);
     try testing.expectEqual(@as(u64, 42), parent.*);
     parent.* = 0;
+}
+
+test "modstate get/set round-trips bits through the shared registry" {
+    const key: u64 = 0x4D4F445354415445; // "MODSTATE"
+    try testing.expectEqual(@as(u64, 0), sa_modstate_get_u64(key));
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_modstate_set_u64(key, 0xDEADBEEFCAFEBABE));
+    try testing.expectEqual(@as(u64, 0xDEADBEEFCAFEBABE), sa_modstate_get_u64(key));
+    // Same cell as the raw slot pointer: one registry, two spellings.
+    const slot = sa_thread_local_slot(key) orelse return error.OutOfMemory;
+    try testing.expectEqual(@as(u64, 0xDEADBEEFCAFEBABE), slot.*);
+    slot.* = 0; // leave no residue for other tests using nearby keys
+    try testing.expectEqual(@as(u64, 0), sa_modstate_get_u64(key));
 }
