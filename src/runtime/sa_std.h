@@ -714,6 +714,10 @@ int32_t sa_string_ends_with(const uint8_t *hay_ptr, uint64_t hay_len, const uint
 uint64_t sa_string_to_lower_ascii(const uint8_t *ptr, uint64_t len);
 uint64_t sa_string_to_upper_ascii(const uint8_t *ptr, uint64_t len);
 double sa_parse_float(const uint8_t *ptr, uint64_t len);
+uint64_t sa_string_repeat(const uint8_t *ptr, uint64_t len, uint64_t count);
+uint64_t sa_string_pad_start(const uint8_t *ptr, uint64_t len, uint64_t target_len, const uint8_t *pad_ptr, uint64_t pad_len);
+uint64_t sa_string_pad_end(const uint8_t *ptr, uint64_t len, uint64_t target_len, const uint8_t *pad_ptr, uint64_t pad_len);
+uint64_t sa_string_replace(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len, const uint8_t *rep_ptr, uint64_t rep_len, uint64_t all);
 int32_t sa_str_is_ascii(const uint8_t *ptr, uint64_t len);
 int32_t sa_str_eq_ignore_ascii_case(const uint8_t *left, uint64_t left_len, const uint8_t *right, uint64_t right_len);
 uint64_t sa_str_trim_ascii_start_index(const uint8_t *ptr, uint64_t len);

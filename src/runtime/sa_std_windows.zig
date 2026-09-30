@@ -3253,6 +3253,153 @@ pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
     return if (negative) -num else num;
 }
 
+/// JS `String.prototype.repeat` (mirrors the non-Windows variant).
+pub export fn sa_string_repeat(ptr: ?[*]const u8, len: u64, count: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    const n = lenAsUsize(count) catch return 0;
+    if (n == 0 or bytes.len == 0) {
+        const owned = std.heap.page_allocator.alloc(u8, 0) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    if (bytes.len > std.math.maxInt(usize) / n) return 0;
+    const owned = std.heap.page_allocator.alloc(u8, bytes.len * n) catch return 0;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        std.mem.copyForwards(u8, owned[i * bytes.len ..][0..bytes.len], bytes);
+    }
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+fn tilePadWin(owned: []u8, pad: []const u8) void {
+    var i: usize = 0;
+    while (i < owned.len) {
+        const n = @min(pad.len, owned.len - i);
+        std.mem.copyForwards(u8, owned[i..][0..n], pad[0..n]);
+        i += n;
+    }
+}
+
+/// JS `String.prototype.padStart` (mirrors the non-Windows variant).
+pub export fn sa_string_pad_start(ptr: ?[*]const u8, len: u64, target_len: u64, pad_ptr: ?[*]const u8, pad_len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    const pad = constBytes(pad_ptr, pad_len) catch return 0;
+    const target = lenAsUsize(target_len) catch return 0;
+    if (target <= bytes.len or pad.len == 0) {
+        const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    const owned = std.heap.page_allocator.alloc(u8, target) catch return 0;
+    const fill = target - bytes.len;
+    tilePadWin(owned[0..fill], pad);
+    std.mem.copyForwards(u8, owned[fill..][0..bytes.len], bytes);
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+/// JS `String.prototype.padEnd` (mirrors the non-Windows variant).
+pub export fn sa_string_pad_end(ptr: ?[*]const u8, len: u64, target_len: u64, pad_ptr: ?[*]const u8, pad_len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    const pad = constBytes(pad_ptr, pad_len) catch return 0;
+    const target = lenAsUsize(target_len) catch return 0;
+    if (target <= bytes.len or pad.len == 0) {
+        const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    const owned = std.heap.page_allocator.alloc(u8, target) catch return 0;
+    std.mem.copyForwards(u8, owned[0..bytes.len], bytes);
+    tilePadWin(owned[bytes.len..], pad);
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+/// JS `String.prototype.replace` / `replaceAll` (mirrors the non-Windows variant).
+pub export fn sa_string_replace(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64, rep_ptr: ?[*]const u8, rep_len: u64, all: u64) u64 {
+    const hay = constBytes(hay_ptr, hay_len) catch return 0;
+    const ndl = constBytes(ndl_ptr, ndl_len) catch return 0;
+    const rep = constBytes(rep_ptr, rep_len) catch return 0;
+    const replace_all = all != 0;
+    if (ndl.len == 0) {
+        if (!replace_all) {
+            const owned = std.heap.page_allocator.alloc(u8, rep.len + hay.len) catch return 0;
+            std.mem.copyForwards(u8, owned[0..rep.len], rep);
+            std.mem.copyForwards(u8, owned[rep.len..][0..hay.len], hay);
+            return openOwnedByteBuffer(owned) catch return 0;
+        }
+        const slots = std.math.add(usize, hay.len, 1) catch return 0;
+        const extra = std.math.mul(usize, rep.len, slots) catch return 0;
+        const total_empty = std.math.add(usize, hay.len, extra) catch return 0;
+        const owned = std.heap.page_allocator.alloc(u8, total_empty) catch return 0;
+        var o: usize = 0;
+        for (hay) |byte| {
+            std.mem.copyForwards(u8, owned[o..][0..rep.len], rep);
+            o += rep.len;
+            owned[o] = byte;
+            o += 1;
+        }
+        std.mem.copyForwards(u8, owned[o..][0..rep.len], rep);
+        o += rep.len;
+        return openOwnedByteBuffer(owned[0..o]) catch return 0;
+    }
+    if (ndl.len > hay.len) {
+        const owned = std.heap.page_allocator.dupe(u8, hay) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    var starts_i: usize = 0;
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i + ndl.len <= hay.len) {
+        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) {
+            count += 1;
+            if (!replace_all) {
+                starts_i = i;
+                break;
+            }
+            i += ndl.len;
+            continue;
+        }
+        i += 1;
+    }
+    if (count == 0) {
+        const owned = std.heap.page_allocator.dupe(u8, hay) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    if (!replace_all) {
+        const total = std.math.add(usize, hay.len - ndl.len, rep.len) catch return 0;
+        const owned = std.heap.page_allocator.alloc(u8, total) catch return 0;
+        std.mem.copyForwards(u8, owned[0..starts_i], hay[0..starts_i]);
+        std.mem.copyForwards(u8, owned[starts_i..][0..rep.len], rep);
+        std.mem.copyForwards(u8, owned[starts_i + rep.len ..], hay[starts_i + ndl.len ..]);
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    var total: usize = hay.len;
+    i = 0;
+    while (i + ndl.len <= hay.len) {
+        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) {
+            total = std.math.add(usize, total - ndl.len, rep.len) catch return 0;
+            i += ndl.len;
+        } else {
+            i += 1;
+        }
+    }
+    const owned = std.heap.page_allocator.alloc(u8, total) catch return 0;
+    var s: usize = 0;
+    var o: usize = 0;
+    i = 0;
+    while (i + ndl.len <= hay.len) {
+        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) {
+            std.mem.copyForwards(u8, owned[o..][0..(i - s)], hay[s..i]);
+            o += i - s;
+            std.mem.copyForwards(u8, owned[o..][0..rep.len], rep);
+            o += rep.len;
+            i += ndl.len;
+            s = i;
+        } else {
+            i += 1;
+        }
+    }
+    std.mem.copyForwards(u8, owned[o..][0..(hay.len - s)], hay[s..]);
+    o += hay.len - s;
+    return openOwnedBuffer(owned[0..o]) catch return 0;
+}
+
 pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(ptr, len) catch return 0;
     for (bytes) |byte| {
