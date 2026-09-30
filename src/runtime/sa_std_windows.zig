@@ -3769,6 +3769,91 @@ pub export fn sa_time_get_day(ms: i64) i64 {
     return @mod(days + 4, 7);
 }
 
+const weekdayNamesWin = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+const monthNamesWin = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+fn appendTwoWin(out: *std.ArrayList(u8), val: i64) !void {
+    var tmp: [32]u8 = undefined;
+    const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
+    var i: usize = s.len;
+    while (i < 2) : (i += 1) try out.append('0');
+    try out.appendSlice(s);
+}
+
+fn appendFourWin(out: *std.ArrayList(u8), val: i64) !void {
+    var tmp: [32]u8 = undefined;
+    const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
+    var i: usize = s.len;
+    while (i < 4) : (i += 1) try out.append('0');
+    try out.appendSlice(s);
+}
+
+/// Fixed UTC string forms (mirrors the non-Windows variant).
+pub export fn sa_time_format_utc(ms: i64, fmt_id: u64) u64 {
+    if (fmt_id > 3) {
+        const empty = std.heap.page_allocator.alloc(u8, 0) catch return 0;
+        return openOwnedByteBuffer(empty) catch return 0;
+    }
+    const c = civilPartsWin(ms);
+    const wday: usize = @as(usize, @intCast(@mod(c.days + 4, 7)));
+    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    errdefer out.deinit();
+    switch (fmt_id) {
+        0 => {
+            out.appendSlice(weekdayNamesWin[wday]) catch return 0;
+            out.append(' ') catch return 0;
+            out.appendSlice(monthNamesWin[@as(usize, @intCast(c.month - 1))]) catch return 0;
+            out.append(' ') catch return 0;
+            appendTwoWin(&out, c.day) catch return 0;
+            out.append(' ') catch return 0;
+            appendFourWin(&out, c.year) catch return 0;
+            out.append(' ') catch return 0;
+            appendTwoWin(&out, c.hour) catch return 0;
+            out.append(':') catch return 0;
+            appendTwoWin(&out, c.minute) catch return 0;
+            out.append(':') catch return 0;
+            appendTwoWin(&out, c.second) catch return 0;
+            out.appendSlice(" GMT+0000 (Coordinated Universal Time)") catch return 0;
+        },
+        1 => {
+            out.appendSlice(weekdayNamesWin[wday]) catch return 0;
+            out.append(' ') catch return 0;
+            out.appendSlice(monthNamesWin[@as(usize, @intCast(c.month - 1))]) catch return 0;
+            out.append(' ') catch return 0;
+            appendTwoWin(&out, c.day) catch return 0;
+            out.append(' ') catch return 0;
+            appendFourWin(&out, c.year) catch return 0;
+        },
+        2 => {
+            appendTwoWin(&out, c.hour) catch return 0;
+            out.append(':') catch return 0;
+            appendTwoWin(&out, c.minute) catch return 0;
+            out.append(':') catch return 0;
+            appendTwoWin(&out, c.second) catch return 0;
+            out.appendSlice(" GMT+0000 (Coordinated Universal Time)") catch return 0;
+        },
+        3 => {
+            out.appendSlice(weekdayNamesWin[wday]) catch return 0;
+            out.appendSlice(", ") catch return 0;
+            appendTwoWin(&out, c.day) catch return 0;
+            out.append(' ') catch return 0;
+            out.appendSlice(monthNamesWin[@as(usize, @intCast(c.month - 1))]) catch return 0;
+            out.append(' ') catch return 0;
+            appendFourWin(&out, c.year) catch return 0;
+            out.append(' ') catch return 0;
+            appendTwoWin(&out, c.hour) catch return 0;
+            out.append(':') catch return 0;
+            appendTwoWin(&out, c.minute) catch return 0;
+            out.append(':') catch return 0;
+            appendTwoWin(&out, c.second) catch return 0;
+            out.appendSlice(" GMT") catch return 0;
+        },
+        else => unreachable,
+    }
+    const text = out.toOwnedSlice() catch return 0;
+    return openOwnedByteBuffer(text) catch return 0;
+}
+
 fn daysFromCivilWin(y_in: i64, m_in: i64, d: i64) i64 {
     const y: i64 = if (m_in <= 2) y_in - 1 else y_in;
     const era: i64 = if (y >= 0) @divFloor(y, 400) else @divFloor(y - 399, 400);

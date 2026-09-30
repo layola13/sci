@@ -704,6 +704,7 @@ int64_t sa_time_get_seconds(int64_t ms);
 int64_t sa_time_get_milliseconds(int64_t ms);
 int64_t sa_time_get_day(int64_t ms);
 int64_t sa_time_set_field(int64_t ms, uint64_t field, int64_t value);
+uint64_t sa_time_format_utc(int64_t ms, uint64_t fmt);
 int32_t sa_time_sleep_ns(uint64_t ns);
 int32_t sa_time_sleep_ms(uint64_t ms);
 

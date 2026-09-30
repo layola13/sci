@@ -30,3 +30,8 @@
 // -> next January, date 0 -> last of previous month, hours 25 -> +1 day).
 // Returns the new millis; unknown field ids return the input unchanged.
 @extern sa_time_set_field(ms: i64, field: u64, value: i64) -> i64
+// Fixed UTC string forms (fmt 0..3 = toString/toDateString/toTimeString/
+// toUTCString); byte-exact with Node under UTC (including the
+// "(Coordinated Universal Time)" suffix). Unknown fmt yields an empty
+// handle (frontends only send 0..3 via fixed table extras).
+@extern sa_time_format_utc(ms: i64, fmt: u64) -> u64
