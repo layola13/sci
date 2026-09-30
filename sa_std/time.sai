@@ -16,3 +16,12 @@
 // Returns plain i32 status (0 ok, 1 invalid); anything else
 // (RFC2822, 2-digit years, words) is out of the subset.
 @extern sa_time_parse_iso(&iso: ptr, len: u64, &out_ms: ptr) -> i32
+// Date getters over i64 unix millis (UTC; JS month 0-based, Sunday 0).
+@extern sa_time_get_full_year(ms: i64) -> i64
+@extern sa_time_get_month(ms: i64) -> i64
+@extern sa_time_get_date(ms: i64) -> i64
+@extern sa_time_get_hours(ms: i64) -> i64
+@extern sa_time_get_minutes(ms: i64) -> i64
+@extern sa_time_get_seconds(ms: i64) -> i64
+@extern sa_time_get_milliseconds(ms: i64) -> i64
+@extern sa_time_get_day(ms: i64) -> i64

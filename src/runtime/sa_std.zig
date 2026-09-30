@@ -6162,6 +6162,48 @@ pub export fn sa_time_unix_ms() i64 {
     return std.time.milliTimestamp();
 }
 
+/// Shared civil split: i64 unix millis to (days since epoch, millis
+/// within day, Hinnant y/m/d, h/mi/s/ms). Negative inputs fold via
+/// floored division; field order matches the getters below.
+const CivilParts = struct {
+    year: i64,
+    month: i64,
+    day: i64,
+    hour: i64,
+    minute: i64,
+    second: i64,
+    milli: i64,
+    days: i64,
+};
+
+fn civilParts(ms: i64) CivilParts {
+    const ms_per_day: i64 = 86400000;
+    var days = @divFloor(ms, ms_per_day);
+    var day_ms = @mod(ms, ms_per_day);
+    if (day_ms < 0) {
+        day_ms += ms_per_day;
+        days -= 1;
+    }
+    const z: i64 = days + 719468;
+    const era: i64 = if (z >= 0) @divFloor(z, 146097) else @divFloor(z - 146096, 146097);
+    const doe: i64 = z - era * 146097;
+    const yoe: i64 = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const y: i64 = yoe + era * 400;
+    const doy: i64 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp: i64 = @divFloor(5 * doy + 2, 153);
+    const month: i64 = if (mp < 10) mp + 3 else mp - 9;
+    return .{
+        .year = if (month <= 2) y + 1 else y,
+        .month = month,
+        .day = doy - @divFloor(153 * mp + 2, 5) + 1,
+        .hour = @divFloor(day_ms, 3600000),
+        .minute = @divFloor(@mod(day_ms, 3600000), 60000),
+        .second = @divFloor(@mod(day_ms, 60000), 1000),
+        .milli = @mod(day_ms, 1000),
+        .days = days,
+    };
+}
+
 /// JS `Date.toISOString` shape for an i64 unix-millis value: UTC
 /// `YYYY-MM-DDTHH:MM:SS.sssZ` (millis precision, zero-padded; years
 /// 0..9999 exact, larger years print unpadded-past-4 like the denoise
@@ -6290,6 +6332,41 @@ pub export fn sa_time_parse_iso(iso_ptr: ?[*]const u8, iso_len: u64, out_ms: ?*i
     const days: i64 = era * 146097 + doe - 719468;
     out.* = ((days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + milli) - offset_min * 60000;
     return finish(SA_STD_OK);
+}
+
+/// JS Date getters over i64 unix millis (UTC; month 0-based like JS,
+/// day 0=Sunday like JS: 1970-01-01 was a Thursday).
+pub export fn sa_time_get_full_year(ms: i64) i64 {
+    return civilParts(ms).year;
+}
+
+pub export fn sa_time_get_month(ms: i64) i64 {
+    return civilParts(ms).month - 1;
+}
+
+pub export fn sa_time_get_date(ms: i64) i64 {
+    return civilParts(ms).day;
+}
+
+pub export fn sa_time_get_hours(ms: i64) i64 {
+    return civilParts(ms).hour;
+}
+
+pub export fn sa_time_get_minutes(ms: i64) i64 {
+    return civilParts(ms).minute;
+}
+
+pub export fn sa_time_get_seconds(ms: i64) i64 {
+    return civilParts(ms).second;
+}
+
+pub export fn sa_time_get_milliseconds(ms: i64) i64 {
+    return civilParts(ms).milli;
+}
+
+pub export fn sa_time_get_day(ms: i64) i64 {
+    const days = civilParts(ms).days;
+    return @mod(days + 4, 7);
 }
 
 pub export fn sa_time_unix_ns() i64 {

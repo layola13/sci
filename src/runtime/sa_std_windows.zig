@@ -3695,6 +3695,80 @@ pub export fn sa_time_parse_iso(iso_ptr: ?[*]const u8, iso_len: u64, out_ms: ?*i
     return finish(SA_STD_OK);
 }
 
+/// Shared civil split (mirrors the non-Windows variant).
+const CivilPartsWin = struct {
+    year: i64,
+    month: i64,
+    day: i64,
+    hour: i64,
+    minute: i64,
+    second: i64,
+    milli: i64,
+    days: i64,
+};
+
+fn civilPartsWin(ms: i64) CivilPartsWin {
+    const ms_per_day: i64 = 86400000;
+    var days = @divFloor(ms, ms_per_day);
+    var day_ms = @mod(ms, ms_per_day);
+    if (day_ms < 0) {
+        day_ms += ms_per_day;
+        days -= 1;
+    }
+    const z: i64 = days + 719468;
+    const era: i64 = if (z >= 0) @divFloor(z, 146097) else @divFloor(z - 146096, 146097);
+    const doe: i64 = z - era * 146097;
+    const yoe: i64 = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const y: i64 = yoe + era * 400;
+    const doy: i64 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp: i64 = @divFloor(5 * doy + 2, 153);
+    const month: i64 = if (mp < 10) mp + 3 else mp - 9;
+    return .{
+        .year = if (month <= 2) y + 1 else y,
+        .month = month,
+        .day = doy - @divFloor(153 * mp + 2, 5) + 1,
+        .hour = @divFloor(day_ms, 3600000),
+        .minute = @divFloor(@mod(day_ms, 3600000), 60000),
+        .second = @divFloor(@mod(day_ms, 60000), 1000),
+        .milli = @mod(day_ms, 1000),
+        .days = days,
+    };
+}
+
+/// JS Date getters (mirrors the non-Windows variant).
+pub export fn sa_time_get_full_year(ms: i64) i64 {
+    return civilPartsWin(ms).year;
+}
+
+pub export fn sa_time_get_month(ms: i64) i64 {
+    return civilPartsWin(ms).month - 1;
+}
+
+pub export fn sa_time_get_date(ms: i64) i64 {
+    return civilPartsWin(ms).day;
+}
+
+pub export fn sa_time_get_hours(ms: i64) i64 {
+    return civilPartsWin(ms).hour;
+}
+
+pub export fn sa_time_get_minutes(ms: i64) i64 {
+    return civilPartsWin(ms).minute;
+}
+
+pub export fn sa_time_get_seconds(ms: i64) i64 {
+    return civilPartsWin(ms).second;
+}
+
+pub export fn sa_time_get_milliseconds(ms: i64) i64 {
+    return civilPartsWin(ms).milli;
+}
+
+pub export fn sa_time_get_day(ms: i64) i64 {
+    const days = civilPartsWin(ms).days;
+    return @mod(days + 4, 7);
+}
+
 pub export fn sa_time_unix_ns() i64 {
     const ts = std.time.nanoTimestamp();
     return @as(i64, @intCast(ts));
