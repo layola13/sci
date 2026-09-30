@@ -3196,6 +3196,63 @@ pub export fn sa_string_ends_with(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: 
     return if (std.mem.eql(u8, hay[hay.len - ndl.len ..], ndl)) 1 else 0;
 }
 
+/// JS `String.prototype.toLowerCase` (mirrors the non-Windows variant).
+pub export fn sa_string_to_lower_ascii(ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    const owned = std.heap.page_allocator.alloc(u8, bytes.len) catch return 0;
+    for (bytes, 0..) |byte, i| {
+        owned[i] = if (byte >= 'A' and byte <= 'Z') byte + ('a' - 'A') else byte;
+    }
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+/// JS `String.prototype.toUpperCase` (mirrors the non-Windows variant).
+pub export fn sa_string_to_upper_ascii(ptr: ?[*]const u8, len: u64) u64 {
+    const bytes = constBytes(ptr, len) catch return 0;
+    const owned = std.heap.page_allocator.alloc(u8, bytes.len) catch return 0;
+    for (bytes, 0..) |byte, i| {
+        owned[i] = if (byte >= 'a' and byte <= 'z') byte - ('a' - 'A') else byte;
+    }
+    return openOwnedByteBuffer(owned) catch return 0;
+}
+
+/// JS `parseFloat` (mirrors the non-Windows variant).
+pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
+    const bytes = constBytes(ptr, len) catch return std.math.nan(f64);
+    var i: usize = 0;
+    while (i < bytes.len and isAsciiWhitespace(bytes[i])) : (i += 1) {}
+    var negative = false;
+    if (i < bytes.len and (bytes[i] == '+' or bytes[i] == '-')) {
+        negative = bytes[i] == '-';
+        i += 1;
+    }
+    const rest = bytes[i..];
+    if (rest.len >= 8 and std.mem.eql(u8, rest[0..8], "Infinity")) return if (negative) -std.math.inf(f64) else std.math.inf(f64);
+    if (rest.len >= 3 and std.mem.eql(u8, rest[0..3], "NaN")) return std.math.nan(f64);
+    var j: usize = 0;
+    while (j < rest.len and rest[j] >= '0' and rest[j] <= '9') : (j += 1) {}
+    const int_digits = j;
+    if (j < rest.len and rest[j] == '.') {
+        j += 1;
+        while (j < rest.len and rest[j] >= '0' and rest[j] <= '9') : (j += 1) {}
+    }
+    const frac_digits = j - int_digits - @as(usize, if (j > int_digits and rest[int_digits] == '.') 1 else 0);
+    if (int_digits == 0 and frac_digits == 0) return std.math.nan(f64);
+    var k: usize = j;
+    if (k < rest.len and (rest[k] == 'e' or rest[k] == 'E')) {
+        var m: usize = k + 1;
+        if (m < rest.len and (rest[m] == '+' or rest[m] == '-')) m += 1;
+        const exp_start = m;
+        while (m < rest.len and rest[m] >= '0' and rest[m] <= '9') : (m += 1) {}
+        if (m > exp_start) k = m;
+    }
+    const num = std.fmt.parseFloat(f64, rest[0..k]) catch |err| {
+        if (err == error.Overflow) return if (negative) -std.math.inf(f64) else std.math.inf(f64);
+        return std.math.nan(f64);
+    };
+    return if (negative) -num else num;
+}
+
 pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(ptr, len) catch return 0;
     for (bytes) |byte| {
