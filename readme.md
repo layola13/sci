@@ -124,6 +124,26 @@ All paths converge to the same `.sa` IR, verified by the same Referee, emitted t
 
 ---
 
+## Install
+
+```bash
+# Easiest: prebuilt binary via npm (Linux x86_64/ARM64, macOS ARM64/x86_64,
+# Windows x86_64, FreeBSD x86_64 — the right package is picked automatically)
+npm install -g @salang/sa
+sa --version
+```
+
+Prefer building from source (needs Zig 0.14.1; LLVM 14 for the default backend):
+
+```bash
+zig build -Doptimize=ReleaseFast   # output: zig-out/bin/sa
+```
+
+See [`docs/release_process_cn.md`](docs/release_process_cn.md) for the full
+multi-platform build matrix, and the sala help chapter “多平台编译”.
+
+---
+
 ## Quick start
 
 ```bash
