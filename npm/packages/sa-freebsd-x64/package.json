@@ -1,0 +1,21 @@
+{
+  "name": "@salang/sa-freebsd-x64",
+  "version": "0.1.2",
+  "description": "SA toolchain binary for FreeBSD x86_64",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/layola13/sci"
+  },
+  "homepage": "https://github.com/layola13/sci",
+  "os": [
+    "freebsd"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/",
+    "README.md"
+  ]
+}

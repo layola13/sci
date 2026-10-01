@@ -1,0 +1,21 @@
+{
+  "name": "@salang/sa-linux-arm64",
+  "version": "0.1.2",
+  "description": "SA toolchain binary for Linux ARM64",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/layola13/sci"
+  },
+  "homepage": "https://github.com/layola13/sci",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "README.md"
+  ]
+}

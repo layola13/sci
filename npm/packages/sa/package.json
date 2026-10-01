@@ -1,0 +1,37 @@
+{
+  "name": "@salang/sa",
+  "version": "0.1.2",
+  "description": "SA (Safe ASM) toolchain: compiler, runtime and package manager for the SLA language",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/layola13/sci"
+  },
+  "homepage": "https://github.com/layola13/sci",
+  "keywords": [
+    "sa",
+    "sla",
+    "compiler",
+    "toolchain",
+    "asm"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "bin": {
+    "sa": "bin/sa.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "optionalDependencies": {
+    "@salang/sa-darwin-arm64": "0.1.2",
+    "@salang/sa-darwin-x64": "0.1.2",
+    "@salang/sa-freebsd-x64": "0.1.2",
+    "@salang/sa-linux-arm64": "0.1.2",
+    "@salang/sa-linux-x64": "0.1.2",
+    "@salang/sa-win32-x64": "0.1.2"
+  }
+}

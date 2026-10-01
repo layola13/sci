@@ -1,0 +1,21 @@
+{
+  "name": "@salang/sa-linux-x64",
+  "version": "0.1.2",
+  "description": "SA toolchain binary for Linux x86_64",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/layola13/sci"
+  },
+  "homepage": "https://github.com/layola13/sci",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/",
+    "README.md"
+  ]
+}

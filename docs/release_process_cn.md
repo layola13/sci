@@ -16,7 +16,7 @@ zig version                 # 0.14.1（见 build.zig.zon minimum_zig_version）
 ```
 
 版本号三处同改：`sci/build.zig.zon` 的 `.version`、
-`npm-sa/packages/*/package.json` 的 `version`（共 7 个包），以及本次 tag 名。
+`sci/npm/packages/*/package.json` 的 `version`（共 7 个包），以及本次 tag 名。
 
 ## 1. 构建 6 平台产物
 
@@ -71,8 +71,12 @@ for d in linux-x86_64 arm-aarch64 mac-aarch64 mac-x86_64 windows-x86_64 freebsd-
 done
 ls /tmp/sa-<VER>-*.zip
 
-# npm 子包二进制（见 npm-sa/README.md）
-sh /content/sa_all/npm-sa/tools/stage-binaries.sh --dist /tmp/sa-dist
+# npm 子包二进制（二进制不进 git，约 95M；二选一）
+# A. 刚构建完，在构建机上 stage：
+sh sci/npm/tools/stage-binaries.sh --dist /tmp/sa-dist
+# B. 在发布机（如 Windows 笔记本）上从 GitHub Release 拉取：
+sh sci/npm/tools/fetch-binaries.sh --version <VER>
+#   Windows PowerShell：powershell sci\npm\tools\fetch-binaries.ps1 -Version <VER>
 ```
 
 ## 4. Git 提交、打 tag、推送
@@ -110,13 +114,15 @@ gh release create <VER> /tmp/sa-<VER>-*.zip \
 
 ```sh
 npm login   # 有 salang 组织发布权限的账号
-cd /content/sa_all/npm-sa/packages
+cd sci/npm/packages
 for p in sa-linux-x64 sa-linux-arm64 sa-darwin-arm64 sa-darwin-x64 \
          sa-win32-x64 sa-freebsd-x64; do
   (cd "$p" && npm publish --access public)
 done
 cd sa && npm publish --access public
 ```
+或一条命令（Linux：`sh sci/npm/tools/publish-all.sh`；
+Windows：`powershell sci\npm\tools\publish-all.ps1`，支持 `--dry-run` 预演）。
 
 发完验证：`npm install -g @salang/sa && sa --version`。
 

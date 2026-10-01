@@ -1,0 +1,9 @@
+# Binaries are build artifacts fetched from GitHub Releases
+# (npm/tools/fetch-binaries.sh) or staged from local builds
+# (npm/tools/stage-binaries.sh) — never committed ( ~95MB total).
+packages/sa-linux-x64/bin/sa
+packages/sa-linux-arm64/bin/sa
+packages/sa-darwin-arm64/bin/sa
+packages/sa-darwin-x64/bin/sa
+packages/sa-win32-x64/bin/sa.exe
+packages/sa-freebsd-x64/bin/sa
