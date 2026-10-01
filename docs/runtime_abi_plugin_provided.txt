@@ -1,0 +1,12 @@
+# Public ABI symbols declared by src/runtime/sa_std.h but intentionally NOT
+# exported by the runtime (src/runtime/sa_std.zig). They are provided by
+# plugins at load time; the header declares them so C consumers can use the
+# combined plugin+runtime symbol set.
+#
+# Every name below must be declared by src/runtime/sa_std.h and must be
+# absent from src/runtime/sa_std.zig. Re-adding a stub for any of these in
+# the runtime would shadow the real plugin implementation at link time
+# (the executable's T beats the plugin .so's U), silently breaking behavior.
+# runtime-abi-check enforces both directions.
+
+sa_http_client_resp_body_slice

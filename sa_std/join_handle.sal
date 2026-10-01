@@ -1,0 +1,2 @@
+// JoinHandle layout aliases.
+@import "thread.sal"

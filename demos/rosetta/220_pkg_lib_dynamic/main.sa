@@ -1,5 +1,6 @@
 @import "sa_std/io/print.sai"
 @import "host/index.sa"
+@import "lib/index.sa"
 
 @const RESULT_OK = utf8:"220\n"
 @const RESULT_ERR = utf8:"error\n"

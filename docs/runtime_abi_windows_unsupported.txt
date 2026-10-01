@@ -1,0 +1,36 @@
+# Windows bootstrap runtime ABI exceptions.
+#
+# This is an allow-list, not a claim that these APIs are portable. Every name
+# below must be declared by src/runtime/sa_std.h and must be absent from
+# src/runtime/sa_std_windows.zig. Adding a new Windows gap requires updating
+# this file and the support-level documentation in the same change.
+#
+# Verified 2026-08-04 against the native Windows export list and
+# runtime-abi-check --platform both. Keep POSIX raw-fd, wait-status, epoll,
+# regex, and Linux-only network gaps documented here. TCP wrappers that still
+# lack a Windows export remain listed below; do not remove them based on
+# declarations alone.
+
+sa_deno_chat_json_to_responses
+sa_deno_chat_sse_to_responses
+sa_deno_jsonrpc_params_string_literal
+sa_deno_responses_chat_fallback_request
+sa_deno_responses_json_normalize
+sa_deno_responses_request_normalize
+sa_deno_responses_sse_normalize
+sa_http_client_resp_body_slice
+sa_net_unix_addr_abstract_len
+sa_net_unix_addr_abstract_ptr
+sa_net_unix_addr_free
+sa_net_unix_addr_is_unnamed
+sa_net_unix_addr_kind
+sa_net_unix_addr_path_len
+sa_net_unix_addr_path_ptr
+sa_regex_compile
+sa_regex_free
+sa_regex_group_count
+sa_regex_group_len
+sa_regex_group_ptr
+sa_regex_match
+sa_regex_match_free
+sa_std_process_abort

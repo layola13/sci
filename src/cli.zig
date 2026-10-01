@@ -11,6 +11,7 @@ const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const sab = @import("sab.zig");
+const plugin_bridge = @import("plugin_bridge.zig");
 const plugins = @import("plugins.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_audit = @import("pkg/audit.zig");
@@ -584,6 +585,7 @@ const CompileOptions = struct {
     diagnostic_writer: ?std.io.AnyWriter = null,
     sab_selected_test_names: []const []const u8 = &.{},
     sab_skip_verify: bool = false,
+    target_triple: ?[]const u8 = null,
 };
 
 const TestCommandOptions = struct {
@@ -592,6 +594,9 @@ const TestCommandOptions = struct {
     compile_only: bool = false,
     trace_panic: bool = false,
     affected: bool = false,
+    // Test binaries are dev-time artifacts: link with zero optimization by
+    // default; --release-small/--release-fast opt in to LLVM optimization.
+    optimization: driver.Optimization = .none,
 };
 
 pub const DiagnosticsMode = enum {
@@ -888,6 +893,26 @@ const WasmTarget = struct {
 
 fn nativeSizeBits() u16 {
     return @as(u16, @bitSizeOf(usize));
+}
+
+/// Pointer size for a cross-compilation triple (zig-style arch-os-abi).
+/// Unknown triples default to 64-bit.
+fn sizeBitsForTriple(triple: ?[]const u8) u16 {
+    const t = triple orelse return nativeSizeBits();
+    const arch = if (std.mem.indexOfScalar(u8, t, '-')) |i| t[0..i] else t;
+    for ([_][]const u8{ "wasm32", "i386", "i486", "i586", "i686", "arm", "armeb", "thumb", "riscv32", "mips", "mipsel", "mips64el", "powerpc", "sparc", "sparcel", "s390", "xcore", "nvptx", "amdgcn", "bpfel", "bpfeb", "csky", "hexagon", "m68k", "msp430", "avr", "arc", "xtensa" }) |a32| {
+        if (std.mem.eql(u8, arch, a32)) return 32;
+    }
+    return 64;
+}
+
+fn tripleIsWindows(triple: ?[]const u8) bool {
+    const t = triple orelse return builtin.os.tag == .windows;
+    return std.mem.indexOf(u8, t, "windows") != null;
+}
+
+fn executableSuffixForTriple(triple: ?[]const u8) []const u8 {
+    return if (tripleIsWindows(triple)) ".exe" else "";
 }
 
 fn boolEnv(name: []const u8) bool {
@@ -1197,6 +1222,7 @@ fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8, include_incremen
     try writer.writeAll("  --no-debug                     Disable debug information\n");
     try writer.writeAll("  --release-small                Optimize for small release output\n");
     try writer.writeAll("  --release-fast                 Optimize for fast release output\n");
+    try writer.writeAll("  --target <triple>              Cross-compile for a zig-style target triple (e.g. aarch64-linux-gnu)\n");
     if (include_incremental) try writer.writeAll("  --incremental                  Reuse per-function cached objects when building .o\n");
     try writeCompileOptionsHelp(writer);
 }
@@ -1316,7 +1342,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         .cache => try printCacheHelp(writer, args),
         .build => {
             try writer.writeAll("usage: sa build <file> [options]\n\n");
-            try writer.writeAll("Compile a .sa source file or experimental .sab binary to a native executable.\n\n");
+            try writer.writeAll("Compile a .sa source file or .sab binary to a native executable.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the executable", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1337,14 +1363,14 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .build_obj => {
             try writer.writeAll("usage: sa build-obj <file> [options]\n\n");
-            try writer.writeAll("Build a native object file from a .sa source file or experimental .sab binary.\n\n");
+            try writer.writeAll("Build a native object file from a .sa source file or .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeBuildOptionsHelp(writer, "the object file", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_wasm => {
             try writer.writeAll("usage: sa build-wasm <file> [options]\n\n");
-            try writer.writeAll("Build a WebAssembly module from a .sa source file or experimental .sab binary.\n\n");
+            try writer.writeAll("Build a WebAssembly module from a .sa source file or .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
             try writeBuildOptionsHelp(writer, "the wasm module", false);
@@ -1352,7 +1378,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .run => {
             try writer.writeAll("usage: sa run <file> [compile-options] [args...]\n\n");
-            try writer.writeAll("Compile and execute a .sa source file or experimental .sab binary.\n\n");
+            try writer.writeAll("Compile and execute a .sa source file or .sab binary.\n\n");
             try writer.writeAll("Options:\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1409,6 +1435,8 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("  --ignored                      Run only ignored tests\n");
             try writer.writeAll("  --include-ignored              Run all tests including ignored\n");
             try writer.writeAll("  --affected                     Run only tests impacted by changed functions\n");
+            try writer.writeAll("  --release-small                Link test binaries with -O1 (default: -O0)\n");
+            try writer.writeAll("  --release-fast                 Link test binaries with -O3 (default: -O0)\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -1418,6 +1446,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Uses the process/daemon-scoped verdict cache so unchanged streams skip re-verify.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --json                         Emit JSON report\n");
+            try writer.writeAll("  --emit-sab <path>              Write the verified program as a .sab binary\n");
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -1908,8 +1937,8 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         },
         error.LlvmDisNotFound => .{
             .code = "SA-CLI-016",
-            .message = "llvm-dis not found",
-            .hint = "install llvm-dis-14 or make llvm-dis available on PATH before running bc2sa",
+            .message = "LLVM bitcode disassembler not found",
+            .hint = "install llvm-dis-14/llvm-dis or clang and make one of them available on PATH before running bc2sa",
         },
         error.LlvmDisFailed => .{
             .code = "SA-CLI-017",
@@ -1980,6 +2009,24 @@ pub fn printCliError(writer: anytype, err: anyerror, mode: DiagnosticsMode) !voi
             try writer.writeAll("}}\n");
         },
     }
+}
+
+fn printLlvmcEmitError(writer: anytype, err: anyerror, mode: DiagnosticsMode) !void {
+    if (err == error.Failed) {
+        if (emit_llvm_llvmc.lastErrorMessage()) |message| {
+            switch (mode) {
+                .human => try writer.print("error[LLVMBackend]: {s}\n", .{message}),
+                .json => {
+                    try writer.writeAll("{\"status\":\"error\",\"error\":{");
+                    try writer.writeAll("\"name\":\"LLVMBackend\",\"code\":\"SA-LLVM-001\",\"message\":");
+                    try writeJsonString(writer, message);
+                    try writer.writeAll(",\"hint\":\"configure LLVM-C support or rebuild with -Dllvm=true and valid LLVM paths\"}}\n");
+                },
+            }
+            return;
+        }
+    }
+    try printCliError(writer, err, mode);
 }
 
 fn importResolutionMessage(err: anyerror) []const u8 {
@@ -3264,13 +3311,28 @@ fn daemonWorker(allocator: std.mem.Allocator, conn: std.net.Server.Connection, i
 
 var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
 var daemon_in_flight_global = std.atomic.Value(usize).init(0);
+var daemon_cwd_lock: std.Thread.RwLock = .{};
 
 fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Connection) void {
     defer conn.stream.close();
-    var read_buf: [65536]u8 = undefined;
-    const n = conn.stream.read(read_buf[0..]) catch return;
-    if (n == 0) return;
-    const request_line = std.mem.trimRight(u8, read_buf[0..n], "\n\r ");
+    var request_buf = std.ArrayList(u8).init(allocator);
+    defer request_buf.deinit();
+    var read_buf: [4096]u8 = undefined;
+    var request_line: []const u8 = &.{};
+    while (true) {
+        const n = conn.stream.read(read_buf[0..]) catch return;
+        if (n == 0) return;
+        if (request_buf.items.len > daemon_client.MAX_REQUEST_BYTES - n) {
+            conn.stream.writeAll("{\"status\":\"error\",\"message\":\"request too large\"}\n") catch {};
+            return;
+        }
+        request_buf.appendSlice(read_buf[0..n]) catch return;
+        if (std.mem.indexOfScalar(u8, request_buf.items, '\n')) |newline| {
+            request_line = std.mem.trimRight(u8, request_buf.items[0..newline], "\r ");
+            break;
+        }
+    }
+    if (request_line.len == 0) return;
 
     // Control ops that don't need argv execution.
     if (std.mem.indexOf(u8, request_line, "\"op\":\"ping\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"ping\"") != null) {
@@ -3337,11 +3399,21 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
     };
     defer freeDaemonArgv(allocator, parsed);
 
-    // Optional cwd change for project isolation.
+    const requested_cwd = daemon_cancel.parseJsonStrField(request_line, "\"cwd\"");
+    if (requested_cwd != null) {
+        daemon_cwd_lock.lock();
+    } else {
+        daemon_cwd_lock.lockShared();
+    }
+    defer if (requested_cwd != null) daemon_cwd_lock.unlock() else daemon_cwd_lock.unlockShared();
+
     var old_cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const old_cwd = std.fs.cwd().realpath(".", &old_cwd_buf) catch null;
-    if (daemon_cancel.parseJsonStrField(request_line, "\"cwd\"")) |cwd| {
-        std.posix.chdir(cwd) catch {};
+    const old_cwd = if (requested_cwd != null) std.fs.cwd().realpath(".", &old_cwd_buf) catch null else null;
+    if (requested_cwd) |cwd| {
+        std.posix.chdir(cwd) catch {
+            conn.stream.writeAll("{\"status\":\"error\",\"message\":\"invalid cwd\"}\n") catch {};
+            return;
+        };
     }
     defer if (old_cwd) |c| std.posix.chdir(c) catch {};
 
@@ -3469,6 +3541,14 @@ fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
     allocator.free(argv);
 }
 
+fn restrictDaemonSocket(socket_path: []const u8) bool {
+    if (comptime builtin.os.tag != .linux) return true;
+    var path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+    const path_z = std.fmt.bufPrintZ(path_buf[0..], "{s}", .{socket_path}) catch return false;
+    const rc = std.os.linux.chmod(path_z, 0o600);
+    return std.posix.errno(rc) == .SUCCESS;
+}
+
 fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     var socket_path: []const u8 = "/tmp/sa-daemon.sock";
     var max_workers: usize = 8;
@@ -3492,6 +3572,10 @@ fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout:
         return 1;
     };
     defer server.deinit();
+    if (!restrictDaemonSocket(socket_path)) {
+        try stderr.print("daemon: failed to restrict socket permissions for {s}\n", .{socket_path});
+        return 1;
+    }
     try stdout.print("sa daemon listening on {s} (max_workers={d})\n", .{ socket_path, max_workers });
 
     var in_flight = std.atomic.Value(usize).init(0);
@@ -4135,6 +4219,20 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--ci")) {
         options.ci = true;
+        return true;
+    }
+    if (std.mem.startsWith(u8, arg, "--target=")) {
+        const triple = arg["--target=".len..];
+        if (triple.len == 0) return error.InvalidTarget;
+        options.target_triple = triple;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--target")) {
+        if (index.* + 1 >= args.len) return error.InvalidTarget;
+        const triple = args[index.* + 1];
+        if (triple.len == 0) return error.InvalidTarget;
+        options.target_triple = triple;
+        index.* += 1;
         return true;
     }
     if (std.mem.eql(u8, arg, "--allow-unaudited-risks")) {
@@ -4788,6 +4886,10 @@ fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionS
 }
 
 fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
+    // Verdict-cache fast path: the reused sigs never went through scope
+    // finalization, so rebuild verifier-equivalent reg scopes (and localize
+    // body regs to slots) before codegen, which requires populated reg_ids.
+    try referee.populateTrustedRegScopes(allocator, flat.instructions, flat.const_decls, flat.function_sigs, &flat.symbols);
     var annotated = std.ArrayList(referee.AnnotatedInstruction).init(allocator);
     errdefer annotated.deinit();
     var fatal_terminated = false;
@@ -5381,6 +5483,10 @@ fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffi
     return try std.fmt.allocPrint(allocator, "{s}{s}", .{ stem, suffix });
 }
 
+pub fn defaultExecutableSuffix() []const u8 {
+    return if (builtin.os.tag == .windows) ".exe" else "";
+}
+
 fn ensureParentDir(path: []const u8) !void {
     if (std.fs.path.dirname(path)) |dir| {
         if (dir.len != 0) try std.fs.cwd().makePath(dir);
@@ -5466,6 +5572,18 @@ fn cacheU64(hasher: *std.crypto.hash.sha2.Sha256, value: u64) void {
 
 fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
     hasher.update(&.{if (value) 1 else 0});
+}
+
+const RuntimeArchiveFingerprint = struct { size: u64, mtime_ns: u64 };
+
+fn runtimeArchiveFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
+    const archive_path = saStdArchivePath(allocator) catch return null;
+    defer allocator.free(archive_path);
+    const stat = std.fs.cwd().statFile(archive_path) catch return null;
+    return .{
+        .size = stat.size,
+        .mtime_ns = @as(u64, @truncate(@as(u128, @bitCast(stat.mtime)))),
+    };
 }
 
 fn cacheCompilerVersion() []const u8 {
@@ -5749,6 +5867,15 @@ fn computeProjectBuildKey(
     cacheBool(&hasher, release_fast);
     cacheBool(&hasher, incremental);
     cacheBytes(&hasher, dce.name());
+    // Fingerprint the linked sa_std runtime archive (size+mtime): a rebuilt
+    // runtime must invalidate cached exes, otherwise stale-linked binaries
+    // are silently reused (observed: AVX-512-linked test exes kept running
+    // after the archive was rebuilt without AVX-512, SIGILL). Cheap stat,
+    // no content hashing; missing archive keeps old behavior.
+    if (runtimeArchiveFingerprint(allocator)) |fp| {
+        cacheU64(&hasher, fp.size);
+        cacheU64(&hasher, fp.mtime_ns);
+    }
     if (wasm) |target| {
         cacheBytes(&hasher, target.triple);
         cacheBool(&hasher, target.no_entry);
@@ -6747,6 +6874,29 @@ fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
     return try allocator.dupe(u8, build_options.sa_std_archive_path);
 }
 
+/// Locate the sa_std static archive for an optional cross-compilation triple.
+/// Layout: $SA_STD_DIR/<triple>/libsa_std.a (or sa_std.lib for windows triples).
+/// Returns error.ArchiveNotFoundForTarget when the triple archive is missing.
+fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]const u8) ![]u8 {
+    const triple = target_triple orelse return saStdArchivePath(allocator);
+    const archive_name: []const u8 = if (tripleIsWindows(target_triple)) "sa_std.lib" else "libsa_std.a";
+    const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    if (env_root) |root| {
+        defer allocator.free(root);
+        const archive = try std.fs.path.join(allocator, &.{ root, triple, archive_name });
+        errdefer allocator.free(archive);
+        if (std.fs.cwd().openFile(archive, .{})) |file| {
+            file.close();
+            return archive;
+        } else |_| {}
+        return error.ArchiveNotFoundForTarget;
+    }
+    return error.ArchiveNotFoundForTarget;
+}
+
 fn executeRun(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -6787,7 +6937,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -6815,8 +6965,17 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             defer owned.deinit(allocator);
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            const std_archive_path = try saStdArchivePath(allocator);
+            const std_archive_path = saStdArchivePathForTarget(allocator, compile_options.target_triple) catch |err| {
+                if (err == error.ArchiveNotFoundForTarget) {
+                    try stderr.print("error: no sa_std archive for target '{s}'. Build it with:\n", .{compile_options.target_triple.?});
+                    try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
+                    try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
+                    return 1;
+                }
+                return err;
+            };
             defer allocator.free(std_archive_path);
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
 
             const worker_count = blk: {
                 if (compile_options.jobs) |j| {
@@ -6861,6 +7020,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     object_path_val: []const u8,
                     opt_level_val: u8,
                     std_root_val: []const u8,
+                    target_triple_val: ?[]const u8,
                     err: ?anyerror = null,
 
                     pub fn run(self: *@This()) void {
@@ -6879,6 +7039,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                                 .codegen_unit_count = self.cgu_count_val,
                                 .dce = self.dce_val,
                                 .std_root = self.std_root_val,
+                                .target_triple = self.target_triple_val,
                             },
                             self.object_path_val,
                             self.opt_level_val,
@@ -6898,7 +7059,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .def_dict_ptr = &owned.flat.def_dict,
                         .loc_table_val = owned.flat.loc_table,
                         .source_path_val = source_path,
-                        .size_bits_val = nativeSizeBits(),
+                        .size_bits_val = size_bits,
                         .debug_val = debug,
                         .jobs_val = if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
                         .dce_val = compile_options.dce,
@@ -6907,6 +7068,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .object_path_val = cgu_obj_paths[i],
                         .opt_level_val = emitOptLevel(debug, optimization),
                         .std_root_val = emit_std_root,
+                        .target_triple_val = compile_options.target_triple,
                     };
                 }
 
@@ -6951,10 +7113,19 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 for (1..cgu_count) |i| {
                     try link_inputs.append(cgu_obj_paths[i]);
                 }
-                try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                if (compile_options.target_triple) |triple| {
+                    const extern_names = try collectExternalSymbolNames(allocator, &owned.verified);
+                    defer allocator.free(extern_names);
+                    if (extern_names.len != 0) {
+                        try stderr.print("error: --target {s} does not support native plugins yet (program uses extern symbol '{s}')\n", .{ triple, extern_names[0] });
+                        return 1;
+                    }
+                } else {
+                    try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                }
 
                 const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
+                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -6967,7 +7138,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
                 const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
                 recordMetricMemoryAfterEmit(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -6980,8 +7154,17 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     for (owned_link_inputs.items) |arg| allocator.free(arg);
                     owned_link_inputs.deinit();
                 }
-                try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
-                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr) catch |err| switch (err) {
+                if (compile_options.target_triple) |triple| {
+                    const extern_names = try collectExternalSymbolNames(allocator, &owned.verified);
+                    defer allocator.free(extern_names);
+                    if (extern_names.len != 0) {
+                        try stderr.print("error: --target {s} does not support native plugins yet (program uses extern symbol '{s}')\n", .{ triple, extern_names[0] });
+                        return 1;
+                    }
+                } else {
+                    try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                }
+                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -7010,7 +7193,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7040,12 +7223,23 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const opt_level = emitOptLevel(debug, optimization);
+            if (compile_options.target_triple != null and incremental) {
+                try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
+                return 1;
+            }
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
             if (incremental) {
                 const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
             } else {
-                try emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path, out_path, opt_level);
+                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
             }
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7098,7 +7292,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path);
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                return 1;
+            };
             const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
@@ -7203,10 +7400,17 @@ fn executeCheck(
 ) !u8 {
     var compile_options = newCompileOptions(exec_options, stderr.any());
     var source_arg: ?[]const u8 = null;
+    var emit_sab_path: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (try consumeCompileOption(arg, args, &i, &compile_options)) continue;
+        if (std.mem.eql(u8, arg, "--emit-sab")) {
+            if (i + 1 >= args.len) return error.MissingOutputPath;
+            emit_sab_path = args[i + 1];
+            i += 1;
+            continue;
+        }
         if (source_arg == null) {
             source_arg = arg;
             continue;
@@ -7230,6 +7434,26 @@ fn executeCheck(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            if (emit_sab_path) |sab_path| {
+                // SAB encode path is standalone: it never falls back to .sa text.
+                // encodeSabFromFlat re-verifies and returns error.VerificationTrap
+                // on failure, which we surface as a check failure.
+                const sab_bytes = plugin_bridge.encodeSabFromFlat(allocator, &owned.flat) catch |err| {
+                    if (err == error.VerificationTrap) {
+                        try stderr.print("check: SAB encode failed: verification trap\n", .{});
+                        return 1;
+                    }
+                    return err;
+                };
+                defer allocator.free(sab_bytes);
+                const cwd = std.fs.cwd();
+                const sab_file = try cwd.createFile(sab_path, .{});
+                defer sab_file.close();
+                try sab_file.writeAll(sab_bytes);
+                if (!json_mode) {
+                    try stdout.print("check ok: wrote SAB binary: {s} ({d} bytes)\n", .{ sab_path, sab_bytes.len });
+                }
+            }
             if (json_mode) {
                 try stdout.writeAll("{\"status\":\"ok\",\"metrics\":");
                 try writeMetricsJson(stdout, owned.metrics);
@@ -7509,6 +7733,7 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
 fn emitOptLevel(debug: bool, optimization: driver.Optimization) u8 {
     if (debug) return 0;
     return switch (optimization) {
+        .none => 0,
         .release_small => 1,
         .release_fast => 3,
     };
@@ -7744,7 +7969,6 @@ fn collectCallEdges(
     }
 }
 
-
 fn executeTestInner(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -7890,7 +8114,10 @@ fn executeTestInner(
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            try emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path);
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
+                try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                return 1;
+            };
             const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
 
             const fast_sab_compile_only = test_options.compile_only and std.mem.endsWith(u8, source_path, ".sab") and has_explicit_test_selection;
@@ -7916,7 +8143,7 @@ fn executeTestInner(
             }
 
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, .release_small, std_archive_path, link_inputs.items, false, stderr) catch |err| switch (err) {
+            driver.compileExe(allocator, artifact_full_path, exe_full_path, test_options.optimization, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
             };
@@ -8017,6 +8244,9 @@ pub fn executeWithWritersAndOptions(
         var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
         defer plugin_runtime.deinit();
         if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
+        for (plugin_runtime.diagnostics.items) |diagnostic| {
+            try stderr.print("note: plugin load skipped: {s}: {s}\n", .{ diagnostic.path, diagnostic.reason });
+        }
         return error.UnknownCommand;
     };
 
@@ -8065,7 +8295,7 @@ pub fn executeWithWritersAndOptions(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8098,7 +8328,7 @@ pub fn executeWithWritersAndOptions(
             const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer if (owned_source_path) |path| allocator.free(path);
             const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8107,7 +8337,7 @@ pub fn executeWithWritersAndOptions(
             var compile_options = newCompileOptions(exec_options, stderr.any());
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8135,7 +8365,7 @@ pub fn executeWithWritersAndOptions(
             defer allocator.free(project_root);
             const final_source_path = try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer allocator.free(final_source_path);
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8175,7 +8405,7 @@ pub fn executeWithWritersAndOptions(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8208,7 +8438,7 @@ pub fn executeWithWritersAndOptions(
             const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
             defer if (owned_source_path) |path| allocator.free(path);
             const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, "");
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
@@ -8218,7 +8448,7 @@ pub fn executeWithWritersAndOptions(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var incremental = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
@@ -8267,7 +8497,7 @@ pub fn executeWithWritersAndOptions(
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
             var debug = false;
-            var optimization: driver.Optimization = .release_small;
+            var optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -8313,6 +8543,7 @@ pub fn executeWithWritersAndOptions(
         },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
+            if (args.len > 3) return error.UnexpectedArgument;
             const source_path = args[2];
             const translated = bc2sa.translateBitcodeFile(allocator, source_path) catch |err| {
                 try printCliError(stderr, err, if (json_mode) .json else .human);
@@ -8336,11 +8567,16 @@ pub fn executeWithWritersAndOptions(
             var compile_only = false;
             var trace_panic = false;
             var affected_flag = false;
+            var test_optimization: driver.Optimization = .none;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
                 if (source_path == null) {
                     source_path = args[i];
+                    continue;
+                }
+                if (parseOptimizationFlag(args[i])) |mode| {
+                    test_optimization = mode;
                     continue;
                 }
                 if (std.mem.eql(u8, args[i], "--list")) {
@@ -8403,6 +8639,7 @@ pub fn executeWithWritersAndOptions(
                 .compile_only = compile_only,
                 .trace_panic = trace_panic,
                 .affected = affected_flag,
+                .optimization = test_optimization,
             }, stdout, stderr, if (json_mode) .json else .human);
         },
     }
@@ -8729,4 +8966,57 @@ test "compileSource accepts true SAB without text flattener" {
         },
         .trap => return error.TestUnexpectedResult,
     }
+}
+
+test "check --emit-sab roundtrips through compileSource without text fallback" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    // Write a minimal .sa program, compile it, encode to SAB via the same
+    // plugin_bridge.encodeSabFromFlat that `check --emit-sab` uses, then
+    // reload the .sab and verify the decoded program matches. The SAB path
+    // must be standalone: a corrupt .sab must fail loudly, never silently
+    // fall back to text.
+    const sa_source =
+        \\@main():
+        \\L_ENTRY:
+        \\    x = add 40, 2
+        \\    return x
+    ;
+    try tmp.dir.writeFile(.{ .sub_path = "rt.sa", .data = sa_source });
+
+    var compiled_sa = try compileSource(std.testing.allocator, "rt.sa", .{});
+    var ok_sa = switch (compiled_sa) {
+        .ok => |*ok| ok,
+        .trap => return error.TestUnexpectedResult,
+    };
+    defer ok_sa.deinit(std.testing.allocator);
+
+    const sab_bytes = try plugin_bridge.encodeSabFromFlat(std.testing.allocator, &ok_sa.flat);
+    defer std.testing.allocator.free(sab_bytes);
+    // SAB magic "SAB\x00", version 4.0.
+    try std.testing.expect(sab_bytes.len > 6);
+    try std.testing.expectEqualStrings("SAB\x00", sab_bytes[0..4]);
+    try std.testing.expectEqual(@as(u8, 4), sab_bytes[4]);
+    try tmp.dir.writeFile(.{ .sub_path = "rt.sab", .data = sab_bytes });
+
+    var compiled_sab = try compileSource(std.testing.allocator, "rt.sab", .{});
+    switch (compiled_sab) {
+        .ok => |*ok| {
+            defer ok.deinit(std.testing.allocator);
+            try std.testing.expectEqual(ok_sa.flat.instructions.len, ok.flat.instructions.len);
+            try std.testing.expectEqual(ok_sa.flat.symbols.names.items.len, ok.flat.symbols.names.items.len);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+
+    // Corrupt SAB must fail with a SAB-specific error, not fall back to text.
+    try tmp.dir.writeFile(.{ .sub_path = "bad.sab", .data = sab_bytes[0..10] });
+    try std.testing.expectError(error.TruncatedSab, compileSource(std.testing.allocator, "bad.sab", .{}));
+    try tmp.dir.writeFile(.{ .sub_path = "fake.sab", .data = "this is not a sab binary" });
+    try std.testing.expectError(error.InvalidSabMagic, compileSource(std.testing.allocator, "fake.sab", .{}));
 }

@@ -1,0 +1,5 @@
+# Keep executable shell scripts and GitHub workflow definitions portable when
+# the repository is checked out on Windows and executed through Git Bash.
+*.sh text eol=lf
+.github/workflows/*.yml text eol=lf
+.github/workflows/*.yaml text eol=lf

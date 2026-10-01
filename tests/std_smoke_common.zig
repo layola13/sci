@@ -14,7 +14,18 @@ pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     defer if (!std.fs.path.isAbsolute(path)) allocator.free(full_path);
     const file = try std.fs.cwd().openFile(full_path, .{});
     defer file.close();
-    return try file.readToEndAlloc(allocator, 1 << 20);
+    const bytes = try file.readToEndAlloc(allocator, 1 << 20);
+    if (std.mem.indexOfScalar(u8, bytes, '\r') == null) return bytes;
+
+    var normalized = try std.ArrayList(u8).initCapacity(allocator, bytes.len);
+    errdefer normalized.deinit();
+    var index: usize = 0;
+    while (index < bytes.len) : (index += 1) {
+        if (bytes[index] == '\r' and index + 1 < bytes.len and bytes[index + 1] == '\n') continue;
+        try normalized.append(bytes[index]);
+    }
+    allocator.free(bytes);
+    return try normalized.toOwnedSlice();
 }
 
 pub fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {

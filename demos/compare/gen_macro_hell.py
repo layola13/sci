@@ -51,12 +51,12 @@ L_ENTRY:
 [END_MACRO]
 """)
         for i in range(n):
-            f.write(f"EXPAND DEFINE_SYSTEM sys_{i}\n")
+            f.write(f"EXPAND DEFINE_SYSTEM ecs_{i}\n")
         
         f.write("\n@main():\n")
         f.write("L_ENTRY:\n")
         for i in range(n):
-            f.write(f"    call @sys_{i}(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)\n")
+            f.write(f"    call @ecs_{i}(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)\n")
         f.write("    return\n")
 
 # 生成 2000 个复杂的系统调用，这足以让 Rust 编译器由于宏展开和借用检查而非常繁忙

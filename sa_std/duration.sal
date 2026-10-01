@@ -1,0 +1,2 @@
+// Standard layout aliases for Duration.
+@import "time.sal"

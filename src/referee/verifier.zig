@@ -7,3 +7,4 @@ pub const VerifyOptions = root.VerifyOptions;
 pub const VerifyStageReporter = root.VerifyStageReporter;
 pub const verify = root.verify;
 pub const verifyWithOptions = root.verifyWithOptions;
+pub const populateTrustedRegScopes = root.populateTrustedRegScopes;

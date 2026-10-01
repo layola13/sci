@@ -2,6 +2,11 @@
 
 @test "sa_std net typed address octet helpers"():
 L_ENTRY:
+    ipv6_bits_alias = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_FROM_BITS ipv6_bits_alias, 1311768467463790320, 1147797409030816545
+    EXPAND NET_IPV6_TO_BITS ipv6_bits_alias_hi, ipv6_bits_alias_lo, ipv6_bits_alias
+    ipv6_alias_hi_ok = eq ipv6_bits_alias_hi, 1311768467463790320
+    ipv6_alias_lo_ok = eq ipv6_bits_alias_lo, 1147797409030816545
     ipv4 = stack_alloc NetIpv4Addr_SIZE
     ipv6 = stack_alloc NetIpv6Addr_SIZE
     ip4 = stack_alloc NetIpAddr_SIZE
@@ -97,7 +102,8 @@ L_ENTRY:
     ok23 = and ok22, ok_ip6_write
     ok24 = and ok23, ok_ip6_b0
     ok25 = and ok24, ok_ip6_b15
-    ok = and ok25, ok_ip6_short
+    ok26 = and ok25, ipv6_alias_hi_ok
+    ok = and ok26, ipv6_alias_lo_ok
 
     !ipv4_oct_ptr
     br ok -> L_PASS, L_FAIL
@@ -132,6 +138,8 @@ L_ENTRY:
     EXPAND NET_IPV6_LOCALHOST ipv6
     EXPAND NET_IPV6_FORMAT_ASCII v6_ok, v6_len, ipv6, out, 64
     v6_b0 = load out+0 as u8
+    v6_b1 = load out+1 as u8
+    v6_b2 = load out+2 as u8
 
     EXPAND NET_SOCKET_ADDR_V6_NEW sock6, ipv6, 443, 0, 0
     EXPAND NET_SOCKET_ADDR_V6_FORMAT_ASCII s6_ok, s6_len, sock6, out, 64
@@ -149,10 +157,12 @@ L_ENTRY:
     ok_s4_len = eq s4_len, 14
     ok_s4_colon = eq s4_colon, 58
     ok_v6 = eq v6_ok, 1
-    ok_v6_len = ugt v6_len, 0
-    ok_v6_b0 = eq v6_b0, 48
+    ok_v6_len = eq v6_len, 3
+    ok_v6_b0 = eq v6_b0, 58
+    ok_v6_b1 = eq v6_b1, 58
+    ok_v6_b2 = eq v6_b2, 49
     ok_s6 = eq s6_ok, 1
-    ok_s6_len = ugt s6_len, 0
+    ok_s6_len = eq s6_len, 9
     ok_s6_lb = eq s6_lb, 91
     ok_ip = eq ip_ok, 1
     ok_ip_len = eq ip_len, 9
@@ -167,6 +177,8 @@ L_ENTRY:
     ok = and ok, ok_v6
     ok = and ok, ok_v6_len
     ok = and ok, ok_v6_b0
+    ok = and ok, ok_v6_b1
+    ok = and ok, ok_v6_b2
     ok = and ok, ok_s6
     ok = and ok, ok_s6_len
     ok = and ok, ok_s6_lb
@@ -186,6 +198,8 @@ L_ENTRY:
     !v6_ok
     !v6_len
     !v6_b0
+    !v6_b1
+    !v6_b2
     !s6_ok
     !s6_len
     !s6_lb
@@ -215,6 +229,262 @@ L_PASS:
     !ok
     return 0
 
+
+@test "sa_std socket addr set ip preserves v6 metadata"():
+L_ENTRY:
+    old_ipv6 = stack_alloc NetIpv6Addr_SIZE
+    new_ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ip_old = stack_alloc NetIpAddr_SIZE
+    ip_new = stack_alloc NetIpAddr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    socket_addr = stack_alloc NetSocketAddr_SIZE
+    EXPAND NET_IPV6_LOCALHOST old_ipv6
+    EXPAND NET_IPV6_NEW new_ipv6, 8193, 3512, 0, 0, 0, 0, 0, 1
+    EXPAND NET_IPV4_LOCALHOST ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip_old, old_ipv6
+    EXPAND NET_IP_ADDR_V6_NEW ip_new, new_ipv6
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_SOCKET_ADDR_NEW socket_addr, ip_old, 443
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO set_flow_status, socket_addr, 22
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID set_scope_status, socket_addr, 44
+    EXPAND NET_SOCKET_ADDR_SET_IP socket_addr, ip_new
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow_ok, flow_value, socket_addr
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope_ok, scope_value, socket_addr
+    flow_value_ok = eq flow_value, 22
+    scope_value_ok = eq scope_value, 44
+    flow_status_ok = eq flow_ok, 1
+    scope_status_ok = eq scope_ok, 1
+    same_family_ok0 = and flow_value_ok, scope_value_ok
+    same_family_ok = and flow_status_ok, scope_status_ok
+    all_ok = and same_family_ok0, same_family_ok
+    br all_ok -> L_SET_IP_META_PASS, L_SET_IP_META_FAIL
+L_SET_IP_META_FAIL:
+    panic(10143)
+L_SET_IP_META_PASS:
+    return 0
+
+@test "sa_std socket addr set ip cross family resets metadata"():
+L_ENTRY:
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    socket_addr = stack_alloc NetSocketAddr_SIZE
+    EXPAND NET_IPV6_LOCALHOST ipv6
+    EXPAND NET_IPV4_LOCALHOST ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_SOCKET_ADDR_NEW socket_addr, ip6, 443
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO initial_flow_ok, socket_addr, 22
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID initial_scope_ok, socket_addr, 44
+    EXPAND NET_SOCKET_ADDR_SET_IP socket_addr, ip4
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow_ok, flow_value, socket_addr
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope_ok, scope_value, socket_addr
+    initial_flow_value_ok = eq initial_flow_ok, 1
+    initial_scope_value_ok = eq initial_scope_ok, 1
+    flow_status_ok = eq flow_ok, 0
+    scope_status_ok = eq scope_ok, 0
+    flow_value_ok = eq flow_value, 0
+    scope_value_ok = eq scope_value, 0
+    ok0 = and initial_flow_value_ok, initial_scope_value_ok
+    ok1 = and flow_status_ok, scope_status_ok
+    ok2 = and flow_value_ok, scope_value_ok
+    ok3 = and ok0, ok1
+    all_ok = and ok3, ok2
+    br all_ok -> L_CROSS_META_PASS, L_CROSS_META_FAIL
+L_CROSS_META_FAIL:
+    panic(10144)
+L_CROSS_META_PASS:
+    return 0
+
+@test "sa_std socket addr v6 metadata dispatch"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    sock4 = stack_alloc NetSocketAddr_SIZE
+    sock6 = stack_alloc NetSocketAddr_SIZE
+    EXPAND NET_IPV4_NEW ipv4, 127, 0, 0, 1
+    EXPAND NET_IPV6_LOCALHOST ipv6
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_SOCKET_ADDR_NEW sock4, ip4, 80
+    EXPAND NET_SOCKET_ADDR_NEW sock6, ip6, 443
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow4_ok, flow4, sock4
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow6_ok, flow6, sock6
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO set4_ok, sock4, 11
+    EXPAND NET_SOCKET_ADDR_SET_FLOWINFO set6_ok, sock6, 22
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope4_ok, scope4, sock4
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope6_ok, scope6, sock6
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID set_scope4_ok, sock4, 33
+    EXPAND NET_SOCKET_ADDR_SET_SCOPE_ID set_scope6_ok, sock6, 44
+    EXPAND NET_SOCKET_ADDR_FLOWINFO flow6b_ok, flow6b, sock6
+    EXPAND NET_SOCKET_ADDR_SCOPE_ID scope6b_ok, scope6b, sock6
+    bad4 = eq flow4_ok, 0
+    br bad4 -> L_CHECK_B4B, L_META_FAIL1
+L_CHECK_B4B:
+    bad4b = eq flow4, 0
+    br bad4b -> L_CHECK_B4C, L_META_FAIL2
+L_CHECK_B4C:
+    bad4c = eq set4_ok, 0
+    br bad4c -> L_CHECK_B4D, L_META_FAIL3
+L_CHECK_B4D:
+    bad4d = eq scope4_ok, 0
+    br bad4d -> L_CHECK_B4E, L_META_FAIL4
+L_CHECK_B4E:
+    bad4e = eq scope4, 0
+    br bad4e -> L_CHECK_B4F, L_META_FAIL5
+L_CHECK_B4F:
+    bad4f = eq set_scope4_ok, 0
+    br bad4f -> L_CHECK_G6, L_META_FAIL6
+L_CHECK_G6:
+    good6 = eq flow6_ok, 1
+    br good6 -> L_CHECK_G6B, L_META_FAIL7
+L_CHECK_G6B:
+    good6b = eq flow6, 0
+    br good6b -> L_CHECK_G6C, L_META_FAIL8
+L_CHECK_G6C:
+    good6c = eq set6_ok, 1
+    br good6c -> L_CHECK_G6D, L_META_FAIL9
+L_CHECK_G6D:
+    good6d = eq scope6_ok, 1
+    br good6d -> L_CHECK_G6E, L_META_FAIL10
+L_CHECK_G6E:
+    good6e = eq scope6, 0
+    br good6e -> L_CHECK_G6F, L_META_FAIL11
+L_CHECK_G6F:
+    good6f = eq set_scope6_ok, 1
+    br good6f -> L_CHECK_G6G, L_META_FAIL12
+L_CHECK_G6G:
+    good6g = eq flow6b, 22
+    br good6g -> L_CHECK_G6H, L_META_FAIL13
+L_CHECK_G6H:
+    good6h = eq scope6b, 44
+    br good6h -> L_META_PASS, L_META_FAIL14
+L_META_FAIL1:
+    panic(10129)
+L_META_FAIL2:
+    panic(10130)
+L_META_FAIL3:
+    panic(10131)
+L_META_FAIL4:
+    panic(10132)
+L_META_FAIL5:
+    panic(10133)
+L_META_FAIL6:
+    panic(10134)
+L_META_FAIL7:
+    panic(10135)
+L_META_FAIL8:
+    panic(10136)
+L_META_FAIL9:
+    panic(10137)
+L_META_FAIL10:
+    panic(10138)
+L_META_FAIL11:
+    panic(10139)
+L_META_FAIL12:
+    panic(10140)
+L_META_FAIL13:
+    panic(10141)
+L_META_FAIL14:
+    panic(10142)
+L_META_PASS:
+    return 0
+
+@test "sa_std ip addr unicast global dispatch"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip4 = stack_alloc NetIpAddr_SIZE
+    ip6 = stack_alloc NetIpAddr_SIZE
+    EXPAND NET_IPV4_NEW ipv4, 8, 8, 8, 8
+    EXPAND NET_IPV6_NEW ipv6, 8193, 18504, 18504, 0, 0, 0, 0, 34968
+    EXPAND NET_IP_ADDR_V4_NEW ip4, ipv4
+    EXPAND NET_IP_ADDR_V6_NEW ip6, ipv6
+    EXPAND NET_IP_ADDR_IS_UNICAST_GLOBAL v4_ok, ip4
+    EXPAND NET_IP_ADDR_IS_UNICAST_GLOBAL v6_ok, ip6
+    all_ok = and v4_ok, v6_ok
+    br all_ok -> L_GLOBAL_PASS, L_GLOBAL_FAIL
+L_GLOBAL_FAIL:
+    panic(10126)
+L_GLOBAL_PASS:
+    return 0
+
+@test "sa_std ipv6 multicast extended scopes"():
+L_ENTRY:
+    realm = add 0, NET_IPV6_MULTICAST_SCOPE_REALM_LOCAL
+    reserved0 = add 0, NET_IPV6_MULTICAST_SCOPE_RESERVED_ZERO
+    reservedf = add 0, NET_IPV6_MULTICAST_SCOPE_RESERVED_F
+    unassigned6 = add 0, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED6
+    unassignedd = add 0, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED_D
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_REALM_LOCAL realm_ok, realm
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_RESERVED reserved0_ok, reserved0
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_RESERVED reservedf_ok, reservedf
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_UNASSIGNED unassigned6_ok, unassigned6
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_UNASSIGNED unassignedd_ok, unassignedd
+    ok0 = and realm_ok, reserved0_ok
+    ok1 = and reservedf_ok, unassigned6_ok
+    ok2 = and unassignedd_ok, ok0
+    ok3 = and ok1, ok2
+    !realm
+    !reserved0
+    !reservedf
+    !unassigned6
+    !unassignedd
+    !realm_ok
+    !reserved0_ok
+    !reservedf_ok
+    !unassigned6_ok
+    !unassignedd_ok
+    br ok3 -> L_EXT_SCOPE_PASS, L_EXT_SCOPE_FAIL
+L_EXT_SCOPE_FAIL:
+    panic(10127)
+L_EXT_SCOPE_PASS:
+    return 0
+
+@test "sa_std ipv6 multicast scope constants"():
+L_ENTRY:
+    scope_interface = add 0, NET_IPV6_MULTICAST_SCOPE_INTERFACE_LOCAL
+    scope_link = add 0, NET_IPV6_MULTICAST_SCOPE_LINK_LOCAL
+    scope_admin = add 0, NET_IPV6_MULTICAST_SCOPE_ADMIN_LOCAL
+    scope_site = add 0, NET_IPV6_MULTICAST_SCOPE_SITE_LOCAL
+    scope_org = add 0, NET_IPV6_MULTICAST_SCOPE_ORGANIZATION_LOCAL
+    scope_global = add 0, NET_IPV6_MULTICAST_SCOPE_GLOBAL
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_INTERFACE_LOCAL interface_ok, scope_interface
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_LINK_LOCAL link_ok, scope_link
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_ADMIN_LOCAL admin_ok, scope_admin
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_SITE_LOCAL site_ok, scope_site
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_ORGANIZATION_LOCAL org_ok, scope_org
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS_GLOBAL global_ok, scope_global
+    all0 = and interface_ok, link_ok
+    all1 = and admin_ok, site_ok
+    all2 = and org_ok, global_ok
+    all3 = and all0, all1
+    all_ok = and all3, all2
+    !scope_interface
+    !scope_link
+    !scope_admin
+    !scope_site
+    !scope_org
+    !scope_global
+    !interface_ok
+    !link_ok
+    !admin_ok
+    !site_ok
+    !org_ok
+    !global_ok
+    !all0
+    !all1
+    !all2
+    !all3
+    br all_ok -> L_SCOPE_PASS, L_SCOPE_FAIL
+L_SCOPE_FAIL:
+    panic(10125)
+L_SCOPE_PASS:
+    return 0
 
 @test "sa_std net ip/socket addr default helpers"():
 L_ENTRY:
@@ -306,7 +576,6 @@ L_ENTRY:
     !ok01
     !ok02
     !ok03
-    !ok04
     br ok -> L_OK, L_FAIL
 L_FAIL:
     !ok
@@ -314,3 +583,107 @@ L_FAIL:
 L_OK:
     !ok
     return
+
+
+@test "sa_std net borrowed octet pointer helpers"():
+L_ENTRY:
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    ip = stack_alloc NetIpAddr_SIZE
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+
+    EXPAND NET_IPV6_NEW ipv6, 8193, 3512, 0, 0, 0, 0, 0, 1
+    EXPAND NET_IPV6_AS_OCTETS_PTR ipv6_ptr, ipv6
+    ipv6_first = load ipv6_ptr+0 as u8
+    ipv6_second = load ipv6_ptr+1 as u8
+    ipv6_last = load ipv6_ptr+15 as u8
+
+    EXPAND NET_IPV4_NEW ipv4, 192, 0, 2, 9
+    EXPAND NET_IP_ADDR_V4_NEW ip, ipv4
+    EXPAND NET_IP_ADDR_AS_OCTETS_PTR ip_ptr, ip
+    ip_first = load ip_ptr+0 as u8
+    ip_last = load ip_ptr+3 as u8
+
+    ipv6_first_ok = eq ipv6_first, 32
+    ipv6_second_ok = eq ipv6_second, 1
+    ipv6_last_ok = eq ipv6_last, 1
+    ip_first_ok = eq ip_first, 192
+    ip_last_ok = eq ip_last, 9
+    ok01 = and ipv6_first_ok, ipv6_second_ok
+    ok02 = and ok01, ipv6_last_ok
+    ok03 = and ok02, ip_first_ok
+    ok = and ok03, ip_last_ok
+
+    !ipv6_first
+    !ipv6_second
+    !ipv6_last
+    !ip_first
+    !ip_last
+    !ipv6_first_ok
+    !ipv6_second_ok
+    !ipv6_last_ok
+    !ip_first_ok
+    !ip_last_ok
+    !ok01
+    !ok02
+    !ok03
+    !ipv6_ptr
+    !ip_ptr
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10593)
+
+L_PASS:
+    !ok
+    return 0
+
+
+@test "sa_std socket typed octet pointer aliases"():
+L_ENTRY:
+    ipv4 = stack_alloc NetIpv4Addr_SIZE
+    ipv6 = stack_alloc NetIpv6Addr_SIZE
+    sock4 = stack_alloc NetSocketAddrV4_SIZE
+    sock6 = stack_alloc NetSocketAddrV6_SIZE
+
+    EXPAND NET_IPV4_NEW ipv4, 198, 51, 100, 7
+    EXPAND NET_IPV6_NEW ipv6, 8193, 3512, 0, 0, 0, 0, 0, 2
+    EXPAND NET_SOCKET_ADDR_V4_NEW sock4, ipv4, 80
+    EXPAND NET_SOCKET_ADDR_V6_NEW sock6, ipv6, 443, 0, 0
+
+    EXPAND NET_SOCKET_ADDR_V4_AS_OCTETS_PTR sock4_ptr, sock4
+    EXPAND NET_SOCKET_ADDR_V6_AS_OCTETS_PTR sock6_ptr, sock6
+    sock4_first = load sock4_ptr+0 as u8
+    sock4_last = load sock4_ptr+3 as u8
+    sock6_first = load sock6_ptr+0 as u8
+    sock6_last = load sock6_ptr+15 as u8
+
+    sock4_first_ok = eq sock4_first, 198
+    sock4_last_ok = eq sock4_last, 7
+    sock6_first_ok = eq sock6_first, 32
+    sock6_last_ok = eq sock6_last, 2
+    ok01 = and sock4_first_ok, sock4_last_ok
+    ok02 = and ok01, sock6_first_ok
+    ok = and ok02, sock6_last_ok
+
+    !sock4_first
+    !sock4_last
+    !sock6_first
+    !sock6_last
+    !sock4_first_ok
+    !sock4_last_ok
+    !sock6_first_ok
+    !sock6_last_ok
+    !ok01
+    !ok02
+    !sock4_ptr
+    !sock6_ptr
+    br ok -> L_PASS, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(10594)
+
+L_PASS:
+    !ok
+    return 0

@@ -578,3 +578,91 @@ L_FAIL:
 L_PASS:
     !ok
     return 0
+
+@test "sa_std os fd invalid handles are deterministic"():
+L_ENTRY:
+    EXPAND FD_AS_RAW as_status, as_fd, 0
+    as_invalid = eq as_status, SA_FD_ERR_INVALID_HANDLE
+    as_unsupported = eq as_status, SA_FD_ERR_UNSUPPORTED
+    br as_invalid -> L_FD_AS_INVALID, L_FD_AS_NONINVALID
+L_FD_AS_NONINVALID:
+    br as_unsupported -> L_FD_DUP_CALL, L_FD_FAIL_10996
+L_FD_AS_INVALID:
+    as_value_ok = eq as_fd, -1
+    br as_value_ok -> L_FD_DUP_CALL, L_FD_FAIL_10997
+L_FD_DUP_CALL:
+    EXPAND FD_DUP dup_status, dup_handle, 0
+    dup_invalid = eq dup_status, SA_FD_ERR_INVALID_HANDLE
+    dup_unsupported = eq dup_status, SA_FD_ERR_UNSUPPORTED
+    br dup_invalid -> L_FD_DUP_INVALID, L_FD_DUP_NONINVALID
+L_FD_DUP_NONINVALID:
+    br dup_unsupported -> L_FD_DUP_RAW_CALL, L_FD_FAIL_10998
+L_FD_DUP_INVALID:
+    dup_value_ok = eq dup_handle, 0
+    br dup_value_ok -> L_FD_DUP_RAW_CALL, L_FD_FAIL_10999
+L_FD_DUP_RAW_CALL:
+    EXPAND FD_DUP_RAW dup_raw_status, dup_raw_handle, -1
+    dup_raw_invalid = eq dup_raw_status, SA_FD_ERR_INVALID_ARGUMENT
+    dup_raw_unsupported = eq dup_raw_status, SA_FD_ERR_UNSUPPORTED
+    br dup_raw_invalid -> L_FD_DUP_RAW_INVALID, L_FD_DUP_RAW_NONINVALID
+L_FD_DUP_RAW_NONINVALID:
+    br dup_raw_unsupported -> L_FD_FROM_RAW_CALL, L_FD_FAIL_11000
+L_FD_DUP_RAW_INVALID:
+    dup_raw_value_ok = eq dup_raw_handle, 0
+    br dup_raw_value_ok -> L_FD_FROM_RAW_CALL, L_FD_FAIL_11001
+L_FD_FROM_RAW_CALL:
+    EXPAND FD_FROM_RAW from_status, from_handle, -1
+    from_invalid = eq from_status, SA_FD_ERR_INVALID_ARGUMENT
+    from_unsupported = eq from_status, SA_FD_ERR_UNSUPPORTED
+    br from_invalid -> L_FD_FROM_RAW_INVALID, L_FD_FROM_RAW_NONINVALID
+L_FD_FROM_RAW_NONINVALID:
+    br from_unsupported -> L_FD_INTO_CALL, L_FD_FAIL_11002
+L_FD_FROM_RAW_INVALID:
+    from_value_ok = eq from_handle, 0
+    br from_value_ok -> L_FD_INTO_CALL, L_FD_FAIL_11003
+L_FD_INTO_CALL:
+    EXPAND FD_INTO_RAW into_status, into_fd, 0
+    into_invalid = eq into_status, SA_FD_ERR_INVALID_HANDLE
+    into_unsupported = eq into_status, SA_FD_ERR_UNSUPPORTED
+    br into_invalid -> L_FD_INTO_INVALID, L_FD_INTO_NONINVALID
+L_FD_INTO_NONINVALID:
+    br into_unsupported -> L_FD_TTY_CALL, L_FD_FAIL_11004
+L_FD_INTO_INVALID:
+    into_value_ok = eq into_fd, -1
+    br into_value_ok -> L_FD_TTY_CALL, L_FD_FAIL_11005
+L_FD_TTY_CALL:
+    EXPAND FD_IS_TERMINAL tty_status, tty_flag, 0
+    tty_invalid = eq tty_status, SA_FD_ERR_INVALID_HANDLE
+    tty_unsupported = eq tty_status, SA_FD_ERR_UNSUPPORTED
+    br tty_invalid -> L_FD_TTY_INVALID, L_FD_TTY_NONINVALID
+L_FD_TTY_NONINVALID:
+    br tty_unsupported -> L_FD_PASS, L_FD_FAIL_11006
+L_FD_TTY_INVALID:
+    tty_value_ok = eq tty_flag, 0
+    br tty_value_ok -> L_FD_PASS, L_FD_FAIL_11007
+L_FD_PASS:
+    return 0
+L_FD_FAIL_10996:
+    panic(10996)
+L_FD_FAIL_10997:
+    panic(10997)
+L_FD_FAIL_10998:
+    panic(10998)
+L_FD_FAIL_10999:
+    panic(10999)
+L_FD_FAIL_11000:
+    panic(11000)
+L_FD_FAIL_11001:
+    panic(11001)
+L_FD_FAIL_11002:
+    panic(11002)
+L_FD_FAIL_11003:
+    panic(11003)
+L_FD_FAIL_11004:
+    panic(11004)
+L_FD_FAIL_11005:
+    panic(11005)
+L_FD_FAIL_11006:
+    panic(11006)
+L_FD_FAIL_11007:
+    panic(11007)

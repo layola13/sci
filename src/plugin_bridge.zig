@@ -4,6 +4,11 @@ pub const flattener = @import("flattener.zig");
 pub const sab = @import("sab.zig");
 pub const verifier = @import("verifier.zig");
 const common_signature = @import("common/signature.zig");
+const trap = @import("common/trap.zig");
+
+// Re-exported so the SLA plugin can format verifier TrapReports inline
+// (mirrors the `trap` import used by cli.zig::printTrapReport).
+pub const trap_lib = @import("common/trap.zig");
 
 pub fn flattenSaFile(allocator: std.mem.Allocator, source_path: []const u8, source: []const u8) !flattener.FlattenResult {
     return flattener.flattenFile(allocator, source_path, source);
@@ -129,6 +134,43 @@ pub fn encodeSabFromFlat(
             );
         },
         .trap => return error.VerificationTrap,
+    }
+}
+
+/// Result of encodeSabFromFlatDetailed. On success bytes is owned by the
+/// caller and must be freed with allocator. On verification failure trap
+/// carries the full verifier diagnostic so callers (such as the SLA plugin)
+/// can surface a human-readable error instead of a bare error.VerificationTrap.
+pub const EncodeSabResult = union(enum) {
+    ok: []u8,
+    trap: trap.TrapReport,
+};
+
+/// Like encodeSabFromFlat but returns the full verifier TrapReport on
+/// verification failure rather than collapsing it into a bare error value.
+/// Intended for code paths that need to present actionable diagnostics to
+/// users; prefer encodeSabFromFlat for simple success/fail control flow.
+pub fn encodeSabFromFlatDetailed(
+    allocator: std.mem.Allocator,
+    flat: *const flattener.FlattenResult,
+) !EncodeSabResult {
+    const verified = try verifier.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{});
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+            const function_sigs = try remapFunctionSigsForFlatSymbols(allocator, owned.function_sigs, &owned.symbols, &flat.symbols);
+            defer freeFunctionSigs(allocator, function_sigs);
+            const bytes = try sab.encodeProgramWithConsts(
+                allocator,
+                flat.symbols.names.items,
+                flat.const_decls,
+                function_sigs,
+                flat.instructions,
+            );
+            return .{ .ok = bytes };
+        },
+        .trap => |report| return .{ .trap = report },
     }
 }
 

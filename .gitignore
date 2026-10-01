@@ -57,3 +57,42 @@ sa_plugin_matmul
 # code-index generated artifacts
 .code_index/index
 # end code-index generated artifacts
+
+
+# --- scratch / debug / build temp files (session 2026-08-09) ---
+# zig global cache
+.zig-global-cache/
+# noise: empty/stray output names
+$exe
+$exe.pdb
+NUL
+# compiled-object / debug byproducts
+*.lib
+*.lib.obj
+*.obj
+*.pdb
+*.log
+# scratch text logs
+test_output.txt
+unit_output.txt
+unit-framework-output.log
+spawn_debug.log
+_tmp_fs_macro_surface.txt
+# throwaway fix scripts from debugging sessions
+fix_compat*.ps1
+fix_process*.py
+fix_spawn_debug*.py
+test_sa.c
+test_spawn_quick.*
+addr-check.lib.obj
+root.lib
+root.lib.obj
+sa_proc_true_debug.pdb
+sa_std.lib
+sa_std.lib.obj
+# end scratch list
+
+
+# dist package builder scratch + output
+/dist/
+/.dist_stage/

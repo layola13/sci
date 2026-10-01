@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const test_meta = @import("test_meta.zig");
 const test_result = @import("test_result.zig");
@@ -9,7 +10,42 @@ pub const TestExecutor = struct {
     cwd_dir: std.fs.Dir,
     selection: test_meta.TestSelection,
     trace_panic: bool = false,
+    fn addPluginDirectoriesToPath(allocator: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
+        const plugin_paths = std.process.getEnvVarOwned(allocator, "SA_PLUGINS_PATH") catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => return,
+            else => return err,
+        };
+        defer allocator.free(plugin_paths);
 
+        const separator: u8 = if (builtin.os.tag == .windows) ';' else ':';
+        const path_separator: []const u8 = if (builtin.os.tag == .windows) ";" else ":";
+        var directories = std.ArrayList([]const u8).init(allocator);
+        defer {
+            for (directories.items) |directory| allocator.free(directory);
+            directories.deinit();
+        }
+
+        var iterator = std.mem.splitScalar(u8, plugin_paths, separator);
+        while (iterator.next()) |plugin_path| {
+            if (plugin_path.len == 0) continue;
+            const directory = std.fs.path.dirname(plugin_path) orelse continue;
+            try directories.append(try allocator.dupe(u8, directory));
+        }
+        if (directories.items.len == 0) return;
+
+        const existing_path = env_map.get("PATH") orelse "";
+        var path = std.ArrayList(u8).init(allocator);
+        defer path.deinit();
+        for (directories.items, 0..) |directory, index| {
+            if (index != 0) try path.appendSlice(path_separator);
+            try path.appendSlice(directory);
+        }
+        if (existing_path.len != 0) {
+            try path.appendSlice(path_separator);
+            try path.appendSlice(existing_path);
+        }
+        try env_map.put("PATH", path.items);
+    }
     fn launchFailure(test_case: test_meta.TestDescAndFn, err_name: []const u8) test_result.TestOutcome {
         return .{
             .failed = .{
@@ -38,6 +74,9 @@ pub const TestExecutor = struct {
                 return launchFailure(test_case, @errorName(err));
             };
         }
+        addPluginDirectoriesToPath(self.allocator, &env_map) catch |err| {
+            return launchFailure(test_case, @errorName(err));
+        };
 
         const run_result = std.process.Child.run(.{
             .allocator = self.allocator,

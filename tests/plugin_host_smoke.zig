@@ -1,8 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const saasm = @import("saasm");
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+extern "c" fn _putenv_s(name: [*:0]const u8, value: [*:0]const u8) c_int;
 
 fn elapsedMs(start_ns: i128) i128 {
     return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
@@ -17,10 +19,101 @@ fn endTimedTest(name: []const u8, start_ns: i128) void {
     std.debug.print("[plugin-host-smoke] END   test=\"{s}\" elapsed={}ms\n", .{ name, elapsedMs(start_ns) });
 }
 
+test "default plugin home is absolute on windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    const path = try saasm.plugins.defaultPluginsHome(std.testing.allocator);
+    defer std.testing.allocator.free(path);
+    try std.testing.expect(std.fs.path.isAbsolute(path));
+}
+
 fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
+}
+
+fn targetArtifactKey() []const u8 {
+    return switch (builtin.cpu.arch) {
+        .x86_64 => switch (builtin.os.tag) {
+            .windows => "windows-x86_64",
+            .linux => "linux-x86_64",
+            .macos => "macos-x86_64",
+            else => "linux-x86_64",
+        },
+        .aarch64 => switch (builtin.os.tag) {
+            .windows => "windows-aarch64",
+            .linux => "linux-aarch64",
+            .macos => "macos-aarch64",
+            else => "linux-aarch64",
+        },
+        else => switch (builtin.os.tag) {
+            .windows => "windows-x86_64",
+            .linux => "linux-x86_64",
+            .macos => "macos-x86_64",
+            else => "linux-x86_64",
+        },
+    };
+}
+
+fn dynLibFileNameAlloc(allocator: std.mem.Allocator, library_name: []const u8) ![]u8 {
+    return switch (builtin.os.tag) {
+        .windows => try std.fmt.allocPrint(allocator, "{s}.dll", .{library_name}),
+        .macos => try std.fmt.allocPrint(allocator, "lib{s}.dylib", .{library_name}),
+        else => try std.fmt.allocPrint(allocator, "lib{s}.so", .{library_name}),
+    };
+}
+
+fn dynLibInstallPath(allocator: std.mem.Allocator, library_name: []const u8) ![]u8 {
+    return switch (builtin.os.tag) {
+        .windows => try std.fmt.allocPrint(allocator, "zig-out/bin/{s}.dll", .{library_name}),
+        .macos => try std.fmt.allocPrint(allocator, "zig-out/lib/lib{s}.dylib", .{library_name}),
+        else => try std.fmt.allocPrint(allocator, "zig-out/lib/lib{s}.so", .{library_name}),
+    };
+}
+
+fn jsonStringLiteralAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    try out.append('"');
+    for (text) |c| switch (c) {
+        '"' => try out.appendSlice("\\\""),
+        '\\' => try out.appendSlice("\\\\"),
+        '\n' => try out.appendSlice("\\n"),
+        '\r' => try out.appendSlice("\\r"),
+        '\t' => try out.appendSlice("\\t"),
+        else => try out.append(c),
+    };
+    try out.append('"');
+    return try out.toOwnedSlice();
+}
+
+fn badDynamicLibraryName() []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => "bad.dll",
+        .macos => "bad.dylib",
+        else => "bad.so",
+    };
+}
+
+fn netProbePrelude() []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => "extern \"c\" fn WSAStartup(version: u16, data: ?*anyopaque) i32;\n",
+        else => "extern \"c\" fn connect(fd: i32, address: ?*const anyopaque, address_len: i32) i32;\n",
+    };
+}
+
+fn netProbeBody() []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => "_ = WSAStartup(0x202, null);\n    return 0;",
+        else => "_ = connect(-1, null, 0);\n    return 0;",
+    };
+}
+
+fn netProbeSymbol() []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => "WSAStartup",
+        else => "connect",
+    };
 }
 
 fn writeInstallablePluginProject(
@@ -34,6 +127,7 @@ fn writeInstallablePluginProject(
     source_prelude: []const u8,
     export_body: []const u8,
     link_libc: bool,
+    link_winsock: bool,
 ) !void {
     const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{root});
     defer allocator.free(src_dir);
@@ -41,6 +135,10 @@ fn writeInstallablePluginProject(
 
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{root});
     defer allocator.free(build_path);
+    const winsock_link_line = if (link_winsock)
+        "    if (target.result.os.tag == .windows) lib.root_module.linkSystemLibrary(\"ws2_32\", .{});\n"
+    else
+        "";
     const build_source = if (link_libc)
         try std.fmt.allocPrint(allocator,
             \\const std = @import("std");
@@ -59,10 +157,11 @@ fn writeInstallablePluginProject(
             \\        .root_module = root_module,
             \\        .linkage = .dynamic,
             \\    }});
+            \\{s}
             \\    b.installArtifact(lib);
             \\}}
             \\
-        , .{library_name})
+        , .{ library_name, winsock_link_line })
     else
         try std.fmt.allocPrint(allocator,
             \\const std = @import("std");
@@ -80,10 +179,11 @@ fn writeInstallablePluginProject(
             \\        .root_module = root_module,
             \\        .linkage = .dynamic,
             \\    }});
+            \\{s}
             \\    b.installArtifact(lib);
             \\}}
             \\
-        , .{library_name});
+        , .{ library_name, winsock_link_line });
     defer allocator.free(build_source);
     try writeSource(dir, build_path, build_source);
 
@@ -139,6 +239,9 @@ fn writeInstallablePluginProject(
     defer allocator.free(interface_source);
     try writeSource(dir, interface_path, interface_source);
 
+    const artifact_path = try dynLibInstallPath(allocator, library_name);
+    defer allocator.free(artifact_path);
+
     const manifest_path = try std.fmt.allocPrint(allocator, "{s}/sap.json", .{root});
     defer allocator.free(manifest_path);
     const manifest_source = try std.fmt.allocPrint(allocator,
@@ -147,7 +250,7 @@ fn writeInstallablePluginProject(
         \\  "name": "{s}",
         \\  "version": "0.1.0",
         \\  "artifacts": {{
-        \\    "linux-x86_64": {{ "path": "zig-out/lib/lib{s}.so" }}
+        \\    "{s}": {{ "path": "{s}" }}
         \\  }},
         \\  "interfaces": {{
         \\    "sai": {{ "path": "{s}" }}
@@ -157,7 +260,7 @@ fn writeInstallablePluginProject(
         \\  "dependencies": {{}}
         \\}}
         \\
-    , .{ plugin_name, library_name, interface_name, permissions_json });
+    , .{ plugin_name, targetArtifactKey(), artifact_path, interface_name, permissions_json });
     defer allocator.free(manifest_source);
     try writeSource(dir, manifest_path, manifest_source);
 }
@@ -193,12 +296,25 @@ fn expectSuccess(result: std.process.Child.RunResult) !void {
     }
 }
 
+fn expectInstallCode(expected: u8, actual: u8, output: []const u8) !void {
+    if (actual != expected) std.debug.print("plugin install output:\n{s}\n", .{output});
+    try std.testing.expectEqual(expected, actual);
+}
+
 fn setEnvVarZ(name: [:0]const u8, value: [:0]const u8) !void {
-    if (setenv(name.ptr, value.ptr, 1) != 0) return error.SetEnvFailed;
+    if (builtin.os.tag == .windows) {
+        if (_putenv_s(name.ptr, value.ptr) != 0) return error.SetEnvFailed;
+    } else {
+        if (setenv(name.ptr, value.ptr, 1) != 0) return error.SetEnvFailed;
+    }
 }
 
 fn unsetEnvVarZ(name: [:0]const u8) void {
-    _ = unsetenv(name.ptr);
+    if (builtin.os.tag == .windows) {
+        _ = _putenv_s(name.ptr, "");
+    } else {
+        _ = unsetenv(name.ptr);
+    }
 }
 
 fn saveEnvVarZ(allocator: std.mem.Allocator, name: []const u8) !?[:0]u8 {
@@ -292,7 +408,12 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
         \\
         \\pub export const saasm_plugin_descriptor_v1: PluginDescriptor = descriptor;
     );
-    try writeSource(tmp.dir, "bad.so", "not an elf library");
+    try writeSource(tmp.dir, badDynamicLibraryName(), "not a dynamic library");
+
+    const host_smoke_lib = try dynLibFileNameAlloc(std.testing.allocator, "host_smoke");
+    defer std.testing.allocator.free(host_smoke_lib);
+    const host_smoke_emit = try std.fmt.allocPrint(std.testing.allocator, "-femit-bin={s}", .{host_smoke_lib});
+    defer std.testing.allocator.free(host_smoke_emit);
 
     const build_plugin = try runCommand(std.testing.allocator, &.{
         "zig",
@@ -301,28 +422,30 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
         "-dynamic",
         "-O",
         "Debug",
-        "-femit-bin=libhost_smoke.so",
+        host_smoke_emit,
     });
     defer std.testing.allocator.free(build_plugin.stdout);
     defer std.testing.allocator.free(build_plugin.stderr);
     try expectSuccess(build_plugin);
 
-    try writeSource(tmp.dir, "sap.json",
-        \\{
+    const smoke_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "host-smoke",
         \\  "version": "0.1.0",
-        \\  "artifacts": {
-        \\    "linux-x86_64": { "path": "libhost_smoke.so" }
-        \\  },
-        \\  "interfaces": {},
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}" }}
+        \\  }},
+        \\  "interfaces": {{}},
         \\  "skills": [],
         \\  "help": "usage: sa host-smoke <command> [options]\n\nCommands:\n  help-check    Show manifest-defined help\n",
-        \\  "permissions": {"fs": [], "net": [], "env": [], "process": {"spawn": false, "exec": []}},
-        \\  "dependencies": {}
-        \\}
+        \\  "permissions": {{"fs": [], "net": [], "env": [], "process": {{"spawn": false, "exec": []}}}},
+        \\  "dependencies": {{}}
+        \\}}
         \\
-    );
+    , .{ targetArtifactKey(), host_smoke_lib });
+    defer std.testing.allocator.free(smoke_manifest);
+    try writeSource(tmp.dir, "sap.json", smoke_manifest);
 
     var runtime = try saasm.plugins.Runtime.initFromPathList(std.testing.allocator, ".");
     defer runtime.deinit();
@@ -479,6 +602,11 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
         \\
     );
 
+    const hashed_lib = try dynLibFileNameAlloc(std.testing.allocator, "hashed_plugin");
+    defer std.testing.allocator.free(hashed_lib);
+    const hashed_emit = try std.fmt.allocPrint(std.testing.allocator, "-femit-bin={s}", .{hashed_lib});
+    defer std.testing.allocator.free(hashed_emit);
+
     const build_plugin = try runCommand(std.testing.allocator, &.{
         "zig",
         "build-lib",
@@ -486,13 +614,13 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
         "-dynamic",
         "-O",
         "Debug",
-        "-femit-bin=libhashed_plugin.so",
+        hashed_emit,
     });
     defer std.testing.allocator.free(build_plugin.stdout);
     defer std.testing.allocator.free(build_plugin.stderr);
     try expectSuccess(build_plugin);
 
-    const digest_hex = try sha256HexFileAlloc(std.testing.allocator, "libhashed_plugin.so");
+    const digest_hex = try sha256HexFileAlloc(std.testing.allocator, hashed_lib);
     defer std.testing.allocator.free(digest_hex);
     const manifest = try std.fmt.allocPrint(std.testing.allocator,
         \\{{
@@ -500,7 +628,7 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
         \\  "name": "hashed-plugin",
         \\  "version": "0.1.0",
         \\  "artifacts": {{
-        \\    "linux-x86_64": {{ "path": "libhashed_plugin.so", "sha256": "{s}" }}
+        \\    "{s}": {{ "path": "{s}", "sha256": "{s}" }}
         \\  }},
         \\  "interfaces": {{}},
         \\  "skills": [],
@@ -508,7 +636,7 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
         \\  "dependencies": {{}}
         \\}}
         \\
-    , .{digest_hex});
+    , .{ targetArtifactKey(), hashed_lib, digest_hex });
     defer std.testing.allocator.free(manifest);
     try writeSource(tmp.dir, "sap.json", manifest);
 
@@ -517,21 +645,22 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
     try std.testing.expectEqual(@as(usize, 1), runtime.plugins.items.len);
     try std.testing.expectEqualStrings("hashed-plugin", std.mem.span(runtime.plugins.items[0].descriptor.name));
 
-    const bad_manifest =
-        \\{
+    const bad_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "hashed-plugin",
         \\  "version": "0.1.0",
-        \\  "artifacts": {
-        \\    "linux-x86_64": { "path": "libhashed_plugin.so", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
-        \\  },
-        \\  "interfaces": {},
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }}
+        \\  }},
+        \\  "interfaces": {{}},
         \\  "skills": [],
-        \\  "permissions": {"fs": [], "net": [], "env": [], "process": {"spawn": false, "exec": []}},
-        \\  "dependencies": {}
-        \\}
+        \\  "permissions": {{"fs": [], "net": [], "env": [], "process": {{"spawn": false, "exec": []}}}},
+        \\  "dependencies": {{}}
+        \\}}
         \\
-    ;
+    , .{ targetArtifactKey(), hashed_lib });
+    defer std.testing.allocator.free(bad_manifest);
     try writeSource(tmp.dir, "sap.json", bad_manifest);
 
     var rejected_runtime = try saasm.plugins.Runtime.initFromPathList(std.testing.allocator, ".");
@@ -549,6 +678,7 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
 test "native build and test link installed plugin exporting referenced extern" {
     const test_start = startTimedTest("native build and test link installed plugin exporting referenced extern");
     defer endTimedTest("native build and test link installed plugin exporting referenced extern", test_start);
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var original_cwd = try std.fs.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -779,50 +909,58 @@ test "plugin installer rejects raw libraries and installs source project in dev 
         \\@extern sa_smoke_probe() -> u32
         \\
     );
-    try writeSource(tmp.dir, "plugin/sap.json",
-        \\{
+    const smoke_artifact = try dynLibInstallPath(std.testing.allocator, "smoke");
+    defer std.testing.allocator.free(smoke_artifact);
+    const smoke_filename = std.fs.path.basename(smoke_artifact);
+    const smoke_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "smoke",
         \\  "version": "0.1.0",
-        \\  "artifacts": {
-        \\    "linux-x86_64": { "path": "zig-out/lib/libsmoke.so" }
-        \\  },
-        \\  "interfaces": {
-        \\    "sai": { "path": "smoke.sai" }
-        \\  },
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}" }}
+        \\  }},
+        \\  "interfaces": {{
+        \\    "sai": {{ "path": "smoke.sai" }}
+        \\  }},
         \\  "skills": [],
-        \\  "permissions": {
+        \\  "permissions": {{
         \\    "fs": [],
         \\    "net": [
-        \\      { "url": "http://127.0.0.1:18094/allowed", "methods": ["GET"] }
+        \\      {{ "url": "http://127.0.0.1:18094/allowed", "methods": ["GET"] }}
         \\    ],
         \\    "env": [],
-        \\    "process": { "spawn": false, "exec": [] }
-        \\  },
-        \\  "dependencies": {}
-        \\}
+        \\    "process": {{ "spawn": false, "exec": [] }}
+        \\  }},
+        \\  "dependencies": {{}}
+        \\}}
         \\
-    );
-    try writeSource(tmp.dir, "plugin/bad_net.sap.json",
-        \\{
+    , .{ targetArtifactKey(), smoke_artifact });
+    defer std.testing.allocator.free(smoke_manifest);
+    try writeSource(tmp.dir, "plugin/sap.json", smoke_manifest);
+
+    const bad_net_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "bad-net",
         \\  "version": "0.1.0",
-        \\  "artifacts": {
-        \\    "linux-x86_64": { "path": "zig-out/lib/libsmoke.so" }
-        \\  },
-        \\  "interfaces": {},
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}" }}
+        \\  }},
+        \\  "interfaces": {{}},
         \\  "skills": [],
-        \\  "permissions": {
+        \\  "permissions": {{
         \\    "fs": [],
-        \\    "net": [{ "url": "http://localhost.evil.example", "methods": ["POST"] }],
+        \\    "net": [{{ "url": "http://localhost.evil.example", "methods": ["POST"] }}],
         \\    "env": [],
-        \\    "process": { "spawn": false, "exec": [] }
-        \\  },
-        \\  "dependencies": {}
-        \\}
+        \\    "process": {{ "spawn": false, "exec": [] }}
+        \\  }},
+        \\  "dependencies": {{}}
+        \\}}
         \\
-    );
+    , .{ targetArtifactKey(), smoke_artifact });
+    defer std.testing.allocator.free(bad_net_manifest);
+    try writeSource(tmp.dir, "plugin/bad_net.sap.json", bad_net_manifest);
 
     const env_name: [:0]const u8 = "SA_PLUGINS_HOME";
     const saved_env = try saveEnvVarZ(std.testing.allocator, env_name);
@@ -839,7 +977,9 @@ test "plugin installer rejects raw libraries and installs source project in dev 
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const raw_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin/zig-out/lib/libsmoke.so", output.writer(), .{ .dev = true });
+    const raw_artifact_path = try std.fs.path.join(std.testing.allocator, &.{ "plugin", smoke_artifact });
+    defer std.testing.allocator.free(raw_artifact_path);
+    const raw_code = try saasm.plugins.installFromPath(std.testing.allocator, raw_artifact_path, output.writer(), .{ .dev = true });
     try std.testing.expectEqual(@as(u8, 1), raw_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "refusing to install a raw dynamic library"));
 
@@ -850,14 +990,18 @@ test "plugin installer rejects raw libraries and installs source project in dev 
     );
 
     output.clearRetainingCapacity();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin", output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), install_code);
-    try tmp.dir.access("state/installed/smoke/current/libsmoke.so", .{ .mode = .read_only });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, install_code, output.items);
+    const installed_smoke = try std.fs.path.join(std.testing.allocator, &.{ "state/installed/smoke/current", smoke_filename });
+    defer std.testing.allocator.free(installed_smoke);
+    const version_smoke = try std.fs.path.join(std.testing.allocator, &.{ "state/installed/smoke/0.1.0", smoke_filename });
+    defer std.testing.allocator.free(version_smoke);
+    try tmp.dir.access(installed_smoke, .{ .mode = .read_only });
     try tmp.dir.access("state/installed/smoke/current/sap.json", .{ .mode = .read_only });
     try tmp.dir.access("state/installed/smoke/current/sap.lock", .{ .mode = .read_only });
     try tmp.dir.access("state/installed/smoke/current/permissions.lock", .{ .mode = .read_only });
     try tmp.dir.access("state/installed/smoke/current/sa/smoke.sai", .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/smoke/0.1.0/libsmoke.so", .{ .mode = .read_only });
+    try tmp.dir.access(version_smoke, .{ .mode = .read_only });
 }
 
 test "plugin installer rejects undeclared network imports in artifact scan" {
@@ -879,8 +1023,9 @@ test "plugin installer rejects undeclared network imports in artifact scan" {
         "scan",
         "sa_scan_probe",
         "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}",
-        "extern \"c\" fn connect(fd: i32, address: ?*const anyopaque, address_len: i32) i32;\n",
-        "_ = connect(-1, null, 0);\n    return 0;",
+        netProbePrelude(),
+        netProbeBody(),
+        true,
         true,
     );
 
@@ -898,10 +1043,10 @@ test "plugin installer rejects undeclared network imports in artifact scan" {
 
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "scan", output.writer(), .{ .dev = true });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "scan", output.writer(), .{ .dev = true, .optimize = "Debug" });
     try std.testing.expectEqual(@as(u8, 1), install_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "without declared net permission"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "connect"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, netProbeSymbol()));
 }
 
 test "plugin installer rejects duplicate extern symbols across installed plugins" {
@@ -926,6 +1071,7 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
         "",
         "return 0;",
         false,
+        false,
     );
     try writeInstallablePluginProject(
         std.testing.allocator,
@@ -937,6 +1083,7 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
         "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}",
         "",
         "return 0;",
+        false,
         false,
     );
 
@@ -955,11 +1102,11 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const first_code = try saasm.plugins.installFromPath(std.testing.allocator, "alpha", output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), first_code);
+    const first_code = try saasm.plugins.installFromPath(std.testing.allocator, "alpha", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, first_code, output.items);
 
     output.clearRetainingCapacity();
-    const second_code = try saasm.plugins.installFromPath(std.testing.allocator, "beta", output.writer(), .{ .dev = true });
+    const second_code = try saasm.plugins.installFromPath(std.testing.allocator, "beta", output.writer(), .{ .dev = true, .optimize = "Debug" });
     try std.testing.expectEqual(@as(u8, 1), second_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "plugin extern symbol conflict"));
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "sa_duplicate_probe"));
@@ -998,6 +1145,7 @@ test "plugin installer reports duplicate extern symbols inside installed plugin"
         "",
         "return 0;",
         false,
+        false,
     );
 
     const env_name: [:0]const u8 = "SA_PLUGINS_HOME";
@@ -1015,7 +1163,7 @@ test "plugin installer reports duplicate extern symbols inside installed plugin"
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "probe", output.writer(), .{ .dev = true });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "probe", output.writer(), .{ .dev = true, .optimize = "Debug" });
     try std.testing.expectEqual(@as(u8, 1), install_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "installed plugin duplicate extern symbol"));
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "sa_bad_dup"));
@@ -1043,6 +1191,7 @@ test "sa skills hides plugin capabilities until optional dependency is installed
         "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}",
         "",
         "return 0;",
+        false,
         false,
     );
 
@@ -1109,37 +1258,41 @@ test "sa skills hides plugin capabilities until optional dependency is installed
         \\@extern sa_opt_probe() -> u32
         \\
     );
-    try writeSource(tmp.dir, "opt/sap.json",
-        \\{
+    const opt_artifact = try dynLibInstallPath(std.testing.allocator, "opt");
+    defer std.testing.allocator.free(opt_artifact);
+    const opt_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "opt",
         \\  "version": "0.1.0",
-        \\  "artifacts": {
-        \\    "linux-x86_64": { "path": "zig-out/lib/libopt.so" }
-        \\  },
-        \\  "interfaces": {
-        \\    "sai": { "path": "opt.sai" }
-        \\  },
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}" }}
+        \\  }},
+        \\  "interfaces": {{
+        \\    "sai": {{ "path": "opt.sai" }}
+        \\  }},
         \\  "skills": ["optional.cap"],
-        \\  "permissions": {
+        \\  "permissions": {{
         \\    "fs": [],
         \\    "net": [
-        \\      { "url": "http://127.0.0.1:18094/allowed", "methods": ["GET"] }
+        \\      {{ "url": "http://127.0.0.1:18094/allowed", "methods": ["GET"] }}
         \\    ],
         \\    "env": [],
-        \\    "process": { "spawn": false, "exec": [] }
-        \\  },
-        \\  "dependencies": {
-        \\    "dep": {
+        \\    "process": {{ "spawn": false, "exec": [] }}
+        \\  }},
+        \\  "dependencies": {{
+        \\    "dep": {{
         \\      "version": "*",
         \\      "abi": 1,
         \\      "optional": true,
         \\      "symbols": ["sa_optional_dep_probe"]
-        \\    }
-        \\  }
-        \\}
+        \\    }}
+        \\  }}
+        \\}}
         \\
-    );
+    , .{ targetArtifactKey(), opt_artifact });
+    defer std.testing.allocator.free(opt_manifest);
+    try writeSource(tmp.dir, "opt/sap.json", opt_manifest);
 
     const env_name: [:0]const u8 = "SA_PLUGINS_HOME";
     const saved_env = try saveEnvVarZ(std.testing.allocator, env_name);
@@ -1168,8 +1321,8 @@ test "sa skills hides plugin capabilities until optional dependency is installed
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const opt_code = try saasm.plugins.installFromPath(std.testing.allocator, "opt", output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), opt_code);
+    const opt_code = try saasm.plugins.installFromPath(std.testing.allocator, "opt", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, opt_code, output.items);
 
     var skills_stdout = std.ArrayList(u8).init(std.testing.allocator);
     defer skills_stdout.deinit();
@@ -1186,8 +1339,8 @@ test "sa skills hides plugin capabilities until optional dependency is installed
     try std.testing.expect(!std.mem.containsAtLeast(u8, skills_stdout.items, 1, "optional.cap"));
 
     output.clearRetainingCapacity();
-    const dep_code = try saasm.plugins.installFromPath(std.testing.allocator, "dep", output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), dep_code);
+    const dep_code = try saasm.plugins.installFromPath(std.testing.allocator, "dep", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, dep_code, output.items);
 
     skills_stdout.clearRetainingCapacity();
     skills_stderr.clearRetainingCapacity();
@@ -1223,6 +1376,7 @@ test "plugin installer installs remote archive source with sha256 pin" {
         "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}",
         "",
         "return 0;",
+        false,
         false,
     );
 
@@ -1306,11 +1460,15 @@ test "plugin installer installs remote archive source with sha256 pin" {
 
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, install_spec, output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), install_code);
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, install_spec, output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, install_code, output.items);
     server_thread.join();
 
-    try tmp.dir.access("state/installed/archive/current/libarchive.so", .{ .mode = .read_only });
+    const archive_artifact = try dynLibInstallPath(std.testing.allocator, "archive");
+    defer std.testing.allocator.free(archive_artifact);
+    const archive_installed = try std.fs.path.join(std.testing.allocator, &.{ "state/installed/archive/current", std.fs.path.basename(archive_artifact) });
+    defer std.testing.allocator.free(archive_installed);
+    try tmp.dir.access(archive_installed, .{ .mode = .read_only });
     try tmp.dir.access("state/installed/archive/current/sap.json", .{ .mode = .read_only });
     try tmp.dir.access("state/installed/archive/current/sa/archive.sai", .{ .mode = .read_only });
 }
@@ -1336,6 +1494,7 @@ test "runtime blocks privileged installed plugins outside dev mode" {
         "{\"fs\": [], \"net\": [], \"env\": [\"HOME\"], \"process\": {\"spawn\": false, \"exec\": []}}",
         "",
         "return 0;",
+        false,
         false,
     );
 
@@ -1365,8 +1524,8 @@ test "runtime blocks privileged installed plugins outside dev mode" {
 
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "priv", output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), install_code);
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "priv", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, install_code, output.items);
 
     var runtime = try saasm.plugins.Runtime.initFromEnv(std.testing.allocator);
     defer runtime.deinit();
@@ -1538,27 +1697,31 @@ test "runtime broker env_get enforces declared env permissions" {
         \\};
         \\
     );
-    try writeSource(tmp.dir, "broker/sap.json",
-        \\{
+    const broker_env_artifact = try dynLibInstallPath(std.testing.allocator, "broker_env");
+    defer std.testing.allocator.free(broker_env_artifact);
+    const broker_env_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "broker-env",
         \\  "version": "0.1.0",
-        \\  "artifacts": {
-        \\    "linux-x86_64": { "path": "zig-out/lib/libbroker_env.so" }
-        \\  },
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}" }}
+        \\  }},
         \\  "skills": [],
-        \\  "permissions": {
+        \\  "permissions": {{
         \\    "fs": [],
         \\    "net": [
-        \\      { "url": "http://127.0.0.1:18094/allowed", "methods": ["GET"] }
+        \\      {{ "url": "http://127.0.0.1:18094/allowed", "methods": ["GET"] }}
         \\    ],
         \\    "env": ["SA_BROKER_*"],
-        \\    "process": { "spawn": false, "exec": [] }
-        \\  },
-        \\  "dependencies": {}
-        \\}
+        \\    "process": {{ "spawn": false, "exec": [] }}
+        \\  }},
+        \\  "dependencies": {{}}
+        \\}}
         \\
-    );
+    , .{ targetArtifactKey(), broker_env_artifact });
+    defer std.testing.allocator.free(broker_env_manifest);
+    try writeSource(tmp.dir, "broker/sap.json", broker_env_manifest);
 
     const home_name: [:0]const u8 = "SA_PLUGINS_HOME";
     const saved_home = try saveEnvVarZ(std.testing.allocator, home_name);
@@ -1599,8 +1762,8 @@ test "runtime broker env_get enforces declared env permissions" {
 
     var install_output = std.ArrayList(u8).init(std.testing.allocator);
     defer install_output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker", install_output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), install_code);
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker", install_output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, install_code, install_output.items);
 
     var runtime = try saasm.plugins.Runtime.initFromEnv(std.testing.allocator);
     defer runtime.deinit();
@@ -1663,16 +1826,31 @@ test "cli allow flags constrain broker env and fs access" {
     try tmp.dir.makePath("tools");
     try writeSource(tmp.dir, "data/allowed.txt", "payload");
     try writeSource(tmp.dir, "secret/blocked.txt", "blocked");
-    var runner_file = try tmp.dir.createFile("tools/runner.sh", .{ .truncate = true });
-    try runner_file.writeAll(
-        \\#!/bin/sh
-        \\printf "%s" "$1"
-        \\
-    );
-    try runner_file.chmod(0o755);
+    const runner_rel = if (builtin.os.tag == .windows) "tools/runner.cmd" else "tools/runner.sh";
+    var runner_file = try tmp.dir.createFile(runner_rel, .{ .truncate = true });
+    if (builtin.os.tag == .windows) {
+        try runner_file.writeAll(
+            \\@echo off
+            \\<nul set /p runner_output=%1
+            \\exit /b 0
+            \\
+        );
+    } else {
+        try runner_file.writeAll(
+            \\#!/bin/sh
+            \\printf "%s" "$1"
+            \\
+        );
+        try runner_file.chmod(0o755);
+    }
     runner_file.close();
-    const runner_abs = try std.fs.cwd().realpathAlloc(std.testing.allocator, "tools/runner.sh");
+    const runner_abs = try std.fs.cwd().realpathAlloc(std.testing.allocator, runner_rel);
     defer std.testing.allocator.free(runner_abs);
+    const runner_exec_abs = if (builtin.os.tag == .windows)
+        try std.fs.cwd().realpathAlloc(std.testing.allocator, "C:\\Windows\\System32\\cmd.exe")
+    else
+        try std.testing.allocator.dupe(u8, runner_abs);
+    defer std.testing.allocator.free(runner_exec_abs);
 
     try writeSource(tmp.dir, "broker_cli/build.zig",
         \\const std = @import("std");
@@ -2007,13 +2185,21 @@ test "cli allow flags constrain broker env and fs access" {
         \\};
         \\
     );
+    const broker_cli_artifact = try dynLibInstallPath(std.testing.allocator, "broker_cli");
+    defer std.testing.allocator.free(broker_cli_artifact);
+    const runner_json = try jsonStringLiteralAlloc(std.testing.allocator, runner_exec_abs);
+    defer std.testing.allocator.free(runner_json);
+    const runner_permission_args = if (builtin.os.tag == .windows)
+        "\"*\", \"*\", \"run-ok\""
+    else
+        "\"run-ok\"";
     const plugin_manifest = try std.fmt.allocPrint(std.testing.allocator,
         \\{{
         \\  "schema": "sa.plugin/1",
         \\  "name": "broker-cli",
         \\  "version": "0.1.0",
         \\  "artifacts": {{
-        \\    "linux-x86_64": {{ "path": "zig-out/lib/libbroker_cli.so" }}
+        \\    "{s}": {{ "path": "{s}" }}
         \\  }},
         \\  "skills": [],
         \\  "permissions": {{
@@ -2028,14 +2214,14 @@ test "cli allow flags constrain broker env and fs access" {
         \\    "process": {{
         \\      "spawn": true,
         \\      "exec": [
-        \\        {{ "path": "{s}", "args": ["run-ok"] }}
+        \\        {{ "path": {s}, "args": [{s}] }}
         \\      ]
         \\    }}
         \\  }},
         \\  "dependencies": {{}}
         \\}}
         \\
-    , .{runner_abs});
+    , .{ targetArtifactKey(), broker_cli_artifact, runner_json, runner_permission_args });
     defer std.testing.allocator.free(plugin_manifest);
     try writeSource(tmp.dir, "broker_cli/sap.json", plugin_manifest);
 
@@ -2077,8 +2263,8 @@ test "cli allow flags constrain broker env and fs access" {
 
     var install_output = std.ArrayList(u8).init(std.testing.allocator);
     defer install_output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker_cli", install_output.writer(), .{ .dev = true });
-    try std.testing.expectEqual(@as(u8, 0), install_code);
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker_cli", install_output.writer(), .{ .dev = true, .optimize = "Debug" });
+    try expectInstallCode(0, install_code, install_output.items);
 
     const sa_mod_source = try std.fmt.allocPrint(std.testing.allocator,
         \\permission_set dev {{
@@ -2089,7 +2275,7 @@ test "cli allow flags constrain broker env and fs access" {
         \\  run [{s}]
         \\}}
         \\
-    , .{runner_abs});
+    , .{runner_exec_abs});
     defer std.testing.allocator.free(sa_mod_source);
     try writeSource(tmp.dir, "sa.mod", sa_mod_source);
 
@@ -2264,17 +2450,34 @@ test "cli allow flags constrain broker env and fs access" {
     try std.testing.expectEqualStrings("net-ok\n", stdout_buffer.items);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 
-    const allow_run_flag = try std.fmt.allocPrint(std.testing.allocator, "--allow-run={s}", .{runner_abs});
+    const allow_run_flag = try std.fmt.allocPrint(std.testing.allocator, "--allow-run={s}", .{runner_exec_abs});
     defer std.testing.allocator.free(allow_run_flag);
+    const run_ok_args: []const []const u8 = if (builtin.os.tag == .windows)
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "/c", runner_abs, "run-ok", allow_run_flag }
+    else
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "run-ok", allow_run_flag };
+    const run_wrong_args: []const []const u8 = if (builtin.os.tag == .windows)
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "/c", runner_abs, "wrong", allow_run_flag }
+    else
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "wrong", allow_run_flag };
+    const run_denied_host_args: []const []const u8 = if (builtin.os.tag == .windows)
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "/c", runner_abs, "run-ok", "--allow-run=C:/Windows/System32/not-cmd.exe" }
+    else
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "run-ok", "--allow-run=/bin/sh" };
+    const run_permission_set_args: []const []const u8 = if (builtin.os.tag == .windows)
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "/c", runner_abs, "run-ok", "-P=dev" }
+    else
+        &.{ "sa", "broker-run-cli", runner_exec_abs, "run-ok", "-P=dev" };
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
     const run_ok = try saasm.cli.executeWithWriters(
         std.testing.allocator,
-        &.{ "sa", "broker-run-cli", runner_abs, "run-ok", allow_run_flag },
+        run_ok_args,
         stdout_buffer.writer(),
         stderr_buffer.writer(),
     );
+    if (run_ok != 0) std.debug.print("run_ok stdout={s} stderr={s}\n", .{ stdout_buffer.items, stderr_buffer.items });
     try std.testing.expectEqual(@as(u8, 0), run_ok);
     try std.testing.expectEqualStrings("run-ok\n", stdout_buffer.items);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -2283,7 +2486,7 @@ test "cli allow flags constrain broker env and fs access" {
     stderr_buffer.clearRetainingCapacity();
     const run_denied_arg = try saasm.cli.executeWithWriters(
         std.testing.allocator,
-        &.{ "sa", "broker-run-cli", runner_abs, "wrong", allow_run_flag },
+        run_wrong_args,
         stdout_buffer.writer(),
         stderr_buffer.writer(),
     );
@@ -2295,7 +2498,7 @@ test "cli allow flags constrain broker env and fs access" {
     stderr_buffer.clearRetainingCapacity();
     const run_denied_host = try saasm.cli.executeWithWriters(
         std.testing.allocator,
-        &.{ "sa", "broker-run-cli", runner_abs, "run-ok", "--allow-run=/bin/sh" },
+        run_denied_host_args,
         stdout_buffer.writer(),
         stderr_buffer.writer(),
     );
@@ -2307,7 +2510,7 @@ test "cli allow flags constrain broker env and fs access" {
     stderr_buffer.clearRetainingCapacity();
     const run_ok_permission_set = try saasm.cli.executeWithWriters(
         std.testing.allocator,
-        &.{ "sa", "broker-run-cli", runner_abs, "run-ok", "-P=dev" },
+        run_permission_set_args,
         stdout_buffer.writer(),
         stderr_buffer.writer(),
     );

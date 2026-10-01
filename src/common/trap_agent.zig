@@ -70,6 +70,7 @@ pub fn allTraps() []const Trap {
         .missing_tty_for_confirmation,
         .forbidden_global_config,
         .sum_hash_mismatch,
+        .corrupted_signature,
     };
 }
 
@@ -132,6 +133,7 @@ pub fn trapStableCode(t: Trap) []const u8 {
         .missing_tty_for_confirmation => "SA-SYS-003",
         .forbidden_global_config => "SA-SYS-004",
         .sum_hash_mismatch => "SA-SYS-005",
+        .corrupted_signature => "SA-VER-001",
     };
 }
 
@@ -194,6 +196,7 @@ pub fn explainTrap(t: Trap) TrapExplanation {
         .missing_tty_for_confirmation => .{ .stable_code = "SA-SYS-003", .summary = "A system/CLI-level guard refused the operation.", .fix_hint = "Resolve the environment/config/confirmation precondition." },
         .forbidden_global_config => .{ .stable_code = "SA-SYS-004", .summary = "A system/CLI-level guard refused the operation.", .fix_hint = "Resolve the environment/config/confirmation precondition." },
         .sum_hash_mismatch => .{ .stable_code = "SA-SYS-005", .summary = "A system/CLI-level guard refused the operation.", .fix_hint = "Resolve the environment/config/confirmation precondition." },
+        .corrupted_signature => .{ .stable_code = "SA-VER-001", .summary = "The verifier found a function signature whose parameter bindings do not match the function's register scope.", .fix_hint = "Rebuild the module from source; the artifact is corrupted or was produced by an incompatible toolchain." },
     };
 }
 
@@ -212,10 +215,10 @@ pub fn trapFromNumericCode(code: u32) ?Trap {
     return null;
 }
 
-test "all 57 traps have unique stable codes and resolve three ways" {
+test "all 58 traps have unique stable codes and resolve three ways" {
     var seen = std.AutoHashMap([]const u8, void).init(std.testing.allocator);
     defer seen.deinit();
-    try std.testing.expectEqual(@as(usize, 57), allTraps().len);
+    try std.testing.expectEqual(@as(usize, 58), allTraps().len);
     for (allTraps()) |t| {
         const sc = trapStableCode(t);
         try std.testing.expect(!seen.contains(sc));

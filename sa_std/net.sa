@@ -1,7 +1,16 @@
 @import "net.sal"
 @import "net.sai"
 @import "hash.sa"
+@import "io.sal"
 @import "os/fd.sa"
+
+[MACRO] NET_LAST_ERROR %out_error
+    %out_error = call @sa_std_last_error()
+[END_MACRO]
+
+[MACRO] NET_HOSTNAME %out_status, %out_ptr, %out_cap, %out_len
+    %out_status = call @sa_std_net_hostname(%out_ptr, %out_cap, %out_len)
+[END_MACRO]
 
 [MACRO] NET_TCP_CONNECT %out_status, %out_stream, %host, %host_len, %port
     __net_tcp_connect_handle_%out_status = stack_alloc 8
@@ -40,6 +49,15 @@
     %out_status = call @sa_std_net_tcp_listener_set_nonblocking(%listener, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_LISTENER_SET_ONLY_V6 %out_status, %listener, %enabled
+    %out_status = call @sa_std_net_tcp_listener_set_only_v6(%listener, %enabled)
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_ONLY_V6 %out_status, %out_enabled, %listener
+    __net_tcp_listener_only_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_listener_only_v6(%listener, &__net_tcp_listener_only_v6_%out_status)
+    %out_enabled = load __net_tcp_listener_only_v6_%out_status+0 as i32
+[END_MACRO]
 [MACRO] NET_TCP_LISTENER_SET_TTL %out_status, %listener, %ttl
     %out_status = call @sa_std_net_tcp_listener_set_ttl(%listener, %ttl)
 [END_MACRO]
@@ -131,10 +149,28 @@
     %out_len = load __net_tcp_write_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_READ_VECTORED %out_status, %out_len, %stream, %iovs, %iov_count
+    __net_tcp_read_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_read_vectored(%stream, &%iovs, %iov_count, &__net_tcp_read_vec_len_%out_status)
+    %out_len = load __net_tcp_read_vec_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_WRITE_VECTORED %out_status, %out_len, %stream, %iovs, %iov_count
+    __net_tcp_write_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_write_vectored(%stream, &%iovs, %iov_count, &__net_tcp_write_vec_len_%out_status)
+    %out_len = load __net_tcp_write_vec_len_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_WRITE_ALL %out_status, %stream, %buf, %len
     __net_tcp_write_all_%out_status = call @sa_net_tcp_stream_write_all(%stream, &%buf, %len)
     %out_status = load __net_tcp_write_all_%out_status+0 as i32
     !__net_tcp_write_all_%out_status
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_READ_EXACT %out_status, %stream, %buf, %len
+    __net_tcp_read_exact_%out_status = call @sa_net_tcp_stream_read_exact(%stream, &%buf, %len)
+    %out_status = load __net_tcp_read_exact_%out_status+0 as i32
+    !__net_tcp_read_exact_%out_status
 [END_MACRO]
 
 [MACRO] NET_TCP_STREAM_FLUSH %out_status, %stream
@@ -171,10 +207,32 @@
     %out_status = call @sa_std_net_tcp_stream_set_write_timeout(%stream, %timeout_ns)
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_TRY_CLONE %out_status, %out_stream, %stream
+    __net_tcp_stream_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_try_clone(%stream, &__net_tcp_stream_clone_%out_status)
+    %out_stream = load __net_tcp_stream_clone_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_TRY_CLONE %out_status, %out_listener, %listener
+    __net_tcp_listener_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_listener_try_clone(%listener, &__net_tcp_listener_clone_%out_status)
+    %out_listener = load __net_tcp_listener_clone_%out_status+0 as u64
+[END_MACRO]
 [MACRO] NET_TCP_STREAM_SET_NONBLOCKING %out_status, %stream, %enabled
     %out_status = call @sa_std_net_tcp_stream_set_nonblocking(%stream, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_STREAM_SET_LINGER %out_status, %stream, %enabled, %timeout_ns
+    %out_status = call @sa_std_net_tcp_stream_set_linger(%stream, %enabled, %timeout_ns)
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_LINGER %out_status, %out_enabled, %out_timeout_ns, %stream
+    __net_tcp_linger_enabled_%out_status = stack_alloc 4
+    __net_tcp_linger_timeout_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_stream_linger(%stream, &__net_tcp_linger_enabled_%out_status, &__net_tcp_linger_timeout_%out_status)
+    %out_enabled = load __net_tcp_linger_enabled_%out_status+0 as i32
+    %out_timeout_ns = load __net_tcp_linger_timeout_%out_status+0 as u64
+[END_MACRO]
 [MACRO] NET_TCP_STREAM_SET_NODELAY %out_status, %stream, %enabled
     %out_status = call @sa_std_net_tcp_stream_set_nodelay(%stream, %enabled)
 [END_MACRO]
@@ -269,8 +327,40 @@
     %out_status = call @sa_std_net_tcp_stream_set_keepalive(%stream, %enabled)
 [END_MACRO]
 
+[MACRO] NET_TCP_LISTENER_ACCEPT_ADDR %out_status, %out_stream, %out_addr, %listener
+    __net_tcp_accept_addr_stream_%out_status = stack_alloc 8
+    __net_tcp_accept_addr_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_accept_addr(%listener, &__net_tcp_accept_addr_stream_%out_status, &__net_tcp_accept_addr_addr_%out_status)
+    %out_stream = load __net_tcp_accept_addr_stream_%out_status+0 as u64
+    %out_addr = load __net_tcp_accept_addr_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_KEEPALIVE %out_status, %out_enabled, %stream
+    __net_tcp_keepalive_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_keepalive(%stream, &__net_tcp_keepalive_%out_status)
+    %out_enabled = load __net_tcp_keepalive_%out_status+0 as i32
+[END_MACRO]
+
 [MACRO] NET_TCP_STREAM_SET_KEEPALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
     %out_status = call @sa_std_net_tcp_stream_set_keepalive_params(%stream, %idle_secs, %intvl_secs, %cnt)
+[END_MACRO]
+
+
+[MACRO] NET_TCP_STREAM_SET_RECV_BUFFER_SIZE %out_status, %stream, %size
+    %out_status = call @sa_std_net_tcp_stream_set_recv_buffer_size(%stream, %size)
+[END_MACRO]
+[MACRO] NET_TCP_STREAM_RECV_BUFFER_SIZE %out_status, %out_size, %stream
+    __net_tcp_stream_recv_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_recv_buffer_size(%stream, &__net_tcp_stream_recv_buffer_size_%out_status)
+    %out_size = load __net_tcp_stream_recv_buffer_size_%out_status+0 as u32
+[END_MACRO]
+[MACRO] NET_TCP_STREAM_SET_SEND_BUFFER_SIZE %out_status, %stream, %size
+    %out_status = call @sa_std_net_tcp_stream_set_send_buffer_size(%stream, %size)
+[END_MACRO]
+[MACRO] NET_TCP_STREAM_SEND_BUFFER_SIZE %out_status, %out_size, %stream
+    __net_tcp_stream_send_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_tcp_stream_send_buffer_size(%stream, &__net_tcp_stream_send_buffer_size_%out_status)
+    %out_size = load __net_tcp_stream_send_buffer_size_%out_status+0 as u32
 [END_MACRO]
 
 [MACRO] NET_TCP_LISTENER_SET_REUSEADDR %out_status, %listener, %enabled
@@ -816,8 +906,17 @@
     %out_addr = load __net_udp_peer_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UDP_TRY_CLONE %out_status, %out_socket, %socket
+    __net_udp_clone_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_try_clone(%socket, &__net_udp_clone_%out_status)
+    %out_socket = load __net_udp_clone_%out_status+0 as u64
+[END_MACRO]
 [MACRO] NET_UDP_CONNECT %out_status, %socket, %host, %host_len, %port
     %out_status = call @sa_std_net_udp_connect(%socket, &%host, %host_len, %port)
+[END_MACRO]
+
+[MACRO] NET_UDP_CONNECT_ADDR %out_status, %socket, %addr
+    %out_status = call @sa_std_net_udp_connect_addr(%socket, %addr)
 [END_MACRO]
 
 [MACRO] NET_UDP_SET_READ_TIMEOUT %out_status, %socket, %timeout_ns
@@ -836,6 +935,33 @@
     %out_status = call @sa_std_net_udp_set_broadcast(%socket, %enabled)
 [END_MACRO]
 
+
+[MACRO] NET_UDP_SET_RECV_BUFFER_SIZE %out_status, %socket, %size
+    %out_status = call @sa_std_net_udp_set_recv_buffer_size(%socket, %size)
+[END_MACRO]
+[MACRO] NET_UDP_RECV_BUFFER_SIZE %out_status, %out_size, %socket
+    __net_udp_recv_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_recv_buffer_size(%socket, &__net_udp_recv_buffer_size_%out_status)
+    %out_size = load __net_udp_recv_buffer_size_%out_status+0 as u32
+[END_MACRO]
+[MACRO] NET_UDP_SET_SEND_BUFFER_SIZE %out_status, %socket, %size
+    %out_status = call @sa_std_net_udp_set_send_buffer_size(%socket, %size)
+[END_MACRO]
+[MACRO] NET_UDP_SEND_BUFFER_SIZE %out_status, %out_size, %socket
+    __net_udp_send_buffer_size_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_send_buffer_size(%socket, &__net_udp_send_buffer_size_%out_status)
+    %out_size = load __net_udp_send_buffer_size_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_ONLY_V6 %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_udp_set_only_v6(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UDP_ONLY_V6 %out_status, %out_enabled, %socket
+    __net_udp_only_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_only_v6(%socket, &__net_udp_only_v6_%out_status)
+    %out_enabled = load __net_udp_only_v6_%out_status+0 as i32
+[END_MACRO]
 [MACRO] NET_UDP_SET_TTL %out_status, %socket, %ttl
     %out_status = call @sa_std_net_udp_set_ttl(%socket, %ttl)
 [END_MACRO]
@@ -846,6 +972,14 @@
 
 [MACRO] NET_UDP_SET_MULTICAST_TTL_V4 %out_status, %socket, %ttl
     %out_status = call @sa_std_net_udp_set_multicast_ttl_v4(%socket, %ttl)
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_LOOP_V6 %out_status, %socket, %enabled
+    %out_status = call @sa_std_net_udp_set_multicast_loop_v6(%socket, %enabled)
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_HOPS_V6 %out_status, %socket, %hops
+    %out_status = call @sa_std_net_udp_set_multicast_hops_v6(%socket, %hops)
 [END_MACRO]
 
 [MACRO] NET_UDP_READ_TIMEOUT %out_status, %out_timeout_ns, %socket
@@ -882,6 +1016,36 @@
     __net_udp_multicast_ttl_v4_%out_status = stack_alloc 4
     %out_status = call @sa_std_net_udp_multicast_ttl_v4(%socket, &__net_udp_multicast_ttl_v4_%out_status)
     %out_ttl = load __net_udp_multicast_ttl_v4_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_LOOP_V6 %out_status, %out_enabled, %socket
+    __net_udp_multicast_loop_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_loop_v6(%socket, &__net_udp_multicast_loop_v6_%out_status)
+    %out_enabled = load __net_udp_multicast_loop_v6_%out_status+0 as i32
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_HOPS_V6 %out_status, %out_hops, %socket
+    __net_udp_multicast_hops_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_hops_v6(%socket, &__net_udp_multicast_hops_v6_%out_status)
+    %out_hops = load __net_udp_multicast_hops_v6_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_IF_V4 %out_status, %socket, %interface_addr
+    %out_status = call @sa_std_net_udp_set_multicast_if_v4(%socket, &%interface_addr)
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_IF_V4 %out_status, %out_interface_addr, %socket
+    %out_status = call @sa_std_net_udp_multicast_if_v4(%socket, &%out_interface_addr)
+[END_MACRO]
+
+[MACRO] NET_UDP_SET_MULTICAST_IF_V6 %out_status, %socket, %interface_index
+    %out_status = call @sa_std_net_udp_set_multicast_if_v6(%socket, %interface_index)
+[END_MACRO]
+
+[MACRO] NET_UDP_MULTICAST_IF_V6 %out_status, %out_interface_index, %socket
+    __net_udp_multicast_if_v6_%out_status = stack_alloc 4
+    %out_status = call @sa_std_net_udp_multicast_if_v6(%socket, &__net_udp_multicast_if_v6_%out_status)
+    %out_interface_index = load __net_udp_multicast_if_v6_%out_status+0 as u32
 [END_MACRO]
 
 [MACRO] NET_UDP_TAKE_ERROR %out_status, %out_error, %socket
@@ -946,10 +1110,57 @@
     %out_addr = load __net_udp_peek_from_addr_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_UDP_SEND_VECTORED %out_status, %out_len, %socket, %iovs, %iov_count
+    __net_udp_send_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_send_vectored(%socket, &%iovs, %iov_count, &__net_udp_send_vec_len_%out_status)
+    %out_len = load __net_udp_send_vec_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_TO_VECTORED %out_status, %out_len, %socket, %iovs, %iov_count, %host, %host_len, %port
+    __net_udp_send_to_vec_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_send_to_vectored(%socket, &%iovs, %iov_count, &%host, %host_len, %port, &__net_udp_send_to_vec_len_%out_status)
+    %out_len = load __net_udp_send_to_vec_len_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_UDP_RECV_FROM_VECTORED %out_status, %out_len, %out_addr, %socket, %iovs, %iov_count
+    __net_udp_recv_from_vec_len_%out_status = stack_alloc 8
+    __net_udp_recv_from_vec_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_udp_recv_from_vectored(%socket, &%iovs, %iov_count, &__net_udp_recv_from_vec_len_%out_status, &__net_udp_recv_from_vec_addr_%out_status)
+    %out_len = load __net_udp_recv_from_vec_len_%out_status+0 as u64
+    %out_addr = load __net_udp_recv_from_vec_addr_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_UDP_CLOSE %out_status, %socket
     %out_status = call @sa_net_udp_close(%socket)
 [END_MACRO]
 
+[MACRO] NET_TO_SOCKET_ADDR_LIST %out_status, %out_list, %host, %host_len, %port
+    __net_addr_list_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_to_socket_addr_list(&%host, %host_len, %port, &__net_addr_list_handle_%out_status)
+    %out_list = load __net_addr_list_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_NEXT %out_status, %out_ok, %out_addr, %list
+    __net_addr_list_next_ok_%out_status = stack_alloc 4
+    __net_addr_list_next_addr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_addr_list_next(%list, &__net_addr_list_next_ok_%out_status, &__net_addr_list_next_addr_%out_status)
+    %out_ok = load __net_addr_list_next_ok_%out_status+0 as i32
+    %out_addr = load __net_addr_list_next_addr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_REMAINING %out_status, %out_remaining, %list
+    __net_addr_list_remaining_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_addr_list_remaining(%list, &__net_addr_list_remaining_%out_status)
+    %out_remaining = load __net_addr_list_remaining_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_RESET %out_status, %list
+    %out_status = call @sa_std_net_addr_list_reset(%list)
+[END_MACRO]
+
+[MACRO] NET_ADDR_LIST_FREE %out_status, %list
+    %out_status = call @sa_std_net_addr_list_free(%list)
+[END_MACRO]
 [MACRO] NET_TO_SOCKET_ADDR_FIRST %out_status, %out_addr, %host, %host_len, %port
     __net_to_socket_addr_%out_status = stack_alloc 8
     %out_status = call @sa_std_net_to_socket_addr_first(&%host, %host_len, %port, &__net_to_socket_addr_%out_status)
@@ -1214,6 +1425,165 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
     EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_sock_v4_hasher_%out_hash
 [END_MACRO]
 
+[MACRO] DEFAULT_HASHER_WRITE_NET_IPV6 %hasher, %addr
+    __net_ipv6_hash_s0_%hasher = load %addr+NetIpv6Addr_s0 as u16
+    __net_ipv6_hash_s1_%hasher = load %addr+NetIpv6Addr_s1 as u16
+    __net_ipv6_hash_s2_%hasher = load %addr+NetIpv6Addr_s2 as u16
+    __net_ipv6_hash_s3_%hasher = load %addr+NetIpv6Addr_s3 as u16
+    __net_ipv6_hash_s4_%hasher = load %addr+NetIpv6Addr_s4 as u16
+    __net_ipv6_hash_s5_%hasher = load %addr+NetIpv6Addr_s5 as u16
+    __net_ipv6_hash_s6_%hasher = load %addr+NetIpv6Addr_s6 as u16
+    __net_ipv6_hash_s7_%hasher = load %addr+NetIpv6Addr_s7 as u16
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s0_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s1_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s2_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s3_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s4_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s5_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s6_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_ipv6_hash_s7_%hasher
+    !__net_ipv6_hash_s7_%hasher
+    !__net_ipv6_hash_s6_%hasher
+    !__net_ipv6_hash_s5_%hasher
+    !__net_ipv6_hash_s4_%hasher
+    !__net_ipv6_hash_s3_%hasher
+    !__net_ipv6_hash_s2_%hasher
+    !__net_ipv6_hash_s1_%hasher
+    !__net_ipv6_hash_s0_%hasher
+[END_MACRO]
+
+[MACRO] NET_IPV6_HASH %out_hash, %addr
+    __net_ipv6_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_ipv6_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 __net_ipv6_hash_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_ipv6_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_IPV6 %out_hash, %builder, %addr
+    __build_hash_one_ipv6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ipv6_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 __build_hash_one_ipv6_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ipv6_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_IPV6 %out_hash, %state, %addr
+    __random_state_hash_one_ipv6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ipv6_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 __random_state_hash_one_ipv6_hasher_%out_hash, %addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ipv6_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 %hasher, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_hash_ip_%hasher, %socket_addr
+    __net_sock_v6_hash_port_%hasher = load %socket_addr+NetSocketAddrV6_port as u16
+    __net_sock_v6_hash_flow_%hasher = load %socket_addr+NetSocketAddrV6_flowinfo as u32
+    __net_sock_v6_hash_scope_%hasher = load %socket_addr+NetSocketAddrV6_scope_id as u32
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 %hasher, __net_sock_v6_hash_ip_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, __net_sock_v6_hash_port_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __net_sock_v6_hash_flow_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, __net_sock_v6_hash_scope_%hasher
+    !__net_sock_v6_hash_scope_%hasher
+    !__net_sock_v6_hash_flow_%hasher
+    !__net_sock_v6_hash_port_%hasher
+    !__net_sock_v6_hash_ip_%hasher
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_HASH %out_hash, %socket_addr
+    __net_sock_v6_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_sock_v6_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 __net_sock_v6_hash_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_sock_v6_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_SOCKET_ADDR_V6 %out_hash, %builder, %socket_addr
+    __build_hash_one_sock_v6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_sock_v6_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 __build_hash_one_sock_v6_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_sock_v6_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_SOCKET_ADDR_V6 %out_hash, %state, %socket_addr
+    __random_state_hash_one_sock_v6_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_sock_v6_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 __random_state_hash_one_sock_v6_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_sock_v6_hasher_%out_hash
+[END_MACRO]
+[MACRO] DEFAULT_HASHER_WRITE_NET_IP_ADDR %hasher, %ipaddr
+    __net_ip_hash_tag_%hasher = load %ipaddr+NetIpAddr_tag as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __net_ip_hash_tag_%hasher
+    __net_ip_hash_payload_%hasher = ptr_add %ipaddr, 8
+    __net_ip_hash_is_v4_%hasher = eq __net_ip_hash_tag_%hasher, NET_IP_ADDR_V4
+    br __net_ip_hash_is_v4_%hasher -> L_NET_IP_HASH_V4_%hasher, L_NET_IP_HASH_V6_%hasher
+L_NET_IP_HASH_V4_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV4 %hasher, __net_ip_hash_payload_%hasher
+    jmp L_NET_IP_HASH_DONE_%hasher
+L_NET_IP_HASH_V6_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_IPV6 %hasher, __net_ip_hash_payload_%hasher
+L_NET_IP_HASH_DONE_%hasher:
+    !__net_ip_hash_is_v4_%hasher
+    !__net_ip_hash_payload_%hasher
+    !__net_ip_hash_tag_%hasher
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_HASH %out_hash, %ipaddr
+    __net_ip_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_ip_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_IP_ADDR __net_ip_hash_hasher_%out_hash, %ipaddr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_ip_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_IP_ADDR %out_hash, %builder, %ipaddr
+    __build_hash_one_ip_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ip_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_IP_ADDR __build_hash_one_ip_hasher_%out_hash, %ipaddr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ip_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_IP_ADDR %out_hash, %state, %ipaddr
+    __random_state_hash_one_ip_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ip_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_IP_ADDR __random_state_hash_one_ip_hasher_%out_hash, %ipaddr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ip_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR %hasher, %socket_addr
+    __net_socket_hash_tag_%hasher = load %socket_addr+NetSocketAddr_tag as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __net_socket_hash_tag_%hasher
+    __net_socket_hash_payload_%hasher = ptr_add %socket_addr, 8
+    __net_socket_hash_is_v4_%hasher = eq __net_socket_hash_tag_%hasher, NET_IP_ADDR_V4
+    br __net_socket_hash_is_v4_%hasher -> L_NET_SOCKET_HASH_V4_%hasher, L_NET_SOCKET_HASH_V6_%hasher
+L_NET_SOCKET_HASH_V4_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V4 %hasher, __net_socket_hash_payload_%hasher
+    jmp L_NET_SOCKET_HASH_DONE_%hasher
+L_NET_SOCKET_HASH_V6_%hasher:
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR_V6 %hasher, __net_socket_hash_payload_%hasher
+L_NET_SOCKET_HASH_DONE_%hasher:
+    !__net_socket_hash_is_v4_%hasher
+    !__net_socket_hash_payload_%hasher
+    !__net_socket_hash_tag_%hasher
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_HASH %out_hash, %socket_addr
+    __net_socket_hash_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __net_socket_hash_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR __net_socket_hash_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __net_socket_hash_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_NET_SOCKET_ADDR %out_hash, %builder, %socket_addr
+    __build_hash_one_socket_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_socket_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR __build_hash_one_socket_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_socket_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_NET_SOCKET_ADDR %out_hash, %state, %socket_addr
+    __random_state_hash_one_socket_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_socket_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_NET_SOCKET_ADDR __random_state_hash_one_socket_hasher_%out_hash, %socket_addr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_socket_hasher_%out_hash
+[END_MACRO]
+
 [MACRO] NET_IPV4_FROM_BITS %addr, %bits
     __net_ipv4_from_a_%addr = lshr %bits, 24
     __net_ipv4_from_b_raw_%addr = lshr %bits, 16
@@ -1234,16 +1604,34 @@ L_NET_IPV4_WRITE_OCTETS_END_%out_ok:
     %out_ok = call @sa_net_ipv4_parse_ascii(&%ptr, %len, &%addr)
 [END_MACRO]
 
+[MACRO] NET_IPV4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_IPV4
+    EXPAND NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IPV4_PARSE_ASCII %out_ok, %addr, %ptr, %len
     EXPAND NET_IPV4_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_IPV4_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    EXPAND NET_IPV4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
     %out_ok = call @sa_net_ipv6_parse_ascii(&%ptr, %len, &%addr)
 [END_MACRO]
 
+[MACRO] NET_IPV6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_IPV6
+    EXPAND NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IPV6_PARSE_ASCII %out_ok, %addr, %ptr, %len
     EXPAND NET_IPV6_TRY_PARSE_ASCII %out_ok, %addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_IPV6_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
+    EXPAND NET_IPV6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %addr, %ptr, %len
 [END_MACRO]
 
 
@@ -1704,6 +2092,13 @@ L_NET_SOCK_FMT_DONE_%out_ok:
     !__net_ipv6_oct_s2_%out_b0
     !__net_ipv6_oct_s1_%out_b0
     !__net_ipv6_oct_s0_%out_b0
+[END_MACRO]
+
+[MACRO] NET_IPV6_AS_OCTETS_PTR %out_ptr, %addr
+    __net_ipv6_octets_view_%out_ptr = stack_alloc 16
+    EXPAND NET_IPV6_WRITE_OCTETS __net_ipv6_octets_view_ok_%out_ptr, __net_ipv6_octets_view_%out_ptr, 16, %addr
+    %out_ptr = ptr_add __net_ipv6_octets_view_%out_ptr, 0
+    !__net_ipv6_octets_view_ok_%out_ptr
 [END_MACRO]
 
 [MACRO] NET_IPV6_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %addr
@@ -2243,6 +2638,61 @@ L_NET_IPV6_WRITE_OCTETS_END_%out_ok:
     !__net_ipv6_scope_s0_%out_scope
 [END_MACRO]
 
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, %expected_scope
+    %out_bool = eq %scope, %expected_scope
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_INTERFACE_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_INTERFACE_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_LINK_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_LINK_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_REALM_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_REALM_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_RESERVED %out_bool, %scope
+    __net_ipv6_scope_reserved_zero_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_RESERVED_ZERO
+    __net_ipv6_scope_reserved_f_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_RESERVED_F
+    %out_bool = or __net_ipv6_scope_reserved_zero_%out_bool, __net_ipv6_scope_reserved_f_%out_bool
+    !__net_ipv6_scope_reserved_f_%out_bool
+    !__net_ipv6_scope_reserved_zero_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_UNASSIGNED %out_bool, %scope
+    __net_ipv6_scope_unassigned6_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED6
+    __net_ipv6_scope_unassigned7_%out_bool = eq %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED7
+    __net_ipv6_scope_unassigned9_%out_bool = uge %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED9
+    __net_ipv6_scope_unassignedd_%out_bool = ule %scope, NET_IPV6_MULTICAST_SCOPE_UNASSIGNED_D
+    __net_ipv6_scope_unassigned9d_%out_bool = and __net_ipv6_scope_unassigned9_%out_bool, __net_ipv6_scope_unassignedd_%out_bool
+    %out_bool = or __net_ipv6_scope_unassigned6_%out_bool, __net_ipv6_scope_unassigned7_%out_bool
+    %out_bool = or %out_bool, __net_ipv6_scope_unassigned9d_%out_bool
+    !__net_ipv6_scope_unassigned9d_%out_bool
+    !__net_ipv6_scope_unassignedd_%out_bool
+    !__net_ipv6_scope_unassigned9_%out_bool
+    !__net_ipv6_scope_unassigned7_%out_bool
+    !__net_ipv6_scope_unassigned6_%out_bool
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_ADMIN_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_ADMIN_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_SITE_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_SITE_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_ORGANIZATION_LOCAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_ORGANIZATION_LOCAL
+[END_MACRO]
+
+[MACRO] NET_IPV6_MULTICAST_SCOPE_IS_GLOBAL %out_bool, %scope
+    EXPAND NET_IPV6_MULTICAST_SCOPE_IS %out_bool, %scope, NET_IPV6_MULTICAST_SCOPE_GLOBAL
+[END_MACRO]
+
 [MACRO] NET_IPV6_TO_IPV4_MAPPED %out_ok, %ipv4, %addr
     EXPAND NET_IPV6_IS_IPV4_MAPPED %out_ok, %addr
     __net_ipv6_map_s6_%ipv4 = load %addr+NetIpv6Addr_s6 as u16
@@ -2474,8 +2924,17 @@ L_NET_IP_PARSE_FAIL_%out_ok:
 L_NET_IP_PARSE_DONE_%out_ok:
 [END_MACRO]
 
+[MACRO] NET_IP_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %ipaddr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_IP
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_IP_ADDR_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
     EXPAND NET_IP_ADDR_TRY_PARSE_ASCII %out_ok, %ipaddr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_PARSE_ASCII_DETAIL %out_ok, %out_kind, %ipaddr, %ptr, %len
+    EXPAND NET_IP_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %ipaddr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_IP_ADDR_COPY %dst_ipaddr, %src_ipaddr
@@ -2542,6 +3001,24 @@ L_NET_IP_OCTET_LEN_V6_%out_len:
 L_NET_IP_OCTET_LEN_DONE_%out_len:
     !__net_ip_octet_len_v4_%out_len
     !__net_ip_octet_len_tag_%out_len
+[END_MACRO]
+
+[MACRO] NET_IP_ADDR_AS_OCTETS_PTR %out_ptr, %ipaddr
+    __net_ip_octets_view_%out_ptr = stack_alloc 16
+    __net_ip_octets_tag_%out_ptr = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_octets_payload_%out_ptr = ptr_add %ipaddr, 8
+    __net_ip_octets_is_v4_%out_ptr = eq __net_ip_octets_tag_%out_ptr, NET_IP_ADDR_V4
+    br __net_ip_octets_is_v4_%out_ptr -> L_NET_IP_OCTETS_PTR_V4_%out_ptr, L_NET_IP_OCTETS_PTR_V6_%out_ptr
+L_NET_IP_OCTETS_PTR_V4_%out_ptr:
+    EXPAND NET_IPV4_WRITE_OCTETS __net_ip_octets_v4_ok_%out_ptr, __net_ip_octets_view_%out_ptr, 16, __net_ip_octets_payload_%out_ptr
+    jmp L_NET_IP_OCTETS_PTR_DONE_%out_ptr
+L_NET_IP_OCTETS_PTR_V6_%out_ptr:
+    EXPAND NET_IPV6_WRITE_OCTETS __net_ip_octets_v6_ok_%out_ptr, __net_ip_octets_view_%out_ptr, 16, __net_ip_octets_payload_%out_ptr
+L_NET_IP_OCTETS_PTR_DONE_%out_ptr:
+    %out_ptr = ptr_add __net_ip_octets_view_%out_ptr, 0
+    !__net_ip_octets_is_v4_%out_ptr
+    !__net_ip_octets_payload_%out_ptr
+    !__net_ip_octets_tag_%out_ptr
 [END_MACRO]
 
 [MACRO] NET_IP_ADDR_WRITE_OCTETS %out_ok, %dst_ptr, %dst_len, %ipaddr
@@ -2764,6 +3241,23 @@ L_NET_IP_RESERVED_DONE_%out_bool:
     !__net_ip_reserved_tag_%out_bool
 [END_MACRO]
 
+[MACRO] NET_IP_ADDR_IS_UNICAST_GLOBAL %out_bool, %ipaddr
+    __net_ip_uglobal_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
+    __net_ip_uglobal_payload_%out_bool = ptr_add %ipaddr, 8
+    __net_ip_uglobal_is_v4_%out_bool = eq __net_ip_uglobal_tag_%out_bool, NET_IP_ADDR_V4
+    br __net_ip_uglobal_is_v4_%out_bool -> L_NET_IP_UGLOBAL_V4_%out_bool, L_NET_IP_UGLOBAL_V6_%out_bool
+L_NET_IP_UGLOBAL_V4_%out_bool:
+    EXPAND NET_IPV4_IS_GLOBAL %out_bool, __net_ip_uglobal_payload_%out_bool
+    jmp L_NET_IP_UGLOBAL_DONE_%out_bool
+L_NET_IP_UGLOBAL_V6_%out_bool:
+    EXPAND NET_IPV6_IS_UNICAST_GLOBAL %out_bool, __net_ip_uglobal_payload_%out_bool
+    jmp L_NET_IP_UGLOBAL_DONE_%out_bool
+L_NET_IP_UGLOBAL_DONE_%out_bool:
+    !__net_ip_uglobal_is_v4_%out_bool
+    !__net_ip_uglobal_payload_%out_bool
+    !__net_ip_uglobal_tag_%out_bool
+[END_MACRO]
+
 [MACRO] NET_IP_ADDR_IS_UNICAST %out_bool, %ipaddr
     __net_ip_unicast_tag_%out_bool = load %ipaddr+NetIpAddr_tag as u64
     __net_ip_unicast_payload_%out_bool = ptr_add %ipaddr, 8
@@ -2936,6 +3430,10 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     %out_ptr = ptr_add %socket_addr, 0
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V4_AS_OCTETS_PTR %out_ptr, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V4_IP_PTR %out_ptr, %socket_addr
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V4_IP %out_ipv4, %socket_addr
     EXPAND NET_SOCKET_ADDR_V4_IP_PTR __net_sock_v4_ip_src_%out_ipv4, %socket_addr
     EXPAND NET_IPV4_COPY %out_ipv4, __net_sock_v4_ip_src_%out_ipv4
@@ -2976,16 +3474,34 @@ L_NET_IP_CANON_DONE_%out_ipaddr:
     %out_ok = call @sa_net_socket_addr_v4_parse_ascii(&%ptr, %len, &%socket_addr)
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_SOCKET_V4
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V4_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V4_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_V4_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     %out_ok = call @sa_net_socket_addr_v6_parse_ascii(&%ptr, %len, &%socket_addr)
 [END_MACRO]
 
+[MACRO] NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_SOCKET_V6
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
 [MACRO] NET_SOCKET_ADDR_V6_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_V6_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
 [END_MACRO]
 
 
@@ -3025,6 +3541,15 @@ L_NET_SOCKET_PARSE_DONE_%out_ok:
 
 [MACRO] NET_SOCKET_ADDR_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
     EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    %out_kind = add 0, ADDR_PARSE_ERROR_SOCKET
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII %out_ok, %socket_addr, %ptr, %len
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
+    EXPAND NET_SOCKET_ADDR_TRY_PARSE_ASCII_DETAIL %out_ok, %out_kind, %socket_addr, %ptr, %len
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_NEW %socket_addr, %ipv6, %port, %flowinfo, %scope_id
@@ -3068,6 +3593,12 @@ L_NET_SOCKET_PARSE_DONE_%out_ok:
 
 [MACRO] NET_SOCKET_ADDR_V6_IP_PTR %out_ptr, %socket_addr
     %out_ptr = ptr_add %socket_addr, 0
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_V6_AS_OCTETS_PTR %out_ptr, %socket_addr
+    EXPAND NET_SOCKET_ADDR_V6_IP_PTR __net_sock_v6_octets_ip_%out_ptr, %socket_addr
+    EXPAND NET_IPV6_AS_OCTETS_PTR %out_ptr, __net_sock_v6_octets_ip_%out_ptr
+    !__net_sock_v6_octets_ip_%out_ptr
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_V6_IP %out_ipv6, %socket_addr
@@ -3309,7 +3840,388 @@ L_NET_SOCKET_SET_PORT_DONE_%socket_addr:
 [END_MACRO]
 
 [MACRO] NET_SOCKET_ADDR_SET_IP %socket_addr, %ipaddr
+    __net_sock_set_ip_old_tag_%socket_addr = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_ip_new_tag_%socket_addr = load %ipaddr+NetIpAddr_tag as u64
+    __net_sock_set_ip_old_payload_%socket_addr = ptr_add %socket_addr, 8
+    __net_sock_set_ip_new_payload_%socket_addr = ptr_add %ipaddr, 8
+    __net_sock_set_ip_same_%socket_addr = eq __net_sock_set_ip_old_tag_%socket_addr, __net_sock_set_ip_new_tag_%socket_addr
+    br __net_sock_set_ip_same_%socket_addr -> L_NET_SOCKET_SET_IP_SAME_%socket_addr, L_NET_SOCKET_SET_IP_REBUILD_%socket_addr
+L_NET_SOCKET_SET_IP_SAME_%socket_addr:
+    __net_sock_set_ip_is_v4_%socket_addr = eq __net_sock_set_ip_new_tag_%socket_addr, NET_IP_ADDR_V4
+    br __net_sock_set_ip_is_v4_%socket_addr -> L_NET_SOCKET_SET_IP_SAME_V4_%socket_addr, L_NET_SOCKET_SET_IP_SAME_V6_%socket_addr
+L_NET_SOCKET_SET_IP_SAME_V4_%socket_addr:
+    EXPAND NET_SOCKET_ADDR_V4_SET_IP __net_sock_set_ip_old_payload_%socket_addr, __net_sock_set_ip_new_payload_%socket_addr
+    jmp L_NET_SOCKET_SET_IP_DONE_%socket_addr
+L_NET_SOCKET_SET_IP_SAME_V6_%socket_addr:
+    EXPAND NET_SOCKET_ADDR_V6_SET_IP __net_sock_set_ip_old_payload_%socket_addr, __net_sock_set_ip_new_payload_%socket_addr
+    jmp L_NET_SOCKET_SET_IP_DONE_%socket_addr
+L_NET_SOCKET_SET_IP_REBUILD_%socket_addr:
     EXPAND NET_SOCKET_ADDR_PORT __net_sock_set_ip_port_%socket_addr, %socket_addr
     EXPAND NET_SOCKET_ADDR_NEW %socket_addr, %ipaddr, __net_sock_set_ip_port_%socket_addr
     !__net_sock_set_ip_port_%socket_addr
+    jmp L_NET_SOCKET_SET_IP_DONE_%socket_addr
+L_NET_SOCKET_SET_IP_DONE_%socket_addr:
+    !__net_sock_set_ip_is_v4_%socket_addr
+    !__net_sock_set_ip_same_%socket_addr
+    !__net_sock_set_ip_new_payload_%socket_addr
+    !__net_sock_set_ip_old_payload_%socket_addr
+    !__net_sock_set_ip_new_tag_%socket_addr
+    !__net_sock_set_ip_old_tag_%socket_addr
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_FLOWINFO %out_ok, %out_flowinfo, %socket_addr
+    __net_sock_flow_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_flow_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_flow_is_v6_%out_ok = eq __net_sock_flow_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_flow_is_v6_%out_ok -> L_NET_SOCKET_FLOW_V6_%out_ok, L_NET_SOCKET_FLOW_V4_%out_ok
+L_NET_SOCKET_FLOW_V6_%out_ok:
+    %out_ok = add 0, 1
+    EXPAND NET_SOCKET_ADDR_V6_FLOWINFO %out_flowinfo, __net_sock_flow_payload_%out_ok
+    jmp L_NET_SOCKET_FLOW_DONE_%out_ok
+L_NET_SOCKET_FLOW_V4_%out_ok:
+    %out_ok = add 0, 0
+    %out_flowinfo = add 0, 0
+    jmp L_NET_SOCKET_FLOW_DONE_%out_ok
+L_NET_SOCKET_FLOW_DONE_%out_ok:
+    !__net_sock_flow_is_v6_%out_ok
+    !__net_sock_flow_payload_%out_ok
+    !__net_sock_flow_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SET_FLOWINFO %out_ok, %socket_addr, %flowinfo
+    __net_sock_set_flow_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_flow_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_set_flow_is_v6_%out_ok = eq __net_sock_set_flow_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_set_flow_is_v6_%out_ok -> L_NET_SOCKET_SET_FLOW_V6_%out_ok, L_NET_SOCKET_SET_FLOW_V4_%out_ok
+L_NET_SOCKET_SET_FLOW_V6_%out_ok:
+    EXPAND NET_SOCKET_ADDR_V6_SET_FLOWINFO __net_sock_set_flow_payload_%out_ok, %flowinfo
+    %out_ok = add 0, 1
+    jmp L_NET_SOCKET_SET_FLOW_DONE_%out_ok
+L_NET_SOCKET_SET_FLOW_V4_%out_ok:
+    %out_ok = add 0, 0
+    jmp L_NET_SOCKET_SET_FLOW_DONE_%out_ok
+L_NET_SOCKET_SET_FLOW_DONE_%out_ok:
+    !__net_sock_set_flow_is_v6_%out_ok
+    !__net_sock_set_flow_payload_%out_ok
+    !__net_sock_set_flow_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SCOPE_ID %out_ok, %out_scope_id, %socket_addr
+    __net_sock_scope_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_scope_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_scope_is_v6_%out_ok = eq __net_sock_scope_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_scope_is_v6_%out_ok -> L_NET_SOCKET_SCOPE_V6_%out_ok, L_NET_SOCKET_SCOPE_V4_%out_ok
+L_NET_SOCKET_SCOPE_V6_%out_ok:
+    %out_ok = add 0, 1
+    EXPAND NET_SOCKET_ADDR_V6_SCOPE_ID %out_scope_id, __net_sock_scope_payload_%out_ok
+    jmp L_NET_SOCKET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SCOPE_V4_%out_ok:
+    %out_ok = add 0, 0
+    %out_scope_id = add 0, 0
+    jmp L_NET_SOCKET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SCOPE_DONE_%out_ok:
+    !__net_sock_scope_is_v6_%out_ok
+    !__net_sock_scope_payload_%out_ok
+    !__net_sock_scope_tag_%out_ok
+[END_MACRO]
+
+[MACRO] NET_SOCKET_ADDR_SET_SCOPE_ID %out_ok, %socket_addr, %scope_id
+    __net_sock_set_scope_tag_%out_ok = load %socket_addr+NetSocketAddr_tag as u64
+    __net_sock_set_scope_payload_%out_ok = ptr_add %socket_addr, 8
+    __net_sock_set_scope_is_v6_%out_ok = eq __net_sock_set_scope_tag_%out_ok, NET_IP_ADDR_V6
+    br __net_sock_set_scope_is_v6_%out_ok -> L_NET_SOCKET_SET_SCOPE_V6_%out_ok, L_NET_SOCKET_SET_SCOPE_V4_%out_ok
+L_NET_SOCKET_SET_SCOPE_V6_%out_ok:
+    EXPAND NET_SOCKET_ADDR_V6_SET_SCOPE_ID __net_sock_set_scope_payload_%out_ok, %scope_id
+    %out_ok = add 0, 1
+    jmp L_NET_SOCKET_SET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SET_SCOPE_V4_%out_ok:
+    %out_ok = add 0, 0
+    jmp L_NET_SOCKET_SET_SCOPE_DONE_%out_ok
+L_NET_SOCKET_SET_SCOPE_DONE_%out_ok:
+    !__net_sock_set_scope_is_v6_%out_ok
+    !__net_sock_set_scope_payload_%out_ok
+    !__net_sock_set_scope_tag_%out_ok
+[END_MACRO]
+
+// Explicit byte-oriented aliases over the existing stream/datagram ABI.
+[MACRO] NET_TCP_STREAM_READ_BYTES %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_TCP_STREAM_READ %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_PEEK_BYTES %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_TCP_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_WRITE_BYTES %out_status, %out_len, %stream, %buf, %len
+    EXPAND NET_TCP_STREAM_WRITE %out_status, %out_len, %stream, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_WRITE_ALL_BYTES %out_status, %stream, %buf, %len
+    EXPAND NET_TCP_STREAM_WRITE_ALL %out_status, %stream, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UNIX_STREAM_PEEK_BYTES %out_status, %out_len, %stream, %buf, %cap
+    EXPAND NET_UNIX_STREAM_PEEK %out_status, %out_len, %stream, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_SEND_BYTES %out_status, %out_len, %socket, %buf, %len
+    EXPAND NET_UNIX_DATAGRAM_SEND %out_status, %out_len, %socket, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UNIX_DATAGRAM_RECV_BYTES %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UNIX_DATAGRAM_RECV %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_BYTES %out_status, %out_len, %socket, %buf, %len
+    EXPAND NET_UDP_SEND %out_status, %out_len, %socket, %buf, %len
+[END_MACRO]
+
+[MACRO] NET_UDP_RECV_BYTES %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_RECV %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_PEEK_BYTES %out_status, %out_len, %socket, %buf, %cap
+    EXPAND NET_UDP_PEEK %out_status, %out_len, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_SEND_TO_BYTES %out_status, %out_len, %socket, %buf, %len, %host, %host_len, %port
+    EXPAND NET_UDP_SEND_TO %out_status, %out_len, %socket, %buf, %len, %host, %host_len, %port
+[END_MACRO]
+
+[MACRO] NET_UDP_RECV_FROM_BYTES %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    EXPAND NET_UDP_RECV_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+[END_MACRO]
+
+[MACRO] NET_UDP_PEEK_FROM_BYTES %out_status, %out_len, %out_addr, %socket, %buf, %cap
+    EXPAND NET_UDP_PEEK_FROM %out_status, %out_len, %out_addr, %socket, %buf, %cap
+[END_MACRO]
+
+// Rust-style spelling aliases for platform socket option helpers.
+[MACRO] NET_TCP_LISTENER_SET_REUSE_ADDR %out_status, %listener, %enabled
+    EXPAND NET_TCP_LISTENER_SET_REUSEADDR %out_status, %listener, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_LISTENER_SET_REUSE_PORT %out_status, %listener, %enabled
+    EXPAND NET_TCP_LISTENER_SET_REUSEPORT %out_status, %listener, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_QUICK_ACK %out_status, %stream, %enabled
+    EXPAND NET_TCP_STREAM_SET_QUICKACK %out_status, %stream, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_QUICK_ACK %out_status, %out_enabled, %stream
+    EXPAND NET_TCP_STREAM_QUICKACK %out_status, %out_enabled, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_DEFER_ACCEPT %out_status, %stream, %seconds
+    EXPAND NET_TCP_STREAM_SET_DEFERACCEPT %out_status, %stream, %seconds
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_DEFER_ACCEPT %out_status, %out_seconds, %stream
+    EXPAND NET_TCP_STREAM_DEFERACCEPT %out_status, %out_seconds, %stream
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEP_ALIVE %out_status, %stream, %enabled
+    EXPAND NET_TCP_STREAM_SET_KEEPALIVE %out_status, %stream, %enabled
+[END_MACRO]
+
+[MACRO] NET_TCP_STREAM_SET_KEEP_ALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
+    EXPAND NET_TCP_STREAM_SET_KEEPALIVE_PARAMS %out_status, %stream, %idle_secs, %intvl_secs, %cnt
+[END_MACRO]
+// Convert the public SA status code into the stable Rust-style ErrorKind
+// discriminator. Network APIs expose SA status codes; take_error values are
+// raw errno/WSA values and intentionally are not accepted here.
+
+// Rust-style stable network error code facade over public SA status values.
+[MACRO] NET_ERROR_CODE_FROM_STATUS %out_code, %status
+    %out_code = call @sa_std_net_error_code_from_status(%status)
+[END_MACRO]
+
+[MACRO] NET_TCP_CONNECT_TIMEOUT_ALL %out_status, %out_stream, %host, %host_len, %port, %timeout_ns
+    __net_tcp_connect_timeout_all_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_connect_timeout_all(&%host, %host_len, %port, %timeout_ns, &__net_tcp_connect_timeout_all_handle_%out_status)
+    %out_stream = load __net_tcp_connect_timeout_all_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_CONNECT_TIMEOUT %out_status, %out_stream, %host, %host_len, %port, %timeout_ns
+    __net_tcp_connect_timeout_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_connect_timeout(&%host, %host_len, %port, %timeout_ns, &__net_tcp_connect_timeout_handle_%out_status)
+    %out_stream = load __net_tcp_connect_timeout_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_TCP_CONNECT_TIMEOUT_ADDR %out_status, %out_stream, %addr, %timeout_ns
+    __net_tcp_connect_timeout_addr_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_tcp_connect_timeout_addr(%addr, %timeout_ns, &__net_tcp_connect_timeout_addr_handle_%out_status)
+    %out_stream = load __net_tcp_connect_timeout_addr_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_FROM_POSIX_ERRNO %out_code, %errno
+    %out_code = call @sa_std_net_error_code_from_posix_errno(%errno)
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_FROM_WSA_ERROR %out_code, %error
+    %out_code = call @sa_std_net_error_code_from_wsa_error(%error)
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_NAME %out_status, %code, %out_ptr, %out_cap, %out_len
+    %out_status = call @sa_std_net_error_code_name(%code, %out_ptr, %out_cap, %out_len)
+[END_MACRO]
+
+[MACRO] NET_ERROR_PLATFORM %out_platform
+    %out_platform = call @sa_std_net_error_platform()
+[END_MACRO]
+
+[MACRO] NET_ERROR_CODE_FROM_NATIVE_ERROR %out_code, %error
+    %out_code = call @sa_std_net_error_code_from_native_error(%error)
+[END_MACRO]
+
+[MACRO] NET_ERROR_NEW %error_ptr, %code, %platform, %raw, %status
+    store %error_ptr+SaNetError_code, %code as i32
+    store %error_ptr+SaNetError_platform, %platform as i32
+    store %error_ptr+SaNetError_raw, %raw as i32
+    store %error_ptr+SaNetError_status, %status as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_FROM_STATUS %error_ptr, %status
+    EXPAND NET_ERROR_CODE_FROM_STATUS __net_error_status_code_%error_ptr, %status
+    EXPAND NET_ERROR_NEW %error_ptr, __net_error_status_code_%error_ptr, SA_NET_ERROR_PLATFORM_NONE, 0, %status
+    !__net_error_status_code_%error_ptr
+[END_MACRO]
+
+[MACRO] NET_ERROR_FROM_NATIVE %error_ptr, %raw
+    EXPAND NET_ERROR_PLATFORM __net_error_native_platform_%error_ptr
+    EXPAND NET_ERROR_CODE_FROM_NATIVE_ERROR __net_error_native_code_%error_ptr, %raw
+    EXPAND NET_ERROR_NEW %error_ptr, __net_error_native_code_%error_ptr, __net_error_native_platform_%error_ptr, %raw, SA_NET_STATUS_NET
+    !__net_error_native_code_%error_ptr
+    !__net_error_native_platform_%error_ptr
+[END_MACRO]
+
+[MACRO] NET_ERROR_KIND %out_code, %error_ptr
+    %out_code = load %error_ptr+SaNetError_code as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_PLATFORM_OF %out_platform, %error_ptr
+    %out_platform = load %error_ptr+SaNetError_platform as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_RAW_OS_ERROR %out_has, %out_raw, %error_ptr
+    __net_error_raw_platform_%out_has = load %error_ptr+SaNetError_platform as i32
+    %out_raw = load %error_ptr+SaNetError_raw as i32
+    %out_has = ne __net_error_raw_platform_%out_has, SA_NET_ERROR_PLATFORM_NONE
+    !__net_error_raw_platform_%out_has
+[END_MACRO]
+
+[MACRO] NET_ERROR_STATUS %out_status, %error_ptr
+    %out_status = load %error_ptr+SaNetError_status as i32
+[END_MACRO]
+
+[MACRO] NET_ERROR_IS_OK %out_bool, %error_ptr
+    __net_error_ok_code_%out_bool = load %error_ptr+SaNetError_code as i32
+    %out_bool = eq __net_error_ok_code_%out_bool, SA_NET_ERROR_CODE_OK
+    !__net_error_ok_code_%out_bool
+[END_MACRO]
+[MACRO] NET_ERROR_KIND_FROM_STATUS %out_kind, %status
+    __net_kind_invalid_arg_%out_kind = eq %status, SA_NET_STATUS_INVALID_ARGUMENT
+    br __net_kind_invalid_arg_%out_kind -> L_NET_KIND_INVALID_ARG_%out_kind, L_NET_KIND_INVALID_HANDLE_%out_kind
+L_NET_KIND_INVALID_ARG_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_INVALID_INPUT
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_INVALID_HANDLE_%out_kind:
+    __net_kind_invalid_handle_%out_kind = eq %status, SA_NET_STATUS_INVALID_HANDLE
+    br __net_kind_invalid_handle_%out_kind -> L_NET_KIND_INVALID_HANDLE_VALUE_%out_kind, L_NET_KIND_NOT_FOUND_%out_kind
+L_NET_KIND_INVALID_HANDLE_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_NOT_CONNECTED
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_NOT_FOUND_%out_kind:
+    __net_kind_not_found_%out_kind = eq %status, SA_NET_STATUS_NOT_FOUND
+    br __net_kind_not_found_%out_kind -> L_NET_KIND_NOT_FOUND_VALUE_%out_kind, L_NET_KIND_ACCESS_%out_kind
+L_NET_KIND_NOT_FOUND_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_NOT_FOUND
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_ACCESS_%out_kind:
+    __net_kind_access_%out_kind = eq %status, SA_NET_STATUS_ACCESS
+    br __net_kind_access_%out_kind -> L_NET_KIND_ACCESS_VALUE_%out_kind, L_NET_KIND_NO_MEMORY_%out_kind
+L_NET_KIND_ACCESS_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_PERMISSION_DENIED
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_NO_MEMORY_%out_kind:
+    __net_kind_no_memory_%out_kind = eq %status, SA_NET_STATUS_NO_MEMORY
+    br __net_kind_no_memory_%out_kind -> L_NET_KIND_NO_MEMORY_VALUE_%out_kind, L_NET_KIND_IO_%out_kind
+L_NET_KIND_NO_MEMORY_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OUT_OF_MEMORY
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_IO_%out_kind:
+    __net_kind_io_%out_kind = eq %status, SA_NET_STATUS_IO
+    br __net_kind_io_%out_kind -> L_NET_KIND_IO_VALUE_%out_kind, L_NET_KIND_NET_%out_kind
+L_NET_KIND_IO_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OTHER
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_NET_%out_kind:
+    __net_kind_net_%out_kind = eq %status, SA_NET_STATUS_NET
+    br __net_kind_net_%out_kind -> L_NET_KIND_NET_VALUE_%out_kind, L_NET_KIND_UNSUPPORTED_%out_kind
+L_NET_KIND_NET_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_NETWORK_UNREACHABLE
+    !__net_kind_net_%out_kind
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_UNSUPPORTED_%out_kind:
+    __net_kind_unsupported_%out_kind = eq %status, SA_NET_STATUS_UNSUPPORTED
+    br __net_kind_unsupported_%out_kind -> L_NET_KIND_UNSUPPORTED_VALUE_%out_kind, L_NET_KIND_OTHER_%out_kind
+L_NET_KIND_UNSUPPORTED_VALUE_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_UNSUPPORTED
+    !__net_kind_unsupported_%out_kind
+    !__net_kind_net_%out_kind
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+    jmp L_NET_KIND_END_%out_kind
+L_NET_KIND_OTHER_%out_kind:
+    %out_kind = add 0, IO_ERROR_KIND_OTHER
+    !__net_kind_unsupported_%out_kind
+    !__net_kind_net_%out_kind
+    !__net_kind_io_%out_kind
+    !__net_kind_no_memory_%out_kind
+    !__net_kind_access_%out_kind
+    !__net_kind_not_found_%out_kind
+    !__net_kind_invalid_handle_%out_kind
+    !__net_kind_invalid_arg_%out_kind
+L_NET_KIND_END_%out_kind:
+[END_MACRO]
+// Rust-style spelling aliases. SA exposes the 128-bit value as two u64
+// registers because the language has no native u128 scalar.
+[MACRO] NET_IPV6_TO_BITS %out_hi, %out_lo, %addr
+    EXPAND NET_IPV6_TO_BITS64 %out_hi, %out_lo, %addr
+[END_MACRO]
+
+[MACRO] NET_IPV6_FROM_BITS %addr, %hi, %lo
+    EXPAND NET_IPV6_FROM_BITS64 %addr, %hi, %lo
 [END_MACRO]

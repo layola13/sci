@@ -6,6 +6,65 @@ pub const descriptor_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1";
 pub const descriptor_fn_symbol_name: [:0]const u8 = "saasm_plugin_descriptor_v1_fn";
 pub const broker_abi_version: u32 = 1;
 
+fn targetDynamicLibrarySuffix() []const u8 {
+    return switch (@import("builtin").os.tag) {
+        .windows => ".dll",
+        .macos => ".dylib",
+        else => ".so",
+    };
+}
+
+fn isDynamicLibraryPath(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".so") or
+        std.mem.endsWith(u8, path, ".dll") or
+        std.mem.endsWith(u8, path, ".dylib");
+}
+
+fn targetArtifactKey() []const u8 {
+    const builtin = @import("builtin");
+    return switch (builtin.cpu.arch) {
+        .x86_64 => switch (builtin.os.tag) {
+            .windows => "windows-x86_64",
+            .linux => "linux-x86_64",
+            .macos => "macos-x86_64",
+            else => "linux-x86_64",
+        },
+        .aarch64 => switch (builtin.os.tag) {
+            .windows => "windows-aarch64",
+            .linux => "linux-aarch64",
+            .macos => "macos-aarch64",
+            else => "linux-aarch64",
+        },
+        else => switch (builtin.os.tag) {
+            .windows => "windows-x86_64",
+            .linux => "linux-x86_64",
+            .macos => "macos-x86_64",
+            else => "linux-x86_64",
+        },
+    };
+}
+
+test "plugin target helpers select host dynamic library and artifact key" {
+    const builtin = @import("builtin");
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(".dll", targetDynamicLibrarySuffix());
+            try std.testing.expect(std.mem.startsWith(u8, targetArtifactKey(), "windows-"));
+            try std.testing.expect(isDynamicLibraryPath("plugin.dll"));
+        },
+        .macos => {
+            try std.testing.expectEqualStrings(".dylib", targetDynamicLibrarySuffix());
+            try std.testing.expect(std.mem.startsWith(u8, targetArtifactKey(), "macos-"));
+            try std.testing.expect(isDynamicLibraryPath("plugin.dylib"));
+        },
+        else => {
+            try std.testing.expectEqualStrings(".so", targetDynamicLibrarySuffix());
+            try std.testing.expect(std.mem.startsWith(u8, targetArtifactKey(), "linux-"));
+            try std.testing.expect(isDynamicLibraryPath("plugin.so"));
+        },
+    }
+}
+
 pub const SkillSection = struct {
     name: []const u8,
     summary: []const u8,
@@ -1035,15 +1094,40 @@ fn processArgsMatch(patterns: []const []u8, argv: []const []const u8) bool {
 fn matchesPathPermissionPattern(allocator: std.mem.Allocator, pattern: []const u8, project_root: []const u8, abs_path: []const u8) !bool {
     const resolved = try resolvePermissionPathPattern(allocator, pattern, project_root);
     defer allocator.free(resolved);
-    const recursive = std.mem.endsWith(u8, resolved, "/**");
-    const base = if (recursive) resolved[0 .. resolved.len - 3] else resolved;
+
+    const normalized_resolved = try normalizePermissionPathForMatch(allocator, resolved);
+    defer allocator.free(normalized_resolved);
+    const normalized_abs_path = try normalizePermissionPathForMatch(allocator, abs_path);
+    defer allocator.free(normalized_abs_path);
+
+    const recursive = std.mem.endsWith(u8, normalized_resolved, "/**");
+    const base = if (recursive) normalized_resolved[0 .. normalized_resolved.len - 3] else normalized_resolved;
     if (recursive) {
-        if (std.mem.eql(u8, abs_path, base)) return true;
+        if (std.mem.eql(u8, normalized_abs_path, base)) return true;
         if (base.len == 0) return false;
-        if (!std.mem.startsWith(u8, abs_path, base)) return false;
-        return abs_path.len > base.len and abs_path[base.len] == '/';
+        if (!std.mem.startsWith(u8, normalized_abs_path, base)) return false;
+        return normalized_abs_path.len > base.len and normalized_abs_path[base.len] == '/';
     }
-    return std.mem.eql(u8, abs_path, base);
+    return std.mem.eql(u8, normalized_abs_path, base);
+}
+
+fn normalizePermissionPathForMatch(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const normalized = try allocator.dupe(u8, path);
+    for (normalized) |*c| {
+        if (c.* == '\\') c.* = '/';
+        if (@import("builtin").os.tag == .windows) c.* = std.ascii.toLower(c.*);
+    }
+    return normalized;
+}
+
+fn permissionHome(allocator: std.mem.Allocator) ![]u8 {
+    return std.process.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => if (@import("builtin").os.tag == .windows)
+            std.process.getEnvVarOwned(allocator, "USERPROFILE")
+        else
+            error.EnvironmentVariableNotFound,
+        else => err,
+    };
 }
 
 fn resolvePermissionPathPattern(allocator: std.mem.Allocator, pattern: []const u8, project_root: []const u8) ![]u8 {
@@ -1051,7 +1135,7 @@ fn resolvePermissionPathPattern(allocator: std.mem.Allocator, pattern: []const u
         return try resolvePatternFromRoot(allocator, project_root, pattern["$PROJECT".len..]);
     }
     if (std.mem.startsWith(u8, pattern, "$HOME/") or std.mem.eql(u8, pattern, "$HOME")) {
-        const home = std.process.getEnvVarOwned(allocator, "HOME") catch return error.InvalidPath;
+        const home = permissionHome(allocator) catch return error.InvalidPath;
         defer allocator.free(home);
         return try resolvePatternFromRoot(allocator, home, pattern["$HOME".len..]);
     }
@@ -1080,6 +1164,55 @@ fn resolvePatternFromRoot(allocator: std.mem.Allocator, root: []const u8, suffix
     if (!recursive) return base;
     defer allocator.free(base);
     return try std.fmt.allocPrint(allocator, "{s}/**", .{base});
+}
+
+test "Windows permission path matching ignores separator and ASCII case" {
+    if (@import("builtin").os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+    const requested_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "DATA", "ITEM.TXT" });
+    defer std.testing.allocator.free(requested_path);
+    for (requested_path) |*c| {
+        if (c.* == '\\') c.* = '/';
+        c.* = std.ascii.toUpper(c.*);
+    }
+
+    try std.testing.expect(try matchesPathPermissionPattern(
+        std.testing.allocator,
+        "$PROJECT/data/**",
+        project_root,
+        requested_path,
+    ));
+}
+
+test "permission path roots expand for host matching" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(project_root);
+
+    const project_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "data", "item.txt" });
+    defer std.testing.allocator.free(project_path);
+    try std.testing.expect(try matchesPathPermissionPattern(std.testing.allocator, "$PROJECT/data/**", project_root, project_path));
+
+    const cache_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, ".sa_cache", "item.txt" });
+    defer std.testing.allocator.free(cache_path);
+    try std.testing.expect(try matchesPathPermissionPattern(std.testing.allocator, "$SA_CACHE/**", project_root, cache_path));
+
+    const home = try permissionHome(std.testing.allocator);
+    defer std.testing.allocator.free(home);
+    const home_path = try std.fs.path.join(std.testing.allocator, &.{ home, "sa-permission-item.txt" });
+    defer std.testing.allocator.free(home_path);
+    try std.testing.expect(try matchesPathPermissionPattern(std.testing.allocator, "$HOME/**", project_root, home_path));
+
+    const plugins_home = try pluginsHome(std.testing.allocator);
+    defer std.testing.allocator.free(plugins_home);
+    const plugin_path = try std.fs.path.join(std.testing.allocator, &.{ plugins_home, "installed", "item" });
+    defer std.testing.allocator.free(plugin_path);
+    try std.testing.expect(try matchesPathPermissionPattern(std.testing.allocator, "$SA_PLUGINS_HOME/**", project_root, plugin_path));
 }
 
 pub const Runtime = struct {
@@ -1168,7 +1301,8 @@ pub const Runtime = struct {
     }
 
     pub fn loadPathList(self: *Runtime, path_list: []const u8) !void {
-        var it = std.mem.splitScalar(u8, path_list, ':');
+        const separator: u8 = if (@import("builtin").os.tag == .windows) ';' else ':';
+        var it = std.mem.splitScalar(u8, path_list, separator);
         while (it.next()) |raw_entry| {
             const entry = std.mem.trim(u8, raw_entry, " \t\r\n");
             if (entry.len == 0) continue;
@@ -1188,7 +1322,7 @@ pub const Runtime = struct {
         };
         defer if (resolved_path) |absolute| self.allocator.free(absolute);
 
-        if (std.mem.endsWith(u8, load_path, ".so")) {
+        if (isDynamicLibraryPath(load_path)) {
             try self.noteManifestHelpForLibrary(load_path);
             if (try self.runtimePolicyDenialForLibrary(load_path)) |reason| {
                 defer self.allocator.free(reason);
@@ -1474,7 +1608,7 @@ pub const Runtime = struct {
         var it = dir.iterate();
         while (try it.next()) |entry| {
             if (entry.kind != .file and entry.kind != .sym_link) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".so")) continue;
+            if (!std.mem.endsWith(u8, entry.name, targetDynamicLibrarySuffix())) continue;
             const lib_path = try std.fs.path.join(self.allocator, &.{ dir_path, entry.name });
             defer self.allocator.free(lib_path);
             try self.loadLibrary(lib_path);
@@ -1482,15 +1616,42 @@ pub const Runtime = struct {
     }
 
     fn loadLibrary(self: *Runtime, path: []const u8) !void {
+        if (try invalidDynamicLibraryHeader(self.allocator, path)) |reason| {
+            try self.addDiagnostic(path, reason);
+            return;
+        }
+
         if (try self.runtimeArtifactHashMismatch(path)) |reason| {
             defer self.allocator.free(reason);
             try self.addDiagnostic(path, reason);
             return;
         }
 
-        var lib = std.DynLib.open(path) catch |err| {
-            try self.addDiagnostic(path, @errorName(err));
-            return;
+        var lib = blk: {
+            if (@import("builtin").os.tag == .windows) {
+                // Plugin DLLs live outside the executable directory, so their
+                // own dependencies (LLVM-C.dll, sibling plugin DLLs) must be
+                // resolved relative to the DLL's install directory.
+                const path_z = std.fmt.allocPrintZ(self.allocator, "{s}", .{path}) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                defer self.allocator.free(path_z);
+                const path_w = std.unicode.utf8ToUtf16LeAllocZ(self.allocator, path_z) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                defer self.allocator.free(path_w);
+                const handle = std.os.windows.LoadLibraryExW(path_w.ptr, .load_with_altered_search_path) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                break :blk std.DynLib{ .inner = .{ .dll = handle } };
+            }
+            break :blk std.DynLib.open(path) catch |err| {
+                try self.addDiagnostic(path, @errorName(err));
+                return;
+            };
         };
         var keep_lib = false;
         defer if (!keep_lib) lib.close();
@@ -1673,10 +1834,27 @@ pub const Runtime = struct {
     }
 };
 
+fn invalidDynamicLibraryHeader(allocator: std.mem.Allocator, path: []const u8) !?[]const u8 {
+    _ = allocator;
+    if (@import("builtin").os.tag != .windows) return null;
+
+    var file = std.fs.openFileAbsolute(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return "FileNotFound",
+        else => return err,
+    };
+    defer file.close();
+
+    var magic: [2]u8 = undefined;
+    const read_len = try file.readAll(&magic);
+    if (read_len != magic.len or !std.mem.eql(u8, magic[0..], "MZ")) return "invalid dynamic library header";
+    return null;
+}
+
 pub const InstallOptions = struct {
     overwrite: bool = true,
     dev: bool = false,
     review: bool = false,
+    optimize: []const u8 = "ReleaseFast",
 };
 
 const SapManifest = struct {
@@ -1790,7 +1968,7 @@ pub fn installFromPath(allocator: std.mem.Allocator, path: []const u8, stdout: a
 
 fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdout: anytype, options: InstallOptions, depth: u8, ancestors: []const []const u8) anyerror!u8 {
     if (depth > 32) return error.PluginDependencyCycle;
-    if (std.mem.endsWith(u8, path, ".so") or std.mem.endsWith(u8, path, ".dll") or std.mem.endsWith(u8, path, ".dylib")) {
+    if (isDynamicLibraryPath(path)) {
         try stdout.writeAll("refusing to install a raw dynamic library; install a plugin project directory or sap.json instead\n");
         return 1;
     }
@@ -1843,7 +2021,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     if (try verifyAssetFiles(allocator, manifest) != 0) return 1;
     if (try verifyInstalledExternSymbolConflicts(allocator, manifest, stdout) != 0) return 1;
 
-    if (try buildPluginProject(allocator, manifest.root_dir, stdout) != 0) return 1;
+    if (try buildPluginProject(allocator, manifest.root_dir, stdout, options.optimize) != 0) return 1;
 
     const artifact_abs = try std.fs.path.join(allocator, &.{ manifest.root_dir, manifest.artifact_rel });
     defer allocator.free(artifact_abs);
@@ -2349,7 +2527,7 @@ fn fetchRemoteArchivePluginSource(allocator: std.mem.Allocator, spec: RemotePlug
 fn downloadRemoteFile(allocator: std.mem.Allocator, url: []const u8, dst_path: []const u8, stdout: anytype) !void {
     const curl_result = std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "curl", "-L", "--fail", "--silent", "--show-error", "-o", dst_path, url },
+        .argv = &.{ "curl", "-L", "--fail", "--silent", "--show-error", "--noproxy", "127.0.0.1,localhost,::1", "-o", dst_path, url },
     }) catch |err| switch (err) {
         error.FileNotFound => {
             const wget_result = try std.process.Child.run(.{
@@ -2382,9 +2560,13 @@ fn extractArchiveToDirectory(
     stdout: anytype,
 ) !void {
     const argv: []const []const u8 = switch (format) {
-        .tar_gz, .tgz => &.{ "tar", "-xzf", archive_path, "-C", extract_dir },
-        .tar_xz => &.{ "tar", "-xJf", archive_path, "-C", extract_dir },
-        .tar_zst => &.{ "tar", "--zstd", "-xf", archive_path, "-C", extract_dir },
+        // --no-same-owner: never restore uid/gid from the archive. GNU tar
+        // defaults to --same-owner when run as root, which fails in
+        // containers without chown permission (and would be a security
+        // hole for remote archives anyway).
+        .tar_gz, .tgz => &.{ "tar", "--no-same-owner", "-xzf", archive_path, "-C", extract_dir },
+        .tar_xz => &.{ "tar", "--no-same-owner", "-xJf", archive_path, "-C", extract_dir },
+        .tar_zst => &.{ "tar", "--no-same-owner", "--zstd", "-xf", archive_path, "-C", extract_dir },
     };
     const result = try std.process.Child.run(.{
         .allocator = allocator,
@@ -2490,8 +2672,36 @@ fn confirmExternalUrl(stdout: anytype, url: []const u8) !bool {
 }
 
 pub fn defaultPluginsHome(allocator: std.mem.Allocator) ![]u8 {
+    if (@import("builtin").os.tag == .windows) {
+        const local_app_data = std.process.getEnvVarOwned(allocator, "LOCALAPPDATA") catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
+            else => return err,
+        };
+        if (local_app_data) |root| {
+            defer allocator.free(root);
+            if (std.fs.path.isAbsolute(root)) return try std.fs.path.join(allocator, &.{ root, "sa_plugins" });
+        }
+
+        const user_profile = std.process.getEnvVarOwned(allocator, "USERPROFILE") catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
+            else => return err,
+        };
+        if (user_profile) |root| {
+            defer allocator.free(root);
+            if (std.fs.path.isAbsolute(root)) return try std.fs.path.join(allocator, &.{ root, ".local", "share", "sa_plugins" });
+        }
+
+        const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+        defer allocator.free(cwd);
+        return try std.fs.path.join(allocator, &.{ cwd, ".sa_plugins" });
+    }
+
     const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return try allocator.dupe(u8, "."),
+        error.EnvironmentVariableNotFound => {
+            const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+            defer allocator.free(cwd);
+            return try std.fs.path.join(allocator, &.{ cwd, ".sa_plugins" });
+        },
         else => return err,
     };
     defer allocator.free(home);
@@ -2744,6 +2954,9 @@ fn selectArtifact(value: std.json.Value) !SelectedArtifact {
         .object => |o| o,
         else => return error.InvalidSapManifest,
     };
+    if (obj.get(targetArtifactKey())) |target_value| {
+        return try artifactFromValue(target_value);
+    }
     if (obj.get("linux-x86_64")) |target_value| {
         return try artifactFromValue(target_value);
     }
@@ -3114,6 +3327,10 @@ const ArtifactImportRule = struct {
 const artifact_import_rules = [_]ArtifactImportRule{
     .{ .symbol = "connect", .capability = .net },
     .{ .symbol = "socket", .capability = .net },
+    .{ .symbol = "WSAStartup", .capability = .net },
+    .{ .symbol = "WSASocketA", .capability = .net },
+    .{ .symbol = "WSASocketW", .capability = .net },
+    .{ .symbol = "closesocket", .capability = .net },
     .{ .symbol = "getaddrinfo", .capability = .net },
     .{ .symbol = "send", .capability = .net },
     .{ .symbol = "sendto", .capability = .net },
@@ -3128,10 +3345,15 @@ const artifact_import_rules = [_]ArtifactImportRule{
     .{ .symbol = "readlink", .capability = .fs },
     .{ .symbol = "stat", .capability = .fs },
     .{ .symbol = "getenv", .capability = .env },
+    .{ .symbol = "_getenv", .capability = .env },
     .{ .symbol = "setenv", .capability = .env },
     .{ .symbol = "unsetenv", .capability = .env },
     .{ .symbol = "putenv", .capability = .env },
+    .{ .symbol = "_putenv", .capability = .env },
+    .{ .symbol = "_putenv_s", .capability = .env },
     .{ .symbol = "execve", .capability = .process },
+    .{ .symbol = "CreateProcessA", .capability = .process },
+    .{ .symbol = "CreateProcessW", .capability = .process },
     .{ .symbol = "execvpe", .capability = .process },
     .{ .symbol = "posix_spawn", .capability = .process },
     .{ .symbol = "fork", .capability = .process },
@@ -3189,6 +3411,25 @@ fn verifyArtifactStaticPolicy(
 }
 
 fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: []const u8, out: *std.ArrayList([]u8)) !void {
+    if (@import("builtin").os.tag == .windows) {
+        const tools = [_][]const u8{"dumpbin"};
+        for (tools) |tool| {
+            const result = std.process.Child.run(.{
+                .allocator = allocator,
+                .argv = &.{ tool, "/nologo", "/imports", artifact_abs },
+            }) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => return err,
+            };
+            defer allocator.free(result.stdout);
+            defer allocator.free(result.stderr);
+            if (!childExitedZero(result.term)) continue;
+            try parseDumpbinImportList(allocator, result.stdout, out);
+            return;
+        }
+        return error.PluginArtifactScanUnavailable;
+    }
+
     const tools = [_][]const u8{ "nm", "llvm-nm" };
     for (tools) |tool| {
         const result = std.process.Child.run(.{
@@ -3205,6 +3446,31 @@ fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: [
         return;
     }
     return error.PluginArtifactScanUnavailable;
+}
+
+fn parseDumpbinImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.ArrayList([]u8)) !void {
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r");
+        if (line.len == 0) continue;
+        if (std.mem.endsWith(u8, line, ".dll") or std.mem.endsWith(u8, line, ".DLL")) continue;
+        var fields = std.mem.tokenizeAny(u8, line, " \t");
+        const first = fields.next() orelse continue;
+        if (!isHexToken(first)) continue;
+        const symbol = fields.next() orelse continue;
+        if (std.mem.eql(u8, symbol, "Ordinal")) continue;
+        if (symbol.len == 0 or externSymbolExists(out.items, symbol)) continue;
+        try out.append(try allocator.dupe(u8, symbol));
+    }
+}
+
+fn isHexToken(text: []const u8) bool {
+    if (text.len == 0) return false;
+    for (text) |c| switch (c) {
+        '0'...'9', 'a'...'f', 'A'...'F' => {},
+        else => return false,
+    };
+    return true;
 }
 
 fn parseUndefinedImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.ArrayList([]u8)) !void {
@@ -3741,12 +4007,20 @@ fn fileExistsInProject(allocator: std.mem.Allocator, root_dir: []const u8, rel: 
     return fileExistsAbsolute(path);
 }
 
-fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout: anytype) !u8 {
-    const result = try std.process.Child.run(.{
+fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout: anytype, optimize: []const u8) !u8 {
+    const optimize_arg = try std.fmt.allocPrint(allocator, "-Doptimize={s}", .{optimize});
+    defer allocator.free(optimize_arg);
+    const result = std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "zig", "build", "-Doptimize=ReleaseFast" },
+        .argv = &.{ "zig", "build", optimize_arg, "--summary", "all" },
         .cwd = root_dir,
-    });
+    }) catch |err| switch (err) {
+        error.FileNotFound => {
+            try stdout.writeAll("error: cannot build plugin project: 'zig' not found in PATH (sa plugin install builds the plugin with zig; install zig 0.14.1+ or add it to PATH)\n");
+            return 1;
+        },
+        else => return err,
+    };
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
@@ -3767,6 +4041,29 @@ fn dirExistsAbsolute(path: []const u8) bool {
     var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
     dir.close();
     return true;
+}
+
+test "plugin build reports clear error when zig is missing from PATH" {
+    const c = @cImport(@cInclude("stdlib.h"));
+    const allocator = std.testing.allocator;
+    const old_path = std.process.getEnvVarOwned(allocator, "PATH") catch null;
+    defer if (old_path) |p| allocator.free(p);
+    // Point PATH at a nonexistent dir so `zig` cannot be resolved; buildPluginProject
+    // must return 1 with a clear message instead of propagating error.FileNotFound.
+    if (c.setenv("PATH", "/tmp/sa-test-no-such-path-dir", 1) != 0) return error.SetEnvFailed;
+    defer blk: {
+        if (old_path) |p| {
+            const z = allocator.dupeZ(u8, p) catch break :blk;
+            defer allocator.free(z);
+            _ = c.setenv("PATH", z.ptr, 1);
+        }
+    }
+    var out = std.ArrayList(u8).init(allocator);
+    defer out.deinit();
+    const rc = try buildPluginProject(allocator, "/tmp", out.writer(), "ReleaseFast");
+    try std.testing.expectEqual(@as(u8, 1), rc);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "PATH") != null);
 }
 
 fn readFileAbsoluteAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {

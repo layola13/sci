@@ -1,6 +1,7 @@
 #ifndef SA_STD_H
 #define SA_STD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -138,6 +139,17 @@ typedef struct sa_std_fallible_i32 {
 
 uint32_t sa_std_version(void);
 int32_t sa_std_last_error(void);
+typedef struct sa_net_iov {
+    uint8_t *base;
+    size_t len;
+} sa_net_iov;
+
+int32_t sa_std_net_error_code_from_status(int32_t status);
+int32_t sa_std_net_error_code_from_posix_errno(int32_t error);
+int32_t sa_std_net_error_code_from_wsa_error(int32_t error);
+int32_t sa_std_net_error_code_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_error_platform(void);
+int32_t sa_std_net_error_code_from_native_error(int32_t error);
 sa_std_fallible_i32 sa_test_fallible_i32_value(int32_t value);
 int32_t sa_std_error_name(int32_t code, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 
@@ -287,6 +299,7 @@ int32_t sa_regex_match_free(uint64_t match);
 int32_t sa_std_write(uint64_t handle, const uint8_t *data, uint64_t len, uint64_t *out_written);
 int32_t sa_std_read(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_close(uint64_t handle);
+void sa_print_bytes(const uint8_t *data, uint64_t len);
 int32_t sa_fs_file_sync_data(uint64_t handle);
 int32_t sa_fs_file_sync(uint64_t handle);
 int32_t sa_fs_file_truncate(uint64_t handle, uint64_t new_size);
@@ -412,20 +425,38 @@ int32_t sa_fs_mkfifo(const uint8_t *path, uint64_t path_len, uint32_t mode);
 int32_t sa_std_fs_read_link(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 
 int32_t sa_std_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_hostname(uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_tcp_connect_timeout(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
+int32_t sa_std_net_tcp_connect_timeout_addr(uint64_t addr_handle, uint64_t timeout_ns, uint64_t *out_handle);
+int32_t sa_std_net_tcp_connect_timeout_all(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t timeout_ns, uint64_t *out_handle);
 int32_t sa_std_net_to_socket_addr_first(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_to_socket_addr_list(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_net_addr_list_next(uint64_t list, int32_t *out_ok, uint64_t *out_addr);
+int32_t sa_std_net_addr_list_remaining(uint64_t list, uint64_t *out_remaining);
+int32_t sa_std_net_addr_list_reset(uint64_t list);
+int32_t sa_std_net_addr_list_free(uint64_t list);
 int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle, uint32_t *out_bound_port);
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_tcp_accept_addr(uint64_t listener_handle, uint64_t *out_stream, uint64_t *out_addr);
 int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);
 int32_t sa_std_net_tcp_stream_read(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_write(uint64_t stream_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+int32_t sa_std_net_tcp_stream_read_vectored(uint64_t stream_handle, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_read);
+int32_t sa_std_net_tcp_stream_write_vectored(uint64_t stream_handle, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_written);
 int32_t sa_std_net_tcp_stream_peer_addr(uint64_t stream_handle, uint64_t *out_handle);
 int32_t sa_std_net_tcp_stream_local_addr(uint64_t stream_handle, uint64_t *out_handle);
 int32_t sa_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap);
+sa_std_fallible_i32 sa_net_tcp_stream_read_exact(uint64_t stream_handle, uint8_t *out, uint64_t len);
 int32_t sa_std_net_tcp_stream_set_read_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_write_timeout(uint64_t stream_handle, uint64_t timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nonblocking(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_linger(uint64_t stream_handle, int32_t enabled, uint64_t timeout_ns);
+int32_t sa_std_net_tcp_stream_linger(uint64_t stream_handle, int32_t *out_enabled, uint64_t *out_timeout_ns);
 int32_t sa_std_net_tcp_stream_set_nodelay(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_set_keepalive(uint64_t stream_handle, int32_t enabled);
+int32_t sa_std_net_tcp_stream_keepalive(uint64_t stream_handle, int32_t *out_enabled);
+int32_t sa_std_net_tcp_stream_set_keepalive_params(uint64_t stream_handle, uint32_t idle_secs, uint32_t interval_secs, uint32_t count);
 int32_t sa_std_net_tcp_stream_set_quickack(uint64_t stream_handle, int32_t enabled);
 int32_t sa_std_net_tcp_stream_quickack(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_tcp_stream_set_deferaccept(uint64_t stream_handle, uint32_t seconds);
@@ -433,6 +464,12 @@ int32_t sa_std_net_tcp_stream_deferaccept(uint64_t stream_handle, uint32_t *out_
 int32_t sa_std_net_tcp_stream_set_ttl(uint64_t stream_handle, uint32_t ttl);
 int32_t sa_std_net_tcp_stream_read_timeout(uint64_t stream_handle, uint64_t *out_timeout_ns);
 int32_t sa_std_net_tcp_stream_write_timeout(uint64_t stream_handle, uint64_t *out_timeout_ns);
+
+int32_t sa_std_net_tcp_stream_set_recv_buffer_size(uint64_t stream_handle, uint32_t size);
+int32_t sa_std_net_tcp_stream_recv_buffer_size(uint64_t stream_handle, uint32_t *out_size);
+int32_t sa_std_net_tcp_stream_set_send_buffer_size(uint64_t stream_handle, uint32_t size);
+int32_t sa_std_net_tcp_stream_send_buffer_size(uint64_t stream_handle, uint32_t *out_size);
+
 int32_t sa_std_net_tcp_stream_nodelay(uint64_t stream_handle, int32_t *out_enabled);
 int32_t sa_std_net_tcp_stream_ttl(uint64_t stream_handle, uint32_t *out_ttl);
 int32_t sa_std_net_tcp_stream_take_error(uint64_t stream_handle, int32_t *out_error);
@@ -445,8 +482,17 @@ int32_t sa_std_net_tcp_listener_set_nonblocking(uint64_t listener_handle, int32_
 int32_t sa_std_net_tcp_listener_set_ttl(uint64_t listener_handle, uint32_t ttl);
 int32_t sa_std_net_tcp_listener_ttl(uint64_t listener_handle, uint32_t *out_ttl);
 int32_t sa_std_net_tcp_listener_take_error(uint64_t listener_handle, int32_t *out_error);
+int32_t sa_std_net_tcp_listener_set_reuseaddr(uint64_t listener_handle, int32_t enabled);
+int32_t sa_std_net_tcp_listener_set_reuseport(uint64_t listener_handle, int32_t enabled);
+int32_t sa_std_net_tcp_listener_set_only_v6(uint64_t listener_handle, int32_t enabled);
+int32_t sa_std_net_tcp_listener_only_v6(uint64_t listener_handle, int32_t *out_enabled);
+int32_t sa_std_net_udp_set_only_v6(uint64_t socket, int32_t enabled);
+int32_t sa_std_net_udp_only_v6(uint64_t socket, int32_t *out_enabled);
 int32_t sa_std_net_tcp_listener_from_raw_fd(int32_t fd, uint64_t *out_handle);
 int32_t sa_std_net_tcp_stream_from_raw_fd(int32_t fd, uint64_t *out_handle);
+int32_t sa_std_net_tcp_stream_try_clone(uint64_t stream, uint64_t *out_handle);
+int32_t sa_std_net_tcp_listener_try_clone(uint64_t listener, uint64_t *out_handle);
+int32_t sa_std_net_udp_try_clone(uint64_t socket, uint64_t *out_handle);
 
 int32_t sa_std_net_unix_listen(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_net_unix_accept(uint64_t listener_handle, uint64_t *out_handle);
@@ -491,6 +537,7 @@ int32_t sa_std_net_udp_bind(const uint8_t *host, uint64_t host_len, uint32_t por
 int32_t sa_std_net_udp_local_addr(uint64_t socket_handle, uint64_t *out_handle);
 int32_t sa_std_net_udp_peer_addr(uint64_t socket_handle, uint64_t *out_handle);
 int32_t sa_std_net_udp_connect(uint64_t socket_handle, const uint8_t *host, uint64_t host_len, uint32_t port);
+int32_t sa_std_net_udp_connect_addr(uint64_t socket_handle, uint64_t addr_handle);
 int32_t sa_std_net_udp_set_read_timeout(uint64_t socket_handle, uint64_t timeout_ns);
 int32_t sa_std_net_udp_set_write_timeout(uint64_t socket_handle, uint64_t timeout_ns);
 int32_t sa_std_net_udp_set_nonblocking(uint64_t socket_handle, int32_t enabled);
@@ -498,17 +545,34 @@ int32_t sa_std_net_udp_set_broadcast(uint64_t socket_handle, int32_t enabled);
 int32_t sa_std_net_udp_set_ttl(uint64_t socket_handle, uint32_t ttl);
 int32_t sa_std_net_udp_set_multicast_loop_v4(uint64_t socket_handle, int32_t enabled);
 int32_t sa_std_net_udp_set_multicast_ttl_v4(uint64_t socket_handle, uint32_t ttl);
+int32_t sa_std_net_udp_set_multicast_loop_v6(uint64_t socket_handle, int32_t enabled);
+int32_t sa_std_net_udp_set_multicast_hops_v6(uint64_t socket_handle, uint32_t hops);
 int32_t sa_std_net_udp_read_timeout(uint64_t socket_handle, uint64_t *out_timeout_ns);
 int32_t sa_std_net_udp_write_timeout(uint64_t socket_handle, uint64_t *out_timeout_ns);
+
+int32_t sa_std_net_udp_set_recv_buffer_size(uint64_t socket_handle, uint32_t size);
+int32_t sa_std_net_udp_recv_buffer_size(uint64_t socket_handle, uint32_t *out_size);
+int32_t sa_std_net_udp_set_send_buffer_size(uint64_t socket_handle, uint32_t size);
+int32_t sa_std_net_udp_send_buffer_size(uint64_t socket_handle, uint32_t *out_size);
+
 int32_t sa_std_net_udp_broadcast(uint64_t socket_handle, int32_t *out_enabled);
 int32_t sa_std_net_udp_ttl(uint64_t socket_handle, uint32_t *out_ttl);
 int32_t sa_std_net_udp_multicast_loop_v4(uint64_t socket_handle, int32_t *out_enabled);
 int32_t sa_std_net_udp_multicast_ttl_v4(uint64_t socket_handle, uint32_t *out_ttl);
+int32_t sa_std_net_udp_multicast_loop_v6(uint64_t socket_handle, int32_t *out_enabled);
+int32_t sa_std_net_udp_multicast_hops_v6(uint64_t socket_handle, uint32_t *out_hops);
+int32_t sa_std_net_udp_set_multicast_if_v4(uint64_t socket_handle, const uint8_t *interface_addr);
+int32_t sa_std_net_udp_multicast_if_v4(uint64_t socket_handle, uint8_t *out_interface_addr);
+int32_t sa_std_net_udp_set_multicast_if_v6(uint64_t socket_handle, uint32_t interface_index);
+int32_t sa_std_net_udp_multicast_if_v6(uint64_t socket_handle, uint32_t *out_interface_index);
 int32_t sa_std_net_udp_take_error(uint64_t socket_handle, int32_t *out_error);
 int32_t sa_std_net_udp_send(uint64_t socket_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
 int32_t sa_std_net_udp_recv(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_udp_peek(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_udp_send_to(uint64_t socket_handle, const uint8_t *buf, uint64_t len, const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_written);
+int32_t sa_std_net_udp_send_vectored(uint64_t socket, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_written);
+int32_t sa_std_net_udp_send_to_vectored(uint64_t socket, const sa_net_iov *iovs, uint64_t iov_count, const uint8_t *host_ptr, uint64_t host_len, uint32_t port, uint64_t *out_written);
+int32_t sa_std_net_udp_recv_from_vectored(uint64_t socket, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_read, uint64_t *out_addr);
 int32_t sa_std_net_udp_recv_from(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read, uint64_t *out_addr_handle);
 int32_t sa_std_net_udp_peek_from(uint64_t socket_handle, uint8_t *out, uint64_t cap, uint64_t *out_read, uint64_t *out_addr_handle);
 int32_t sa_std_net_udp_join_multicast_v4(uint64_t socket_handle, const uint8_t *multi_host, uint64_t multi_host_len, const uint8_t *interface_host, uint64_t interface_host_len);
@@ -538,20 +602,29 @@ uint32_t sa_net_addr_port(uint64_t addr_handle);
 uint32_t sa_net_addr_family(uint64_t addr_handle);
 uint64_t sa_net_addr_scope_id(uint64_t addr_handle);
 int32_t sa_std_net_addr_format(uint64_t addr_handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
-int32_t sa_net_addr_free(uint64_t addr_handle);
+sa_std_fallible_i32 sa_net_addr_free(uint64_t addr_handle);
 uint32_t sa_net_unix_addr_kind(uint64_t addr_handle);
 uint8_t sa_net_unix_addr_is_unnamed(uint64_t addr_handle);
 uint8_t *sa_net_unix_addr_path_ptr(uint64_t addr_handle);
 uint64_t sa_net_unix_addr_path_len(uint64_t addr_handle);
 uint8_t *sa_net_unix_addr_abstract_ptr(uint64_t addr_handle);
 uint64_t sa_net_unix_addr_abstract_len(uint64_t addr_handle);
-int32_t sa_net_unix_addr_free(uint64_t addr_handle);
+sa_std_fallible_i32 sa_net_unix_addr_free(uint64_t addr_handle);
 int32_t sa_net_ipv4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_addr);
 int32_t sa_net_socket_addr_v4_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_socket_addr);
+int32_t sa_net_ipv6_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_addr);
+int32_t sa_net_socket_addr_v6_parse_ascii(const uint8_t *text, uint64_t text_len, uint8_t *out_socket_addr);
+int32_t sa_net_ipv4_format_ascii(const uint8_t *addr, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_net_ipv6_format_ascii(const uint8_t *addr, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_net_socket_addr_v4_format_ascii(const uint8_t *addr, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_net_socket_addr_v6_format_ascii(const uint8_t *addr, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 
 int32_t sa_std_process_run(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
+int32_t sa_std_process_run_cwd(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_handle);
+int32_t sa_std_process_spawn_cwd(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint64_t *out_handle);
 int32_t sa_std_process_spawn_stream(const SaProcessArgv *argv, uint64_t argv_len, uint64_t *out_process, uint64_t *out_stdout, uint64_t *out_stderr);
+int32_t sa_std_process_spawn_stream_cwd(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint64_t *out_process, uint64_t *out_stdout, uint64_t *out_stderr);
 int32_t sa_std_process_run_command_ext(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t has_cwd, const uint8_t *arg0, uint64_t arg0_len, uint32_t has_arg0, int32_t process_group, uint32_t has_process_group, uint32_t setsid, uint64_t *out_handle);
 int32_t sa_std_process_spawn_command_ext(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t has_cwd, const uint8_t *arg0, uint64_t arg0_len, uint32_t has_arg0, int32_t process_group, uint32_t has_process_group, uint32_t setsid, uint64_t *out_handle);
 int32_t sa_std_process_spawn_stream_command_ext(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t has_cwd, const uint8_t *arg0, uint64_t arg0_len, uint32_t has_arg0, int32_t process_group, uint32_t has_process_group, uint32_t setsid, uint64_t *out_process, uint64_t *out_stdout, uint64_t *out_stderr);
@@ -598,6 +671,7 @@ uint8_t sa_std_process_exit_status_continued(int32_t raw);
 int32_t sa_std_process_read_stdout(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_process_read_stderr(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_read);
 int32_t sa_std_process_exec_capture(const SaProcessArgv *argv, uint64_t argv_len, uint32_t *out_code, uint64_t *out_stdout, uint64_t *out_stderr);
+int32_t sa_std_process_exec_capture_cwd(const SaProcessArgv *argv, uint64_t argv_len, const uint8_t *cwd, uint64_t cwd_len, uint32_t *out_code, uint64_t *out_stdout, uint64_t *out_stderr);
 int32_t sa_std_process_close(uint64_t handle);
 
 uint64_t sa_thread_current_id(void);
@@ -619,6 +693,18 @@ int64_t sa_time_unix_s(void);
 int64_t sa_time_unix_ms(void);
 int64_t sa_time_unix_ns(void);
 int32_t sa_time_utc_now(SaTimeDate *out_date);
+uint64_t sa_time_iso_from_unix_ms(int64_t ms);
+int32_t sa_time_parse_iso(const uint8_t *iso, uint64_t len, int64_t *out_ms);
+int64_t sa_time_get_full_year(int64_t ms);
+int64_t sa_time_get_month(int64_t ms);
+int64_t sa_time_get_date(int64_t ms);
+int64_t sa_time_get_hours(int64_t ms);
+int64_t sa_time_get_minutes(int64_t ms);
+int64_t sa_time_get_seconds(int64_t ms);
+int64_t sa_time_get_milliseconds(int64_t ms);
+int64_t sa_time_get_day(int64_t ms);
+int64_t sa_time_set_field(int64_t ms, uint64_t field, int64_t value);
+uint64_t sa_time_format_utc(int64_t ms, uint64_t fmt);
 int32_t sa_time_sleep_ns(uint64_t ns);
 int32_t sa_time_sleep_ms(uint64_t ms);
 
@@ -632,6 +718,20 @@ uint64_t sa_fmt_buffer_len(uint64_t buffer);
 int32_t sa_fmt_buffer_write_to(uint64_t buffer, uint64_t writer);
 int32_t sa_fmt_buffer_free(uint64_t buffer);
 uint64_t sa_string_concat(const uint8_t *left, uint64_t left_len, const uint8_t *right, uint64_t right_len);
+uint64_t sa_string_from_char_code(int32_t code);
+int32_t sa_string_index_of(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len, uint64_t from);
+int32_t sa_string_last_index_of(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len, uint64_t from);
+int32_t sa_string_starts_with(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len);
+int32_t sa_string_ends_with(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len);
+uint64_t sa_string_to_lower_ascii(const uint8_t *ptr, uint64_t len);
+uint64_t sa_string_to_upper_ascii(const uint8_t *ptr, uint64_t len);
+double sa_parse_float(const uint8_t *ptr, uint64_t len);
+uint64_t sa_string_repeat(const uint8_t *ptr, uint64_t len, uint64_t count);
+uint64_t sa_string_pad_start(const uint8_t *ptr, uint64_t len, uint64_t target_len, const uint8_t *pad_ptr, uint64_t pad_len);
+uint64_t sa_string_pad_end(const uint8_t *ptr, uint64_t len, uint64_t target_len, const uint8_t *pad_ptr, uint64_t pad_len);
+uint64_t sa_string_replace(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len, const uint8_t *rep_ptr, uint64_t rep_len, uint64_t all);
+int32_t sa_string_code_point_at(const uint8_t *ptr, uint64_t len, uint64_t idx);
+uint64_t sa_string_from_code_point(int32_t code);
 int32_t sa_str_is_ascii(const uint8_t *ptr, uint64_t len);
 int32_t sa_str_eq_ignore_ascii_case(const uint8_t *left, uint64_t left_len, const uint8_t *right, uint64_t right_len);
 uint64_t sa_str_trim_ascii_start_index(const uint8_t *ptr, uint64_t len);
@@ -665,6 +765,13 @@ uint8_t *sa_env_buffer_data(uint64_t buffer);
 uint64_t sa_env_buffer_len(uint64_t buffer);
 int32_t sa_env_buffer_free(uint64_t buffer);
 uint64_t sa_fmt_i64(int64_t value, uint32_t base);
+double sa_math_floor(double x);
+double sa_math_ceil(double x);
+double sa_math_sqrt(double x);
+double sa_math_sin(double x);
+double sa_math_cos(double x);
+double sa_math_pow(double base, double exp);
+double sa_math_random(void);
 uint64_t sa_fmt_u64(uint64_t value, uint32_t base);
 uint64_t sa_fmt_f64(double value, uint32_t precision);
 uint64_t sa_fmt_bool(uint8_t value);
@@ -677,6 +784,20 @@ int32_t sa_fmt_u64_into(uint64_t value, uint32_t base, uint8_t *out, uint64_t ou
 int32_t sa_fmt_f64_into(double value, uint32_t precision, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_fmt_bool_into(uint8_t value, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_fmt_bytes_into(const uint8_t *buf, uint64_t len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+
+int32_t sa_std_http2_supported(uint32_t *out_supported);
+int32_t sa_std_http2_client_request(const uint8_t *url, uint64_t url_len, const uint8_t *method, uint64_t method_len, const uint8_t *body, uint64_t body_len, uint64_t *out_handle);
+int32_t sa_std_http2_nghttp2_version_json(uint64_t *out_handle);
+int32_t sa_std_http2_status_json(uint64_t *out_handle);
+int32_t sa_std_http2_constants_json(uint64_t *out_handle);
+int32_t sa_std_http2_sensitive_headers(uint64_t *out_handle);
+int32_t sa_std_http2_get_default_settings_json(uint64_t *out_handle);
+int32_t sa_std_http2_get_packed_settings(const uint8_t *settings_json, uint64_t settings_json_len, uint64_t *out_handle);
+int32_t sa_std_http2_get_unpacked_settings_json(const uint8_t *buf, uint64_t buf_len, uint64_t *out_handle);
+int32_t sa_std_http2_perform_server_handshake(const uint8_t *input, uint64_t input_len, const uint8_t *settings_json, uint64_t settings_json_len, uint64_t *out_bytes, uint64_t *out_json);
+const uint8_t *sa_std_http2_buffer_data(uint64_t handle);
+uint64_t sa_std_http2_buffer_len(uint64_t handle);
+int32_t sa_std_http2_buffer_free(uint64_t handle);
 
 #ifdef __cplusplus
 }

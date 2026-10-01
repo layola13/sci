@@ -1,0 +1,4 @@
+// ABI/layout companion for time namespace aggregation.
+@import "duration.sal"
+@import "instant.sal"
+@import "../time.sai"

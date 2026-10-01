@@ -1,0 +1,34 @@
+SA Windows support level: bootstrap/core + optional LLVM native codegen
+
+This archive contains the Windows bootstrap standard runtime. It supports the
+cross-platform compiler/core surface, Windows filesystem/process basics,
+package/plugin host flows, the Windows dynamic-library and IO buffer/line
+APIs, and native LLVM-C code generation when LLVM 14 is installed and
+configured.
+
+The currently implemented first Windows slice includes:
+
+  - sa_dl_open/sym/close/error through Win32 DLL loading;
+  - sa_io_read_line and the SaIoBuffer data/length/free lifecycle;
+  - the existing stream-based read/write/flush/close operations.
+
+Address parsing and address-handle accessors are not included in this
+support claim: the current Windows runtime source does not export the
+sa_net_addr_* or sa_net_*_parse_ascii slice. Network socket families are
+therefore still outside the supported Windows boundary until their runtime
+implementation and native tests are landed.
+
+It is not a claim of full Linux sa_std parity. Linux-only or not-yet-ported
+ABI families (including POSIX fd adoption, Unix sockets, pidfd/process-group
+extensions, terminal epoll/raw mode, regex, and the remaining network
+extensions) are explicitly tracked by:
+
+  docs/runtime_abi_windows_unsupported.txt
+
+The public header remains the shared ABI contract:
+
+  src/runtime/sa_std.h
+
+The archive's Windows runtime library is:
+
+  artifacts/sa_std/sa_std.lib

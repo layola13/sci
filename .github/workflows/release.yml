@@ -5,6 +5,11 @@ on:
     tags:
       - "*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish"
+        required: true
+        default: "0.1.1"
 
 permissions:
   contents: write
@@ -16,6 +21,7 @@ concurrency:
 jobs:
   package:
     name: Package ${{ matrix.name }}
+    if: ${{ false }}
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.allow_failure }}
     strategy:
@@ -30,15 +36,10 @@ jobs:
             llvm_lib: "/usr/lib/llvm-14/lib"
             llvm_name: "LLVM-14"
             allow_failure: false
-          - name: linux-aarch64
-            runner: ubuntu-24.04-arm
-            target: "linux;aarch64;aarch64-linux-gnu;tar.gz"
-            artifact: "sa-linux-aarch64.tar.gz"
-            llvm_include: "/usr/lib/llvm-14/include"
-            llvm_lib: "/usr/lib/llvm-14/lib"
-            llvm_name: "LLVM-14"
-            allow_failure: true
-          # Non-Linux release archives are disabled until those targets are supported.
+          # Cross-compilation targets remain disabled until their native CI
+          # gates are stable. The Windows installer below is built natively.
+          # Other non-Linux release archives remain disabled until their
+          # runtime support levels and native CI gates are established.
           # - name: macos-x86_64
           #   runner: macos-15-intel
           #   target: "macos;x86_64;x86_64-macos;tar.gz"
@@ -53,14 +54,6 @@ jobs:
           #   artifact: "sa-macos-aarch64.tar.gz"
           #   llvm_include: "/opt/homebrew/opt/llvm@14/include"
           #   llvm_lib: "/opt/homebrew/opt/llvm@14/lib"
-          #   llvm_name: "LLVM"
-          #   allow_failure: true
-          # - name: windows-x86_64
-          #   runner: windows-2025
-          #   target: "windows;x86_64;x86_64-windows-gnu;zip"
-          #   artifact: "sa-windows-x86_64.zip"
-          #   llvm_include: "C:/Program Files/LLVM/include"
-          #   llvm_lib: "C:/Program Files/LLVM/lib"
           #   llvm_name: "LLVM"
           #   allow_failure: true
           # - name: windows-aarch64
@@ -97,6 +90,12 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zip llvm-14-dev
 
+      - name: Verify Windows packaging tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command powershell.exe -ErrorAction SilentlyContinue)) { throw "powershell.exe is required for ZIP packaging" }
+
       # Non-Linux dependency setup is disabled with the non-Linux matrix entries above.
       # - name: Install macOS packaging dependencies
       #   if: runner.os == 'macOS'
@@ -122,12 +121,269 @@ jobs:
           name: ${{ matrix.name }}
           path: |
             dist/${{ matrix.artifact }}
-            dist/sha256sums.txt
 
+  installer:
+    name: Build SCI Windows installer
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    steps:
+      - name: Checkout SCI
+        uses: actions/checkout@v4
+        with:
+          path: sci
+          fetch-depth: 0
+
+      - name: Checkout SLA plugin
+        uses: actions/checkout@v4
+        with:
+          repository: layola13/sa_plugin_sla
+          ref: windows/support-windows-build
+          path: sa_plugin_sla
+          fetch-depth: 0
+
+      - name: Checkout Windows plugins
+        shell: pwsh
+        run: |
+          $plugins = @(
+            @{ name = 'sa_plugin_bc2sa'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_db'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_deno'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_http_client'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_http_server'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_mui'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_node'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_pkg'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_react'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_sax'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_tui'; ref = 'windows' },
+            @{ name = 'sa_plugin_vite'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_vm'; ref = 'windows/support-windows-build' },
+            @{ name = 'sa_plugin_wgpu'; ref = 'windows/support-windows-build' }
+          )
+          foreach ($plugin in $plugins) {
+            $url = "https://github.com/layola13/$($plugin.name).git"
+            git clone --depth 1 --branch $plugin.ref $url $plugin.name
+            if ($LASTEXITCODE -ne 0) { throw "Failed checking out $($plugin.name)@$($plugin.ref)" }
+          }
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Isolate Zig caches
+        shell: pwsh
+        run: |
+          $globalCache = Join-Path $env:RUNNER_TEMP ("zig-global-cache-{0}" -f $env:GITHUB_RUN_ID)
+          $localCache = Join-Path $env:RUNNER_TEMP ("zig-local-cache-{0}" -f $env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force -Path $globalCache, $localCache | Out-Null
+          "ZIG_GLOBAL_CACHE_DIR=$globalCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZIG_LOCAL_CACHE_DIR=$localCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Locate LLVM
+        shell: pwsh
+        run: |
+          choco install llvm --version=14.0.6 --allow-downgrade --force --yes --no-progress --execution-timeout=900
+          if ($LASTEXITCODE -ne 0) { throw "LLVM 14 installation failed with exit code $LASTEXITCODE" }
+          $roots = @('C:\Program Files\LLVM', 'C:\Program Files\LLVM-14.0.6', 'C:\LLVM-14.0.6', 'D:\LLVM-14.0.6')
+          $header = $null
+          $import = $null
+          foreach ($root in $roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            if (-not $header) { $header = Get-ChildItem -LiteralPath $root -Filter Core.h -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\llvm-c\\Core\.h$' } | Select-Object -First 1 }
+            if (-not $import) { $import = Get-ChildItem -LiteralPath $root -Filter 'LLVM-C*.lib' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          }
+          if (-not $header) {
+            $sourceArchive = Join-Path $env:RUNNER_TEMP 'llvm-14.0.6.src.tar.xz'
+            $sourceRoot = Join-Path $env:RUNNER_TEMP 'llvm-14.0.6-src'
+            New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
+            Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/llvm-14.0.6.src.tar.xz' -OutFile $sourceArchive -TimeoutSec 300
+            $tar = (Get-Command tar.exe -ErrorAction Stop).Source
+            $tarArgs = @('-xf', ('"{0}"' -f $sourceArchive), '-C', ('"{0}"' -f $sourceRoot))
+            $tarProcess = Start-Process -FilePath $tar -ArgumentList $tarArgs -PassThru -WindowStyle Hidden
+            if (-not $tarProcess.WaitForExit(300000)) { $tarProcess.Kill(); throw 'Timed out extracting LLVM source headers' }
+            if ($tarProcess.ExitCode -ne 0) { throw "LLVM source extraction failed with exit code $($tarProcess.ExitCode)" }
+            $header = Get-ChildItem -LiteralPath $sourceRoot -Filter Core.h -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\llvm-c\\Core\.h$' } | Select-Object -First 1
+          }
+          if (-not $header -or -not $import) {
+            throw 'LLVM 14 is missing llvm-c/Core.h or LLVM-C import library'
+          }
+          $llvmInclude = $header.Directory.Parent.FullName
+          $llvmLib = $import.Directory.FullName
+          $llvmRoot = $import.Directory.Parent.FullName
+          "LLVM_ROOT=$llvmRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_INCLUDE=$llvmInclude" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_LIB=$llvmLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build SCI and SLA Windows artifacts
+        shell: pwsh
+        working-directory: sci
+        run: |
+          function Invoke-Bounded([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory, [int]$TimeoutSeconds = 60) {
+            $safeName = [IO.Path]::GetFileNameWithoutExtension($FilePath)
+            $stdout = Join-Path $env:RUNNER_TEMP ("{0}-stdout.log" -f $safeName)
+            $stderr = Join-Path $env:RUNNER_TEMP ("{0}-stderr.log" -f $safeName)
+            $quoted = $Arguments | ForEach-Object {
+              $value = [string]$_
+              if ($value -match '[\s"]') { '"' + $value.Replace('"', '\"') + '"' } else { $value }
+            }
+            $process = Start-Process -FilePath $FilePath -ArgumentList ($quoted -join ' ') -WorkingDirectory $WorkingDirectory -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+              throw "Timed out after ${TimeoutSeconds}s: $FilePath $($Arguments -join ' ')"
+            }
+            $exitCode = $process.ExitCode
+            $process.Dispose()
+            if ($exitCode -ne 0) {
+              $details = @()
+              if (Test-Path -LiteralPath $stdout) { $details += Get-Content -LiteralPath $stdout -Raw -Encoding UTF8 }
+              if (Test-Path -LiteralPath $stderr) { $details += Get-Content -LiteralPath $stderr -Raw -Encoding UTF8 }
+              throw "Command failed (exit code $exitCode): $FilePath $($Arguments -join ' ')`n$($details -join [Environment]::NewLine)"
+            }
+          }
+          $llvmInclude = $env:LLVM_INCLUDE
+          $llvmLib = $env:LLVM_LIB
+          $buildArgs = @(
+            'build', 'install', '-Dllvm=true',
+            ("-Dllvm-include-dir={0}" -f $llvmInclude),
+            ("-Dllvm-lib-dir={0}" -f $llvmLib),
+            '-Dllvm-lib-name=LLVM-C',
+            '-Doptimize=ReleaseFast'
+          )
+          $zig = (Get-Command zig.exe -ErrorAction Stop).Source
+          Invoke-Bounded $zig $buildArgs (Get-Location).Path 900
+          $saBin = Join-Path (Get-Location).Path 'zig-out\bin\sa.exe'
+          if (-not (Test-Path -LiteralPath $saBin -PathType Leaf)) { throw "Missing SCI compiler: $saBin" }
+          foreach ($check in @('--version', 'help')) {
+            Invoke-Bounded $saBin @($check) (Split-Path -Parent $saBin) 30
+          }
+          Get-FileHash -LiteralPath $saBin -Algorithm SHA256 | Format-List
+          $llvmDll = Join-Path (Split-Path -Parent $saBin) 'LLVM-C.dll'
+          if (-not (Test-Path -LiteralPath $llvmDll -PathType Leaf)) { throw "Missing LLVM runtime: $llvmDll" }
+          Get-FileHash -LiteralPath $llvmDll -Algorithm SHA256 | Format-List
+          Push-Location ..\sa_plugin_sla
+          try {
+            Invoke-Bounded $zig @('build', 'install', '-Dtarget=x86_64-windows', '-Doptimize=ReleaseFast') (Get-Location).Path 900
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build all Windows plugin artifacts
+        shell: pwsh
+        working-directory: sci
+        run: |
+          $workspace = (Resolve-Path '..').Path
+          $sciRoot = (Get-Location).Path
+          $saBin = Join-Path $sciRoot 'zig-out\bin\sa.exe'
+          $saxBin = Join-Path (Join-Path $workspace 'sa_plugin_sax') 'zig-out\bin\sax.dll'
+          $zig = (Get-Command zig.exe -ErrorAction Stop).Source
+
+          function Invoke-Bounded([string]$Cwd, [string[]]$Arguments, [int]$TimeoutSeconds = 900) {
+            $safeName = [IO.Path]::GetFileName($Cwd)
+            $stdout = Join-Path $env:RUNNER_TEMP ("{0}-zig.stdout.log" -f $safeName)
+            $stderr = Join-Path $env:RUNNER_TEMP ("{0}-zig.stderr.log" -f $safeName)
+            $quoted = $Arguments | ForEach-Object {
+              $value = [string]$_
+              if ($value -match '[\s"]') { '"' + $value.Replace('"', '\"') + '"' } else { $value }
+            }
+            $process = Start-Process -FilePath $zig -ArgumentList ($quoted -join ' ') -WorkingDirectory $Cwd -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+              throw "Timed out after ${TimeoutSeconds}s: $Cwd zig $($Arguments -join ' ')"
+            }
+            $exitCode = $process.ExitCode
+            $process.Dispose()
+            if ($exitCode -ne 0) {
+              $details = @()
+              if (Test-Path -LiteralPath $stdout) { $details += Get-Content -LiteralPath $stdout -Raw -Encoding UTF8 }
+              if (Test-Path -LiteralPath $stderr) { $details += Get-Content -LiteralPath $stderr -Raw -Encoding UTF8 }
+              throw "Plugin build failed (exit code $exitCode) in $Cwd`n$($details -join [Environment]::NewLine)"
+            }
+          }
+
+          $llvmArgs = @(
+            ("-Dllvm-include-dir={0}" -f $env:LLVM_INCLUDE),
+            ("-Dllvm-lib-dir={0}" -f $env:LLVM_LIB),
+            '-Dllvm-lib-name=LLVM-C'
+          )
+          $pluginSpecs = @(
+            @{ Name = 'sa_plugin_http_client'; Extra = @(("-Dsci-root={0}" -f $sciRoot)) },
+            @{ Name = 'sa_plugin_http_server'; Extra = @(("-Dsci-root={0}" -f $sciRoot)) },
+            @{ Name = 'sa_plugin_deno'; Extra = @() },
+            @{ Name = 'sa_plugin_node'; Extra = @(("-Dsci-root={0}" -f $sciRoot)) },
+            @{ Name = 'sa_plugin_sax'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin)) + $llvmArgs },
+            @{ Name = 'sa_plugin_react'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin)) + $llvmArgs },
+            @{ Name = 'sa_plugin_mui'; Extra = @() },
+            @{ Name = 'sa_plugin_vite'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot)) + $llvmArgs },
+            @{ Name = 'sa_plugin_wgpu'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin), ("-Dsax-lib={0}" -f $saxBin)) },
+            @{ Name = 'sa_plugin_bc2sa'; Extra = @(("-Dsa-bin={0}" -f $saBin)) },
+            @{ Name = 'sa_plugin_db'; Extra = @(("-Dsa-repo-root={0}" -f $sciRoot), ("-Dsa-bin={0}" -f $saBin)) },
+            @{ Name = 'sa_plugin_pkg'; Extra = @() },
+            @{ Name = 'sa_plugin_tui'; Extra = @() },
+            @{ Name = 'sa_plugin_vm'; Extra = @() }
+          )
+          foreach ($spec in $pluginSpecs) {
+            $pluginRoot = (Resolve-Path (Join-Path $workspace $spec.Name)).Path
+            $args = @('build', 'install', '-Dtarget=x86_64-windows', '-Doptimize=ReleaseFast') + @($spec.Extra)
+            Write-Host "Building $($spec.Name)"
+            Invoke-Bounded $pluginRoot $args 900
+            $manifestPath = Join-Path $pluginRoot 'sap.json'
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $artifact = Join-Path $pluginRoot ([string]$manifest.artifacts.'windows-x86_64'.path)
+            if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { throw "Missing Windows artifact after build: $artifact" }
+            Write-Host "Built $($manifest.name): $artifact"
+          }
+
+      - name: Build full Windows bundle
+        shell: pwsh
+        working-directory: sci
+        run: .\tools\package_windows.ps1 -SkipBuild -Output 'dist/SCI-windows-x64-full.zip' -LlvmBin (Join-Path $env:LLVM_ROOT 'bin') -TimeoutSeconds 900
+
+      - name: Verify bundled Windows plugins
+        shell: pwsh
+        working-directory: sci
+        run: |
+          $verifyRoot = Join-Path $env:RUNNER_TEMP 'sci-bundle-plugin-check'
+          if (Test-Path -LiteralPath $verifyRoot) { Remove-Item -LiteralPath $verifyRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $verifyRoot | Out-Null
+          Expand-Archive -LiteralPath 'dist/SCI-windows-x64-full.zip' -DestinationPath $verifyRoot -Force
+          $metaPath = Join-Path $verifyRoot 'bundle.json'
+          if (-not (Test-Path -LiteralPath $metaPath -PathType Leaf)) { throw 'bundle.json is missing from Windows bundle' }
+          $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $expected = @('bc2sa','db','deno','http-client','http-server','mui','node','pkg','react','sax','sla','tui','vite','vm','wgpu')
+          $actual = @($meta.plugins | ForEach-Object { [string]$_ } | Sort-Object)
+          $expectedSorted = @($expected | Sort-Object)
+          if (($actual -join '|') -ne ($expectedSorted -join '|')) {
+            throw "Windows bundle plugin set mismatch. Expected: $($expectedSorted -join ', '); Actual: $($actual -join ', ')"
+          }
+          foreach ($plugin in $actual) {
+            $pluginRoot = Get-ChildItem -LiteralPath (Join-Path $verifyRoot 'plugins') -Directory | Where-Object {
+              $manifest = Join-Path $_.FullName 'sap.json'
+              (Test-Path -LiteralPath $manifest -PathType Leaf) -and ((Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json).name -eq $plugin)
+            } | Select-Object -First 1
+            if (-not $pluginRoot) { throw "Missing bundled plugin directory for $plugin" }
+            foreach ($lock in @('sap.lock','permissions.lock')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot.FullName $lock) -PathType Leaf)) { throw "Missing $lock for $plugin" }
+            }
+          }
+          Write-Host "Verified $($actual.Count) Windows plugins with lock files: $($actual -join ', ')"
+
+      - name: Build Electron installer
+        shell: pwsh
+        working-directory: sci
+        run: .\tools\build_electron_installer_windows.ps1 -SkipBundle -Output 'dist/SCI-windows-x64-full.zip' -TimeoutSeconds 900
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: sci/tools/electron-installer/dist/SCI-Setup-*.exe
+          if-no-files-found: error
   release:
     name: Create GitHub release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: package
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [installer]
     runs-on: ubuntu-24.04
     steps:
       - name: Download archives
@@ -135,16 +391,18 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-          name: linux-x86_64
+          pattern: "*"
 
       - name: Generate combined checksums
         run: |
           cd dist
-          sha256sum sa-* > sha256sums.txt
+          sha256sum SCI-Setup-*.exe > sha256sums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: SCI ${{ inputs.release_tag || github.ref_name }}
           files: |
-            dist/sa-*.tar.gz
+            dist/SCI-Setup-*.exe
             dist/sha256sums.txt

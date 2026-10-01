@@ -100,6 +100,19 @@ permissions {
 }
 ```
 
+包边界元数据可以使用兼容旧式 `package "name"` 的小型块声明；块内每行一个字段，当前解析器支持 `name`、`version`、`abi` 和 `features`：
+
+```text
+package {
+  name "sa_std"
+  version "0.1.0"
+  abi 7
+  features ["core", "windows"]
+}
+```
+
+这些字段只描述包身份与 ABI 发布线，不替代 `require` 依赖和权限声明。编译器内置 `sa_std/sa.mod` 暂不填写可变的版本/ABI 值，待发布策略冻结后再写入。
+
 每条 `require` 语句的物理字段：
 
 | 字段 | 含义 |

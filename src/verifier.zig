@@ -520,6 +520,8 @@ const InteriorContext = struct {
     interior_root: []?u32,
     interior_offset: []u64,
     interior_offset_known: []bool,
+    alloc_size: []u64,
+    alloc_size_known: []bool,
 };
 
 const LabelStateChange = struct {
@@ -534,6 +536,8 @@ const LabelStateChange = struct {
     interior_root: ?u32 = null,
     interior_offset: ?u64 = null,
     interior_offset_known: ?bool = null,
+    alloc_size: ?u64 = null,
+    alloc_size_known: ?bool = null,
 };
 
 const LabelSnapshot = struct {
@@ -842,7 +846,16 @@ fn mergeJoinMask(left: u16, right: u16) ?u16 {
     // This fixes SLA PhiStateConflict in while loops and if-without-else patterns
     const active_mask = maskOf(.active);
     if ((left == 0 and right == active_mask) or (right == 0 and left == active_mask)) {
-        return 0;  // Merge to Uninitialized (safe: uninit is the conservative state)
+        return 0; // Merge to Uninitialized (safe: uninit is the conservative state)
+    }
+
+    // PATCH 1b: Allow (Active|BorrowView) ↔ Uninitialized merging.
+    // A borrow created on one if/else branch but not the other merges to
+    // Uninitialized (the borrow is dead on the merged path). This mirrors
+    // the Active ↔ Uninitialized patch above.
+    const borrow_active_mask = maskOf(.active) | maskOf(.borrow_view);
+    if ((left == 0 and right == borrow_active_mask) or (right == 0 and left == borrow_active_mask)) {
+        return 0;
     }
 
     // PATCH 2: Allow Active ↔ Untracked merging for primitive types
@@ -883,6 +896,8 @@ fn captureLabelSnapshot(
     interior_root: []const ?u32,
     interior_offset: []const u64,
     interior_offset_known: []const bool,
+    alloc_size: []const u64,
+    alloc_size_known: []const bool,
 ) !LabelSnapshot {
     var changes = std.ArrayList(LabelStateChange).init(allocator);
     errdefer changes.deinit();
@@ -896,7 +911,8 @@ fn captureLabelSnapshot(
         const next_sibling = interior_next_sibling[idx];
         const root = interior_root[idx];
         const offset_known = interior_offset_known[idx];
-        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null or root != null or offset_known;
+        const size_known = alloc_size_known[idx];
+        const changed = mask != 0 or origin != null or lock != 0 or flag != 0 or parent != null or first_child != null or next_sibling != null or root != null or offset_known or size_known;
         if (!changed) continue;
         try changes.append(.{
             .reg = @intCast(idx),
@@ -910,6 +926,8 @@ fn captureLabelSnapshot(
             .interior_root = root,
             .interior_offset = if (offset_known) interior_offset[idx] else null,
             .interior_offset_known = if (offset_known) true else null,
+            .alloc_size = if (size_known) alloc_size[idx] else null,
+            .alloc_size_known = if (size_known) true else null,
         });
     }
 
@@ -928,6 +946,8 @@ fn restoreLabelSnapshot(
     interior_root: []?u32,
     interior_offset: []u64,
     interior_offset_known: []bool,
+    alloc_size: []u64,
+    alloc_size_known: []bool,
 ) void {
     @memset(state, 0);
     @memset(origins, null);
@@ -939,6 +959,8 @@ fn restoreLabelSnapshot(
     @memset(interior_root, null);
     @memset(interior_offset, 0);
     @memset(interior_offset_known, false);
+    @memset(alloc_size, 0);
+    @memset(alloc_size_known, false);
 
     for (snapshot.changes) |change| {
         const idx: usize = @intCast(change.reg);
@@ -952,6 +974,8 @@ fn restoreLabelSnapshot(
         if (change.interior_root) |value| interior_root[idx] = value;
         if (change.interior_offset) |value| interior_offset[idx] = value;
         if (change.interior_offset_known) |value| interior_offset_known[idx] = value;
+        if (change.alloc_size) |value| alloc_size[idx] = value;
+        if (change.alloc_size_known) |value| alloc_size_known[idx] = value;
     }
 }
 
@@ -987,6 +1011,11 @@ fn snapshotStatesCompatible(snapshot: *const LabelSnapshot, state: []const u16) 
         // PATCH: Allow Active ↔ Uninitialized
         if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
 
+        // PATCH: Allow (Active|BorrowView) ↔ Uninitialized (while-loop back-edge
+        // with a borrow created inside the loop but not at entry).
+        const borrow_active_mask: u16 = 0x01 | 0x10; // active | borrow_view
+        if ((snap_mask == 0 and mask == borrow_active_mask) or (mask == 0 and snap_mask == borrow_active_mask)) continue;
+
         // PATCH: Allow Active (0x01) ↔ Untracked (0x40)
         if (snap_mask == active_mask and mask == untracked_mask) continue;
         if (mask == active_mask and snap_mask == untracked_mask) continue;
@@ -1020,6 +1049,11 @@ fn snapshotFirstMismatch(snapshot: *const LabelSnapshot, state: []const u16, sym
         const active_mask = maskOf(.active);
         if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
 
+        // PATCH: Allow (Active|BorrowView) ↔ Uninitialized (while-loop back-edge
+        // with a borrow created inside the loop but not at entry).
+        const borrow_active_mask = maskOf(.active) | maskOf(.borrow_view);
+        if ((snap_mask == 0 and mask == borrow_active_mask) or (mask == 0 and snap_mask == borrow_active_mask)) continue;
+
         // PATCH: Allow Active ↔ Untracked
         const untracked_mask = maskOf(.untracked);
         if ((snap_mask == active_mask and mask == untracked_mask) or (mask == active_mask and snap_mask == untracked_mask)) continue;
@@ -1046,6 +1080,11 @@ fn snapshotFirstMismatchInScope(snapshot: *const LabelSnapshot, state: []const u
         // PATCH: Allow Active ↔ Uninitialized
         const active_mask = maskOf(.active);
         if ((snap_mask == 0 and mask == active_mask) or (mask == 0 and snap_mask == active_mask)) continue;
+
+        // PATCH: Allow (Active|BorrowView) ↔ Uninitialized (while-loop back-edge
+        // with a borrow created inside the loop but not at entry).
+        const borrow_active_mask = maskOf(.active) | maskOf(.borrow_view);
+        if ((snap_mask == 0 and mask == borrow_active_mask) or (mask == 0 and snap_mask == borrow_active_mask)) continue;
 
         // PATCH: Allow Active ↔ Untracked
         const untracked_mask = maskOf(.untracked);
@@ -1298,6 +1337,157 @@ fn staticByteOffset(operand: inst.Operand) ?u64 {
         .imm_i64 => |value| if (value >= 0) @as(u64, @intCast(value)) else null,
         else => null,
     };
+}
+
+fn parseAllocSizeOperand(operand: inst.Operand) ?u64 {
+    return switch (operand) {
+        .imm_u64 => |value| value,
+        .imm_i64 => |value| if (value > 0) @as(u64, @intCast(value)) else null,
+        .text => |t| std.fmt.parseInt(u64, std.mem.trim(u8, t, " \t\r\n"), 10) catch null,
+        else => null,
+    };
+}
+
+fn clearAllocSizeMeta(interior: *InteriorContext, id: u32) void {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.alloc_size.len) return;
+    interior.alloc_size[idx] = 0;
+    interior.alloc_size_known[idx] = false;
+}
+
+fn recordAllocSize(interior: *InteriorContext, id: u32, maybe_size: ?u64) void {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.alloc_size.len) return;
+    if (maybe_size) |size| {
+        interior.alloc_size[idx] = size;
+        interior.alloc_size_known[idx] = true;
+    } else {
+        interior.alloc_size[idx] = 0;
+        interior.alloc_size_known[idx] = false;
+    }
+}
+
+/// Follow interior_root, then borrow origins, to the ultimate allocation.
+/// Returns the allocation register id, or null when the chain is unknown.
+fn resolveAllocRoot(
+    interior: *const InteriorContext,
+    origins: []const ?u32,
+    id: u32,
+) ?u32 {
+    var current: u32 = id;
+    var hops: usize = 0;
+    while (hops < origins.len + 1) : (hops += 1) {
+        const idx: usize = @intCast(current);
+        if (idx >= interior.interior_root.len or idx >= origins.len) return null;
+        if (interior.interior_root[idx]) |root| {
+            if (root == current) break;
+            current = root;
+            continue;
+        }
+        if (origins[idx]) |origin| {
+            if (origin == current) break;
+            current = origin;
+            continue;
+        }
+        break;
+    }
+    return current;
+}
+
+/// Total static byte offset of `id` relative to its allocation root, or null
+/// when any step of the chain is dynamic/unknown.
+/// A fresh borrow view or allocation root with no recorded offset counts as
+/// zero and the walk continues through origins; a derived pointer
+/// (interior_root set) with unknown offset denotes a dynamic offset and
+/// stays permissive.
+fn chainBaseOffset(
+    interior: *const InteriorContext,
+    origins: []const ?u32,
+    id: u32,
+) ?u64 {
+    var total: u64 = 0;
+    var current: u32 = id;
+    var hops: usize = 0;
+    const bound: usize = origins.len + 1;
+    while (hops < bound) : (hops += 1) {
+        const idx: usize = @intCast(current);
+        if (idx >= interior.interior_offset_known.len or idx >= interior.interior_root.len or idx >= origins.len) return null;
+        if (interior.interior_offset_known[idx]) {
+            const sum = @addWithOverflow(total, interior.interior_offset[idx]);
+            if (sum[1] != 0) return null;
+            total = sum[0];
+        } else if (interior.interior_root[idx] == null and origins[idx] == null) {
+            // Allocation root (or plain value) with no offset: contributes 0.
+        } else if (interior.interior_root[idx] == null and origins[idx] != null) {
+            // Fresh borrow view directly on its source: contributes 0.
+        } else {
+            // Derived pointer with dynamic/unknown offset: permissive.
+            return null;
+        }
+        if (interior.interior_root[idx]) |root| {
+            if (root == current) {
+                // Root link resolved; continue through borrow origins if any.
+                if (origins[idx]) |origin| {
+                    if (origin == current) break;
+                    current = origin;
+                    continue;
+                }
+                break;
+            }
+            current = root;
+            continue;
+        }
+        if (origins[idx]) |origin| {
+            if (origin == current) break;
+            current = origin;
+            continue;
+        }
+        break;
+    }
+    return total;
+}
+
+/// Total static byte offset of `id` relative to its allocation root, or null
+/// when any step of the chain is dynamic/unknown.
+fn totalStaticOffset(interior: *const InteriorContext, id: u32) ?u64 {
+    const idx: usize = @intCast(id);
+    if (idx >= interior.interior_offset_known.len) return null;
+    if (!interior.interior_offset_known[idx]) return null;
+    return interior.interior_offset[idx];
+}
+
+fn checkStaticOffsetInBounds(
+    item: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+    name: []const u8,
+    interior: *const InteriorContext,
+    origins: []const ?u32,
+    state: []const u16,
+    id: u32,
+    static_offset: ?u64,
+) ?VerifyBodyResult {
+    const off = static_offset orelse return null;
+    const root = resolveAllocRoot(interior, origins, id) orelse return null;
+    const root_idx: usize = @intCast(root);
+    if (root_idx >= interior.alloc_size_known.len) return null;
+    if (!interior.alloc_size_known[root_idx]) return null;
+    const size = interior.alloc_size[root_idx];
+    // Base offset accumulated along the interior/borrow chain (fresh views
+    // count as zero; dynamic steps stay permissive).
+    const base_off = chainBaseOffset(interior, origins, id) orelse return null;
+    const sum = @addWithOverflow(base_off, off);
+    if (sum[1] != 0) {
+        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[@intCast(id)], "pointer offset exceeds allocation size", "shrink the constant offset or widen the allocation");
+    }
+    const total = sum[0];
+    // Offset equal to size is one-past-the-end: forming it is legal only if
+    // never dereferenced, but our load/store/ptr_add use sites all denote an
+    // actual access here, so require strict containment.
+    if (total >= size) {
+        return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[@intCast(id)], "pointer offset exceeds allocation size", "shrink the constant offset or widen the allocation");
+    }
+    return null;
 }
 
 fn setInteriorOffsetFromBase(interior: *InteriorContext, base_id: u32, child_id: u32, maybe_offset: ?u64) void {
@@ -1992,6 +2182,91 @@ fn resolveScopedRegId(
     return scope.slotOf(global_id);
 }
 
+/// Rebuild per-function register scopes for a trusted (previously verified)
+/// instruction stream. The verdict-cache fast path reuses FlattenResult sigs
+/// whose `reg_ids` were never finalized, which leaves every `regSlot`/`slotOf`
+/// lookup in codegen failing with `InvalidOperand`. This mirrors the scope
+/// collection order of `collectMetadata` (params, body `.reg` operands and
+/// call dests interleaved per instruction, then const decl names), assigns
+/// owned `reg_ids` on each sig, and localizes body `.reg` operands to slots
+/// exactly like full verification output.
+pub fn populateTrustedRegScopes(
+    allocator: std.mem.Allocator,
+    instructions: []inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    function_sigs: []sig.FunctionSig,
+    symbols: *const symbol.SymbolTable,
+) !void {
+    var sig_index: usize = 0;
+    var range_start: ?usize = null;
+    var idx: usize = 0;
+    while (idx <= instructions.len) : (idx += 1) {
+        const at_decl = idx < instructions.len and isDecl(instructions[idx].kind);
+        if (idx == instructions.len or at_decl) {
+            if (range_start) |start| {
+                if (sig_index >= function_sigs.len) return error.InvalidTrustedScope;
+                try populateTrustedFunctionScope(allocator, instructions[start..idx], const_decls, &function_sigs[sig_index], symbols);
+                sig_index += 1;
+            }
+            if (idx < instructions.len) range_start = idx + 1;
+        }
+    }
+    if (sig_index != function_sigs.len) return error.InvalidTrustedScope;
+}
+
+fn populateTrustedFunctionScope(
+    allocator: std.mem.Allocator,
+    body: []inst.Instruction,
+    const_decls: []const const_decl.ConstDecl,
+    function_sig: *sig.FunctionSig,
+    symbols: *const symbol.SymbolTable,
+) !void {
+    var reg_ids = std.ArrayList(u32).init(allocator);
+    errdefer reg_ids.deinit();
+    var seen = std.AutoHashMap(u32, void).init(allocator);
+    defer seen.deinit();
+
+    for (function_sig.param_ids) |reg_id| {
+        try addScopeReg(&reg_ids, &seen, reg_id);
+    }
+    for (body) |item| {
+        for (item.operands) |operand| {
+            if (operand == .reg) {
+                try addScopeReg(&reg_ids, &seen, operand.reg);
+            }
+        }
+        if (parseInstructionCallForVerifier(allocator, symbols, item)) |parsed0| {
+            var parsed = parsed0;
+            defer parsed.deinit(allocator);
+            if (parsed.dest) |dest| {
+                if (isIdentLike(dest)) {
+                    if (symbols.findId(dest)) |id| {
+                        try addScopeReg(&reg_ids, &seen, id);
+                    }
+                }
+            }
+        } else |_| {}
+    }
+    for (const_decls) |decl| {
+        if (symbols.findId(decl.name)) |id| {
+            try addScopeReg(&reg_ids, &seen, id);
+        }
+    }
+
+    var scope = try FunctionRegScope.init(allocator, try reg_ids.toOwnedSlice());
+    errdefer scope.deinit();
+    for (body) |*item| {
+        for (&item.operands) |*operand| {
+            if (operand.* == .reg) {
+                operand.* = .{ .reg = scope.slotOf(operand.reg) orelse return error.InvalidTrustedScope };
+            }
+        }
+    }
+    function_sig.reg_ids = scope.reg_ids;
+    scope.owns_reg_ids = false;
+    scope.deinit();
+}
+
 fn collectMetadata(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
@@ -2250,6 +2525,16 @@ fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.Function
     const reg_ids = if (source.reg_ids.len == 0) &.{} else try allocator.dupe(u32, source.reg_ids);
     errdefer if (reg_ids.len != 0) allocator.free(reg_ids);
 
+    const upstream_file = if (source.upstream_file) |file| try allocator.dupe(u8, file) else null;
+    errdefer if (upstream_file) |file| allocator.free(file);
+    var upstream_loc: ?upstream.UpstreamLoc = null;
+    errdefer if (upstream_loc) |loc| allocator.free(loc.file);
+    if (source.upstream_loc) |loc| {
+        upstream_loc = .{ .file = try allocator.dupe(u8, loc.file), .line = loc.line, .col = loc.col };
+    }
+    const llvm_name = if (source.llvm_name) |nm| try allocator.dupe(u8, nm) else null;
+    errdefer if (llvm_name) |nm| allocator.free(nm);
+
     return .{
         .id = source.id,
         .name = name,
@@ -2262,6 +2547,9 @@ fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.Function
         .is_ffi_wrapper = source.is_ffi_wrapper,
         .param_ids = param_ids,
         .reg_ids = reg_ids,
+        .upstream_file = upstream_file,
+        .upstream_loc = upstream_loc,
+        .llvm_name = llvm_name,
         .ignored = source.ignored,
         .should_panic = source.should_panic,
     };
@@ -2422,7 +2710,7 @@ fn assignValueCtx(
         return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
     }
     const current = state[idx];
-    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
+    if (current != 0 and (current & maskOf(.consumed)) == 0 and (current & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0 and (flags[idx] & regFlagRawPointer) == 0) {
         return trapReport(.register_redefinition, item, function_text, is_ffi_wrapper, name, null, null, "register is already live", null);
     }
     if (hasInteriorPtr(current) or interior.interior_first_child[idx] != null) {
@@ -2431,6 +2719,7 @@ fn assignValueCtx(
         clearInteriorNode(interior.state, interior.interior_parent, interior.interior_first_child, interior.interior_next_sibling, id);
     }
     clearInteriorOffsetMeta(interior, id);
+    clearAllocSizeMeta(interior, id);
     state[idx] = mask;
     flags[idx] &= ~(regFlagBranchCondition | regFlagEphemeralScalar);
     return null;
@@ -2647,16 +2936,18 @@ fn updateLabel(
     interior_root: []?u32,
     interior_offset: []u64,
     interior_offset_known: []bool,
+    alloc_size: []u64,
+    alloc_size_known: []bool,
     allocator: std.mem.Allocator,
     function_text: ?[]const u8,
     is_ffi_wrapper: bool,
 ) ?VerifyBodyResult {
     const label_id = item.operands[1].label;
     if (labels.getPtr(label_id)) |entry| {
-        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known);
+        restoreLabelSnapshot(entry, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known);
         return null;
     }
-    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+    var dup = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
         return trapReport(.arena_oom, item, function_text, is_ffi_wrapper, null, null, null, "unable to record label state", null);
     };
     labels.put(label_id, dup) catch {
@@ -2733,6 +3024,8 @@ const VerifierBufferPool = struct {
     interior_root: []?u32 = &.{},
     interior_offset: []u64 = &.{},
     interior_offset_known: []bool = &.{},
+    alloc_size: []u64 = &.{},
+    alloc_size_known: []bool = &.{},
 
     fn init(allocator: std.mem.Allocator) VerifierBufferPool {
         return .{ .allocator = allocator };
@@ -2751,6 +3044,8 @@ const VerifierBufferPool = struct {
         if (self.interior_root.len != 0) self.allocator.free(self.interior_root);
         if (self.interior_offset.len != 0) self.allocator.free(self.interior_offset);
         if (self.interior_offset_known.len != 0) self.allocator.free(self.interior_offset_known);
+        if (self.alloc_size.len != 0) self.allocator.free(self.alloc_size);
+        if (self.alloc_size_known.len != 0) self.allocator.free(self.alloc_size_known);
         self.* = .{ .allocator = allocator };
     }
 
@@ -2770,6 +3065,8 @@ const VerifierBufferPool = struct {
         next.interior_root = try self.allocator.alloc(?u32, reg_count);
         next.interior_offset = try self.allocator.alloc(u64, reg_count);
         next.interior_offset_known = try self.allocator.alloc(bool, reg_count);
+        next.alloc_size = try self.allocator.alloc(u64, reg_count);
+        next.alloc_size_known = try self.allocator.alloc(bool, reg_count);
 
         self.deinit();
         self.* = next;
@@ -2800,6 +3097,8 @@ fn verifyBody(
     var interior_root: []?u32 = &.{};
     var interior_offset: []u64 = &.{};
     var interior_offset_known: []bool = &.{};
+    var alloc_size: []u64 = &.{};
+    var alloc_size_known: []bool = &.{};
     var buffers = VerifierBufferPool.init(allocator);
     defer buffers.deinit();
     var current_scope: ?FunctionRegScope = null;
@@ -2814,6 +3113,8 @@ fn verifyBody(
         .interior_root = interior_root,
         .interior_offset = interior_offset,
         .interior_offset_known = interior_offset_known,
+        .alloc_size = alloc_size,
+        .alloc_size_known = alloc_size_known,
     };
     var atomic_history = std.AutoHashMap(u64, u8).init(allocator);
     defer atomic_history.deinit();
@@ -2884,6 +3185,8 @@ fn verifyBody(
             interior_root = &.{};
             interior_offset = &.{};
             interior_offset_known = &.{};
+            alloc_size = &.{};
+            alloc_size_known = &.{};
 
             if (current_sig) |decl_sig| {
                 var next_scope = try FunctionRegScope.initBorrowed(allocator, decl_sig.reg_ids);
@@ -2915,6 +3218,10 @@ fn verifyBody(
                 @memset(interior_offset, 0);
                 interior_offset_known = buffers.interior_offset_known[0..reg_count];
                 @memset(interior_offset_known, false);
+                alloc_size = buffers.alloc_size[0..reg_count];
+                @memset(alloc_size, 0);
+                alloc_size_known = buffers.alloc_size_known[0..reg_count];
+                @memset(alloc_size_known, false);
                 interior = .{
                     .state = state,
                     .interior_parent = interior_parent,
@@ -2923,6 +3230,8 @@ fn verifyBody(
                     .interior_root = interior_root,
                     .interior_offset = interior_offset,
                     .interior_offset_known = interior_offset_known,
+                    .alloc_size = alloc_size,
+                    .alloc_size_known = alloc_size_known,
                 };
                 current_scope = next_scope;
                 computeFunctionConsumedRegs(allocator, instructions, inst_idx, &metadata.symbols, &current_scope.?, consumed_in_function);
@@ -2931,9 +3240,40 @@ fn verifyBody(
                     current_scope = null;
                 }
 
+                // A corrupted artifact (e.g. a hand-edited or truncated .sab) may carry
+                // a signature whose param_ids do not line up with its params or whose
+                // param register ids are not declared in the function scope. Both
+                // are reported as structured traps; the old `orelse unreachable`
+                // panicked and the bare `param_ids[pidx]` indexing could read out
+                // of bounds.
+                if (decl_sig.param_ids.len < decl_sig.params.len) {
+                    return trapReport(
+                        .corrupted_signature,
+                        item,
+                        current_function_text,
+                        current_is_ffi_wrapper,
+                        null,
+                        null,
+                        null,
+                        "corrupted function signature: parameter count exceeds param_ids count",
+                        "rebuild the module from source; the artifact's signature metadata is inconsistent",
+                    );
+                }
                 for (decl_sig.params, 0..) |param, pidx| {
                     const reg_id = decl_sig.param_ids[pidx];
-                    const reg_slot = current_scope.?.slotOf(reg_id) orelse unreachable;
+                    const reg_slot = current_scope.?.slotOf(reg_id) orelse {
+                        return trapReport(
+                            .corrupted_signature,
+                            item,
+                            current_function_text,
+                            current_is_ffi_wrapper,
+                            param.name,
+                            null,
+                            null,
+                            "corrupted function signature: parameter references a register id that is not declared in this function scope",
+                            "rebuild the module from source; the artifact's param_ids are inconsistent with its register scope",
+                        );
+                    };
                     const reg_idx: usize = @intCast(reg_slot);
                     state[reg_idx] = switch (param.cap) {
                         .by_value, .move => maskOf(.active),
@@ -2987,7 +3327,7 @@ fn verifyBody(
             if (defined_labels.contains(item.operands[1].label)) {
                 return trapReport(.duplicate_label, item, current_function_text, current_is_ffi_wrapper, null, null, null, "label is already defined", "rename the label or merge the blocks");
             }
-            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
+            if (updateLabel(item, &labels, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known, allocator, current_function_text, current_is_ffi_wrapper)) |tr| {
                 return tr;
             }
             defined_labels.put(item.operands[1].label, {}) catch {
@@ -3019,6 +3359,7 @@ fn verifyBody(
             .alloc => {
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
+                recordAllocSize(&interior, item.operands[0].reg, parseAllocSizeOperand(item.operands[1]));
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
                     .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
@@ -3029,6 +3370,7 @@ fn verifyBody(
             .stack_alloc => {
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = regFlagStackAlloc;
+                recordAllocSize(&interior, item.operands[0].reg, parseAllocSizeOperand(item.operands[1]));
                 gas_alloc_bytes += switch (item.operands[1]) {
                     .imm_u64 => |v| v,
                     .imm_i64 => |v| if (v > 0) @as(u64, @intCast(v)) else 0,
@@ -3038,6 +3380,7 @@ fn verifyBody(
             },
             .load, .take => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (checkStaticOffsetInBounds(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], &interior, origins, state, item.operands[1].reg, staticByteOffset(item.operands[2]))) |tr| return tr;
                 const loaded_ty: sig.PrimType = if (item.operands[3] == .ty) blk: {
                     break :blk sig.primTypeFromTag(item.operands[3].ty) orelse if (item.kind == .take) .ptr else .i64;
                 } else if (item.kind == .take) .ptr else .i64;
@@ -3048,7 +3391,7 @@ fn verifyBody(
                     ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0);
                 const new_mask = maskOf(.active) | if (load_is_borrowed_ptr) maskOf(.interior_ptr) else 0;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, new_mask, &interior)) |tr| return tr;
-                flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty != .ptr) regFlagEphemeralScalar else 0;
+                flags[@intCast(item.operands[0].reg)] = if (item.kind == .load) (if (loaded_ty == .ptr) regFlagRawPointer else regFlagEphemeralScalar) else 0;
                 if (item.kind == .take and ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg))) {
                     attachInteriorChild(state, interior_parent, interior_first_child, interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
                     setInteriorOffsetFromBase(&interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
@@ -3062,6 +3405,7 @@ fn verifyBody(
                     }
                 }
                 if (writeCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks)) |tr| return tr;
+                if (checkStaticOffsetInBounds(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], &interior, origins, state, item.operands[0].reg, staticByteOffset(item.operands[1]))) |tr| return tr;
                 const dst_idx: usize = @intCast(item.operands[0].reg);
                 if ((state[dst_idx] & maskOf(.borrow_view)) != 0) {
                     const origin_id = origins[dst_idx] orelse unreachable;
@@ -3156,6 +3500,10 @@ fn verifyBody(
                 const src_idx: usize = @intCast(item.operands[1].reg);
                 const has_field_identity = (state[src_idx] & (maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read) | maskOf(.locked_mut) | maskOf(.interior_ptr))) != 0;
                 const has_borrow_lifetime = (state[src_idx] & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(state, interior_first_child, item.operands[1].reg);
+                // Static OOB check before linking the child: forming an
+                // out-of-bounds derived pointer is rejected even if it is
+                // never dereferenced.
+                if (checkStaticOffsetInBounds(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], &interior, origins, state, item.operands[1].reg, staticByteOffset(item.operands[2]))) |tr| return tr;
                 const dst_mask: u16 = if (has_borrow_lifetime) maskOf(.active) | maskOf(.interior_ptr) else maskOf(.active);
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, dst_mask, &interior)) |tr| return tr;
                 if (has_borrow_lifetime) {
@@ -3212,6 +3560,12 @@ fn verifyBody(
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 }
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], dst_id, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                if (item.operands[1] == .reg) {
+                    const src_flags = flags[@intCast(item.operands[1].reg)];
+                    if ((src_flags & regFlagRawPointer) != 0) {
+                        flags[@intCast(dst_id)] |= regFlagRawPointer;
+                    }
+                }
                 if (source_is_ephemeral) {
                     flags[@intCast(dst_id)] = regFlagEphemeralScalar;
                 }
@@ -3223,6 +3577,26 @@ fn verifyBody(
                 const idx: usize = @intCast(item.operands[0].reg);
                 if ((state[idx] & maskOf(.borrow_view)) != 0) {
                     clearBorrow(state, flags, origins, locks, item.operands[0].reg, &interior);
+                } else if ((flags[idx] & (regFlagRawPointer | regFlagEphemeralScalar)) != 0 and
+                    state[idx] == maskOf(.active))
+                {
+                    // Plain raw pointers and ephemeral scalars carry no
+                    // ownership: release is a no-op and must not mark the
+                    // register Consumed. Otherwise a `!tp`/`!tn` (e.g. at a
+                    // loop back-edge) poisons the phi snapshot for later
+                    // redefinitions of the same register name, producing a
+                    // false PhiStateConflict (Active vs Consumed).
+                    // NOTE: check borrow_view first above: setBorrowState
+                    // reuses bit 0x01 for FFI borrows, which collides with
+                    // regFlagRawPointer; FFI borrows must still go through
+                    // clearBorrow.
+                    // NOTE: only apply to PLAIN Active values. A raw ptr
+                    // loaded from a borrow view carries InteriorPtr state
+                    // (Active|InteriorPtr composite); it is borrow-tracked
+                    // and must go through the normal release path so macro
+                    // temps (e.g. VEC_AS_SLICE's __vec_ptr_...) are properly
+                    // cleared for loop-head phi merges.
+                    if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 } else {
                     if (isImmutableConst(state, flags, item.operands[0].reg)) {
                         return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], state[idx], "immutable registers cannot be released");
@@ -3293,7 +3667,7 @@ fn verifyBody(
                         }
                     }
                 } else {
-                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+                    var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
                         return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                     };
                     labels.put(target, snapshot) catch {
@@ -3326,7 +3700,7 @@ fn verifyBody(
                             }
                         }
                     } else {
-                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                         labels.put(target, snapshot) catch {
@@ -3361,7 +3735,7 @@ fn verifyBody(
                             }
                         }
                     } else {
-                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known) catch {
+                        var snapshot = captureLabelSnapshot(allocator, state, origins, locks, flags, interior_parent, interior_first_child, interior_next_sibling, interior_root, interior_offset, interior_offset_known, alloc_size, alloc_size_known) catch {
                             return trapReport(.arena_oom, item, current_function_text, current_is_ffi_wrapper, null, null, null, "unable to record label state", null);
                         };
                         labels.put(target, snapshot) catch {
@@ -3507,7 +3881,29 @@ fn verifyBody(
                         if (current_scope) |scope| {
                             if (resolveScopedRegId(&scope, &metadata.symbols, dest)) |dest_id| {
                                 const idx: usize = @intCast(dest_id);
-                                if (state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
+                                // The stdlib VEC_PUSH macro expands to:
+                                //   %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
+                                // In SA IR, `^` is the .move prefix (not .borrow; `&` is .borrow).
+                                // This "update via move" pattern is legal SA: the dest is moved
+                                // into the call via ^, then reassigned with the (mutated) result.
+                                // SA-text verifies the EXPAND directive and never sees the expanded
+                                // form; SAB contains the expanded instructions, so the SAB verifier
+                                // must allow the pattern here to maintain SAB/SA-text parity.
+                                // Note: if the moved arg has regFlagRawPointer, the .move handler
+                                // above does `continue` without marking it consumed, so the dest
+                                // check below would falsely report redefinition without this allowance.
+                                var dest_is_moved_arg = false;
+                                for (parsed.args) |arg| {
+                                    if (arg.prefix != .move) continue;
+                                    if (!isIdentLike(arg.text)) continue;
+                                    if (resolveScopedRegId(&scope, &metadata.symbols, arg.text)) |arg_id| {
+                                        if (arg_id == dest_id) {
+                                            dest_is_moved_arg = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!dest_is_moved_arg and state[idx] != 0 and (state[idx] & maskOf(.consumed)) == 0 and (state[idx] & maskOf(.untracked)) == 0 and (flags[idx] & regFlagEphemeralScalar) == 0) {
                                     return trapReport(.register_redefinition, item, current_function_text, current_is_ffi_wrapper, dest, null, null, "register is already live", null);
                                 }
                                 if (isImmutableConst(state, flags, dest_id)) {
@@ -3558,6 +3954,10 @@ fn verifyBody(
                     if ((mask & maskOf(.active)) == 0 and (mask & maskOf(.locked_read)) == 0 and (mask & maskOf(.locked_mut)) == 0) continue;
                     if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
                     if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
+                    // Raw pointers carry no ownership (release is a no-op for
+                    // them); a live raw-pointer temp is never a leak, same as
+                    // an ephemeral scalar temp.
+                    if ((flags[idx] & regFlagRawPointer) != 0) continue;
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
                     if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
                     const src_name = current_scope.?.nameOf(&metadata.symbols, src_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(src_id)) orelse "";
@@ -3672,6 +4072,10 @@ fn verifyBody(
             if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
             if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
             if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
+            // Raw pointers carry no ownership (release is a no-op for them);
+            // a live raw-pointer temp is never a leak, same as an ephemeral
+            // scalar temp.
+            if ((flags[idx] & regFlagRawPointer) != 0) continue;
             if ((flags[idx] & regFlagBranchCondition) != 0) continue;
             if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
             if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
@@ -4712,6 +5116,47 @@ fn fieldBorrowInstruction(kind: inst.InstKind, source_line: u32, expanded_line: 
     return item;
 }
 
+test "borrowed views trap when escaping across ffi boundary" {
+    const source =
+        \\@ffi_wrapper sink(*p: ptr) -> i32:
+        \\return 0
+        \\@ffi_wrapper wrap() -> i32:
+        \\base = alloc 8
+        \\view = & base
+        \\ip = take view+0
+        \\call @sink(*ip)
+        \\!view
+        \\!base
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.interior_ptr_escape, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "borrowed views trap when source is released while borrowed" {
+    const source =
+        \\@main() -> i32:
+        \\base = alloc 8
+        \\view = & base
+        \\!base
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
 test "field-level mutable borrows allow distinct static offsets" {
     const program = [_]inst.Instruction{
         fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
@@ -4756,6 +5201,87 @@ test "field-level mutable borrows reject identical static offsets" {
             owned.deinit(std.testing.allocator);
             return error.TestUnexpectedResult;
         },
+    }
+}
+
+test "ptr_add beyond allocation size traps borrow_conflict" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 8", .{ .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 3, 2, "far = ptr_add base, 8", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "borrow view ptr_add beyond allocation size traps borrow_conflict" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 8", .{ .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 3, 2, "view = borrow base", .{ .{ .reg = 2 }, .{ .text = "read" }, .{ .reg = 1 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 4, 3, "far = ptr_add view, 8", .{ .{ .reg = 3 }, .{ .reg = 2 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 5, 4, "!view", .{ .{ .reg = 2 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 6, 5, "!far", .{ .{ .reg = 3 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 7, 6, "!base", .{ .{ .reg = 1 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.return_, 8, 7, "return 0", .{ .{ .imm_i64 = 0 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "load with offset beyond allocation size traps borrow_conflict" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 8", .{ .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.load, 3, 2, "v = load base+8 as u64", .{ .{ .reg = 2 }, .{ .reg = 1 }, .{ .imm_u64 = 8 }, .{ .ty = @intFromEnum(sig.PrimType.u64) } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "in-bounds borrow view offsets still verify" {
+    const program = [_]inst.Instruction{
+        fieldBorrowInstruction(.func_decl, 1, 0, "@main() -> i32:", .{ .{ .symbol = 0 }, .{ .func = 0 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.alloc, 2, 1, "base = alloc 16", .{ .{ .reg = 1 }, .{ .imm_u64 = 16 }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.borrow, 3, 2, "view = borrow base", .{ .{ .reg = 2 }, .{ .text = "read" }, .{ .reg = 1 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.ptr_add, 4, 3, "field = ptr_add view, 8", .{ .{ .reg = 3 }, .{ .reg = 2 }, .{ .imm_i64 = 8 }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 5, 4, "!field", .{ .{ .reg = 3 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 6, 5, "!view", .{ .{ .reg = 2 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.release, 7, 6, "!base", .{ .{ .reg = 1 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+        fieldBorrowInstruction(.return_, 8, 7, "return 0", .{ .{ .imm_i64 = 0 }, .{ .none = {} }, .{ .none = {} }, .{ .none = {} } }),
+    };
+
+    const verified = try verify(std.testing.allocator, program[0..], &.{});
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => return error.TestUnexpectedResult,
     }
 }
 
@@ -6404,6 +6930,169 @@ test "ffi wrapper allows raw params in branch control flow" {
             try std.testing.expectEqual(@as(usize, 6), owned.annotated.len);
         },
         .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "raw pointer load temp live at exit is not a memory leak" {
+    // A `load` whose type is .ptr is flagged regFlagRawPointer. Raw pointers
+    // carry no ownership (release is a no-op for them), so a live raw-pointer
+    // temp at function exit must not trap -- same as an ephemeral scalar.
+    // This is the verifier side of the SAB/SA-text parity fix for
+    // PhiStateConflict on ptr phi joins: the flag must be assignable without
+    // forcing the compiler to emit a release for every compiler-generated
+    // ptr temp.
+    const source =
+        \\@main() -> i32:
+        \\data = stack_alloc 8
+        \\tmp = load data+0 as ptr
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "raw pointer release is a no-op: no false PhiStateConflict at diamond merge" {
+    // Releasing a plain raw pointer (`!tp` where tp was loaded `as ptr`)
+    // must not mark the register Consumed: raw pointers carry no ownership.
+    // Pre-fix, `!tp` marked tp Consumed, so at L_M the path via L_B
+    // (tp=Consumed) clashed with the path via L_A (tp=Active after
+    // redefinition), producing a false PhiStateConflict. Post-fix both
+    // paths carry tp=Active and the join succeeds.
+    // This test FAILS on the pre-fix verifier (trap PhiStateConflict).
+    const source =
+        \\@main() -> i32:
+        \\data = stack_alloc 8
+        \\i = stack_alloc 8
+        \\n = 2
+        \\tmp0 = 0
+        \\store i+0, tmp0 as u64
+        \\!tmp0
+        \\tp = load data+0 as ptr
+        \\!tp
+        \\tmp1 = load i+0 as u64
+        \\tmp2 = ult tmp1, n
+        \\!tmp1
+        \\br tmp2 -> L_A, L_B
+        \\L_A:
+        \\!tmp2
+        \\tp = load data+0 as ptr
+        \\jmp L_M
+        \\L_B:
+        \\!tmp2
+        \\jmp L_M
+        \\L_M:
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "ephemeral scalar release is a no-op: no false PhiStateConflict at diamond merge" {
+    // Same shape as the raw-pointer test, but for an ephemeral scalar
+    // (`tmp0 = 0`, an immediate assignment). Pre-fix, `!tmp0` marked it
+    // Consumed and the L_M join of Active (L_A, redefined) vs Consumed
+    // (L_B) trapped with a false PhiStateConflict. Post-fix both paths
+    // stay Active.
+    // This test FAILS on the pre-fix verifier (trap PhiStateConflict).
+    const source =
+        \\@main() -> i32:
+        \\data = stack_alloc 8
+        \\i = stack_alloc 8
+        \\n = 2
+        \\tmp0 = 0
+        \\store i+0, tmp0 as u64
+        \\!tmp0
+        \\tmp1 = load i+0 as u64
+        \\tmp2 = ult tmp1, n
+        \\!tmp1
+        \\br tmp2 -> L_A, L_B
+        \\L_A:
+        \\!tmp2
+        \\tmp0 = 5
+        \\jmp L_M
+        \\L_B:
+        \\!tmp2
+        \\jmp L_M
+        \\L_M:
+        \\!tmp0
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+        },
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "owned alloc live at exit still traps memory leak" {
+    // Negative control for the raw-pointer leak exemption: a genuinely owned
+    // value (heap alloc, not a raw pointer) left live at function exit must
+    // still trap .memory_leak.
+    const source =
+        \\@main() -> i32:
+        \\leak_0 = alloc 8
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "redefining live owned register still traps register redefinition" {
+    // Negative control for the raw-pointer redefinition exemption: an owned
+    // (non-raw-pointer, non-ephemeral) live register must still trap
+    // .register_redefinition when reassigned.
+    const source =
+        \\@main() -> i32:
+        \\leak_0 = alloc 8
+        \\leak_0 = alloc 16
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.register_redefinition, report.trap),
+        .ok => return error.TestUnexpectedResult,
     }
 }
 

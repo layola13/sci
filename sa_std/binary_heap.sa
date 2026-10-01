@@ -2923,6 +2923,12 @@ L_BINARY_HEAP_EXTEND_DONE_%heap_reg:
     EXPAND BINARY_HEAP_EXTEND_FROM_VEC_U64 %heap_reg, %vec_reg
 [END_MACRO]
 
+// Linear membership query over the heap backing slice.
+[MACRO] BINARY_HEAP_CONTAINS %out_bool, %heap_reg, %needle
+    EXPAND BINARY_HEAP_AS_SLICE __bh_contains_slice_%out_bool, %heap_reg
+    EXPAND SLICE_CONTAINS_U64 %out_bool, __bh_contains_slice_%out_bool, %needle
+    !__bh_contains_slice_%out_bool
+[END_MACRO]
 // Rust Default-style empty BinaryHeap constructor alias.
 
 [MACRO] BINARY_HEAP_DEFAULT %out_heap

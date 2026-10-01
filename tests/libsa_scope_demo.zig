@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     const result = try std.process.Child.run(.{
@@ -79,5 +80,8 @@ test "libsa_scope C-ABI demo emits release text" {
 
     const run_output = try runCommand(std.testing.allocator, &[_][]const u8{ "./libsa_scope_demo" });
     defer std.testing.allocator.free(run_output);
-    try std.testing.expectEqualStrings("!root\n", run_output);
+    const line_ending = if (builtin.os.tag == .windows) "\r\n" else "\n";
+    const expected_output = try std.fmt.allocPrint(std.testing.allocator, "!root{s}", .{line_ending});
+    defer std.testing.allocator.free(expected_output);
+    try std.testing.expectEqualStrings(expected_output, run_output);
 }

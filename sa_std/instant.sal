@@ -1,0 +1,2 @@
+// Standard layout aliases for Instant and SystemTime.
+@import "time.sal"

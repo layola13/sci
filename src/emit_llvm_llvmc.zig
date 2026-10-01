@@ -19,6 +19,30 @@ extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_pat
 pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction };
 pub const EmitOptions = emit_options.EmitOptions;
 
+threadlocal var last_error_buf: [512]u8 = undefined;
+threadlocal var last_error_len: usize = 0;
+
+fn recordLastError(message: []const u8) void {
+    const len = @min(message.len, last_error_buf.len);
+    @memcpy(last_error_buf[0..len], message[0..len]);
+    last_error_len = len;
+}
+
+fn recordLlvmcError(prefix: []const u8, msg: [*:0]const u8) void {
+    const message = std.mem.sliceTo(msg, 0);
+    var stream = std.io.fixedBufferStream(&last_error_buf);
+    stream.writer().print("{s}: {s}", .{ prefix, message }) catch {
+        recordLastError(message);
+        return;
+    };
+    last_error_len = stream.pos;
+}
+
+pub fn lastErrorMessage() ?[]const u8 {
+    if (last_error_len == 0) return null;
+    return last_error_buf[0..last_error_len];
+}
+
 const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8, u8 = 9, u16 = 10, u32 = 11, u64 = 12 };
 const CFuncKind = enum(c_int) { normal = 0, external = 1, exported = 2, test_func = 3 };
 const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21, release = 22, take = 23 };
@@ -89,6 +113,7 @@ const CModule = extern struct {
     vtable_count: usize,
     functions: [*]const CFunction,
     function_count: usize,
+    target_triple: ?[*:0]const u8,
 };
 
 fn takeOwnedBitcode(allocator: std.mem.Allocator, bytes: *?[*]u8, len: *usize) ![]u8 {
@@ -336,6 +361,7 @@ const BuildState = struct {
     const_decls: []const const_decl.ConstDecl,
     function_sigs: []const sig.FunctionSig,
     function_sig_index: *const std.StringHashMap(usize),
+    emitted_sig_index: *const std.StringHashMap(usize),
 
     fn init(
         allocator: std.mem.Allocator,
@@ -345,12 +371,13 @@ const BuildState = struct {
         const_decls: []const const_decl.ConstDecl,
         function_sigs: []const sig.FunctionSig,
         function_sig_index: *const std.StringHashMap(usize),
+        emitted_sig_index: *const std.StringHashMap(usize),
         anon_string_names: *const std.StringHashMap([*:0]const u8),
     ) !BuildState {
         var const_names = std.StringHashMap(void).init(allocator);
         errdefer const_names.deinit();
         for (const_decls) |decl| try const_names.put(decl.name, {});
-        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index };
+        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index, .emitted_sig_index = emitted_sig_index };
     }
 
     fn deinit(self: *BuildState) void {
@@ -565,6 +592,22 @@ fn buildFunctionSigIndex(allocator: std.mem.Allocator, sigs: []const sig.Functio
         try putFunctionSigAlias(&index, candidate.name, idx);
         if (candidate.llvm_name) |llvm_name| try putFunctionSigAlias(&index, llvm_name, idx);
         try putFunctionSigAlias(&index, emittedFunctionName(candidate), idx);
+    }
+    return index;
+}
+
+/// Index over EMITTED task order (not source order): DCE drops unreachable
+/// functions from emission, so positions in the C function table only match
+/// task order. Indirect-call inference must resolve through this map, or a
+/// Zig-side index lands on the wrong C function (e.g. a void ctor shadowing
+/// a closure) whenever anything was pruned.
+fn buildEmittedSigIndex(allocator: std.mem.Allocator, tasks: []const ParallelEmitTask) !std.StringHashMap(usize) {
+    var index = std.StringHashMap(usize).init(allocator);
+    errdefer index.deinit();
+    for (tasks, 0..) |task, pos| {
+        try putFunctionSigAlias(&index, task.fsig.name, pos);
+        if (task.fsig.llvm_name) |llvm_name| try putFunctionSigAlias(&index, llvm_name, pos);
+        try putFunctionSigAlias(&index, emittedFunctionName(task.fsig), pos);
     }
     return index;
 }
@@ -844,7 +887,7 @@ fn inferIndirectSigIndexFromSlot(state: *BuildState, slot_name: []const u8) ?usi
             .vtable => |literal| {
                 for (literal.slots) |slot| {
                     if (!std.mem.eql(u8, slot.name, slot_name)) continue;
-                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
+                    const idx = state.emitted_sig_index.get(slot.func_name) orelse continue;
                     resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
                 }
             },
@@ -866,7 +909,7 @@ fn inferIndirectSigIndexFromSlotWithPrefix(state: *BuildState, slot_name: []cons
                     if (!std.mem.eql(u8, slot.name, slot_name)) continue;
                     var func_buf: [256]u8 = undefined;
                     if (!decl_match and !normalizedContainsKey(&func_buf, slot.func_name, prefix_key)) continue;
-                    const idx = state.function_sig_index.get(slot.func_name) orelse continue;
+                    const idx = state.emitted_sig_index.get(slot.func_name) orelse continue;
                     resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
                 }
             },
@@ -884,7 +927,7 @@ fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
         switch (decl.value) {
             .vtable => |literal| {
                 if (slot_index >= literal.slots.len) continue;
-                const idx = state.function_sig_index.get(literal.slots[slot_index].func_name) orelse continue;
+                const idx = state.emitted_sig_index.get(literal.slots[slot_index].func_name) orelse continue;
                 resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
             },
             else => {},
@@ -1143,6 +1186,7 @@ fn ParallelEmitContext(comptime VerifiedType: type) type {
         options: EmitOptions,
         anon_string_names: *const std.StringHashMap([*:0]const u8),
         function_sig_index: *const std.StringHashMap(usize),
+        emitted_sig_index: *const std.StringHashMap(usize),
         tasks: []const ParallelEmitTask,
         jobs: []ParallelEmitJob,
         next_task: std.atomic.Value(usize),
@@ -1217,7 +1261,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
 
         if (task.decl_kind != .extern_decl) {
             const body = context.verified.annotated[task.start_idx + 1 .. task.end_idx];
-            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.anon_string_names) catch |err| {
+            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.emitted_sig_index, context.anon_string_names) catch |err| {
                 job.err = err;
                 return;
             };
@@ -1454,6 +1498,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         }
     }
 
+    var emitted_sig_index = try buildEmittedSigIndex(a, tasks.items);
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
@@ -1473,6 +1518,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .options = options,
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
+        .emitted_sig_index = &emitted_sig_index,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1509,6 +1555,9 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         try c_funcs.append(job.result orelse return error.Failed);
     }
 
+    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeZ(u8, t)).ptr else null;
+    defer if (target_triple_z) |z| a.free(std.mem.span(z));
+
     const module = CModule{
         .size_bits = size_bits,
         .wasm_compat = options.wasm_compat,
@@ -1523,6 +1572,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .vtable_count = c_vtables.items.len,
         .functions = c_funcs.items.ptr,
         .function_count = c_funcs.items.len,
+        .target_triple = target_triple_z,
     };
 
     if (obj_path) |path| {
@@ -1530,7 +1580,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         var err_msg: ?[*:0]u8 = null;
         if (sa_llvmc_emit_module_object(&module, path_z.ptr, @intCast(opt_level), &err_msg) != 0) {
             if (err_msg) |msg| {
-                std.debug.print("llvmc object emit: {s}\n", .{std.mem.sliceTo(msg, 0)});
+                recordLlvmcError("llvmc object emit", msg);
                 sa_llvmc_free(msg);
             }
             return error.Failed;
@@ -1542,7 +1592,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         var err_msg: ?[*:0]u8 = null;
         if (sa_llvmc_emit_module_bitcode(&module, @intCast(options.opt_level), &out_bytes, &out_len, &err_msg) != 0) {
             if (err_msg) |msg| {
-                std.debug.print("llvmc backend: {s}\n", .{std.mem.sliceTo(msg, 0)});
+                recordLlvmcError("llvmc backend", msg);
                 sa_llvmc_free(msg);
             }
             return error.Failed;
@@ -1731,6 +1781,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         }
     }
 
+    var emitted_sig_index = try buildEmittedSigIndex(a, tasks.items);
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
@@ -1746,6 +1797,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .options = options,
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
+        .emitted_sig_index = &emitted_sig_index,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1782,6 +1834,9 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         try c_funcs.append(job.result orelse return error.Failed);
     }
 
+    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeZ(u8, t)).ptr else null;
+    defer if (target_triple_z) |z| a.free(std.mem.span(z));
+
     const module = CModule{
         .size_bits = size_bits,
         .wasm_compat = options.wasm_compat,
@@ -1796,6 +1851,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .vtable_count = c_vtables.items.len,
         .functions = c_funcs.items.ptr,
         .function_count = c_funcs.items.len,
+        .target_triple = target_triple_z,
     };
 
     const bc_z = try a.dupeZ(u8, bitcode_path);
@@ -1803,7 +1859,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     var err_msg: ?[*:0]u8 = null;
     if (sa_llvmc_emit_module_artifacts(&module, bc_z.ptr, obj_z.ptr, @intCast(opt_level), &err_msg) != 0) {
         if (err_msg) |msg| {
-            std.debug.print("llvmc artifact emit: {s}\n", .{std.mem.sliceTo(msg, 0)});
+            recordLlvmcError("llvmc artifact emit", msg);
             sa_llvmc_free(msg);
         }
         return error.Failed;
@@ -1887,6 +1943,8 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .reg_ids = reg_ids[0..],
     };
 
+    var emitted_sig_index_test = std.StringHashMap(usize).init(std.testing.allocator);
+    defer emitted_sig_index_test.deinit();
     var state = BuildState{
         .allocator = std.testing.allocator,
         .symbols = &symbols,
@@ -1897,6 +1955,7 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .const_decls = &.{},
         .function_sigs = &.{},
         .function_sig_index = &function_sig_index,
+        .emitted_sig_index = &emitted_sig_index_test,
     };
     state.const_names = std.StringHashMap(void).init(std.testing.allocator);
     defer state.const_names.deinit();

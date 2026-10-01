@@ -592,3 +592,44 @@ L_CSTRING_FREE_AFTER_%cstring_reg:
 [MACRO] CSTRING_AS_C_STR %out_cstr, %cstring_reg
     EXPAND CSTRING_AS_CSTR %out_cstr, %cstring_reg
 [END_MACRO]
+
+// Stable std-style aliases for borrowed and owned C strings.
+[MACRO] CSTR_FROM_SLICE %out_status, %cstr_reg, %slice_reg
+    EXPAND CSTR_FROM_BYTES_WITH_NUL %out_status, %cstr_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] CSTR_AS_BYTES_WITH_NUL %out_slice, %cstr_reg
+    EXPAND CSTR_TO_BYTES_WITH_NUL %out_slice, %cstr_reg
+[END_MACRO]
+
+[MACRO] CSTR_AS_BYTES %out_slice, %cstr_reg
+    EXPAND CSTR_TO_BYTES %out_slice, %cstr_reg
+[END_MACRO]
+
+[MACRO] CSTR_AS_STR %out_status, %out_slice, %cstr_reg
+    EXPAND CSTR_TO_STR %out_status, %out_slice, %cstr_reg
+[END_MACRO]
+
+[MACRO] CSTRING_FROM_SLICE %out_status, %cstring_reg, %slice_reg
+    EXPAND CSTRING_NEW %out_status, %cstring_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] CSTRING_FROM_SLICE_WITH_NUL %out_status, %cstring_reg, %slice_reg
+    EXPAND CSTRING_FROM_BYTES_WITH_NUL %out_status, %cstring_reg, %slice_reg
+[END_MACRO]
+
+[MACRO] CSTRING_AS_STR %out_status, %out_slice, %cstring_reg
+    EXPAND CSTRING_TO_STR %out_status, %out_slice, %cstring_reg
+[END_MACRO]
+
+[MACRO] CSTRING_AS_CSTR_VIEW %out_cstr, %cstring_reg
+    EXPAND CSTRING_AS_CSTR %out_cstr, %cstring_reg
+[END_MACRO]
+
+[MACRO] CSTRING_AS_BYTES_WITH_NUL_VIEW %out_slice, %cstring_reg
+    EXPAND CSTRING_AS_BYTES_WITH_NUL %out_slice, %cstring_reg
+[END_MACRO]
+
+[MACRO] CSTRING_AS_BYTES_VIEW %out_slice, %cstring_reg
+    EXPAND CSTRING_AS_BYTES %out_slice, %cstring_reg
+[END_MACRO]

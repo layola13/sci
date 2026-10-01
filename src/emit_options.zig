@@ -31,6 +31,7 @@ pub const EmitOptions = struct {
     dce: DceMode = .std,
     std_root: ?[]const u8 = null,
     selected_test_names: []const []const u8 = &.{},
+    target_triple: ?[]const u8 = null,
 };
 
 const std = @import("std");

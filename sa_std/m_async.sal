@@ -1,0 +1,30 @@
+// m-async compatibility layouts.
+// Fixed-width slots shared by SA and SLA lowering.
+
+#def MAsyncCancelToken_SIZE = 8
+#def MAsyncCancelToken_cancelled = +0
+#def MAsyncCancelToken_ACTIVE = 0
+#def MAsyncCancelToken_CANCELLED = 1
+
+#def MAsyncTask_SIZE = 48
+#def MAsyncTask_future = +0
+#def MAsyncTask_context = +8
+#def MAsyncTask_cancel = +16
+#def MAsyncTask_state = +24
+#def MAsyncTask_result = +32
+#def MAsyncTask_error = +40
+#def MAsyncTask_PENDING = 0
+#def MAsyncTask_READY = 1
+#def MAsyncTask_FAILED = 2
+#def MAsyncTask_CANCELLED = 3
+
+#def MAsyncGroup_SIZE = 48
+#def MAsyncGroup_cancel = +0
+#def MAsyncGroup_children = +8
+#def MAsyncGroup_completed = +16
+#def MAsyncGroup_failed = +24
+#def MAsyncGroup_error = +32
+#def MAsyncGroup_state = +40
+#def MAsyncGroup_ACTIVE = 0
+#def MAsyncGroup_CANCELLED = 1
+#def MAsyncGroup_FAILED = 2

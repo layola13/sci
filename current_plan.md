@@ -2,6 +2,23 @@
 
 Date: 2026-07-09
 
+## 2026-08-21 sa_std completion pass
+
+- Completed public facade/module-entry closure for the newly surfaced std types and preludes.
+- Added and verified the explicit top-level `sa_std/prelude.sa/.sal` aggregation entry.
+- Completed named env/time/FFI/thread aliases, BinaryHeap contains, and the RwLock spin cleanup.
+- Completed fixed-arity scalar formatting and formatted write facades with focused behavior coverage.
+- Updated `docs/std_missing.md`, `progress.md`, and this task record to distinguish supported concrete APIs from unsupported Rust generic/variadic/unwind semantics.
+- Full validation is green; only the standalone Windows env mega-suite remains blocked by an LLVM backend error outside the registered unit-framework path.
+
+## Continued validation hardening
+
+- The Windows environment suite is now split into focused tests and passes 18/18 at runtime.
+- All 122 `sa_std/**/*.sa` files pass standalone `sa check` after borrowed-register cleanup fixes in sync and collection helpers.
+- All 100 `sa_std/**/*.sal` layout/import files also pass standalone `sa check` after correcting the new facade comment syntax.
+
+
+
 ## Active std parity batch (2026-07-19 LinkedList/Barrier/Condvar)
 
 Filled previously documented missing sync/collections subsets:
@@ -5496,3 +5513,94 @@ Completed supportable defaults/aliases/macros:
 
 Panic IDs next free: 10756+.
 Still blocked without redesign: Rust generic `FromIterator` / `Extend` dispatch, generic `Try` residual conversion, Rust tuple/`Result` ABI, allocator-parametric collection, Rust owned `IntoIterSorted<T,A>` object layout/drop glue, allocator-aware iterator state, generic item move/drop semantics, true format!, Condvar/Barrier, process env maps/Stdio objects, path component iterators, thread stack/name builder ABI.
+
+## Active std parity batch (2026-08-22 namespace prelude closure)
+
+Completed stable namespace aggregators for the remaining named `sa_std` directories:
+- `marker/prelude.{sa,sal}`, `mem/prelude.{sa,sal}`, `num/prelude.{sa,sal}`, `thread/prelude.{sa,sal}`, and `time/prelude.{sa,sal}`.
+- Root `sa_std/prelude.sa/.sal` now routes named compatibility exports through these namespace entries, alongside the newly added `ffi/prelude` entry.
+- `std_prelude_import_surface.sa` exercises a concrete `CString` through the root prelude; focused validation passes 2/2.
+- These are concrete module aggregators only; generic trait, ownership, and typed async/time semantics remain outside the facade.
+
+## Active std parity batch (2026-08-22 OS FD error-path closure)
+
+Completed deterministic error-path behavior for the concrete `std::os::fd` facade:
+- Unix runtime already initializes `FD_AS_RAW`, `FD_DUP`, `FD_DUP_RAW`, `FD_FROM_RAW`, `FD_INTO_RAW`, and `FD_IS_TERMINAL` outputs; Windows capability stubs now do the same before returning `UNSUPPORTED`.
+- Added invalid-handle/raw behavior coverage to `std_os_fd_macro_surface.sa`, accepting the documented invalid-handle vs unsupported platform boundary and checking `-1`/`0` outputs where a supported path is available.
+- This does not add Windows HANDLE ownership or Rust `OwnedFd`/`BorrowedFd` lifetimes; those remain concrete SA handle contracts.
+
+## Active std parity batch (2026-08-22 Windows FD unsupported-output closure)
+
+Completed and verified deterministic output initialization for Windows FD capability stubs:
+- `sa_std_fd_as_raw` -> `-1`, dup/from handles -> `0`, `sa_std_fd_into_raw` -> `-1`, terminal flag -> `0` before `UNSUPPORTED`.
+- Updated the native Windows process-terminal smoke fixture to assert the new contract.
+- `zig build windows-runtime -Dtarget=x86_64-windows --summary all` passes 22/22; host standard-library gates remain green.
+
+## Active std parity batch (2026-08-22 package boundary metadata)
+
+Completed the supportable package metadata closure:
+- `sa_std/sa.mod` now declares `package "sa_std"` and remains dependency/mirror-free.
+- `tests/std_smoke_core.zig` verifies the package identity and empty external dependency set.
+- Manifest version/features/ABI-release metadata remains blocked by the current `sa.mod` grammar; no unsupported fields were invented.
+
+## Active std parity batch (2026-08-22 manifest parser hardening)
+
+Completed supportable parser improvements:
+- Quoted manifest values now decode `\\`, `\\n`, `\\r`, `\\t`, and escaped quotes, while rejecting malformed or trailing quoted text.
+- String-list parsing now tracks quoted regions and escapes, allowing commas inside permission paths and environment names.
+- Added regression coverage in `src/pkg/manifest.zig`; `zig build pkg-core-test --summary all` passes 44 tests with 3 intentional skips.
+- Unquoted `#` comments separated by whitespace are now stripped outside quoted strings; the parser regression fixture covers inline comments.
+
+## Active std parity batch (2026-08-22 testing namespace closure)
+
+Completed supportable module-entry work:
+- Added `sa_std/testing/prelude.{sa,sal}` over the existing assertion declarations and concrete `MockIo` facade.
+- Added `std_testing_prelude_import_surface.sa`; direct execution passes 2/2, including a write/rewind/read round trip.
+- Kept testing-only APIs out of the production root prelude while making the namespace importable and testable.
+- Full post-change validation: 241 `.sa/.sal` files pass `sa check`; `std-smoke` 7/7; runtime ABI 492 symbols; LLVM unit framework 4 passed with 1 intentional queued-failure skip.
+
+## Active std parity batch (2026-08-22 manifest package metadata)
+
+Completed parser capability previously blocked by grammar:
+- Added backward-compatible `package { ... }` blocks with `name`, optional `version`, optional numeric `abi`, and quoted `features` list fields.
+- Preserved legacy `package "name"` syntax and added escaped-string serialization in `writeManifest`.
+- Added deep clone/deinit/equality handling and round-trip regression coverage; package core tests now pass 45 with 3 intentional skips.
+- The compiler-shipped `sa_std/sa.mod` remains dependency-free and metadata-minimal until release policy chooses concrete version/ABI values.
+- Added a `std_smoke` fixture for the metadata block; after this extension `std-smoke` still passes 7/7, while the full 241-file SA static check and runtime ABI/unit gates remain green.
+
+## Active std parity batch (2026-08-22 HTTP/2 handle ownership)
+
+Completed supportable API correction:
+- `HTTP2_BUFFER_DATA` and `HTTP2_BUFFER_LEN` now borrow the u64 buffer handle; `HTTP2_BUFFER_FREE` remains the sole consuming accessor.
+- Added `std_http2_macro_surface.sa` for stable import/constants and a `std_smoke` source-contract assertion.
+- Direct runtime behavior is covered in `src/runtime/sa_http2.zig`; the Windows source facade now provides deterministic unsupported exports, and the refreshed Linux artifact plus cross-platform ABI checker cover the complete header contract.
+
+## Active std parity batch (2026-08-22 HTTP/2 ABI and parser closure)
+
+Completed the remaining supportable deployment and checker work:
+- Linux `sa_std` cross-build now tolerates Zig's bundled libc headers, which do not declare `dlvsym`; native glibc keeps versioned lookup while non-glibc targets fall back to `dlsym` in `src/runtime/sa_pthread_host.c`.
+- Refreshed `artifacts/sa_std/libsa_std.a` with `zig build sa-std-static -Dtarget=x86_64-linux -Dllvm=false`.
+- Hardened `tools/runtime_abi_check.zig` symbol parsing to recognize comptime references such as `&http2.sa_std_http2_*` while preserving `.name = "..."` export parsing.
+- `zig build runtime-abi-check --summary all` now passes with 505 public symbols covered on both platforms.
+- Remaining packaging limitations are release-process concerns rather than missing source ABI; no unsupported HTTP/2 behavior is claimed on Windows.
+
+## Active std parity batch (2026-08-22 manifest syntax compatibility)
+
+Completed a backward-compatible parser improvement:
+- Block fields in `package`, `workspace`, and `permission_set` declarations now accept whitespace, `:`, or `=` separators without misreading URL values that contain colons.
+- String and capability lists now accept a single trailing comma while still rejecting interior empty elements and duplicate entries.
+- Added parser regression coverage for assignment separators, trailing commas, and malformed interior list elements.
+- `zig test src/pkg/manifest.zig` passes all 11 tests; package-core validation now reports 47 passed and 3 intentional skips.
+
+## Active std parity batch (2026-08-22 unit-framework parallel audit)
+
+- Reproduced the Windows `unit-framework` parallel timeout with two workers; the serial path remains green (`4 passed, 1 intentional skipped`).
+- Tested disabling the shared project cache for worker-launched `sa test` processes; this avoids cache reuse but makes a single large string suite take about 88 seconds and does not establish a stable full-suite parallel run.
+- Reverted that experiment. The remaining issue is recorded as a test-runner scheduling/resource blocker, not an `sa_std` API failure.
+
+## Active std parity batch (2026-08-22 network option ABI closure)
+
+- Added Rust-style network option spelling aliases for listener reuse-address/reuse-port and stream quick-ack/defer-accept/keep-alive helpers in `sa_std/net.sa`.
+- Added the missing Windows exports for TCP keep-alive and listener reuse options; unsupported options now return deterministic `SA_STD_ERR_UNSUPPORTED` instead of producing link-time missing-symbol failures.
+- Refreshed Linux and Windows static artifacts; `runtime-abi-check` now covers 509 public symbols on both platforms.
+- Added `std_net_option_alias_surface.sa`; direct execution passes 1/1 against the refreshed Windows artifact, and `windows-runtime` remains 22/22.- Network parity progress: added concrete cross-platform resolver-list handles (`NET_TO_SOCKET_ADDR_LIST` / `NET_ADDR_LIST_NEXT` / `NET_ADDR_LIST_FREE`) and public SA-status-to-`io.sal` ErrorKind mapping. Lazy Rust `ToSocketAddrs` trait semantics and object `io::Error` remain documented blockers.- Network parity progress: concrete TCP stream/listener and UDP `try_clone` ownership is now implemented on Linux and Windows; trait-level borrow/Arc semantics remain outside SA's current type model.

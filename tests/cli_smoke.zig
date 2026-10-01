@@ -55,6 +55,17 @@ fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
 }
 
+fn containsPortablePath(allocator: std.mem.Allocator, text: []const u8, slash_path: []const u8) !bool {
+    const normalized_text = try allocator.dupe(u8, text);
+    defer allocator.free(normalized_text);
+    for (normalized_text) |*byte| {
+        if (byte.* == '\\') byte.* = '/';
+    }
+    const normalized_path = try allocator.dupe(u8, slash_path);
+    defer allocator.free(normalized_path);
+    return std.mem.containsAtLeast(u8, normalized_text, 1, normalized_path);
+}
+
 fn bytesHashHex(bytes: []const u8) [64]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     hasher.update(bytes);
@@ -232,6 +243,40 @@ fn runCommandAnyExitWithEnvMap(allocator: std.mem.Allocator, argv: []const []con
         .argv = argv,
         .env_map = env_map,
     });
+}
+fn llvmDisAvailable() bool {
+    // bc2sa invokes llvm-dis to disassemble bitcode; skip the test when the tool is absent.
+    const probes = [_][]const u8{ "llvm-dis-14", "llvm-dis" };
+    for (probes) |probe| {
+        const result = std.process.Child.run(.{
+            .allocator = std.heap.page_allocator,
+            .argv = &[_][]const u8{ probe, "--version" },
+        }) catch continue;
+        std.heap.page_allocator.free(result.stdout);
+        std.heap.page_allocator.free(result.stderr);
+        switch (result.term) {
+            .Exited => |code| if (code == 0) return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn clangAvailable() bool {
+    const probes = [_][]const u8{ "clang", "clang.exe" };
+    for (probes) |probe| {
+        const result = std.process.Child.run(.{
+            .allocator = std.heap.page_allocator,
+            .argv = &[_][]const u8{ probe, "--version" },
+        }) catch continue;
+        std.heap.page_allocator.free(result.stdout);
+        std.heap.page_allocator.free(result.stderr);
+        switch (result.term) {
+            .Exited => |code| if (code == 0) return true,
+            else => {},
+        }
+    }
+    return false;
 }
 
 fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
@@ -627,6 +672,53 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
+}
+
+test "cli default executable suffix is target aware" {
+    if (builtin.os.tag == .windows) {
+        try std.testing.expectEqualStrings(".exe", saasm.cli.defaultExecutableSuffix());
+    } else {
+        try std.testing.expectEqualStrings("", saasm.cli.defaultExecutableSuffix());
+    }
+}
+
+test "llvm disabled build-exe reports backend diagnostic" {
+    if (saasm.build_options.llvm_enabled) return error.SkipZigTest;
+
+    const source =
+        \\@main() -> i32:
+        \\return 0
+    ;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "minimal.sa", source);
+
+    const build_exe_argv = [_][]const u8{ "sa", "build-exe", "minimal.sa" };
+    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        build_exe_argv[0..],
+        stdout_buffer.writer(),
+        stderr_buffer.writer(),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "error[LLVMBackend]: llvmc backend: LLVM-C backend is disabled in this build"));
+
+    const default_out = try std.fmt.allocPrint(std.testing.allocator, "minimal{s}", .{saasm.cli.defaultExecutableSuffix()});
+    defer std.testing.allocator.free(default_out);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(default_out, .{}));
 }
 
 test "cli build-obj incremental reuses local cache layout" {
@@ -1224,6 +1316,39 @@ test "hello world demo prints through build-wasm and node wasi" {
     try std.testing.expectEqual(@as(usize, 0), node_result.stderr.len);
 }
 
+test "windows llvm builds and runs hello world executable" {
+    if (builtin.os.tag != .windows or !saasm.build_options.llvm_enabled) return error.SkipZigTest;
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
+    defer std.testing.allocator.free(source_path);
+    const build_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello.exe", "--no-incremental" };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, &build_argv));
+
+    const file = try tmp.dir.openFile("hello.exe", .{});
+    defer file.close();
+    var magic: [2]u8 = undefined;
+    try file.reader().readNoEof(&magic);
+    try std.testing.expectEqualStrings("MZ", &magic);
+
+    const result = try runCommandAnyExit(std.testing.allocator, &.{".\\hello.exe"});
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
+    switch (result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("hello, saasm\n", result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), result.stderr.len);
+}
+
 test "hello world upstream line can break in gdb" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     const gdb_probe = std.process.Child.run(.{
@@ -1392,6 +1517,10 @@ test "trait vtable demo runs through sa run" {
 
 test "callback registration demo compiles and prints through build-exe" {
     try assertBuildExeStdout("demos/rosetta/253_contract_callback_registration/main.sa", "253\n");
+}
+
+test "indirect calls shadowed by an early import resolve to valued callees" {
+    try assertBuildExeStdout("demos/rosetta/334_indirect_import_shadow/main.sa", "334\n");
 }
 
 test "pkg lib dynamic demo compiles via object archive and prints through native link" {
@@ -3044,6 +3173,7 @@ test "bc2sa translates real llvm bitcode" {
 }
 
 test "bc2sa translates clang cmake bitcode demo" {
+    if (!llvmDisAvailable()) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -3093,7 +3223,54 @@ test "bc2sa translates clang cmake bitcode demo" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @scale(r13)") != null);
 }
 
+test "bc2sa translates sqlite3 api probe bitcode" {
+    if (!clangAvailable()) return error.SkipZigTest;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_sqlite3");
+    defer std.testing.allocator.free(demo_root);
+    const source_path = try std.fs.path.join(std.testing.allocator, &.{ demo_root, "sqlite3_probe.c" });
+    defer std.testing.allocator.free(source_path);
+    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(build_dir);
+    const bc_path = try std.fs.path.join(std.testing.allocator, &.{ build_dir, "sqlite3_probe.bc" });
+    defer std.testing.allocator.free(bc_path);
+
+    const clang_result = try std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &[_][]const u8{ "clang", "-std=c11", "-O0", "-emit-llvm", "-c", source_path, "-o", bc_path },
+    });
+    defer std.testing.allocator.free(clang_result.stdout);
+    defer std.testing.allocator.free(clang_result.stderr);
+    switch (clang_result.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", bc_path };
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
+    try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@extern sqlite3_open(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export sqlite3_bc2sa_chain_probe(arg0: ptr) -> i32:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@const ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "file:memdb1?mode=memory&cache=shared") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "select 1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_open(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_prepare_v2(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_step(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_finalize(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "call @sqlite3_close(") != null);
+}
+
 test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
+    if (!llvmDisAvailable()) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -4462,7 +4639,7 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/pkg"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/pkg"));
     try tmp.dir.access("app/sa_vendor/deps/example/pkg/index.sa", .{ .mode = .read_only });
     try tmp.dir.access("app/sa.sum", .{ .mode = .read_only });
 }
@@ -4564,9 +4741,9 @@ test "workspace install aggregates member manifests at root and pkg install fall
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/shared"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/app"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/tool"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/shared"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/app"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/tool"));
     try tmp.dir.access("sa_vendor/deps/example/shared/index.sa", .{ .mode = .read_only });
     try tmp.dir.access("sa_vendor/deps/example/app/index.sa", .{ .mode = .read_only });
     try tmp.dir.access("sa_vendor/deps/example/tool/index.sa", .{ .mode = .read_only });
@@ -4583,7 +4760,7 @@ test "workspace install aggregates member manifests at root and pkg install fall
     );
     try std.testing.expectEqual(@as(u8, 0), pkg_install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "sa_vendor/deps/example/tool"));
+    try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/tool"));
 }
 
 test "package preflight rejects tampered project sum as structured trap" {
@@ -5097,4 +5274,119 @@ test "agent capability: affected selects impacted tests" {
         std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "skipped") or
             std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests=0"),
     );
+}
+
+test "sab with corrupted param_ids traps CorruptedSignature without panic or text fallback" {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    // The program needs a function with parameters so param_ids is populated
+    // in the encoded SAB.
+    const sa_source =
+        \\@add2(a: u64, b: u64) -> u64:
+        \\L_ENTRY:
+        \\    c = add a, b
+        \\    return c
+        \\@main() -> i32:
+        \\L_MAIN:
+        \\    call @add2(20, 22)
+        \\    return 0
+    ;
+    try writeSource(tmp.dir, "params.sa", sa_source);
+
+    // Produce a valid SAB through the real `check --emit-sab` CLI path.
+    // NOTE: use executeWithWriters (not execute): execute writes to the real
+    // process stdout, which corrupts the `zig build` --listen test protocol
+    // and hangs the run.
+    const emit_argv = [_][]const u8{ "sa", "check", "params.sa", "--emit-sab", "params.sab" };
+    var emit_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    defer emit_stdout.deinit();
+    var emit_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    defer emit_stderr.deinit();
+    const emit_code = try saasm.cli.executeWithWriters(std.testing.allocator, emit_argv[0..], emit_stdout.writer(), emit_stderr.writer());
+    try std.testing.expectEqual(@as(u8, 0), emit_code);
+
+    const sab_file = try tmp.dir.openFile("params.sab", .{});
+    const sab_bytes = try sab_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    sab_file.close();
+    defer std.testing.allocator.free(sab_bytes);
+    try std.testing.expect(sab_bytes.len > 0);
+
+    // Sanity: the encoded @add2 signature really carries params/param_ids.
+    {
+        var module = try saasm.sab.decodeModule(std.testing.allocator, sab_bytes);
+        defer module.deinit(std.testing.allocator);
+        const sig = for (module.function_sigs) |*fsig| {
+            if (std.mem.eql(u8, fsig.name, "add2")) break fsig;
+        } else return error.TestUnexpectedResult;
+        try std.testing.expectEqual(@as(usize, 2), sig.params.len);
+        try std.testing.expectEqual(@as(usize, 2), sig.param_ids.len);
+    }
+
+    // Corrupt param_ids through decode/mutate/re-encode. The corrupted file
+    // stays a structurally valid SAB (magic and complete sections intact), so
+    // the failure must surface as a verifier trap -- never a decode error and
+    // never a silent text fallback. Before the fix, the bad param_id hit
+    // `orelse unreachable` (panic) and the short param_ids indexed OOB.
+    //
+    // Each case runs the real CLI (`sa check <file>.sab`) and asserts:
+    //   - explicit non-zero exit (1),
+    //   - stderr names the CorruptedSignature trap with numeric code 1058
+    //     and the "corrupted function signature" message,
+    //   - stderr never contains "panic".
+    const Case = enum { bad_reg_id, short_param_ids };
+    for ([_]Case{ .bad_reg_id, .short_param_ids }) |case| {
+        const bad_name = switch (case) {
+            .bad_reg_id => "bad_param_id.sab",
+            .short_param_ids => "short_param_ids.sab",
+        };
+        {
+            var module = try saasm.sab.decodeModule(std.testing.allocator, sab_bytes);
+            defer module.deinit(std.testing.allocator);
+            const sig = for (module.function_sigs) |*fsig| {
+                if (std.mem.eql(u8, fsig.name, "add2")) break fsig;
+            } else return error.TestUnexpectedResult;
+            switch (case) {
+                .bad_reg_id => {
+                    // param_id references a register id not declared in this
+                    // function scope.
+                    try std.testing.expectEqual(@as(usize, 2), sig.param_ids.len);
+                    const mutable_ids: []u32 = @constCast(sig.param_ids);
+                    mutable_ids[0] = std.math.maxInt(u32);
+                },
+                .short_param_ids => {
+                    // param_ids shorter than params.
+                    try std.testing.expect(sig.params.len == 2);
+                    std.testing.allocator.free(sig.param_ids);
+                    sig.param_ids = &.{};
+                },
+            }
+            const bad_bytes = try saasm.sab.encodeProgramWithConsts(
+                std.testing.allocator,
+                module.symbols,
+                module.const_decls,
+                module.function_sigs,
+                module.instructions,
+            );
+            defer std.testing.allocator.free(bad_bytes);
+            try writeBytes(tmp.dir, bad_name, bad_bytes);
+        }
+
+        var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+        defer stdout_buffer.deinit();
+        var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+        defer stderr_buffer.deinit();
+        const argv = [_][]const u8{ "sa", "check", bad_name };
+        const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+        try std.testing.expectEqual(@as(u8, 1), code);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "CorruptedSignature") != null);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "corrupted function signature") != null);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "\"trap_code\":1058") != null);
+        try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "panic") == null);
+    }
 }

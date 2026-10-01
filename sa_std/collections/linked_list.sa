@@ -705,6 +705,8 @@ L_ENTRY:
     same_len = eq llen, rlen
     br same_len -> L_EQ_SCAN, L_EQ_NO
 L_EQ_NO:
+    !left
+    !right
     !same_len
     !rlen
     !llen
@@ -749,6 +751,8 @@ L_EQ_NEXT:
     !rn
     jmp L_EQ_HEAD
 L_EQ_NO2:
+    !left
+    !right
     !same
     !lv
     !rv
@@ -758,6 +762,8 @@ L_EQ_NO2:
     !rn
     return 0
 L_EQ_YES:
+    !left
+    !right
     !null_ptr
     !done
     !ln

@@ -1,0 +1,57 @@
+// sa_std WebSocket-client surface — pure-Zig RFC 6455 client living in the
+// sci runtime (src/runtime/sa_ws_client.zig).
+//
+// A WebSocket connection is an opaque u64 handle (0 == invalid). connect()
+// performs the TCP dial (ws://) or TLS handshake (wss://, via sa_tls_client)
+// plus the HTTP Upgrade handshake in one call. wss:// peer verification is
+// exactly the sa_tls_client policy: the hostname is sent as SNI and checked
+// against the peer certificate, and the chain is verified against the
+// process-wide CA bundle (OS trust store, optionally extended with
+// sa_std_ws_client_add_ca_file). There is no verification-disabled mode.
+//
+// Message model: send_text / send_binary transmit one message as a single
+// frame (client frames are always masked, RFC 6455 5.3). recv() reassembles
+// fragmented messages, answers pings with pongs automatically, ignores
+// unsolicited pongs, and surfaces a peer close as opcode 8 with an empty
+// payload — call close() afterwards to release the handle.
+// Opcodes: 1 = text, 2 = binary, 8 = close.
+//
+// Protocol enforcement (violations fail the I/O call with -5): server
+// frames must not be masked (5.1), RSV1/2/3 must be 0 as no extensions are
+// negotiated (5.2), control frames must be final with payload <= 125 (5.5),
+// text messages must be valid UTF-8 (5.6).
+//
+// Error codes: 0 = OK; negative = error (-1 unsupported, -5 I/O,
+// -12 out of memory, -22 invalid argument, -100 certificate verification
+// failure from the wss:// TLS layer). close() consumes the handle.
+//
+// Message payloads are returned as registered u64 buffer handles, following
+// the same convention as sa_tls_client: read bytes/length with
+// sa_std_ws_client_buffer_data / sa_std_ws_client_buffer_len and release
+// with sa_std_ws_client_buffer_free.
+
+@extern sa_std_ws_client_supported(&out_supported: ptr) -> i32
+
+@extern sa_std_ws_client_connect(&url: ptr, url_len: u64, &out_handle: ptr) -> i32
+
+@extern sa_std_ws_client_add_ca_file(&path: ptr, path_len: u64) -> i32
+// Trust-anchor rule (inherited from sa_tls_client / std.crypto.Bundle):
+// the bundle keeps only the FIRST certificate seen for a given subject
+// name. Pinning a second, different certificate with an identical subject
+// is silently ignored -- it returns OK but changes nothing. Regenerate
+// with a distinguishing subject field if you must re-pin.
+
+@extern sa_std_ws_client_send_text(handle: u64, &buf: ptr, len: u64) -> i32
+@extern sa_std_ws_client_send_binary(handle: u64, &buf: ptr, len: u64) -> i32
+@extern sa_std_ws_client_ping(handle: u64, &buf: ptr, len: u64) -> i32
+
+@extern sa_std_ws_client_recv(handle: u64, &out_opcode: ptr, &out_buf_handle: ptr) -> i32
+
+@extern sa_std_ws_client_close(handle: u64, code: u16, &reason: ptr, reason_len: u64) -> i32
+
+@extern sa_std_ws_client_status_json(&out_handle: ptr) -> i32
+
+// buffer handle accessors (sci convention)
+@extern sa_std_ws_client_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_ws_client_buffer_len(buffer: u64) -> u64
+@extern sa_std_ws_client_buffer_free(^buffer: u64) -> i32

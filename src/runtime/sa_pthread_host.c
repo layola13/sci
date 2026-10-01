@@ -7,10 +7,15 @@ typedef int (*pthread_join_fn)(pthread_t, void **);
 typedef int (*pthread_detach_fn)(pthread_t);
 
 static void *lookup_pthread_symbol(const char *name) {
+#if defined(__GLIBC__)
     void *symbol = dlvsym(RTLD_NEXT, name, "GLIBC_2.34");
     if (symbol != 0) return symbol;
     symbol = dlvsym(RTLD_NEXT, name, "GLIBC_2.2.5");
     if (symbol != 0) return symbol;
+#else
+    void *symbol = dlsym(RTLD_NEXT, name);
+    return symbol;
+#endif
     return dlsym(RTLD_NEXT, name);
 }
 

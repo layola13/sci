@@ -1,0 +1,14 @@
+SA Linux support level: full native toolchain path
+
+This archive contains the Linux LLVM-enabled compiler and the Linux sa_std
+runtime library. It is the full-capability release path currently covered by
+the native Linux runtime and CI gates, including Linux-specific runtime
+families where their native dependencies are available.
+
+The public ABI contract is:
+
+  std/sa_std.h
+
+The archive's Linux runtime library is:
+
+  std/libsa_std.a

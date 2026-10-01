@@ -1,0 +1,3 @@
+// ABI/layout companion for numeric namespace aggregation.
+@import "nonzero.sal"
+@import "../num.sal"

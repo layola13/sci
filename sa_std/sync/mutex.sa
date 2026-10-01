@@ -1,5 +1,6 @@
 // Concrete mutex/spinlock macros built on atomic xchg and release unlock.
 @import "mutex.sal"
+@import "../time.sa"
 @import "../time.sai"
 
 @__mutex_lock_spin(lock: ptr) -> void:
@@ -8,7 +9,7 @@ L_MUTEX_LOCK_INIT:
     store backoff_slot+0, 1 as u64
 
 L_MUTEX_LOCK_TRY:
-    prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 seq_cst
+    prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 acq_rel
     free = eq prev, 0
     br free -> L_MUTEX_LOCK_DONE, L_MUTEX_LOCK_WAIT
 
@@ -56,7 +57,7 @@ L_MUTEX_LOCK_DONE:
 [END_MACRO]
 
 [MACRO] MUTEX_TRY_LOCK %out_ok, %lock_ptr
-    __mutex_try_prev_%out_ok = atomic_rmw_xchg %lock_ptr+Mutex_lock, 1 as u64 acquire
+    __mutex_try_prev_%out_ok = atomic_rmw_xchg %lock_ptr+Mutex_lock, 1 as u64 acq_rel
     %out_ok = eq __mutex_try_prev_%out_ok, 0
     !__mutex_try_prev_%out_ok
 [END_MACRO]
@@ -71,8 +72,17 @@ L_MUTEX_LOCK_DONE:
     atomic_store %lock_ptr+Mutex_lock, 0 as u64 release
 [END_MACRO]
 
+[MACRO] MUTEX_TRY_UNLOCK %out_ok, %lock_ptr
+    __mutex_unlock_state_%out_ok, %out_ok = cmpxchg %lock_ptr+Mutex_lock, 1, 0 as u64 acq_rel acquire
+    !__mutex_unlock_state_%out_ok
+[END_MACRO]
+
 [MACRO] MUTEX_FORCE_UNLOCKED %lock_ptr
     atomic_store %lock_ptr+Mutex_lock, 0 as u64 release
+[END_MACRO]
+
+[MACRO] MUTEX_FREE %lock_ptr
+    !%lock_ptr
 [END_MACRO]
 
 [MACRO] MUTEX_DEFAULT %out_mutex
@@ -109,11 +119,12 @@ L_ENTRY:
     store backoff_slot+0, 1 as u64
     jmp L_MT_TRY
 L_MT_TRY:
-    prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 acquire
+    prev = atomic_rmw_xchg lock+Mutex_lock, 1 as u64 acq_rel
     free = eq prev, 0
     !prev
     br free -> L_MT_OK, L_MT_CHECK
 L_MT_OK:
+    !lock
     !free
     !start
     !timeout_ns
@@ -145,6 +156,7 @@ L_MT_KEEP:
     !timed_out
     jmp L_MT_TRY
 L_MT_TIMEOUT:
+    !lock
     !timed_out
     !start
     !timeout_ns
@@ -152,4 +164,19 @@ L_MT_TIMEOUT:
 
 [MACRO] MUTEX_TRY_LOCK_TIMEOUT_NS %out_ok, %lock_ptr, %timeout_ns
     %out_ok = call @__mutex_try_lock_timeout_ns(%lock_ptr, %timeout_ns)
+[END_MACRO]
+
+[MACRO] MUTEX_TRY_LOCK_TIMEOUT_MS %out_ok, %lock_ptr, %timeout_ms
+    EXPAND TIME_CHECKED_MUL_NS __mutex_timeout_ms_ok_%out_ok, __mutex_timeout_ns_%out_ok, %timeout_ms, Time_NS_PER_MS
+    br __mutex_timeout_ms_ok_%out_ok -> L_MUTEX_TIMEOUT_MS_OK_%out_ok, L_MUTEX_TIMEOUT_MS_FAIL_%out_ok
+L_MUTEX_TIMEOUT_MS_OK_%out_ok:
+    EXPAND MUTEX_TRY_LOCK_TIMEOUT_NS %out_ok, %lock_ptr, __mutex_timeout_ns_%out_ok
+    !__mutex_timeout_ms_ok_%out_ok
+    !__mutex_timeout_ns_%out_ok
+    jmp L_MUTEX_TIMEOUT_MS_DONE_%out_ok
+L_MUTEX_TIMEOUT_MS_FAIL_%out_ok:
+    %out_ok = add 0, 0
+    !__mutex_timeout_ms_ok_%out_ok
+    !__mutex_timeout_ns_%out_ok
+L_MUTEX_TIMEOUT_MS_DONE_%out_ok:
 [END_MACRO]

@@ -1,6 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Optimization = enum {
+    none,
     release_small,
     release_fast,
 };
@@ -37,15 +39,28 @@ pub fn argvForExe(
     sa_std_archive_path: []const u8,
     extra_inputs: []const []const u8,
     debug: bool,
+    target_triple: ?[]const u8,
 ) !Argv {
     var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    if (target_triple) |triple| {
+        try argv.items.append("-target");
+        try argv.items.append(triple);
+        if (std.mem.indexOf(u8, triple, "windows") != null) {
+            // sa_std_windows.zig needs Winsock plus the usual base system libs
+            for ([_][]const u8{ "ws2_32", "kernel32", "ntdll", "advapi32", "user32", "bcrypt", "iphlpapi" }) |lib| {
+                try argv.items.append("-l");
+                try argv.items.append(lib);
+            }
+        }
+    }
     if (debug) {
         try argv.items.append("-g");
     }
     try argv.items.append(if (debug) "-O0" else switch (optimization) {
+        .none => "-O0",
         .release_small => "-O1",
         .release_fast => "-O3",
     });
@@ -54,6 +69,11 @@ pub fn argvForExe(
     }
     try argv.items.append(artifact_path);
     try argv.items.append(sa_std_archive_path);
+    if (builtin.os.tag == .windows) {
+        // The Windows bootstrap runtime's Winsock-backed UDP/TCP slices use these system libraries.
+        try argv.items.append("-lws2_32");
+        try argv.items.append("-liphlpapi");
+    }
     for (extra_inputs) |input| {
         try argv.items.append(input);
     }
@@ -69,15 +89,28 @@ pub fn argvForObj(
     out_path: []const u8,
     optimization: Optimization,
     debug: bool,
+    target_triple: ?[]const u8,
 ) !Argv {
     var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    if (target_triple) |triple| {
+        try argv.items.append("-target");
+        try argv.items.append(triple);
+        if (std.mem.indexOf(u8, triple, "windows") != null) {
+            // sa_std_windows.zig needs Winsock plus the usual base system libs
+            for ([_][]const u8{ "ws2_32", "kernel32", "ntdll", "advapi32", "user32", "bcrypt", "iphlpapi" }) |lib| {
+                try argv.items.append("-l");
+                try argv.items.append(lib);
+            }
+        }
+    }
     if (debug) {
         try argv.items.append("-g");
     }
     try argv.items.append(if (debug) "-O0" else switch (optimization) {
+        .none => "-O0",
         .release_small => "-O1",
         .release_fast => "-O3",
     });
@@ -129,6 +162,7 @@ pub fn argvForWasm(
     }
 
     try argv.items.append(if (debug) "-O0" else switch (optimization) {
+        .none => "-O0",
         .release_small => "-O1",
         .release_fast => "-O3",
     });
@@ -194,8 +228,9 @@ pub fn compileExe(
     extra_inputs: []const []const u8,
     debug: bool,
     stderr: anytype,
+    target_triple: ?[]const u8,
 ) !void {
-    var argv = try argvForExe(allocator, artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug);
+    var argv = try argvForExe(allocator, artifact_path, out_path, optimization, sa_std_archive_path, extra_inputs, debug, target_triple);
     defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {
@@ -226,8 +261,9 @@ pub fn compileObj(
     optimization: Optimization,
     debug: bool,
     stderr: anytype,
+    target_triple: ?[]const u8,
 ) !void {
-    var argv = try argvForObj(allocator, artifact_path, out_path, optimization, debug);
+    var argv = try argvForObj(allocator, artifact_path, out_path, optimization, debug, target_triple);
     defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {

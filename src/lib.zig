@@ -43,8 +43,11 @@ pub const runtime = struct {
     pub const sa_std = @import("runtime/sa_std.zig");
     pub const sa_http2 = @import("runtime/sa_http2.zig");
     pub const sa_tls_server = @import("runtime/sa_tls_server.zig");
+    pub const sa_tls_client = @import("runtime/sa_tls_client.zig");
+    pub const sa_ws_client = @import("runtime/sa_ws_client.zig");
     pub const sa_dtls = @import("runtime/sa_dtls.zig");
     pub const sa_quic = @import("runtime/sa_quic.zig");
+    pub const sa_thread_local = @import("runtime/sa_thread_local.zig");
 };
 pub const referee = @import("referee.zig");
 pub const cli = @import("cli.zig");

@@ -14,6 +14,7 @@ L_ENTRY:
 
 L_LEADER:
     atomic_store barrier+Barrier_count, 0 as u64 seq_cst
+    !barrier
     !arrived
     !prev
     !n
@@ -67,12 +68,17 @@ L_KEEP:
     jmp L_SPIN
 
 L_FOLLOWER_DONE:
+    !barrier
     return 0
 
 [MACRO] BARRIER_NEW %out_barrier, %n
     %out_barrier = alloc Barrier_SIZE
-    store %out_barrier+Barrier_n, %n as u64
+    __barrier_n_zero_%out_barrier = eq %n, 0
+    __barrier_n_norm_%out_barrier = add %n, __barrier_n_zero_%out_barrier
+    store %out_barrier+Barrier_n, __barrier_n_norm_%out_barrier as u64
     store %out_barrier+Barrier_count, 0 as u64
+    !__barrier_n_norm_%out_barrier
+    !__barrier_n_zero_%out_barrier
 [END_MACRO]
 
 [MACRO] BARRIER_WAIT %out_is_leader, %barrier_reg

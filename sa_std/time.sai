@@ -8,3 +8,30 @@
 @extern sa_time_utc_now(&out: ptr) -> i32
 @extern sa_time_sleep_ns(ns: u64) -> i32
 @extern sa_time_sleep_ms(ms: u64) -> i32
+// JS Date.toISOString shape for an i64 unix-millis value (UTC, millis
+// precision, fresh buffer handle read back via sa_fmt_buffer_data/len).
+@extern sa_time_iso_from_unix_ms(ms: i64) -> u64
+// Strict-ISO Date.parse: `YYYY-MM-DD`, optional `THH:MM:SS[.sss]`,
+// optional `Z`/`±HH:MM` (date-only means UTC midnight, like JS).
+// Returns plain i32 status (0 ok, 1 invalid); anything else
+// (RFC2822, 2-digit years, words) is out of the subset.
+@extern sa_time_parse_iso(&iso: ptr, len: u64, &out_ms: ptr) -> i32
+// Date getters over i64 unix millis (UTC; JS month 0-based, Sunday 0).
+@extern sa_time_get_full_year(ms: i64) -> i64
+@extern sa_time_get_month(ms: i64) -> i64
+@extern sa_time_get_date(ms: i64) -> i64
+@extern sa_time_get_hours(ms: i64) -> i64
+@extern sa_time_get_minutes(ms: i64) -> i64
+@extern sa_time_get_seconds(ms: i64) -> i64
+@extern sa_time_get_milliseconds(ms: i64) -> i64
+@extern sa_time_get_day(ms: i64) -> i64
+// Date setters over i64 unix millis (field 0..6 = FullYear..Milliseconds,
+// month 0-based in). Out-of-range components roll over like JS (month 13
+// -> next January, date 0 -> last of previous month, hours 25 -> +1 day).
+// Returns the new millis; unknown field ids return the input unchanged.
+@extern sa_time_set_field(ms: i64, field: u64, value: i64) -> i64
+// Fixed UTC string forms (fmt 0..3 = toString/toDateString/toTimeString/
+// toUTCString); byte-exact with Node under UTC (including the
+// "(Coordinated Universal Time)" suffix). Unknown fmt yields an empty
+// handle (frontends only send 0..3 via fixed table extras).
+@extern sa_time_format_utc(ms: i64, fmt: u64) -> u64

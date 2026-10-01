@@ -41,3 +41,23 @@ L_OK:
 L_FAIL:
     !ok_all
     panic(10885)
+
+@test "sa_std mpsc try_recv_timeout zero initializes value"():
+L_ENTRY:
+    EXPAND MPSC_NEW chan, 4
+    EXPAND MPSC_TRY_RECV_TIMEOUT_NS recv_ok, val, chan, 0
+    EXPAND MPSC_FREE chan
+    ok0 = eq recv_ok, 0
+    ok1 = eq val, 0
+    ok = and ok0, ok1
+    !recv_ok
+    !val
+    !ok0
+    !ok1
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !ok
+    return 0
+L_FAIL:
+    !ok
+    panic(10991)

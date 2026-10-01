@@ -21,6 +21,6 @@
 @extern sa_std_http2_perform_server_handshake(&input: ptr, input_len: u64, &settings_json: ptr, settings_json_len: u64, &out_bytes: ptr, &out_json: ptr) -> i32
 
 // buffer handle accessors (sci convention)
-@extern sa_std_http2_buffer_data(^buffer: u64) -> &ptr
-@extern sa_std_http2_buffer_len(^buffer: u64) -> u64
+@extern sa_std_http2_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_http2_buffer_len(buffer: u64) -> u64
 @extern sa_std_http2_buffer_free(^buffer: u64) -> i32

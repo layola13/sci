@@ -1,0 +1,2 @@
+// Hyphenated import compatibility for the m-async spelling.
+@import "sa_std/m_async.sa"

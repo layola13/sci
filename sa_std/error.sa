@@ -140,6 +140,22 @@ L_ERROR_DOWNCAST_END_%out_ok:
     EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_NOT_FOUND
 [END_MACRO]
 
+[MACRO] ERROR_REF_IS_NONE %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_NONE
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_OTHER %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_OTHER
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_UNSUPPORTED %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_UNSUPPORTED
+[END_MACRO]
+
+[MACRO] ERROR_REF_IS_UNEXPECTED_EOF %out_bool, %error_ref
+    EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_UNEXPECTED_EOF
+[END_MACRO]
+
 [MACRO] ERROR_REF_IS_PERMISSION_DENIED %out_bool, %error_ref
     EXPAND ERROR_REF_CODE_EQ %out_bool, %error_ref, ERROR_CODE_PERMISSION_DENIED
 [END_MACRO]

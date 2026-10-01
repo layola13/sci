@@ -2,6 +2,19 @@
 
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
+## Completed: 2026-08-21 sa_std facade completion pass
+
+- Added public facade/module entries for `Cow`, `CString`, `Duration`, `Instant`, `JoinHandle`, `ManuallyDrop`, `NonZero`, `PhantomData`, and the core/alloc/collections/sync/io/os/text/encoding preludes.
+- Added named environment/time/FFI/thread aliases, `BinaryHeap::contains`, and fixed `RwLock` spin-lock cleanup so the corresponding `sa check` and focused tests pass.
+- Added fixed-arity scalar formatting facades: `FORMAT_*_TO_STRING`, `FORMAT_WRITE_*`, and `FORMAT_WRITELN_*` for `u64`, `i64`, `f64`, and `bool`, with focused behavior coverage.
+- Documented the supported concrete collection literals (`VEC_LIT1/2/3`, `MAP_LIT1/2/3`, `SET_LIT1/2/3`) and remaining generic/variadic limitations in `docs/std_missing.md`.
+- Validation: `zig build unit-framework --summary all`, `zig build std-smoke --summary all`, and `zig build test --summary all` pass; the standalone Windows env mega-suite still hits an LLVM backend failure in a non-runner aggregate test.
+
+## Continued: 2026-08-21 std validation hardening
+
+- Split the Windows environment macro suite's oversized first test into three focused tests; all 18 environment tests now pass at runtime and no longer hit the LLVM single-function backend limit.
+- Fixed borrowed-register cleanup in `LinkedList` equality, `Barrier`, `Condvar`, `MPSC`, `MPSC list`, and timed `Mutex` helpers; all 122 `sa_std/**/*.sa` files now pass standalone `sa check`.
+- Corrected comment syntax in the eight new public facade `.sal` files; all 100 `sa_std/**/*.sal` layout/import files now pass standalone `sa check` as well.
 ## Completed: 2026-07-19 continuous std fill (ongoing)
 
 - Continuous fill still running; panic IDs through **11003**, next free **11004+**.
@@ -9962,3 +9975,21 @@ Current progress: 100%
 - Validation status:
   - Focused: `SA_STD_DIR=/home/vscode/projects/sci/sa_std ./zig-out/bin/sa test tests/unit_framework/std_binary_heap_into_iter_sorted_collect_macro_surface.sa --jobs 1 --trace-panic` -> `1 passed; 0 failed; 0 skipped`.
 - Panic IDs next free: 10756+.
+## Completed: 2026-08-21 explicit sa_std prelude closure
+
+- Added `sa_std/prelude.sa` and `sa_std/prelude.sal` as explicit, opt-in public aggregation entries over the namespace preludes and stable root facades.
+- Added `tests/unit_framework/std_prelude_import_surface.sa` and registered it in `tests/unit_framework/runner.zig`.
+- Validation: `123` `.sa` files and `101` `.sal` files pass standalone `sa check`; `zig build unit-framework -Dllvm=true ...` succeeds with `4 passed; 1 skipped` (the queued failure fixture is expected); `zig build std-smoke --summary all` passes `8/8`.
+- The prelude intentionally does not imply Rust generic/trait/variadic semantics; it is an import-closure convenience only.
+- Expanded `sa_std/core/prelude.sa/.sal` to include the complete concrete core facade family, and added RFC-compatible `sa_std/io/bufio.sa/.sal` aggregation over buffered reader/writer/print entries.
+- Revalidated after the additions: `124` `.sa` files and `102` `.sal` files pass standalone `sa check`; `std-smoke` remains `8/8`; `runtime-abi-check` remains green with `492` public symbols covered on both platforms.
+
+## Continued: 2026-08-21 BufIO and error predicate closure
+
+- Added byte-oriented BufIO aliases in `sa_std/io/buf_reader.sa` and `sa_std/io/buf_writer.sa`.
+- Added missing base error predicates in `sa_std/error.sa` for `NONE`, `OTHER`, `UNSUPPORTED`, and `UNEXPECTED_EOF`.
+- Extended `tests/unit_framework/std_error_macro_surface.sa` and added `tests/unit_framework/std_bufio_alias_surface.sa`; the latter is registered in `tests/unit_framework/runner.zig`.
+- Added explicit handle-level I/O aliases `IO_READ_LINE`, `IO_READ_SOME`, and `IO_WRITE_SOME` in `sa_std/io.sa`, with coverage in `tests/unit_framework/std_io_named_alias_surface.sa`.
+- Added filesystem byte aliases for sequential/positioned/exact/whole-file operations in `sa_std/fs.sa`, covered by `tests/unit_framework/std_fs_bytes_alias_surface.sa`.
+- Added TCP/UDP/Unix network byte aliases in `sa_std/net.sa`, covered by `tests/unit_framework/std_net_bytes_alias_surface.sa`.
+- Added path and process capture byte aliases in `sa_std/path.sa` and `sa_std/process.sa`, covered by `tests/unit_framework/std_path_process_bytes_alias_surface.sa`.

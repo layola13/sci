@@ -1,0 +1,2 @@
+// C string layout aliases.
+@import "ffi.sal"
