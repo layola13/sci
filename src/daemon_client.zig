@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // Thin client: if SA_DAEMON_SOCKET is set, forward argv to a running daemon and
 // return its exit code. Returns null when no socket is configured, the request
@@ -21,6 +22,19 @@ pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, s
         if (std.mem.eql(u8, a, "--no-daemon")) return null;
     }
 
+    // Unix-domain sockets are not available on Windows targets (and Zig
+    // 0.14.1 std.net.connectUnixSocket does not compile for windows-gnu).
+    // The comptime branch ensures the unix-only body is never semantically
+    // analyzed when targeting Windows (verified: inline else-block skips
+    // analysis, helper-function extraction does not).
+    if (comptime builtin.os.tag == .windows) {
+        return null;
+    } else {
+        return tryDaemonClientUnixBody(allocator, argv, stdout, sock_path);
+    }
+}
+
+fn tryDaemonClientUnixBody(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, sock_path: []const u8) !?u8 {
     const stream = std.net.connectUnixSocket(sock_path) catch return null;
     defer stream.close();
 

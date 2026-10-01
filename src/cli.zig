@@ -3550,6 +3550,19 @@ fn restrictDaemonSocket(socket_path: []const u8) bool {
 }
 
 fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    // The persistent daemon relies on Unix-domain sockets, which are not
+    // available on Windows targets (Zig 0.14.1 std.net also fails to compile
+    // initUnix/connectUnixSocket for windows-gnu). Comptime branch keeps the
+    // unix-only body out of Windows semantic analysis.
+    if (comptime builtin.os.tag == .windows) {
+        try stderr.print("daemon: not supported on Windows\n", .{});
+        return 1;
+    } else {
+        return try daemonCommandUnix(allocator, args, stdout, stderr);
+    }
+}
+
+fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     var socket_path: []const u8 = "/tmp/sa-daemon.sock";
     var max_workers: usize = 8;
     var i: usize = 0;
