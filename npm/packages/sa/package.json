@@ -23,6 +23,7 @@
   },
   "files": [
     "bin/",
+    "sa_std/",
     "README.md",
     "LICENSE"
   ],

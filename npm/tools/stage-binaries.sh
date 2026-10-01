@@ -38,3 +38,10 @@ stage mac-aarch64    darwin-arm64 sa
 stage mac-x86_64     darwin-x64  sa
 stage windows-x86_64 win32-x64   sa.exe
 stage freebsd-x86_64 freebsd-x64 sa
+
+# Stage the SA source stdlib (platform-independent) into the @salang/sa
+# meta package. Sources, not binaries: copy straight from this checkout
+# (same tag as the release being published).
+rm -rf "$ROOT/packages/sa/sa_std"
+cp -r "$ROOT/../sa_std" "$ROOT/packages/sa/sa_std"
+echo "[ok] sa stdlib <= $ROOT/../sa_std"

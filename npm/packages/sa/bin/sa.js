@@ -42,6 +42,18 @@ function main() {
   try {
     fs.chmodSync(binPath, 0o755);
   } catch {}
+  // Bundled sa_std: the @salang/sa meta package ships the SA source stdlib
+  // under sa_std/. Point SA_STD_DIR at it unless the user already set one;
+  // the compiler prefers SA_STD_DIR over any baked-in fallback path.
+  if (!process.env.SA_STD_DIR) {
+    try {
+      const metaDir = path.dirname(require.resolve('@salang/sa/package.json'));
+      const bundled = path.join(metaDir, 'sa_std');
+      fs.accessSync(path.join(bundled, 'io', 'print.sai'));
+      fs.accessSync(path.join(bundled, 'core', 'sa_core.sa'));
+      process.env.SA_STD_DIR = bundled;
+    } catch {}
+  }
   const r = spawnSync(binPath, process.argv.slice(2), { stdio: 'inherit' });
   if (r.error) {
     console.error(`@salang/sa: failed to run ${binPath}: ${r.error.message}`);

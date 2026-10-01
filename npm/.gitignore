@@ -7,3 +7,6 @@ packages/sa-darwin-arm64/bin/sa
 packages/sa-darwin-x64/bin/sa
 packages/sa-win32-x64/bin/sa.exe
 packages/sa-freebsd-x64/bin/sa
+# Staged SA source stdlib copy for the @salang/sa meta package
+# (copied from ../sa_std by stage/fetch scripts at publish time).
+packages/sa/sa_std/

@@ -1,4 +1,4 @@
-#Requires-Version 7.0
+#Requires -Version 7.0
 <#
 .SYNOPSIS
   Fetch prebuilt `sa` binaries from a GitHub Release into the platform
@@ -52,6 +52,15 @@ foreach ($m in $Map) {
     finally { $Fs.Dispose() }
     Write-Host "[ok] sa-$($m[1]) <= sa-$Version-$($m[0]).zip"
 }
+
+# Stage the SA source stdlib (platform-independent) into the @salang/sa
+# meta package. Sources, not binaries: copy straight from this checkout
+# (same tag as the release being published).
+$StdSrc = Join-Path (Split-Path $Root -Parent) "sa_std"
+$StdDst = Join-Path $Root "packages/sa/sa_std"
+if (Test-Path $StdDst) { Remove-Item -Recurse -Force $StdDst }
+Copy-Item -Recurse -Force $StdSrc $StdDst
+Write-Host "[ok] sa stdlib <= $StdSrc"
 
 Remove-Item -Recurse -Force $Tmp
 Write-Host "[✓] all platform binaries staged under npm/packages/*/bin"

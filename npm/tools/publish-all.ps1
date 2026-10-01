@@ -1,4 +1,4 @@
-#Requires-Version 7.0
+#Requires -Version 7.0
 <#
 .SYNOPSIS
   Publish all @salang/sa packages in dependency order (Windows flow).
