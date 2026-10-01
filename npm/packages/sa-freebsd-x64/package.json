@@ -1,6 +1,6 @@
 {
   "name": "@salang/sa-freebsd-x64",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "SA toolchain binary for FreeBSD x86_64",
   "license": "Apache-2.0",
   "repository": {
