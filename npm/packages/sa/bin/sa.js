@@ -4,6 +4,7 @@
 // optionalDependencies and exec its `sa` binary with inherited stdio.
 // No runtime dependencies; works on Node >= 16.
 const path = require('path');
+const fs = require('fs');
 const { spawnSync } = require('child_process');
 
 const PLATFORMS = {
@@ -36,6 +37,11 @@ function main() {
     );
     process.exit(1);
   }
+  // Tarballs packed on Windows lose the Unix exec bit (binaries land as
+  // 0644). Restore it before exec; harmless no-op where it doesn't apply.
+  try {
+    fs.chmodSync(binPath, 0o755);
+  } catch {}
   const r = spawnSync(binPath, process.argv.slice(2), { stdio: 'inherit' });
   if (r.error) {
     console.error(`@salang/sa: failed to run ${binPath}: ${r.error.message}`);
