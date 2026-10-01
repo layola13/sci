@@ -108,7 +108,37 @@ gh release create <VER> /tmp/sa-<VER>-*.zip \
 
 发完检查 Release 页附件 6 个 zip 齐全。
 
-## 6. npm 发包（`@salang/sa`，esbuild 式 7 包）
+## 6. npm 打包发包（`@salang/sa`，esbuild 式 7 包）
+
+### 6.1 包结构
+
+`sci/npm/`（已进仓库；二进制不进 git，见 `npm/.gitignore`）：
+
+| 包 | 内容 | 说明 |
+|---|---|---|
+| `@salang/sa` | `bin/sa.js` launcher + README + LICENSE | `bin: {sa: bin/sa.js}`，零依赖；按 `platform-arch` 查表定位平台子包后 `spawnSync` 继承 stdio，退出码穿透 |
+| `@salang/sa-<os>-<arch>` ×6 | `bin/sa`（或 `sa.exe`）+ README | 带 `os`/`cpu` 字段，npm 安装时只下载命中平台的那一个 |
+
+launcher 解析失败时给明确报错（平台不支持 / 平台包缺失），不静默吞错。
+0.0.x 阶段只装 `sa` 主二进制；`hubproxy` 与插件 SDK 后续版本再加。
+
+版本规则：`optionalDependencies` 精确 pin 同版本号（不加 `^`），7 个包同升同发。
+
+### 6.2 二进制来源（二选一）
+
+```sh
+# A. 构建机 stage（刚编完 6 平台产物时用）
+sh sci/npm/tools/stage-binaries.sh --dist /tmp/sa-dist
+# B. 发布机拉取（Windows 笔记本等不重编的机器，版本号须与 Release tag 一致）
+sh sci/npm/tools/fetch-binaries.sh --version <VER>
+#   Windows PowerShell：powershell sci\npm\tools\fetch-binaries.ps1 -Version <VER>
+```
+
+拉取后校验：`strings` 查二进制内嵌版本（如 `0.1.2`），旧版字符串不得残留；
+Linux 包可直接跑 `bin/sa --version`。注意 `sa --version` 是编译时烤进二进制的
+（`latestGitTag()` 取当时 `git tag` 第一行）——打完 tag 必须重编，否则报旧版。
+
+### 6.3 发布
 
 顺序不能反（先 6 个平台包，再 meta 包），scope 包必须 `--access public`：
 
@@ -125,6 +155,13 @@ cd sa && npm publish --access public
 Windows：`powershell sci\npm\tools\publish-all.ps1`，支持 `--dry-run` 预演）。
 
 发完验证：`npm install -g @salang/sa && sa --version`。
+
+### 6.4 已知坑
+
+- 仓库根 `.gitignore` 的 `bin` / `bin/` 曾是全局匹配，会吞掉
+  `npm/packages/sa/bin/sa.js` 导致 launcher 漏提交。已收窄为根目录限定
+  （`/bin/`）。新增含 `bin` 目录的 npm 包结构后，务必 `git status` 确认
+  launcher 在列、`npm pack --dry-run` 核对文件清单。
 
 ## 7. 文档同步
 

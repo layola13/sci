@@ -13,7 +13,9 @@ dist/
 .codex/skills/sa_plugins
 .opencode/skills/code-index
 # end generated skill artifacts
-bin/
+# NOTE: root-only on purpose (see note near line 30): a bare `bin`/`bin/`
+# pattern would also swallow nested package dirs like npm/packages/sa/bin/.
+/bin/
 tmp_*
 /.tmp_*
 /.tmp_plugin_check/
@@ -24,7 +26,9 @@ tmp_*
 /src/dummy.zig
 /tests/dummy.zig
 *.ll
-bin
+# NOTE: root-only on purpose. A bare `bin` pattern would also swallow
+# nested package dirs such as npm/packages/sa/bin/sa.js.
+/bin
 tmp/
 logs/test_steps/
 .claude/
