@@ -99,7 +99,9 @@ const w_nohang: u32 = if (builtin.os.tag == .linux) std.posix.W.NOHANG else 0;
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
 const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
 // zig 0.14's std.posix has sendmsg but not recvmsg; std.os.linux.recvmsg is Linux-only.
-extern "c" fn c_recvmsg(sockfd: std.posix.fd_t, msg: *std.posix.msghdr, flags: c_int) isize;
+// Non-Linux targets call libc recvmsg directly. Note: the extern name must be
+// exactly "recvmsg" — macOS dylibs reject undefined symbols, unlike ELF .so.
+extern "c" fn recvmsg(sockfd: std.posix.fd_t, msg: *std.posix.msghdr, flags: c_int) isize;
 extern "c" fn __error() *c_int;
 fn portableRecvmsg(fd: std.posix.fd_t, msg: *std.posix.msghdr, flags: u32) !usize {
     if (builtin.os.tag == .linux) {
@@ -109,7 +111,7 @@ fn portableRecvmsg(fd: std.posix.fd_t, msg: *std.posix.msghdr, flags: u32) !usiz
             else => |e| std.posix.unexpectedErrno(e),
         };
     } else {
-        const rc = c_recvmsg(fd, msg, @as(c_int, @intCast(flags)));
+        const rc = recvmsg(fd, msg, @as(c_int, @intCast(flags)));
         if (rc < 0) {
             const e = @as(std.posix.E, @enumFromInt(__error().*));
             return std.posix.unexpectedErrno(e);
