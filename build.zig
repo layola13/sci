@@ -35,6 +35,16 @@ fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
+    // System root for cross-compilation to targets without bundled libc
+    // (e.g. FreeBSD: extract base.txz and pass -Dsysroot=<dir>).
+    if (b.option([]const u8, "sysroot", "System root directory for cross-compilation (provides target libc headers/libs).")) |s| {
+        b.sysroot = s;
+    }
+    // Custom libc installation file (-libc) for targets without bundled libc
+    // (e.g. FreeBSD: generate from the sysroot, see tools/build_freebsd.sh).
+    if (b.option([]const u8, "libc", "Custom libc installation file for cross-compilation targets without bundled libc.")) |l| {
+        b.libc_file = l;
+    }
     const is_windows = target.result.os.tag == .windows;
     const is_linux = target.result.os.tag == .linux;
     const release_safe = b.option(bool, "release-safe", "Build all artifacts with ReleaseSafe optimization.") orelse false;

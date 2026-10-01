@@ -98,7 +98,21 @@ const w_exited: u32 = if (builtin.os.tag == .linux) std.posix.W.EXITED else 0;
 const w_nohang: u32 = if (builtin.os.tag == .linux) std.posix.W.NOHANG else 0;
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
 const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
-// zig 0.14's std.posix has sendmsg but not recvmsg; std.os.linux.recvmsg is Linux-only.
+// TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
+// is void on FreeBSD in zig 0.14, and std.os.linux.TCP.* are Linux values.
+const tcp_nodelay: u32 = 1;
+// --- FreeBSD compat (zig 0.14 std leaves several POSIX surfaces
+// unimplemented for freebsd: uname, TCP consts, if_nametoindex) ---
+const fbsd_sys_nmln: usize = 256;
+const fbsd_utsname = extern struct {
+    sysname: [fbsd_sys_nmln]u8,
+    nodename: [fbsd_sys_nmln]u8,
+    release: [fbsd_sys_nmln]u8,
+    version: [fbsd_sys_nmln]u8,
+    machine: [fbsd_sys_nmln]u8,
+};
+extern fn uname(buf: *fbsd_utsname) c_int;
+extern fn if_nametoindex(ifname: [*:0]const u8) c_uint;
 // Non-Linux targets call libc recvmsg directly. Note: the extern name must be
 // exactly "recvmsg" — macOS dylibs reject undefined symbols, unlike ELF .so.
 extern "c" fn recvmsg(sockfd: std.posix.fd_t, msg: *std.posix.msghdr, flags: c_int) isize;
@@ -1747,14 +1761,138 @@ fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: std.posix.soc
 fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
     const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
+    // FreeBSD: std.net.Address.resolveIp bottoms out in if_nametoindex,
+    // which zig 0.14 leaves unimplemented for freebsd. Numeric literals
+    // parse locally; DNS names go through getAddressList below.
+    if (comptime builtin.os.tag == .freebsd) {
+        const parts = parseIpv4Ascii(host) orelse return error.InvalidArgument;
+        return std.net.Address.initIp4(parts, port16);
+    }
     const address = try std.net.Address.resolveIp(host, port16);
     if (address.any.family != std.posix.AF.INET) return error.InvalidArgument;
     return address;
 }
 
+// Parse one "::"-free half ("1:2:3" or trailing embedded IPv4) into out,
+// returning the group count. Used only on FreeBSD (see parseIpv6Freebsd).
+fn parseV6HalfFreebsd(s: []const u8, out: *[16]u8) ?usize {
+    if (s.len == 0) return null;
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, s, ':');
+    while (it.next()) |part| {
+        if (part.len == 0) return null;
+        if (std.mem.indexOfScalar(u8, part, '.') != null) {
+            if (it.peek() != null) return null; // embedded IPv4 must be last
+            const v4 = parseIpv4Ascii(part) orelse return null;
+            if (n > 6) return null;
+            out[n * 2] = v4[0];
+            out[n * 2 + 1] = v4[1];
+            out[n * 2 + 2] = v4[2];
+            out[n * 2 + 3] = v4[3];
+            n += 2;
+        } else {
+            if (part.len > 4 or n > 7) return null;
+            const g = std.fmt.parseInt(u16, part, 16) catch return null;
+            out[n * 2] = @as(u8, @intCast(g >> 8));
+            out[n * 2 + 1] = @as(u8, @intCast(g & 0xff));
+            n += 1;
+        }
+    }
+    return n;
+}
+
+// Numeric IPv6 parser for FreeBSD: std.net.Ip6Address.resolve/parse and
+// Address.resolveIp all reach if_nametoindex (unimplemented for freebsd in
+// zig 0.14). Handles full, "::"-compressed and embedded-IPv4 forms.
+fn parseIpv6NumericFreebsd(text: []const u8) ?[16]u8 {
+    if (text.len == 0 or text.len > 45) return null;
+    var left = text;
+    var right: []const u8 = "";
+    var compressed = false;
+    if (std.mem.indexOf(u8, text, "::")) |idx| {
+        if (std.mem.indexOf(u8, text[idx + 2 ..], "::") != null) return null;
+        left = text[0..idx];
+        right = text[idx + 2 ..];
+        compressed = true;
+    } else if (text[0] == ':' or text[text.len - 1] == ':') {
+        return null;
+    }
+    var addr: [16]u8 = [_]u8{0} ** 16;
+    var head_n: usize = 0;
+    if (left.len > 0 or !compressed) {
+        head_n = parseV6HalfFreebsd(left, &addr) orelse return null;
+    }
+    if (compressed) {
+        if (right.len > 0) {
+            var tail: [16]u8 = [_]u8{0} ** 16;
+            const tail_n = parseV6HalfFreebsd(right, &tail) orelse return null;
+            const tail_bytes = tail_n * 2;
+            if (head_n * 2 + tail_bytes > 16) return null;
+            if (head_n == 8) return null; // "::" must compress at least one group
+            @memcpy(addr[16 - tail_bytes ..], tail[0..tail_bytes]);
+        } else if (head_n == 8) {
+            return null; // trailing "::" with nothing compressed
+        }
+    } else if (head_n != 8) {
+        return null;
+    }
+    return addr;
+}
+
+// "addr" or "addr%zone" (numeric zone, or interface name via libc
+// if_nametoindex which FreeBSD provides). Shared by parseIp6Address and
+// parseIpv6Ascii on FreeBSD.
+fn parseIp6FreebsdParts(host: []const u8) ?struct { addr: [16]u8, scope_id: u32 } {
+    var addr_text = host;
+    var scope_id: u32 = 0;
+    if (std.mem.indexOfScalar(u8, host, '%')) |pct| {
+        addr_text = host[0..pct];
+        const zone = host[pct + 1 ..];
+        if (zone.len == 0) return null;
+        scope_id = std.fmt.parseInt(u32, zone, 10) catch blk: {
+            if (zone.len >= std.c.IFNAMESIZE) return null;
+            var zbuf: [std.c.IFNAMESIZE:0]u8 = undefined;
+            @memcpy(zbuf[0..zone.len], zone);
+            zbuf[zone.len] = 0;
+            const idx = if_nametoindex(@as([*:0]const u8, @ptrCast(&zbuf)));
+            if (idx == 0) return null;
+            break :blk idx;
+        };
+    }
+    const octets = parseIpv6NumericFreebsd(addr_text) orelse return null;
+    return .{ .addr = octets, .scope_id = scope_id };
+}
+
+test "parseIpv6NumericFreebsd handles full, compressed and embedded forms" {
+    const t = std.testing;
+    try t.expectEqualSlices(u8, &[_]u8{0} ** 16, &parseIpv6NumericFreebsd("::").?);
+    try t.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, &parseIpv6NumericFreebsd("::1").?);
+    try t.expectEqualSlices(u8, &[_]u8{ 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8 }, &parseIpv6NumericFreebsd("1:2:3:4:5:6:7:8").?);
+    try t.expectEqualSlices(u8, &[_]u8{ 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, &parseIpv6NumericFreebsd("fe80::1").?);
+    try t.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1 }, &parseIpv6NumericFreebsd("::ffff:192.168.0.1").?);
+    try t.expect(parseIpv6NumericFreebsd("") == null);
+    try t.expect(parseIpv6NumericFreebsd("1:2:3") == null);
+    try t.expect(parseIpv6NumericFreebsd("1:2:3:4:5:6:7:8:9") == null);
+    try t.expect(parseIpv6NumericFreebsd("1::2::3") == null);
+    try t.expect(parseIpv6NumericFreebsd("1:2:3:4:5:6:7:8::") == null);
+    try t.expect(parseIpv6NumericFreebsd("gggg::1") == null);
+}
+
+test "parseIp6FreebsdParts splits numeric scopes" {
+    const t = std.testing;
+    const p = parseIp6FreebsdParts("fe80::1%3").?;
+    try t.expectEqual(@as(u32, 3), p.scope_id);
+    try t.expectEqualSlices(u8, &[_]u8{ 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, &p.addr);
+    try t.expect(parseIp6FreebsdParts("::1%") == null);
+}
+
 fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
     const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
+    if (comptime builtin.os.tag == .freebsd) {
+        const parsed = parseIp6FreebsdParts(host) orelse return error.InvalidArgument;
+        return std.net.Address.initIp6(parsed.addr, port16, 0, parsed.scope_id);
+    }
     const address = try std.net.Address.resolveIp(host, port16);
     if (address.any.family != std.posix.AF.INET6) return error.InvalidArgument;
     return address;
@@ -5160,15 +5298,30 @@ extern fn freeifaddrs(ifa: ?*struct_ifaddrs) void;
 extern fn inet_ntop(af: c_int, src: ?*const anyopaque, dst: [*]u8, size: c_uint) ?[*:0]const u8;
 
 pub export fn sa_deno_hostname() u64 {
-    const uname = std.posix.uname();
-    const nodename = std.mem.sliceTo(&uname.nodename, 0);
+    // FreeBSD: std.posix.uname is void in zig 0.14; call libc directly.
+    if (comptime builtin.os.tag == .freebsd) {
+        var uts: fbsd_utsname = undefined;
+        if (uname(&uts) != 0) return 0;
+        const nodename = std.mem.sliceTo(uts.nodename[0..], 0);
+        const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    const uname_val = std.posix.uname();
+    const nodename = std.mem.sliceTo(&uname_val.nodename, 0);
     const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 0;
     return openOwnedByteBuffer(owned) catch return 0;
 }
 
 pub export fn sa_deno_os_release() u64 {
-    const uname = std.posix.uname();
-    const release = std.mem.sliceTo(&uname.release, 0);
+    if (comptime builtin.os.tag == .freebsd) {
+        var uts: fbsd_utsname = undefined;
+        if (uname(&uts) != 0) return 0;
+        const release = std.mem.sliceTo(uts.release[0..], 0);
+        const owned = std.heap.page_allocator.dupe(u8, release) catch return 0;
+        return openOwnedByteBuffer(owned) catch return 0;
+    }
+    const uname_val = std.posix.uname();
+    const release = std.mem.sliceTo(&uname_val.release, 0);
     const owned = std.heap.page_allocator.dupe(u8, release) catch return 0;
     return openOwnedByteBuffer(owned) catch return 0;
 }
@@ -9584,7 +9737,7 @@ pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i
 pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, tcp_nodelay, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -9749,7 +9902,7 @@ pub export fn sa_std_net_tcp_stream_nodelay(stream: u64, out_enabled: ?*i32) i32
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, tcp_nodelay) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
@@ -10805,6 +10958,11 @@ fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
 }
 
 fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
+    // FreeBSD: Ip6Address.resolve reaches unimplemented if_nametoindex.
+    if (comptime builtin.os.tag == .freebsd) {
+        const parsed = parseIp6FreebsdParts(text) orelse return null;
+        return .{ .octets = parsed.addr, .scope_id = parsed.scope_id };
+    }
     const parsed = std.net.Ip6Address.resolve(text, 0) catch return null;
     return .{
         .octets = parsed.sa.addr,
@@ -12927,7 +13085,7 @@ test "exported tcp and udp socket setters update live handles" {
     try std.testing.expectEqual(SA_STD_ERR_IO, sa_net_tcp_stream_peek(server_handle, &peek_buf, peek_buf.len));
 
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(server_handle, 1));
-    try std.testing.expect(try getSocketOptBool(server.fd, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY));
+    try std.testing.expect(try getSocketOptBool(server.fd, std.posix.IPPROTO.TCP, tcp_nodelay));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
     var keepalive_enabled: i32 = 0;
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_keepalive(server_handle, &keepalive_enabled));
