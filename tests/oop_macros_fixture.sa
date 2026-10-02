@@ -1,0 +1,61 @@
+@import "sa_std/oop.sal"
+
+#def TCounter_SIZE = 16
+#def TCounter_VT = +0
+#def TCounter_val = +8
+#def TVT_inc = +0
+#def TVT_get = +8
+
+@counter_inc(&self: ptr) -> i32:
+L_ENTRY:
+    cur = load self+8 as i32
+    nxt = add cur, 1
+    store self+8, nxt as i32
+    !cur
+    return nxt
+
+@counter_get(&self: ptr) -> i32:
+L_ENTRY:
+    v = load self+8 as i32
+    return v
+
+@const TEST_COUNTER_VT = vtable { inc = @counter_inc, get = @counter_get }
+
+@main() -> i32:
+L_ENTRY:
+    // new + 字段初值
+    EXPAND CLASS_NEW obj, &TEST_COUNTER_VT, 16
+    store obj+8, 41 as i32
+    // 虚分发 inc → 42
+    EXPAND VCALL_0 r1, obj, 0
+    ok_inc = eq r1, 42
+    !r1
+    // 虚分发 get → 42
+    EXPAND VCALL_0 r2, obj, 8
+    ok_get = eq r2, 42
+    !r2
+    // 取虚表直验
+    EXPAND CLASS_VTABLE vt0, obj
+    !vt0
+    // upcast 别名写回验证
+    EXPAND UPCAST base, obj, 0
+    store base+8, 100 as i32
+    v3 = load obj+8 as i32
+    ok_alias = eq v3, 100
+    !v3
+    !base
+    !obj
+    ok = and ok_inc, ok_get
+    ok = and ok, ok_alias
+    !ok_inc
+    !ok_get
+    !ok_alias
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    return 0
+
+L_ERR:
+    !ok
+    return 1

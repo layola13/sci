@@ -1,0 +1,53 @@
+// oop.sal — 单指针单继承对象模型（与 core/trait_object.sa 的胖指针
+// DYN_* 互补，DYN_* 负责 trait object，实验类继承走这里）。
+//
+// 约定：对象 0 偏移为 vtable 指针；派生类在 Base_off 处内嵌基类
+// （前端用 #def 声明，如 #def Dog_Base = +0）；虚表用
+// @const VT = vtable { method = @fn } 声明，&VT 取地址。
+// 方法首参统一为 &self: ptr（仿 DYN_CALL 的 (&ptr) 调用点元组）。
+
+#def Obj_VTABLE = +0
+#def Obj_SIZE = 8
+
+// CLASS_NEW: 分配 %size 并写入虚表。
+[MACRO] CLASS_NEW %out_obj, %vtable, %size
+    %out_obj = alloc %size
+    store %out_obj+Obj_VTABLE, %vtable as ptr
+[END_MACRO]
+
+// CLASS_VTABLE: 取对象虚表。
+[MACRO] CLASS_VTABLE %out_vt, %obj
+    %out_vt = load %obj+Obj_VTABLE as ptr
+[END_MACRO]
+
+// UPCAST: 派生指针 + 基类偏移 → 基类指针（零开销）。
+[MACRO] UPCAST %out_base, %derived, %base_off
+    %out_base = ptr_add %derived, %base_off
+[END_MACRO]
+
+// VCALL_0: 无参虚分发（除 self 外）。
+[MACRO] VCALL_0 %out_ret, %obj, %slot_off
+    __vc_vt_%out_ret = load %obj+Obj_VTABLE as ptr
+    __vc_fn_%out_ret = load __vc_vt_%out_ret+%slot_off as ptr
+    %out_ret = call_indirect __vc_fn_%out_ret(&%obj)
+    !__vc_fn_%out_ret
+    !__vc_vt_%out_ret
+[END_MACRO]
+
+// VCALL_1: 一参虚分发。
+[MACRO] VCALL_1 %out_ret, %obj, %slot_off, %arg1
+    __vc_vt_%out_ret = load %obj+Obj_VTABLE as ptr
+    __vc_fn_%out_ret = load __vc_vt_%out_ret+%slot_off as ptr
+    %out_ret = call_indirect __vc_fn_%out_ret(&%obj, %arg1)
+    !__vc_fn_%out_ret
+    !__vc_vt_%out_ret
+[END_MACRO]
+
+// VCALL_2: 两参虚分发。
+[MACRO] VCALL_2 %out_ret, %obj, %slot_off, %arg1, %arg2
+    __vc_vt_%out_ret = load %obj+Obj_VTABLE as ptr
+    __vc_fn_%out_ret = load __vc_vt_%out_ret+%slot_off as ptr
+    %out_ret = call_indirect __vc_fn_%out_ret(&%obj, %arg1, %arg2)
+    !__vc_fn_%out_ret
+    !__vc_vt_%out_ret
+[END_MACRO]

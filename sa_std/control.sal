@@ -1,0 +1,132 @@
+// control.sal — 面向其他语言前端的控制流宏：if/else、select（?:）、
+// for 计数循环、switch 多路分发、Result 版 try(?) 与错误码分发 catch。
+//
+// 标签约定：小写 %label_* 由调用方在 0 列定义；L_CTL_* / L_* 为宏内
+// 卫生标签（按展开编号重命名，单次展开内自洽）。
+// 清理约定：与 MATCH_GUARD_* 一致——br 条件临时量留活（任何只在
+// 部分路径执行的 ! 都会造成 PhiStateConflict）；TRY_QMARK 的内部
+// 临时量在两条内部臂上各自 ! 掉，跳出宏时状态已收敛。
+// FOR 计数器槽必须由调用方在循环外分配（hoist），循环体内 stack_alloc
+// 会触发 PhiStateConflict（见 SA_LIMITATIONS）。
+@import "core/result.sal"
+
+// ═══════════════════════════════════════════════════
+// 1. IF
+// ═══════════════════════════════════════════════════
+
+// IF_ELSE: br cond → then/else（merge 由调用方收敛）。
+[MACRO] IF_ELSE %cond, %label_then, %label_else
+    br %cond -> %label_then, %label_else
+[END_MACRO]
+
+// IF_TRUE: 单臂守卫（body/next）。
+[MACRO] IF_TRUE %cond, %label_body, %label_next
+    EXPAND IF_ELSE %cond, %label_body, %label_next
+[END_MACRO]
+
+// SELECT: 三元 cond ? a : b（值选择，仿 ARRAY_SCAN_MIN 形态）。
+[MACRO] SELECT %out, %cond, %a, %b
+    br %cond -> L_SELECT_T_%out, L_SELECT_F_%out
+L_SELECT_T_%out:
+    %out = add %a, 0
+    jmp L_SELECT_END_%out
+L_SELECT_F_%out:
+    %out = add %b, 0
+L_SELECT_END_%out:
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 2. FOR（完整计数循环三件套 + 一体版）
+//    EXPAND FOR_INIT i, 0
+// L_HD:
+//    EXPAND FOR_CHECK i, 10, L_BD, L_EX
+// L_BD:
+//    ... body（可用 i）...
+//    EXPAND FOR_NEXT i, 1, L_HD
+// L_EX:
+// ═══════════════════════════════════════════════════
+
+// FOR_INIT: 计数器初始化（循环外执行一次）。
+[MACRO] FOR_INIT %counter, %lo
+    %counter = add %lo, 0
+[END_MACRO]
+
+// FOR_CHECK: 头部检查（放 L_HD 处）。
+[MACRO] FOR_CHECK %counter, %hi, %label_body, %label_exit
+    _fr_more_%counter = ult %counter, %hi
+    br _fr_more_%counter -> %label_body, %label_exit
+[END_MACRO]
+
+// FOR_NEXT: 步进 + 回跳（放 body 尾）。
+[MACRO] FOR_NEXT %counter, %step, %label_head
+    %counter = add %counter, %step
+    jmp %label_head
+[END_MACRO]
+
+// FOR_RANGE: 一体版（宏内定义 %label_head；若 verifier 拒收参数化
+// 标签定义，改用上面的 FOR_INIT + FOR_CHECK 三件套）。
+[MACRO] FOR_RANGE %counter, %lo, %hi, %label_head, %label_body, %label_exit
+    %counter = add %lo, 0
+    jmp %label_head
+%label_head:
+    _fr_head_more_%counter = ult %counter, %hi
+    br _fr_head_more_%counter -> %label_body, %label_exit
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 3. SWITCH（dispatch.sal 只有布局常量，分发逻辑在此）
+// ═══════════════════════════════════════════════════
+
+// SWITCH_2: 两路 eq 分发 + default。
+// 清理约定：br 条件临时量留活（仿 MATCH_GUARD_*；宏内 ! 会造成
+// hit/fallthrough 路径状态分叉 → PhiStateConflict）。
+[MACRO] SWITCH_2 %val, %c1, %label_h1, %c2, %label_h2, %label_default
+    _sw_eq_%label_h1 = eq %val, %c1
+    br _sw_eq_%label_h1 -> %label_h1, L_SW_NEXT_%label_h1
+L_SW_NEXT_%label_h1:
+    _sw_eq_%label_h2 = eq %val, %c2
+    br _sw_eq_%label_h2 -> %label_h2, %label_default
+[END_MACRO]
+
+// SWITCH_3: 三路 eq 分发 + default。
+[MACRO] SWITCH_3 %val, %c1, %label_h1, %c2, %label_h2, %c3, %label_h3, %label_default
+    _sw_eq_%label_h1 = eq %val, %c1
+    br _sw_eq_%label_h1 -> %label_h1, L_SW_NEXT_%label_h1
+L_SW_NEXT_%label_h1:
+    _sw_eq_%label_h2 = eq %val, %c2
+    br _sw_eq_%label_h2 -> %label_h2, L_SW_NEXT_%label_h2
+L_SW_NEXT_%label_h2:
+    _sw_eq_%label_h3 = eq %val, %c3
+    br _sw_eq_%label_h3 -> %label_h3, %label_default
+[END_MACRO]
+
+// ═══════════════════════════════════════════════════
+// 4. TRY (?) / CATCH（Result 传播版）
+// 注意：SA 无异常表与栈展开，本节只做 Result 传播（sla `?` 语义）。
+// TRY_QMARK 的 %result 本体不释放：ok 路径调用方继续用 %out_val；
+// err 路径调用方在 %label_err 处清理 locals（含 %result）后自行
+// return Err。真 catch-all（栈展开）需要编译器支持，不在此。
+// ═══════════════════════════════════════════════════
+
+// TRY_QMARK: ok → 解包 %out_val 跳 %label_ok；
+// err → 抽 %err_code_out 跳 %label_err。
+[MACRO] TRY_QMARK %out_val, %result, %err_code_out, %label_ok, %label_err
+    __tq_tag_%out_val = load %result+Result_tag as u64
+    __tq_ok_%out_val = eq __tq_tag_%out_val, Result_OK
+    br __tq_ok_%out_val -> L_TRY_Q_OK_%out_val, L_TRY_Q_ERR_%out_val
+L_TRY_Q_OK_%out_val:
+    %out_val = load %result+Result_ok as u64
+    !__tq_tag_%out_val
+    !__tq_ok_%out_val
+    jmp %label_ok
+L_TRY_Q_ERR_%out_val:
+    %err_code_out = load %result+Result_err as u64
+    !__tq_tag_%out_val
+    !__tq_ok_%out_val
+    jmp %label_err
+[END_MACRO]
+
+// CATCH_CODE: 按错误码分发（两路 + default），SWITCH_2 的错误码特化。
+[MACRO] CATCH_CODE %err_code, %c1, %label_h1, %c2, %label_h2, %label_default
+    EXPAND SWITCH_2 %err_code, %c1, %label_h1, %c2, %label_h2, %label_default
+[END_MACRO]
