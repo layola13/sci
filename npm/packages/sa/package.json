@@ -28,11 +28,11 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@salang/sa-darwin-arm64": "0.1.4",
-    "@salang/sa-darwin-x64": "0.1.4",
-    "@salang/sa-freebsd-x64": "0.1.4",
-    "@salang/sa-linux-arm64": "0.1.4",
-    "@salang/sa-linux-x64": "0.1.4",
-    "@salang/sa-win32-x64": "0.1.4"
+    "@salang/sa-darwin-arm64": "0.1.5",
+    "@salang/sa-darwin-x64": "0.1.5",
+    "@salang/sa-freebsd-x64": "0.1.5",
+    "@salang/sa-linux-arm64": "0.1.5",
+    "@salang/sa-linux-x64": "0.1.5",
+    "@salang/sa-win32-x64": "0.1.5"
   }
 }

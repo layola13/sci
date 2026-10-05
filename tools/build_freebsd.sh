@@ -21,6 +21,9 @@ TARGET="x86_64-freebsd"
 PREFIX="$REPO_ROOT/zig-out-freebsd"
 SYSROOT="/tmp/fbsd/sysroot"
 BASE_URL="https://download.freebsd.org/releases/amd64/14.4-RELEASE/base.txz"
+# Baked into `sa --version`. Defaults to build.zig's own fallback (latest git
+# tag); export SA_VERSION=<ver> for release builds.
+SA_VERSION="${SA_VERSION:-}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -62,7 +65,12 @@ fi
 
 echo "[i] building $TARGET (sysroot=$SYSROOT)..."
 cd "$REPO_ROOT"
-zig build -Dtarget="$TARGET" -Dllvm=false \
-    -Dsysroot="$SYSROOT" -Dlibc="$LIBC_FILE" -p "$PREFIX"
+if [ -n "$SA_VERSION" ]; then
+    zig build -Dtarget="$TARGET" -Dllvm=false -Dversion="$SA_VERSION" \
+        -Dsysroot="$SYSROOT" -Dlibc="$LIBC_FILE" -p "$PREFIX"
+else
+    zig build -Dtarget="$TARGET" -Dllvm=false \
+        -Dsysroot="$SYSROOT" -Dlibc="$LIBC_FILE" -p "$PREFIX"
+fi
 echo "[✓] FreeBSD build installed to $PREFIX"
 ls "$PREFIX/bin"

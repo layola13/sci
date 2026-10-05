@@ -44,11 +44,10 @@ check_bundled() {
         linux-*|freebsd-*)
             if ls "$bin_dir"/libLLVM*.so* >/dev/null 2>&1; then
                 echo "[ok] sa-$1: bundles LLVM runtime"
+            elif [ -f "$bin_dir/sa" ] && command -v ldd >/dev/null 2>&1 && ldd "$bin_dir/sa" 2>/dev/null | grep -qi "libllvm"; then
+                echo "[WARN] sa-$1: binary needs libLLVM but none bundled — users without system llvm14 will hit 'libLLVM-14.so.1: cannot open shared object file' (Ubuntu 24.04 needs libllvm14t64)"
             else
-                echo "[WARN] sa-$1: no bundled libLLVM*.so* — users without system llvm14 will hit 'libLLVM-14.so.1: cannot open shared object file' (Ubuntu 24.04 needs libllvm14t64)"
-                if command -v ldd >/dev/null 2>&1 && [ -f "$bin_dir/sa" ]; then
-                    ldd "$bin_dir/sa" 2>/dev/null | grep -i "llvm.*not found" && echo "[WARN] sa-$1: confirmed unresolved libLLVM (see ldd above)" || true
-                fi
+                echo "[ok] sa-$1: bootstrap binary, no bundle needed"
             fi
             ;;
         darwin-*)
@@ -71,5 +70,21 @@ check_bundled() {
 for p in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64 freebsd-x64; do
     check_bundled "$p"
 done
+
+# Release-blocker guard: meta optionalDependencies must pin the same version
+# as the meta package itself, or npm nests a stale platform package from the
+# registry that shadows the new top-level one in the launcher's resolution.
+meta_ver="$(node -p "require('./packages/sa/package.json').version" 2>/dev/null)"
+if [ -n "$meta_ver" ] && command -v node >/dev/null 2>&1; then
+    node -e "
+const pkg = require('./packages/sa/package.json');
+const bad = Object.entries(pkg.optionalDependencies || {}).filter(([, v]) => v !== pkg.version);
+if (bad.length) {
+    console.error('[FAIL] optionalDependencies version drift: ' + bad.map(([k, v]) => k + '@' + v).join(', ') + ' (meta is ' + pkg.version + ')');
+    process.exit(1);
+}
+console.log('[ok] optionalDependencies all pin ' + pkg.version);
+" || fail=1
+fi
 
 exit $fail

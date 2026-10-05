@@ -27,6 +27,7 @@ stage() {
         echo "[skip] missing $src (build that target first)"
         return 0
     fi
+    mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
     chmod +x "$dst"
     echo "[ok] sa-$2 <= $src ($(du -h "$dst" | cut -f1))"
@@ -49,6 +50,12 @@ bundle_linux_lib() {
     # $1 = package suffix (linux-x64), $2 = llvm lib dir
     pkg_bin="$ROOT/packages/sa-$1/bin"
     [ -f "$pkg_bin/sa" ] || return 0
+    # Bootstrap (-Dllvm=false) binaries have no LLVM dependency: nothing to
+    # bundle (avoids shipping a wrong-arch libLLVM into arm64/freebsd pkgs).
+    if command -v ldd >/dev/null 2>&1 && ! ldd "$pkg_bin/sa" 2>/dev/null | grep -qi "libllvm"; then
+        echo "[ok] sa-$1: bootstrap binary, no LLVM runtime to bundle"
+        return 0
+    fi
     for cand in "$2/libLLVM-14.so.1" "$2/libLLVM.so.14" "$2/libLLVM-14.so" "$2/libLLVM.so.1"; do
         if [ -f "$cand" ]; then
             cp -f "$cand" "$pkg_bin/"
@@ -61,7 +68,9 @@ bundle_linux_lib() {
                 echo "[warn] sa-$1 patchelf not found; skipping rpath (launcher LD_LIBRARY_PATH fallback still applies)"
             fi
             # Quick contract check: staged binary must resolve without system lib.
-            if command -v ldd >/dev/null 2>&1; then
+            # (Skipped for foreign-OS binaries: host ldd cannot resolve
+            # FreeBSD libs like libc.so.7/libthr.so.3 — those ship with the OS.)
+            if command -v ldd >/dev/null 2>&1 && ! file "$pkg_bin/sa" | grep -qi "freebsd"; then
                 if LD_LIBRARY_PATH="$pkg_bin" ldd "$pkg_bin/sa" 2>&1 | grep -q "not found"; then
                     echo "[warn] sa-$1 still has unresolved libs:"; LD_LIBRARY_PATH="$pkg_bin" ldd "$pkg_bin/sa" | grep "not found" || true
                 fi
