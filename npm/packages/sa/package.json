@@ -1,6 +1,6 @@
 {
   "name": "@salang/sa",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "SA (Safe ASM) toolchain: compiler, runtime and package manager for the SLA language",
   "license": "Apache-2.0",
   "repository": {

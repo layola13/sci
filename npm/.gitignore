@@ -7,6 +7,14 @@ packages/sa-darwin-arm64/bin/sa
 packages/sa-darwin-x64/bin/sa
 packages/sa-win32-x64/bin/sa.exe
 packages/sa-freebsd-x64/bin/sa
+# Bundled LLVM runtimes (stage-binaries.sh copies these next to sa;
+# ~80MB each, never committed — same policy as the binaries above).
+packages/sa-linux-x64/bin/libLLVM*.so*
+packages/sa-linux-arm64/bin/libLLVM*.so*
+packages/sa-freebsd-x64/bin/libLLVM*.so*
+packages/sa-darwin-arm64/bin/*.dylib
+packages/sa-darwin-x64/bin/*.dylib
+packages/sa-win32-x64/bin/LLVM-C.dll
 # Staged SA source stdlib copy for the @salang/sa meta package
 # (copied from ../sa_std by stage/fetch scripts at publish time).
 packages/sa/sa_std/
