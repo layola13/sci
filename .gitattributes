@@ -1,5 +1,10 @@
 # Keep executable shell scripts and GitHub workflow definitions portable when
 # the repository is checked out on Windows and executed through Git Bash.
 *.sh text eol=lf
+# The published launcher keeps its shebang working when packed on Windows:
+# a CRLF checkout would break `#!/usr/bin/env node` on Linux/macOS.
+# (Exec bits of bin/sa itself are restored at runtime by the launcher's
+# fs.chmodSync, so no gitattributes needed for staged binaries.)
+npm/packages/sa/bin/sa.js text eol=lf
 .github/workflows/*.yml text eol=lf
 .github/workflows/*.yaml text eol=lf
