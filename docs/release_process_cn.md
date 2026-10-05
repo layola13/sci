@@ -163,6 +163,33 @@ Windows：`powershell sci\npm\tools\publish-all.ps1`，支持 `--dry-run` 预演
   （`/bin/`）。新增含 `bin` 目录的 npm 包结构后，务必 `git status` 确认
   launcher 在列、`npm pack --dry-run` 核对文件清单。
 
+### 6.5 Windows 发布机注意事项
+
+Windows 笔记本 pull 下仓库可直接发包，无需处理 Linux 权限——以下两处已兜底：
+
+- 可执行位：zip/tar 在 Windows 解压会丢 Unix exec 位（`bin/sa` 落盘 0644）。
+  launcher（`packages/sa/bin/sa.js`）在 `spawnSync` 前对二进制做
+  `fs.chmodSync(binPath, 0o755)`，运行时自动恢复；`bin` 声明的 `sa.js`
+  本身由 npm 在安装时强制 +x。直接执行 `.../bin/sa` 的旁路不在支持范围，
+  一律走 `sa` 命令。
+- 换行符：`.gitattributes` 已把 `*.sh`、workflow yml 和
+  `npm/packages/sa/bin/sa.js` 钉为 `text eol=lf`。Windows 签出（autocrlf）
+  也不会把 launcher 写成 CRLF——否则首行 shebang 在 Linux/macOS 上失效。
+  新增发版物内的可执行脚本时，记得同步加一行。
+
+Windows 发包流程（fetch 二进制，不重编）：
+
+```powershell
+powershell sci\npm\tools\fetch-binaries.ps1 -Version <VER>
+powershell sci\npm\tools\publish-all.ps1 --dry-run   # 先预演
+powershell sci\npm\tools\publish-all.ps1             # 6 平台包 + meta 包
+```
+
+mac 原生完整版（LLVM 后端）需在 mac 机上 `zig build` 后把产物放到
+`/tmp/sa-dist` 对应目录再 `stage-binaries.sh`（`llvm@14` 的 dylib 会自动
+捆绑）；Windows 同理（`LLVM-C.dll` 自动捆绑）。可先发 bootstrap 版，
+完整版随后补。
+
 ## 7. 文档同步
 
 - sala 新增/更新 `content/13_build/`「多平台编译」章节后跑 `python build.py`
