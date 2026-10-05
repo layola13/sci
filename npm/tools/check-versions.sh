@@ -78,12 +78,13 @@ meta_ver="$(node -p "require('./packages/sa/package.json').version" 2>/dev/null)
 if [ -n "$meta_ver" ] && command -v node >/dev/null 2>&1; then
     node -e "
 const pkg = require('./packages/sa/package.json');
-const bad = Object.entries(pkg.optionalDependencies || {}).filter(([, v]) => v !== pkg.version);
+const scoped = Object.entries(pkg.optionalDependencies || {}).filter(([k]) => k.startsWith('@salang/'));
+const bad = scoped.filter(([, v]) => v !== pkg.version);
 if (bad.length) {
     console.error('[FAIL] optionalDependencies version drift: ' + bad.map(([k, v]) => k + '@' + v).join(', ') + ' (meta is ' + pkg.version + ')');
     process.exit(1);
 }
-console.log('[ok] optionalDependencies all pin ' + pkg.version);
+console.log('[ok] @salang/* optionalDependencies all pin ' + pkg.version);
 " || fail=1
 fi
 

@@ -47,9 +47,58 @@ function withBundledLibEnv(binPath) {
       : dir;
   } else if (process.platform === 'win32') {
     env.Path = env.Path ? dir + delim + env.Path : dir;
-    env.PATH = env.PATH ? dir + delim + env.PATH : dir;
+  }
+  // Bundled zig: npm nests @zigc/* under @salang/sa/node_modules instead of
+  // linking bin/zig to the global PATH, so `sa build-*` (which spawns
+  // `zig cc`) would not find it. Prepend its dir to the CHILD's PATH here.
+  const zig = findBundledZig();
+  if (zig) {
+    const key = process.platform === 'win32' ? 'Path' : 'PATH';
+    env[key] = env[key] ? zig.dir + delim + env[key] : zig.dir;
+  }
+  if (process.platform === 'win32') {
+    // Keep both casings identical; Windows merges them, Node does not.
+    env.PATH = env.Path || env.PATH;
+    env.Path = env.PATH;
   }
   return env;
+}
+
+// @zigc ships no freebsd build; elsewhere the platform package name follows
+// the same <os>-<arch> key as PLATFORMS above.
+const ZIGC_PKGS = {
+  'linux-x64': '@zigc/linux-x64',
+  'linux-arm64': '@zigc/linux-arm64',
+  'darwin-arm64': '@zigc/darwin-arm64',
+  'darwin-x64': '@zigc/darwin-x64',
+  'win32-x64': '@zigc/win32-x64',
+};
+
+function findBundledZig() {
+  // Resolution order a user would expect: explicit override, system PATH,
+  // then the @zigc platform package nested by npm. Returns {bin, dir} or null.
+  if (process.env.SA_ZIG_BIN) {
+    try {
+      fs.accessSync(process.env.SA_ZIG_BIN, fs.constants.X_OK);
+      return { bin: process.env.SA_ZIG_BIN, dir: path.dirname(process.env.SA_ZIG_BIN) };
+    } catch {}
+  }
+  const key = `${process.platform}-${process.arch}`;
+  const pkg = ZIGC_PKGS[key];
+  if (!pkg) return null;
+  let pkgDir;
+  try {
+    pkgDir = path.dirname(require.resolve(`${pkg}/package.json`));
+  } catch {
+    return null;
+  }
+  const bin = path.join(pkgDir, 'bin', process.platform === 'win32' ? 'zig.exe' : 'zig');
+  try {
+    fs.accessSync(bin, fs.constants.X_OK);
+  } catch {
+    return null;
+  }
+  return { bin, dir: path.dirname(bin) };
 }
 
 function missingLibHint(key, detail) {
@@ -129,13 +178,17 @@ function findOnPath(name) {
 
 function maybeWarnMissingZig(subcommand) {
   if (!subcommand || !ZIG_CHILD_COMMANDS.has(subcommand)) return;
-  if (findOnPath('zig')) return;
+  // System zig, explicit override, or the @zigc platform package nested by
+  // npm (injected into the child's PATH by withBundledLibEnv) all satisfy
+  // the link step; warn only when none exists.
+  if (findOnPath('zig') || findBundledZig()) return;
   const msg = [
     `@salang/sa: 'zig' not found on PATH — 'sa ${subcommand}' will fail at the link step.`,
     `  pipeline: .sa -> LLVM-C bitcode (.sa.bc) -> zig cc ${subcommand === 'build-wasm' ? '-target wasm32-wasi ' : ''}-> output`,
     `  fix: install zig 0.14.1 and ensure 'zig version' works.`,
-    `    Linux/macOS/Windows: https://ziglang.org/download/0.14.1/`,
-    `    FreeBSD x86_64 (no upstream build): https://github.com/layola13/sci/releases/download/zig-0.14.1-freebsd/zig-x86_64-freebsd-0.14.1.tar.xz`,
+    `    easiest (darwin/linux/win): npm install -g @zigc/cli@0.14.1   # bundled with @salang/sa since 0.1.6`,
+    `    or upstream: https://ziglang.org/download/0.14.1/`,
+    `    FreeBSD x86_64 (@zigc has no freebsd build): https://github.com/layola13/sci/releases/download/zig-0.14.1-freebsd/zig-x86_64-freebsd-0.14.1.tar.xz`,
     `  notes: 'sa run' needs no zig (pure interpreter); build-wasm needs no extra wasi-sdk (zig bundles wasi-libc).`,
   ].join('\n');
   console.error(msg);

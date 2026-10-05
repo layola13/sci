@@ -33,6 +33,7 @@
     "@salang/sa-freebsd-x64": "0.1.5",
     "@salang/sa-linux-arm64": "0.1.5",
     "@salang/sa-linux-x64": "0.1.5",
-    "@salang/sa-win32-x64": "0.1.5"
+    "@salang/sa-win32-x64": "0.1.5",
+    "@zigc/cli": "0.14.1"
   }
 }
