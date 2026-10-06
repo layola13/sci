@@ -819,3 +819,151 @@ L_SH_END:
     store src+8, nlen as u64
     !src
     return out
+
+// @ts_arr_copywithin 交叠安全方向拷贝（无新柄；end 缺省即全长；
+// 钳位与 slice 系列同形三份内联；形状证据：封存 lowerCopyWithin:6717-6798）。
+@ts_arr_copywithin(src: ptr, target: i32, start: i32, end: i32, hasend: i32):
+L_CW_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    t_neg = slt target, 0
+    br t_neg -> L_CW_TN, L_CW_TP
+L_CW_TN:
+    t_adj = add slen, target
+    jmp L_CW_TE
+L_CW_TP:
+    t_adj = add target, 0
+    jmp L_CW_TE
+L_CW_TE:
+    t_lo = slt t_adj, 0
+    br t_lo -> L_CW_TLO, L_CW_TMD
+L_CW_TLO:
+    tc = 0
+    jmp L_CW_TOK
+L_CW_TMD:
+    t_hi = sgt t_adj, slen
+    br t_hi -> L_CW_THI, L_CW_TKP
+L_CW_THI:
+    tc = add slen, 0
+    jmp L_CW_TOK
+L_CW_TKP:
+    tc = add t_adj, 0
+    jmp L_CW_TOK
+L_CW_TOK:
+    s_neg = slt start, 0
+    br s_neg -> L_CW_SN, L_CW_SP
+L_CW_SN:
+    s_adj = add slen, start
+    jmp L_CW_SE
+L_CW_SP:
+    s_adj = add start, 0
+    jmp L_CW_SE
+L_CW_SE:
+    s_lo = slt s_adj, 0
+    br s_lo -> L_CW_SLO, L_CW_SMD
+L_CW_SLO:
+    sc = 0
+    jmp L_CW_SOK
+L_CW_SMD:
+    s_hi = sgt s_adj, slen
+    br s_hi -> L_CW_SHI, L_CW_SKP
+L_CW_SHI:
+    sc = add slen, 0
+    jmp L_CW_SOK
+L_CW_SKP:
+    sc = add s_adj, 0
+    jmp L_CW_SOK
+L_CW_SOK:
+    he = ne hasend, 0
+    br he -> L_CW_EC, L_CW_EL
+L_CW_EL:
+    fc = add slen, 0
+    jmp L_CW_EOK
+L_CW_EC:
+    e_neg = slt end, 0
+    br e_neg -> L_CW_EN, L_CW_EP
+L_CW_EN:
+    e_adj = add slen, end
+    jmp L_CW_EE
+L_CW_EP:
+    e_adj = add end, 0
+    jmp L_CW_EE
+L_CW_EE:
+    e_lo = slt e_adj, 0
+    br e_lo -> L_CW_ELO, L_CW_EMD
+L_CW_ELO:
+    fc = 0
+    jmp L_CW_EOK
+L_CW_EMD:
+    e_hi = sgt e_adj, slen
+    br e_hi -> L_CW_EHI, L_CW_EKP
+L_CW_EHI:
+    fc = add slen, 0
+    jmp L_CW_EOK
+L_CW_EKP:
+    fc = add e_adj, 0
+    jmp L_CW_EOK
+L_CW_EOK:
+    span = sub fc, sc
+    room = sub slen, tc
+    pick = slt span, room
+    br pick -> L_CW_MS, L_CW_MR
+L_CW_MS:
+    count = add span, 0
+    jmp L_CW_MC
+L_CW_MR:
+    count = add room, 0
+    jmp L_CW_MC
+L_CW_MC:
+    go = sgt count, 0
+    br go -> L_CW_RUN, L_CW_SKIP
+L_CW_RUN:
+    fwd = slt tc, sc
+    br fwd -> L_CW_FI, L_CW_BT
+L_CW_FI:
+    i = 0
+    jmp L_CW_FT
+L_CW_FT:
+    c = slt i, count
+    br c -> L_CW_FB, L_CW_FE
+L_CW_FB:
+    fsi = add sc, i
+    fso = mul fsi, 4
+    fsa = add dptr, fso
+    fcur = load fsa+0 as i32
+    fdi = add tc, i
+    fdof = mul fdi, 4
+    fda = add dptr, fdof
+    store fda+0, fcur as i32
+    finext = add i, 1
+    i = finext
+    jmp L_CW_FT
+L_CW_FE:
+    jmp L_CW_SKIP
+L_CW_BT:
+    j = sub count, 1
+    jmp L_CW_BC
+L_CW_BC:
+    bc = sge j, 0
+    br bc -> L_CW_BB, L_CW_BE
+L_CW_BB:
+    bsi = add sc, j
+    bso = mul bsi, 4
+    bsa = add dptr, bso
+    bcur = load bsa+0 as i32
+    bdi = add tc, j
+    bdof = mul bdi, 4
+    bda = add dptr, bdof
+    store bda+0, bcur as i32
+    jn = sub j, 1
+    j = jn
+    jmp L_CW_BC
+L_CW_BE:
+    jmp L_CW_SKIP
+L_CW_SKIP:
+    !src
+    !target
+    !start
+    !end
+    !hasend
+    ret
