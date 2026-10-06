@@ -652,3 +652,26 @@ L_RV_BODY:
 L_RV_END:
     !src
     ret
+
+// @ts_arr_fill 全域值填充（无新柄；调用方保留原柄；
+// 形参 token 用后即释；与 satsgo lowerArrayFill:6257 全域同形）。
+@ts_arr_fill(src: ptr, val: i32):
+L_FL_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    i = 0
+    jmp L_FL_TOP
+L_FL_TOP:
+    c = slt i, slen
+    br c -> L_FL_BODY, L_FL_END
+L_FL_BODY:
+    off = mul i, 4
+    addr = add dptr, off
+    store addr+0, val as i32
+    inext = add i, 1
+    i = inext
+    jmp L_FL_TOP
+L_FL_END:
+    !src
+    !val
+    ret
