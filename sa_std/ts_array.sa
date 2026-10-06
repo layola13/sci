@@ -622,3 +622,33 @@ L_S_IN_END:
 L_S_END:
     !src
     ret
+
+// @ts_arr_reverse 原地对称交换（无新柄；调用方保留原柄；
+// 形参 token 用后即释；与 tsgosa saLowerArrayReverse 同形）。
+@ts_arr_reverse(src: ptr):
+L_RV_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    half = div slen, 2
+    i = 0
+    jmp L_RV_TOP
+L_RV_TOP:
+    c = slt i, half
+    br c -> L_RV_BODY, L_RV_END
+L_RV_BODY:
+    t = sub slen, 1
+    j = sub t, i
+    aoff = mul i, 4
+    aaddr = add dptr, aoff
+    boff = mul j, 4
+    baddr = add dptr, boff
+    a = load aaddr+0 as i32
+    b = load baddr+0 as i32
+    store aaddr+0, b as i32
+    store baddr+0, a as i32
+    inext = add i, 1
+    i = inext
+    jmp L_RV_TOP
+L_RV_END:
+    !src
+    ret
