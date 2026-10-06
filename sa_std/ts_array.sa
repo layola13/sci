@@ -675,3 +675,104 @@ L_FL_END:
     !src
     !val
     ret
+
+// @ts_arr_scan 相等扫描（index 系回位/-1，includes 回 1/0；
+// hasfrom=0 即缺省（正向 0/逆向末位），否则 from 全量钳位；
+// 钳位与 `ts_array.sa` 内 slice/splice 系列同形；形状证据：
+// 封存 lowerArrayScan:6444-6513）。
+@ts_arr_scan(src: ptr, want: i32, from: i32, hasfrom: i32, rev: i32, wantidx: i32) -> i32:
+L_Q_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    s_slot = alloc 8
+    hf = ne hasfrom, 0
+    br hf -> L_Q_CLAMP, L_Q_DEFLT
+L_Q_DEFLT:
+    rv0 = ne rev, 0
+    br rv0 -> L_Q_LAST, L_Q_ZERO
+L_Q_LAST:
+    lm1 = sub slen, 1
+    store s_slot+0, lm1 as i32
+    jmp L_Q_GOT
+L_Q_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_Q_GOT
+L_Q_CLAMP:
+    fneg = slt from, 0
+    br fneg -> L_Q_NEG, L_Q_POS
+L_Q_NEG:
+    fplus = add from, slen
+    fpos = sge fplus, 0
+    br fpos -> L_Q_KEEP, L_Q_FZERO
+L_Q_KEEP:
+    store s_slot+0, fplus as i32
+    jmp L_Q_GOT
+L_Q_FZERO:
+    store s_slot+0, 0 as i32
+    jmp L_Q_GOT
+L_Q_POS:
+    flt = slt from, slen
+    br flt -> L_Q_TAKE, L_Q_CMP
+L_Q_TAKE:
+    store s_slot+0, from as i32
+    jmp L_Q_GOT
+L_Q_CMP:
+    store s_slot+0, slen as i32
+    jmp L_Q_GOT
+L_Q_GOT:
+    start = load s_slot+0 as i32
+    !s_slot
+    wi = ne wantidx, 0
+    br wi -> L_Q_M1, L_Q_Z1
+L_Q_M1:
+    res = -1
+    jmp L_Q_INIT
+L_Q_Z1:
+    res = 0
+    jmp L_Q_INIT
+L_Q_INIT:
+    i = add start, 0
+    jmp L_Q_TOP
+L_Q_TOP:
+    rv1 = ne rev, 0
+    br rv1 -> L_Q_BCOND, L_Q_FCOND
+L_Q_FCOND:
+    c = slt i, slen
+    br c -> L_Q_BODY, L_Q_END
+L_Q_BCOND:
+    c2 = sge i, 0
+    br c2 -> L_Q_BODY, L_Q_END
+L_Q_BODY:
+    off = mul i, 4
+    addr = add dptr, off
+    cur = load addr+0 as i32
+    eq = eq cur, want
+    br eq -> L_Q_HIT, L_Q_NEXT
+L_Q_HIT:
+    wi2 = ne wantidx, 0
+    br wi2 -> L_Q_AT, L_Q_ONE
+L_Q_AT:
+    res = add i, 0
+    jmp L_Q_END
+L_Q_ONE:
+    res = 1
+    jmp L_Q_END
+L_Q_NEXT:
+    rv2 = ne rev, 0
+    br rv2 -> L_Q_DEC, L_Q_INC
+L_Q_INC:
+    step = add i, 1
+    i = step
+    jmp L_Q_TOP
+L_Q_DEC:
+    step2 = sub i, 1
+    i = step2
+    jmp L_Q_TOP
+L_Q_END:
+    !src
+    !want
+    !from
+    !hasfrom
+    !rev
+    !wantidx
+    return res
