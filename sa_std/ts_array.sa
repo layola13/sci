@@ -776,3 +776,17 @@ L_Q_END:
     !rev
     !wantidx
     return res
+
+// @ts_arr_pop 末端取值并缩长（返 i32；调用方保留原柄；
+// 形状证据：封存 lowerArrayPop:上游 saemit.go:6162）。
+@ts_arr_pop(src: ptr) -> i32:
+L_P_ENTRY:
+    slen = load src+8 as u64
+    last = sub slen, 1
+    dptr = load src+0 as ptr
+    off = mul last, 4
+    addr = add dptr, off
+    out = load addr+0 as i32
+    store src+8, last as u64
+    !src
+    return out
