@@ -460,7 +460,9 @@ L_W_END:
     lo = slt norm, 0
     hi = sge norm, slen
     bad = or lo, hi
-    br bad -> L_W_FIN, L_W_SET
+    br bad -> L_W_BAD, L_W_SET
+L_W_BAD:
+    panic(2501)
 L_W_SET:
     woff = mul norm, 4
     waddr = add dptr, woff
