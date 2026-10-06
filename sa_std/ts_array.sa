@@ -1,0 +1,103 @@
+// ts_array.sa -- thin-handle array ops for tsgosa mapping (R1 backport).
+//
+// Handle model (thin口 16 字节堆头, 与 `sci/sa_std/vec.sa` Vec 寄存器组
+// 不同构, 不可直调, 故另立本模块):
+//   +0: data ptr (4B 元数组)
+//   +8: len u64 (元数)
+// 新柄调用方持有, 用后 `!` 释放 (与 tsgosa 薄口归属口径一致).
+
+// @ts_arr_slice_copy 切片拷贝 ([start,end); 负起即 len+start 再钳零,
+// end 双端钳位, end<start 即空; 形参 i32(薄口门禁已保非负?不, 负起合法,
+// 故此处全量钳位); 句柄值参（调用方原槽不受影响；引用传参系 move 语义，
+// 禁用于复用句柄）；返回新柄, 调用方持有.
+@ts_arr_slice_copy(src: ptr, start: i32, end: i32) -> ptr:
+L_ENTRY:
+    slen = load src+8 as u64
+    s_slot = alloc 8
+    s_neg = slt start, 0
+    br s_neg -> L_S_NEG, L_S_POS
+L_S_NEG:
+    s_plus = add start, slen
+    s_pos = sge s_plus, 0
+    br s_pos -> L_S_KEEP, L_S_ZERO
+L_S_KEEP:
+    store s_slot+0, s_plus as i32
+    jmp L_S_DONE
+L_S_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_S_DONE
+L_S_POS:
+    s_lt = slt start, slen
+    br s_lt -> L_S_TAKE, L_S_CLAMP
+L_S_TAKE:
+    store s_slot+0, start as i32
+    jmp L_S_DONE
+L_S_CLAMP:
+    store s_slot+0, slen as i32
+    jmp L_S_DONE
+L_S_DONE:
+    s = load s_slot+0 as i32
+    !s_slot
+    e_slot = alloc 8
+    e_neg = slt end, 0
+    br e_neg -> L_E_NEG, L_E_POS
+L_E_NEG:
+    e_plus = add end, slen
+    e_ppos = sge e_plus, 0
+    br e_ppos -> L_E_KEEP, L_E_ZERO
+L_E_KEEP:
+    store e_slot+0, e_plus as i32
+    jmp L_E_DONE
+L_E_ZERO:
+    store e_slot+0, 0 as i32
+    jmp L_E_DONE
+L_E_POS:
+    e_lt = slt end, slen
+    br e_lt -> L_E_TAKE, L_E_CLAMP
+L_E_TAKE:
+    store e_slot+0, end as i32
+    jmp L_E_DONE
+L_E_CLAMP:
+    store e_slot+0, slen as i32
+    jmp L_E_DONE
+L_E_DONE:
+    e = load e_slot+0 as i32
+    !e_slot
+    e_ge = sge e, s
+    br e_ge -> L_N_OK, L_N_EMPTY
+L_N_OK:
+    nlen = sub e, s
+    jmp L_N_DONE
+L_N_EMPTY:
+    nlen = 0
+    jmp L_N_DONE
+L_N_DONE:
+    sptr = load src+0 as ptr
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, nlen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TOP
+L_TOP:
+    c = slt i, nlen
+    br c -> L_BODY, L_END
+L_BODY:
+    si = add s, i
+    soff = mul si, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TOP
+L_END:
+    !src
+    !start
+    !end
+    return nh
