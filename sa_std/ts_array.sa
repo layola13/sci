@@ -507,3 +507,72 @@ L_TR_BODY:
 L_TR_END:
     !src
     return nh
+
+// @ts_arr_tosorted 拷贝并数值插入排序返新数组（原不动；新柄调用方持有；
+// 形参值拷，用后即释不碰原槽；与 tsgosa saLowerInsertionSort 同形）。
+@ts_arr_tosorted(src: ptr) -> ptr:
+L_TS_ENTRY:
+    slen = load src+8 as u64
+    sptr = load src+0 as ptr
+    nbytes = mul slen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, slen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TS_CP_TOP
+L_TS_CP_TOP:
+    c = slt i, slen
+    br c -> L_TS_CP_BODY, L_TS_CP_END
+L_TS_CP_BODY:
+    soff = mul i, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TS_CP_TOP
+L_TS_CP_END:
+    si = 1
+    jmp L_TS_TOP
+L_TS_TOP:
+    c2 = slt si, slen
+    br c2 -> L_TS_BODY, L_TS_END
+L_TS_BODY:
+    ioff = mul si, 4
+    iaddr = add dptr, ioff
+    key = load iaddr+0 as i32
+    sj = sub si, 1
+    jmp L_TS_IN_TOP
+L_TS_IN_TOP:
+    c3 = sge sj, 0
+    br c3 -> L_TS_IN_CHK, L_TS_IN_END
+L_TS_IN_CHK:
+    joff = mul sj, 4
+    jaddr = add dptr, joff
+    aj = load jaddr+0 as i32
+    c4 = sgt aj, key
+    br c4 -> L_TS_IN_BODY, L_TS_IN_END
+L_TS_IN_BODY:
+    j1 = add sj, 1
+    j1off = mul j1, 4
+    j1addr = add dptr, j1off
+    store j1addr+0, aj as i32
+    jm = sub sj, 1
+    sj = jm
+    jmp L_TS_IN_TOP
+L_TS_IN_END:
+    k1 = add sj, 1
+    k1off = mul k1, 4
+    k1addr = add dptr, k1off
+    store k1addr+0, key as i32
+    snext = add si, 1
+    si = snext
+    jmp L_TS_TOP
+L_TS_END:
+    !src
+    return nh
