@@ -473,3 +473,37 @@ L_W_FIN:
     !idx
     !val
     return nh
+
+// @ts_arr_toreversed 逆序拷返新数组（原不动；新柄调用方持有；
+// 形参值拷，用后即释不碰原槽）。
+@ts_arr_toreversed(src: ptr) -> ptr:
+L_TR_ENTRY:
+    slen = load src+8 as u64
+    sptr = load src+0 as ptr
+    nbytes = mul slen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, slen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TR_TOP
+L_TR_TOP:
+    c = slt i, slen
+    br c -> L_TR_BODY, L_TR_END
+L_TR_BODY:
+    t = sub slen, 1
+    si = sub t, i
+    soff = mul si, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TR_TOP
+L_TR_END:
+    !src
+    return nh
