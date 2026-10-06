@@ -424,3 +424,50 @@ L_END:
     !start
     !end
     return nh
+
+// @ts_arr_with 单点替换返新数组（负下标即 len+idx；越界原样返回；
+// 新柄调用方持有；形参值拷，用后即释不碰原槽）。
+@ts_arr_with(src: ptr, idx: i32, val: i32) -> ptr:
+L_W_ENTRY:
+    slen = load src+8 as u64
+    sptr = load src+0 as ptr
+    nbytes = mul slen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, slen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    isneg = slt idx, 0
+    adj = mul slen, isneg
+    norm = add idx, adj
+    i = 0
+    jmp L_W_TOP
+L_W_TOP:
+    c = slt i, slen
+    br c -> L_W_BODY, L_W_END
+L_W_BODY:
+    soff = mul i, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_W_TOP
+L_W_END:
+    lo = slt norm, 0
+    hi = sge norm, slen
+    bad = or lo, hi
+    br bad -> L_W_FIN, L_W_SET
+L_W_SET:
+    woff = mul norm, 4
+    waddr = add dptr, woff
+    store waddr+0, val as i32
+    jmp L_W_FIN
+L_W_FIN:
+    !src
+    !idx
+    !val
+    return nh
