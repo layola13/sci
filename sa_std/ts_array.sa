@@ -790,3 +790,32 @@ L_P_ENTRY:
     store src+8, last as u64
     !src
     return out
+
+// @ts_arr_shift 首端取值并前移缩长（返 i32；调用方保留原柄；
+// 形状证据：封存 lowerArrayShift:上游 saemit.go:6178）。
+@ts_arr_shift(src: ptr) -> i32:
+L_SH_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    out = load dptr+0 as i32
+    nlen = sub slen, 1
+    i = 0
+    jmp L_SH_TOP
+L_SH_TOP:
+    c = slt i, nlen
+    br c -> L_SH_BODY, L_SH_END
+L_SH_BODY:
+    s = add i, 1
+    soff = mul s, 4
+    saddr = add dptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_SH_TOP
+L_SH_END:
+    store src+8, nlen as u64
+    !src
+    return out
