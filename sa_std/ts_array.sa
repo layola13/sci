@@ -967,3 +967,28 @@ L_CW_SKIP:
     !end
     !hasend
     ret
+
+// @ts_arr_rotr1 右旋一步（末槽复制语义由调用方扩展保证；
+// 调用方保留原柄；unshift 后半段形状）。
+@ts_arr_rotr1(src: ptr):
+L_RR_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    i = sub slen, 1
+    jmp L_RR_TOP
+L_RR_TOP:
+    c = sgt i, 0
+    br c -> L_RR_BODY, L_RR_END
+L_RR_BODY:
+    prev = sub i, 1
+    soff = mul prev, 4
+    saddr = add dptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    i = prev
+    jmp L_RR_TOP
+L_RR_END:
+    !src
+    ret
