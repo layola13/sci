@@ -60,7 +60,154 @@ L_C2_END:
 // end 双端钳位, end<start 即空; 形参 i32(薄口门禁已保非负?不, 负起合法,
 // 故此处全量钳位); 句柄值参（调用方原槽不受影响；引用传参系 move 语义，
 // 禁用于复用句柄）；返回新柄, 调用方持有.
-// @ts_arr_tospliced 删后插入返新数组（原不动；start/del 全量钳位同 slice；
+// @ts_arr_splice 原地删段返删除段（插入三段拷统一新缓冲，无插入即
+// ilen=0 退化同形；换柄后释旧缓冲；形参值拷，用后即释不碰原槽）。
+@ts_arr_splice(src: ptr, start: i32, del: i32, items: ptr) -> ptr:
+L_SP_ENTRY:
+    slen = load src+8 as u64
+    ilen = load items+8 as u64
+    sbuf = load src+0 as ptr
+    s_slot = alloc 8
+    s_neg = slt start, 0
+    br s_neg -> L_SP_S_NEG, L_SP_S_POS
+L_SP_S_NEG:
+    s_plus = add start, slen
+    s_ppos = sge s_plus, 0
+    br s_ppos -> L_SP_S_KEEP, L_SP_S_ZERO
+L_SP_S_KEEP:
+    store s_slot+0, s_plus as i32
+    jmp L_SP_S_DONE
+L_SP_S_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_SP_S_DONE
+L_SP_S_POS:
+    s_lt = slt start, slen
+    br s_lt -> L_SP_S_TAKE, L_SP_S_CLAMP
+L_SP_S_TAKE:
+    store s_slot+0, start as i32
+    jmp L_SP_S_DONE
+L_SP_S_CLAMP:
+    store s_slot+0, slen as i32
+    jmp L_SP_S_DONE
+L_SP_S_DONE:
+    s = load s_slot+0 as i32
+    !s_slot
+    d_slot = alloc 8
+    d_neg = slt del, 0
+    br d_neg -> L_SP_D_ZERO, L_SP_D_POS
+L_SP_D_ZERO:
+    store d_slot+0, 0 as i32
+    jmp L_SP_D_DONE
+L_SP_D_POS:
+    maxdel = sub slen, s
+    d_over = sgt del, maxdel
+    br d_over -> L_SP_D_CLAMP, L_SP_D_TAKE
+L_SP_D_CLAMP:
+    store d_slot+0, maxdel as i32
+    jmp L_SP_D_DONE
+L_SP_D_TAKE:
+    store d_slot+0, del as i32
+    jmp L_SP_D_DONE
+L_SP_D_DONE:
+    d = load d_slot+0 as i32
+    !d_slot
+    sd = add s, d
+    ntmp = sub slen, d
+    nlen = add ntmp, ilen
+    dh = alloc 16
+    dbytes = mul d, 4
+    dbuf = alloc dbytes
+    store dh+0, dbuf as ptr
+    store dh+8, d as u64
+    !dbuf
+    dptr = load dh+0 as ptr
+    iptr = load items+0 as ptr
+    i = 0
+    jmp L_SP1_TOP
+L_SP1_TOP:
+    c1 = slt i, d
+    br c1 -> L_SP1_BODY, L_SP1_END
+L_SP1_BODY:
+    si = add s, i
+    soff = mul si, 4
+    saddr = add sbuf, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_SP1_TOP
+L_SP1_END:
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nptr = add nbuf, 0
+    j = 0
+    jmp L_SP2_TOP
+L_SP2_TOP:
+    c2 = slt j, s
+    br c2 -> L_SP2_BODY, L_SP2_END
+L_SP2_BODY:
+    joff = mul j, 4
+    jaddr = add sbuf, joff
+    v2 = load jaddr+0 as i32
+    koff = mul j, 4
+    kaddr = add nptr, koff
+    store kaddr+0, v2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_SP2_TOP
+L_SP2_END:
+    k = 0
+    jmp L_SP3_TOP
+L_SP3_TOP:
+    c3 = slt k, ilen
+    br c3 -> L_SP3_BODY, L_SP3_END
+L_SP3_BODY:
+    koff2 = mul k, 4
+    kaddr2 = add iptr, koff2
+    v3 = load kaddr2+0 as i32
+    q = add s, k
+    qoff = mul q, 4
+    qaddr = add nptr, qoff
+    store qaddr+0, v3 as i32
+    knext = add k, 1
+    k = knext
+    jmp L_SP3_TOP
+L_SP3_END:
+    dst = add s, ilen
+    m = 0
+    jmp L_SP4_TOP
+L_SP4_TOP:
+    c4 = slt m, slen
+    br c4 -> L_SP4_CHK, L_SP4_END
+L_SP4_CHK:
+    tail = sge m, sd
+    br tail -> L_SP4_BODY, L_SP4_NEXT
+L_SP4_BODY:
+    moff = mul m, 4
+    maddr = add sbuf, moff
+    v4 = load maddr+0 as i32
+    q2 = sub m, d
+    qq2 = add q2, ilen
+    qoff2 = mul qq2, 4
+    qaddr2 = add nptr, qoff2
+    store qaddr2+0, v4 as i32
+    jmp L_SP4_NEXT
+L_SP4_NEXT:
+    mnext = add m, 1
+    m = mnext
+    jmp L_SP4_TOP
+L_SP4_END:
+    store src+0, nptr as ptr
+    store src+8, nlen as u64
+    !sbuf
+    !nbuf
+    !src
+    !items
+    !start
+    !del
+    return dh
 // items 为插入项柄；形参值拷，用后即释不碰原槽）。
 @ts_arr_tospliced(src: ptr, start: i32, del: i32, items: ptr) -> ptr:
 L_TS_ENTRY:
