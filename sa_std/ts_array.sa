@@ -6,10 +6,63 @@
 //   +8: len u64 (元数)
 // 新柄调用方持有, 用后 `!` 释放 (与 tsgosa 薄口归属口径一致).
 
-// @ts_arr_slice_copy 切片拷贝 ([start,end); 负起即 len+start 再钳零,
+// @ts_arr_concat2 双片合并（新柄调用方持有；形参值拷，用后即释不碰原槽）。
+@ts_arr_concat2(a: ptr, b: ptr) -> ptr:
+L_ENTRY:
+    alen = load a+8 as u64
+    blen = load b+8 as u64
+    nlen = add alen, blen
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, nlen as u64
+    !nbuf
+    aptr = load a+0 as ptr
+    bptr = load b+0 as ptr
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_C1_TOP
+L_C1_TOP:
+    c1 = slt i, alen
+    br c1 -> L_C1_BODY, L_C1_END
+L_C1_BODY:
+    soff = mul i, 4
+    saddr = add aptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_C1_TOP
+L_C1_END:
+    j = 0
+    jmp L_C2_TOP
+L_C2_TOP:
+    c2 = slt j, blen
+    br c2 -> L_C2_BODY, L_C2_END
+L_C2_BODY:
+    soff2 = mul j, 4
+    saddr2 = add bptr, soff2
+    v2 = load saddr2+0 as i32
+    k = add alen, j
+    doff2 = mul k, 4
+    daddr2 = add dptr, doff2
+    store daddr2+0, v2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_C2_TOP
+L_C2_END:
+    !a
+    !b
+    return nh
 // end 双端钳位, end<start 即空; 形参 i32(薄口门禁已保非负?不, 负起合法,
 // 故此处全量钳位); 句柄值参（调用方原槽不受影响；引用传参系 move 语义，
 // 禁用于复用句柄）；返回新柄, 调用方持有.
+// @ts_arr_slice_copy 切片拷贝 ([start,end); 负起即 len+start 再钳零,
+// end 双端钳位, end<start 即空; 形参 i32; 句柄值参（调用方原槽不受影响；
+// 引用传参系 move 语义，禁用于复用句柄）；返回新柄, 调用方持有.
 @ts_arr_slice_copy(src: ptr, start: i32, end: i32) -> ptr:
 L_ENTRY:
     slen = load src+8 as u64
