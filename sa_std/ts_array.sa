@@ -1079,3 +1079,34 @@ L_CR_BODY:
 L_CR_END:
     done = 0
     return done
+
+// @ts_arr_clone_flat 单层数组拷贝（新柄新缓冲；移植 saLowerDeepCloneInner
+// flat 全形；嵌套 deep 形另立）。
+@ts_arr_clone_flat(src: ptr) -> ptr:
+L_CF_ENTRY:
+    ln = load src+8 as u64
+    sdata = load src+0 as ptr
+    dest = alloc 16
+    ln1 = add ln, 1
+    nby = mul ln1, 4
+    ddata = alloc nby
+    store dest+0, ddata as ptr
+    store dest+8, ln as u64
+    !ddata
+    dloop = load dest+0 as ptr
+    iv = 0
+    jmp L_CF_TOP
+L_CF_TOP:
+    c = slt iv, ln
+    br c -> L_CF_BODY, L_CF_END
+L_CF_BODY:
+    so = mul iv, 4
+    saddr = add sdata, so
+    daddr = add dloop, so
+    cv = load saddr+0 as i32
+    store daddr+0, cv as i32
+    inext = add iv, 1
+    iv = inext
+    jmp L_CF_TOP
+L_CF_END:
+    return dest
