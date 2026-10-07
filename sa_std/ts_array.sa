@@ -1054,3 +1054,28 @@ L_APS_BODY:
     jmp L_APS_TOP
 L_APS_END:
     return dst
+
+// @ts_arr_copy_range 拷贝 src[s0,s1) 到 dst[d0,.]（调用方保证目标已分配；
+// 移植 saCopyRange 全形）。
+@ts_arr_copy_range(sdata: ptr, ddata: ptr, s0: i32, s1: i32, d0: i32) -> i32:
+L_CR_ENTRY:
+    i = add s0, 0
+    jmp L_CR_TOP
+L_CR_TOP:
+    c = slt i, s1
+    br c -> L_CR_BODY, L_CR_END
+L_CR_BODY:
+    rel = sub i, s0
+    so = mul i, 4
+    sa = add sdata, so
+    cv = load sa+0 as i32
+    di = add d0, rel
+    dof = mul di, 4
+    da = add ddata, dof
+    store da+0, cv as i32
+    inext = add i, 1
+    i = inext
+    jmp L_CR_TOP
+L_CR_END:
+    done = 0
+    return done
