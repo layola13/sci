@@ -292,6 +292,7 @@ uint64_t sa_regex_compile(const uint8_t *pattern, uint64_t pattern_len, int32_t 
 uint64_t sa_regex_match(uint64_t regex, const uint8_t *text, uint64_t text_len);
 const uint8_t *sa_regex_group_ptr(uint64_t match, uint32_t group_idx);
 uint64_t sa_regex_group_len(uint64_t match, uint32_t group_idx);
+uint64_t sa_regex_group_start(uint64_t match, uint32_t group_idx);
 uint64_t sa_regex_group_count(uint64_t regex);
 int32_t sa_regex_free(uint64_t regex);
 int32_t sa_regex_match_free(uint64_t match);

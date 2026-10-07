@@ -6256,6 +6256,21 @@ pub export fn sa_regex_group_len(match: u64, group_idx: u32) u64 {
     return @as(u64, @intCast(reg.rm_eo - reg.rm_so));
 }
 
+pub export fn sa_regex_group_start(match: u64, group_idx: u32) u64 {
+    registry_mutex.lock();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(match) orelse return 0;
+    const match_handle = switch (resource.*) {
+        .regex_match => |handle| handle,
+        else => return 0,
+    };
+    const idx = @as(usize, @intCast(group_idx));
+    if (idx >= match_handle.matches.len) return 0;
+    const reg = match_handle.matches[idx];
+    if (reg.rm_so < 0 or reg.rm_eo < 0) return 0;
+    return @as(u64, @intCast(reg.rm_so));
+}
+
 pub export fn sa_regex_group_count(regex: u64) u64 {
     registry_mutex.lock();
     defer registry_mutex.unlock();
