@@ -131,3 +131,35 @@ L_MM_SKIP:
     jmp L_MM_TOP
 L_MM_END:
     return best
+
+// @ts_math_iabs i32 绝对值（分支经槽中转，汇合无 Phi；移植 saEvalMathAbs:76-103 全形）。
+@ts_math_iabs(v: i32) -> i32:
+L_IABS_ENTRY:
+    slot = alloc 8
+    c = sge v, 0
+    br c -> L_IABS_T, L_IABS_F
+L_IABS_T:
+    store slot+0, v as i32
+    jmp L_IABS_END
+L_IABS_F:
+    nv = sub 0, v
+    store slot+0, nv as i32
+    jmp L_IABS_END
+L_IABS_END:
+    out = load slot+0 as i32
+    !slot
+    return out
+
+// @ts_math_isign i32 符号（(x>0)-(x<0)，恒精确含 0；移植 saEvalMathSign:127-135 全形）。
+@ts_math_isign(v: i32) -> i32:
+L_ISGN_ENTRY:
+    p = sgt v, 0
+    n = slt v, 0
+    out = sub p, n
+    return out
+
+// @ts_math_imul i32 低 32 位乘（SA mul 即 wrap；移植 saEvalMathImul:157-159 全形）。
+@ts_math_imul(a: i32, b: i32) -> i32:
+L_IMUL_ENTRY:
+    t = mul a, b
+    return t
