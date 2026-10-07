@@ -1,0 +1,19 @@
+// ts_string.sa -- thin-handle string ops for tsgosa mapping (R2 backport).
+//
+// Handle model (16 字节 {ptr,len} 切片句柄, 与数组同模型):
+//   +0: data ptr (utf8 bytes)
+//   +8: len u64 (byte length)
+// 调用方展开为 (ptr,len) 值参传入；本模块内无堆分配、无归属，纯值语义。
+// 形状证据：移植 tsgosa `saStringContentEq`/`saStrContentEq`
+// （等长 + 零偏 indexOf 命中；negate 由调用点折叠）。
+
+@import "string.sai"
+
+// @ts_str_equals 串内容判等（等长且被串零偏命中即 1，否则 0）。
+@ts_str_equals(lp: ptr, llen: u64, rp: ptr, rlen: u64) -> i32:
+L_SEQ_ENTRY:
+    idx = call @sa_string_index_of(lp, llen, rp, rlen, 0)
+    at0 = eq idx, 0
+    samelen = eq llen, rlen
+    both = and at0, samelen
+    return both
