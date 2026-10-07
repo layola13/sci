@@ -191,3 +191,14 @@ L_PXI_KEEP:
     jmp L_PXI_END
 L_PXI_END:
     return i0
+
+// @ts_str_char_at 取单字节字柄（`charAt`/`s[i]` 同形；data+idx 拼 16 字节
+// {ptr,1} 新柄，调用方持有；无界检查（越界未定义）；形参为展开值（非柄），
+// 调用方保留原归属；形状证据：封存 lowerStringCharAt（saemit.go:7270-7280）。
+@ts_str_char_at(bp: ptr, idx: i32) -> ptr:
+L_CA_ENTRY:
+    addr = add bp, idx
+    out = alloc 16
+    store out+0, addr as ptr
+    store out+8, 1 as u64
+    return out
