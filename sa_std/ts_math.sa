@@ -1,0 +1,23 @@
+// ts_math.sa -- thin integer math ops for tsgosa mapping (R3 backport).
+//
+// i32 语义自成一体（溢出环绕、负指数返 1），f64 extern 不可直映；逐符号移植
+// tsgosa sa_math.go 内联循环，调用点只做 import + 单 call。
+// 形状证据：移植 saEvalMathPow:180-208（res=1 起逐乘，expo<=0 零次返 1）。
+
+// @ts_math_ipow i32 逐乘幂（expo<=0 返 1；溢出按 i32 环绕，与调用点旧形一致）。
+@ts_math_ipow(base: i32, expo: i32) -> i32:
+L_IPW_ENTRY:
+    res = 1
+    ctr = add expo, 0
+    jmp L_IPW_TOP
+L_IPW_TOP:
+    cc = sgt ctr, 0
+    br cc -> L_IPW_BODY, L_IPW_END
+L_IPW_BODY:
+    nr = mul res, base
+    res = nr
+    nc = sub ctr, 1
+    ctr = nc
+    jmp L_IPW_TOP
+L_IPW_END:
+    return res
