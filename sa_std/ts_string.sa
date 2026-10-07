@@ -13,6 +13,9 @@
 
 @import "string.sai"
 @import "ts_array.sa"
+@import "fmt.sai"
+
+@const jn_empty = utf8:"\0"
 
 // @ts_str_equals 串内容判等（等长且被串零偏命中即 1，否则 0）。
 @ts_str_equals(lp: ptr, llen: u64, rp: ptr, rlen: u64) -> i32:
@@ -299,3 +302,69 @@ L_STM_FULL:
     store fout+0, midptr as ptr
     store fout+8, flen as u64
     return fout
+
+// @ts_arr_join_vals 数组 i32 元经分隔符拼接成新柄（返新 16 字节柄，调用方持有；
+// 分隔符除首元外；空数组返空串；元经 sext + fmt_into 文本化；移植 tsgosa
+// saLowerArrayJoin 全形；分支汇合 acc 自赋值对齐）。
+@ts_arr_join_vals(h: ptr, sp: ptr, sl: u64) -> ptr:
+L_JN_ENTRY:
+    acc0 = alloc 16
+    store acc0+0, &jn_empty as ptr
+    store acc0+8, 0 as u64
+    aslot = alloc 8
+    store aslot+0, acc0 as ptr
+    ln = load h+8 as u64
+    data = load h+0 as ptr
+    i = 0
+    jmp L_JN_TOP
+L_JN_TOP:
+    c = slt i, ln
+    br c -> L_JN_BODY, L_JN_END
+L_JN_BODY:
+    first = ne i, 0
+    br first -> L_JN_SEP, L_JN_ELEM
+L_JN_SEP:
+    a0 = load aslot+0 as ptr
+    a1 = call @ts_arr_join_append(a0, sp, sl)
+    store aslot+0, a1 as ptr
+    jmp L_JN_ELEM
+L_JN_ELEM:
+    off = mul i, 4
+    addr = add data, off
+    raw = load addr+0 as i32
+    wide = sext raw as i64
+    numbuf = alloc 64
+    numlen = alloc 8
+    rc = call @sa_fmt_i64_into(wide, 10, numbuf, 64, &numlen)
+    !rc
+    nlen = load numlen+0 as u64
+    !numlen
+    part = alloc 16
+    store part+0, numbuf as ptr
+    store part+8, nlen as u64
+    a2 = load aslot+0 as ptr
+    a3 = call @ts_arr_join_append(a2, part, nlen)
+    store aslot+0, a3 as ptr
+    !part
+    inext = add i, 1
+    i = inext
+    jmp L_JN_TOP
+L_JN_END:
+    acc = load aslot+0 as ptr
+    !aslot
+    return acc
+
+// @ts_arr_join_append 两柄经 concat 合并读回新柄（saConcatSlices 读回同形）。
+@ts_arr_join_append(lh: ptr, rh: ptr, rlen: u64) -> ptr:
+L_JA_ENTRY:
+    lp = load lh+0 as ptr
+    ll = load lh+8 as u64
+    rp = load rh+0 as ptr
+    obuf = call @sa_string_concat(lp, ll, rp, rlen)
+    optr = call @sa_fmt_buffer_data(obuf)
+    olen = call @sa_fmt_buffer_len(obuf)
+    !obuf
+    out = alloc 16
+    store out+0, optr as ptr
+    store out+8, olen as u64
+    return out
