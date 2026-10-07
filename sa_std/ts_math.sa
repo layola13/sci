@@ -63,3 +63,22 @@ L_ISQ_NEXT:
 L_ISQ_END:
     !mslot
     return acc
+
+// @ts_math_ilog10 十进制位数减一（`>=10` 则 `/=10` 且计数++；移植
+// saEvalMathLog10:380-408 全形；调用点种门禁保留）。
+@ts_math_ilog10(x: i32) -> i32:
+L_L10_ENTRY:
+    lacc = 0
+    ltmp = add x, 0
+    jmp L_L10_TOP
+L_L10_TOP:
+    c = sge ltmp, 10
+    br c -> L_L10_BODY, L_L10_END
+L_L10_BODY:
+    q = div ltmp, 10
+    ltmp = q
+    a = add lacc, 1
+    lacc = a
+    jmp L_L10_TOP
+L_L10_END:
+    return lacc
