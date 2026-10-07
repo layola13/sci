@@ -1110,3 +1110,76 @@ L_CF_BODY:
     jmp L_CF_TOP
 L_CF_END:
     return dest
+
+// @ts_arr_mkcopy 按元数预分配数组（多 1 槽位，与调用点旧形一致；返柄，调用方持有）。
+@ts_arr_mkcopy(nlen: u64) -> ptr:
+L_MCP_ENTRY:
+    n1p = add nlen, 1
+    nby = mul n1p, 4
+    ddata = alloc nby
+    dest = alloc 16
+    store dest+0, ddata as ptr
+    store dest+8, nlen as u64
+    !ddata
+    return dest
+
+// @ts_arr_flat 一层拍扁（isnest=0 走浅拷贝；嵌套路两遍：遍 1 外槽累内长，
+// 遍 2 新柄逐内拷片；移植 saLowerArrayFlat 全形；arrNest 标记透传留调用点）。
+@ts_arr_flat(recv: ptr, isnest: i32) -> ptr:
+L_FL_ENTRY:
+    ln = load recv+8 as u64
+    sdata = load recv+0 as ptr
+    use_deep = ne isnest, 0
+    br use_deep -> L_FL_DEEP, L_FL_SHALLOW
+L_FL_SHALLOW:
+    dest = call @ts_arr_mkcopy(ln)
+    dloop = load dest+0 as ptr
+    call @ts_arr_copy_range(sdata, dloop, 0, ln, 0)
+    return dest
+L_FL_DEEP:
+    total = alloc 8
+    store total+0, 0 as i32
+    i = 0
+    jmp L_FL_SUM_TOP
+L_FL_SUM_TOP:
+    c = slt i, ln
+    br c -> L_FL_SUM_BODY, L_FL_SUM_END
+L_FL_SUM_BODY:
+    eoff = mul i, 4
+    eaddr = add sdata, eoff
+    eh = load eaddr+0 as i32
+    elen = load eh+8 as u64
+    tn = load total+0 as i32
+    tn2 = add tn, elen
+    store total+0, tn2 as i32
+    inext = add i, 1
+    i = inext
+    jmp L_FL_SUM_TOP
+L_FL_SUM_END:
+    tlen = load total+0 as i32
+    !total
+    dest = call @ts_arr_mkcopy(tlen)
+    dloop = load dest+0 as ptr
+    pos = alloc 8
+    store pos+0, 0 as i32
+    j = 0
+    jmp L_FL_CP_TOP
+L_FL_CP_TOP:
+    c2 = slt j, ln
+    br c2 -> L_FL_CP_BODY, L_FL_CP_END
+L_FL_CP_BODY:
+    f2 = mul j, 4
+    g2 = add sdata, f2
+    h2 = load g2+0 as i32
+    hd = load h2+0 as ptr
+    hl = load h2+8 as u64
+    pv = load pos+0 as i32
+    call @ts_arr_copy_range(hd, dloop, 0, hl, pv)
+    pv2 = add pv, hl
+    store pos+0, pv2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_FL_CP_TOP
+L_FL_CP_END:
+    !pos
+    return dest
