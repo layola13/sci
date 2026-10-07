@@ -3,13 +3,16 @@
 // Handle model (16 字节 {ptr,len} 切片句柄, 与数组同模型):
 //   +0: data ptr (utf8 bytes)
 //   +8: len u64 (byte length)
-// 调用方展开为 (ptr,len) 值参传入；本模块内无堆分配、无归属，纯值语义。
+// 调用方展开为 (ptr,len) 值参传入；除 @ts_str_split 外无堆分配、无归属，纯值语义
+// （split 返新串元数组调用方持有，段柄作 i32 入槽随数组载荷，移植调用点
+// saLowerArrayPush 同形，段不单独释放）。
 // 形状证据：移植 tsgosa `saStringContentEq`/`saStrContentEq`
 // （等长 + 零偏 indexOf 命中；negate 由调用点折叠）
 // + `saClampRange`（负值自末端起钳并钳入 [0,len]；substring 另交换逆序界
 // 并将负值记 0；封存 clampRange:7393-7465；substr 下溢 quirk 原样保留）。
 
 @import "string.sai"
+@import "ts_array.sa"
 
 // @ts_str_equals 串内容判等（等长且被串零偏命中即 1，否则 0）。
 @ts_str_equals(lp: ptr, llen: u64, rp: ptr, rlen: u64) -> i32:
@@ -202,3 +205,66 @@ L_CA_ENTRY:
     store out+0, addr as ptr
     store out+8, 1 as u64
     return out
+
+// @ts_str_split 分隔扫描成串元数组（返新句柄数组，调用方持有；段柄作 i32 入槽，
+// 与调用点 saLowerArrayPush 同形，段不单独释放；lim<0 即不限长（node ToUint32
+// 实证），haslim=0 忽略 lim；移植 tsgosa saLowerStringSplit 全形，含 limit 截断）。
+@ts_str_split(bp: ptr, bl: u64, sp: ptr, sl: u64, lim: i32, haslim: i32) -> ptr:
+L_SSP_ENTRY:
+    h = alloc 16
+    store h+0, 0 as ptr
+    store h+8, 0 as u64
+    base = add bp, 0
+    blen = add bl, 0
+    sepp = add sp, 0
+    sepl = add sl, 0
+    start = 0
+    neg = slt lim, 0
+    br neg -> L_SSP_NINF, L_SSP_NCHK
+L_SSP_NINF:
+    lim_n = 2147483647
+    jmp L_SSP_NEND
+L_SSP_NCHK:
+    lim_n = add lim, 0
+    jmp L_SSP_NEND
+L_SSP_NEND:
+    use_lim = ne haslim, 0
+    br use_lim -> L_SSP_USE, L_SSP_INF
+L_SSP_USE:
+    eff = add lim_n, 0
+    jmp L_SSP_LOOP
+L_SSP_INF:
+    eff = 2147483647
+    jmp L_SSP_LOOP
+L_SSP_LOOP:
+    cnt = load h+8 as i32
+    room = slt cnt, eff
+    br room -> L_SSP_WORK, L_SSP_DONE
+L_SSP_WORK:
+    idx = call @sa_string_index_of(base, blen, sepp, sepl, start)
+    found = ne idx, -1
+    br found -> L_SSP_BODY, L_SSP_END
+L_SSP_BODY:
+    pp = add base, start
+    pl = sub idx, start
+    part = alloc 16
+    store part+0, pp as ptr
+    store part+8, pl as u64
+    call @ts_arr_push_word(h, part)
+    nstart = add idx, sl
+    start = nstart
+    jmp L_SSP_LOOP
+L_SSP_END:
+    cnt2 = load h+8 as i32
+    room2 = slt cnt2, eff
+    br room2 -> L_SSP_TAIL, L_SSP_DONE
+L_SSP_TAIL:
+    pp2 = add base, start
+    pl2 = sub blen, start
+    tail = alloc 16
+    store tail+0, pp2 as ptr
+    store tail+8, pl2 as u64
+    call @ts_arr_push_word(h, tail)
+    jmp L_SSP_DONE
+L_SSP_DONE:
+    return h

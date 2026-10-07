@@ -7,6 +7,47 @@
 // 新柄调用方持有, 用后 `!` 释放 (与 tsgosa 薄口归属口径一致).
 
 // @ts_arr_concat2 双片合并（新柄调用方持有；形参值拷，用后即释不碰原槽）。
+// @ts_arr_push_word 尾部追加一字（i32 槽；调用方传句柄时作 i32 入槽，与
+// tsgosa saLowerArrayPush 同形：换柄释新柄旧柄泄漏纪律原样保留，归属移交；
+// 返同柄，调用方保留原归属）。
+@ts_arr_push_word(h: ptr, v: i32) -> ptr:
+L_PUSH_ENTRY:
+    ln = load h+8 as u64
+    data = load h+0 as ptr
+    nlen = add ln, 1
+    nbytes = mul nlen, 4
+    isempty = eq nbytes, 0
+    br isempty -> L_PUSH_EMPTY, L_PUSH_ALLOC
+L_PUSH_EMPTY:
+    ndata = alloc 4
+    jmp L_PUSH_DONE
+L_PUSH_ALLOC:
+    ndata = alloc nbytes
+    jmp L_PUSH_DONE
+L_PUSH_DONE:
+    i = 0
+    jmp L_PUSH_COPY
+L_PUSH_COPY:
+    c = slt i, ln
+    br c -> L_PUSH_BODY, L_PUSH_END
+L_PUSH_BODY:
+    soff = mul i, 4
+    saddr = add data, soff
+    tmp = load saddr+0 as i32
+    daddr = add ndata, soff
+    store daddr+0, tmp as i32
+    inext = add i, 1
+    i = inext
+    jmp L_PUSH_COPY
+L_PUSH_END:
+    voff = mul ln, 4
+    vaddr = add ndata, voff
+    store vaddr+0, v as i32
+    store h+0, ndata as ptr
+    store h+8, nlen as u64
+    !ndata
+    return h
+
 @ts_arr_concat2(a: ptr, b: ptr) -> ptr:
 L_ENTRY:
     alen = load a+8 as u64
