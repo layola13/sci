@@ -268,3 +268,34 @@ L_SSP_TAIL:
     jmp L_SSP_DONE
 L_SSP_DONE:
     return h
+
+// @ts_str_trim 修剪成新柄（返新 16 字节柄，调用方持有；mode 0=trim/1=trimStart/
+// 2=trimEnd，由调用点按方法折叠；trimEnd 不计前导（与调用点旧形一致，只切尾）；
+// 全空串下溢由 extern 内聚（H14）；移植 tsgosa trim 三件套全形）。
+@ts_str_trim(bp: ptr, bl: u64, mode: i32) -> ptr:
+L_STM_ENTRY:
+    end_only = eq mode, 2
+    br end_only -> L_STM_EONLY, L_STM_START
+L_STM_EONLY:
+    elen = call @sa_str_trim_ascii_end_len(bp, bl)
+    eout = alloc 16
+    store eout+0, bp as ptr
+    store eout+8, elen as u64
+    return eout
+L_STM_START:
+    start = call @sa_str_trim_ascii_start_index(bp, bl)
+    midlen = sub bl, start
+    midptr = add bp, start
+    start_only = eq mode, 1
+    br start_only -> L_STM_SONLY, L_STM_FULL
+L_STM_SONLY:
+    sout = alloc 16
+    store sout+0, midptr as ptr
+    store sout+8, midlen as u64
+    return sout
+L_STM_FULL:
+    flen = call @sa_str_trim_ascii_end_len(midptr, midlen)
+    fout = alloc 16
+    store fout+0, midptr as ptr
+    store fout+8, flen as u64
+    return fout
