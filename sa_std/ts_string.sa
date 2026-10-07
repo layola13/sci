@@ -105,3 +105,89 @@ L_SSL_DONE:
     store out+0, nptr as ptr
     store out+8, nlen as u64
     return out
+
+// @ts_str_parse_int 通用基数扫描（2-36；符号/空即 0；16 进制 0x 前缀剥离
+// 由调用点经 @ts_str_hex_i0 折叠为起始位；digit 经大小写归一，超基数字
+// 即停；十进制调用方传 radix=10、start=0，与旧十进制扫描逐指令同形）。
+@ts_str_parse_int(bp: ptr, bl: u64, radix: i32, start: i32) -> i32:
+L_PR_ENTRY:
+    acc = 0
+    i = add start, 0
+    neg = 0
+    nonempty = ne bl, 0
+    br nonempty -> L_PR_SIGN, L_PR_TOP
+L_PR_SIGN:
+    b0 = load bp + 0 as u8
+    ism = eq b0, 45
+    br ism -> L_PR_NEG, L_PR_TOP
+L_PR_NEG:
+    neg = 1
+    i1 = add i, 1
+    i = i1
+    jmp L_PR_TOP
+L_PR_TOP:
+    c = slt i, bl
+    br c -> L_PR_BODY, L_PR_END
+L_PR_BODY:
+    off = add bp, i
+    b = load off + 0 as u8
+    d = sub b, 48
+    lo = or b, 32
+    dl = sub lo, 87
+    isd = sle d, 9
+    nn = sge d, 0
+    dig09 = and isd, nn
+    loa = sge dl, 10
+    hib = slt dl, radix
+    digaz = and loa, hib
+    ok = or dig09, digaz
+    br ok -> L_PR_DIGIT, L_PR_END
+L_PR_DIGIT:
+    dv = add d, 0
+    dvaz = add dl, 0
+    useaz = sub 1, dig09
+    pick = mul dvaz, useaz
+    digm = mul dv, dig09
+    digv = add digm, pick
+    m1 = mul acc, radix
+    nacc = add m1, digv
+    acc = nacc
+    jmp L_PR_NEXT
+L_PR_NEXT:
+    inext = add i, 1
+    i = inext
+    jmp L_PR_TOP
+L_PR_END:
+    isn = ne neg, 0
+    br isn -> L_PR_NEGB, L_PR_DONE
+L_PR_NEGB:
+    nv = sub 0, acc
+    acc = nv
+    jmp L_PR_DONE
+L_PR_DONEB:
+    jmp L_PR_DONE
+L_PR_DONE:
+    return acc
+
+// @ts_str_hex_i0 算 16 进制扫描起点（`0x`/`0X` 开头即 2 否则 0）。
+@ts_str_hex_i0(bp: ptr, bl: u64) -> i32:
+L_PXI_ENTRY:
+    has2 = sge bl, 2
+    br has2 -> L_PXI_PROBE, L_PXI_KEEP
+L_PXI_PROBE:
+    c0 = load bp + 0 as u8
+    c1a = add bp, 1
+    c1 = load c1a + 0 as u8
+    z0 = eq c0, 48
+    x1 = or c1, 32
+    xx = eq x1, 120
+    px = and z0, xx
+    br px -> L_PXI_SKIP, L_PXI_KEEP
+L_PXI_SKIP:
+    i0 = 2
+    jmp L_PXI_END
+L_PXI_KEEP:
+    i0 = 0
+    jmp L_PXI_END
+L_PXI_END:
+    return i0
