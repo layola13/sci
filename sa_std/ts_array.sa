@@ -1183,3 +1183,35 @@ L_FL_CP_BODY:
 L_FL_CP_END:
     !pos
     return dest
+
+// @ts_arr_clone_deep 嵌套数组深拷贝（内柄递归；移植 saLowerDeepCloneInner
+// deep 全形；arrNest 标记留调用点）。
+@ts_arr_clone_deep(src: ptr) -> ptr:
+L_CD_ENTRY:
+    ln = load src+8 as u64
+    sdata = load src+0 as ptr
+    dest = alloc 16
+    ln1 = add ln, 1
+    nby = mul ln1, 4
+    ddata = alloc nby
+    store dest+0, ddata as ptr
+    store dest+8, ln as u64
+    !ddata
+    dloop = load dest+0 as ptr
+    iv = 0
+    jmp L_CD_TOP
+L_CD_TOP:
+    c = slt iv, ln
+    br c -> L_CD_BODY, L_CD_END
+L_CD_BODY:
+    so = mul iv, 4
+    saddr = add sdata, so
+    daddr = add dloop, so
+    inner = load saddr+0 as i32
+    inew = call @ts_arr_clone_deep(inner)
+    store daddr+0, inew as i32
+    inext = add iv, 1
+    iv = inext
+    jmp L_CD_TOP
+L_CD_END:
+    return dest
