@@ -163,3 +163,27 @@ L_ISGN_ENTRY:
 L_IMUL_ENTRY:
     t = mul a, b
     return t
+
+// @ts_math_minmax i32 双参极值（ismax=1 取大；分支经槽中转；移植
+// saEvalMathMinMax:275-303 全形；spread 归约另见 spread_minmax）。
+@ts_math_minmax(a: i32, b: i32, ismax: i32) -> i32:
+L_MNX_ENTRY:
+    slot = alloc 8
+    take_max = ne ismax, 0
+    br take_max -> L_MNX_MAX, L_MNX_MIN
+L_MNX_MAX:
+    cmpmax = sgt a, b
+    br cmpmax -> L_MNX_T, L_MNX_F
+L_MNX_MIN:
+    cmpmin = slt a, b
+    br cmpmin -> L_MNX_T, L_MNX_F
+L_MNX_T:
+    store slot+0, a as i32
+    jmp L_MNX_END
+L_MNX_F:
+    store slot+0, b as i32
+    jmp L_MNX_END
+L_MNX_END:
+    out = load slot+0 as i32
+    !slot
+    return out
