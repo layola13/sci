@@ -5,7 +5,9 @@
 //   +8: len u64 (byte length)
 // 调用方展开为 (ptr,len) 值参传入；本模块内无堆分配、无归属，纯值语义。
 // 形状证据：移植 tsgosa `saStringContentEq`/`saStrContentEq`
-// （等长 + 零偏 indexOf 命中；negate 由调用点折叠）。
+// （等长 + 零偏 indexOf 命中；negate 由调用点折叠）
+// + `saClampRange`（负值自末端起钳并钳入 [0,len]；substring 另交换逆序界
+// 并将负值记 0；封存 clampRange:7393-7465；substr 下溢 quirk 原样保留）。
 
 @import "string.sai"
 
@@ -17,3 +19,89 @@ L_SEQ_ENTRY:
     samelen = eq llen, rlen
     both = and at0, samelen
     return both
+
+// @ts_str_slice 钳位子切片（返新 16 字节柄，调用方持有；缺省 end 与
+// substr 起始加长由调用点折叠，sub=1 时交换逆序界）。
+@ts_str_slice(bp: ptr, bl: u64, start: i32, end: i32, sub: i32) -> ptr:
+L_SSL_ENTRY:
+    neg_s = slt start, 0
+    br neg_s -> L_SSL_SN, L_SSL_SNN
+L_SSL_SN:
+    is_sub_s = ne sub, 0
+    br is_sub_s -> L_SSL_S0, L_SSL_SBL
+L_SSL_S0:
+    adj_s = 0
+    jmp L_SSL_SEND
+L_SSL_SBL:
+    adj_s = add bl, start
+    jmp L_SSL_SEND
+L_SSL_SNN:
+    adj_s = add start, 0
+    jmp L_SSL_SEND
+L_SSL_SEND:
+    lo_s = slt adj_s, 0
+    br lo_s -> L_SSL_SLOT, L_SSL_SLOF
+L_SSL_SLOT:
+    s = 0
+    jmp L_SSL_SLOE
+L_SSL_SLOF:
+    hi_s = sgt adj_s, bl
+    br hi_s -> L_SSL_SHIT, L_SSL_SHIF
+L_SSL_SHIT:
+    s = add bl, 0
+    jmp L_SSL_SLOE
+L_SSL_SHIF:
+    s = add adj_s, 0
+    jmp L_SSL_SLOE
+L_SSL_SLOE:
+    neg_f = slt end, 0
+    br neg_f -> L_SSL_FN, L_SSL_FNN
+L_SSL_FN:
+    is_sub_f = ne sub, 0
+    br is_sub_f -> L_SSL_F0, L_SSL_FBL
+L_SSL_F0:
+    adj_f = 0
+    jmp L_SSL_FEND
+L_SSL_FBL:
+    adj_f = add bl, end
+    jmp L_SSL_FEND
+L_SSL_FNN:
+    adj_f = add end, 0
+    jmp L_SSL_FEND
+L_SSL_FEND:
+    lo_f = slt adj_f, 0
+    br lo_f -> L_SSL_FLOT, L_SSL_FLOF
+L_SSL_FLOT:
+    f = 0
+    jmp L_SSL_FLOE
+L_SSL_FLOF:
+    hi_f = sgt adj_f, bl
+    br hi_f -> L_SSL_FHIT, L_SSL_FHIF
+L_SSL_FHIT:
+    f = add bl, 0
+    jmp L_SSL_FLOE
+L_SSL_FHIF:
+    f = add adj_f, 0
+    jmp L_SSL_FLOE
+L_SSL_FLOE:
+    do_swap = ne sub, 0
+    br do_swap -> L_SSL_CMP, L_SSL_NOSWAP
+L_SSL_CMP:
+    c = sgt s, f
+    br c -> L_SSL_SWAP, L_SSL_KEEP
+L_SSL_SWAP:
+    sw = add s, 0
+    s = f
+    f = sw
+    jmp L_SSL_DONE
+L_SSL_KEEP:
+    jmp L_SSL_DONE
+L_SSL_NOSWAP:
+    jmp L_SSL_DONE
+L_SSL_DONE:
+    nptr = add bp, s
+    nlen = sub f, s
+    out = alloc 16
+    store out+0, nptr as ptr
+    store out+8, nlen as u64
+    return out
