@@ -1033,3 +1033,24 @@ L_RR_BODY:
 L_RR_END:
     !src
     ret
+
+// @ts_arr_append_slice 整片拷贝入目标（逐元 push；移植 saAppendSlice 全形）。
+@ts_arr_append_slice(dst: ptr, src: ptr) -> ptr:
+L_APS_ENTRY:
+    ln = load src+8 as u64
+    data = load src+0 as ptr
+    i = 0
+    jmp L_APS_TOP
+L_APS_TOP:
+    c = slt i, ln
+    br c -> L_APS_BODY, L_APS_END
+L_APS_BODY:
+    off = mul i, 4
+    addr = add data, off
+    elem = load addr+0 as i32
+    call @ts_arr_push_word(dst, elem)
+    inext = add i, 1
+    i = inext
+    jmp L_APS_TOP
+L_APS_END:
+    return dst
