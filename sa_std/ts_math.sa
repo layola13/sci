@@ -82,3 +82,52 @@ L_L10_BODY:
     jmp L_L10_TOP
 L_L10_END:
     return lacc
+
+// @ts_math_spread_minmax 数组极值（best 初 ∓INT 极值，索引巡回归约；空数组返
+// 初值；移植 saEvalMathSpreadMinMax:463-504 全形；分支汇合 best 自赋值对齐）。
+@ts_math_spread_minmax(h: ptr, ismax: i32) -> i32:
+L_MM_ENTRY:
+    ln = load h+8 as u64
+    data = load h+0 as ptr
+    take_max = ne ismax, 0
+    br take_max -> L_MM_MAX, L_MM_MIN
+L_MM_MAX:
+    best = -2147483648
+    jmp L_MM_LOOP
+L_MM_MIN:
+    best = 2147483647
+    jmp L_MM_LOOP
+L_MM_LOOP:
+    i = 0
+    jmp L_MM_TOP
+L_MM_TOP:
+    c = slt i, ln
+    br c -> L_MM_BODY, L_MM_END
+L_MM_BODY:
+    off = mul i, 4
+    addr = add data, off
+    elem = load addr+0 as i32
+    cmp_max = sgt elem, best
+    cmp_min = slt elem, best
+    use_max = ne ismax, 0
+    br use_max -> L_MM_CMPMAX, L_MM_CMPMIN
+L_MM_CMPMAX:
+    cmp = add cmp_max, 0
+    jmp L_MM_WHICH
+L_MM_CMPMIN:
+    cmp = add cmp_min, 0
+    jmp L_MM_WHICH
+L_MM_WHICH:
+    take = ne cmp, 0
+    br take -> L_MM_TAKE, L_MM_SKIP
+L_MM_TAKE:
+    nb = add elem, 0
+    best = nb
+    jmp L_MM_SKIP
+L_MM_SKIP:
+    best = best
+    inext = add i, 1
+    i = inext
+    jmp L_MM_TOP
+L_MM_END:
+    return best
