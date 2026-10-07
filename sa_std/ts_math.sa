@@ -187,3 +187,62 @@ L_MNX_END:
     out = load slot+0 as i32
     !slot
     return out
+
+// @ts_math_rounding 浮点取整（op 0=floor/1=ceil/2=round/3=trunc；移植
+// saLowerMathRoundingFloat 全形：ceil 取负、round 先加 0.5、trunc 直转，
+// fptosi + 负零碎调整块；整数操作数恒等留调用点）。
+@ts_math_rounding(f: f64, op: i32) -> i32:
+L_RND_ENTRY:
+    is_ceil = eq op, 1
+    br is_ceil -> L_RND_CNEG, L_RND_CCHK
+L_RND_CNEG:
+    fneg = fneg f
+    farg = add fneg, 0.0
+    negate = 1
+    jmp L_RND_PRE
+L_RND_CCHK:
+    is_round = eq op, 2
+    br is_round -> L_RND_RND, L_RND_PLAIN
+L_RND_RND:
+    fh = fadd f, 0.5
+    farg = add fh, 0.0
+    negate = 0
+    jmp L_RND_PRE
+L_RND_PLAIN:
+    farg = add f, 0.0
+    negate = 0
+    jmp L_RND_PRE
+L_RND_PRE:
+    is_trunc = eq op, 3
+    br is_trunc -> L_RND_TDIRECT, L_RND_CONV
+L_RND_TDIRECT:
+    tout = fptosi farg
+    jmp L_RND_NEGCHK
+L_RND_CONV:
+    t = fptosi farg
+    isneg = fcmp_lt farg, 0.0
+    back = sitofp t
+    isfrac = fcmp_ne farg, back
+    need = and isneg, isfrac
+    br need -> L_RND_ADJ, L_RND_NOADJ
+L_RND_ADJ:
+    dec = sub t, 1
+    t = dec
+    jmp L_RND_END
+L_RND_NOADJ:
+    t = t
+    jmp L_RND_END
+L_RND_END:
+    tout = add t, 0
+    jmp L_RND_NEGCHK
+L_RND_NEGCHK:
+    negout = ne negate, 0
+    br negout -> L_RND_NEGATE, L_RND_PLAINOUT
+L_RND_NEGATE:
+    out = sub 0, tout
+    jmp L_RND_DONE
+L_RND_PLAINOUT:
+    out = add tout, 0
+    jmp L_RND_DONE
+L_RND_DONE:
+    return out
