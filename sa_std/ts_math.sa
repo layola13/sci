@@ -21,3 +21,45 @@ L_IPW_BODY:
     jmp L_IPW_TOP
 L_IPW_END:
     return res
+
+// @ts_math_isqrt 整数二分开方（返 floor(sqrt)；移植 saEvalMathSqrt:353-412
+// 全形：acc=0、lo=1、hi=x，`mid<=x/mid` 取最佳；具名快照留调用点；循环内
+// mid 经槽中转（div 消费后分支内复用须 load；分支汇合状态经自赋值对齐）。
+@ts_math_isqrt(x: i32) -> i32:
+L_ISQ_ENTRY:
+    acc = 0
+    lo = 1
+    hi = add x, 0
+    mslot = alloc 8
+    jmp L_ISQ_TOP
+L_ISQ_TOP:
+    c = sle lo, hi
+    br c -> L_ISQ_BODY, L_ISQ_END
+L_ISQ_BODY:
+    d = sub hi, lo
+    h = div d, 2
+    mid = add lo, h
+    store mslot+0, mid as i32
+    q = div x, mid
+    ok = sle mid, q
+    br ok -> L_ISQ_TAKE, L_ISQ_SKIP
+L_ISQ_TAKE:
+    accm = load mslot+0 as i32
+    acc = accm
+    midt = load mslot+0 as i32
+    loN = add midt, 1
+    lo = loN
+    hi = hi
+    jmp L_ISQ_NEXT
+L_ISQ_SKIP:
+    acc = acc
+    lo = lo
+    midt = load mslot+0 as i32
+    hiN = sub midt, 1
+    hi = hiN
+    jmp L_ISQ_NEXT
+L_ISQ_NEXT:
+    jmp L_ISQ_TOP
+L_ISQ_END:
+    !mslot
+    return acc
