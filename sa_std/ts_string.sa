@@ -272,6 +272,119 @@ L_SSP_TAIL:
 L_SSP_DONE:
     return h
 
+// @ts_str_arr_scan 串元数组内容扫描（includes/indexOf 正向 + lastIndexOf
+// 逆向；针 (np,nl) 值参；起位钳位与 tsgosa 串扫描同形：缺省正向 0/逆向末位，
+// 负值 len+from 仍负正向钳 0/逆向空扫，显式正向逆向上确界 len-1；逐元展开
+// @ts_str_equals 内容判等（地址直比永禁；同模块符号，闭包自足）；wantidx=1
+// 返位/-1 否则返 1/0；调用方展开值参，针柄自理；返纯值无归属）。
+@ts_str_arr_scan(src: ptr, np: ptr, nl: u64, from: i32, hasfrom: i32, rev: i32, wantidx: i32) -> i32:
+L_SSQ_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    s_slot = alloc 8
+    hf = ne hasfrom, 0
+    br hf -> L_SSQ_CLAMP, L_SSQ_DEFLT
+L_SSQ_DEFLT:
+    rv0 = ne rev, 0
+    br rv0 -> L_SSQ_LAST, L_SSQ_ZERO
+L_SSQ_LAST:
+    lm1 = sub slen, 1
+    store s_slot+0, lm1 as i32
+    jmp L_SSQ_GOT
+L_SSQ_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_SSQ_GOT
+L_SSQ_CLAMP:
+    fneg = slt from, 0
+    br fneg -> L_SSQ_NEG, L_SSQ_POS
+L_SSQ_NEG:
+    fplus = add from, slen
+    fpos = sge fplus, 0
+    br fpos -> L_SSQ_KEEP, L_SSQ_FNON
+L_SSQ_KEEP:
+    store s_slot+0, fplus as i32
+    jmp L_SSQ_GOT
+L_SSQ_FNON:
+    rvn = ne rev, 0
+    br rvn -> L_SSQ_FM1, L_SSQ_FZ
+L_SSQ_FM1:
+    store s_slot+0, -1 as i32
+    jmp L_SSQ_GOT
+L_SSQ_FZ:
+    store s_slot+0, 0 as i32
+    jmp L_SSQ_GOT
+L_SSQ_POS:
+    rvp = ne rev, 0
+    br rvp -> L_SSQ_PMIN, L_SSQ_PFWD
+L_SSQ_PMIN:
+    lm1b = sub slen, 1
+    over = slt from, slen
+    br over -> L_SSQ_PTAKE, L_SSQ_PCAP
+L_SSQ_PTAKE:
+    store s_slot+0, from as i32
+    jmp L_SSQ_GOT
+L_SSQ_PCAP:
+    store s_slot+0, lm1b as i32
+    jmp L_SSQ_GOT
+L_SSQ_PFWD:
+    store s_slot+0, from as i32
+    jmp L_SSQ_GOT
+L_SSQ_GOT:
+    start = load s_slot+0 as i32
+    !s_slot
+    wi = ne wantidx, 0
+    br wi -> L_SSQ_M1, L_SSQ_Z1
+L_SSQ_M1:
+    res = -1
+    jmp L_SSQ_INIT
+L_SSQ_Z1:
+    res = 0
+    jmp L_SSQ_INIT
+L_SSQ_INIT:
+    i = add start, 0
+    jmp L_SSQ_TOP
+L_SSQ_TOP:
+    rv1 = ne rev, 0
+    br rv1 -> L_SSQ_BCOND, L_SSQ_FCOND
+L_SSQ_FCOND:
+    c = slt i, slen
+    br c -> L_SSQ_BODY, L_SSQ_END
+L_SSQ_BCOND:
+    c2 = sge i, 0
+    br c2 -> L_SSQ_BODY, L_SSQ_END
+L_SSQ_BODY:
+    off = mul i, 4
+    addr = add dptr, off
+    eh = load addr+0 as ptr
+    ep = load eh+0 as ptr
+    el = load eh+8 as u64
+    eq = call @ts_str_equals(ep, el, np, nl)
+    hit = ne eq, 0
+    br hit -> L_SSQ_HIT, L_SSQ_NEXT
+L_SSQ_HIT:
+    wi2 = ne wantidx, 0
+    br wi2 -> L_SSQ_AT, L_SSQ_ONE
+L_SSQ_AT:
+    res = add i, 0
+    jmp L_SSQ_END
+L_SSQ_ONE:
+    res = 1
+    jmp L_SSQ_END
+L_SSQ_NEXT:
+    rv2 = ne rev, 0
+    br rv2 -> L_SSQ_DEC, L_SSQ_INC
+L_SSQ_INC:
+    step = add i, 1
+    i = step
+    jmp L_SSQ_TOP
+L_SSQ_DEC:
+    step2 = sub i, 1
+    i = step2
+    jmp L_SSQ_TOP
+L_SSQ_END:
+    !src
+    return res
+
 // @ts_str_trim 修剪成新柄（返新 16 字节柄，调用方持有；mode 0=trim/1=trimStart/
 // 2=trimEnd，由调用点按方法折叠；trimEnd 不计前导（与调用点旧形一致，只切尾）；
 // 全空串下溢由 extern 内聚（H14）；移植 tsgosa trim 三件套全形）。
