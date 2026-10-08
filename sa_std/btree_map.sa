@@ -1135,6 +1135,114 @@ L_BTREE_VALUE_PTRS_DONE:
     !map
     return out_vec
 
+// @sa_btree_map_keys_vec 键扁平词向量（返 16 字节 {data,len} 柄，4 字节元，
+// 直入 tsgosa 数组 for-of；i32 键读键胞 +0，串键另步——is_str 预留恒 0）。
+@export sa_btree_map_keys_vec(&map: ptr) -> ^ptr:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    ln1 = add len, 1
+    nby = mul ln1, 4
+    data = alloc nby
+    out = alloc 16
+    store out+0, data as ptr
+    store out+8, len as u64
+    !data
+    dloop = load out+0 as ptr
+    entries = load map+BTreeMap_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_KEYS_VEC_HEAD
+
+L_BTREE_KEYS_VEC_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_KEYS_VEC_DONE, L_BTREE_KEYS_VEC_BODY
+
+L_BTREE_KEYS_VEC_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    key_ptr = load entry+BTreeMapEntry_key_ptr as ptr
+    w = load key_ptr+0 as i32
+    off = mul idx, 4
+    daddr = add dloop, off
+    store daddr+0, w as i32
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !w
+    !daddr
+    !off
+    !key_ptr
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_KEYS_VEC_HEAD
+
+L_BTREE_KEYS_VEC_DONE:
+    !done
+    !idx
+    !entries
+    !nby
+    !ln1
+    !len
+    !map
+    return out
+
+// @sa_btree_map_values_word_vec 值扁平词向量（返 16 字节柄，4 字节元，
+// i32 值取低 32；串值另步——与 keys_vec 同口径）。
+@export sa_btree_map_values_word_vec(&map: ptr) -> ^ptr:
+L_ENTRY:
+    len = load map+BTreeMap_len as u64
+    ln1 = add len, 1
+    nby = mul ln1, 4
+    data = alloc nby
+    out = alloc 16
+    store out+0, data as ptr
+    store out+8, len as u64
+    !data
+    dloop = load out+0 as ptr
+    entries = load map+BTreeMap_entries as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_BTREE_VALUES_WORD_HEAD
+
+L_BTREE_VALUES_WORD_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_BTREE_VALUES_WORD_DONE, L_BTREE_VALUES_WORD_BODY
+
+L_BTREE_VALUES_WORD_BODY:
+    entry_off = mul idx, BTreeMapEntry_SIZE
+    entry = ptr_add entries, entry_off
+    value = load entry+BTreeMapEntry_value as u64
+    w = trunc value as i32
+    off = mul idx, 4
+    daddr = add dloop, off
+    store daddr+0, w as i32
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !w
+    !value
+    !daddr
+    !off
+    !entry
+    !entry_off
+    !done
+    !idx
+    jmp L_BTREE_VALUES_WORD_HEAD
+
+L_BTREE_VALUES_WORD_DONE:
+    !done
+    !idx
+    !entries
+    !nby
+    !ln1
+    !len
+    !map
+    return out
+
 @export sa_btree_map_iter_vec(&map: ptr) -> ^ptr:
 L_ENTRY:
     len = load map+BTreeMap_len as u64
