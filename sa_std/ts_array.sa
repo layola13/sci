@@ -1285,7 +1285,7 @@ L_CD_BODY:
     saddr = add sdata, so
     daddr = add dloop, so
     inner = load saddr+0 as i32
-    inew = call @ts_arr_clone_deep(inner)
+    inew = call @ts_arr_clone_flat(inner)
     store daddr+0, inew as i32
     inext = add iv, 1
     iv = inext
