@@ -486,7 +486,38 @@ L_JA_ENTRY:
     store out+8, olen as u64
     return out
 
-// @ts_str_compare 字典序比较（字节无符号序，与 STR_CMP 宏同律；-1/0/+1；
+// @ts_arr_join_strs 串元数组无分隔直拼（返新 16 字节柄；元为 4 字节
+// 句柄截断值，低堆假设与 tsgosa 串元读同形；替换 `saConcatSlices`
+// 逐片拼接的运行时版，供 replaceAll 段组装）。
+@ts_arr_join_strs(h: ptr) -> ptr:
+L_JS_ENTRY:
+    ln = load h+8 as u64
+    data = load h+0 as ptr
+    acc0 = alloc 16
+    store acc0+0, &jn_empty as ptr
+    store acc0+8, 0 as u64
+    aslot = alloc 8
+    store aslot+0, acc0 as ptr
+    i = 0
+    jmp L_JS_TOP
+L_JS_TOP:
+    c = slt i, ln
+    br c -> L_JS_BODY, L_JS_END
+L_JS_BODY:
+    off = mul i, 4
+    addr = add data, off
+    eh = load addr+0 as i32
+    el = load eh+8 as u64
+    a0 = load aslot+0 as ptr
+    a1 = call @ts_arr_join_append(a0, eh, el)
+    store aslot+0, a1 as ptr
+    inext = add i, 1
+    i = inext
+    jmp L_JS_TOP
+L_JS_END:
+    acc = load aslot+0 as ptr
+    !aslot
+    return acc
 // 调用方展开值参，纯值无堆无归属；JS UTF-16 码元序在 BMP 内与 UTF-8 字节序
 // 一致，astral 平面边沿另议；tsgosa H30 串 </<=/>/>= 经 slt/sle/sgt/sge 判 0）。
 @ts_str_compare(lp: ptr, llen: u64, rp: ptr, rlen: u64) -> i32:
