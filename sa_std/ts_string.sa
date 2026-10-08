@@ -438,7 +438,11 @@ L_JN_BODY:
     br first -> L_JN_SEP, L_JN_ELEM
 L_JN_SEP:
     a0 = load aslot+0 as ptr
-    a1 = call @ts_arr_join_append(a0, sp, sl)
+    seph = alloc 16
+    store seph+0, sp as ptr
+    store seph+8, sl as u64
+    a1 = call @ts_arr_join_append(a0, seph, sl)
+    !seph
     store aslot+0, a1 as ptr
     jmp L_JN_ELEM
 L_JN_ELEM:
