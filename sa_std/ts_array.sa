@@ -664,9 +664,11 @@ L_S_END:
     !src
     ret
 
-// @ts_arr_sort_str 原地串元插入排序（字典序 @ts_str_compare；4B 槽存 16B
-// 柄指针，取值展开 (ptr,len) 后比较，交换槽值；无新柄，调用方保留原柄；
-// 形参 token 用后即释；与 @ts_arr_sort 同骨架，比较位换字典序）。
+// @ts_arr_sort_str 原地串元插入排序（字典序内联判定，与 @ts_str_compare
+// 同律：字节无符号序+前缀规则；4B 槽存 16B 柄指针，取值展开后比较，交换
+// 槽值；ts_array.sa 不得反向依赖 ts_string.sa（后者已依赖本模块），故
+// 内联判定环；无新柄，调用方保留原柄；形参 token 用后即释；与 @ts_arr_sort
+// 同骨架，比较位换字典序）。
 @ts_arr_sort_str(src: ptr):
 L_SS_ENTRY:
     slen = load src+8 as u64
@@ -693,9 +695,32 @@ L_SS_IN_CHK:
     aj = load jaddr+0 as i32
     aep = load aj+0 as ptr
     ael = load aj+8 as u64
-    cmp = call @ts_str_compare(aep, ael, kep, kel)
-    c4 = sgt cmp, 0
-    br c4 -> L_SS_IN_BODY, L_SS_IN_END
+    ci = 0
+    jmp L_SS_CMP_TOP
+L_SS_CMP_TOP:
+    cld = eq ci, ael
+    crd = eq ci, kel
+    br cld -> L_SS_CMP_LD, L_SS_CMP_LS
+L_SS_CMP_LS:
+    br crd -> L_SS_CMP_GT, L_SS_CMP_BODY
+L_SS_CMP_BODY:
+    clo = add aep, ci
+    cro = add kep, ci
+    clb = load clo + 0 as u8
+    crb = load cro + 0 as u8
+    clt = ult clb, crb
+    br clt -> L_SS_IN_END, L_SS_CMP_CG
+L_SS_CMP_CG:
+    cgt = ugt clb, crb
+    br cgt -> L_SS_IN_BODY, L_SS_CMP_NEXT
+L_SS_CMP_NEXT:
+    cinext = add ci, 1
+    ci = cinext
+    jmp L_SS_CMP_TOP
+L_SS_CMP_LD:
+    br crd -> L_SS_IN_END, L_SS_IN_END
+L_SS_CMP_GT:
+    jmp L_SS_IN_BODY
 L_SS_IN_BODY:
     j1 = add sj, 1
     j1off = mul j1, 4
