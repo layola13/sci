@@ -92,10 +92,19 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
 
 test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/01_hello_world/main.sa", "hello, saasm\n");
+    try assertJsMatrixStdout("demos/rosetta/02_mutability/main.sa", "20\n");
     try assertJsMatrixStdout("demos/rosetta/03_if_else/main.sa", "20\n");
     try assertJsMatrixStdout("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
     try assertJsMatrixStdout("demos/rosetta/05_struct/main.sa", "(10,20)\n");
+    try assertJsMatrixStdout("demos/rosetta/10_generics_monomorph/main.sa", "42\n");
     try assertJsMatrixStdout("demos/rosetta/13_array_sum/main.sa", "10\n");
-    try assertJsMatrixStdout("demos/rosetta/112_raw_pointer_arithmetic/main.sa", "3\n");
     try assertJsMatrixStdout("demos/rosetta/22_break_continue/main.sa", "9\n");
+    try assertJsMatrixStdout("demos/rosetta/29_const_data/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/36_tuple_struct/main.sa", "14\n");
+    try assertJsMatrixStdout("demos/rosetta/57_event_loop/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/112_raw_pointer_arithmetic/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
+    try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
+    try assertJsMatrixStdout("demos/support/once_probe.sa", "once ok\n");
+    try assertJsMatrixStdout("demos/support/mpsc_probe.sa", "mpsc ok\n");
 }
