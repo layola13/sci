@@ -3,6 +3,7 @@ const std = @import("std");
 const emit_options = @import("emit_options.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
+const call = @import("referee/call.zig");
 
 pub const EmitOptions = emit_options.EmitOptions;
 pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, OutOfMemory };
@@ -48,16 +49,9 @@ fn jsFuncName(writer: anytype, name: []const u8) !void {
     // Strip surrounding quotes used by test funcs.
     var n = name;
     if (n.len >= 2 and n[0] == '"' and n[n.len - 1] == '"') n = n[1 .. n.len - 1];
+    // Strip @ prefix used by callee names.
+    if (n.len >= 1 and n[0] == '@') n = n[1..];
     try jsIdent(writer, n);
-}
-
-fn primToJsSuffix(ty: sig.PrimType) []const u8 {
-    return switch (ty) {
-        .i1, .i8, .i16, .i32, .u8, .u16, .u32 => "i32",
-        .i64, .u64, .ptr, .blob_handle => "i64",
-        .f32, .f64 => "f64",
-        else => "i32",
-    };
 }
 
 fn tagToPrim(tag: u32) sig.PrimType {
@@ -128,6 +122,8 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\let __sa_brk = 65536; // bump allocator starts after reserved zero page region
         \\function __sa_trap(msg) { throw new Error("[sa-trap] " + msg); }
         \\function __sa_panic(code) { throw new Error("[sa-panic] code=" + code); }
+        \\function __sa_truthy(v) { return !!v; }
+        \\function __sa_addr(a) { return (typeof a === "bigint") ? Number(BigInt.asUintN(32, a)) : (a | 0); }
         \\function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
         \\function __sa_alloc(size) {
         \\  size = __sa_align((size | 0), 8);
@@ -137,13 +133,13 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\  __sa_u8.fill(0, ptr, ptr + size);
         \\  return ptr | 0;
         \\}
-        \\function __sa_load_i32(addr) { return __sa_view.getInt32(addr | 0, true); }
-        \\function __sa_load_u32(addr) { return __sa_view.getUint32(addr | 0, true); }
-        \\function __sa_load_f64(addr) { return __sa_view.getFloat64(addr | 0, true); }
-        \\function __sa_store_i32(addr, v) { __sa_view.setInt32(addr | 0, v | 0, true); }
-        \\function __sa_store_f64(addr, v) { __sa_view.setFloat64(addr | 0, +v, true); }
-        \\function __sa_load_i64(addr) { return __sa_view.getBigInt64(addr | 0, true); }
-        \\function __sa_store_i64(addr, v) { __sa_view.setBigInt64(addr | 0, BigInt.asIntN(64, BigInt(v)), true); }
+        \\function __sa_load_i32(addr) { return __sa_view.getInt32(__sa_addr(addr), true); }
+        \\function __sa_load_u32(addr) { return __sa_view.getUint32(__sa_addr(addr), true); }
+        \\function __sa_load_f64(addr) { return __sa_view.getFloat64(__sa_addr(addr), true); }
+        \\function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), v | 0, true); }
+        \\function __sa_store_f64(addr, v) { __sa_view.setFloat64(__sa_addr(addr), +v, true); }
+        \\function __sa_load_i64(addr) { return __sa_view.getBigInt64(__sa_addr(addr), true); }
+        \\function __sa_store_i64(addr, v) { __sa_view.setBigInt64(__sa_addr(addr), BigInt.asIntN(64, BigInt(v)), true); }
         \\function __sa_load_ptr(addr) { return __sa_load_i64(addr); }
         \\function __sa_store_ptr(addr, v) { __sa_store_i64(addr, v); }
         \\function __sa_ptr_add(ptr, off) {
@@ -153,319 +149,605 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\function __sa_i32(v) { return v | 0; }
         \\function __sa_i64(v) { return BigInt.asIntN(64, BigInt(v)); }
         \\function __sa_f64(v) { return +v; }
+        \\function __sa_BI(v) { return BigInt.asIntN(64, BigInt(v)); }
+        \\function __sa_BU(v) { return BigInt.asUintN(64, BigInt(v)); }
+        \\function __sa_isBI(a, b) { return typeof a === "bigint" || typeof b === "bigint"; }
+        \\function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)) : (((+a) + (+b)) | 0); }
+        \\function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
+        \\function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
+        \\function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { if (BigInt(b) === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt(a) / BigInt(b)); } if ((b | 0) === 0) __sa_trap("div by zero"); return (Math.trunc(a / b)) | 0; }
+        \\function __sa_udiv(a, b) { if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
+        \\function __sa_srem(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) % BigInt(b)) : ((a % b) | 0); }
+        \\function __sa_urem(a, b) { return (((a >>> 0) % (b >>> 0)) | 0); }
+        \\function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
+        \\function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
+        \\function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
+        \\function __sa_bxor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) ^ BigInt(b)) : ((a ^ b) | 0); }
+        \\function __sa_shl(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) << (BigInt(b) & 63n)) : ((a << (b & 31)) | 0); }
+        \\function __sa_lshr(a, b) { return __sa_isBI(a, b) ? __sa_BU(BigInt(a) >> (BigInt(b) & 63n)) : ((a >>> (b & 31)) | 0); }
+        \\function __sa_ashr(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) >> (BigInt(b) & 63n)) : ((a >> (b & 31)) | 0); }
+        \\function __sa_bnot(a) { return (typeof a === "bigint") ? __sa_BI(~a) : ((~a) | 0); }
+        \\function __sa_eq(a, b) { return ((a == b) ? 1 : 0); }
+        \\function __sa_ne(a, b) { return ((a != b) ? 1 : 0); }
+        \\function __sa_slt(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) < BigInt(b)) : ((a | 0) < (b | 0))) ? 1 : 0); }
+        \\function __sa_sle(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) <= BigInt(b)) : ((a | 0) <= (b | 0))) ? 1 : 0); }
+        \\function __sa_sgt(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) > BigInt(b)) : ((a | 0) > (b | 0))) ? 1 : 0); }
+        \\function __sa_sge(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) >= BigInt(b)) : ((a | 0) >= (b | 0))) ? 1 : 0); }
+        \\function __sa_ult(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) < __sa_BU(b)) : ((a >>> 0) < (b >>> 0))) ? 1 : 0); }
+        \\function __sa_ule(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) <= __sa_BU(b)) : ((a >>> 0) <= (b >>> 0))) ? 1 : 0); }
+        \\function __sa_ugt(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) > __sa_BU(b)) : ((a >>> 0) > (b >>> 0))) ? 1 : 0); }
+        \\function __sa_uge(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) >= __sa_BU(b)) : ((a >>> 0) >= (b >>> 0))) ? 1 : 0); }
+        \\function __sa_fadd(a, b) { return ((+a) + (+b)); }
+        \\function __sa_fsub(a, b) { return ((+a) - (+b)); }
+        \\function __sa_fmul(a, b) { return ((+a) * (+b)); }
+        \\function __sa_fdiv(a, b) { return ((+a) / (+b)); }
+        \\function __sa_fneg(a) { return (-(+a)); }
+        \\function __sa_feq(a, b) { return (((+a) === (+b)) ? 1 : 0); }
+        \\function __sa_fne(a, b) { return (((+a) !== (+b)) ? 1 : 0); }
+        \\function __sa_flt(a, b) { return (((+a) < (+b)) ? 1 : 0); }
+        \\function __sa_fle(a, b) { return (((+a) <= (+b)) ? 1 : 0); }
+        \\function __sa_fgt(a, b) { return (((+a) > (+b)) ? 1 : 0); }
+        \\function __sa_fge(a, b) { return (((+a) >= (+b)) ? 1 : 0); }
+        \\function __sa_cvt(v) { return v; }
         \\// ---- end runtime ----
         \\
     );
 }
 
-fn operandToJs(writer: anytype, fsig: sig.FunctionSig, op: inst.Operand, want_i64: bool) !void {
-    switch (op) {
-        .reg => |r| {
-            const slot = fsig.slotOf(r) orelse return JsEmitError.InvalidOperand;
-            try writer.print("r{d}", .{slot});
-        },
-        .imm_i64, .imm_int => |v| {
-            if (want_i64) try writer.print("{d}n", .{v}) else try writer.print("{d}", .{v});
-        },
-        .imm_u64 => |v| {
-            if (want_i64) try writer.print("{d}n", .{v}) else try writer.print("{d}", .{v});
-        },
-        .imm_float => |v| try writer.print("{d}", .{v}),
-        .symbol, .label, .func => return JsEmitError.InvalidOperand,
-        .text, .native_text => |t| try writer.print("/*{s}*/0", .{t}),
-        else => try writer.writeAll("0"),
+/// Resolve raw call-arg text (`&name`, `10`, `3.5`, `"str"`) to a JS expr.
+/// Mirrors emit_llvm_llvmc.textOperand: int/float literal, else symbol slot.
+fn resolveTextToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, raw: []const u8) !void {
+    var text = std.mem.trim(u8, raw, " \t");
+    if (text.len == 0) return JsEmitError.InvalidOperand;
+    if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+    if (std.mem.lastIndexOf(u8, text, " as ")) |idx| {
+        text = std.mem.trim(u8, text[0..idx], " \t\r");
     }
+    if (text.len == 0) return JsEmitError.InvalidOperand;
+    if (std.fmt.parseInt(i64, text, 10)) |v| {
+        try writer.print("{d}", .{v});
+        return;
+    } else |_| {}
+    if (std.fmt.parseFloat(f64, text)) |v| {
+        try writer.print("{d}", .{v});
+        return;
+    } else |_| {}
+    if (symbols.findId(text)) |id| {
+        if (fsig.slotOf(id)) |slot| {
+            try writer.print("r{d}", .{slot});
+            return;
+        }
+    }
+    return JsEmitError.InvalidOperand;
 }
 
-fn callArgToJs(writer: anytype, fsig: sig.FunctionSig, op: inst.Operand) !void {
+/// Resolve any value operand to a JS expression.
+fn resolveValueToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) !void {
     switch (op) {
         .reg => |r| {
-            const slot = fsig.slotOf(r) orelse return JsEmitError.InvalidOperand;
+            const slot = try regSlot(fsig, use_global, r);
             try writer.print("r{d}", .{slot});
+        },
+        .symbol, .func, .label => |id| {
+            // Mirror assignOperand: resolve id -> name -> text operand.
+            const name = symbols.lookupName(id) orelse return JsEmitError.InvalidOperand;
+            try resolveTextToJs(writer, symbols, fsig, name);
         },
         .imm_i64, .imm_int => |v| try writer.print("{d}", .{v}),
         .imm_u64 => |v| try writer.print("{d}", .{v}),
         .imm_float => |v| try writer.print("{d}", .{v}),
-        .text, .native_text => |t| try writer.print("/*{s}*/0", .{t}),
-        else => try writer.writeAll("0"),
+        .text, .native_text => |t| try resolveTextToJs(writer, symbols, fsig, t),
+        else => return JsEmitError.InvalidOperand,
     }
 }
 
-// Best-effort parse of `call` raw text: `dst = call @name(args...)` or `call @name(...)`.
-// Falls back to UnknownFunction so caller emits a trap stub.
-fn parseCallCallee(raw: []const u8) ?[]const u8 {
-    const kw = "call ";
-    const at = std.mem.indexOf(u8, raw, kw) orelse return null;
-    var rest = std.mem.trim(u8, raw[at + kw.len ..], " \t");
-    if (rest.len == 0 or rest[0] != '@') return null;
-    rest = rest[1..];
-    var end: usize = 0;
-    while (end < rest.len and (std.ascii.isAlphanumeric(rest[end]) or rest[end] == '_' or rest[end] == '$' or rest[end] == '.' or rest[end] == '"')) : (end += 1) {}
-    if (end == 0) return null;
-    return rest[0..end];
+fn labelPcOf(label_pc: *const std.AutoHashMap(u32, usize), op: inst.Operand) !usize {
+    const id: u32 = switch (op) {
+        .label => |v| v,
+        .symbol => |v| v,
+        else => return JsEmitError.InvalidOperand,
+    };
+    return label_pc.get(id) orelse return JsEmitError.UnknownFunction;
 }
 
-fn emitOpExpr(writer: anytype, fsig: sig.FunctionSig, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand) !void {
-    const f = opIsFloat(opcode);
+/// Mirror emit_llvm_llvmc.functionUsesGlobalRegIds: .reg operands may hold
+/// per-function slot indexes or global symbol ids, depending on the body.
+fn taskUsesGlobalRegIds(fsig: sig.FunctionSig, verified: anytype, task: FuncTask) bool {
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        for (verified.annotated[i].base.operands) |operand| {
+            if (operand == .reg) {
+                const raw = operand.reg;
+                if (raw >= fsig.reg_ids.len and fsig.slotOf(raw) != null) return true;
+            }
+        }
+    }
+    return false;
+}
+
+fn regSlot(fsig: sig.FunctionSig, use_global: bool, slot_or_id: u32) !u32 {
+    if (use_global) return fsig.slotOf(slot_or_id) orelse return JsEmitError.InvalidOperand;
+    if (@as(usize, slot_or_id) < fsig.reg_ids.len) return slot_or_id;
+    return fsig.slotOf(slot_or_id) orelse return JsEmitError.InvalidOperand;
+}
+
+fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand) !void {
     switch (opcode) {
         .add => {
-            try writer.writeAll("__sa_i32(");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(" + ");
-            try callArgToJs(writer, fsig, rhs);
+            try writer.writeAll("__sa_add(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
             try writer.writeAll(")");
         },
         .sub => {
-            try writer.writeAll("__sa_i32(");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(" - ");
-            try callArgToJs(writer, fsig, rhs);
+            try writer.writeAll("__sa_sub(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
             try writer.writeAll(")");
         },
         .mul => {
-            try writer.writeAll("Math.imul(");
-            try callArgToJs(writer, fsig, lhs);
+            try writer.writeAll("__sa_mul(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
             try writer.writeAll(", ");
-            try callArgToJs(writer, fsig, rhs);
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
             try writer.writeAll(")");
         },
         .sdiv, .div => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(")|0) === 0 ? __sa_trap(\"div by zero\") : (Math.trunc((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") / (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0))");
+            try writer.writeAll("__sa_sdiv(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .udiv => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0) === 0 ? __sa_trap(\"div by zero\") : (Math.trunc(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> 0) / ((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0))|0))");
+            try writer.writeAll("__sa_udiv(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .srem, .rem => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") % (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_srem(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .urem => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> 0) % (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0))|0)");
-        },
-        .neg => {
-            try writer.writeAll("(-(");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_urem(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .@"and" => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") & (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_band(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .@"or" => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") | (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_bor(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .xor => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") ^ (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_bxor(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .shl => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") << (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_shl(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .lshr, .shr => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_lshr(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .ashr => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >> (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))|0");
-        },
-        .not => {
-            try writer.writeAll("(~(");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll("))|0");
+            try writer.writeAll("__sa_ashr(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .eq => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") === (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_eq(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .ne => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") !== (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_ne(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .slt, .lt => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(")|0) < (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(")|0) ? 1 : 0)");
+            try writer.writeAll("__sa_slt(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .sle => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(")|0) <= (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(")|0) ? 1 : 0)");
+            try writer.writeAll("__sa_sle(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .sgt, .gt => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(")|0) > (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(")|0) ? 1 : 0)");
+            try writer.writeAll("__sa_sgt(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .sge => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(")|0) >= (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(")|0) ? 1 : 0)");
+            try writer.writeAll("__sa_sge(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .ult => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> 0) < (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0) ? 1 : 0)");
+            try writer.writeAll("__sa_ult(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .ule => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> 0) <= (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0) ? 1 : 0)");
+            try writer.writeAll("__sa_ule(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .ugt => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> 0) > (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0) ? 1 : 0)");
+            try writer.writeAll("__sa_ugt(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .uge => {
-            try writer.writeAll("(((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >>> 0) >= (((");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") >>> 0) ? 1 : 0)");
+            try writer.writeAll("__sa_uge(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fadd => {
-            try writer.writeAll("((");
-            _ = f;
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(" + ");
-            try callArgToJs(writer, fsig, rhs);
+            try writer.writeAll("__sa_fadd(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
             try writer.writeAll(")");
         },
         .fsub => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") - (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))");
+            try writer.writeAll("__sa_fsub(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fmul => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") * (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))");
+            try writer.writeAll("__sa_fmul(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fdiv => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") / (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll("))");
-        },
-        .fneg => {
-            try writer.writeAll("(-(");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll("))");
+            try writer.writeAll("__sa_fdiv(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fcmp_eq => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") === (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_feq(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fcmp_ne => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") !== (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_fne(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fcmp_lt => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") < (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_flt(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fcmp_le => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") <= (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_fle(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fcmp_gt => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") > (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_fgt(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
         },
         .fcmp_ge => {
-            try writer.writeAll("((");
-            try callArgToJs(writer, fsig, lhs);
-            try writer.writeAll(") >= (");
-            try callArgToJs(writer, fsig, rhs);
-            try writer.writeAll(") ? 1 : 0)");
+            try writer.writeAll("__sa_fge(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, rhs);
+            try writer.writeAll(")");
+        },
+        .neg => {
+            try writer.writeAll("__sa_neg(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(")");
+        },
+        .not => {
+            try writer.writeAll("__sa_bnot(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(")");
+        },
+        .fneg => {
+            try writer.writeAll("__sa_fneg(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, lhs);
+            try writer.writeAll(")");
         },
         else => {
             try writer.writeAll("__sa_trap(\"unsupported op\")");
         },
     }
 }
+fn dstSlot(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) !u32 {
+    return switch (op) {
+        .reg => |r| try regSlot(fsig, use_global, r),
+        .symbol => |id| try regSlot(fsig, use_global, id),
+        else => return JsEmitError.InvalidOperand,
+    };
+}
+
+fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction) !void {
+    _ = use_global;
+    var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+        try writer.print("  __sa_trap(\"unsupported call: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+        return;
+    };
+    defer parsed.deinit(allocator);
+    if (parsed.is_indirect) {
+        try writer.print("  __sa_trap(\"unsupported call_indirect: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+        return;
+    }
+    if (parsed.dest) |dest| {
+        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
+        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        try writer.print("  r{d} = ", .{slot});
+    } else {
+        try writer.writeAll("  ");
+    }
+    try jsFuncName(writer, parsed.callee);
+    try writer.writeAll("(");
+    for (parsed.args, 0..) |arg, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try resolveTextToJs(writer, symbols, fsig, arg.text);
+    }
+    try writer.writeAll(");\n");
+}
+
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, js_opt: JsEmitOptions) !void {
+    _ = js_opt;
+    switch (base.kind) {
+        .return_ => {
+            switch (base.operands[0]) {
+                .none => try writer.writeAll("  return 0;\n"),
+                else => {
+                    try writer.writeAll("  return (");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+                    try writer.writeAll(");\n");
+                },
+            }
+        },
+        .op => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            const opcode = base.op_kind orelse return JsEmitError.InvalidOperand;
+            if (inst.isTypeConversionOpKind(opcode)) {
+                try writer.print("  r{d} = (", .{slot});
+                try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                try writer.writeAll(");\n");
+                return;
+            }
+            try writer.print("  r{d} = ", .{slot});
+            if (opcode == .fneg) {
+                try writer.writeAll("(-(");
+                try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                try writer.writeAll("));\n");
+                return;
+            }
+            try emitOpExpr(writer, symbols, fsig, use_global, opcode, base.operands[1], base.operands[2]);
+            try writer.writeAll(";\n");
+        },
+        .assign => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            try writer.print("  r{d} = (", .{slot});
+            try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+            try writer.writeAll(");\n");
+        },
+        .alloc, .stack_alloc => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            try writer.print("  r{d} = __sa_alloc(", .{slot});
+            try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+            try writer.writeAll(");\n");
+        },
+        .ptr_add => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            try writer.print("  r{d} = __sa_ptr_add(", .{slot});
+            try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+            try writer.writeAll(");\n");
+        },
+        .load, .take => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            const ty = loadedPrimType(base);
+            try writer.print("  r{d} = ", .{slot});
+            switch (ty) {
+                .i64, .u64 => {
+                    try writer.writeAll("__sa_load_i64(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll("));\n");
+                },
+                .f32, .f64 => {
+                    try writer.writeAll("__sa_load_f64(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll("));\n");
+                },
+                .ptr, .blob_handle => {
+                    try writer.writeAll("__sa_load_ptr(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll("));\n");
+                },
+                else => {
+                    try writer.writeAll("__sa_load_i32(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll("));\n");
+                },
+            }
+        },
+        .store => {
+            const ty = loadedPrimType(base);
+            switch (ty) {
+                .i64, .u64, .ptr, .blob_handle => {
+                    try writer.writeAll("  __sa_store_i64(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll("), ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll(");\n");
+                },
+                .f32, .f64 => {
+                    try writer.writeAll("  __sa_store_f64(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll("), ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll(");\n");
+                },
+                else => {
+                    try writer.writeAll("  __sa_store_i32(__sa_ptr_add(");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+                    try writer.writeAll(", ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[1]);
+                    try writer.writeAll("), ");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[2]);
+                    try writer.writeAll(");\n");
+                },
+            }
+        },
+        .call => try emitCallInstruction(writer, allocator, symbols, fsig, use_global, base),
+        .call_indirect => {
+            try writer.print("  __sa_trap(\"unsupported call_indirect: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+        },
+        .panic => {
+            try writer.writeAll("  __sa_panic(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+            try writer.writeAll(");\n");
+        },
+        .panic_msg => {
+            try writer.writeAll("  __sa_trap(\"panic_msg\");\n");
+        },
+        .borrow, .move_, .release, .assume_safe, .assume_borrow, .raw_cast => {
+            try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+        },
+        else => {
+            try writer.print("  __sa_trap(\"unsupported {s}: {s}\");\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+        },
+    }
+}
+
+fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions) !void {
+    switch (base.kind) {
+        .jmp => {
+            const npc = try labelPcOf(label_pc, base.operands[1]);
+            try writer.print("        __pc = {d}; break;\n", .{npc});
+        },
+        .br => {
+            const tpc = try labelPcOf(label_pc, base.operands[1]);
+            const fpc = try labelPcOf(label_pc, base.operands[3]);
+            try writer.writeAll("        __pc = (__sa_truthy(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+            try writer.print(") ? {d} : {d}); break;\n", .{ tpc, fpc });
+        },
+        .br_null => {
+            try writer.print("        __sa_trap(\"unsupported br_null: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+        },
+        .return_ => {
+            switch (base.operands[0]) {
+                .none => try writer.writeAll("        return 0;\n"),
+                else => {
+                    try writer.writeAll("        return (");
+                    try resolveValueToJs(writer, symbols, fsig, use_global, base.operands[0]);
+                    try writer.writeAll(");\n");
+                },
+            }
+        },
+        else => {
+            try writer.writeAll("        ");
+            // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
+            var buf: [32768]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buf);
+            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, base, js_opt);
+            const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
+            // Linear emitter may produce multiple lines; indent each by 8 spaces.
+            var it = std.mem.splitScalar(u8, s, '\n');
+            var first_line = true;
+            while (it.next()) |line| {
+                const t = std.mem.trim(u8, line, " \t\r");
+                if (t.len == 0) continue;
+                if (!first_line) try writer.writeAll("        ");
+                try writer.print("{s}\n", .{t});
+                first_line = false;
+            }
+        },
+    }
+}
 
 fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, task: FuncTask, js_opt: JsEmitOptions) !void {
+    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
     // Map label symbol id -> pc number. Entry (before first label) is pc 0.
     var label_pc = std.AutoHashMap(u32, usize).init(allocator);
     defer label_pc.deinit();
@@ -489,7 +771,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     if (pcs == 1) {
         i = task.start_idx + 1;
         while (i < task.end_idx) : (i += 1) {
-            try emitLinearInstruction(writer, verified, fsig, verified.annotated[i].base, js_opt);
+            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, verified.annotated[i].base, js_opt);
         }
         return;
     }
@@ -505,226 +787,12 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
                 else => continue,
             };
             const npc = label_pc.get(lid) orelse continue;
-            try writer.print("        break;\n      }}\n      case {d}: {{\n", .{npc});
+            try writer.print("        __pc = {d}; break;\n      }}\n      case {d}: {{\n", .{ npc, npc });
             continue;
         }
-        try emitPcInstruction(writer, verified, fsig, base, &label_pc, js_opt);
+        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, base, &label_pc, js_opt);
     }
-    try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n", .{});
-}
-
-fn emitLinearInstruction(writer: anytype, verified: anytype, fsig: sig.FunctionSig, base: inst.Instruction, js_opt: JsEmitOptions) !void {
-    _ = verified;
-    _ = js_opt;
-    switch (base.kind) {
-        .return_ => {
-            switch (base.operands[0]) {
-                .none => try writer.writeAll("  return 0;\n"),
-                else => {
-                    try writer.writeAll("  return (");
-                    try callArgToJs(writer, fsig, base.operands[0]);
-                    try writer.writeAll(");\n");
-                },
-            }
-        },
-        .op => {
-            const dst_slot = if (base.operands[0] == .reg) (fsig.slotOf(base.operands[0].reg) orelse return JsEmitError.InvalidOperand) else return JsEmitError.InvalidOperand;
-            const opcode = base.op_kind orelse return JsEmitError.InvalidOperand;
-            if (inst.isTypeConversionOpKind(opcode)) {
-                try writer.print("  r{d} = (", .{dst_slot});
-                try callArgToJs(writer, fsig, base.operands[1]);
-                try writer.writeAll(");\n");
-                return;
-            }
-            try writer.print("  r{d} = ", .{dst_slot});
-            if (opcode == .fneg) {
-                try writer.writeAll("(-(");
-                try callArgToJs(writer, fsig, base.operands[1]);
-                try writer.writeAll("));\n");
-                return;
-            }
-            try emitOpExpr(writer, fsig, opcode, base.operands[1], base.operands[2]);
-            try writer.writeAll(";\n");
-        },
-        .assign => {
-            const dst_slot = if (base.operands[0] == .reg) (fsig.slotOf(base.operands[0].reg) orelse return JsEmitError.InvalidOperand) else return JsEmitError.InvalidOperand;
-            try writer.print("  r{d} = (", .{dst_slot});
-            try callArgToJs(writer, fsig, base.operands[1]);
-            try writer.writeAll(");\n");
-        },
-        .alloc, .stack_alloc => {
-            const dst_slot = if (base.operands[0] == .reg) (fsig.slotOf(base.operands[0].reg) orelse return JsEmitError.InvalidOperand) else return JsEmitError.InvalidOperand;
-            try writer.print("  r{d} = __sa_alloc(", .{dst_slot});
-            try callArgToJs(writer, fsig, base.operands[1]);
-            try writer.writeAll(");\n");
-        },
-        .ptr_add => {
-            const dst_slot = if (base.operands[0] == .reg) (fsig.slotOf(base.operands[0].reg) orelse return JsEmitError.InvalidOperand) else return JsEmitError.InvalidOperand;
-            try writer.print("  r{d} = __sa_ptr_add(", .{dst_slot});
-            try callArgToJs(writer, fsig, base.operands[1]);
-            try writer.writeAll(", ");
-            try callArgToJs(writer, fsig, base.operands[2]);
-            try writer.writeAll(");\n");
-        },
-        .load, .take => {
-            const dst_slot = if (base.operands[0] == .reg) (fsig.slotOf(base.operands[0].reg) orelse return JsEmitError.InvalidOperand) else return JsEmitError.InvalidOperand;
-            const ty = loadedPrimType(base);
-            try writer.print("  r{d} = ", .{dst_slot});
-            switch (ty) {
-                .i64, .u64 => {
-                    try writer.writeAll("__sa_load_i64(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll("));\n");
-                },
-                .f32, .f64 => {
-                    try writer.writeAll("__sa_load_f64(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll("));\n");
-                },
-                .ptr, .blob_handle => {
-                    try writer.writeAll("__sa_load_ptr(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll("));\n");
-                },
-                else => {
-                    try writer.writeAll("__sa_load_i32(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll("));\n");
-                },
-            }
-        },
-        .store => {
-            const ty = loadedPrimType(base);
-            switch (ty) {
-                .i64, .u64, .ptr, .blob_handle => {
-                    try writer.writeAll("  __sa_store_i64(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[0]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll("), ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll(");\n");
-                },
-                .f32, .f64 => {
-                    try writer.writeAll("  __sa_store_f64(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[0]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll("), ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll(");\n");
-                },
-                else => {
-                    try writer.writeAll("  __sa_store_i32(__sa_ptr_add(");
-                    try callArgToJs(writer, fsig, base.operands[0]);
-                    try writer.writeAll(", ");
-                    try callArgToJs(writer, fsig, base.operands[1]);
-                    try writer.writeAll("), ");
-                    try callArgToJs(writer, fsig, base.operands[2]);
-                    try writer.writeAll(");\n");
-                },
-            }
-        },
-        .call, .call_indirect => {
-            const callee = parseCallCallee(base.raw_text);
-            if (callee) |c| {
-                // dest detection: `dst = call ...` -> operands hold dest reg? raw fallback: check operands[0].
-                var has_dst = false;
-                var dst_slot: u32 = 0;
-                if (base.operands[0] == .reg) {
-                    if (fsig.slotOf(base.operands[0].reg)) |s| {
-                        has_dst = true;
-                        dst_slot = s;
-                    }
-                }
-                if (has_dst) try writer.print("  r{d} = ", .{dst_slot});
-                try writer.writeAll("  ");
-                if (!has_dst) try writer.writeAll("  ");
-                // callee name sanitized; args unknown from typed operands -> pass no args + comment.
-                try writer.writeAll("__sa_call_");
-                try jsIdent(writer, c);
-                try writer.print(" /* {s} */", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
-                try writer.writeAll(";\n");
-            } else {
-                try writer.print("  __sa_trap(\"unsupported call: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
-            }
-        },
-        .panic => {
-            try writer.writeAll("  __sa_panic(");
-            try callArgToJs(writer, fsig, base.operands[0]);
-            try writer.writeAll(");\n");
-        },
-        .panic_msg => {
-            try writer.writeAll("  __sa_trap(\"panic_msg\");\n");
-        },
-        .borrow, .move_, .release, .assume_safe, .assume_borrow, .raw_cast => {
-            try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
-        },
-        else => {
-            try writer.print("  __sa_trap(\"unsupported {s}: {s}\");\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
-        },
-    }
-}
-
-fn emitPcInstruction(writer: anytype, verified: anytype, fsig: sig.FunctionSig, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions) !void {
-    switch (base.kind) {
-        .jmp => {
-            const lid: u32 = switch (base.operands[1]) {
-                .label => |v| v,
-                .symbol => |v| v,
-                else => return JsEmitError.InvalidOperand,
-            };
-            const npc = label_pc.get(lid) orelse return JsEmitError.UnknownFunction;
-            try writer.print("        __pc = {d}; break;\n", .{npc});
-        },
-        .br => {
-            const cond_reg = switch (base.operands[0]) {
-                .reg => |v| v,
-                else => return JsEmitError.InvalidOperand,
-            };
-            const t: u32 = switch (base.operands[1]) {
-                .label => |v| v,
-                .symbol => |v| v,
-                else => return JsEmitError.InvalidOperand,
-            };
-            const f: u32 = switch (base.operands[3]) {
-                .label => |v| v,
-                .symbol => |v| v,
-                else => return JsEmitError.InvalidOperand,
-            };
-            const tpc = label_pc.get(t) orelse return JsEmitError.UnknownFunction;
-            const fpc = label_pc.get(f) orelse return JsEmitError.UnknownFunction;
-            const slot = fsig.slotOf(cond_reg) orelse return JsEmitError.InvalidOperand;
-            try writer.print("        __pc = ((r{d}|0) !== 0) ? {d} : {d}; break;\n", .{ slot, tpc, fpc });
-        },
-        .return_ => {
-            switch (base.operands[0]) {
-                .none => try writer.writeAll("        return 0;\n"),
-                else => {
-                    try writer.writeAll("        return (");
-                    try callArgToJs(writer, fsig, base.operands[0]);
-                    try writer.writeAll(");\n");
-                },
-            }
-        },
-        else => {
-            try writer.writeAll("        ");
-            // reuse linear emitter but indented + no trailing pc break needed
-            var buf: [8192]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), verified, fsig, base, js_opt);
-            const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
-            try writer.print("{s}\n", .{s});
-        },
-    }
+    try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");
 }
 
 fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, js_opt: JsEmitOptions) !void {
@@ -753,7 +821,6 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         try writer.writeAll("  let ");
         var first = true;
         for (fsig.reg_ids, 0..) |_, slot| {
-            // skip slots that alias params? MVP keeps all locals; params assigned below.
             if (!first) try writer.writeAll(", ");
             try writer.print("r{d} = 0", .{slot});
             first = false;

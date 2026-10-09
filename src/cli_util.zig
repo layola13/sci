@@ -66,7 +66,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
             .message = "LLVM phi nodes are not supported yet",
             .hint = "compile with -O0 or run opt --reg2mem before bc2sa; no new SA instruction is required for this diagnostic",
         },
-        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version" },
+        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-js, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version" },
         error.UnexpectedArgument => .{ .code = "SA-CLI-014", .message = "unexpected argument", .hint = "check option order and remove unsupported flags" },
         error.InvalidPath => .{ .code = "SA-CLI-014", .message = "invalid path", .hint = "check the filesystem path and project root" },
         error.MissingRef => .{ .code = "SA-CLI-015", .message = "missing package ref", .hint = "pass a ref value after --ref" },

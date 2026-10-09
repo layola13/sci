@@ -8,6 +8,7 @@ const build_options = @import("build_options");
 const driver = @import("driver/zigcc.zig");
 const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
+const emit_js = @import("emit_js.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const sab = @import("sab.zig");
@@ -711,6 +712,7 @@ const Command = enum {
     build_workspace,
     build_exe,
     build_wasm,
+    build_js,
     build_obj,
     bc2sa,
     audit,
@@ -1153,6 +1155,7 @@ fn commandName(cmd: Command) []const u8 {
         .cache => "cache",
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
+        .build_js => "build-js",
         .build_obj => "build-obj",
         .bc2sa => "bc2sa",
         .audit => "audit",
@@ -1374,6 +1377,14 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --target wasm32|wasm64         Select the WebAssembly target\n");
             try writeBuildOptionsHelp(writer, "the wasm module", false);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_js => {
+            try writer.writeAll("usage: sa build-js <file> [options]\n\n");
+            try writer.writeAll("Build a JavaScript module from a .sa source file or .sab binary (JS backend, coexists with LLVM).\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  --format esm|cjs              Select the JS module format (default: esm)\n");
+            try writeBuildOptionsHelp(writer, "the js module", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .run => {
@@ -1657,6 +1668,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-exe    <file>            Build a standalone executable (alias for build)\n");
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
+    try writer.writeAll("  build-js     <file>            Build a JavaScript module (.js, JS backend)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  check        <file>            Flatten and verify without codegen\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
@@ -1958,7 +1970,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
+            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -7333,6 +7345,37 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     }
 }
 
+fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, js_format: emit_js.JsFormat, debug: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report, diagnostics_mode);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+            try ensureParentDir(out_path);
+            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
+            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug }, out_path) catch |err| {
+                try stderr.print("error: JS backend emit failed: {s}\n", .{@errorName(err)});
+                return 1;
+            };
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+            recordMetricMemoryAfterEmit(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+            recordMetricMemoryEnd(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
+            finishProfileMetrics(&owned.metrics, emit_ns, null, if (total_start) |start| elapsedNs(start) else null);
+            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+            return 0;
+        },
+    }
+}
+
 fn executeLayout(
     allocator: std.mem.Allocator,
     args: []const []const u8,
@@ -8553,6 +8596,51 @@ pub fn executeWithWritersAndOptions(
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildWasm(allocator, final_source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+        },
+        .build_js => {
+            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var source_path: ?[]const u8 = null;
+            var out_path: ?[]const u8 = null;
+            var js_format: emit_js.JsFormat = .esm;
+            var debug = false;
+            var i: usize = 2;
+            while (i < args.len) : (i += 1) {
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
+                    i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--format")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    js_format = emit_js.JsFormat.parse(args[i + 1]) orelse return error.UnexpectedArgument;
+                    i += 1;
+                    continue;
+                }
+                return error.UnexpectedArgument;
+            }
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".js");
+            defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
+            return try executeBuildJs(allocator, final_source_path, if (out_path) |p| p else owned_out, js_format, debug, compile_options, stderr, if (json_mode) .json else .human);
         },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
