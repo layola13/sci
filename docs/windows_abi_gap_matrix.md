@@ -51,9 +51,9 @@
 
 `sa_http_client_resp_body_slice`
 
-### 正则表达式（7）
+### 正则表达式（8）
 
-`sa_regex_compile`, `sa_regex_free`, `sa_regex_group_count`, `sa_regex_group_len`, `sa_regex_group_ptr`, `sa_regex_match`, `sa_regex_match_free`
+`sa_regex_compile`, `sa_regex_free`, `sa_regex_group_count`, `sa_regex_group_len`, `sa_regex_group_ptr`, `sa_regex_group_start`, `sa_regex_match`, `sa_regex_match_free`
 
 ### 原始 fd 与 pidfd（12）
 
