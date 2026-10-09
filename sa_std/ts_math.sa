@@ -197,7 +197,7 @@ L_RND_ENTRY:
     br is_ceil -> L_RND_CNEG, L_RND_CCHK
 L_RND_CNEG:
     fneg = fneg f
-    farg = add fneg, 0.0
+    farg = fadd fneg, 0.0
     negate = 1
     jmp L_RND_PRE
 L_RND_CCHK:
@@ -205,11 +205,11 @@ L_RND_CCHK:
     br is_round -> L_RND_RND, L_RND_PLAIN
 L_RND_RND:
     fh = fadd f, 0.5
-    farg = add fh, 0.0
+    farg = fadd fh, 0.0
     negate = 0
     jmp L_RND_PRE
 L_RND_PLAIN:
-    farg = add f, 0.0
+    farg = fadd f, 0.0
     negate = 0
     jmp L_RND_PRE
 L_RND_PRE:
