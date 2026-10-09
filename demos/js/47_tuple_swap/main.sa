@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"8,3\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Pair_SIZE = 8
+#def Pair_first = +0
+#def Pair_second = +4
+
+@swap(&pair: ptr) -> i32:
+L_ENTRY:
+    first = load pair+Pair_first as i32
+    second = load pair+Pair_second as i32
+    ok = add second, 0
+    !first
+    !second
+    !pair
+    !ok
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    pair = alloc Pair_SIZE
+    store pair+Pair_first, 3 as i32
+    store pair+Pair_second, 8 as i32
+    call @swap(&pair)
+    call @sa_print_bytes(&RESULT_OK, 4)
+    !pair
+    return 0

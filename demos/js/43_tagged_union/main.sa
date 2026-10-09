@@ -1,0 +1,55 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"36\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Shape_SIZE = 8
+#def Shape_tag = +0
+#def Shape_payload = +4
+
+@area(&shape: ptr) -> i32:
+L_ENTRY:
+    tag = load shape+Shape_tag as u32
+    is_circle = eq tag, 0
+    br is_circle -> L_CIRCLE, L_SQUARE
+
+L_CIRCLE:
+    radius = load shape+Shape_payload as i32
+    radius_sq = mul radius, radius
+    area = mul radius_sq, 3
+    !radius
+    !radius_sq
+    !is_circle
+    !tag
+    !shape
+    return area
+
+L_SQUARE:
+    side = load shape+Shape_payload as i32
+    area = mul side, side
+    !side
+    !is_circle
+    !tag
+    !shape
+    return area
+
+@main() -> i32:
+L_ENTRY:
+    shape = alloc Shape_SIZE
+    store shape+Shape_tag, 1 as u32
+    store shape+Shape_payload, 6 as i32
+    value = call @area(&shape)
+    ok = eq value, 36
+    !value
+    !shape
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

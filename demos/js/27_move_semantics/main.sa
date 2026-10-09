@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"11\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Data_SIZE = 4
+#def Data_value = +0
+
+@consume(^data: ptr) -> i32:
+L_ENTRY:
+    value = load data+Data_value as i32
+    !data
+    return value
+
+@main() -> i32:
+L_ENTRY:
+    data = alloc Data_SIZE
+    store data+Data_value, 11 as i32
+    result = call @consume(^data)
+    ok = eq result, 11
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

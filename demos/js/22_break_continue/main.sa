@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"9\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    i = 0
+    sum = 0
+    jmp L_LOOP
+
+L_LOOP:
+    i1 = add i, 1
+    !i
+    i = i1
+    rem = srem i, 2
+    is_even = eq rem, 0
+    br is_even -> L_CONTINUE, L_CHECK_BREAK
+
+L_CONTINUE:
+    !rem
+    !is_even
+    jmp L_LOOP
+
+L_CHECK_BREAK:
+    !is_even
+    stop = sgt i, 5
+    br stop -> L_END, L_ADD
+
+L_ADD:
+    !stop
+    !rem
+    sum1 = add sum, i
+    !sum
+    sum = sum1
+    jmp L_LOOP
+
+L_END:
+    !stop
+    !rem
+    ok = eq sum, 9
+    !i
+    !sum
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

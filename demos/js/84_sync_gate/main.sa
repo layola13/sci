@@ -1,0 +1,25 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@gate() -> i32:
+L_ENTRY:
+    return 1
+
+@main() -> i32:
+L_ENTRY:
+    ready = call @gate()
+    ok = eq ready, 1
+    !ready
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

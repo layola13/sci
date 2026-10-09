@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"14\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Color_SIZE = 3
+#def Color_0 = +0
+#def Color_1 = +1
+#def Color_2 = +2
+
+@main() -> i32:
+L_ENTRY:
+    color = alloc Color_SIZE
+    store color+Color_0, 2 as u8
+    store color+Color_1, 4 as u8
+    store color+Color_2, 8 as u8
+    a = load color+Color_0 as u8
+    b = load color+Color_1 as u8
+    c = load color+Color_2 as u8
+    ab = add a, b
+    total = add ab, c
+    ok = eq total, 14
+    !a
+    !b
+    !c
+    !ab
+    !total
+    !color
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

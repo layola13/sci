@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"7\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@step_left() -> i32!:
+L_ENTRY:
+    return 2
+
+@step_right() -> i32!:
+L_ENTRY:
+    return 5
+
+@combine() -> i32!:
+L_ENTRY:
+    left_res = call @step_left()
+    left = ? left_res
+    right_res = call @step_right()
+    right = ? right_res
+    total = add left, right
+    !left_res
+    !right_res
+    !left
+    !right
+    return total
+
+@main() -> i32!:
+L_ENTRY:
+    res = call @combine()
+    value = ? res
+    ok = eq value, 7
+    !res
+    !value
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
