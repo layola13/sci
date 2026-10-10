@@ -794,12 +794,18 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
     if (parsed.dest) |dest| {
         const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
         const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
-        // Fresh blocks from allocator shims and must-return-base callees
-        // keep base provenance; everything else is killed (unknown).
-        if (!parsed.is_indirect and (isAllocatorShim(parsed.callee) or retbase.get(parsed.callee) != null)) {
+        // Fresh blocks from allocator shims and proven callees keep base
+        // provenance; everything else is killed (unknown). Move-prefix
+        // arguments are consumed.
+        if (!parsed.is_indirect and provCallDestBase(bases, symbols, fsig, parsed.callee, parsed.args, retbase)) {
             bases.put(slot, {}) catch return JsEmitError.OutOfMemory;
         } else {
             _ = bases.remove(slot);
+        }
+        for (parsed.args) |arg| {
+            if (arg.prefix == .move) {
+                if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = bases.remove(aslot);
+            }
         }
         try writer.print("  r{d} = ", .{slot});
     } else {
@@ -828,12 +834,18 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     if (parsed.dest) |dest| {
         const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
         const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
-        // Fresh blocks from allocator shims and must-return-base callees
-        // keep base provenance; everything else is killed (unknown).
-        if (!parsed.is_indirect and (isAllocatorShim(parsed.callee) or retbase.get(parsed.callee) != null)) {
+        // Fresh blocks from allocator shims and proven callees keep base
+        // provenance; everything else is killed (unknown). Move-prefix
+        // arguments are consumed.
+        if (!parsed.is_indirect and provCallDestBase(bases, symbols, fsig, parsed.callee, parsed.args, retbase)) {
             bases.put(slot, {}) catch return JsEmitError.OutOfMemory;
         } else {
             _ = bases.remove(slot);
+        }
+        for (parsed.args) |arg| {
+            if (arg.prefix == .move) {
+                if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = bases.remove(aslot);
+            }
         }
         try writer.print("  r{d} = ", .{slot});
     } else {
@@ -1187,12 +1199,18 @@ fn provTransfer(
                 if (parsed.dest) |dest| {
                     if (symbols.findId(dest)) |id| {
                         if (fsig.slotOf(id)) |slot| {
-                            if (!parsed.is_indirect and (isAllocatorShim(parsed.callee) or retbase.get(parsed.callee) != null)) {
+                            if (!parsed.is_indirect and provCallDestBase(out_set, symbols, fsig, parsed.callee, parsed.args, retbase)) {
                                 out_set.put(slot, {}) catch return JsEmitError.OutOfMemory;
                             } else {
                                 _ = out_set.remove(slot);
                             }
                         }
+                    }
+                }
+                // Move-prefix arguments are consumed by the call.
+                for (parsed.args) |arg| {
+                    if (arg.prefix == .move) {
+                        if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = out_set.remove(aslot);
                     }
                 }
             },
@@ -1218,16 +1236,52 @@ fn provLabelId(op: inst.Operand) ?u32 {
     };
 }
 
-/// Callee names proven to return an owned heap base on every path.
-/// Computed per module by fixpoint (increasing from empty, hence sound for
-/// recursion); allocator shims are handled separately via isAllocatorShim.
-const RetBaseTable = std.StringHashMap(void);
+/// Callee summary for base provenance: either every return carries a fresh
+/// owned base from the callee body (alloc), or every return passes through
+/// the same by_value/move parameter (param). Anything else is unprovable.
+const RetBaseInfo = union(enum) { alloc: void, param: usize };
+const RetBaseTable = std.StringHashMap(RetBaseInfo);
 
 /// Host shims whose JS lowering allocates a fresh linear-memory block.
 fn isAllocatorShim(name: []const u8) bool {
     return std.mem.eql(u8, name, "mmap") or
         std.mem.eql(u8, name, "dlopen") or
         std.mem.eql(u8, name, "dlsym");
+}
+
+/// Slot of a call argument by its bare name (prefix already stripped by the
+/// call parser). Used to test by_value/move argument provenance.
+fn provArgSlot(symbols: anytype, fsig: sig.FunctionSig, arg_text: []const u8) ?u32 {
+    const id = symbols.findId(arg_text) orelse return null;
+    return fsig.slotOf(id);
+}
+
+/// Whether a call result slot is proven to hold an owned base: allocator
+/// shims and alloc-class callees always qualify; param-class callees qualify
+/// iff the corresponding argument is a transparent (by_value/move) proven
+/// base in the caller's set.
+fn provCallDestBase(
+    set: *const BaseSet,
+    symbols: anytype,
+    fsig: sig.FunctionSig,
+    parsed_callee: []const u8,
+    parsed_args: anytype,
+    retbase: *const RetBaseTable,
+) bool {
+    if (isAllocatorShim(parsed_callee)) return true;
+    const info = retbase.get(parsed_callee) orelse return false;
+    switch (info) {
+        .alloc => return true,
+        .param => |pi| {
+            if (pi >= parsed_args.len) return false;
+            const arg = parsed_args[pi];
+            if (arg.prefix != .by_value and arg.prefix != .move) return false;
+            if (provArgSlot(symbols, fsig, arg.text)) |aslot| {
+                return set.get(aslot) != null;
+            }
+            return false;
+        },
+    }
 }
 
 const ProvBody = struct {
@@ -1258,6 +1312,7 @@ fn provSolveBody(
     use_global: bool,
     task: FuncTask,
     retbase: *const RetBaseTable,
+    seed: ?u32,
 ) JsEmitError!ProvBody {
     var prov = ProvBody{
         .blocks = std.ArrayList(BlockRange).init(allocator),
@@ -1398,6 +1453,11 @@ fn provSolveBody(
                 }
             }
             if (first_pred) tmp.clearRetainingCapacity();
+            if (bi == 0) {
+                // Entry seed (for param-passthrough queries): a parameter
+                // assumed to be a base on entry.
+                if (seed) |s| tmp.put(s, {}) catch return JsEmitError.OutOfMemory;
+            }
             if (!provSetEq(&prov.in_sets.items[bi], &tmp)) {
                 prov.in_sets.items[bi].clearRetainingCapacity();
                 var tit = tmp.iterator();
@@ -1413,16 +1473,14 @@ fn provSolveBody(
 
 /// True iff every `return` in the body returns a slot proven to hold an
 /// owned heap base (replaying the block transfer up to each return).
-fn provMustReturnBase(
+fn provAllReturnsProven(
     allocator: std.mem.Allocator,
     verified: anytype,
     fsig: sig.FunctionSig,
     use_global: bool,
-    task: FuncTask,
     prov: *const ProvBody,
     retbase: *const RetBaseTable,
 ) JsEmitError!bool {
-    _ = task;
     var found = false;
     for (prov.blocks.items, 0..) |blk, bi| {
         var k: usize = blk.start;
@@ -1463,7 +1521,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     // Owned-base provenance for `release` lowering (see provSolveBody).
     var bases = BaseSet.init(allocator);
     defer bases.deinit();
-    var prov = try provSolveBody(allocator, verified, fsig, use_global, task, retbase);
+    var prov = try provSolveBody(allocator, verified, fsig, use_global, task, retbase, null);
     defer prov.deinit();
     // If no labels at all, emit straight-line body without pc machine.
     if (pcs == 1) {
@@ -1754,26 +1812,42 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     const tasks = try collectFuncTasks(allocator, verified);
     defer allocator.free(tasks);
     // Must-return-base summary (increasing fixpoint from empty, hence sound
-    // for recursion): lets callers of factory functions keep base provenance
-    // instead of leaking every cross-function allocation.
+    // for recursion): alloc-class callees return fresh bases; param(i)-class
+    // callees pass through one transparent (by_value/move) parameter.
     var retbase = RetBaseTable.init(allocator);
     defer retbase.deinit();
     {
         var iter: usize = 0;
         var stable = false;
-        while (!stable and iter < 20) : (iter += 1) {
+        while (!stable and iter < 100) : (iter += 1) {
             stable = true;
             for (tasks) |task| {
                 if (task.kind == .extern_decl) continue;
                 const fsig = verified.function_sigs[task.fsig_index];
                 if (retbase.contains(fsig.name)) continue;
                 const ug = taskUsesGlobalRegIds(fsig, verified, task);
-                var prov = try provSolveBody(allocator, verified, fsig, ug, task, &retbase);
-                defer prov.deinit();
-                if (try provMustReturnBase(allocator, verified, fsig, ug, task, &prov, &retbase)) {
-                    try retbase.put(fsig.name, {});
-                    stable = false;
+                var classified = false;
+                {
+                    var prov = try provSolveBody(allocator, verified, fsig, ug, task, &retbase, null);
+                    defer prov.deinit();
+                    if (try provAllReturnsProven(allocator, verified, fsig, ug, &prov, &retbase)) {
+                        try retbase.put(fsig.name, .{ .alloc = {} });
+                        classified = true;
+                    }
                 }
+                if (!classified) {
+                    for (fsig.param_ids, 0..) |pid, pi| {
+                        const pseed = fsig.slotOf(pid) orelse continue;
+                        var prov = try provSolveBody(allocator, verified, fsig, ug, task, &retbase, pseed);
+                        defer prov.deinit();
+                        if (try provAllReturnsProven(allocator, verified, fsig, ug, &prov, &retbase)) {
+                            try retbase.put(fsig.name, .{ .param = pi });
+                            classified = true;
+                            break;
+                        }
+                    }
+                }
+                if (classified) stable = false;
             }
         }
     }
