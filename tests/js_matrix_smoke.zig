@@ -363,6 +363,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/268_build_cross_compile_wasm/main.sa", "268\n");
     try assertJsMatrixStdout("demos/rosetta/269_build_cross_compile_windows/main.sa", "269\n");
     try assertJsMatrixStdout("demos/rosetta/270_build_sysroot_custom/main.sa", "270\n");
+    try assertJsMatrixStdout("demos/rosetta/271_build_optimization_passes/main.sa", "271\n");
+    try assertJsMatrixStdout("demos/rosetta/272_build_sanitizer_flags/main.sa", "272\n");
+    try assertJsMatrixStdout("demos/rosetta/273_build_test_harness/main.sa", "273\n");
+    try assertJsMatrixStdout("demos/rosetta/274_build_benchmark_runner/main.sa", "274\n");
+    try assertJsMatrixStdout("demos/rosetta/275_build_doc_generator/main.sa", "275\n");
+    try assertJsMatrixStdout("demos/rosetta/276_build_incremental_caching/main.sa", "276\n");
+    try assertJsMatrixStdout("demos/rosetta/277_build_parallel_compilation/main.sa", "277\n");
+    try assertJsMatrixStdout("demos/rosetta/278_build_reproducible_builds/main.sa", "278\n");
+    try assertJsMatrixStdout("demos/rosetta/279_build_artifact_caching_remote/main.sa", "279\n");
+    try assertJsMatrixStdout("demos/rosetta/280_build_ci_cd_integration/main.sa", "280\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
