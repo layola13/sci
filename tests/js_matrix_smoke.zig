@@ -343,6 +343,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/247_contract_semver_major_break/main.sa", "247\n");
     try assertJsMatrixStdout("demos/rosetta/248_contract_ffi_boundary_trust/main.sa", "248\n");
     try assertJsMatrixStdout("demos/rosetta/249_contract_macro_export/main.sa", "249\n");
+    try assertJsMatrixStdout("demos/rosetta/250_contract_const_export/main.sa", "250\n");
+    try assertJsMatrixStdout("demos/rosetta/251_contract_resource_ownership/main.sa", "251\n");
+    try assertJsMatrixStdout("demos/rosetta/252_contract_error_code_mapping/main.sa", "252\n");
+    try assertJsMatrixStdout("demos/rosetta/254_contract_plugin_system/main.sa", "254\n");
+    try assertJsMatrixStdout("demos/rosetta/255_contract_memory_allocator_swap/main.sa", "255\n");
+    try assertJsMatrixStdout("demos/rosetta/256_contract_panic_handler_propagate/main.sa", "256\n");
+    try assertJsMatrixStdout("demos/rosetta/257_contract_log_facade/main.sa", "257\n");
+    try assertJsMatrixStdout("demos/rosetta/258_contract_thread_local_isolation/main.sa", "258\n");
+    try assertJsMatrixStdout("demos/rosetta/259_contract_static_init_order/main.sa", "259\n");
+    try assertJsMatrixStdout("demos/rosetta/260_contract_deprecated_warning/main.sa", "260\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
