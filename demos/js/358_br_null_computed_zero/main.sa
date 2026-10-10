@@ -1,0 +1,35 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"358\n"
+
+// 358 - br_null on computed integers: zero takes the null branch,
+// nonzero takes the other one. (LLVM/wasm reject br_null, like 356.)
+@main() -> i32:
+L_ENTRY:
+    a = 7 as i64
+    z = sub a, a
+    br_null z -> L_ZERO, L_NONZERO
+L_ZERO:
+    b = 7 as i64
+    c = 3 as i64
+    d = sub b, c
+    br_null d -> L_FAIL, L_DONE
+L_NONZERO:
+    !a
+    !z
+    return 1
+L_FAIL:
+    !a
+    !z
+    !b
+    !c
+    !d
+    return 1
+L_DONE:
+    !a
+    !z
+    !b
+    !c
+    !d
+    call @sa_print_bytes(&OUT, 4)
+    return 0

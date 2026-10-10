@@ -1,0 +1,19 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"356\n"
+
+// 356 - br_null jumps to the null branch for a null pointer.
+//
+// NOTE: verifier + interpreter + JS implement br_null; the LLVM and
+// wasm backends reject it (SA-CLI-018), so this demo locks the JS side.
+@main() -> i32:
+L_ENTRY:
+    p = 0 as ptr
+    br_null p -> L_NULL, L_NOTNULL
+L_NULL:
+    !p
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_NOTNULL:
+    !p
+    return 1

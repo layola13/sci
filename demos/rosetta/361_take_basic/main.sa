@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"361\n"
+
+// 361 - take reads through a pointer like load (move-ownership read;
+// the JS backend shares the load lowering).
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 8
+    store buf+0, 42 as i64
+    v = take buf+0 as i64
+    ok = eq v, 42
+    !buf
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

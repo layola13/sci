@@ -452,6 +452,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/353_ult_ugt_u64/main.sa", "353\n");
     try assertJsMatrixStdout("demos/rosetta/354_neg_not_i32/main.sa", "354\n");
     try assertJsMatrixStdout("demos/rosetta/355_and_or_xor_i32/main.sa", "355\n");
+    try assertJsMatrixStdout("demos/rosetta/356_br_null_ptr/main.sa", "356\n");
+    try assertJsMatrixStdout("demos/rosetta/357_br_null_nonnull/main.sa", "357\n");
+    try assertJsMatrixStdout("demos/rosetta/358_br_null_computed_zero/main.sa", "358\n");
+    try assertJsMatrixStdout("demos/rosetta/359_br_null_u64max/main.sa", "359\n");
+    try assertJsMatrixStdout("demos/rosetta/360_br_null_i32_zero/main.sa", "360\n");
+    try assertJsMatrixStdout("demos/rosetta/361_take_basic/main.sa", "361\n");
+    try assertJsMatrixStdout("demos/rosetta/362_take_field/main.sa", "362\n");
+    try assertJsMatrixStdout("demos/rosetta/363_fence_noop/main.sa", "363\n");
+    try assertJsMatrixStdout("demos/rosetta/364_br_null_loaded/main.sa", "364\n");
+    try assertJsMatrixStdout("demos/rosetta/365_br_null_chain/main.sa", "365\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

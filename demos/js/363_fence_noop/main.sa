@@ -1,0 +1,24 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"363\n"
+
+// 363 - fence is a no-op on the single-threaded JS runtime (it only
+// orders atomic traffic, which JS serializes anyway).
+@main() -> i32:
+L_ENTRY:
+    a = 20 as i64
+    b = 22 as i64
+    fence seq_cst
+    s = add a, b
+    ok = eq s, 42
+    !a
+    !b
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

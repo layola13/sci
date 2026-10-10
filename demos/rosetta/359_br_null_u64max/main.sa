@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"359\n"
+
+// 359 - br_null treats only all-zero bits as null: u64-max is non-null,
+// and a zero immediate is null. (LLVM/wasm reject br_null, like 356;
+// NaN would count as non-null since its bits are nonzero.)
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    br_null max -> L_FAIL, L_NEXT
+L_NEXT:
+    z = 0 as u64
+    br_null z -> L_DONE, L_FAIL
+L_FAIL:
+    !max
+    return 1
+L_DONE:
+    !max
+    !z
+    call @sa_print_bytes(&OUT, 4)
+    return 0

@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"364\n"
+
+// 364 - br_null over a loaded nullable slot (store-then-load roundtrip).
+// (LLVM/wasm reject br_null, like 356.)
+@main() -> i32:
+L_ENTRY:
+    slot = alloc 8
+    store slot+0, 0 as i64
+    v0 = load slot+0 as i64
+    br_null v0 -> L_WASNULL, L_FAIL0
+L_WASNULL:
+    store slot+0, 9 as i64
+    v1 = load slot+0 as i64
+    br_null v1 -> L_FAIL1, L_DONE
+L_FAIL0:
+    !slot
+    !v0
+    return 1
+L_FAIL1:
+    !slot
+    !v0
+    !v1
+    return 1
+L_DONE:
+    !slot
+    !v0
+    !v1
+    call @sa_print_bytes(&OUT, 4)
+    return 0
