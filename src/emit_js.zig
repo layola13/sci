@@ -261,7 +261,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\function __sa_addr(a) { return (typeof a === "bigint") ? Number(BigInt.asUintN(32, a)) : (a | 0); }
         \\function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
         \\function __sa_alloc(size) {
-        \\  size = __sa_align((size | 0), 8);
+        \\  size = __sa_align((__sa_num(size) | 0), 8);
         \\  const bucket = __sa_fl[size];
         \\  if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
         \\  const total = (size + 8); // 8-byte header holds the aligned user size
@@ -276,10 +276,10 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\}
         \\function __sa_free(ptr) {
         \\  // Mirrors the interpreter: only exact live heap bases are recycled.
-        \\  // i64 bigints, i32 values, interior pointers, consts and unknown
-        \\  // addresses are no-ops (never present in __sa_live).
-        \\  if (typeof ptr !== "number") return 0;
-        \\  const p = ptr | 0;
+        \\  // BigInt pointers are normalized to 32-bit addresses first so
+        \\  // 64-bit-typed bases stay freeable; interior pointers, consts and
+        \\  // unknown addresses remain no-ops (never present in __sa_live).
+        \\  const p = __sa_addr(ptr);
         \\  if (!__sa_live.has(p)) return 0;
         \\  __sa_live.delete(p);
         \\  const size = __sa_view.getUint32((p - 8), true);
@@ -303,12 +303,12 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\function __sa_load_u32(addr) { return __sa_view.getUint32(__sa_addr(addr), true); }
         \\function __sa_load_f32(addr) { return __sa_view.getFloat32(__sa_addr(addr), true); }
         \\function __sa_load_f64(addr) { return __sa_view.getFloat64(__sa_addr(addr), true); }
-        \\function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), v | 0); }
-        \\function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), v | 0); }
-        \\function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), v | 0, true); }
-        \\function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), v | 0, true); }
-        \\function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), v | 0, true); }
-        \\function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), v >>> 0, true); }
+        \\function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), __sa_narrow(v, 8, true)); }
+        \\function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), __sa_narrow(v, 8, false)); }
+        \\function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), __sa_narrow(v, 16, true), true); }
+        \\function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), __sa_narrow(v, 16, false), true); }
+        \\function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), __sa_narrow(v, 32, true), true); }
+        \\function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), __sa_narrow(v, 32, false), true); }
         \\function __sa_store_f32(addr, v) { __sa_view.setFloat32(__sa_addr(addr), +v, true); }
         \\function __sa_store_f64(addr, v) { __sa_view.setFloat64(__sa_addr(addr), +v, true); }
         \\function __sa_load_i64(addr) { return __sa_view.getBigInt64(__sa_addr(addr), true); }
@@ -329,9 +329,9 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
         \\function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
         \\function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { if (BigInt(b) === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt(a) / BigInt(b)); } if ((b | 0) === 0) __sa_trap("div by zero"); return (Math.trunc(a / b)) | 0; }
-        \\function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a) / d); } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
+        \\function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a)) / d; } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
         \\function __sa_srem(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) % BigInt(b)) : ((a % b) | 0); }
-        \\function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a) % d); } return (((a >>> 0) % (b >>> 0)) | 0); }
+        \\function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a)) % d; } return (((a >>> 0) % (b >>> 0)) | 0); }
         \\function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
         \\function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
         \\function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
@@ -361,7 +361,128 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\function __sa_fle(a, b) { return (((+a) <= (+b)) ? 1 : 0); }
         \\function __sa_fgt(a, b) { return (((+a) > (+b)) ? 1 : 0); }
         \\function __sa_fge(a, b) { return (((+a) >= (+b)) ? 1 : 0); }
-        \\function __sa_cvt(v) { return v; }
+        \\function __sa_narrow(v, bits, signed) {
+        \\  // Narrow any int-domain value to a target width, returned as Number.
+        \\  // BigInt inputs are 64-bit sources; Number inputs are 32-bit (or
+        \\  // smaller) sources. Matches interpreter wrap-around for
+        \\  // trunc/zext/sext/bitcast to widths <= 32.
+        \\  if (typeof v === "bigint") return signed ? Number(BigInt.asIntN(bits, v)) : Number(BigInt.asUintN(bits, v));
+        \\  if (bits === 32) return signed ? (v | 0) : (v >>> 0);
+        \\  if (bits === 1) return (v & 1);
+        \\  const m = Math.pow(2, bits);
+        \\  let r = Math.trunc(+v) % m;
+        \\  if (r < 0) r += m;
+        \\  if (signed && r >= m / 2) r -= m;
+        \\  return r;
+        \\}
+        \\function __sa_wide(v, signed) {
+        \\  // Widen any int-domain value to 64 bits, returned as BigInt.
+        \\  // BigInt inputs are 64-bit sources (modular); Number inputs are
+        \\  // 32-bit sources read with signed/unsigned 32-bit semantics.
+        \\  if (typeof v === "bigint") return signed ? BigInt.asIntN(64, v) : BigInt.asUintN(64, v);
+        \\  if (!Number.isFinite(+v)) return 0n;
+        \\  return signed ? BigInt((+v) | 0) : BigInt((+v) >>> 0);
+        \\}
+        \\function __sa_cvt_trunc_i8(v) { return __sa_narrow(v, 8, true); }
+        \\function __sa_cvt_trunc_i16(v) { return __sa_narrow(v, 16, true); }
+        \\function __sa_cvt_trunc_i1(v) { return __sa_narrow(v, 1, false); }
+        \\function __sa_cvt_trunc_i32(v) { return __sa_narrow(v, 32, true); }
+        \\function __sa_cvt_trunc_u8(v) { return __sa_narrow(v, 8, false); }
+        \\function __sa_cvt_trunc_u16(v) { return __sa_narrow(v, 16, false); }
+        \\function __sa_cvt_trunc_u32(v) { return __sa_narrow(v, 32, false); }
+        \\function __sa_cvt_trunc_i64(v) { return __sa_wide(v, true); }
+        \\function __sa_cvt_trunc_u64(v) { return __sa_wide(v, false); }
+        \\function __sa_cvt_trunc_ptr(v) { return __sa_addr(v); }
+        \\function __sa_cvt_zext_i8(v) { return __sa_narrow(v, 8, false); }
+        \\function __sa_cvt_zext_i16(v) { return __sa_narrow(v, 16, false); }
+        \\function __sa_cvt_zext_i1(v) { return __sa_narrow(v, 1, false); }
+        \\function __sa_cvt_zext_i32(v) { return __sa_narrow(v, 32, false); }
+        \\function __sa_cvt_zext_u8(v) { return __sa_narrow(v, 8, false); }
+        \\function __sa_cvt_zext_u16(v) { return __sa_narrow(v, 16, false); }
+        \\function __sa_cvt_zext_u32(v) { return __sa_narrow(v, 32, false); }
+        \\function __sa_cvt_zext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) >>> 0); }
+        \\function __sa_cvt_zext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt((+v) >>> 0); }
+        \\function __sa_cvt_zext_ptr(v) { return __sa_addr(v); }
+        \\function __sa_cvt_sext_i8(v) { return __sa_narrow(v, 8, true); }
+        \\function __sa_cvt_sext_i16(v) { return __sa_narrow(v, 16, true); }
+        \\function __sa_cvt_sext_i1(v) { return __sa_narrow(v, 1, false); }
+        \\function __sa_cvt_sext_i32(v) { return __sa_narrow(v, 32, true); }
+        \\function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
+        \\function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
+        \\function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
+        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
+        \\function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
+        \\function __sa_cvt_sext_ptr(v) { return __sa_addr(v); }
+        \\function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+        \\function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+        \\function __sa_cvt_uitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+        \\function __sa_cvt_uitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+        \\function __sa_cvt_fptosi_i64(v) {
+        \\  // Truncate toward zero like LLVM fptosi; out-of-range/NaN/Inf
+        \\  // maps to INT64_MIN (x86 cvttsd2si behavior) instead of throwing.
+        \\  const t = Math.trunc(+v);
+        \\  if (!Number.isFinite(t) || t >= 9223372036854775808 || t < -9223372036854775808) return -9223372036854775808n;
+        \\  return BigInt(t);
+        \\}
+        \\function __sa_cvt_fptosi_u64(v) { return BigInt.asUintN(64, __sa_cvt_fptosi_i64(v)); }
+        \\function __sa_cvt_fptosi_i32(v) { return Number(BigInt.asIntN(32, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_u32(v) { return Number(BigInt.asUintN(32, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_i16(v) { return Number(BigInt.asIntN(16, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_u16(v) { return Number(BigInt.asUintN(16, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_i8(v) { return Number(BigInt.asIntN(8, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_u8(v) { return Number(BigInt.asUintN(8, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_i1(v) { return Number(BigInt.asUintN(1, __sa_cvt_fptosi_i64(v))); }
+        \\function __sa_cvt_fptosi_ptr(v) { return __sa_addr(__sa_cvt_fptosi_i64(v)); }
+        \\function __sa_cvt_fptrunc_f32(v) { return Math.fround(+v); }
+        \\function __sa_cvt_fpext_f64(v) { return (+v); }
+        \\const __sa_bc_dv = new DataView(new ArrayBuffer(8));
+        \\function __sa_cvt_bitcast_i8(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(8, v)) : ((v << 24) >> 24); }
+        \\function __sa_cvt_bitcast_u8(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(8, v)) : (v & 0xFF); }
+        \\function __sa_cvt_bitcast_i16(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(16, v)) : ((v << 16) >> 16); }
+        \\function __sa_cvt_bitcast_u16(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(16, v)) : (v & 0xFFFF); }
+        \\function __sa_cvt_bitcast_i1(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(1, v)) : (v & 1); }
+        \\function __sa_cvt_bitcast_i32(v) {
+        \\  // Non-integer Numbers are f32-domain values (f64 sources are
+        \\  // rejected by the verifier for 32-bit bitcasts); reinterpret them.
+        \\  if (typeof v === "bigint") return Number(BigInt.asIntN(32, v));
+        \\  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getInt32(0, true); }
+        \\  return (v | 0);
+        \\}
+        \\function __sa_cvt_bitcast_u32(v) {
+        \\  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+        \\  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getUint32(0, true); }
+        \\  return (v >>> 0);
+        \\}
+        \\function __sa_cvt_bitcast_i64(v) {
+        \\  // Non-integer Numbers are f64-domain values; reinterpret them.
+        \\  // Integer Numbers are immediates (f64-integral bitcasts are a
+        \\  // known edge; use sitofp-produced values only via fptosi).
+        \\  if (typeof v === "bigint") return BigInt.asIntN(64, v);
+        \\  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return __sa_bc_dv.getBigInt64(0, true); }
+        \\  return BigInt(v);
+        \\}
+        \\function __sa_cvt_bitcast_u64(v) {
+        \\  if (typeof v === "bigint") return BigInt.asUintN(64, v);
+        \\  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return BigInt.asUintN(64, __sa_bc_dv.getBigInt64(0, true)); }
+        \\  return BigInt(v);
+        \\}
+        \\function __sa_cvt_bitcast_ptr(v) {
+        \\  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+        \\  return (v | 0);
+        \\}
+        \\function __sa_cvt_bitcast_f32(v) {
+        \\  // BigInt/integer inputs are int-domain bits; fractional inputs are
+        \\  // already f32-domain values (f32-to-f32 is identity).
+        \\  if (typeof v === "bigint") { __sa_bc_dv.setUint32(0, Number(BigInt.asUintN(32, v)), true); return __sa_bc_dv.getFloat32(0, true); }
+        \\  if (!Number.isInteger(v)) return (+v);
+        \\  __sa_bc_dv.setInt32(0, v | 0, true); return __sa_bc_dv.getFloat32(0, true);
+        \\}
+        \\function __sa_cvt_bitcast_f64(v) {
+        \\  // Number inputs are always f64-domain here (equal-bits rule keeps
+        \\  // int-domain f64 bitcasts on the BigInt path).
+        \\  if (typeof v === "bigint") { __sa_bc_dv.setBigInt64(0, BigInt.asIntN(64, v), true); return __sa_bc_dv.getFloat64(0, true); }
+        \\  return (+v);
+        \\}
         \\// ---- end runtime ----
         \\
     );
@@ -379,6 +500,12 @@ fn resolveTextToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, con
     if (text.len == 0) return JsEmitError.InvalidOperand;
     if (std.fmt.parseInt(i64, text, 10)) |v| {
         try writer.print("{d}", .{v});
+        return;
+    } else |_| {}
+    // u64-range literals that overflow i64 still materialize exactly as
+    // BigInt (plain float formatting would lose precision above 2^53).
+    if (std.fmt.parseInt(u64, text, 10)) |v| {
+        try writer.print("{d}n", .{v});
         return;
     } else |_| {}
     if (std.fmt.parseFloat(f64, text)) |v| {
@@ -435,8 +562,13 @@ fn resolveValueToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, us
             const fidx = fnIndexOf(fn_idx, name) orelse return JsEmitError.InvalidOperand;
             try writer.print("__sa_fnptr({d})", .{fidx});
         },
-        .imm_i64, .imm_int => |v| try writer.print("{d}", .{v}),
-        .imm_u64 => |v| try writer.print("{d}", .{v}),
+        .imm_int => |v| try writer.print("{d}", .{v}),
+        // 64-bit immediates materialize as BigInt literals so the runtime
+        // typeof-dispatch (number = 32-bit/float, bigint = 64-bit) stays
+        // exact across the full u64 range. Plain digits would silently lose
+        // precision above 2^53 and wrap 64-bit arithmetic at 32 bits.
+        .imm_i64 => |v| try writer.print("{d}n", .{v}),
+        .imm_u64 => |v| try writer.print("{d}n", .{v}),
         .imm_float => |v| try writer.print("{d}", .{v}),
         .text, .native_text => |t| try resolveTextToJs(writer, symbols, fsig, const_addrs, t),
         else => return JsEmitError.InvalidOperand,
@@ -471,6 +603,80 @@ fn regSlot(fsig: sig.FunctionSig, use_global: bool, slot_or_id: u32) !u32 {
     if (use_global) return fsig.slotOf(slot_or_id) orelse return JsEmitError.InvalidOperand;
     if (@as(usize, slot_or_id) < fsig.reg_ids.len) return slot_or_id;
     return fsig.slotOf(slot_or_id) orelse return JsEmitError.InvalidOperand;
+}
+
+/// Runtime helper suffix for a conversion target type. blob_handle shares
+/// the u64 helpers (both are 64-bit); v128/void targets are rejected loudly
+/// (the verifier never produces them, so reaching here is a compiler bug).
+fn cvtTargetSuffix(tgt: sig.PrimType) ?[]const u8 {
+    return switch (tgt) {
+        .i1 => "i1",
+        .i8 => "i8",
+        .i16 => "i16",
+        .i32 => "i32",
+        .i64 => "i64",
+        .u8 => "u8",
+        .u16 => "u16",
+        .u32 => "u32",
+        .u64, .blob_handle => "u64",
+        .f32 => "f32",
+        .f64 => "f64",
+        .ptr => "ptr",
+        else => null,
+    };
+}
+
+/// Whether (opcode, target) is a verifier-accepted conversion shape.
+/// Anything else fails the build loudly instead of emitting wrong code.
+fn cvtShapeValid(opcode: inst.OpKind, tgt: sig.PrimType) bool {
+    return switch (opcode) {
+        // Mirror interp isIntLike: int<->int only (float targets are
+        // verifier-rejected, so reaching them here is a compiler bug).
+        .trunc, .zext, .sext => switch (tgt) {
+            .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr, .blob_handle => true,
+            else => false,
+        },
+        // bitcast allows any equal-width pair (verifier-enforced), so float
+        // targets are legal here.
+        .bitcast => switch (tgt) {
+            .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr, .blob_handle, .f32, .f64 => true,
+            else => false,
+        },
+        .sitofp, .uitofp => switch (tgt) {
+            .f32, .f64 => true,
+            else => false,
+        },
+        .fptosi => switch (tgt) {
+            .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .ptr, .blob_handle => true,
+            else => false,
+        },
+        .fptrunc => tgt == .f32,
+        .fpext => tgt == .f64,
+        else => false,
+    };
+}
+
+fn opNameForCvt(opcode: inst.OpKind) []const u8 {
+    return switch (opcode) {
+        .trunc => "trunc",
+        .zext => "zext",
+        .sext => "sext",
+        .fptosi => "fptosi",
+        .sitofp => "sitofp",
+        .uitofp => "uitofp",
+        .fptrunc => "fptrunc",
+        .fpext => "fpext",
+        .bitcast => "bitcast",
+        else => "unknown",
+    };
+}
+
+fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, tgt: sig.PrimType, src_op: inst.Operand) !void {
+    if (!cvtShapeValid(opcode, tgt)) return JsEmitError.InvalidOperand;
+    const sfx = cvtTargetSuffix(tgt) orelse return JsEmitError.InvalidOperand;
+    try writer.print("__sa_cvt_{s}_{s}(", .{ opNameForCvt(opcode), sfx });
+    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+    try writer.writeAll(")");
 }
 
 fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand) !void {
@@ -896,9 +1102,10 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             provKill(bases, fsig, use_global, base.operands[0]);
             const opcode = base.op_kind orelse return JsEmitError.InvalidOperand;
             if (inst.isTypeConversionOpKind(opcode)) {
-                try writer.print("  r{d} = (", .{slot});
-                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
-                try writer.writeAll(");\n");
+                if (base.operands[2] != .ty) return JsEmitError.InvalidOperand;
+                try writer.print("  r{d} = ", .{slot});
+                try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, tagToPrim(base.operands[2].ty), base.operands[1]);
+                try writer.writeAll(";\n");
                 return;
             }
             try writer.print("  r{d} = ", .{slot});
