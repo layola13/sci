@@ -1276,6 +1276,31 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sqlite3_prepare")) return true;
     if (std.mem.eql(u8, name, "sqlite3_step")) return true;
     if (std.mem.eql(u8, name, "sqlite3_finalize")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_new")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_new")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_add_header")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_set_body")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_send")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_status")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_body_reader")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_read_chunk")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_body_reader_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_new")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_start")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_accept")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_req_get_path")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_req_get_header")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_req_get_body")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_resp_stream_new")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_resp_stream_write")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_resp_stream_flush")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_resp_stream_end")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_resp_stream_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_req_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_server_free")) return true;
     return false;
 }
 
@@ -1700,6 +1725,281 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         }
         if (std.mem.eql(u8, fsig.name, "sqlite3_finalize")) {
             try writer.writeAll("function sqlite3_finalize(stmt) { return 0; }\n");
+            return;
+        }
+        // HTTP client/server shims (staged oracle semantics: in-heap echo and
+        // canned request/response, same single-threaded simulation waterline
+        // as the fd/pthread/sqlite shims above; the native plugin oracles do
+        // real 127.0.0.1 loopback while the JS backend stages the values).
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_new")) {
+            try writer.writeAll(
+                \\function sa_http_client_new(use_tls, out_client) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_c[__sa_addr(h)] = { tls: __sa_num(use_tls) };
+                \\  __sa_store_ptr(out_client, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_new")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_new(client, method, url, url_len, out_req) {
+                \\  const a = __sa_addr(url), n = __sa_num(url_len);
+                \\  const u = new globalThis.TextDecoder().decode(__sa_u8.slice(a, a + n));
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_req[__sa_addr(h)] = { method: __sa_num(method), url: u, headers: {}, body: new Uint8Array(0) };
+                \\  __sa_store_ptr(out_req, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_add_header")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_add_header(req, key, key_len, val, val_len) {
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 1;
+                \\  const ka = __sa_addr(key), kn = __sa_num(key_len), va = __sa_addr(val), vn = __sa_num(val_len);
+                \\  const dec = new globalThis.TextDecoder();
+                \\  r.headers[dec.decode(__sa_u8.slice(ka, ka + kn))] = dec.decode(__sa_u8.slice(va, va + vn));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_set_body")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_set_body(req, body, body_len) {
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 1;
+                \\  const a = __sa_addr(body), n = __sa_num(body_len);
+                \\  r.body = __sa_u8.slice(a, a + n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_send")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_send(req, out_resp) {
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 1;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_resp[__sa_addr(h)] = { status: 200, body: r.body.slice() };
+                \\  __sa_store_ptr(out_resp, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_status")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_status(resp) {
+                \\  const r = globalThis.__sa_http_resp[__sa_addr(resp)];
+                \\  return r ? r.status : 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_body_reader")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_body_reader(resp, out_reader) {
+                \\  const r = globalThis.__sa_http_resp[__sa_addr(resp)];
+                \\  if (!r) return 1;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_rd[__sa_addr(h)] = { body: r.body, off: 0 };
+                \\  __sa_store_ptr(out_reader, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_read_chunk")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_read_chunk(reader, buf, cap, out_len) {
+                \\  const r = globalThis.__sa_http_rd[__sa_addr(reader)];
+                \\  if (!r) return 1;
+                \\  const n = Math.min(__sa_num(cap), r.body.length - r.off);
+                \\  __sa_u8.set(r.body.subarray(r.off, r.off + n), __sa_addr(buf));
+                \\  r.off += n;
+                \\  __sa_store_i64(out_len, n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_free")) {
+            try writer.writeAll("function sa_http_client_resp_free(resp) { delete globalThis.__sa_http_resp[__sa_addr(resp)]; return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_body_reader_free")) {
+            try writer.writeAll("function sa_http_client_body_reader_free(reader) { delete globalThis.__sa_http_rd[__sa_addr(reader)]; return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_free")) {
+            try writer.writeAll("function sa_http_client_req_free(req) { delete globalThis.__sa_http_req[__sa_addr(req)]; return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_free")) {
+            try writer.writeAll("function sa_http_client_free(client) { delete globalThis.__sa_http_c[__sa_addr(client)]; return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_new")) {
+            try writer.writeAll(
+                \\function sa_http_server_new(out_server) {
+                \\  globalThis.__sa_https = (globalThis.__sa_https || {});
+                \\  globalThis.__sa_http_sreq = (globalThis.__sa_http_sreq || {});
+                \\  globalThis.__sa_http_sresp = (globalThis.__sa_http_sresp || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_https[__sa_addr(h)] = {};
+                \\  __sa_store_ptr(out_server, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_start")) {
+            try writer.writeAll(
+                \\function sa_http_server_start(server, host, host_len, port) {
+                \\  const s = globalThis.__sa_https[__sa_addr(server)];
+                \\  if (!s) return 1;
+                \\  const a = __sa_addr(host), n = __sa_num(host_len);
+                \\  s.host = new globalThis.TextDecoder().decode(__sa_u8.slice(a, a + n));
+                \\  s.port = __sa_num(port);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_accept")) {
+            try writer.writeAll(
+                \\function sa_http_server_accept(server, out_req) {
+                \\  if (!globalThis.__sa_https[__sa_addr(server)]) return 1;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_sreq[__sa_addr(h)] = {
+                \\    path: new globalThis.TextEncoder().encode("/stream"),
+                \\    hdr_val: new globalThis.TextEncoder().encode("text/plain"),
+                \\    body: new Uint8Array(0),
+                \\  };
+                \\  __sa_store_ptr(out_req, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_req_get_path")) {
+            try writer.writeAll(
+                \\function sa_http_server_req_get_path(req, out_path, out_len) {
+                \\  const r = globalThis.__sa_http_sreq[__sa_addr(req)];
+                \\  if (!r) return 1;
+                \\  const p = __sa_alloc(r.path.length);
+                \\  __sa_u8.set(r.path, p);
+                \\  __sa_store_ptr(out_path, p);
+                \\  __sa_store_i64(out_len, r.path.length);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_req_get_header")) {
+            try writer.writeAll(
+                \\function sa_http_server_req_get_header(req, key, key_len, out_val, out_len) {
+                \\  const r = globalThis.__sa_http_sreq[__sa_addr(req)];
+                \\  if (!r) return 1;
+                \\  const p = __sa_alloc(r.hdr_val.length);
+                \\  __sa_u8.set(r.hdr_val, p);
+                \\  __sa_store_ptr(out_val, p);
+                \\  __sa_store_i64(out_len, r.hdr_val.length);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_req_get_body")) {
+            try writer.writeAll(
+                \\function sa_http_server_req_get_body(req, out_body, out_len) {
+                \\  const r = globalThis.__sa_http_sreq[__sa_addr(req)];
+                \\  if (!r) return 1;
+                \\  __sa_store_ptr(out_body, 0);
+                \\  __sa_store_i64(out_len, 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_resp_stream_new")) {
+            try writer.writeAll(
+                \\function sa_http_server_resp_stream_new(req, status, out_resp) {
+                \\  if (!globalThis.__sa_http_sreq[__sa_addr(req)]) return 1;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_sresp[__sa_addr(h)] = { status: __sa_num(status), chunks: [] };
+                \\  __sa_store_ptr(out_resp, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_resp_stream_write")) {
+            try writer.writeAll(
+                \\function sa_http_server_resp_stream_write(resp, body, body_len) {
+                \\  const r = globalThis.__sa_http_sresp[__sa_addr(resp)];
+                \\  if (!r) return 1;
+                \\  const a = __sa_addr(body), n = __sa_num(body_len);
+                \\  r.chunks.push(__sa_u8.slice(a, a + n));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_resp_stream_flush")) {
+            try writer.writeAll(
+                \\function sa_http_server_resp_stream_flush(resp) {
+                \\  return globalThis.__sa_http_sresp[__sa_addr(resp)] ? 0 : 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_resp_stream_end")) {
+            try writer.writeAll(
+                \\function sa_http_server_resp_stream_end(resp) {
+                \\  return globalThis.__sa_http_sresp[__sa_addr(resp)] ? 0 : 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_resp_stream_free")) {
+            try writer.writeAll("function sa_http_server_resp_stream_free(resp) { delete globalThis.__sa_http_sresp[__sa_addr(resp)]; return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_req_free")) {
+            try writer.writeAll("function sa_http_server_req_free(req) { delete globalThis.__sa_http_sreq[__sa_addr(req)]; return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_server_free")) {
+            try writer.writeAll("function sa_http_server_free(server) { delete globalThis.__sa_https[__sa_addr(server)]; return 0; }\n");
             return;
         }
         try writer.writeAll("function ");

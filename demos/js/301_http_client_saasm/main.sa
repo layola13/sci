@@ -1,0 +1,158 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_http_client_new(use_tls: u8, &out_client: ptr) -> u32
+@extern sa_http_client_req_new(client: ptr, method: u8, &url: ptr, url_len: u64, &out_req: ptr) -> u32
+@extern sa_http_client_req_add_header(req: ptr, &key: ptr, key_len: u64, &val: ptr, val_len: u64) -> u32
+@extern sa_http_client_req_set_body(req: ptr, &body: ptr, body_len: u64) -> u32
+@extern sa_http_client_req_send(req: ptr, &out_resp: ptr) -> u32
+@extern sa_http_client_resp_status(resp: ptr) -> u16
+@extern sa_http_client_resp_body_reader(resp: ptr, &out_reader: ptr) -> u32
+@extern sa_http_client_resp_read_chunk(reader: ptr, &buf: ptr, cap: u64, &out_len: ptr) -> u32
+@extern sa_http_client_resp_free(^resp: ptr) -> u32
+@extern sa_http_client_body_reader_free(^reader: ptr) -> u32
+@extern sa_http_client_req_free(^req: ptr) -> u32
+@extern sa_http_client_free(^client: ptr) -> u32
+
+@const URL = utf8:"http://127.0.0.1:18090/echo"
+@const KEY = utf8:"content-type"
+@const VAL = utf8:"text/plain"
+@const BODY = utf8:"hello from saasm"
+@const RESULT_OK = utf8:"ok\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Buf_SIZE = 64
+#def URL_LEN = 27
+#def KEY_LEN = 12
+#def VAL_LEN = 10
+#def BODY_LEN = 16
+
+@main() -> i32!:
+L_ENTRY:
+    client_slot = stack_alloc 8
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    reader_slot = stack_alloc 8
+    client_status_slot = stack_alloc 8
+    req_status_slot = stack_alloc 8
+    hdr_status_slot = stack_alloc 8
+    body_status_slot = stack_alloc 8
+    send_status_slot = stack_alloc 8
+    reader_status_slot = stack_alloc 8
+    read_status_slot = stack_alloc 8
+    read_len_slot = stack_alloc 8
+    status_slot = stack_alloc 8
+    buf = stack_alloc Buf_SIZE
+
+    client_status = call @sa_http_client_new(0, &client_slot)
+    store client_status_slot+0, client_status as u64
+    !client_status
+
+    client = load client_slot+0 as ptr
+    req_status = call @sa_http_client_req_new(client, 2, &URL, URL_LEN, &req_slot)
+    store req_status_slot+0, req_status as u64
+    !req_status
+
+    req = load req_slot+0 as ptr
+    hdr_status = call @sa_http_client_req_add_header(req, &KEY, KEY_LEN, &VAL, VAL_LEN)
+    store hdr_status_slot+0, hdr_status as u64
+    !hdr_status
+
+    body_status = call @sa_http_client_req_set_body(req, &BODY, BODY_LEN)
+    store body_status_slot+0, body_status as u64
+    !body_status
+
+    send_status = call @sa_http_client_req_send(req, &resp_slot)
+    store send_status_slot+0, send_status as u64
+    !send_status
+
+    resp = load resp_slot+0 as ptr
+    status = call @sa_http_client_resp_status(resp)
+    store status_slot+0, status as u64
+    !status
+
+    reader_status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    store reader_status_slot+0, reader_status as u64
+    !reader_status
+    reader = load reader_slot+0 as ptr
+    read_status = call @sa_http_client_resp_read_chunk(reader, &buf, Buf_SIZE, &read_len_slot)
+    store read_status_slot+0, read_status as u64
+    !read_status
+    call @sa_http_client_body_reader_free(^reader)
+    call @sa_http_client_resp_free(^resp)
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+
+    client_status_final = load client_status_slot+0 as u64
+    req_status_final = load req_status_slot+0 as u64
+    hdr_status_final = load hdr_status_slot+0 as u64
+    body_status_final = load body_status_slot+0 as u64
+    send_status_final = load send_status_slot+0 as u64
+    reader_status_final = load reader_status_slot+0 as u64
+    read_status_final = load read_status_slot+0 as u64
+    read_len_final = load read_len_slot+0 as u64
+    status_final = load status_slot+0 as u64
+
+    client_ok = eq client_status_final, 0
+    req_ok = eq req_status_final, 0
+    hdr_ok = eq hdr_status_final, 0
+    body_ok = eq body_status_final, 0
+    send_ok = eq send_status_final, 0
+    reader_ok = eq reader_status_final, 0
+    read_ok = eq read_status_final, 0
+    ok_status = eq status_final, 200
+    ok_len = eq read_len_final, BODY_LEN
+    first = load buf+0 as u8
+    second = load buf+1 as u8
+    third = load buf+2 as u8
+    ok_first = eq first, 104
+    ok_second = eq second, 101
+    ok_third = eq third, 108
+
+    ok = and client_ok, req_ok
+    ok = and ok, hdr_ok
+    ok = and ok, body_ok
+    ok = and ok, send_ok
+    ok = and ok, reader_ok
+    ok = and ok, read_ok
+    ok = and ok, ok_status
+    ok = and ok, ok_len
+    ok = and ok, ok_first
+    ok = and ok, ok_second
+    ok = and ok, ok_third
+
+    !client_ok
+    !req_ok
+    !hdr_ok
+    !body_ok
+    !send_ok
+    !reader_ok
+    !read_ok
+    !ok_status
+    !ok_len
+    !ok_first
+    !ok_second
+    !ok_third
+    !client_status_final
+    !req_status_final
+    !hdr_status_final
+    !body_status_final
+    !send_status_final
+    !reader_status_final
+    !read_status_final
+    !read_len_final
+    !status_final
+    !first
+    !second
+    !third
+
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

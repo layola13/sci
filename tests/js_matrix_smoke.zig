@@ -393,10 +393,12 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/298_eco_cryptography_simd/main.sa", "298\n");
     try assertJsMatrixStdout("demos/rosetta/299_eco_language_server_protocol/main.sa", "299\n");
     try assertJsMatrixStdout("demos/rosetta/300_eco_sa_lang_registry_publish/main.sa", "300\n");
-    // NOTE: 301 (http client) and 302 (http server) are deferred: they call
-    // sa_http_client_*/sa_http_server_* externs needing real 127.0.0.1
-    // loopback I/O, which the JS backend currently lowers to trap stubs
-    // ("extern not linked"). Covered once emit_js gains Node http shims.
+    // NOTE: 301 (http client) and 302 (http server) run on staged
+    // in-heap oracle shims (echo response / canned /stream request), the
+    // same single-threaded simulation waterline as the fd/sqlite shims;
+    // native covers them with real 127.0.0.1 loopback instead.
+    try assertJsMatrixStdout("demos/rosetta/301_http_client_saasm/main.sa", "ok\n");
+    try assertJsMatrixStdout("demos/rosetta/302_http_server_saasm/main.sa", "ok\n");
     try assertJsMatrixStdout("demos/rosetta/303_match_guard_macro/main.sa", "negative,zero,small,large\n");
     try assertJsMatrixStdout("demos/rosetta/304_while_let_macro/main.sa", "6\n");
     try assertJsMatrixStdout("demos/rosetta/305_range_pattern_macro/main.sa", "0,1,2,3,-1");
