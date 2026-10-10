@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"396\n"
+
+// 396 - trunc to sub-32-bit targets narrows modulo the target width.
+// Unsigned halves are asserted through zext back to i64 (255/65535),
+// which also pins the load-tracking-free conversion chain.
+@main() -> i32:
+L_ENTRY:
+    big = 511 as u64
+    a = trunc big as i8
+    ok_a = eq a, -1
+    e8 = trunc big as u8
+    z8 = zext e8 as i64
+    ok_b = eq z8, 255
+    big16 = 131071 as u64
+    c = trunc big16 as i16
+    ok_c = eq c, -1
+    e16 = trunc big16 as u16
+    z16 = zext e16 as i64
+    ok_d = eq z16, 65535
+    ok = and ok_a, ok_b
+    ok = and ok, ok_c
+    ok = and ok, ok_d
+    !big
+    !a
+    !e8
+    !z8
+    !big16
+    !c
+    !e16
+    !z16
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

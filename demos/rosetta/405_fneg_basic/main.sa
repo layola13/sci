@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"405\n"
+
+// 405 - fneg negates and double negation restores (first direct demo;
+// fneg previously only ran inside sa_std macros).
+@main() -> i32:
+L_ENTRY:
+    a = 29 as i32
+    b = 10 as i32
+    fa = sitofp a as f64
+    fb = sitofp b as f64
+    f = fdiv fa, fb
+    n = fneg f
+    m = fneg n
+    ok_a = fcmp_eq m, f
+    l = fcmp_lt n, f
+    ok_b = eq l, 1
+    ok = and ok_a, ok_b
+    !a
+    !b
+    !fa
+    !fb
+    !f
+    !n
+    !m
+    !l
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -492,6 +492,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/393_gt_i32_signed/main.sa", "393\n");
     try assertJsMatrixStdout("demos/rosetta/394_div_and_chain/main.sa", "394\n");
     try assertJsMatrixStdout("demos/rosetta/395_div_mixed_sign/main.sa", "395\n");
+    try assertJsMatrixStdout("demos/rosetta/396_trunc_narrow_family/main.sa", "396\n");
+    try assertJsMatrixStdout("demos/rosetta/397_trunc_i64_u64/main.sa", "397\n");
+    try assertJsMatrixStdout("demos/rosetta/398_bitcast_i64_ptr/main.sa", "398\n");
+    try assertJsMatrixStdout("demos/rosetta/399_zext_narrow_targets/main.sa", "399\n");
+    try assertJsMatrixStdout("demos/rosetta/400_sitofp_f32_bits/main.sa", "400\n");
+    try assertJsMatrixStdout("demos/rosetta/401_fptosi_narrow/main.sa", "401\n");
+    try assertJsMatrixStdout("demos/rosetta/402_bitcast_i32_f32/main.sa", "402\n");
+    try assertJsMatrixStdout("demos/rosetta/403_bitcast_f32_i32/main.sa", "403\n");
+    try assertJsMatrixStdout("demos/rosetta/404_bitcast_f64_roundtrip/main.sa", "404\n");
+    try assertJsMatrixStdout("demos/rosetta/405_fneg_basic/main.sa", "405\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

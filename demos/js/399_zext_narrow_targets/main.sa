@@ -1,0 +1,35 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"399\n"
+
+// 399 - zext to narrow unsigned targets (u16/u8) narrows like trunc
+// after zero-extending: the value is already in range, so both agree.
+@main() -> i32:
+L_ENTRY:
+    big = 131071 as u64
+    m = trunc big as i16
+    z16 = zext m as u16
+    e16 = trunc big as u16
+    ok_a = eq z16, e16
+    m8 = trunc big as i8
+    z8 = zext m8 as u8
+    e8 = trunc big as u8
+    ok_b = eq z8, e8
+    ok = and ok_a, ok_b
+    !big
+    !m
+    !z16
+    !e16
+    !m8
+    !z8
+    !e8
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

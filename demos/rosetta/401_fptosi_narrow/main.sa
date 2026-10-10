@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"401\n"
+
+// 401 - fptosi to narrow int targets truncates toward zero first.
+@main() -> i32:
+L_ENTRY:
+    a = 29 as i32
+    b = 10 as i32
+    fa = sitofp a as f64
+    fb = sitofp b as f64
+    f = fdiv fa, fb
+    y = fptosi f as i32
+    ok_a = eq y, 2
+    z = fptosi f as u32
+    ok_b = eq z, 2
+    ok = and ok_a, ok_b
+    !a
+    !b
+    !fa
+    !fb
+    !f
+    !y
+    !z
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

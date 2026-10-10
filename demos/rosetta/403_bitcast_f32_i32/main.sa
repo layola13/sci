@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"403\n"
+
+// 403 - bitcast f32 back to i32 roundtrips the exact bits (the
+// emitter knows the float domain, so integral floats are not
+// misread as int-domain values).
+@main() -> i32:
+L_ENTRY:
+    big = 1065353216 as u64
+    c = trunc big as i32
+    f = bitcast c as f32
+    i = bitcast f as i32
+    ok = eq i, c
+    !big
+    !c
+    !f
+    !i
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

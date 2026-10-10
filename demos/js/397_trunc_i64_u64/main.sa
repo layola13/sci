@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"397\n"
+
+// 397 - trunc to 64-bit targets keeps the full pattern (u64 identity,
+// i64 sign preserved).
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    a = trunc big as i64
+    ok_a = eq a, 4294967295
+    u = trunc big as u64
+    ok_b = eq u, big
+    ok = and ok_a, ok_b
+    !big
+    !a
+    !u
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

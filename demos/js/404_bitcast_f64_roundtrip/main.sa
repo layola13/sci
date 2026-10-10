@@ -1,0 +1,23 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"404\n"
+
+// 404 - bitcast i64/f64 roundtrips all 64 bits, including NaN payloads
+// (0xFFFFFFFFFFFFFFFF is a quiet NaN).
+@main() -> i32:
+L_ENTRY:
+    m = -1 as i64
+    f = bitcast m as f64
+    b = bitcast f as i64
+    ok = eq b, -1
+    !m
+    !f
+    !b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
