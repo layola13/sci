@@ -1,0 +1,41 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"351\n"
+
+// 351 - division family: signed truncates toward zero, unsigned wraps
+// modulo 2^32, and every zero divisor traps instead of going silent.
+@main() -> i32:
+L_ENTRY:
+    m7 = -7 as i32
+    two = 2 as i32
+    q = sdiv m7, two
+    ok_a = eq q, -3
+    r = srem m7, two
+    ok_b = eq r, -1
+    p7 = 7 as i32
+    qu = udiv p7, two
+    ok_c = eq qu, 3
+    ru = urem p7, two
+    ok_d = eq ru, 1
+    ok = and ok_a, ok_b
+    ok = and ok, ok_c
+    ok = and ok, ok_d
+    !m7
+    !two
+    !q
+    !r
+    !p7
+    !qu
+    !ru
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

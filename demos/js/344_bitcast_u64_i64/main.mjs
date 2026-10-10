@@ -88,16 +88,16 @@ function __sa_isBI(a, b) { return typeof a === "bigint" || typeof b === "bigint"
 function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)) : (((+a) + (+b)) | 0); }
 function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
 function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
-function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { if (BigInt(b) === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt(a) / BigInt(b)); } if ((b | 0) === 0) __sa_trap("div by zero"); return (Math.trunc(a / b)) | 0; }
-function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a)) / d; } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
-function __sa_srem(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) % BigInt(b)) : ((a % b) | 0); }
-function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a)) % d; } return (((a >>> 0) % (b >>> 0)) | 0); }
+function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { const nb = (typeof b === "bigint") ? b : BigInt(b | 0); if (nb === 0n) __sa_trap("div by zero"); const na = (typeof a === "bigint") ? a : BigInt(a | 0); return __sa_BI(na / nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("div by zero"); return (Math.trunc((a | 0) / nb32) | 0); }
+function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const x = (typeof a === "bigint") ? __sa_BU(a) : BigInt(a >>> 0); const y = (typeof b === "bigint") ? __sa_BU(b) : BigInt(b >>> 0); if (y === 0n) __sa_trap("div by zero"); return x / y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("div by zero"); return Math.trunc((a >>> 0) / y32); }
+function __sa_srem(a, b) { if (__sa_isBI(a, b)) { const nb = (typeof b === "bigint") ? b : BigInt(b | 0); if (nb === 0n) __sa_trap("rem by zero"); const na = (typeof a === "bigint") ? a : BigInt(a | 0); return __sa_BI(na % nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("rem by zero"); return (((a | 0) % nb32) | 0); }
+function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const x = (typeof a === "bigint") ? __sa_BU(a) : BigInt(a >>> 0); const y = (typeof b === "bigint") ? __sa_BU(b) : BigInt(b >>> 0); if (y === 0n) __sa_trap("rem by zero"); return x % y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("rem by zero"); return ((a >>> 0) % y32); }
 function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
 function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
 function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
 function __sa_bxor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) ^ BigInt(b)) : ((a ^ b) | 0); }
 function __sa_shl(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) << (BigInt(b) & 63n)) : ((a << (b & 31)) | 0); }
-function __sa_lshr(a, b) { return __sa_isBI(a, b) ? __sa_BU(BigInt(a) >> (BigInt(b) & 63n)) : ((a >>> (b & 31)) | 0); }
+function __sa_lshr(a, b) { if (typeof a === "bigint") return __sa_BU(a) >> (BigInt(b) & 63n); return (a >>> (typeof b === "bigint" ? Number(BigInt(b) & 63n) & 31 : (b & 31))); }
 function __sa_ashr(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) >> (BigInt(b) & 63n)) : ((a >> (b & 31)) | 0); }
 function __sa_bnot(a) { return (typeof a === "bigint") ? __sa_BI(~a) : ((~a) | 0); }
 function __sa_eq(a, b) { return ((a == b) ? 1 : 0); }
@@ -244,7 +244,7 @@ function __sa_cvt_bitcast_f64(v) {
   return (+v);
 }
 // ---- end runtime ----
-// source: demos/js/344_bitcast_u64_i64/main.sa
+// source: demos/rosetta/344_bitcast_u64_i64/main.sa
 const __sa_ftable = [];
 const C_OUT = 4096; // utf8 (4 bytes)
 __sa_u8.set([51,52,52,10], 4096);

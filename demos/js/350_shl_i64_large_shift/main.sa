@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"350\n"
+
+// 350 - 64-bit shl keeps bits past 32 (1 << 33 = 2^33).
+@main() -> i32:
+L_ENTRY:
+    one = 1 as i64
+    k = 33 as i64
+    s = shl one, k
+    ok = eq s, 8589934592
+    !one
+    !k
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

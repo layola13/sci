@@ -1,0 +1,23 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"352\n"
+
+// 352 - 64-bit bitwise-and keeps high bits (above 2^53 immediates stay
+// exact as BigInt literals, so no precision is lost at the edges).
+@main() -> i32:
+L_ENTRY:
+    a = 18374966859414961920 as u64
+    b = 1085102592571150095 as u64
+    m = and a, b
+    ok = eq m, 1080880403494997760
+    !a
+    !b
+    !m
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

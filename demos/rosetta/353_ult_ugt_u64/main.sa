@@ -1,0 +1,35 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"353\n"
+
+// 353 - unsigned comparisons treat 64-bit values as unsigned.
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    z0 = 0 as u64
+    z = trunc z0 as i32
+    g = ugt max, z
+    ok_a = eq g, 1
+    l = ult z, max
+    ok_b = eq l, 1
+    e = ult max, max
+    ok_c = eq e, 0
+    ok = and ok_a, ok_b
+    ok = and ok, ok_c
+    !max
+    !z0
+    !z
+    !g
+    !l
+    !e
+    !ok_a
+    !ok_b
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -442,6 +442,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/343_bitcast_i32_u32/main.sa", "343\n");
     try assertJsMatrixStdout("demos/rosetta/344_bitcast_u64_i64/main.sa", "344\n");
     try assertJsMatrixStdout("demos/rosetta/345_fptrunc_f32_rounding/main.sa", "345\n");
+    try assertJsMatrixStdout("demos/rosetta/346_lshr_u64_high_bit/main.sa", "346\n");
+    try assertJsMatrixStdout("demos/rosetta/347_lshr_u32_to_max/main.sa", "347\n");
+    try assertJsMatrixStdout("demos/rosetta/348_udiv_u32_to_max/main.sa", "348\n");
+    try assertJsMatrixStdout("demos/rosetta/349_ashr_i64_arithmetic/main.sa", "349\n");
+    try assertJsMatrixStdout("demos/rosetta/350_shl_i64_large_shift/main.sa", "350\n");
+    try assertJsMatrixStdout("demos/rosetta/351_divmod_family/main.sa", "351\n");
+    try assertJsMatrixStdout("demos/rosetta/352_band_u64_high_bits/main.sa", "352\n");
+    try assertJsMatrixStdout("demos/rosetta/353_ult_ugt_u64/main.sa", "353\n");
+    try assertJsMatrixStdout("demos/rosetta/354_neg_not_i32/main.sa", "354\n");
+    try assertJsMatrixStdout("demos/rosetta/355_and_or_xor_i32/main.sa", "355\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
