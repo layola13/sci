@@ -309,6 +309,18 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/214_pkg_target_specific_deps/main.sa", "214\n");
     try assertJsMatrixStdout("demos/rosetta/215_pkg_patch_override/main.sa", "215\n");
     try assertJsMatrixStdout("demos/rosetta/216_pkg_profile_release/main.sa", "216\n");
+    // NOTE: 226 (import cycle) and 227 (duplicate #def) are intentional
+    // compile-failure demos per their readmes, like 205/207 before them.
+    try assertJsMatrixStdout("demos/rosetta/217_pkg_profile_debug/main.sa", "217\n");
+    try assertJsMatrixStdout("demos/rosetta/218_pkg_metadata_custom/main.sa", "218\n");
+    try assertJsMatrixStdout("demos/rosetta/219_pkg_bin_multiple/main.sa", "219\n");
+    try assertJsMatrixStdout("demos/rosetta/220_pkg_lib_dynamic/main.sa", "220\n");
+    try assertJsMatrixStdout("demos/rosetta/221_mod_relative_import/main.sa", "221\n");
+    try assertJsMatrixStdout("demos/rosetta/222_mod_absolute_import/main.sa", "222\n");
+    try assertJsMatrixStdout("demos/rosetta/223_mod_visibility_private/main.sa", "223\n");
+    try assertJsMatrixStdout("demos/rosetta/224_mod_reexport_pub_use/main.sa", "224\n");
+    try assertJsMatrixStdout("demos/rosetta/225_mod_namespace_prefix/main.sa", "225\n");
+    try assertJsMatrixStdout("demos/rosetta/228_mod_iface_separation/main.sa", "228\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

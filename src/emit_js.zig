@@ -1249,6 +1249,26 @@ fn isAllocatorShim(name: []const u8) bool {
         std.mem.eql(u8, name, "dlsym");
 }
 
+/// Every extern name with a built-in host lowering in the emitter (as
+/// opposed to a trap stub). A same-module `@export` never shadows these.
+fn isKnownShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_print_bytes")) return true;
+    if (std.mem.eql(u8, name, "fd_open")) return true;
+    if (std.mem.eql(u8, name, "fd_close")) return true;
+    if (std.mem.eql(u8, name, "fd_read")) return true;
+    if (isAllocatorShim(name)) return true;
+    if (std.mem.eql(u8, name, "munmap")) return true;
+    if (std.mem.eql(u8, name, "signal")) return true;
+    if (std.mem.eql(u8, name, "pthread_spawn")) return true;
+    if (std.mem.eql(u8, name, "pthread_join")) return true;
+    if (std.mem.eql(u8, name, "pthread_drop")) return true;
+    if (std.mem.eql(u8, name, "dlclose")) return true;
+    if (std.mem.eql(u8, name, "sqlite3_prepare")) return true;
+    if (std.mem.eql(u8, name, "sqlite3_step")) return true;
+    if (std.mem.eql(u8, name, "sqlite3_finalize")) return true;
+    return false;
+}
+
 /// Slot of a call argument by its bare name (prefix already stripped by the
 /// call parser). Used to test by_value/move argument provenance.
 fn provArgSlot(symbols: anytype, fsig: sig.FunctionSig, arg_text: []const u8) ?u32 {
@@ -1811,6 +1831,11 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     }
     const tasks = try collectFuncTasks(allocator, verified);
     defer allocator.free(tasks);
+    // Non-extern function names: a same-module `@export` satisfies an
+    // `@extern` declaration, so no trap stub is emitted for those (the
+    // stub used to clobber the real body).
+    var emitted = std.StringHashMap(void).init(allocator);
+    defer emitted.deinit();
     // Must-return-base summary (increasing fixpoint from empty, hence sound
     // for recursion): alloc-class callees return fresh bases; param(i)-class
     // callees pass through one transparent (by_value/move) parameter.
@@ -1856,11 +1881,14 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         if (task.kind == .extern_decl) continue;
         try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
         const fsig = verified.function_sigs[task.fsig_index];
+        try emitted.put(fsig.name, {});
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
     // extern stubs (so calls don't ReferenceError; they trap with name)
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (!isKnownShim(fsig.name) and emitted.contains(fsig.name)) continue;
         try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
     }
     // exports + main runner
