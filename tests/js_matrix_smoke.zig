@@ -353,6 +353,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/258_contract_thread_local_isolation/main.sa", "258\n");
     try assertJsMatrixStdout("demos/rosetta/259_contract_static_init_order/main.sa", "259\n");
     try assertJsMatrixStdout("demos/rosetta/260_contract_deprecated_warning/main.sa", "260\n");
+    try assertJsMatrixStdout("demos/rosetta/261_build_rs_codegen_saasm/main.sa", "261\n");
+    try assertJsMatrixStdout("demos/rosetta/262_build_bindgen_c_header/main.sa", "262\n");
+    try assertJsMatrixStdout("demos/rosetta/263_build_asset_bundling/main.sa", "263\n");
+    try assertJsMatrixStdout("demos/rosetta/264_build_env_var_injection/main.sa", "264\n");
+    try assertJsMatrixStdout("demos/rosetta/265_build_custom_linker_script/main.sa", "265\n");
+    try assertJsMatrixStdout("demos/rosetta/266_build_pre_compile_hook/main.sa", "266\n");
+    try assertJsMatrixStdout("demos/rosetta/267_build_post_compile_hook/main.sa", "267\n");
+    try assertJsMatrixStdout("demos/rosetta/268_build_cross_compile_wasm/main.sa", "268\n");
+    try assertJsMatrixStdout("demos/rosetta/269_build_cross_compile_windows/main.sa", "269\n");
+    try assertJsMatrixStdout("demos/rosetta/270_build_sysroot_custom/main.sa", "270\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
