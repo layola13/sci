@@ -1,0 +1,7 @@
+@export make_slot() -> ptr!:
+L_ENTRY:
+    v = add 520, 0
+    buf = alloc 8
+    store buf+0, v as i64
+    !v
+    return buf

@@ -1,0 +1,5 @@
+@export l3_value() -> i32!:
+L_ENTRY:
+    v = add 500, 0
+    !v
+    return 500

@@ -1,0 +1,5 @@
+@export shared_base() -> i32!:
+L_ENTRY:
+    v = add 250, 0
+    !v
+    return 250

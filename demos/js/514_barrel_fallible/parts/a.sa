@@ -1,0 +1,5 @@
+@export part_a() -> i32!:
+L_ENTRY:
+    v = add 400, 0
+    !v
+    return 400

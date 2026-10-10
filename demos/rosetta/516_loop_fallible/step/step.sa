@@ -1,0 +1,5 @@
+@export step_once(x: i64) -> i64!:
+L_ENTRY:
+    s = add x, 1
+    !x
+    return s

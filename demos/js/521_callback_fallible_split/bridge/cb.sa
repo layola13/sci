@@ -1,0 +1,7 @@
+@const CB_VT = vtable { call = @add_cb }
+
+@add_cb(x: i64, ctx: ptr) -> i64:
+    s = add x, 21
+    !x
+    !ctx
+    return s
