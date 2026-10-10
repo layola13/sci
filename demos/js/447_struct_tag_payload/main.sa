@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"447\n"
+
+// 447 - tagged struct: {tag i64 = 7 @0, payload 2.5 @8} reads back both.
+@main() -> i32:
+L_ENTRY:
+    tag = 7 as i64
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    payload = fdiv five_f, two_f
+    buf = alloc 16
+    store buf+0, tag as i64
+    store buf+8, payload as f64
+    t = load buf+0 as i64
+    p = load buf+8 as f64
+    ok_tag = eq t, 7
+    ok_pay = fcmp_eq p, payload
+    ok = and ok_tag, ok_pay
+    !tag
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !payload
+    !buf
+    !t
+    !p
+    !ok_tag
+    !ok_pay
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

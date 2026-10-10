@@ -1,0 +1,69 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"449\n"
+
+// 449 - four-element f64 array sums unrolled
+// (0.5 + 1.5 + 2.5 + 3.5 == 8.0).
+@main() -> i32:
+L_ENTRY:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    three = 3 as i32
+    five = 5 as i32
+    seven = 7 as i32
+    eight_i = 8 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    half = fdiv one_f, two_f
+    three_f = sitofp three as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    seven_f = sitofp seven as f64
+    three_half = fdiv seven_f, two_f
+    buf = alloc 32
+    store buf+0, half as f64
+    store buf+8, one_half as f64
+    store buf+16, two_half as f64
+    store buf+24, three_half as f64
+    a = load buf+0 as f64
+    b = load buf+8 as f64
+    c = load buf+16 as f64
+    d = load buf+24 as f64
+    s1 = fadd a, b
+    s2 = fadd c, d
+    s = fadd s1, s2
+    eight = sitofp eight_i as f64
+    ok = fcmp_eq s, eight
+    !one_i
+    !two_i
+    !three
+    !five
+    !seven
+    !eight_i
+    !one_f
+    !two_f
+    !half
+    !three_f
+    !one_half
+    !five_f
+    !two_half
+    !seven_f
+    !three_half
+    !buf
+    !a
+    !b
+    !c
+    !d
+    !s1
+    !s2
+    !s
+    !eight
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

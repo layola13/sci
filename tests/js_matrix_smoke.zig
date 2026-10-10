@@ -542,6 +542,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/443_fadd_absorption/main.sa", "443\n");
     try assertJsMatrixStdout("demos/rosetta/444_equiv_fractions_equal/main.sa", "444\n");
     try assertJsMatrixStdout("demos/rosetta/445_fneg_zero_eq/main.sa", "445\n");
+    try assertJsMatrixStdout("demos/rosetta/446_struct_two_f64/main.sa", "446\n");
+    try assertJsMatrixStdout("demos/rosetta/447_struct_tag_payload/main.sa", "447\n");
+    try assertJsMatrixStdout("demos/rosetta/448_struct_field_independence/main.sa", "448\n");
+    try assertJsMatrixStdout("demos/rosetta/449_array4_f64_sum/main.sa", "449\n");
+    try assertJsMatrixStdout("demos/rosetta/450_array2_f64_scale/main.sa", "450\n");
+    try assertJsMatrixStdout("demos/rosetta/451_nested_struct_sum/main.sa", "451\n");
+    try assertJsMatrixStdout("demos/rosetta/452_struct_f32_pair/main.sa", "452\n");
+    try assertJsMatrixStdout("demos/rosetta/453_struct_copy/main.sa", "453\n");
+    try assertJsMatrixStdout("demos/rosetta/454_struct_mixed_three/main.sa", "454\n");
+    try assertJsMatrixStdout("demos/rosetta/455_struct_swap_fields/main.sa", "455\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

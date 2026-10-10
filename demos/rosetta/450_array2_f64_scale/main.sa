@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"450\n"
+
+// 450 - array elements scale in place ({1.5, 2.5} * 2 == {3.0, 5.0}).
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 16
+    store buf+0, one_half as f64
+    store buf+8, two_half as f64
+    a = load buf+0 as f64
+    b = load buf+8 as f64
+    a2 = fmul a, two_f
+    b2 = fmul b, two_f
+    store buf+0, a2 as f64
+    store buf+8, b2 as f64
+    x = load buf+0 as f64
+    y = load buf+8 as f64
+    ok_x = fcmp_eq x, three_f
+    ok_y = fcmp_eq y, five_f
+    ok = and ok_x, ok_y
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !buf
+    !a
+    !b
+    !a2
+    !b2
+    !x
+    !y
+    !ok_x
+    !ok_y
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
