@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"13\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Atomic_SIZE = 4
+#def Atomic_value = +0
+
+@main() -> i32:
+L_ENTRY:
+    node = alloc Atomic_SIZE
+    store node+Atomic_value, 5 as i32
+    old = atomic_rmw_add node+Atomic_value, 3 as i32 seq_cst
+    new = atomic_load node+Atomic_value as i32 seq_cst
+    total = add old, new
+    ok = eq total, 13
+    !old
+    !new
+    !total
+    !node
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

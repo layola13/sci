@@ -135,7 +135,7 @@ fn loadedPrimType(base: inst.Instruction) sig.PrimType {
 /// Element type for load/store/atomic memory ops. Atomics carry their type
 /// in `atomic_value_ty` (mirrors emit_llvm_llvmc.atomicValueType).
 fn memPrimType(base: inst.Instruction) sig.PrimType {
-    if (base.kind == .atomic_load or base.kind == .atomic_store) {
+    if (base.kind == .atomic_load or base.kind == .atomic_store or base.kind == .atomic_rmw) {
         if (base.atomic_value_ty) |tag| return tagToPrim(tag);
         return .i64;
     }
@@ -864,6 +864,35 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try writer.print("{s}(__addr, (", .{store_fn});
             try resolveTextToJs(writer, symbols, fsig, const_addrs, new_text);
             try writer.print(")); r{d} = __old; r{d} = __ok; }}\n", .{ dst_old, dst_ok });
+        },
+        .atomic_rmw => {
+            // Single-threaded降级: dst = old = load(addr); store(addr, op(old, value)).
+            // Mirrors LLVM atomicrmw (returns the previous memory contents).
+            const op = base.atomic_rmw_op orelse return JsEmitError.InvalidOperand;
+            const dst = try dstSlot(fsig, use_global, base.operands[0]);
+            const ty = memPrimType(base);
+            const load_fn = memLoadFn(ty);
+            const store_fn = memStoreFn(ty);
+            try writer.writeAll("  { const __addr = __sa_ptr_add(");
+            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+            try writer.writeAll(", ");
+            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+            try writer.print("); const __old = {s}(__addr); const __val = (", .{load_fn});
+            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[3]);
+            try writer.writeAll("); const __new = ");
+            switch (op) {
+                .add => try writer.writeAll("__sa_add(__old, __val)"),
+                .sub => try writer.writeAll("__sa_sub(__old, __val)"),
+                .@"and" => try writer.writeAll("__sa_band(__old, __val)"),
+                .@"or" => try writer.writeAll("__sa_bor(__old, __val)"),
+                .xor => try writer.writeAll("__sa_bxor(__old, __val)"),
+                .xchg => try writer.writeAll("__val"),
+                .min => try writer.writeAll("((__sa_sle(__old, __val)) ? __old : __val)"),
+                .max => try writer.writeAll("((__sa_sge(__old, __val)) ? __old : __val)"),
+                .umin => try writer.writeAll("((__sa_ule(__old, __val)) ? __old : __val)"),
+                .umax => try writer.writeAll("((__sa_uge(__old, __val)) ? __old : __val)"),
+            }
+            try writer.print("; {s}(__addr, __new); r{d} = __old; }}\n", .{ store_fn, dst });
         },
         .fence => {
             try writer.writeAll("  /* no-op fence (single-threaded JS runtime) */\n");

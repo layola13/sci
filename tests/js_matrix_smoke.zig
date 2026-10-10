@@ -196,6 +196,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/07_trait_vtable/main.sa", "77\n");
     try assertJsMatrixStdout("demos/rosetta/110_trait_super_vtable/main.sa", "15\n");
     try assertJsMatrixStdout("demos/rosetta/32_trait_object_vector/main.sa", "12\n");
+    try assertJsMatrixStdout("demos/rosetta/101_custom_drop/main.sa", "16\n");
+    try assertJsMatrixStdout("demos/rosetta/102_raii_guard/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/103_labeled_break/main.sa", "12\n");
+    try assertJsMatrixStdout("demos/rosetta/104_if_let_chains/main.sa", "9\n");
+    try assertJsMatrixStdout("demos/rosetta/105_let_else/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/106_cell_interior_mut/main.sa", "30\n");
+    try assertJsMatrixStdout("demos/rosetta/107_refcell_dynamic_borrow/main.sa", "7\n9\n");
+    try assertJsMatrixStdout("demos/rosetta/108_atomic_spin_lock/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/109_atomic_fetch_add/main.sa", "13\n");
+    try assertJsMatrixStdout("demos/rosetta/111_extern_c_abi/main.sa", "23\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
