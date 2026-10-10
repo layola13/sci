@@ -1,0 +1,24 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"441\n"
+
+// 441 - uitofp of u64::MAX exceeds 2^63 (rounds up to 2^64).
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    p63 = 9223372036854775808 as u64
+    f = uitofp max as f64
+    g = uitofp p63 as f64
+    ok = fcmp_gt f, g
+    !max
+    !p63
+    !f
+    !g
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

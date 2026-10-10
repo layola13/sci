@@ -532,6 +532,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/433_fallible_mem_loop/main.sa", "433\n");
     try assertJsMatrixStdout("demos/rosetta/434_fallible_mem_branchy/main.sa", "434\n");
     try assertJsMatrixStdout("demos/rosetta/435_fallible_mem_overwrite/main.sa", "435\n");
+    try assertJsMatrixStdout("demos/rosetta/436_u64_pow53_exact/main.sa", "436\n");
+    try assertJsMatrixStdout("demos/rosetta/437_u64_pow53_plus1_even/main.sa", "437\n");
+    try assertJsMatrixStdout("demos/rosetta/438_u64_pow53_plus3_even/main.sa", "438\n");
+    try assertJsMatrixStdout("demos/rosetta/439_f32_round_half_even/main.sa", "439\n");
+    try assertJsMatrixStdout("demos/rosetta/440_f32_eps_visible/main.sa", "440\n");
+    try assertJsMatrixStdout("demos/rosetta/441_uitofp_max_u64/main.sa", "441\n");
+    try assertJsMatrixStdout("demos/rosetta/442_sitofp_neg_large_exact/main.sa", "442\n");
+    try assertJsMatrixStdout("demos/rosetta/443_fadd_absorption/main.sa", "443\n");
+    try assertJsMatrixStdout("demos/rosetta/444_equiv_fractions_equal/main.sa", "444\n");
+    try assertJsMatrixStdout("demos/rosetta/445_fneg_zero_eq/main.sa", "445\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

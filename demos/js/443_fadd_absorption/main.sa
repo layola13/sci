@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"443\n"
+
+// 443 - large magnitudes absorb small adds (1e16 + 1.0 == 1e16).
+@main() -> i32:
+L_ENTRY:
+    big_i = 10000000000000000 as i64
+    one_i = 1 as i32
+    big = sitofp big_i as f64
+    one = sitofp one_i as f64
+    s = fadd big, one
+    ok = fcmp_eq s, big
+    !big_i
+    !one_i
+    !big
+    !one
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

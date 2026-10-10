@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"439\n"
+
+// 439 - f32 rounds half to even (1 + 2^-24 is exactly 1.0 in f32).
+@main() -> i32:
+L_ENTRY:
+    one_i = 1 as i32
+    pow_i = 16777216 as i32
+    one = sitofp one_i as f64
+    pow = sitofp pow_i as f64
+    tiny = fdiv one, pow
+    f = fadd one, tiny
+    t = fptrunc f as f32
+    one32 = fptrunc one as f32
+    ok = fcmp_eq t, one32
+    !one_i
+    !pow_i
+    !one
+    !pow
+    !tiny
+    !f
+    !t
+    !one32
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
