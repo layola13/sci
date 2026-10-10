@@ -913,8 +913,11 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         .fence => {
             try writer.writeAll("  /* no-op fence (single-threaded JS runtime) */\n");
         },
-        .assign, .borrow, .raw_cast => {
-            // Mirror emit_llvm_llvmc assignOperand: dst aliases the value.
+        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
+            // Mirror emit_llvm_llvmc assignOperand (and the interpreter):
+            // dst aliases the value. assume_* are NOT no-ops: dropping the
+            // copy leaves the dst slot at its zero init (broke pthread_spawn
+            // entry delivery in 184_pthread_spawn_join).
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
             try writer.print("  r{d} = (", .{slot});
             switch (base.operands[1]) {
@@ -954,7 +957,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 try writer.writeAll("  __sa_trap(\"panic_msg\");\n");
             }
         },
-        .move_, .release, .assume_safe, .assume_borrow => {
+        .move_, .release => {
             try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
         },
         .native => {
@@ -1091,6 +1094,65 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\}
                 \\
             );
+            return;
+        }
+        // POSIX-like host shims for OS-binding demos (single-threaded
+        // simulation, same staged semantics as the native plugin oracles).
+        // fds start at 3 per Linux convention (0/1/2 reserved).
+        if (std.mem.eql(u8, fsig.name, "fd_open")) {
+            try writer.writeAll(
+                \\function fd_open(path) {
+                \\  globalThis.__sa_next_fd = (globalThis.__sa_next_fd || 3);
+                \\  return globalThis.__sa_next_fd++;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "fd_close")) {
+            try writer.writeAll("function fd_close(fd) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "fd_read")) {
+            // Staged simulation: matches the rosetta oracle (read yields 3).
+            try writer.writeAll("function fd_read(fd) { return 3; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "mmap")) {
+            // Zero-filled bump allocation stands in for an anonymous mapping.
+            try writer.writeAll("function mmap(fd, len) { return __sa_alloc(__sa_num(len)); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "munmap")) {
+            try writer.writeAll("function munmap(map, len) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "signal")) {
+            // Echo the signal number back (staged oracle semantics).
+            try writer.writeAll("function signal(sig, handler) { return __sa_num(sig); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "pthread_spawn")) {
+            // Single-threaded: run the entry synchronously via the fn table,
+            // then hand out a joinable handle.
+            try writer.writeAll(
+                \\function pthread_spawn(entry, arg) {
+                \\  const i = __sa_fnval(entry);
+                \\  if (i >= 0) __sa_ftable[i](arg);
+                \\  globalThis.__sa_next_thr = (globalThis.__sa_next_thr || 1);
+                \\  return globalThis.__sa_next_thr++;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "pthread_join")) {
+            // Entry already ran inside pthread_spawn; nothing to wait for.
+            try writer.writeAll("function pthread_join(handle, out) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "pthread_drop")) {
+            try writer.writeAll("function pthread_drop(handle) { return 0; }\n");
             return;
         }
         try writer.writeAll("function ");

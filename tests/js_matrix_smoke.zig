@@ -266,6 +266,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/169_negative_impls/main.sa", "0\n");
     try assertJsMatrixStdout("demos/rosetta/170_marker_traits/main.sa", "42\n");
     try assertJsMatrixStdout("demos/rosetta/171_anyhow_dynamic_error/main.sa", "0\n");
+    try assertJsMatrixStdout("demos/rosetta/172_eyre_color_eyre/main.sa", "7\n");
+    try assertJsMatrixStdout("demos/rosetta/173_catch_unwind_panic/main.sa", "stop\n");
+    try assertJsMatrixStdout("demos/rosetta/174_backtrace_capture/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/175_thiserror_macro_derive/main.sa", "oops\n");
+    try assertJsMatrixStdout("demos/rosetta/177_unwrap_unwrap_err/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/179_assert_macro_expansion/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/181_file_descriptor_raii/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/182_mmap_memory_mapping/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/183_signal_handling_setup/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/184_pthread_spawn_join/main.sa", "5\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
