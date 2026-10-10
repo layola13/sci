@@ -383,6 +383,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/288_ffi_cxx_name_mangling/main.sa", "288\n");
     try assertJsMatrixStdout("demos/rosetta/289_ffi_opaque_handle_passing/main.sa", "289\n");
     try assertJsMatrixStdout("demos/rosetta/290_ffi_callback_thunk/main.sa", "290\n");
+    try assertJsMatrixStdout("demos/rosetta/291_eco_wasm_host_imports/main.sa", "291\n");
+    try assertJsMatrixStdout("demos/rosetta/292_eco_wasm_memory_export/main.sa", "292\n");
+    try assertJsMatrixStdout("demos/rosetta/293_eco_embedded_no_os/main.sa", "293\n");
+    try assertJsMatrixStdout("demos/rosetta/294_eco_os_kernel_module/main.sa", "294\n");
+    try assertJsMatrixStdout("demos/rosetta/295_eco_bpf_ebpf_bytecode/main.sa", "295\n");
+    try assertJsMatrixStdout("demos/rosetta/296_eco_gpu_ptx_shader/main.sa", "296\n");
+    try assertJsMatrixStdout("demos/rosetta/297_eco_game_engine_ecs/main.sa", "297\n");
+    try assertJsMatrixStdout("demos/rosetta/298_eco_cryptography_simd/main.sa", "298\n");
+    try assertJsMatrixStdout("demos/rosetta/299_eco_language_server_protocol/main.sa", "299\n");
+    try assertJsMatrixStdout("demos/rosetta/300_eco_sa_lang_registry_publish/main.sa", "300\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
