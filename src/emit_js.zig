@@ -483,6 +483,25 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\  if (typeof v === "bigint") { __sa_bc_dv.setBigInt64(0, BigInt.asIntN(64, v), true); return __sa_bc_dv.getFloat64(0, true); }
         \\  return (+v);
         \\}
+        \\function __sa_srcmask(v, w, signed) {
+        \\  // Restrict a value to a known source width (statically tracked by
+        \\  // the emitter for load-defined slots) before zext/sext, so
+        \\  // sub-32-bit sources (e.g. i8 0xFF) extend from the right bits
+        \\  // instead of the 32-bit value-inference default.
+        \\  if (typeof v === "bigint") return signed ? BigInt.asIntN(w, v) : BigInt.asUintN(w, v);
+        \\  if (w >= 64) return v;
+        \\  if (w === 32) return signed ? (v | 0) : (v >>> 0);
+        \\  if (w === 1) return (v & 1);
+        \\  const s = 32 - w;
+        \\  return signed ? ((v << s) >> s) : (((v << s) >>> s));
+        \\}
+        \\function __sa_cvt_bitcast_f64i(v) {
+        \\  // int-domain source with a 64-bit target: reinterpret the bits.
+        \\  // Used when the emitter statically knows the source is integral
+        \\  // (plain bitcast_f64 treats Numbers as f64-domain values).
+        \\  const b = (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt(Math.trunc(+v));
+        \\  __sa_bc_dv.setBigInt64(0, b, true); return __sa_bc_dv.getFloat64(0, true);
+        \\}
         \\// ---- end runtime ----
         \\
     );
@@ -671,12 +690,169 @@ fn opNameForCvt(opcode: inst.OpKind) []const u8 {
     };
 }
 
-fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, tgt: sig.PrimType, src_op: inst.Operand) !void {
+fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, tgt: sig.PrimType, src_op: inst.Operand, widths: *const WidthMap) !void {
     if (!cvtShapeValid(opcode, tgt)) return JsEmitError.InvalidOperand;
     const sfx = cvtTargetSuffix(tgt) orelse return JsEmitError.InvalidOperand;
+    // Load-typed source widths sharpen conversions whose runtime
+    // value-inference default (32-bit for Numbers) would misread
+    // sub-word sources (e.g. zext of an i8-loaded 0xFF).
+    const src_w: ?u32 = if (src_op == .reg) widths.get(src_op.reg) else null;
+    if ((opcode == .zext or opcode == .sext) and src_w != null and !widthIsFloat(src_w.?) and widthBits(src_w.?) < 64) {
+        const w = widthBits(src_w.?);
+        try writer.print("__sa_cvt_{s}_{s}(__sa_srcmask(", .{ opNameForCvt(opcode), sfx });
+        try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+        try writer.print(", {d}, {s}))", .{ w, if (opcode == .sext) "true" else "false" });
+        return;
+    }
+    if (opcode == .bitcast and tgt == .f32 and src_w != null and widthIsFloat(src_w.?)) {
+        try writer.writeAll("(+");
+        try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+        try writer.writeAll(")");
+        return;
+    }
+    if (opcode == .bitcast and tgt == .f64 and src_w != null and !widthIsFloat(src_w.?)) {
+        try writer.writeAll("__sa_cvt_bitcast_f64i(");
+        try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+        try writer.writeAll(")");
+        return;
+    }
     try writer.print("__sa_cvt_{s}_{s}(", .{ opNameForCvt(opcode), sfx });
     try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
     try writer.writeAll(")");
+}
+
+/// Statically tracked source widths for int/float-domain slots, keyed by
+/// raw register id. Populated by a single forward pass over each function
+/// body (see trackWidths); cleared at every label since merges are
+/// untracked. Absent entries fall back to runtime value inference
+/// (BigInt = 64-bit, Number = 32-bit), which is today's behavior, so the
+/// map can only sharpen conversions, never change covered paths.
+/// Packing: low 31 bits = width, high bit = float domain.
+const WidthMap = std.AutoHashMap(u32, u32);
+
+fn packWidth(prim: sig.PrimType) ?u32 {
+    return switch (prim) {
+        .i1 => 1,
+        .i8 => 8,
+        .i16 => 16,
+        .i32 => 32,
+        .i64 => 64,
+        .u8 => 8,
+        .u16 => 16,
+        .u32 => 32,
+        .u64 => 64,
+        .ptr, .blob_handle => 64,
+        .f32 => 0x80000000 | 32,
+        .f64 => 0x80000000 | 64,
+        else => null,
+    };
+}
+
+fn widthIsFloat(code: u32) bool {
+    return (code & 0x80000000) != 0;
+}
+
+fn widthBits(code: u32) u8 {
+    return @intCast(code & 0x7fffffff);
+}
+
+fn widthRemoveSlot(widths: *WidthMap, op: inst.Operand) void {
+    if (op == .reg) _ = widths.remove(op.reg);
+}
+
+fn widthCopySlot(widths: *WidthMap, dst_op: inst.Operand, src_op: inst.Operand) void {
+    if (dst_op != .reg) return;
+    if (src_op == .reg) {
+        if (widths.get(src_op.reg)) |w| {
+            widths.put(dst_op.reg, w) catch return;
+        } else {
+            _ = widths.remove(dst_op.reg);
+        }
+        return;
+    }
+    switch (src_op) {
+        .imm_int, .imm_i64, .imm_u64 => widths.put(dst_op.reg, 64) catch return,
+        .imm_float => widths.put(dst_op.reg, 0x80000000 | 64) catch return,
+        else => _ = widths.remove(dst_op.reg),
+    }
+}
+
+/// Forward type-width transfer for one instruction. Mirrors native typing:
+/// int-op results are 64-bit (interp always builds i64/u64), int compares
+/// are i1, float ops are f64. Anything unrecognized drops knowledge so a
+/// stale entry can never feed a wrong mask.
+fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype, base: inst.Instruction) void {
+    switch (base.kind) {
+        .load, .take, .atomic_load => {
+            if (base.operands[0] != .reg) return;
+            if (packWidth(memPrimType(base))) |w| {
+                widths.put(base.operands[0].reg, w) catch return;
+            } else {
+                _ = widths.remove(base.operands[0].reg);
+            }
+        },
+        .op => {
+            if (base.operands[0] != .reg) return;
+            const dst = base.operands[0].reg;
+            const opcode = base.op_kind orelse {
+                _ = widths.remove(dst);
+                return;
+            };
+            if (inst.isTypeConversionOpKind(opcode)) {
+                // Self-referential conversion keeps no reliable width.
+                if (base.operands[1] == .reg and base.operands[1].reg == dst) {
+                    _ = widths.remove(dst);
+                    return;
+                }
+                if (base.operands[2] != .ty) {
+                    _ = widths.remove(dst);
+                    return;
+                }
+                if (packWidth(tagToPrim(base.operands[2].ty))) |w| {
+                    widths.put(dst, w) catch return;
+                } else {
+                    _ = widths.remove(dst);
+                }
+                return;
+            }
+            switch (opcode) {
+                .neg, .not, .fneg => widthCopySlot(widths, base.operands[0], base.operands[1]),
+                .eq, .ne, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => widths.put(dst, 1) catch return,
+                .fadd, .fsub, .fmul, .fdiv => widths.put(dst, 0x80000000 | 64) catch return,
+                .add_v128, .sub_v128, .mul_v128, .shuffle_v128, .extract_lane, .insert_lane => _ = widths.remove(dst),
+                else => widths.put(dst, 64) catch return,
+            }
+        },
+        .assign, .assume_safe, .assume_borrow => widthCopySlot(widths, base.operands[0], base.operands[1]),
+        .borrow => {
+            if (base.operands[0] == .reg) widths.put(base.operands[0].reg, 64) catch return;
+        },
+        .raw_cast => widthRemoveSlot(widths, base.operands[0]),
+        .ptr_add, .alloc, .stack_alloc => {
+            if (base.operands[0] == .reg) widths.put(base.operands[0].reg, 64) catch return;
+        },
+        .call, .call_indirect => {
+            var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+                widths.clearRetainingCapacity();
+                return;
+            };
+            defer parsed.deinit(allocator);
+            if (parsed.dest) |dest| {
+                if (symbols.findId(dest)) |id| _ = widths.remove(id);
+            }
+        },
+        .try_, .early_return => widthRemoveSlot(widths, base.operands[0]),
+        .cmpxchg => {
+            widthRemoveSlot(widths, base.operands[0]);
+            widthRemoveSlot(widths, base.operands[1]);
+        },
+        .atomic_rmw => widthRemoveSlot(widths, base.operands[0]),
+        .move_ => {
+            widthRemoveSlot(widths, base.operands[0]);
+            widthRemoveSlot(widths, base.operands[1]);
+        },
+        .store, .atomic_store, .fence, .release, .jmp, .br, .br_null, .panic, .panic_msg, .return_, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {},
+    }
 }
 
 fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand) !void {
@@ -1075,10 +1251,11 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     try writer.writeAll(");\n");
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable) !void {
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap) !void {
     _ = js_opt;
     last_js_inst = base.raw_text;
     last_js_func = fsig.name;
+    trackWidths(widths, allocator, symbols, base);
     switch (base.kind) {
         .return_ => try emitReturnStmt(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0], "  "),
         .try_, .early_return => {
@@ -1104,7 +1281,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             if (inst.isTypeConversionOpKind(opcode)) {
                 if (base.operands[2] != .ty) return JsEmitError.InvalidOperand;
                 try writer.print("  r{d} = ", .{slot});
-                try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, tagToPrim(base.operands[2].ty), base.operands[1]);
+                try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, tagToPrim(base.operands[2].ty), base.operands[1], widths);
                 try writer.writeAll(";\n");
                 return;
             }
@@ -1313,7 +1490,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable) !void {
+fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap) !void {
     switch (base.kind) {
         .jmp => {
             const npc = try labelPcOf(label_pc, base.operands[1]);
@@ -1345,7 +1522,7 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
             var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase);
+            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths);
             const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
@@ -1793,13 +1970,17 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     // Owned-base provenance for `release` lowering (see provSolveBody).
     var bases = BaseSet.init(allocator);
     defer bases.deinit();
+    // Statically tracked source widths for conversions (see trackWidths);
+    // cleared at every label since merges are untracked (sound fallback).
+    var widths = WidthMap.init(allocator);
+    defer widths.deinit();
     var prov = try provSolveBody(allocator, verified, fsig, use_global, task, retbase, null);
     defer prov.deinit();
     // If no labels at all, emit straight-line body without pc machine.
     if (pcs == 1) {
         i = task.start_idx + 1;
         while (i < task.end_idx) : (i += 1) {
-            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase);
+            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase, &widths);
         }
         return;
     }
@@ -1819,6 +2000,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             // Join point: load the fixpoint IN set for this block (sound on
             // every path); unknown labels fall back to empty (safe).
             bases.clearRetainingCapacity();
+            widths.clearRetainingCapacity();
             if (prov.lid_to_blk.get(lid)) |tbi| {
                 var iit = prov.in_sets.items[tbi].iterator();
                 while (iit.next()) |e| try bases.put(e.key_ptr.*, {});
@@ -1833,7 +2015,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             prev_terminates = false;
             continue;
         }
-        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase);
+        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase, &widths);
         prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .br_null or base.kind == .return_;
     }
     try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");
