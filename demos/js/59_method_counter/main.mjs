@@ -6,6 +6,8 @@ const __sa_memory = new ArrayBuffer(__SA_MEM_BYTES);
 const __sa_view = new DataView(__sa_memory);
 const __sa_u8 = new Uint8Array(__sa_memory);
 let __sa_brk = 65536; // bump allocator starts after reserved zero page region
+const __sa_live = new Set(); // live heap bases (user pointers handed out by __sa_alloc)
+const __sa_fl = Object.create(null); // free-list buckets: aligned size -> stack of user pointers
 function __sa_trap(msg) { throw new Error("[sa-trap] " + msg); }
 function __sa_panic(code) { throw new Error("[sa-panic] code=" + code); }
 function __sa_truthy(v) { return !!v; }
@@ -20,11 +22,29 @@ function __sa_addr(a) { return (typeof a === "bigint") ? Number(BigInt.asUintN(3
 function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
 function __sa_alloc(size) {
   size = __sa_align((size | 0), 8);
-  const ptr = __sa_brk;
-  __sa_brk += size;
+  const bucket = __sa_fl[size];
+  if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
+  const total = (size + 8); // 8-byte header holds the aligned user size
+  const base = __sa_brk;
+  __sa_brk += total;
   if (__sa_brk >= __sa_memory.byteLength) __sa_trap("out of memory (bump)");
-  __sa_u8.fill(0, ptr, ptr + size);
+  __sa_u8.fill(0, base, base + total);
+  __sa_view.setUint32(base, size, true);
+  const ptr = (base + 8);
+  __sa_live.add(ptr | 0);
   return ptr | 0;
+}
+function __sa_free(ptr) {
+  // Mirrors the interpreter: only exact live heap bases are recycled.
+  // i64 bigints, i32 values, interior pointers, consts and unknown
+  // addresses are no-ops (never present in __sa_live).
+  if (typeof ptr !== "number") return 0;
+  const p = ptr | 0;
+  if (!__sa_live.has(p)) return 0;
+  __sa_live.delete(p);
+  const size = __sa_view.getUint32((p - 8), true);
+  (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
+  return 0;
 }
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
@@ -138,7 +158,7 @@ export function main() {
         r1 = __sa_load_i32(__sa_ptr_add(r0, 0));
         r2 = __sa_eq(r1, 4);
         /* no-op release: !value */
-        /* no-op release: !counter */
+        __sa_free(r0);
         __pc = (__sa_truthy(r2) ? 2 : 3); break;
       }
       case 2: {

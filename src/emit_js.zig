@@ -246,6 +246,8 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\const __sa_view = new DataView(__sa_memory);
         \\const __sa_u8 = new Uint8Array(__sa_memory);
         \\let __sa_brk = 65536; // bump allocator starts after reserved zero page region
+        \\const __sa_live = new Set(); // live heap bases (user pointers handed out by __sa_alloc)
+        \\const __sa_fl = Object.create(null); // free-list buckets: aligned size -> stack of user pointers
         \\function __sa_trap(msg) { throw new Error("[sa-trap] " + msg); }
         \\function __sa_panic(code) { throw new Error("[sa-panic] code=" + code); }
         \\function __sa_truthy(v) { return !!v; }
@@ -260,11 +262,29 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
         \\function __sa_alloc(size) {
         \\  size = __sa_align((size | 0), 8);
-        \\  const ptr = __sa_brk;
-        \\  __sa_brk += size;
+        \\  const bucket = __sa_fl[size];
+        \\  if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
+        \\  const total = (size + 8); // 8-byte header holds the aligned user size
+        \\  const base = __sa_brk;
+        \\  __sa_brk += total;
         \\  if (__sa_brk >= __sa_memory.byteLength) __sa_trap("out of memory (bump)");
-        \\  __sa_u8.fill(0, ptr, ptr + size);
+        \\  __sa_u8.fill(0, base, base + total);
+        \\  __sa_view.setUint32(base, size, true);
+        \\  const ptr = (base + 8);
+        \\  __sa_live.add(ptr | 0);
         \\  return ptr | 0;
+        \\}
+        \\function __sa_free(ptr) {
+        \\  // Mirrors the interpreter: only exact live heap bases are recycled.
+        \\  // i64 bigints, i32 values, interior pointers, consts and unknown
+        \\  // addresses are no-ops (never present in __sa_live).
+        \\  if (typeof ptr !== "number") return 0;
+        \\  const p = ptr | 0;
+        \\  if (!__sa_live.has(p)) return 0;
+        \\  __sa_live.delete(p);
+        \\  const size = __sa_view.getUint32((p - 8), true);
+        \\  (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
+        \\  return 0;
         \\}
         \\function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
         \\function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
@@ -705,6 +725,37 @@ fn dstSlot(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) !u32 {
     };
 }
 
+/// Slots proven (within the current straight-line block) to hold owned heap
+/// bases produced by `alloc`. `release` emits a real `__sa_free` only for
+/// these; every other release stays a no-op comment. This mirrors the
+/// interpreter, which frees exact owned bases but never interior pointers,
+/// borrows, consts, or stack slots (value-equality alone is unsound: e.g.
+/// `sa_mem_copy` releases borrow params whose values may equal a live base,
+/// which corrupted `sort_probe` under unconditional freeing).
+const BaseSet = std.AutoHashMap(u32, void);
+
+fn provSlotOf(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
+    return switch (op) {
+        .reg => |r| regSlot(fsig, use_global, r) catch null,
+        .symbol => |id| regSlot(fsig, use_global, id) catch null,
+        else => null,
+    };
+}
+
+fn provKill(bases: *BaseSet, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) void {
+    if (provSlotOf(fsig, use_global, op)) |slot| _ = bases.remove(slot);
+}
+
+fn provMark(bases: *BaseSet, fsig: sig.FunctionSig, use_global: bool, dst_op: inst.Operand, src_op: inst.Operand) JsEmitError!void {
+    const dst = try dstSlot(fsig, use_global, dst_op);
+    const src_base = if (provSlotOf(fsig, use_global, src_op)) |src| bases.get(src) != null else false;
+    if (src_base) {
+        bases.put(dst, {}) catch return JsEmitError.OutOfMemory;
+    } else {
+        _ = bases.remove(dst);
+    }
+}
+
 /// Shared return emission for straight-line and pc-machine bodies.
 /// Fallible functions return {s, v} objects (mirrors SA_OP_RET
 /// build_fallible_ok); plain functions return bare values.
@@ -728,7 +779,7 @@ fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
     }
 }
 
-fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction) !void {
+fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet) !void {
     _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
@@ -743,6 +794,8 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
     if (parsed.dest) |dest| {
         const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
         const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        // Call results have unknown provenance: never treated as owned bases.
+        _ = bases.remove(slot);
         try writer.print("  r{d} = ", .{slot});
     } else {
         try writer.writeAll("  ");
@@ -759,7 +812,7 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
 /// Indirect calls resolve through the runtime function table.
 /// Boxed callee values come from vtable loads or `&func` expressions;
 /// results (including fallible {s,v} objects) pass through untouched.
-fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction) !void {
+fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet) !void {
     _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
@@ -770,6 +823,8 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     if (parsed.dest) |dest| {
         const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
         const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        // Call results have unknown provenance: never treated as owned bases.
+        _ = bases.remove(slot);
         try writer.print("  r{d} = ", .{slot});
     } else {
         try writer.writeAll("  ");
@@ -783,7 +838,7 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     try writer.writeAll(");\n");
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions) !void {
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet) !void {
     _ = js_opt;
     last_js_inst = base.raw_text;
     last_js_func = fsig.name;
@@ -792,6 +847,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         .try_, .early_return => {
             // Unpack {s, v}; on error early-return like SA_OP_TRY.
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            provKill(bases, fsig, use_global, base.operands[0]);
             try writer.writeAll("  { const __t = (");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
             try writer.writeAll("); if (!__sa_fok(__t)) ");
@@ -806,6 +862,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         },
         .op => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            provKill(bases, fsig, use_global, base.operands[0]);
             const opcode = base.op_kind orelse return JsEmitError.InvalidOperand;
             if (inst.isTypeConversionOpKind(opcode)) {
                 try writer.print("  r{d} = (", .{slot});
@@ -823,14 +880,26 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try emitOpExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, base.operands[1], base.operands[2]);
             try writer.writeAll(";\n");
         },
-        .alloc, .stack_alloc => {
+        .alloc => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            // Fresh owned heap base: eligible for `__sa_free` on release.
+            bases.put(slot, {}) catch return JsEmitError.OutOfMemory;
+            try writer.print("  r{d} = __sa_alloc(", .{slot});
+            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+            try writer.writeAll(");\n");
+        },
+        .stack_alloc => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            // Mirrors the interpreter: stack slots are never freed.
+            _ = bases.remove(slot);
             try writer.print("  r{d} = __sa_alloc(", .{slot});
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
             try writer.writeAll(");\n");
         },
         .ptr_add => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            // Interior pointer (even at offset 0): never an owned base.
+            _ = bases.remove(slot);
             try writer.print("  r{d} = __sa_ptr_add(", .{slot});
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
             try writer.writeAll(", ");
@@ -840,6 +909,8 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         .load, .take, .atomic_load => {
             // NOTE: atomic ordering is ignored (single-threaded JS runtime).
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            // Loaded data is never an owned base.
+            _ = bases.remove(slot);
             const ty = memPrimType(base);
             try writer.print("  r{d} = {s}(__sa_ptr_add(", .{ slot, memLoadFn(ty) });
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
@@ -858,13 +929,15 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
             try writer.writeAll(");\n");
         },
-        .call => try emitCallInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base),
-        .call_indirect => try emitCallIndirectInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base),
+        .call => try emitCallInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases),
+        .call_indirect => try emitCallIndirectInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases),
         .cmpxchg => {
             // Single-threaded降级: old = load; ok = (old == expected);
             // if (ok) store(new). Mirrors SA_OP_CMPXCHG (dst=old, 2nd target=ok).
             const dst_old = try dstSlot(fsig, use_global, base.operands[0]);
             const dst_ok = try dstSlot(fsig, use_global, base.operands[1]);
+            _ = bases.remove(dst_old);
+            _ = bases.remove(dst_ok);
             const expected = base.atomic_expected_text orelse return JsEmitError.InvalidOperand;
             const new_text = base.atomic_new_text orelse return JsEmitError.InvalidOperand;
             const ty = memPrimType(base);
@@ -886,6 +959,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             // Mirrors LLVM atomicrmw (returns the previous memory contents).
             const op = base.atomic_rmw_op orelse return JsEmitError.InvalidOperand;
             const dst = try dstSlot(fsig, use_global, base.operands[0]);
+            _ = bases.remove(dst);
             const ty = memPrimType(base);
             const load_fn = memLoadFn(ty);
             const store_fn = memStoreFn(ty);
@@ -919,6 +993,9 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             // copy leaves the dst slot at its zero init (broke pthread_spawn
             // entry delivery in 184_pthread_spawn_join).
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            // Alias preserves base provenance (borrow checking guarantees no
+            // live use after any release of an alias).
+            try provMark(bases, fsig, use_global, base.operands[0], base.operands[1]);
             try writer.print("  r{d} = (", .{slot});
             switch (base.operands[1]) {
                 .reg, .symbol, .func, .label, .imm_i64, .imm_int, .imm_u64, .imm_float, .text, .native_text => {
@@ -957,8 +1034,23 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 try writer.writeAll("  __sa_trap(\"panic_msg\");\n");
             }
         },
-        .move_, .release => {
+        .move_ => {
             try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+        },
+        .release => {
+            // Ownership release: emit a real `__sa_free` only for slots
+            // proven to hold owned heap bases. Anything else (interior
+            // pointers, borrows, scalars, consts) stays a no-op comment,
+            // mirroring interp release semantics.
+            const freeable = if (provSlotOf(fsig, use_global, base.operands[0])) |slot| bases.get(slot) != null else false;
+            if (freeable) {
+                if (provSlotOf(fsig, use_global, base.operands[0])) |slot| _ = bases.remove(slot);
+                try writer.writeAll("  __sa_free(");
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.writeAll(");\n");
+            } else {
+                try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+            }
         },
         .native => {
             // Empty-template `asm sideeffect ""` carries no observable effect;
@@ -982,7 +1074,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions) !void {
+fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet) !void {
     switch (base.kind) {
         .jmp => {
             const npc = try labelPcOf(label_pc, base.operands[1]);
@@ -1004,7 +1096,7 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
             var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt);
+            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases);
             const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
@@ -1020,8 +1112,96 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
     }
 }
 
-fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, task: FuncTask, const_addrs: anytype, fn_idx: anytype, js_opt: JsEmitOptions) !void {
-    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
+const BlockRange = struct { start: usize, end: usize, label: ?u32 };
+
+/// Forward must-analysis transfer for owned-base provenance: computes the set
+/// of slots that hold `alloc` bases on EVERY path reaching each point.
+/// Mirrors the interpreter (alloc marks; alias preserves; loads, arithmetic,
+/// ptr_add, calls, cmpxchg results and stack_allocs kill).
+fn provTransfer(
+    allocator: std.mem.Allocator,
+    symbols: anytype,
+    fsig: sig.FunctionSig,
+    use_global: bool,
+    annotated: anytype,
+    start: usize,
+    end: usize,
+    in_set: *const BaseSet,
+    out_set: *BaseSet,
+) JsEmitError!void {
+    out_set.clearRetainingCapacity();
+    var it = in_set.iterator();
+    while (it.next()) |e| out_set.put(e.key_ptr.*, {}) catch return JsEmitError.OutOfMemory;
+    var k: usize = start;
+    while (k < end) : (k += 1) {
+        const base = annotated[k].base;
+        switch (base.kind) {
+            .alloc => {
+                if (provSlotOf(fsig, use_global, base.operands[0])) |slot| {
+                    out_set.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                }
+            },
+            .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
+                const dst = provSlotOf(fsig, use_global, base.operands[0]);
+                const src_base = if (provSlotOf(fsig, use_global, base.operands[1])) |s| out_set.get(s) != null else false;
+                if (dst) |d| {
+                    if (src_base) {
+                        out_set.put(d, {}) catch return JsEmitError.OutOfMemory;
+                    } else {
+                        _ = out_set.remove(d);
+                    }
+                }
+            },
+            .op, .ptr_add, .load, .take, .atomic_load, .atomic_rmw, .try_, .early_return => {
+                provKill(out_set, fsig, use_global, base.operands[0]);
+            },
+            .cmpxchg => {
+                provKill(out_set, fsig, use_global, base.operands[0]);
+                provKill(out_set, fsig, use_global, base.operands[1]);
+            },
+            .move_ => {
+                // Ownership transfer: forget both sides (sound over-approximation).
+                provKill(out_set, fsig, use_global, base.operands[0]);
+                provKill(out_set, fsig, use_global, base.operands[1]);
+            },
+            .release, .stack_alloc => {
+                provKill(out_set, fsig, use_global, base.operands[0]);
+            },
+            .call, .call_indirect => {
+                var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+                    out_set.clearRetainingCapacity();
+                    continue;
+                };
+                defer parsed.deinit(allocator);
+                if (parsed.dest) |dest| {
+                    if (symbols.findId(dest)) |id| {
+                        if (fsig.slotOf(id)) |slot| _ = out_set.remove(slot);
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+fn provSetEq(a: *const BaseSet, b: *const BaseSet) bool {
+    if (a.count() != b.count()) return false;
+    var it = a.iterator();
+    while (it.next()) |e| {
+        if (b.get(e.key_ptr.*) == null) return false;
+    }
+    return true;
+}
+
+fn provLabelId(op: inst.Operand) ?u32 {
+    return switch (op) {
+        .label => |v| v,
+        .symbol => |v| v,
+        else => null,
+    };
+}
+
+fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, task: FuncTask, const_addrs: anytype, fn_idx: anytype, js_opt: JsEmitOptions) !void {    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
     // Map label symbol id -> pc number. Entry (before first label) is pc 0.
     var label_pc = std.AutoHashMap(u32, usize).init(allocator);
     defer label_pc.deinit();
@@ -1041,11 +1221,178 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             }
         }
     }
+    // Owned-base provenance for `release` lowering: forward must-analysis
+    // (fixpoint over blocks). A `release` recycles only slots holding `alloc`
+    // bases on EVERY path reaching it; joins intersect. Anything else stays a
+    // no-op, mirroring the interpreter (which never frees interior pointers,
+    // borrows, consts, or stack slots).
+    var bases = BaseSet.init(allocator);
+    defer bases.deinit();
+    var blocks = std.ArrayList(BlockRange).init(allocator);
+    defer blocks.deinit();
+    {
+        var bs: usize = task.start_idx + 1;
+        var blabel: ?u32 = null;
+        var j: usize = bs;
+        while (j < task.end_idx) : (j += 1) {
+            const bk = verified.annotated[j].base;
+            if (bk.kind == .label) {
+                if (j > bs) {
+                    try blocks.append(.{ .start = bs, .end = j, .label = blabel });
+                    blabel = provLabelId(bk.operands[1]);
+                    bs = j + 1;
+                } else if (blabel == null) {
+                    blabel = provLabelId(bk.operands[1]);
+                }
+            } else if (bk.kind == .jmp or bk.kind == .br or bk.kind == .br_null or bk.kind == .return_) {
+                try blocks.append(.{ .start = bs, .end = j + 1, .label = blabel });
+                blabel = null;
+                bs = j + 1;
+            }
+        }
+        if (bs < task.end_idx) try blocks.append(.{ .start = bs, .end = task.end_idx, .label = blabel });
+    }
+    var lid_to_blk = std.AutoHashMap(u32, usize).init(allocator);
+    defer lid_to_blk.deinit();
+    for (blocks.items, 0..) |blk, bi| {
+        if (blk.label) |lid| {
+            if (lid_to_blk.get(lid) == null) try lid_to_blk.put(lid, bi);
+        }
+    }
+    var succs = std.ArrayList(std.ArrayList(usize)).init(allocator);
+    defer {
+        for (succs.items) |*s| s.deinit();
+        succs.deinit();
+    }
+    for (blocks.items, 0..) |blk, bi| {
+        var s = std.ArrayList(usize).init(allocator);
+        errdefer s.deinit();
+        if (blk.end > blk.start) {
+            const last = verified.annotated[blk.end - 1].base;
+            switch (last.kind) {
+                .jmp => {
+                    if (provLabelId(last.operands[1])) |lid| {
+                        if (lid_to_blk.get(lid)) |t| try s.append(t);
+                    }
+                },
+                .br => {
+                    if (provLabelId(last.operands[1])) |lid| {
+                        if (lid_to_blk.get(lid)) |t| try s.append(t);
+                    }
+                    if (provLabelId(last.operands[3])) |lid| {
+                        if (lid_to_blk.get(lid)) |t| try s.append(t);
+                    }
+                },
+                .return_ => {},
+                else => {
+                    if (bi + 1 < blocks.items.len) try s.append(bi + 1);
+                },
+            }
+        } else if (bi + 1 < blocks.items.len) {
+            try s.append(bi + 1);
+        }
+        try succs.append(s);
+    }
+    var in_sets = std.ArrayList(BaseSet).init(allocator);
+    defer {
+        for (in_sets.items) |*s| s.deinit();
+        in_sets.deinit();
+    }
+    var out_sets = std.ArrayList(BaseSet).init(allocator);
+    defer {
+        for (out_sets.items) |*s| s.deinit();
+        out_sets.deinit();
+    }
+    for (blocks.items) |_| {
+        try in_sets.append(BaseSet.init(allocator));
+        try out_sets.append(BaseSet.init(allocator));
+    }
+    var universe = BaseSet.init(allocator);
+    defer universe.deinit();
+    for (blocks.items) |blk| {
+        var k: usize = blk.start;
+        while (k < blk.end) : (k += 1) {
+            const base = verified.annotated[k].base;
+            switch (base.kind) {
+                .alloc, .stack_alloc, .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow, .op, .ptr_add, .load, .take, .atomic_load, .atomic_rmw, .try_, .early_return, .move_, .release => {
+                    if (provSlotOf(fsig, use_global, base.operands[0])) |slot| {
+                        universe.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                    }
+                },
+                .cmpxchg => {
+                    if (provSlotOf(fsig, use_global, base.operands[0])) |slot| {
+                        universe.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                    }
+                    if (provSlotOf(fsig, use_global, base.operands[1])) |slot| {
+                        universe.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                    }
+                },
+                .call, .call_indirect => {
+                    var parsed = call.parseInstructionCall(allocator, base, verified.symbols) catch continue;
+                    defer parsed.deinit(allocator);
+                    if (parsed.dest) |dest| {
+                        if (verified.symbols.findId(dest)) |id| {
+                            if (fsig.slotOf(id)) |slot| {
+                                universe.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                            }
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+    for (in_sets.items, 0..) |*st, bi| {
+        if (bi == 0) continue;
+        var uit = universe.iterator();
+        while (uit.next()) |e| try st.put(e.key_ptr.*, {});
+    }
+    var rounds: usize = 0;
+    while (rounds < 100) : (rounds += 1) {
+        var changed = false;
+        for (blocks.items, 0..) |blk, bi| {
+            var tmp = BaseSet.init(allocator);
+            defer tmp.deinit();
+            var first_pred = true;
+            for (blocks.items, 0..) |_, pi| {
+                var is_pred = false;
+                for (succs.items[pi].items) |t| {
+                    if (t == bi) {
+                        is_pred = true;
+                        break;
+                    }
+                }
+                if (!is_pred) continue;
+                if (first_pred) {
+                    var oit = out_sets.items[pi].iterator();
+                    while (oit.next()) |e| try tmp.put(e.key_ptr.*, {});
+                    first_pred = false;
+                } else {
+                    var rm = std.ArrayList(u32).init(allocator);
+                    defer rm.deinit();
+                    var tit = tmp.iterator();
+                    while (tit.next()) |e| {
+                        if (out_sets.items[pi].get(e.key_ptr.*) == null) try rm.append(e.key_ptr.*);
+                    }
+                    for (rm.items) |slot| _ = tmp.remove(slot);
+                }
+            }
+            if (first_pred) tmp.clearRetainingCapacity();
+            if (!provSetEq(&in_sets.items[bi], &tmp)) {
+                in_sets.items[bi].clearRetainingCapacity();
+                var tit = tmp.iterator();
+                while (tit.next()) |e| try in_sets.items[bi].put(e.key_ptr.*, {});
+                changed = true;
+            }
+            try provTransfer(allocator, verified.symbols, fsig, use_global, verified.annotated, blk.start, blk.end, &in_sets.items[bi], &out_sets.items[bi]);
+        }
+        if (!changed) break;
+    }
     // If no labels at all, emit straight-line body without pc machine.
     if (pcs == 1) {
         i = task.start_idx + 1;
         while (i < task.end_idx) : (i += 1) {
-            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt);
+            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases);
         }
         return;
     }
@@ -1062,6 +1409,13 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
                 else => continue,
             };
             const npc = label_pc.get(lid) orelse continue;
+            // Join point: load the fixpoint IN set for this block (sound on
+            // every path); unknown labels fall back to empty (safe).
+            bases.clearRetainingCapacity();
+            if (lid_to_blk.get(lid)) |tbi| {
+                var iit = in_sets.items[tbi].iterator();
+                while (iit.next()) |e| try bases.put(e.key_ptr.*, {});
+            }
             // A preceding jmp/br/return already leaves the case; skip the
             // redundant `__pc = N; break;` instead of emitting dead code.
             if (prev_terminates) {
@@ -1072,7 +1426,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             prev_terminates = false;
             continue;
         }
-        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt);
+        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases);
         prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .return_;
     }
     try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");
