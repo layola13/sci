@@ -592,6 +592,10 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/493_float_deep_chain/main.sa", "493\n");
     try assertJsMatrixStdout("demos/rosetta/494_versioned_float_iface/main.sa", "494\n");
     try assertJsMatrixStdout("demos/rosetta/495_fanout_three_leaves/main.sa", "495\n");
+    try assertJsMatrixStdout("demos/rosetta/496_npm_os_totalmem/main.sa", "496\n");
+    try assertJsMatrixStdout("demos/rosetta/497_npm_os_parallelism/main.sa", "497\n");
+    try assertJsMatrixStdout("demos/rosetta/498_npm_path_isabs/main.sa", "498\n");
+    try assertJsMatrixStdout("demos/rosetta/499_npm_util_isequal/main.sa", "499\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

@@ -3823,6 +3823,38 @@ fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerr
             .message = "duplicate definition detected during flattening",
             .hint = null,
         },
+        error.UnknownNpmBindTarget => .{
+            .trap = .import_resolution_failed,
+            .trap_code = trap.trapCode(.import_resolution_failed),
+            .file_buf = file_buf,
+            .file = source_path,
+            .line = line_no,
+            .source_line = line_no,
+            .column = null,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
+            .bad_token_buf = bad_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
+            .register = null,
+            .registers = &.{},
+            .expected_mask = null,
+            .actual_mask = null,
+            .expected_mask_name = null,
+            .actual_mask_name = null,
+            .function = null,
+            .is_ffi_wrapper = null,
+            .message = "#npm_bind target must name a declared @extern function",
+            .hint = "bind each #npm_bind line to an @extern with the same name; npm bindings are only honored by `sa build-js`",
+            .repair_action = "fix-import",
+            .repair_hint = "bind each #npm_bind line to an @extern with the same name",
+            .repair_confidence = "high",
+            .repair_alternatives = .{ null, null, null },
+            .repair_alternatives_len = 0,
+        },
         error.MacroRecursionLimit => .{
             .trap = .macro_recursion_limit,
             .trap_code = trap.trapCode(.macro_recursion_limit),
@@ -6922,6 +6954,16 @@ fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]con
     return error.ArchiveNotFoundForTarget;
 }
 
+/// `#npm_bind` bindings only lower under `sa build-js`. Every other
+/// emit/run path rejects them here with a targeted diagnostic instead of
+/// a confusing missing-symbol failure downstream (JS target only; the
+/// wasm and native backends have no ESM import mechanism).
+fn rejectNpmBindsUnlessJs(cmd_name: []const u8, flat: *const flattener.FlattenResult, stderr: anytype) !void {
+    if (flat.def_dict.npm_binds.count() == 0) return;
+    try stderr.print("error: {s} does not support `#npm_bind` npm imports; use `sa build-js` (JS target only)\n", .{cmd_name});
+    return error.NpmImportJsOnly;
+}
+
 fn executeRun(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -6940,6 +6982,7 @@ fn executeRun(
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            rejectNpmBindsUnlessJs("sa run", &owned.flat, stderr) catch return 1;
             const code = interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
                 error.UserExit => 0,
                 error.UnsupportedExtern => return 1,
@@ -6988,6 +7031,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            rejectNpmBindsUnlessJs("sa build-exe", &owned.flat, stderr) catch return 1;
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             const std_archive_path = saStdArchivePathForTarget(allocator, compile_options.target_triple) catch |err| {
@@ -7243,6 +7287,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            rejectNpmBindsUnlessJs("sa build-obj", &owned.flat, stderr) catch return 1;
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
@@ -7313,6 +7358,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(allocator);
+            rejectNpmBindsUnlessJs("sa build-wasm", &owned.flat, stderr) catch return 1;
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
@@ -7359,7 +7405,7 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
             try ensureParentDir(out_path);
             const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
-            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug }, out_path) catch |err| {
+            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
                 try stderr.print("error: JS backend emit failed: {s}", .{@errorName(err)});
                 if (emit_js.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js.last_js_func});
                 if (emit_js.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js.last_js_inst, " \t\r\n")});
@@ -8145,6 +8191,7 @@ fn executeTestInner(
             var owned = ok;
             defer owned.deinit(allocator);
 
+            rejectNpmBindsUnlessJs("sa test", &owned.flat, stderr) catch return 1;
             var compiled_test_list: ?test_meta.TestList = null;
             defer if (compiled_test_list) |*list| list.deinit(allocator);
             if (sab_selected_test_list == null) {

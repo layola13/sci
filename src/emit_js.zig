@@ -7,7 +7,7 @@ const call = @import("referee/call.zig");
 const const_decl = @import("common/const_decl.zig");
 
 pub const EmitOptions = emit_options.EmitOptions;
-pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, OutOfMemory };
+pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, OutOfMemory };
 
 /// Last instruction raw text seen by the emitter (diagnostics only).
 pub threadlocal var last_js_inst: []const u8 = "";
@@ -203,6 +203,150 @@ const FuncTask = struct {
     kind: inst.InstKind,
 };
 
+/// One `#npm_bind` import edge: ESM specifier + export name + the local
+/// alias emitted into the module prologue. MVP marshaling covers numbers
+/// plus adjacent (ptr, integer-length) UTF8 pairs; anything else (binary
+/// blobs, JS objects, string returns) is rejected with
+/// UnsupportedNpmBinding so mis-marshals trap at build time instead of
+/// corrupting linear memory at runtime.
+const NpmImport = struct {
+    spec: []const u8,
+    export_name: []const u8,
+    alias: []const u8,
+    extern_name: []const u8,
+};
+
+fn collectNpmImports(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    tasks: []const FuncTask,
+    npm_binds: *const std.StringHashMap([]const u8),
+) ![]NpmImport {
+    var out = std.ArrayList(NpmImport).init(allocator);
+    errdefer out.deinit();
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        const binding = npm_binds.get(fsig.name) orelse continue;
+        const hash = std.mem.lastIndexOfScalar(u8, binding, '#') orelse return JsEmitError.UnsupportedNpmBinding;
+        if (hash == 0 or hash + 1 >= binding.len) return JsEmitError.UnsupportedNpmBinding;
+        const spec = binding[0..hash];
+        const export_name = binding[hash + 1 ..];
+        if (!isNpmExportIdent(export_name)) return JsEmitError.UnsupportedNpmBinding;
+        var exists = false;
+        for (out.items) |item| {
+            if (std.mem.eql(u8, item.extern_name, fsig.name)) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) continue;
+        const alias = try std.fmt.allocPrint(allocator, "sa_npm_{d}", .{out.items.len});
+        try out.append(.{
+            .spec = spec,
+            .export_name = export_name,
+            .alias = alias,
+            .extern_name = fsig.name,
+        });
+    }
+    return out.toOwnedSlice();
+}
+
+fn npmAliasFor(imports: []const NpmImport, extern_name: []const u8) ?[]const u8 {
+    for (imports) |item| {
+        if (std.mem.eql(u8, item.extern_name, extern_name)) return item.alias;
+    }
+    return null;
+}
+
+/// Export names land verbatim in the ESM prologue, so they must be plain
+/// JS identifiers (rejects quotes/dots/slashes that would break out of
+/// the import statement).
+fn isNpmExportIdent(name: []const u8) bool {
+    if (name.len == 0) return false;
+    if (!std.ascii.isAlphabetic(name[0]) and name[0] != '_' and name[0] != '$') return false;
+    for (name[1..]) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '_' and c != '$') return false;
+    }
+    return true;
+}
+
+fn isNpmIntType(ty: sig.PrimType) bool {
+    return switch (ty) {
+        .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
+        else => false,
+    };
+}
+
+fn isNpmNumericType(ty: sig.PrimType) bool {
+    return switch (ty) {
+        .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .f32, .f64 => true,
+        else => false,
+    };
+}
+
+/// Emits the JS wrapper for one npm-bound extern: numeric params via
+/// `__sa_num`, adjacent (ptr, integer-length) params as one UTF8 string,
+/// lone ptr params as raw addresses. String/binary/object results are
+/// rejected at build time (MVP boundary, see NpmImport).
+fn emitNpmWrapper(
+    writer: anytype,
+    fsig: sig.FunctionSig,
+    alias: []const u8,
+    js_opt: JsEmitOptions,
+) !void {
+    if (fsig.return_ty == .void or fsig.return_ty == .blob_handle or fsig.return_ty == .v128) {
+        return JsEmitError.UnsupportedNpmBinding;
+    }
+    if (!isNpmNumericType(fsig.return_ty) and fsig.return_ty != .ptr) {
+        return JsEmitError.UnsupportedNpmBinding;
+    }
+    if (js_opt.format == .esm) try writer.writeAll("export function ") else try writer.writeAll("function ");
+    try jsFuncName(writer, fsig.name);
+    try writer.writeAll("(");
+    for (fsig.params, 0..) |p, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try jsIdent(writer, p.name);
+    }
+    try writer.writeAll(") {\n");
+    var idx: usize = 0;
+    try writer.writeAll("  const __sa_npm_args = [];\n");
+    while (idx < fsig.params.len) : (idx += 1) {
+        const p = fsig.params[idx];
+        if (p.ty == .ptr and idx + 1 < fsig.params.len and isNpmIntType(fsig.params[idx + 1].ty)) {
+            const len_p = fsig.params[idx + 1];
+            try writer.writeAll("  __sa_npm_args.push(new globalThis.TextDecoder().decode(__sa_u8.slice(");
+            try writer.writeAll("__sa_addr(");
+            try jsIdent(writer, p.name);
+            try writer.writeAll("), __sa_addr(");
+            try jsIdent(writer, p.name);
+            try writer.writeAll(") + __sa_num(");
+            try jsIdent(writer, len_p.name);
+            try writer.writeAll("))));\n");
+            idx += 1;
+            continue;
+        }
+        if (p.ty == .ptr) {
+            try writer.writeAll("  __sa_npm_args.push(__sa_addr(");
+            try jsIdent(writer, p.name);
+            try writer.writeAll("));\n");
+        } else if (isNpmNumericType(p.ty)) {
+            try writer.writeAll("  __sa_npm_args.push(__sa_num(");
+            try jsIdent(writer, p.name);
+            try writer.writeAll("));\n");
+        } else {
+            return JsEmitError.UnsupportedNpmBinding;
+        }
+    }
+    try writer.writeAll("  const __sa_npm_r = ");
+    try writer.writeAll(alias);
+    try writer.writeAll("(...__sa_npm_args);\n");
+    try writer.writeAll("  if (typeof __sa_npm_r !== \"number\" && typeof __sa_npm_r !== \"bigint\" && typeof __sa_npm_r !== \"boolean\") __sa_trap(\"npm extern returned non-numeric: ");
+    try jsFuncName(writer, fsig.name);
+    try writer.writeAll("\");\n");
+    try writer.writeAll("  return __sa_num(__sa_npm_r);\n}\n");
+}
+
 fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask {
     var tasks = std.ArrayList(FuncTask).init(allocator);
     errdefer tasks.deinit();
@@ -235,10 +379,43 @@ fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask
     return tasks.toOwnedSlice();
 }
 
-fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !void {
+fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, npm_imports: []const NpmImport) !void {
     const mem_bytes: usize = @as(usize, js_opt.mem_pages) * 65536;
     try writer.print("// Generated by `sa build-js` (js backend, MVP). DO NOT EDIT.\n", .{});
     try writer.print("// size_bits={d} pages={d} ({d} bytes linear memory)\n", .{ size_bits, js_opt.mem_pages, mem_bytes });
+    // Third-party/host ESM imports for `#npm_bind` externs (JS target only).
+    // Grouped by specifier; one alias per bound export. Bare npm specifiers
+    // resolve through the runner's node_modules; `node:` builtins need none.
+    if (npm_imports.len != 0) {
+        if (js_opt.format == .esm) {
+            var i: usize = 0;
+            while (i < npm_imports.len) {
+                const spec = npm_imports[i].spec;
+                try writer.writeAll("import { ");
+                var j = i;
+                var first = true;
+                while (j < npm_imports.len and std.mem.eql(u8, npm_imports[j].spec, spec)) : (j += 1) {
+                    if (!first) try writer.writeAll(", ");
+                    first = false;
+                    try writer.writeAll(npm_imports[j].export_name);
+                    try writer.writeAll(" as ");
+                    try writer.writeAll(npm_imports[j].alias);
+                }
+                try writer.print(" }} from \"{s}\";\n", .{spec});
+                i = j;
+            }
+        } else {
+            var i: usize = 0;
+            while (i < npm_imports.len) {
+                const spec = npm_imports[i].spec;
+                var j = i;
+                while (j < npm_imports.len and std.mem.eql(u8, npm_imports[j].spec, spec)) : (j += 1) {
+                    try writer.print("const {{ {s}: {s} }} = require(\"{s}\");\n", .{ npm_imports[j].export_name, npm_imports[j].alias, spec });
+                }
+                i = j;
+            }
+        }
+    }
     try writer.writeAll(
         \\// ---- SA JS runtime (MVP, JEV: ArrayBuffer linear memory) ----
         \\const __SA_MEM_BYTES = __SA_MEM_BYTES_DECL__;
@@ -2628,7 +2805,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     try writer.writeAll("  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }\n}\n");
 }
 
-pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions) ![]u8 {
+pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
     var out = std.ArrayList(u8).init(allocator);
     errdefer out.deinit();
     const writer = out.writer();
@@ -2645,7 +2822,16 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
             try fn_names.append(slot.func_name);
         }
     }
-    try writeRuntimeHeader(writer, js_opt, size_bits);
+    // `#npm_bind` imports must precede the runtime header: ESM import
+    // declarations live in the module prologue.
+    const tasks = try collectFuncTasks(allocator, verified);
+    defer allocator.free(tasks);
+    const npm_imports = try collectNpmImports(allocator, verified, tasks, npm_binds);
+    defer {
+        for (npm_imports) |item| allocator.free(item.alias);
+        allocator.free(npm_imports);
+    }
+    try writeRuntimeHeader(writer, js_opt, size_bits, npm_imports);
     try writer.print("// source: {s}\n", .{source_path});
     // Function table for call_indirect (boxed addresses, see vtable consts).
     try writer.writeAll("const __sa_ftable = [");
@@ -2710,8 +2896,6 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try writer.print("], {d});\n", .{aligned});
         const_cursor = aligned + len;
     }
-    const tasks = try collectFuncTasks(allocator, verified);
-    defer allocator.free(tasks);
     // Non-extern function names: a same-module `@export` satisfies an
     // `@extern` declaration, so no trap stub is emitted for those (the
     // stub used to clobber the real body).
@@ -2765,10 +2949,19 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try emitted.put(fsig.name, {});
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
-    // extern stubs (so calls don't ReferenceError; they trap with name)
+    // extern stubs (so calls don't ReferenceError; they trap with name).
+    // `#npm_bind` externs get a marshaling wrapper instead, unless a
+    // same-module `@export` already satisfies the declaration.
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const fsig = verified.function_sigs[task.fsig_index];
+        if (npmAliasFor(npm_imports, fsig.name)) |alias| {
+            if (emitted.contains(fsig.name)) continue;
+            last_js_func = fsig.name;
+            try emitNpmWrapper(writer, fsig, alias, js_opt);
+            try emitted.put(fsig.name, {});
+            continue;
+        }
         if (!isKnownShim(fsig.name) and emitted.contains(fsig.name)) continue;
         try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
     }
@@ -2790,8 +2983,8 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     return out.toOwnedSlice();
 }
 
-pub fn emitJsToFile(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, path: []const u8) !void {
-    const text = try emitJsToString(allocator, verified, source_path, size_bits, js_opt);
+pub fn emitJsToFile(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8), path: []const u8) !void {
+    const text = try emitJsToString(allocator, verified, source_path, size_bits, js_opt, npm_binds);
     defer allocator.free(text);
     // patch mem-bytes placeholder
     const mem_bytes: usize = @as(usize, js_opt.mem_pages) * 65536;
