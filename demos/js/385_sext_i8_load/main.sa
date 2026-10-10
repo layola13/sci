@@ -1,0 +1,25 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"385\n"
+
+// 385 - sext from an i8-loaded slot sign-extends (-1 stays -1).
+// Regression armor: signed 32-bit value inference already agreed
+// here; the demo locks it against the zext-style masking.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 8
+    store buf+0, -1 as i8
+    a = load buf+0 as i8
+    s = sext a as i64
+    ok = eq s, -1
+    !buf
+    !a
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"380\n"
+
+// 380 - f64 memory roundtrip (2.9 survives store/load bitwise).
+@main() -> i32:
+L_ENTRY:
+    a = 29 as i32
+    b = 10 as i32
+    fa = sitofp a as f64
+    fb = sitofp b as f64
+    f = fdiv fa, fb
+    buf = alloc 8
+    store buf+0, f as f64
+    g = load buf+0 as f64
+    ok = fcmp_eq g, f
+    !a
+    !b
+    !fa
+    !fb
+    !f
+    !buf
+    !g
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

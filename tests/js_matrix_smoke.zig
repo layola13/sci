@@ -472,6 +472,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/373_try_mem_roundtrip/main.sa", "373\n");
     try assertJsMatrixStdout("demos/rosetta/374_try_f64_payload/main.sa", "374\n");
     try assertJsMatrixStdout("demos/rosetta/375_try_branchy_returns/main.sa", "375\n");
+    try assertJsMatrixStdout("demos/rosetta/376_mem_i8_u8/main.sa", "376\n");
+    try assertJsMatrixStdout("demos/rosetta/377_mem_i16_u16/main.sa", "377\n");
+    try assertJsMatrixStdout("demos/rosetta/378_mem_u32_i32/main.sa", "378\n");
+    try assertJsMatrixStdout("demos/rosetta/379_mem_f32_roundtrip/main.sa", "379\n");
+    try assertJsMatrixStdout("demos/rosetta/380_mem_f64_roundtrip/main.sa", "380\n");
+    try assertJsMatrixStdout("demos/rosetta/381_mem_ptr_roundtrip/main.sa", "381\n");
+    try assertJsMatrixStdout("demos/rosetta/382_mem_i1_roundtrip/main.sa", "382\n");
+    try assertJsMatrixStdout("demos/rosetta/383_zext_i8_load/main.sa", "383\n");
+    try assertJsMatrixStdout("demos/rosetta/384_zext_i16_load/main.sa", "384\n");
+    try assertJsMatrixStdout("demos/rosetta/385_sext_i8_load/main.sa", "385\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
