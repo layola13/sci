@@ -1,0 +1,52 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"424\n"
+
+// 424 - fcmp inside a fallible fn (3.0 > 2.0 yields 1).
+@is_big(x: f64) -> i64!:
+L_ENTRY:
+    four = 4 as i32
+    two = 2 as i32
+    four_f = sitofp four as f64
+    two_f = sitofp two as f64
+    threshold = fdiv four_f, two_f
+    c = fcmp_gt x, threshold
+    br c -> L_YES, L_NO
+L_YES:
+    !x
+    !four
+    !two
+    !four_f
+    !two_f
+    !threshold
+    !c
+    return 1
+L_NO:
+    !x
+    !four
+    !two
+    !four_f
+    !two_f
+    !threshold
+    !c
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    three_f = sitofp three as f64
+    r = call @is_big(three_f)
+    v = ?r
+    ok = eq v, 1
+    !three
+    !three_f
+    !r
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,47 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"421\n"
+
+// 421 - fallible fn returns an f32 value (fptrunc 0.5, widened back).
+@half32() -> f32!:
+L_ENTRY:
+    one = 1 as i32
+    two = 2 as i32
+    one_f = sitofp one as f64
+    two_f = sitofp two as f64
+    h = fdiv one_f, two_f
+    t = fptrunc h as f32
+    !one
+    !two
+    !one_f
+    !two_f
+    !h
+    return t
+
+@main() -> i32:
+L_ENTRY:
+    r = call @half32()
+    v = ?r
+    one = 1 as i32
+    two = 2 as i32
+    one_f = sitofp one as f64
+    two_f = sitofp two as f64
+    h = fdiv one_f, two_f
+    t = fptrunc h as f32
+    ok = fcmp_eq v, t
+    !r
+    !v
+    !one
+    !two
+    !one_f
+    !two_f
+    !h
+    !t
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

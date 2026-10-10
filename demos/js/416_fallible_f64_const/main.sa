@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"416\n"
+
+// 416 - fallible fn returns an f64 constant (1/2 == 0.5).
+@halfunit() -> f64!:
+L_ENTRY:
+    one = 1 as i32
+    two = 2 as i32
+    one_f = sitofp one as f64
+    two_f = sitofp two as f64
+    h = fdiv one_f, two_f
+    !one
+    !two
+    !one_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    r = call @halfunit()
+    v = ?r
+    one = 1 as i32
+    two = 2 as i32
+    one_f = sitofp one as f64
+    two_f = sitofp two as f64
+    expect = fdiv one_f, two_f
+    ok = fcmp_eq v, expect
+    !r
+    !v
+    !one
+    !two
+    !one_f
+    !two_f
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

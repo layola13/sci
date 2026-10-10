@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"417\n"
+
+// 417 - fallible fn doubles an f64 parameter (1.5 + 1.5 == 3.0).
+@double(x: f64) -> f64!:
+L_ENTRY:
+    d = fadd x, x
+    !x
+    return d
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    r = call @double(one_half)
+    v = ?r
+    three_whole = sitofp three as f64
+    ok = fcmp_eq v, three_whole
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !r
+    !v
+    !three_whole
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

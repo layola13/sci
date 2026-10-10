@@ -512,6 +512,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/413_fsub_self_zero/main.sa", "413\n");
     try assertJsMatrixStdout("demos/rosetta/414_fadd_loop_accum/main.sa", "414\n");
     try assertJsMatrixStdout("demos/rosetta/415_fneg_add_zero/main.sa", "415\n");
+    try assertJsMatrixStdout("demos/rosetta/416_fallible_f64_const/main.sa", "416\n");
+    try assertJsMatrixStdout("demos/rosetta/417_fallible_f64_param/main.sa", "417\n");
+    try assertJsMatrixStdout("demos/rosetta/418_fallible_f64_nested/main.sa", "418\n");
+    try assertJsMatrixStdout("demos/rosetta/419_fallible_f64_branchy/main.sa", "419\n");
+    try assertJsMatrixStdout("demos/rosetta/420_fallible_f64_chain/main.sa", "420\n");
+    try assertJsMatrixStdout("demos/rosetta/421_fallible_f32_basic/main.sa", "421\n");
+    try assertJsMatrixStdout("demos/rosetta/422_fallible_float_loop/main.sa", "422\n");
+    try assertJsMatrixStdout("demos/rosetta/423_fallible_mixed_int_float/main.sa", "423\n");
+    try assertJsMatrixStdout("demos/rosetta/424_fallible_float_cmp/main.sa", "424\n");
+    try assertJsMatrixStdout("demos/rosetta/425_fallible_f64_negate/main.sa", "425\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

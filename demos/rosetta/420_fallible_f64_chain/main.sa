@@ -1,0 +1,51 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"420\n"
+
+// 420 - fdiv chained through two fallible layers (7.0 / 2 == 3.5).
+@base() -> f64!:
+L_ENTRY:
+    seven = 7 as i32
+    seven_f = sitofp seven as f64
+    !seven
+    return seven_f
+
+@half(x: f64) -> f64!:
+L_ENTRY:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    q = fdiv x, two_f
+    !x
+    !two_i
+    !two_f
+    return q
+
+@main() -> i32:
+L_ENTRY:
+    r0 = call @base()
+    v0 = ?r0
+    r1 = call @half(v0)
+    v1 = ?r1
+    seven = 7 as i32
+    two_i = 2 as i32
+    seven_f = sitofp seven as f64
+    two_f = sitofp two_i as f64
+    q = fdiv seven_f, two_f
+    ok = fcmp_eq v1, q
+    !r0
+    !v0
+    !r1
+    !v1
+    !seven
+    !two_i
+    !seven_f
+    !two_f
+    !q
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

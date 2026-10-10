@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"425\n"
+
+// 425 - fallible fn negates an f64 (2.5 + fneg(2.5) == 0.0).
+@negate(x: f64) -> f64!:
+L_ENTRY:
+    n = fneg x
+    !x
+    return n
+
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    zero_i = 0 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    f = fdiv five_f, two_f
+    r = call @negate(f)
+    n = ?r
+    s = fadd f, n
+    zero = sitofp zero_i as f64
+    ok = fcmp_eq s, zero
+    !five
+    !two_i
+    !zero_i
+    !five_f
+    !two_f
+    !f
+    !r
+    !n
+    !s
+    !zero
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

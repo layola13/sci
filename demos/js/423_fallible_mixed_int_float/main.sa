@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"423\n"
+
+// 423 - fallible fn takes i64, does float arithmetic (4 * 1.5 == 6.0).
+@scaled(x: i64) -> f64!:
+L_ENTRY:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    one_half = fdiv three_f, two_f
+    xf = sitofp x as f64
+    p = fmul xf, one_half
+    !x
+    !three
+    !two
+    !three_f
+    !two_f
+    !one_half
+    !xf
+    return p
+
+@main() -> i32:
+L_ENTRY:
+    four = 4 as i64
+    r = call @scaled(four)
+    v = ?r
+    six_i = 6 as i32
+    six = sitofp six_i as f64
+    ok = fcmp_eq v, six
+    !four
+    !r
+    !v
+    !six_i
+    !six
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
