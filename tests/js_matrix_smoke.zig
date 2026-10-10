@@ -236,6 +236,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/139_cancellation_safety/main.sa", "4\n");
     try assertJsMatrixStdout("demos/rosetta/140_yield_now_suspend/main.sa", "2\n");
     try assertJsMatrixStdout("demos/rosetta/141_dynamically_sized_types/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/142_zero_sized_types/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/143_never_type_diverge/main.sa", "0\n");
+    try assertJsMatrixStdout("demos/rosetta/144_phantom_data_marker/main.sa", "7\n");
+    try assertJsMatrixStdout("demos/rosetta/145_opaque_type_alias/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/146_never_type_fallback/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/147_custom_dst_pointers/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/148_transparent_repr/main.sa", "7\n");
+    try assertJsMatrixStdout("demos/rosetta/149_packed_repr/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/150_c_repr_alignment/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/151_global_alloc_trait/main.sa", "5\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
