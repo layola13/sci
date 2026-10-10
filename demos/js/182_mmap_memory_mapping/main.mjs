@@ -176,7 +176,7 @@ export function main() {
         /* no-op release: !unmapped */
         /* no-op release: !closed */
         /* no-op release: !fd */
-        /* no-op release: !ptr */
+        __sa_free(r2);
         /* no-op release: !mapped */
         /* no-op release: !ok_byte */
         /* no-op release: !ok_unmap */

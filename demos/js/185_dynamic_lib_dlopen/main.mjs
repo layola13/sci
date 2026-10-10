@@ -191,8 +191,8 @@ export function main() {
         /* no-op release: !ok_handle */
         /* no-op release: !ok_symbol */
         /* no-op release: !ok_close */
-        /* no-op release: !handle */
-        /* no-op release: !symbol */
+        __sa_free(r1);
+        __sa_free(r2);
         __sa_store_i64(__sa_ptr_add(r0, 0), 0);
         __sa_store_i64(__sa_ptr_add(r0, 8), 0);
         __sa_free(r0);

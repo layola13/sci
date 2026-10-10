@@ -162,7 +162,7 @@ export function main() {
         /* no-op release: !py */
         /* no-op release: !okx */
         /* no-op release: !oky */
-        /* no-op release: !point */
+        __sa_free(r0);
         __pc = (__sa_truthy(r5) ? 2 : 3); break;
       }
       case 2: {

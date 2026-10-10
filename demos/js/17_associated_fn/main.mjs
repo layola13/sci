@@ -155,7 +155,7 @@ export function main() {
         r1 = __sa_load_i32(__sa_ptr_add(r0, 0));
         r2 = __sa_eq(r1, 42);
         /* no-op release: !value */
-        /* no-op release: !counter */
+        __sa_free(r0);
         __pc = (__sa_truthy(r2) ? 2 : 3); break;
       }
       case 2: {

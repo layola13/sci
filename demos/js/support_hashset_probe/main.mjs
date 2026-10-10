@@ -1390,7 +1390,7 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
         __sa_store_i64(__sa_ptr_add(r3, 0), r7);
         /* no-op release: !tail_zero */
         /* no-op release: !tail_len */
-        /* no-op release: !out_vec */
+        __sa_free(r7);
         /* no-op release: !in_bounds */
         /* no-op release: !len */
         /* no-op release: !elem_size */
@@ -2282,7 +2282,7 @@ export function sa_map_try_with_capacity(cap, out_map_slot) {
       case 1: {
         r2 = sa_map_with_capacity(r0);
         __sa_store_i64(__sa_ptr_add(r1, 0), r2);
-        /* no-op release: !map */
+        __sa_free(r2);
         /* no-op release: !out_map_slot */
         /* no-op release: !cap */
         return (1);
@@ -4050,7 +4050,7 @@ export function sa_set_try_with_capacity(cap, out_set_slot) {
       case 1: {
         r2 = sa_set_with_capacity(r0);
         __sa_store_i64(__sa_ptr_add(r1, 0), r2);
-        /* no-op release: !set */
+        __sa_free(r2);
         /* no-op release: !out_set_slot */
         /* no-op release: !cap */
         return (1);

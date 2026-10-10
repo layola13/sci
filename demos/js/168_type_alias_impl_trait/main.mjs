@@ -147,7 +147,7 @@ export function main() {
       }
       case 1: {
         r0 = make_iter();
-        /* no-op release: !iter */
+        __sa_free(r0);
         r1 = __sa_eq(0, 0);
         __pc = (__sa_truthy(r1) ? 2 : 3); break;
       }

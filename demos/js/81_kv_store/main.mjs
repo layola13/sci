@@ -1386,7 +1386,7 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
         __sa_store_i64(__sa_ptr_add(r3, 0), r7);
         /* no-op release: !tail_zero */
         /* no-op release: !tail_len */
-        /* no-op release: !out_vec */
+        __sa_free(r7);
         /* no-op release: !in_bounds */
         /* no-op release: !len */
         /* no-op release: !elem_size */

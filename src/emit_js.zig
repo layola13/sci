@@ -779,7 +779,7 @@ fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
     }
 }
 
-fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet) !void {
+fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
     _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
@@ -794,8 +794,13 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
     if (parsed.dest) |dest| {
         const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
         const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
-        // Call results have unknown provenance: never treated as owned bases.
-        _ = bases.remove(slot);
+        // Fresh blocks from allocator shims and must-return-base callees
+        // keep base provenance; everything else is killed (unknown).
+        if (!parsed.is_indirect and (isAllocatorShim(parsed.callee) or retbase.get(parsed.callee) != null)) {
+            bases.put(slot, {}) catch return JsEmitError.OutOfMemory;
+        } else {
+            _ = bases.remove(slot);
+        }
         try writer.print("  r{d} = ", .{slot});
     } else {
         try writer.writeAll("  ");
@@ -812,7 +817,7 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
 /// Indirect calls resolve through the runtime function table.
 /// Boxed callee values come from vtable loads or `&func` expressions;
 /// results (including fallible {s,v} objects) pass through untouched.
-fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet) !void {
+fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
     _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
@@ -823,8 +828,13 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     if (parsed.dest) |dest| {
         const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
         const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
-        // Call results have unknown provenance: never treated as owned bases.
-        _ = bases.remove(slot);
+        // Fresh blocks from allocator shims and must-return-base callees
+        // keep base provenance; everything else is killed (unknown).
+        if (!parsed.is_indirect and (isAllocatorShim(parsed.callee) or retbase.get(parsed.callee) != null)) {
+            bases.put(slot, {}) catch return JsEmitError.OutOfMemory;
+        } else {
+            _ = bases.remove(slot);
+        }
         try writer.print("  r{d} = ", .{slot});
     } else {
         try writer.writeAll("  ");
@@ -838,7 +848,7 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     try writer.writeAll(");\n");
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet) !void {
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable) !void {
     _ = js_opt;
     last_js_inst = base.raw_text;
     last_js_func = fsig.name;
@@ -929,8 +939,8 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
             try writer.writeAll(");\n");
         },
-        .call => try emitCallInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases),
-        .call_indirect => try emitCallIndirectInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases),
+        .call => try emitCallInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases, retbase),
+        .call_indirect => try emitCallIndirectInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases, retbase),
         .cmpxchg => {
             // Single-threaded降级: old = load; ok = (old == expected);
             // if (ok) store(new). Mirrors SA_OP_CMPXCHG (dst=old, 2nd target=ok).
@@ -1074,7 +1084,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet) !void {
+fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable) !void {
     switch (base.kind) {
         .jmp => {
             const npc = try labelPcOf(label_pc, base.operands[1]);
@@ -1096,7 +1106,7 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
             var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases);
+            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase);
             const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
@@ -1128,6 +1138,7 @@ fn provTransfer(
     end: usize,
     in_set: *const BaseSet,
     out_set: *BaseSet,
+    retbase: *const RetBaseTable,
 ) JsEmitError!void {
     out_set.clearRetainingCapacity();
     var it = in_set.iterator();
@@ -1175,7 +1186,13 @@ fn provTransfer(
                 defer parsed.deinit(allocator);
                 if (parsed.dest) |dest| {
                     if (symbols.findId(dest)) |id| {
-                        if (fsig.slotOf(id)) |slot| _ = out_set.remove(slot);
+                        if (fsig.slotOf(id)) |slot| {
+                            if (!parsed.is_indirect and (isAllocatorShim(parsed.callee) or retbase.get(parsed.callee) != null)) {
+                                out_set.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                            } else {
+                                _ = out_set.remove(slot);
+                            }
+                        }
                     }
                 }
             },
@@ -1201,35 +1218,55 @@ fn provLabelId(op: inst.Operand) ?u32 {
     };
 }
 
-fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, task: FuncTask, const_addrs: anytype, fn_idx: anytype, js_opt: JsEmitOptions) !void {    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
-    // Map label symbol id -> pc number. Entry (before first label) is pc 0.
-    var label_pc = std.AutoHashMap(u32, usize).init(allocator);
-    defer label_pc.deinit();
-    var pcs: usize = 1; // next free pc
-    var i: usize = task.start_idx + 1;
-    while (i < task.end_idx) : (i += 1) {
-        const base = verified.annotated[i].base;
-        if (base.kind == .label) {
-            const lid: u32 = switch (base.operands[1]) {
-                .label => |v| v,
-                .symbol => |v| v,
-                else => continue,
-            };
-            if (label_pc.get(lid) == null) {
-                try label_pc.put(lid, pcs);
-                pcs += 1;
-            }
-        }
+/// Callee names proven to return an owned heap base on every path.
+/// Computed per module by fixpoint (increasing from empty, hence sound for
+/// recursion); allocator shims are handled separately via isAllocatorShim.
+const RetBaseTable = std.StringHashMap(void);
+
+/// Host shims whose JS lowering allocates a fresh linear-memory block.
+fn isAllocatorShim(name: []const u8) bool {
+    return std.mem.eql(u8, name, "mmap") or
+        std.mem.eql(u8, name, "dlopen") or
+        std.mem.eql(u8, name, "dlsym");
+}
+
+const ProvBody = struct {
+    blocks: std.ArrayList(BlockRange),
+    lid_to_blk: std.AutoHashMap(u32, usize),
+    succs: std.ArrayList(std.ArrayList(usize)),
+    in_sets: std.ArrayList(BaseSet),
+    out_sets: std.ArrayList(BaseSet),
+
+    fn deinit(self: *ProvBody) void {
+        for (self.in_sets.items) |*s| s.deinit();
+        for (self.out_sets.items) |*s| s.deinit();
+        for (self.succs.items) |*s| s.deinit();
+        self.blocks.deinit();
+        self.lid_to_blk.deinit();
+        self.succs.deinit();
+        self.in_sets.deinit();
+        self.out_sets.deinit();
     }
-    // Owned-base provenance for `release` lowering: forward must-analysis
-    // (fixpoint over blocks). A `release` recycles only slots holding `alloc`
-    // bases on EVERY path reaching it; joins intersect. Anything else stays a
-    // no-op, mirroring the interpreter (which never frees interior pointers,
-    // borrows, consts, or stack slots).
-    var bases = BaseSet.init(allocator);
-    defer bases.deinit();
-    var blocks = std.ArrayList(BlockRange).init(allocator);
-    defer blocks.deinit();
+};
+
+/// Build blocks/CFG and run the owned-base must-analysis fixpoint for one
+/// function body. Shared by emission and return-base summary computation.
+fn provSolveBody(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    fsig: sig.FunctionSig,
+    use_global: bool,
+    task: FuncTask,
+    retbase: *const RetBaseTable,
+) JsEmitError!ProvBody {
+    var prov = ProvBody{
+        .blocks = std.ArrayList(BlockRange).init(allocator),
+        .lid_to_blk = std.AutoHashMap(u32, usize).init(allocator),
+        .succs = std.ArrayList(std.ArrayList(usize)).init(allocator),
+        .in_sets = std.ArrayList(BaseSet).init(allocator),
+        .out_sets = std.ArrayList(BaseSet).init(allocator),
+    };
+    errdefer prov.deinit();
     {
         var bs: usize = task.start_idx + 1;
         var blabel: ?u32 = null;
@@ -1238,33 +1275,26 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             const bk = verified.annotated[j].base;
             if (bk.kind == .label) {
                 if (j > bs) {
-                    try blocks.append(.{ .start = bs, .end = j, .label = blabel });
+                    prov.blocks.append(.{ .start = bs, .end = j, .label = blabel }) catch return JsEmitError.OutOfMemory;
                     blabel = provLabelId(bk.operands[1]);
                     bs = j + 1;
                 } else if (blabel == null) {
                     blabel = provLabelId(bk.operands[1]);
                 }
             } else if (bk.kind == .jmp or bk.kind == .br or bk.kind == .br_null or bk.kind == .return_) {
-                try blocks.append(.{ .start = bs, .end = j + 1, .label = blabel });
+                prov.blocks.append(.{ .start = bs, .end = j + 1, .label = blabel }) catch return JsEmitError.OutOfMemory;
                 blabel = null;
                 bs = j + 1;
             }
         }
-        if (bs < task.end_idx) try blocks.append(.{ .start = bs, .end = task.end_idx, .label = blabel });
+        if (bs < task.end_idx) prov.blocks.append(.{ .start = bs, .end = task.end_idx, .label = blabel }) catch return JsEmitError.OutOfMemory;
     }
-    var lid_to_blk = std.AutoHashMap(u32, usize).init(allocator);
-    defer lid_to_blk.deinit();
-    for (blocks.items, 0..) |blk, bi| {
+    for (prov.blocks.items, 0..) |blk, bi| {
         if (blk.label) |lid| {
-            if (lid_to_blk.get(lid) == null) try lid_to_blk.put(lid, bi);
+            if (prov.lid_to_blk.get(lid) == null) prov.lid_to_blk.put(lid, bi) catch return JsEmitError.OutOfMemory;
         }
     }
-    var succs = std.ArrayList(std.ArrayList(usize)).init(allocator);
-    defer {
-        for (succs.items) |*s| s.deinit();
-        succs.deinit();
-    }
-    for (blocks.items, 0..) |blk, bi| {
+    for (prov.blocks.items, 0..) |blk, bi| {
         var s = std.ArrayList(usize).init(allocator);
         errdefer s.deinit();
         if (blk.end > blk.start) {
@@ -1272,44 +1302,34 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             switch (last.kind) {
                 .jmp => {
                     if (provLabelId(last.operands[1])) |lid| {
-                        if (lid_to_blk.get(lid)) |t| try s.append(t);
+                        if (prov.lid_to_blk.get(lid)) |t| s.append(t) catch return JsEmitError.OutOfMemory;
                     }
                 },
                 .br => {
                     if (provLabelId(last.operands[1])) |lid| {
-                        if (lid_to_blk.get(lid)) |t| try s.append(t);
+                        if (prov.lid_to_blk.get(lid)) |t| s.append(t) catch return JsEmitError.OutOfMemory;
                     }
                     if (provLabelId(last.operands[3])) |lid| {
-                        if (lid_to_blk.get(lid)) |t| try s.append(t);
+                        if (prov.lid_to_blk.get(lid)) |t| s.append(t) catch return JsEmitError.OutOfMemory;
                     }
                 },
                 .return_ => {},
                 else => {
-                    if (bi + 1 < blocks.items.len) try s.append(bi + 1);
+                    if (bi + 1 < prov.blocks.items.len) s.append(bi + 1) catch return JsEmitError.OutOfMemory;
                 },
             }
-        } else if (bi + 1 < blocks.items.len) {
-            try s.append(bi + 1);
+        } else if (bi + 1 < prov.blocks.items.len) {
+            s.append(bi + 1) catch return JsEmitError.OutOfMemory;
         }
-        try succs.append(s);
+        prov.succs.append(s) catch return JsEmitError.OutOfMemory;
     }
-    var in_sets = std.ArrayList(BaseSet).init(allocator);
-    defer {
-        for (in_sets.items) |*s| s.deinit();
-        in_sets.deinit();
-    }
-    var out_sets = std.ArrayList(BaseSet).init(allocator);
-    defer {
-        for (out_sets.items) |*s| s.deinit();
-        out_sets.deinit();
-    }
-    for (blocks.items) |_| {
-        try in_sets.append(BaseSet.init(allocator));
-        try out_sets.append(BaseSet.init(allocator));
+    for (prov.blocks.items) |_| {
+        prov.in_sets.append(BaseSet.init(allocator)) catch return JsEmitError.OutOfMemory;
+        prov.out_sets.append(BaseSet.init(allocator)) catch return JsEmitError.OutOfMemory;
     }
     var universe = BaseSet.init(allocator);
     defer universe.deinit();
-    for (blocks.items) |blk| {
+    for (prov.blocks.items) |blk| {
         var k: usize = blk.start;
         while (k < blk.end) : (k += 1) {
             const base = verified.annotated[k].base;
@@ -1342,21 +1362,21 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             }
         }
     }
-    for (in_sets.items, 0..) |*st, bi| {
+    for (prov.in_sets.items, 0..) |*st, bi| {
         if (bi == 0) continue;
         var uit = universe.iterator();
-        while (uit.next()) |e| try st.put(e.key_ptr.*, {});
+        while (uit.next()) |e| st.put(e.key_ptr.*, {}) catch return JsEmitError.OutOfMemory;
     }
     var rounds: usize = 0;
     while (rounds < 100) : (rounds += 1) {
         var changed = false;
-        for (blocks.items, 0..) |blk, bi| {
+        for (prov.blocks.items, 0..) |blk, bi| {
             var tmp = BaseSet.init(allocator);
             defer tmp.deinit();
             var first_pred = true;
-            for (blocks.items, 0..) |_, pi| {
+            for (prov.blocks.items, 0..) |_, pi| {
                 var is_pred = false;
-                for (succs.items[pi].items) |t| {
+                for (prov.succs.items[pi].items) |t| {
                     if (t == bi) {
                         is_pred = true;
                         break;
@@ -1364,35 +1384,92 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
                 }
                 if (!is_pred) continue;
                 if (first_pred) {
-                    var oit = out_sets.items[pi].iterator();
-                    while (oit.next()) |e| try tmp.put(e.key_ptr.*, {});
+                    var oit = prov.out_sets.items[pi].iterator();
+                    while (oit.next()) |e| tmp.put(e.key_ptr.*, {}) catch return JsEmitError.OutOfMemory;
                     first_pred = false;
                 } else {
                     var rm = std.ArrayList(u32).init(allocator);
                     defer rm.deinit();
                     var tit = tmp.iterator();
                     while (tit.next()) |e| {
-                        if (out_sets.items[pi].get(e.key_ptr.*) == null) try rm.append(e.key_ptr.*);
+                        if (prov.out_sets.items[pi].get(e.key_ptr.*) == null) rm.append(e.key_ptr.*) catch return JsEmitError.OutOfMemory;
                     }
                     for (rm.items) |slot| _ = tmp.remove(slot);
                 }
             }
             if (first_pred) tmp.clearRetainingCapacity();
-            if (!provSetEq(&in_sets.items[bi], &tmp)) {
-                in_sets.items[bi].clearRetainingCapacity();
+            if (!provSetEq(&prov.in_sets.items[bi], &tmp)) {
+                prov.in_sets.items[bi].clearRetainingCapacity();
                 var tit = tmp.iterator();
-                while (tit.next()) |e| try in_sets.items[bi].put(e.key_ptr.*, {});
+                while (tit.next()) |e| prov.in_sets.items[bi].put(e.key_ptr.*, {}) catch return JsEmitError.OutOfMemory;
                 changed = true;
             }
-            try provTransfer(allocator, verified.symbols, fsig, use_global, verified.annotated, blk.start, blk.end, &in_sets.items[bi], &out_sets.items[bi]);
+            try provTransfer(allocator, verified.symbols, fsig, use_global, verified.annotated, blk.start, blk.end, &prov.in_sets.items[bi], &prov.out_sets.items[bi], retbase);
         }
         if (!changed) break;
     }
+    return prov;
+}
+
+/// True iff every `return` in the body returns a slot proven to hold an
+/// owned heap base (replaying the block transfer up to each return).
+fn provMustReturnBase(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    fsig: sig.FunctionSig,
+    use_global: bool,
+    task: FuncTask,
+    prov: *const ProvBody,
+    retbase: *const RetBaseTable,
+) JsEmitError!bool {
+    _ = task;
+    var found = false;
+    for (prov.blocks.items, 0..) |blk, bi| {
+        var k: usize = blk.start;
+        while (k < blk.end) : (k += 1) {
+            const base = verified.annotated[k].base;
+            if (base.kind != .return_) continue;
+            found = true;
+            var tmp = BaseSet.init(allocator);
+            defer tmp.deinit();
+            try provTransfer(allocator, verified.symbols, fsig, use_global, verified.annotated, blk.start, k, &prov.in_sets.items[bi], &tmp, retbase);
+            const ok = if (provSlotOf(fsig, use_global, base.operands[0])) |slot| tmp.get(slot) != null else false;
+            if (!ok) return false;
+        }
+    }
+    return found;
+}
+
+fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, task: FuncTask, const_addrs: anytype, fn_idx: anytype, js_opt: JsEmitOptions, retbase: *const RetBaseTable) !void {    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
+    // Map label symbol id -> pc number. Entry (before first label) is pc 0.
+    var label_pc = std.AutoHashMap(u32, usize).init(allocator);
+    defer label_pc.deinit();
+    var pcs: usize = 1; // next free pc
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        if (base.kind == .label) {
+            const lid: u32 = switch (base.operands[1]) {
+                .label => |v| v,
+                .symbol => |v| v,
+                else => continue,
+            };
+            if (label_pc.get(lid) == null) {
+                try label_pc.put(lid, pcs);
+                pcs += 1;
+            }
+        }
+    }
+    // Owned-base provenance for `release` lowering (see provSolveBody).
+    var bases = BaseSet.init(allocator);
+    defer bases.deinit();
+    var prov = try provSolveBody(allocator, verified, fsig, use_global, task, retbase);
+    defer prov.deinit();
     // If no labels at all, emit straight-line body without pc machine.
     if (pcs == 1) {
         i = task.start_idx + 1;
         while (i < task.end_idx) : (i += 1) {
-            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases);
+            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase);
         }
         return;
     }
@@ -1412,8 +1489,8 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             // Join point: load the fixpoint IN set for this block (sound on
             // every path); unknown labels fall back to empty (safe).
             bases.clearRetainingCapacity();
-            if (lid_to_blk.get(lid)) |tbi| {
-                var iit = in_sets.items[tbi].iterator();
+            if (prov.lid_to_blk.get(lid)) |tbi| {
+                var iit = prov.in_sets.items[tbi].iterator();
                 while (iit.next()) |e| try bases.put(e.key_ptr.*, {});
             }
             // A preceding jmp/br/return already leaves the case; skip the
@@ -1426,13 +1503,13 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             prev_terminates = false;
             continue;
         }
-        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases);
+        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase);
         prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .return_;
     }
     try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");
 }
 
-fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, js_opt: JsEmitOptions) !void {
+fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, js_opt: JsEmitOptions, retbase: *const RetBaseTable) !void {
     const fsig = verified.function_sigs[task.fsig_index];
     if (task.kind == .extern_decl) {
         // Known sa_std IO shims live in the emitter (NOT in sa_std): they only
@@ -1588,7 +1665,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             }
         }
     }
-    try emitBodyAsPcMachine(writer, allocator, verified, fsig, task, const_addrs, fn_idx, js_opt);
+    try emitBodyAsPcMachine(writer, allocator, verified, fsig, task, const_addrs, fn_idx, js_opt, retbase);
     try writer.writeAll("}\n");
 }
 
@@ -1676,17 +1753,41 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     }
     const tasks = try collectFuncTasks(allocator, verified);
     defer allocator.free(tasks);
+    // Must-return-base summary (increasing fixpoint from empty, hence sound
+    // for recursion): lets callers of factory functions keep base provenance
+    // instead of leaking every cross-function allocation.
+    var retbase = RetBaseTable.init(allocator);
+    defer retbase.deinit();
+    {
+        var iter: usize = 0;
+        var stable = false;
+        while (!stable and iter < 20) : (iter += 1) {
+            stable = true;
+            for (tasks) |task| {
+                if (task.kind == .extern_decl) continue;
+                const fsig = verified.function_sigs[task.fsig_index];
+                if (retbase.contains(fsig.name)) continue;
+                const ug = taskUsesGlobalRegIds(fsig, verified, task);
+                var prov = try provSolveBody(allocator, verified, fsig, ug, task, &retbase);
+                defer prov.deinit();
+                if (try provMustReturnBase(allocator, verified, fsig, ug, task, &prov, &retbase)) {
+                    try retbase.put(fsig.name, {});
+                    stable = false;
+                }
+            }
+        }
+    }
     var has_main = false;
     for (tasks) |task| {
         if (task.kind == .extern_decl) continue;
-        try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt);
+        try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
         const fsig = verified.function_sigs[task.fsig_index];
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
     // extern stubs (so calls don't ReferenceError; they trap with name)
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
-        try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt);
+        try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
     }
     // exports + main runner
     if (js_opt.format == .cjs) {
