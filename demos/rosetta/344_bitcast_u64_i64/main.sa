@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"344\n"
+
+// 344 - bitcast u64/i64 reinterprets the same 64 bits (large
+// immediates stay u64-typed, so this shape has full native parity).
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    s = bitcast max as i64
+    ok_a = eq s, -1
+    back = bitcast s as u64
+    ok_b = eq back, 18446744073709551615
+    ok = and ok_a, ok_b
+    !max
+    !s
+    !back
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

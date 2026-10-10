@@ -21,7 +21,7 @@ function __sa_num(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
 function __sa_addr(a) { return (typeof a === "bigint") ? Number(BigInt.asUintN(32, a)) : (a | 0); }
 function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
 function __sa_alloc(size) {
-  size = __sa_align((size | 0), 8);
+  size = __sa_align((__sa_num(size) | 0), 8);
   const bucket = __sa_fl[size];
   if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
   const total = (size + 8); // 8-byte header holds the aligned user size
@@ -36,10 +36,10 @@ function __sa_alloc(size) {
 }
 function __sa_free(ptr) {
   // Mirrors the interpreter: only exact live heap bases are recycled.
-  // i64 bigints, i32 values, interior pointers, consts and unknown
-  // addresses are no-ops (never present in __sa_live).
-  if (typeof ptr !== "number") return 0;
-  const p = ptr | 0;
+  // BigInt pointers are normalized to 32-bit addresses first so
+  // 64-bit-typed bases stay freeable; interior pointers, consts and
+  // unknown addresses remain no-ops (never present in __sa_live).
+  const p = __sa_addr(ptr);
   if (!__sa_live.has(p)) return 0;
   __sa_live.delete(p);
   const size = __sa_view.getUint32((p - 8), true);
@@ -63,12 +63,12 @@ function __sa_load_i32(addr) { return __sa_view.getInt32(__sa_addr(addr), true);
 function __sa_load_u32(addr) { return __sa_view.getUint32(__sa_addr(addr), true); }
 function __sa_load_f32(addr) { return __sa_view.getFloat32(__sa_addr(addr), true); }
 function __sa_load_f64(addr) { return __sa_view.getFloat64(__sa_addr(addr), true); }
-function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), v | 0); }
-function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), v | 0); }
-function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), v | 0, true); }
-function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), v | 0, true); }
-function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), v | 0, true); }
-function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), v >>> 0, true); }
+function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), __sa_narrow(v, 8, true)); }
+function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), __sa_narrow(v, 8, false)); }
+function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), __sa_narrow(v, 16, true), true); }
+function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), __sa_narrow(v, 16, false), true); }
+function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), __sa_narrow(v, 32, true), true); }
+function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), __sa_narrow(v, 32, false), true); }
 function __sa_store_f32(addr, v) { __sa_view.setFloat32(__sa_addr(addr), +v, true); }
 function __sa_store_f64(addr, v) { __sa_view.setFloat64(__sa_addr(addr), +v, true); }
 function __sa_load_i64(addr) { return __sa_view.getBigInt64(__sa_addr(addr), true); }
@@ -89,9 +89,9 @@ function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)
 function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
 function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
 function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { if (BigInt(b) === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt(a) / BigInt(b)); } if ((b | 0) === 0) __sa_trap("div by zero"); return (Math.trunc(a / b)) | 0; }
-function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a) / d); } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
+function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a)) / d; } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
 function __sa_srem(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) % BigInt(b)) : ((a % b) | 0); }
-function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a) % d); } return (((a >>> 0) % (b >>> 0)) | 0); }
+function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a)) % d; } return (((a >>> 0) % (b >>> 0)) | 0); }
 function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
 function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
 function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
@@ -121,9 +121,130 @@ function __sa_flt(a, b) { return (((+a) < (+b)) ? 1 : 0); }
 function __sa_fle(a, b) { return (((+a) <= (+b)) ? 1 : 0); }
 function __sa_fgt(a, b) { return (((+a) > (+b)) ? 1 : 0); }
 function __sa_fge(a, b) { return (((+a) >= (+b)) ? 1 : 0); }
-function __sa_cvt(v) { return v; }
+function __sa_narrow(v, bits, signed) {
+  // Narrow any int-domain value to a target width, returned as Number.
+  // BigInt inputs are 64-bit sources; Number inputs are 32-bit (or
+  // smaller) sources. Matches interpreter wrap-around for
+  // trunc/zext/sext/bitcast to widths <= 32.
+  if (typeof v === "bigint") return signed ? Number(BigInt.asIntN(bits, v)) : Number(BigInt.asUintN(bits, v));
+  if (bits === 32) return signed ? (v | 0) : (v >>> 0);
+  if (bits === 1) return (v & 1);
+  const m = Math.pow(2, bits);
+  let r = Math.trunc(+v) % m;
+  if (r < 0) r += m;
+  if (signed && r >= m / 2) r -= m;
+  return r;
+}
+function __sa_wide(v, signed) {
+  // Widen any int-domain value to 64 bits, returned as BigInt.
+  // BigInt inputs are 64-bit sources (modular); Number inputs are
+  // 32-bit sources read with signed/unsigned 32-bit semantics.
+  if (typeof v === "bigint") return signed ? BigInt.asIntN(64, v) : BigInt.asUintN(64, v);
+  if (!Number.isFinite(+v)) return 0n;
+  return signed ? BigInt((+v) | 0) : BigInt((+v) >>> 0);
+}
+function __sa_cvt_trunc_i8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_trunc_i16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_trunc_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_trunc_i32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_trunc_u8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_trunc_u16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_trunc_u32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_trunc_i64(v) { return __sa_wide(v, true); }
+function __sa_cvt_trunc_u64(v) { return __sa_wide(v, false); }
+function __sa_cvt_trunc_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_zext_i8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_zext_i16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_zext_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_zext_i32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_zext_u8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_zext_u16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_zext_u32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_zext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) >>> 0); }
+function __sa_cvt_zext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt((+v) >>> 0); }
+function __sa_cvt_zext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sext_i8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_sext_i16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_sext_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_sext_i32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
+function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
+function __sa_cvt_sext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+function __sa_cvt_uitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+function __sa_cvt_uitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+function __sa_cvt_fptosi_i64(v) {
+  // Truncate toward zero like LLVM fptosi; out-of-range/NaN/Inf
+  // maps to INT64_MIN (x86 cvttsd2si behavior) instead of throwing.
+  const t = Math.trunc(+v);
+  if (!Number.isFinite(t) || t >= 9223372036854775808 || t < -9223372036854775808) return -9223372036854775808n;
+  return BigInt(t);
+}
+function __sa_cvt_fptosi_u64(v) { return BigInt.asUintN(64, __sa_cvt_fptosi_i64(v)); }
+function __sa_cvt_fptosi_i32(v) { return Number(BigInt.asIntN(32, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u32(v) { return Number(BigInt.asUintN(32, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i16(v) { return Number(BigInt.asIntN(16, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u16(v) { return Number(BigInt.asUintN(16, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i8(v) { return Number(BigInt.asIntN(8, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u8(v) { return Number(BigInt.asUintN(8, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i1(v) { return Number(BigInt.asUintN(1, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_ptr(v) { return __sa_addr(__sa_cvt_fptosi_i64(v)); }
+function __sa_cvt_fptrunc_f32(v) { return Math.fround(+v); }
+function __sa_cvt_fpext_f64(v) { return (+v); }
+const __sa_bc_dv = new DataView(new ArrayBuffer(8));
+function __sa_cvt_bitcast_i8(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(8, v)) : ((v << 24) >> 24); }
+function __sa_cvt_bitcast_u8(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(8, v)) : (v & 0xFF); }
+function __sa_cvt_bitcast_i16(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(16, v)) : ((v << 16) >> 16); }
+function __sa_cvt_bitcast_u16(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(16, v)) : (v & 0xFFFF); }
+function __sa_cvt_bitcast_i1(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(1, v)) : (v & 1); }
+function __sa_cvt_bitcast_i32(v) {
+  // Non-integer Numbers are f32-domain values (f64 sources are
+  // rejected by the verifier for 32-bit bitcasts); reinterpret them.
+  if (typeof v === "bigint") return Number(BigInt.asIntN(32, v));
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getInt32(0, true); }
+  return (v | 0);
+}
+function __sa_cvt_bitcast_u32(v) {
+  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getUint32(0, true); }
+  return (v >>> 0);
+}
+function __sa_cvt_bitcast_i64(v) {
+  // Non-integer Numbers are f64-domain values; reinterpret them.
+  // Integer Numbers are immediates (f64-integral bitcasts are a
+  // known edge; use sitofp-produced values only via fptosi).
+  if (typeof v === "bigint") return BigInt.asIntN(64, v);
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return __sa_bc_dv.getBigInt64(0, true); }
+  return BigInt(v);
+}
+function __sa_cvt_bitcast_u64(v) {
+  if (typeof v === "bigint") return BigInt.asUintN(64, v);
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return BigInt.asUintN(64, __sa_bc_dv.getBigInt64(0, true)); }
+  return BigInt(v);
+}
+function __sa_cvt_bitcast_ptr(v) {
+  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+  return (v | 0);
+}
+function __sa_cvt_bitcast_f32(v) {
+  // BigInt/integer inputs are int-domain bits; fractional inputs are
+  // already f32-domain values (f32-to-f32 is identity).
+  if (typeof v === "bigint") { __sa_bc_dv.setUint32(0, Number(BigInt.asUintN(32, v)), true); return __sa_bc_dv.getFloat32(0, true); }
+  if (!Number.isInteger(v)) return (+v);
+  __sa_bc_dv.setInt32(0, v | 0, true); return __sa_bc_dv.getFloat32(0, true);
+}
+function __sa_cvt_bitcast_f64(v) {
+  // Number inputs are always f64-domain here (equal-bits rule keeps
+  // int-domain f64 bitcasts on the BigInt path).
+  if (typeof v === "bigint") { __sa_bc_dv.setBigInt64(0, BigInt.asIntN(64, v), true); return __sa_bc_dv.getFloat64(0, true); }
+  return (+v);
+}
 // ---- end runtime ----
-// source: /content/sa_all/sci/demos/rosetta/81_kv_store/main.sa
+// source: demos/js/81_kv_store/main.sa
 const __sa_ftable = [];
 const C_KEY_ALPHA = 4096; // utf8 (5 bytes)
 __sa_u8.set([97,108,112,104,97], 4096);
@@ -145,11 +266,11 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_ne(r2, 0);
+        r3 = __sa_ne(r2, 0n);
         __pc = (__sa_truthy(r3) ? 2 : 7); break;
       }
       case 2: {
-        r4 = __sa_eq(r0, 0);
+        r4 = __sa_eq(r0, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 4); break;
       }
       case 3: {
@@ -157,7 +278,7 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 4; break;
       }
       case 4: {
-        r5 = __sa_eq(r1, 0);
+        r5 = __sa_eq(r1, 0n);
         __pc = (__sa_truthy(r5) ? 5 : 6); break;
       }
       case 5: {
@@ -170,29 +291,29 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 7; break;
       }
       case 7: {
-        r6 = __sa_salloc(8);
-        r7 = __sa_salloc(8);
-        r8 = __sa_salloc(8);
-        r9 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r6, 0), 0);
-        r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
-        __sa_store_i64(__sa_ptr_add(r7, 0), 1);
-        r11 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        __sa_store_i64(__sa_ptr_add(r8, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r9, 0), r2);
+        r6 = __sa_salloc(8n);
+        r7 = __sa_salloc(8n);
+        r8 = __sa_salloc(8n);
+        r9 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r6, 0n), 0);
+        r10 = __sa_load_i64(__sa_ptr_add(r6, 0n));
+        __sa_store_i64(__sa_ptr_add(r7, 0n), 1);
+        r11 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        __sa_store_i64(__sa_ptr_add(r8, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r9, 0n), r2);
         __pc = 8; break;
       }
       case 8: {
-        r12 = __sa_load_i64(__sa_ptr_add(r8, 0));
-        r13 = __sa_load_i64(__sa_ptr_add(r9, 0));
+        r12 = __sa_load_i64(__sa_ptr_add(r8, 0n));
+        r13 = __sa_load_i64(__sa_ptr_add(r9, 0n));
         r14 = __sa_eq(r13, r10);
         __pc = (__sa_truthy(r14) ? 10 : 9); break;
       }
       case 9: {
         r15 = __sa_ptr_add(r1, r12);
         r16 = __sa_ptr_add(r0, r12);
-        r17 = __sa_load_u8(__sa_ptr_add(r15, 0));
-        __sa_store_u8(__sa_ptr_add(r16, 0), r17);
+        r17 = __sa_load_u8(__sa_ptr_add(r15, 0n));
+        __sa_store_u8(__sa_ptr_add(r16, 0n), r17);
         r18 = __sa_add(r12, r11);
         r19 = __sa_sub(r13, r11);
         /* no-op release: !src_ip */
@@ -201,8 +322,8 @@ export function sa_mem_copy(dst, src, count) {
         /* no-op release: !offset */
         /* no-op release: !remaining */
         /* no-op release: !done */
-        __sa_store_i64(__sa_ptr_add(r8, 0), r18);
-        __sa_store_i64(__sa_ptr_add(r9, 0), r19);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r18);
+        __sa_store_i64(__sa_ptr_add(r9, 0n), r19);
         /* no-op release: !next_offset */
         /* no-op release: !next_remaining */
         __pc = 8; break;
@@ -239,11 +360,11 @@ export function sa_mem_set(dst, val, count) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_ne(r2, 0);
+        r3 = __sa_ne(r2, 0n);
         __pc = (__sa_truthy(r3) ? 2 : 5); break;
       }
       case 2: {
-        r4 = __sa_eq(r0, 0);
+        r4 = __sa_eq(r0, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 4); break;
       }
       case 3: {
@@ -255,35 +376,35 @@ export function sa_mem_set(dst, val, count) {
         __pc = 5; break;
       }
       case 5: {
-        r5 = __sa_salloc(8);
-        r6 = __sa_salloc(8);
-        r7 = __sa_salloc(8);
-        r8 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r5, 0), 0);
-        r9 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        __sa_store_i64(__sa_ptr_add(r6, 0), 1);
-        r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
-        __sa_store_i64(__sa_ptr_add(r7, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r2);
+        r5 = __sa_salloc(8n);
+        r6 = __sa_salloc(8n);
+        r7 = __sa_salloc(8n);
+        r8 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), 0);
+        r9 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        __sa_store_i64(__sa_ptr_add(r6, 0n), 1);
+        r10 = __sa_load_i64(__sa_ptr_add(r6, 0n));
+        __sa_store_i64(__sa_ptr_add(r7, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r2);
         __pc = 6; break;
       }
       case 6: {
-        r11 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r12 = __sa_load_i64(__sa_ptr_add(r8, 0));
+        r11 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r12 = __sa_load_i64(__sa_ptr_add(r8, 0n));
         r13 = __sa_eq(r12, r9);
         __pc = (__sa_truthy(r13) ? 8 : 7); break;
       }
       case 7: {
         r14 = __sa_ptr_add(r0, r11);
-        __sa_store_u8(__sa_ptr_add(r14, 0), r1);
+        __sa_store_u8(__sa_ptr_add(r14, 0n), r1);
         r15 = __sa_add(r11, r10);
         r16 = __sa_sub(r12, r10);
         /* no-op release: !dst_ip */
         /* no-op release: !offset */
         /* no-op release: !remaining */
         /* no-op release: !done */
-        __sa_store_i64(__sa_ptr_add(r7, 0), r15);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r16);
+        __sa_store_i64(__sa_ptr_add(r7, 0n), r15);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r16);
         /* no-op release: !next_offset */
         /* no-op release: !next_remaining */
         __pc = 6; break;
@@ -310,10 +431,10 @@ export function sa_vec_new() {
   __sa_fstack.push([]);
   try {
   let r0 = 0;
-  r0 = __sa_alloc(24);
-  __sa_store_i64(__sa_ptr_add(r0, 0), 0);
-  __sa_store_i64(__sa_ptr_add(r0, 8), 0);
-  __sa_store_i64(__sa_ptr_add(r0, 16), 0);
+  r0 = __sa_alloc(24n);
+  __sa_store_i64(__sa_ptr_add(r0, 0n), 0);
+  __sa_store_i64(__sa_ptr_add(r0, 8n), 0);
+  __sa_store_i64(__sa_ptr_add(r0, 16n), 0);
   return (r0);
   } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
@@ -330,8 +451,8 @@ export function sa_vec_with_capacity(cap, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_alloc(24);
-        r3 = __sa_eq(r1, 0);
+        r2 = __sa_alloc(24n);
+        r3 = __sa_eq(r1, 0n);
         __pc = (__sa_truthy(r3) ? 5 : 2); break;
       }
       case 2: {
@@ -341,8 +462,8 @@ export function sa_vec_with_capacity(cap, elem_size) {
         __pc = (__sa_truthy(r6) ? 3 : 4); break;
       }
       case 3: {
-        r7 = __sa_add(r4, 0);
-        r8 = __sa_add(0, 1);
+        r7 = __sa_add(r4, 0n);
+        r8 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_bytes_ok */
         /* no-op release: !__num_mul_product_bytes_ok */
@@ -350,8 +471,8 @@ export function sa_vec_with_capacity(cap, elem_size) {
         __pc = 6; break;
       }
       case 4: {
-        r7 = __sa_add(0, 0);
-        r8 = __sa_add(0, 0);
+        r7 = __sa_add(0n, 0n);
+        r8 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_bytes_ok */
         /* no-op release: !__num_mul_product_bytes_ok */
@@ -359,8 +480,8 @@ export function sa_vec_with_capacity(cap, elem_size) {
         __pc = 6; break;
       }
       case 5: {
-        r7 = __sa_add(0, 0);
-        r8 = __sa_add(0, 1);
+        r7 = __sa_add(0n, 0n);
+        r8 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_bytes_ok */
         __pc = 6; break;
       }
@@ -372,15 +493,15 @@ export function sa_vec_with_capacity(cap, elem_size) {
         __pc = 8; break;
       }
       case 8: {
-        r9 = __sa_ne(r7, 0);
+        r9 = __sa_ne(r7, 0n);
         __pc = (__sa_truthy(r9) ? 9 : 10); break;
       }
       case 9: {
         r10 = __sa_alloc(r7);
         sa_mem_set(r10, 0, r7);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r10);
-        __sa_store_i64(__sa_ptr_add(r2, 8), r0);
-        __sa_store_i64(__sa_ptr_add(r2, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r10);
+        __sa_store_i64(__sa_ptr_add(r2, 8n), r0);
+        __sa_store_i64(__sa_ptr_add(r2, 16n), 0);
         /* no-op move_: ^buf */
         /* no-op release: !bytes */
         /* no-op release: !bytes_ok */
@@ -389,9 +510,9 @@ export function sa_vec_with_capacity(cap, elem_size) {
         return (r2);
       }
       case 10: {
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r2, 8), r0);
-        __sa_store_i64(__sa_ptr_add(r2, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 8n), r0);
+        __sa_store_i64(__sa_ptr_add(r2, 16n), 0);
         /* no-op release: !bytes */
         /* no-op release: !bytes_ok */
         /* no-op release: !has_bytes */
@@ -416,7 +537,7 @@ export function sa_vec_len(vec) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         /* no-op release: !vec */
         return (r1);
         return __sa_trap("fallthrough end of function");
@@ -438,7 +559,7 @@ export function sa_vec_capacity(vec) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
         /* no-op release: !vec */
         return (r1);
         return __sa_trap("fallthrough end of function");
@@ -460,8 +581,8 @@ export function sa_vec_is_empty(vec) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r2 = __sa_eq(r1, 0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r2 = __sa_eq(r1, 0n);
         r3 = (r2);
         /* no-op release: !len */
         /* no-op release: !vec */
@@ -485,7 +606,7 @@ export function sa_vec_clear(vec) {
         __pc = 1; break;
       }
       case 1: {
-        __sa_store_i64(__sa_ptr_add(r0, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), 0);
         /* no-op release: !vec */
         return 0;
         return __sa_trap("fallthrough end of function");
@@ -508,12 +629,12 @@ export function sa_vec_truncate(vec, new_len) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r3 = __sa_ult(r1, r2);
         __pc = (__sa_truthy(r3) ? 2 : 3); break;
       }
       case 2: {
-        __sa_store_i64(__sa_ptr_add(r0, 16), r1);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r1);
         /* no-op release: !should_shrink */
         /* no-op release: !len */
         /* no-op release: !new_len */
@@ -547,22 +668,22 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 8n));
         r5 = __sa_add(r3, r1);
         r6 = __sa_ult(r5, r3);
         __pc = (__sa_truthy(r6) ? 3 : 2); break;
       }
       case 2: {
-        r7 = __sa_add(r5, 0);
-        r8 = __sa_add(0, 1);
+        r7 = __sa_add(r5, 0n);
+        r8 = __sa_add(0n, 1n);
         /* no-op release: !__num_add_overflow_needed_ok */
         /* no-op release: !__num_add_sum_needed_ok */
         __pc = 4; break;
       }
       case 3: {
-        r7 = __sa_add(0, 0);
-        r8 = __sa_add(0, 0);
+        r7 = __sa_add(0n, 0n);
+        r8 = __sa_add(0n, 0n);
         /* no-op release: !__num_add_overflow_needed_ok */
         /* no-op release: !__num_add_sum_needed_ok */
         __pc = 4; break;
@@ -579,8 +700,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = (__sa_truthy(r9) ? 22 : 7); break;
       }
       case 7: {
-        r10 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r11 = __sa_eq(r2, 0);
+        r10 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r11 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r11) ? 11 : 8); break;
       }
       case 8: {
@@ -590,8 +711,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = (__sa_truthy(r14) ? 9 : 10); break;
       }
       case 9: {
-        r15 = __sa_add(r12, 0);
-        r16 = __sa_add(0, 1);
+        r15 = __sa_add(r12, 0n);
+        r16 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_new_bytes_ok */
         /* no-op release: !__num_mul_product_new_bytes_ok */
@@ -599,8 +720,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = 12; break;
       }
       case 10: {
-        r15 = __sa_add(0, 0);
-        r16 = __sa_add(0, 0);
+        r15 = __sa_add(0n, 0n);
+        r16 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_new_bytes_ok */
         /* no-op release: !__num_mul_product_new_bytes_ok */
@@ -608,8 +729,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = 12; break;
       }
       case 11: {
-        r15 = __sa_add(0, 0);
-        r16 = __sa_add(0, 1);
+        r15 = __sa_add(0n, 0n);
+        r16 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_new_bytes_ok */
         __pc = 12; break;
       }
@@ -623,7 +744,7 @@ export function sa_vec_reserve(vec, additional, elem_size) {
       case 14: {
         r17 = __sa_alloc(r15);
         sa_mem_set(r17, 0, r15);
-        r18 = __sa_eq(r2, 0);
+        r18 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r18) ? 18 : 15); break;
       }
       case 15: {
@@ -633,8 +754,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = (__sa_truthy(r21) ? 16 : 17); break;
       }
       case 16: {
-        r22 = __sa_add(r19, 0);
-        r23 = __sa_add(0, 1);
+        r22 = __sa_add(r19, 0n);
+        r23 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_bytes_ok */
         /* no-op release: !__num_mul_product_copy_bytes_ok */
@@ -642,8 +763,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = 19; break;
       }
       case 17: {
-        r22 = __sa_add(0, 0);
-        r23 = __sa_add(0, 0);
+        r22 = __sa_add(0n, 0n);
+        r23 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_bytes_ok */
         /* no-op release: !__num_mul_product_copy_bytes_ok */
@@ -651,8 +772,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
         __pc = 19; break;
       }
       case 18: {
-        r22 = __sa_add(0, 0);
-        r23 = __sa_add(0, 1);
+        r22 = __sa_add(0n, 0n);
+        r23 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_copy_bytes_ok */
         __pc = 19; break;
       }
@@ -665,8 +786,8 @@ export function sa_vec_reserve(vec, additional, elem_size) {
       }
       case 21: {
         sa_mem_copy(r17, r10, r22);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r17);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r7);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r17);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r7);
         /* no-op release: !copy_bytes_ok */
         /* no-op release: !copy_bytes */
         /* no-op release: !new_bytes_ok */
@@ -712,19 +833,19 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 8));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 8n));
         r6 = __sa_eq(r4, r5);
         __pc = (__sa_truthy(r6) ? 2 : 24); break;
       }
       case 2: {
-        r7 = __sa_eq(r5, 0);
+        r7 = __sa_eq(r5, 0n);
         __pc = (__sa_truthy(r7) ? 3 : 4); break;
       }
       case 3: {
-        r8 = __sa_add(0, 1);
-        r9 = __sa_add(0, 1);
+        r8 = __sa_add(0n, 1n);
+        r9 = __sa_add(0n, 1n);
         __pc = 9; break;
       }
       case 4: {
@@ -733,15 +854,15 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = (__sa_truthy(r11) ? 6 : 5); break;
       }
       case 5: {
-        r8 = __sa_add(r10, 0);
-        r9 = __sa_add(0, 1);
+        r8 = __sa_add(r10, 0n);
+        r9 = __sa_add(0n, 1n);
         /* no-op release: !__num_add_overflow_next_cap_ok */
         /* no-op release: !__num_add_sum_next_cap_ok */
         __pc = 7; break;
       }
       case 6: {
-        r8 = __sa_add(0, 0);
-        r9 = __sa_add(0, 0);
+        r8 = __sa_add(0n, 0n);
+        r9 = __sa_add(0n, 0n);
         /* no-op release: !__num_add_overflow_next_cap_ok */
         /* no-op release: !__num_add_sum_next_cap_ok */
         __pc = 7; break;
@@ -754,7 +875,7 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = 9; break;
       }
       case 9: {
-        r12 = __sa_eq(r2, 0);
+        r12 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r12) ? 13 : 10); break;
       }
       case 10: {
@@ -764,8 +885,8 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = (__sa_truthy(r15) ? 11 : 12); break;
       }
       case 11: {
-        r16 = __sa_add(r13, 0);
-        r17 = __sa_add(0, 1);
+        r16 = __sa_add(r13, 0n);
+        r17 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_next_cap_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_next_cap_bytes_ok */
         /* no-op release: !__num_mul_product_next_cap_bytes_ok */
@@ -773,8 +894,8 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = 14; break;
       }
       case 12: {
-        r16 = __sa_add(0, 0);
-        r17 = __sa_add(0, 0);
+        r16 = __sa_add(0n, 0n);
+        r17 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_next_cap_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_next_cap_bytes_ok */
         /* no-op release: !__num_mul_product_next_cap_bytes_ok */
@@ -782,8 +903,8 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = 14; break;
       }
       case 13: {
-        r16 = __sa_add(0, 0);
-        r17 = __sa_add(0, 1);
+        r16 = __sa_add(0n, 0n);
+        r17 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_next_cap_bytes_ok */
         __pc = 14; break;
       }
@@ -796,7 +917,7 @@ export function sa_vec_push(vec, value, elem_size) {
       }
       case 16: {
         r18 = __sa_alloc(r16);
-        r19 = __sa_eq(r2, 0);
+        r19 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r19) ? 20 : 17); break;
       }
       case 17: {
@@ -806,8 +927,8 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = (__sa_truthy(r22) ? 18 : 19); break;
       }
       case 18: {
-        r23 = __sa_add(r20, 0);
-        r24 = __sa_add(0, 1);
+        r23 = __sa_add(r20, 0n);
+        r24 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_bytes_ok */
         /* no-op release: !__num_mul_product_copy_bytes_ok */
@@ -815,8 +936,8 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = 21; break;
       }
       case 19: {
-        r23 = __sa_add(0, 0);
-        r24 = __sa_add(0, 0);
+        r23 = __sa_add(0n, 0n);
+        r24 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_bytes_ok */
         /* no-op release: !__num_mul_product_copy_bytes_ok */
@@ -824,8 +945,8 @@ export function sa_vec_push(vec, value, elem_size) {
         __pc = 21; break;
       }
       case 20: {
-        r23 = __sa_add(0, 0);
-        r24 = __sa_add(0, 1);
+        r23 = __sa_add(0n, 0n);
+        r24 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_copy_bytes_ok */
         __pc = 21; break;
       }
@@ -838,20 +959,20 @@ export function sa_vec_push(vec, value, elem_size) {
       }
       case 23: {
         sa_mem_copy(r18, r3, r23);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r18);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r8);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r18);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r8);
         __pc = 25; break;
       }
       case 24: {
-        __sa_store_i64(__sa_ptr_add(r0, 0), r3);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r3);
         __pc = 26; break;
       }
       case 25: {
         r25 = __sa_mul(r4, r2);
         r26 = __sa_ptr_add(r18, r25);
-        __sa_store_i64(__sa_ptr_add(r26, 0), r1);
-        r27 = __sa_add(r4, 1);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r27);
+        __sa_store_i64(__sa_ptr_add(r26, 0n), r1);
+        r27 = __sa_add(r4, 1n);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r27);
         /* no-op release: !write_ptr */
         /* no-op release: !write_off */
         /* no-op release: !next_len */
@@ -873,9 +994,9 @@ export function sa_vec_push(vec, value, elem_size) {
       case 26: {
         r25 = __sa_mul(r4, r2);
         r26 = __sa_ptr_add(r3, r25);
-        __sa_store_i64(__sa_ptr_add(r26, 0), r1);
-        r27 = __sa_add(r4, 1);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r27);
+        __sa_store_i64(__sa_ptr_add(r26, 0n), r1);
+        r27 = __sa_add(r4, 1n);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r27);
         /* no-op release: !write_ptr */
         /* no-op release: !write_off */
         /* no-op release: !next_len */
@@ -906,19 +1027,19 @@ export function sa_vec_try_pop(vec, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r3 = __sa_eq(r2, 0);
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r3 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r3) ? 3 : 2); break;
       }
       case 2: {
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r5 = __sa_sub(r2, 1);
-        r6 = __sa_mul(r5, 8);
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r5 = __sa_sub(r2, 1n);
+        r6 = __sa_mul(r5, 8n);
         r7 = __sa_ptr_add(r4, r6);
-        r8 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r9 = __sa_sub(r2, 1);
-        __sa_store_i64(__sa_ptr_add(r1, 0), r8);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r9);
+        r8 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r9 = __sa_sub(r2, 1n);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), r8);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r9);
         /* no-op release: !last_ptr */
         /* no-op release: !last_off */
         /* no-op release: !last_index */
@@ -932,7 +1053,7 @@ export function sa_vec_try_pop(vec, out_value_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r1, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), 0);
         /* no-op release: !len */
         /* no-op release: !empty */
         /* no-op release: !out_value_slot */
@@ -959,27 +1080,27 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r1, 8));
-        r4 = __sa_eq(r3, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r1, 8n));
+        r4 = __sa_eq(r3, 0n);
         __pc = (__sa_truthy(r4) ? 38 : 2); break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 8));
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 8n));
         r7 = __sa_add(r5, r3);
         r8 = __sa_ult(r7, r5);
         __pc = (__sa_truthy(r8) ? 4 : 3); break;
       }
       case 3: {
-        r9 = __sa_add(r7, 0);
-        r10 = __sa_add(0, 1);
+        r9 = __sa_add(r7, 0n);
+        r10 = __sa_add(0n, 1n);
         /* no-op release: !__num_add_overflow_needed_ok */
         /* no-op release: !__num_add_sum_needed_ok */
         __pc = 5; break;
       }
       case 4: {
-        r9 = __sa_add(0, 0);
-        r10 = __sa_add(0, 0);
+        r9 = __sa_add(0n, 0n);
+        r10 = __sa_add(0n, 0n);
         /* no-op release: !__num_add_overflow_needed_ok */
         /* no-op release: !__num_add_sum_needed_ok */
         __pc = 5; break;
@@ -996,8 +1117,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = (__sa_truthy(r11) ? 23 : 8); break;
       }
       case 8: {
-        r12 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r13 = __sa_eq(r2, 0);
+        r12 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r13 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r13) ? 12 : 9); break;
       }
       case 9: {
@@ -1007,8 +1128,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = (__sa_truthy(r16) ? 10 : 11); break;
       }
       case 10: {
-        r17 = __sa_add(r14, 0);
-        r18 = __sa_add(0, 1);
+        r17 = __sa_add(r14, 0n);
+        r18 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_new_bytes_ok */
         /* no-op release: !__num_mul_product_new_bytes_ok */
@@ -1016,8 +1137,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 13; break;
       }
       case 11: {
-        r17 = __sa_add(0, 0);
-        r18 = __sa_add(0, 0);
+        r17 = __sa_add(0n, 0n);
+        r18 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_new_bytes_ok */
         /* no-op release: !__num_mul_product_new_bytes_ok */
@@ -1025,8 +1146,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 13; break;
       }
       case 12: {
-        r17 = __sa_add(0, 0);
-        r18 = __sa_add(0, 1);
+        r17 = __sa_add(0n, 0n);
+        r18 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_new_bytes_ok */
         __pc = 13; break;
       }
@@ -1040,7 +1161,7 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
       case 15: {
         r19 = __sa_alloc(r17);
         sa_mem_set(r19, 0, r17);
-        r20 = __sa_eq(r2, 0);
+        r20 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r20) ? 19 : 16); break;
       }
       case 16: {
@@ -1050,8 +1171,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = (__sa_truthy(r23) ? 17 : 18); break;
       }
       case 17: {
-        r24 = __sa_add(r21, 0);
-        r25 = __sa_add(0, 1);
+        r24 = __sa_add(r21, 0n);
+        r25 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_copy_old_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_old_bytes_ok */
         /* no-op release: !__num_mul_product_copy_old_bytes_ok */
@@ -1059,8 +1180,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 20; break;
       }
       case 18: {
-        r24 = __sa_add(0, 0);
-        r25 = __sa_add(0, 0);
+        r24 = __sa_add(0n, 0n);
+        r25 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_copy_old_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_old_bytes_ok */
         /* no-op release: !__num_mul_product_copy_old_bytes_ok */
@@ -1068,8 +1189,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 20; break;
       }
       case 19: {
-        r24 = __sa_add(0, 0);
-        r25 = __sa_add(0, 1);
+        r24 = __sa_add(0n, 0n);
+        r25 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_copy_old_bytes_ok */
         __pc = 20; break;
       }
@@ -1082,8 +1203,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
       }
       case 22: {
         sa_mem_copy(r19, r12, r24);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r19);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r9);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r19);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r9);
         /* no-op move_: ^new_buf */
         /* no-op release: !copy_old_bytes_ok */
         /* no-op release: !copy_old_bytes */
@@ -1093,9 +1214,9 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 23; break;
       }
       case 23: {
-        r26 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r27 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r28 = __sa_eq(r2, 0);
+        r26 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r27 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r28 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r28) ? 27 : 24); break;
       }
       case 24: {
@@ -1105,8 +1226,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = (__sa_truthy(r31) ? 25 : 26); break;
       }
       case 25: {
-        r32 = __sa_add(r29, 0);
-        r33 = __sa_add(0, 1);
+        r32 = __sa_add(r29, 0n);
+        r33 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_dst_off_ok */
         /* no-op release: !__num_mul_roundtrip_dst_off_ok */
         /* no-op release: !__num_mul_product_dst_off_ok */
@@ -1114,8 +1235,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 28; break;
       }
       case 26: {
-        r32 = __sa_add(0, 0);
-        r33 = __sa_add(0, 0);
+        r32 = __sa_add(0n, 0n);
+        r33 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_dst_off_ok */
         /* no-op release: !__num_mul_roundtrip_dst_off_ok */
         /* no-op release: !__num_mul_product_dst_off_ok */
@@ -1123,8 +1244,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 28; break;
       }
       case 27: {
-        r32 = __sa_add(0, 0);
-        r33 = __sa_add(0, 1);
+        r32 = __sa_add(0n, 0n);
+        r33 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_dst_off_ok */
         __pc = 28; break;
       }
@@ -1137,7 +1258,7 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
       }
       case 30: {
         r34 = __sa_ptr_add(r26, r32);
-        r35 = __sa_eq(r2, 0);
+        r35 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r35) ? 34 : 31); break;
       }
       case 31: {
@@ -1147,8 +1268,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = (__sa_truthy(r38) ? 32 : 33); break;
       }
       case 32: {
-        r39 = __sa_add(r36, 0);
-        r40 = __sa_add(0, 1);
+        r39 = __sa_add(r36, 0n);
+        r40 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_copy_add_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_add_bytes_ok */
         /* no-op release: !__num_mul_product_copy_add_bytes_ok */
@@ -1156,8 +1277,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 35; break;
       }
       case 33: {
-        r39 = __sa_add(0, 0);
-        r40 = __sa_add(0, 0);
+        r39 = __sa_add(0n, 0n);
+        r40 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_copy_add_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_add_bytes_ok */
         /* no-op release: !__num_mul_product_copy_add_bytes_ok */
@@ -1165,8 +1286,8 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
         __pc = 35; break;
       }
       case 34: {
-        r39 = __sa_add(0, 0);
-        r40 = __sa_add(0, 1);
+        r39 = __sa_add(0n, 0n);
+        r40 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_copy_add_bytes_ok */
         __pc = 35; break;
       }
@@ -1179,7 +1300,7 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
       }
       case 37: {
         sa_mem_copy(r34, r27, r39);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r9);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r9);
         /* no-op release: !copy_add_bytes_ok */
         /* no-op release: !copy_add_bytes */
         /* no-op release: !dst_ptr */
@@ -1225,13 +1346,13 @@ export function sa_vec_append(dst_vec, src_vec, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(16);
-        r4 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r5 = __sa_load_i64(__sa_ptr_add(r1, 16));
-        __sa_store_i64(__sa_ptr_add(r3, 0), r4);
-        __sa_store_i64(__sa_ptr_add(r3, 8), r5);
+        r3 = __sa_alloc(16n);
+        r4 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r5 = __sa_load_i64(__sa_ptr_add(r1, 16n));
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r4);
+        __sa_store_i64(__sa_ptr_add(r3, 8n), r5);
         r0 = sa_vec_extend_from_slice(r0, r3, r2);
-        __sa_store_i64(__sa_ptr_add(r1, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 16n), 0);
         __sa_free(r3);
         /* no-op release: !src_ptr */
         /* no-op release: !src_len */
@@ -1259,23 +1380,23 @@ export function sa_vec_try_swap_remove(vec, index, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r4 = __sa_ult(r1, r3);
         __pc = (__sa_truthy(r4) ? 2 : 3); break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_sub(r3, 1);
-        r7 = __sa_mul(r1, 8);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_sub(r3, 1n);
+        r7 = __sa_mul(r1, 8n);
         r8 = __sa_ptr_add(r5, r7);
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
-        r10 = __sa_mul(r6, 8);
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
+        r10 = __sa_mul(r6, 8n);
         r11 = __sa_ptr_add(r5, r10);
-        r12 = __sa_load_i64(__sa_ptr_add(r11, 0));
-        __sa_store_i64(__sa_ptr_add(r8, 0), r12);
-        r13 = __sa_sub(r3, 1);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r9);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r13);
+        r12 = __sa_load_i64(__sa_ptr_add(r11, 0n));
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r12);
+        r13 = __sa_sub(r3, 1n);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r9);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r13);
         /* no-op release: !next_len */
         /* no-op release: !last_value */
         /* no-op release: !last_ptr */
@@ -1293,7 +1414,7 @@ export function sa_vec_try_swap_remove(vec, index, out_value_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !in_bounds */
         /* no-op release: !len */
         /* no-op release: !index */
@@ -1322,39 +1443,39 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r5 = __sa_ult(r1, r4);
         __pc = (__sa_truthy(r5) ? 2 : 7); break;
       }
       case 2: {
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 0n));
         r7 = __sa_mul(r1, r3);
         r8 = __sa_ptr_add(r6, r7);
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
         r10 = __sa_sub(r4, r1);
-        r11 = __sa_sub(r10, 1);
+        r11 = __sa_sub(r10, 1n);
         r12 = __sa_mul(r11, r3);
-        r13 = __sa_eq(r12, 0);
+        r13 = __sa_eq(r12, 0n);
         __pc = (__sa_truthy(r13) ? 6 : 3); break;
       }
       case 3: {
         r14 = __sa_ptr_add(r8, r3);
-        r15 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r15, 0), 0);
+        r15 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r15, 0n), 0);
         __pc = 4; break;
       }
       case 4: {
-        r16 = __sa_load_i64(__sa_ptr_add(r15, 0));
+        r16 = __sa_load_i64(__sa_ptr_add(r15, 0n));
         r17 = __sa_eq(r16, r12);
         __pc = (__sa_truthy(r17) ? 6 : 5); break;
       }
       case 5: {
         r18 = __sa_ptr_add(r14, r16);
         r19 = __sa_ptr_add(r8, r16);
-        r20 = __sa_load_u8(__sa_ptr_add(r18, 0));
-        __sa_store_u8(__sa_ptr_add(r19, 0), r20);
-        r21 = __sa_add(r16, 1);
-        __sa_store_i64(__sa_ptr_add(r15, 0), r21);
+        r20 = __sa_load_u8(__sa_ptr_add(r18, 0n));
+        __sa_store_u8(__sa_ptr_add(r19, 0n), r20);
+        r21 = __sa_add(r16, 1n);
+        __sa_store_i64(__sa_ptr_add(r15, 0n), r21);
         /* no-op release: !next_move_off */
         /* no-op release: !byte */
         /* no-op release: !dst_byte_ptr */
@@ -1364,9 +1485,9 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
         __pc = 4; break;
       }
       case 6: {
-        r22 = __sa_sub(r4, 1);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r9);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r22);
+        r22 = __sa_sub(r4, 1n);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r9);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r22);
         /* no-op release: !next_len */
         /* no-op release: !move_zero */
         /* no-op release: !move_bytes */
@@ -1385,7 +1506,7 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
         return (1);
       }
       case 7: {
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !in_bounds */
         /* no-op release: !len */
         /* no-op release: !elem_size */
@@ -1415,21 +1536,21 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r5 = __sa_ule(r1, r4);
         __pc = (__sa_truthy(r5) ? 2 : 5); break;
       }
       case 2: {
         r6 = __sa_sub(r4, r1);
         r7 = sa_vec_with_capacity(r6, r2);
-        r8 = __sa_eq(r6, 0);
+        r8 = __sa_eq(r6, 0n);
         __pc = (__sa_truthy(r8) ? 4 : 3); break;
       }
       case 3: {
-        r9 = __sa_load_i64(__sa_ptr_add(r0, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r0, 0n));
         r10 = __sa_mul(r1, r2);
         r11 = __sa_ptr_add(r9, r10);
-        r12 = __sa_load_i64(__sa_ptr_add(r7, 0));
+        r12 = __sa_load_i64(__sa_ptr_add(r7, 0n));
         r13 = __sa_mul(r6, r2);
         sa_mem_copy(r12, r11, r13);
         /* no-op release: !copy_bytes */
@@ -1440,9 +1561,9 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
         __pc = 4; break;
       }
       case 4: {
-        __sa_store_i64(__sa_ptr_add(r7, 16), r6);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r1);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r7);
+        __sa_store_i64(__sa_ptr_add(r7, 16n), r6);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r1);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r7);
         /* no-op release: !tail_zero */
         /* no-op release: !tail_len */
         __sa_free(r7);
@@ -1454,7 +1575,7 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
         return (r0);
       }
       case 5: {
-        __sa_store_i64(__sa_ptr_add(r3, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), 0);
         /* no-op release: !in_bounds */
         /* no-op release: !len */
         /* no-op release: !elem_size */
@@ -1482,17 +1603,17 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 8n));
         r5 = __sa_uge(r3, r1);
         __pc = (__sa_truthy(r5) ? 2 : 3); break;
       }
       case 2: {
-        r6 = __sa_add(r3, 0);
+        r6 = __sa_add(r3, 0n);
         __pc = 4; break;
       }
       case 3: {
-        r6 = __sa_add(r1, 0);
+        r6 = __sa_add(r1, 0n);
         __pc = 4; break;
       }
       case 4: {
@@ -1500,12 +1621,12 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = (__sa_truthy(r7) ? 5 : 22); break;
       }
       case 5: {
-        r8 = __sa_eq(r6, 0);
+        r8 = __sa_eq(r6, 0n);
         __pc = (__sa_truthy(r8) ? 6 : 7); break;
       }
       case 6: {
-        __sa_store_i64(__sa_ptr_add(r0, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r0, 8), 0);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), 0);
         /* no-op release: !target_zero */
         /* no-op release: !needs_shrink */
         /* no-op release: !target_cap */
@@ -1517,8 +1638,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         return (r0);
       }
       case 7: {
-        r9 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r10 = __sa_eq(r2, 0);
+        r9 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r10 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r10) ? 11 : 8); break;
       }
       case 8: {
@@ -1528,8 +1649,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = (__sa_truthy(r13) ? 9 : 10); break;
       }
       case 9: {
-        r14 = __sa_add(r11, 0);
-        r15 = __sa_add(0, 1);
+        r14 = __sa_add(r11, 0n);
+        r15 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_shrink_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_shrink_new_bytes_ok */
         /* no-op release: !__num_mul_product_shrink_new_bytes_ok */
@@ -1537,8 +1658,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = 12; break;
       }
       case 10: {
-        r14 = __sa_add(0, 0);
-        r15 = __sa_add(0, 0);
+        r14 = __sa_add(0n, 0n);
+        r15 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_shrink_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_shrink_new_bytes_ok */
         /* no-op release: !__num_mul_product_shrink_new_bytes_ok */
@@ -1546,8 +1667,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = 12; break;
       }
       case 11: {
-        r14 = __sa_add(0, 0);
-        r15 = __sa_add(0, 1);
+        r14 = __sa_add(0n, 0n);
+        r15 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_shrink_new_bytes_ok */
         __pc = 12; break;
       }
@@ -1561,7 +1682,7 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
       case 14: {
         r16 = __sa_alloc(r14);
         sa_mem_set(r16, 0, r14);
-        r17 = __sa_eq(r2, 0);
+        r17 = __sa_eq(r2, 0n);
         __pc = (__sa_truthy(r17) ? 18 : 15); break;
       }
       case 15: {
@@ -1571,8 +1692,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = (__sa_truthy(r20) ? 16 : 17); break;
       }
       case 16: {
-        r21 = __sa_add(r18, 0);
-        r22 = __sa_add(0, 1);
+        r21 = __sa_add(r18, 0n);
+        r22 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_shrink_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_shrink_copy_bytes_ok */
         /* no-op release: !__num_mul_product_shrink_copy_bytes_ok */
@@ -1580,8 +1701,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = 19; break;
       }
       case 17: {
-        r21 = __sa_add(0, 0);
-        r22 = __sa_add(0, 0);
+        r21 = __sa_add(0n, 0n);
+        r22 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_shrink_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_shrink_copy_bytes_ok */
         /* no-op release: !__num_mul_product_shrink_copy_bytes_ok */
@@ -1589,8 +1710,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
         __pc = 19; break;
       }
       case 18: {
-        r21 = __sa_add(0, 0);
-        r22 = __sa_add(0, 1);
+        r21 = __sa_add(0n, 0n);
+        r22 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_shrink_copy_bytes_ok */
         __pc = 19; break;
       }
@@ -1603,8 +1724,8 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
       }
       case 21: {
         sa_mem_copy(r16, r9, r21);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r16);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r6);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r16);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r6);
         /* no-op release: !shrink_copy_bytes_ok */
         /* no-op release: !copy_bytes */
         /* no-op release: !shrink_new_bytes_ok */
@@ -1650,7 +1771,7 @@ export function sa_vec_shrink_to_fit(vec, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r0 = sa_vec_shrink_to(r0, r2, r1);
         /* no-op release: !len */
         return (r0);
@@ -1676,12 +1797,12 @@ export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r5 = __sa_ule(r1, r4);
         __pc = (__sa_truthy(r5) ? 2 : 3); break;
       }
       case 2: {
-        __sa_store_i64(__sa_ptr_add(r0, 16), r1);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r1);
         /* no-op release: !should_shrink */
         /* no-op release: !len */
         /* no-op release: !fill_value */
@@ -1692,19 +1813,19 @@ export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
       case 3: {
         r6 = __sa_sub(r1, r4);
         r0 = sa_vec_reserve(r0, r6, r3);
-        r7 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r7, 0), r6);
+        r7 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r7, 0n), r6);
         __pc = 4; break;
       }
       case 4: {
-        r8 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r9 = __sa_eq(r8, 0);
+        r8 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r9 = __sa_eq(r8, 0n);
         __pc = (__sa_truthy(r9) ? 6 : 5); break;
       }
       case 5: {
         r0 = sa_vec_push(r0, r2, r3);
-        r10 = __sa_sub(r8, 1);
-        __sa_store_i64(__sa_ptr_add(r7, 0), r10);
+        r10 = __sa_sub(r8, 1n);
+        __sa_store_i64(__sa_ptr_add(r7, 0n), r10);
         /* no-op release: !next_remaining */
         /* no-op release: !done */
         /* no-op release: !remaining */
@@ -1732,7 +1853,7 @@ export function sa_vec_free(vec) {
   try {
   let r0 = 0, r1 = 0;
   r0 = vec;
-  r1 = __sa_load_i64(__sa_ptr_add(r0, 0));
+  r1 = __sa_load_i64(__sa_ptr_add(r0, 0n));
   /* no-op release: !inner_ptr */
   /* no-op release: !vec */
   return 0;
@@ -1774,8 +1895,8 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r4 = __sa_load_i64(__sa_ptr_add(r1, 8));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r4 = __sa_load_i64(__sa_ptr_add(r1, 8n));
         r5 = __sa_eq(r2, r3);
         __pc = (__sa_truthy(r5) ? 8 : 2); break;
       }
@@ -1784,12 +1905,12 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         __pc = (__sa_truthy(r6) ? 9 : 3); break;
       }
       case 3: {
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r8 = __sa_load_i64(__sa_ptr_add(r1, 0));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r8 = __sa_load_i64(__sa_ptr_add(r1, 0n));
         r9 = __sa_ptr_add(r7, r2);
         r10 = __sa_ptr_add(r8, r2);
-        r11 = __sa_load_u8(__sa_ptr_add(r9, 0));
-        r12 = __sa_load_u8(__sa_ptr_add(r10, 0));
+        r11 = __sa_load_u8(__sa_ptr_add(r9, 0n));
+        r12 = __sa_load_u8(__sa_ptr_add(r10, 0n));
         r13 = __sa_ult(r11, r12);
         __pc = (__sa_truthy(r13) ? 6 : 4); break;
       }
@@ -1798,7 +1919,7 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         __pc = (__sa_truthy(r14) ? 7 : 5); break;
       }
       case 5: {
-        r15 = __sa_add(r2, 1);
+        r15 = __sa_add(r2, 1n);
         r16 = btree_map_entry_cmp_at(r0, r1, r15);
         /* no-op release: !next_idx */
         /* no-op release: !lhs_lt */
@@ -1816,7 +1937,7 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         return (r16);
       }
       case 6: {
-        r17 = __sa_sub(0, 1);
+        r17 = __sa_sub(0n, 1n);
         /* no-op release: !lhs_lt */
         /* no-op release: !rhs_byte */
         /* no-op release: !lhs_byte */
@@ -1832,7 +1953,7 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         return (r17);
       }
       case 7: {
-        r17 = __sa_add(0, 1);
+        r17 = __sa_add(0n, 1n);
         /* no-op release: !lhs_lt */
         /* no-op release: !rhs_byte */
         /* no-op release: !lhs_byte */
@@ -1852,7 +1973,7 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         __pc = (__sa_truthy(r18) ? 11 : 10); break;
       }
       case 9: {
-        r17 = __sa_add(0, 1);
+        r17 = __sa_add(0n, 1n);
         /* no-op release: !rhs_done */
         /* no-op release: !lhs_done */
         /* no-op release: !idx */
@@ -1863,7 +1984,7 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
         return (r17);
       }
       case 10: {
-        r17 = __sa_sub(0, 1);
+        r17 = __sa_sub(0n, 1n);
         /* no-op release: !rhs_done2 */
         /* no-op release: !lhs_done */
         /* no-op release: !idx */
@@ -1905,8 +2026,8 @@ export function btree_map_find(entries, len, key, out_index, out_found) {
         __pc = 1; break;
       }
       case 1: {
-        __sa_store_i64(__sa_ptr_add(r3, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         btree_map_find_at(r0, r1, r2, 0, r3, r4);
         /* no-op release: !out_found */
         /* no-op release: !out_index */
@@ -1942,18 +2063,18 @@ export function btree_map_find_at(entries, len, key, idx, out_index, out_found) 
         __pc = (__sa_truthy(r6) ? 7 : 2); break;
       }
       case 2: {
-        r7 = __sa_mul(r3, 24);
+        r7 = __sa_mul(r3, 24n);
         r8 = __sa_ptr_add(r0, r7);
         r9 = btree_map_entry_cmp(r8, r2);
-        r10 = __sa_eq(r9, 0);
+        r10 = __sa_eq(r9, 0n);
         __pc = (__sa_truthy(r10) ? 5 : 3); break;
       }
       case 3: {
-        r11 = __sa_sgt(r9, 0);
+        r11 = __sa_sgt(r9, 0n);
         __pc = (__sa_truthy(r11) ? 6 : 4); break;
       }
       case 4: {
-        r12 = __sa_add(r3, 1);
+        r12 = __sa_add(r3, 1n);
         btree_map_find_at(r0, r1, r2, r12, r4, r5);
         /* no-op release: !next_idx */
         /* no-op release: !is_equal */
@@ -1970,8 +2091,8 @@ export function btree_map_find_at(entries, len, key, idx, out_index, out_found) 
         return 0;
       }
       case 5: {
-        __sa_store_i64(__sa_ptr_add(r4, 0), r3);
-        __sa_store_i64(__sa_ptr_add(r5, 0), 1);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r3);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), 1);
         /* no-op release: !is_equal */
         /* no-op release: !cmp */
         /* no-op release: !entry */
@@ -1986,7 +2107,7 @@ export function btree_map_find_at(entries, len, key, idx, out_index, out_found) 
         return 0;
       }
       case 6: {
-        __sa_store_i64(__sa_ptr_add(r4, 0), r3);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r3);
         /* no-op release: !is_equal */
         /* no-op release: !cmp */
         /* no-op release: !entry */
@@ -2001,7 +2122,7 @@ export function btree_map_find_at(entries, len, key, idx, out_index, out_found) 
         return 0;
       }
       case 7: {
-        __sa_store_i64(__sa_ptr_add(r4, 0), r1);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r1);
         /* no-op release: !done */
         /* no-op release: !len */
         /* no-op release: !key */
@@ -2035,32 +2156,32 @@ export function btree_map_hash_entries_str_u64(hasher, entries, len, idx) {
         __pc = (__sa_truthy(r4) ? 6 : 2); break;
       }
       case 2: {
-        r5 = __sa_mul(r3, 24);
+        r5 = __sa_mul(r3, 24n);
         r6 = __sa_ptr_add(r1, r5);
-        r7 = __sa_load_i64(__sa_ptr_add(r6, 16));
-        r8 = __sa_load_i64(__sa_ptr_add(r6, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r6, 8));
-        r10 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r10, 0), 0);
+        r7 = __sa_load_i64(__sa_ptr_add(r6, 16n));
+        r8 = __sa_load_i64(__sa_ptr_add(r6, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r6, 8n));
+        r10 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), 0);
         __pc = 3; break;
       }
       case 3: {
-        r11 = __sa_load_i64(__sa_ptr_add(r10, 0));
+        r11 = __sa_load_i64(__sa_ptr_add(r10, 0n));
         r12 = __sa_eq(r11, r9);
         __pc = (__sa_truthy(r12) ? 5 : 4); break;
       }
       case 4: {
         r13 = __sa_ptr_add(r8, r11);
-        r14 = __sa_load_u8(__sa_ptr_add(r13, 0));
-        r15 = __sa_load_i64(__sa_ptr_add(r0, 0));
+        r14 = __sa_load_u8(__sa_ptr_add(r13, 0n));
+        r15 = __sa_load_i64(__sa_ptr_add(r0, 0n));
         r16 = __sa_bxor(r15, r14);
-        r17 = __sa_mul(r16, 1099511628211);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r17);
+        r17 = __sa_mul(r16, 1099511628211n);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r17);
         /* no-op release: !__hasher_next_hasher */
         /* no-op release: !__hasher_xor_hasher */
         /* no-op release: !__hasher_state_hasher */
-        r18 = __sa_add(r11, 1);
-        __sa_store_i64(__sa_ptr_add(r10, 0), r18);
+        r18 = __sa_add(r11, 1n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), r18);
         /* no-op release: !__hasher_bytes_next_hasher */
         /* no-op release: !__hasher_bytes_value_hasher */
         /* no-op release: !__hasher_bytes_item_hasher */
@@ -2073,21 +2194,21 @@ export function btree_map_hash_entries_str_u64(hasher, entries, len, idx) {
         /* no-op release: !__hasher_bytes_idx_hasher */
         /* no-op release: !__hasher_bytes_len_hasher */
         /* no-op release: !__hasher_bytes_ptr_hasher */
-        r15 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r16 = __sa_bxor(r15, 255);
-        r17 = __sa_mul(r16, 1099511628211);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r17);
+        r15 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r16 = __sa_bxor(r15, 255n);
+        r17 = __sa_mul(r16, 1099511628211n);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r17);
         /* no-op release: !__hasher_next_hasher */
         /* no-op release: !__hasher_xor_hasher */
         /* no-op release: !__hasher_state_hasher */
-        r15 = __sa_load_i64(__sa_ptr_add(r0, 0));
+        r15 = __sa_load_i64(__sa_ptr_add(r0, 0n));
         r16 = __sa_bxor(r15, r7);
-        r17 = __sa_mul(r16, 1099511628211);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r17);
+        r17 = __sa_mul(r16, 1099511628211n);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r17);
         /* no-op release: !__hasher_next_hasher */
         /* no-op release: !__hasher_xor_hasher */
         /* no-op release: !__hasher_state_hasher */
-        r19 = __sa_add(r3, 1);
+        r19 = __sa_add(r3, 1n);
         btree_map_hash_entries_str_u64(r0, r1, r2, r19);
         /* no-op release: !next_idx */
         /* no-op release: !value */
@@ -2127,12 +2248,12 @@ export function btree_map_write_hash_str_u64(hasher, map) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r1, 16));
-        r3 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
+        r2 = __sa_load_i64(__sa_ptr_add(r1, 16n));
+        r3 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 0n));
         r5 = __sa_bxor(r4, r2);
-        r6 = __sa_mul(r5, 1099511628211);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r6);
+        r6 = __sa_mul(r5, 1099511628211n);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r6);
         /* no-op release: !__hasher_next_hasher */
         /* no-op release: !__hasher_xor_hasher */
         /* no-op release: !__hasher_state_hasher */
@@ -2161,23 +2282,23 @@ export function btree_map_grow(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r4 = __sa_add(r2, r2);
         r5 = __sa_ult(r4, r2);
         __pc = (__sa_truthy(r5) ? 3 : 2); break;
       }
       case 2: {
-        r6 = __sa_add(r4, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(r4, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_add_overflow_next_cap_ok */
         /* no-op release: !__num_add_sum_next_cap_ok */
         __pc = 4; break;
       }
       case 3: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 0);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 0n);
         /* no-op release: !__num_add_overflow_next_cap_ok */
         /* no-op release: !__num_add_sum_next_cap_ok */
         __pc = 4; break;
@@ -2190,18 +2311,18 @@ export function btree_map_grow(map) {
         __pc = 6; break;
       }
       case 6: {
-        r8 = __sa_eq(24, 0);
+        r8 = __sa_eq(24n, 0n);
         __pc = (__sa_truthy(r8) ? 10 : 7); break;
       }
       case 7: {
-        r9 = __sa_mul(r3, 24);
-        r10 = __sa_udiv(r9, 24);
+        r9 = __sa_mul(r3, 24n);
+        r10 = __sa_udiv(r9, 24n);
         r11 = __sa_eq(r10, r3);
         __pc = (__sa_truthy(r11) ? 8 : 9); break;
       }
       case 8: {
-        r12 = __sa_add(r9, 0);
-        r13 = __sa_add(0, 1);
+        r12 = __sa_add(r9, 0n);
+        r13 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_bytes_ok */
         /* no-op release: !__num_mul_product_copy_bytes_ok */
@@ -2209,8 +2330,8 @@ export function btree_map_grow(map) {
         __pc = 11; break;
       }
       case 9: {
-        r12 = __sa_add(0, 0);
-        r13 = __sa_add(0, 0);
+        r12 = __sa_add(0n, 0n);
+        r13 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_copy_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_copy_bytes_ok */
         /* no-op release: !__num_mul_product_copy_bytes_ok */
@@ -2218,8 +2339,8 @@ export function btree_map_grow(map) {
         __pc = 11; break;
       }
       case 10: {
-        r12 = __sa_add(0, 0);
-        r13 = __sa_add(0, 1);
+        r12 = __sa_add(0n, 0n);
+        r13 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_copy_bytes_ok */
         __pc = 11; break;
       }
@@ -2231,18 +2352,18 @@ export function btree_map_grow(map) {
         __pc = 13; break;
       }
       case 13: {
-        r14 = __sa_eq(24, 0);
+        r14 = __sa_eq(24n, 0n);
         __pc = (__sa_truthy(r14) ? 17 : 14); break;
       }
       case 14: {
-        r15 = __sa_mul(r6, 24);
-        r16 = __sa_udiv(r15, 24);
+        r15 = __sa_mul(r6, 24n);
+        r16 = __sa_udiv(r15, 24n);
         r17 = __sa_eq(r16, r6);
         __pc = (__sa_truthy(r17) ? 15 : 16); break;
       }
       case 15: {
-        r18 = __sa_add(r15, 0);
-        r19 = __sa_add(0, 1);
+        r18 = __sa_add(r15, 0n);
+        r19 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_new_bytes_ok */
         /* no-op release: !__num_mul_product_new_bytes_ok */
@@ -2250,8 +2371,8 @@ export function btree_map_grow(map) {
         __pc = 18; break;
       }
       case 16: {
-        r18 = __sa_add(0, 0);
-        r19 = __sa_add(0, 0);
+        r18 = __sa_add(0n, 0n);
+        r19 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_new_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_new_bytes_ok */
         /* no-op release: !__num_mul_product_new_bytes_ok */
@@ -2259,8 +2380,8 @@ export function btree_map_grow(map) {
         __pc = 18; break;
       }
       case 17: {
-        r18 = __sa_add(0, 0);
-        r19 = __sa_add(0, 1);
+        r18 = __sa_add(0n, 0n);
+        r19 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_new_bytes_ok */
         __pc = 18; break;
       }
@@ -2274,8 +2395,8 @@ export function btree_map_grow(map) {
       case 20: {
         r20 = __sa_alloc(r18);
         sa_mem_copy(r20, r1, r12);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r20);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r6);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r20);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r6);
         /* no-op release: !new_bytes_ok */
         /* no-op release: !copy_bytes_ok */
         /* no-op release: !next_cap_ok */
@@ -2306,13 +2427,13 @@ export function sa_btree_map_new() {
         __pc = 1; break;
       }
       case 1: {
-        r0 = __sa_alloc(24);
-        r1 = __sa_mul(8, 24);
+        r0 = __sa_alloc(24n);
+        r1 = __sa_mul(8n, 24n);
         r2 = __sa_alloc(r1);
         sa_mem_set(r2, 0, r1);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r2);
-        __sa_store_i64(__sa_ptr_add(r0, 8), 8);
-        __sa_store_i64(__sa_ptr_add(r0, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r2);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), 8);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), 0);
         /* no-op release: !initial_bytes */
         /* no-op move_: ^entries */
         return (r0);
@@ -2335,7 +2456,7 @@ export function sa_btree_map_free(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 0));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 0n));
         /* no-op release: !entries */
         /* no-op release: !map */
         return 0;
@@ -2358,7 +2479,7 @@ export function sa_btree_map_len(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         /* no-op release: !map */
         return (r1);
         return __sa_trap("fallthrough end of function");
@@ -2380,8 +2501,8 @@ export function sa_btree_map_is_empty(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r2 = __sa_eq(r1, 0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r2 = __sa_eq(r1, 0n);
         r3 = (r2);
         /* no-op release: !len */
         /* no-op release: !map */
@@ -2406,13 +2527,13 @@ export function sa_btree_map_contains_key(map, key) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_salloc(8);
-        r3 = __sa_salloc(8);
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_salloc(8n);
+        r3 = __sa_salloc(8n);
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r4, r5, r1, r2, r3);
-        r6 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r7 = __sa_ne(r6, 0);
+        r6 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r7 = __sa_ne(r6, 0n);
         r8 = (r7);
         /* no-op release: !found */
         /* no-op release: !len */
@@ -2439,20 +2560,20 @@ export function sa_btree_map_clear(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r3 = __sa_eq(24, 0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r3 = __sa_eq(24n, 0n);
         __pc = (__sa_truthy(r3) ? 5 : 2); break;
       }
       case 2: {
-        r4 = __sa_mul(r2, 24);
-        r5 = __sa_udiv(r4, 24);
+        r4 = __sa_mul(r2, 24n);
+        r5 = __sa_udiv(r4, 24n);
         r6 = __sa_eq(r5, r2);
         __pc = (__sa_truthy(r6) ? 3 : 4); break;
       }
       case 3: {
-        r7 = __sa_add(r4, 0);
-        r8 = __sa_add(0, 1);
+        r7 = __sa_add(r4, 0n);
+        r8 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_clear_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_clear_bytes_ok */
         /* no-op release: !__num_mul_product_clear_bytes_ok */
@@ -2460,8 +2581,8 @@ export function sa_btree_map_clear(map) {
         __pc = 6; break;
       }
       case 4: {
-        r7 = __sa_add(0, 0);
-        r8 = __sa_add(0, 0);
+        r7 = __sa_add(0n, 0n);
+        r8 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_clear_bytes_ok */
         /* no-op release: !__num_mul_roundtrip_clear_bytes_ok */
         /* no-op release: !__num_mul_product_clear_bytes_ok */
@@ -2469,8 +2590,8 @@ export function sa_btree_map_clear(map) {
         __pc = 6; break;
       }
       case 5: {
-        r7 = __sa_add(0, 0);
-        r8 = __sa_add(0, 1);
+        r7 = __sa_add(0n, 0n);
+        r8 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_clear_bytes_ok */
         __pc = 6; break;
       }
@@ -2482,7 +2603,7 @@ export function sa_btree_map_clear(map) {
         __pc = 8; break;
       }
       case 8: {
-        r9 = __sa_ne(r1, 0);
+        r9 = __sa_ne(r1, 0n);
         __pc = (__sa_truthy(r9) ? 9 : 10); break;
       }
       case 9: {
@@ -2490,7 +2611,7 @@ export function sa_btree_map_clear(map) {
         __pc = 10; break;
       }
       case 10: {
-        __sa_store_i64(__sa_ptr_add(r0, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), 0);
         /* no-op release: !clear_bytes_ok */
         /* no-op release: !bytes */
         /* no-op release: !has_entries */
@@ -2518,46 +2639,46 @@ export function sa_btree_map_remove(map, key) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_salloc(8);
-        r3 = __sa_salloc(8);
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_salloc(8n);
+        r3 = __sa_salloc(8n);
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r4, r5, r1, r2, r3);
-        r6 = __sa_load_i64(__sa_ptr_add(r2, 0));
-        r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = __sa_ne(r7, 0);
+        r6 = __sa_load_i64(__sa_ptr_add(r2, 0n));
+        r7 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r8 = __sa_ne(r7, 0n);
         __pc = (__sa_truthy(r8) ? 2 : 6); break;
       }
       case 2: {
-        r9 = __sa_mul(r6, 24);
+        r9 = __sa_mul(r6, 24n);
         r10 = __sa_ptr_add(r4, r9);
-        r11 = __sa_load_i64(__sa_ptr_add(r10, 16));
-        r12 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r12, 0), r11);
-        r13 = __sa_sub(r5, 1);
-        r14 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r14, 0), r6);
+        r11 = __sa_load_i64(__sa_ptr_add(r10, 16n));
+        r12 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r12, 0n), r11);
+        r13 = __sa_sub(r5, 1n);
+        r14 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r14, 0n), r6);
         __pc = 3; break;
       }
       case 3: {
-        r15 = __sa_load_i64(__sa_ptr_add(r14, 0));
+        r15 = __sa_load_i64(__sa_ptr_add(r14, 0n));
         r16 = __sa_ult(r15, r13);
         __pc = (__sa_truthy(r16) ? 4 : 5); break;
       }
       case 4: {
-        r17 = __sa_add(r15, 1);
-        r18 = __sa_mul(r17, 24);
-        r19 = __sa_mul(r15, 24);
+        r17 = __sa_add(r15, 1n);
+        r18 = __sa_mul(r17, 24n);
+        r19 = __sa_mul(r15, 24n);
         r20 = __sa_ptr_add(r4, r18);
         r21 = __sa_ptr_add(r4, r19);
-        r22 = __sa_load_i64(__sa_ptr_add(r20, 0));
-        r23 = __sa_load_i64(__sa_ptr_add(r20, 8));
-        r24 = __sa_load_i64(__sa_ptr_add(r20, 16));
-        __sa_store_i64(__sa_ptr_add(r21, 0), r22);
-        __sa_store_i64(__sa_ptr_add(r21, 8), r23);
-        __sa_store_i64(__sa_ptr_add(r21, 16), r24);
-        r25 = __sa_add(r15, 1);
-        __sa_store_i64(__sa_ptr_add(r14, 0), r25);
+        r22 = __sa_load_i64(__sa_ptr_add(r20, 0n));
+        r23 = __sa_load_i64(__sa_ptr_add(r20, 8n));
+        r24 = __sa_load_i64(__sa_ptr_add(r20, 16n));
+        __sa_store_i64(__sa_ptr_add(r21, 0n), r22);
+        __sa_store_i64(__sa_ptr_add(r21, 8n), r23);
+        __sa_store_i64(__sa_ptr_add(r21, 16n), r24);
+        r25 = __sa_add(r15, 1n);
+        __sa_store_i64(__sa_ptr_add(r14, 0n), r25);
         /* no-op release: !src_value */
         /* no-op release: !src_key_len */
         /* no-op release: !src_key_ptr */
@@ -2572,13 +2693,13 @@ export function sa_btree_map_remove(map, key) {
         __pc = 3; break;
       }
       case 5: {
-        r26 = __sa_mul(r13, 24);
+        r26 = __sa_mul(r13, 24n);
         r27 = __sa_ptr_add(r4, r26);
-        __sa_store_i64(__sa_ptr_add(r27, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r27, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r27, 16), 0);
-        r28 = __sa_sub(r5, 1);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r28);
+        __sa_store_i64(__sa_ptr_add(r27, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r27, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r27, 16n), 0);
+        r28 = __sa_sub(r5, 1n);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r28);
         /* no-op release: !last_entry */
         /* no-op release: !last_off */
         /* no-op release: !next_len */
@@ -2592,7 +2713,7 @@ export function sa_btree_map_remove(map, key) {
         /* no-op release: !entries */
         /* no-op release: !key */
         /* no-op release: !map */
-        r29 = __sa_load_i64(__sa_ptr_add(r12, 0));
+        r29 = __sa_load_i64(__sa_ptr_add(r12, 0n));
         return (r29);
       }
       case 6: {
@@ -2624,22 +2745,22 @@ export function sa_btree_map_get(map, key) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_salloc(8);
-        r3 = __sa_salloc(8);
-        r4 = __sa_add(0, 0);
-        r5 = (0);
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_salloc(8n);
+        r3 = __sa_salloc(8n);
+        r4 = __sa_add(0n, 0n);
+        r5 = (0n);
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r6, r7, r1, r2, r3);
-        r8 = __sa_load_i64(__sa_ptr_add(r2, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r10 = __sa_ne(r9, 0);
+        r8 = __sa_load_i64(__sa_ptr_add(r2, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r10 = __sa_ne(r9, 0n);
         __pc = (__sa_truthy(r10) ? 2 : 3); break;
       }
       case 2: {
-        r4 = __sa_mul(r8, 24);
+        r4 = __sa_mul(r8, 24n);
         r5 = __sa_ptr_add(r6, r4);
-        r11 = __sa_load_i64(__sa_ptr_add(r5, 16));
+        r11 = __sa_load_i64(__sa_ptr_add(r5, 16n));
         /* no-op release: !value_entry */
         /* no-op release: !value_off */
         /* no-op release: !is_found */
@@ -2683,21 +2804,21 @@ export function sa_btree_map_try_get(map, key, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_salloc(8);
-        r4 = __sa_salloc(8);
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r3 = __sa_salloc(8n);
+        r4 = __sa_salloc(8n);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r5, r6, r1, r3, r4);
-        r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = __sa_load_i64(__sa_ptr_add(r4, 0));
-        r9 = __sa_ne(r8, 0);
+        r7 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r8 = __sa_load_i64(__sa_ptr_add(r4, 0n));
+        r9 = __sa_ne(r8, 0n);
         __pc = (__sa_truthy(r9) ? 2 : 3); break;
       }
       case 2: {
-        r10 = __sa_mul(r7, 24);
+        r10 = __sa_mul(r7, 24n);
         r11 = __sa_ptr_add(r5, r10);
-        r12 = __sa_load_i64(__sa_ptr_add(r11, 16));
-        __sa_store_i64(__sa_ptr_add(r2, 0), r12);
+        r12 = __sa_load_i64(__sa_ptr_add(r11, 16n));
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r12);
         /* no-op release: !value */
         /* no-op release: !value_entry */
         /* no-op release: !value_off */
@@ -2712,7 +2833,7 @@ export function sa_btree_map_try_get(map, key, out_value_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !is_found */
         /* no-op release: !found */
         /* no-op release: !find_index */
@@ -2744,25 +2865,25 @@ export function sa_btree_map_try_get_key_value(map, key, out_key, out_value_slot
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_salloc(8);
-        r5 = __sa_salloc(8);
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r4 = __sa_salloc(8n);
+        r5 = __sa_salloc(8n);
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r6, r7, r1, r4, r5);
-        r8 = __sa_load_i64(__sa_ptr_add(r4, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        r10 = __sa_ne(r9, 0);
+        r8 = __sa_load_i64(__sa_ptr_add(r4, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        r10 = __sa_ne(r9, 0n);
         __pc = (__sa_truthy(r10) ? 2 : 3); break;
       }
       case 2: {
-        r11 = __sa_mul(r8, 24);
+        r11 = __sa_mul(r8, 24n);
         r12 = __sa_ptr_add(r6, r11);
-        r13 = __sa_load_i64(__sa_ptr_add(r12, 0));
-        r14 = __sa_load_i64(__sa_ptr_add(r12, 8));
-        r15 = __sa_load_i64(__sa_ptr_add(r12, 16));
-        __sa_store_i64(__sa_ptr_add(r2, 0), r13);
-        __sa_store_i64(__sa_ptr_add(r2, 8), r14);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r15);
+        r13 = __sa_load_i64(__sa_ptr_add(r12, 0n));
+        r14 = __sa_load_i64(__sa_ptr_add(r12, 8n));
+        r15 = __sa_load_i64(__sa_ptr_add(r12, 16n));
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r13);
+        __sa_store_i64(__sa_ptr_add(r2, 8n), r14);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r15);
         /* no-op release: !value */
         /* no-op release: !key_len */
         /* no-op release: !key_ptr */
@@ -2780,9 +2901,9 @@ export function sa_btree_map_try_get_key_value(map, key, out_key, out_value_slot
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r2, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r3, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), 0);
         /* no-op release: !is_found */
         /* no-op release: !found */
         /* no-op release: !find_index */
@@ -2814,21 +2935,21 @@ export function sa_btree_map_get_mut_ptr(map, key, out_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_salloc(8);
-        r4 = __sa_salloc(8);
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r3 = __sa_salloc(8n);
+        r4 = __sa_salloc(8n);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r5, r6, r1, r3, r4);
-        r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = __sa_load_i64(__sa_ptr_add(r4, 0));
-        r9 = __sa_ne(r8, 0);
+        r7 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r8 = __sa_load_i64(__sa_ptr_add(r4, 0n));
+        r9 = __sa_ne(r8, 0n);
         __pc = (__sa_truthy(r9) ? 2 : 3); break;
       }
       case 2: {
-        r10 = __sa_mul(r7, 24);
+        r10 = __sa_mul(r7, 24n);
         r11 = __sa_ptr_add(r5, r10);
-        r12 = __sa_ptr_add(r11, 16);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r12);
+        r12 = __sa_ptr_add(r11, 16n);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r12);
         /* no-op release: !value_ptr */
         /* no-op release: !value_entry */
         /* no-op release: !value_off */
@@ -2843,7 +2964,7 @@ export function sa_btree_map_get_mut_ptr(map, key, out_ptr_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !is_found */
         /* no-op release: !found */
         /* no-op release: !find_index */
@@ -2874,19 +2995,19 @@ export function sa_btree_map_first_entry_mut_ptr(map, out_key, out_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_eq(r3, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_eq(r3, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 2); break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_ptr_add(r5, 0);
-        r7 = __sa_load_i64(__sa_ptr_add(r6, 0));
-        r8 = __sa_load_i64(__sa_ptr_add(r6, 8));
-        r9 = __sa_ptr_add(r6, 16);
-        __sa_store_i64(__sa_ptr_add(r1, 0), r7);
-        __sa_store_i64(__sa_ptr_add(r1, 8), r8);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r9);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_ptr_add(r5, 0n);
+        r7 = __sa_load_i64(__sa_ptr_add(r6, 0n));
+        r8 = __sa_load_i64(__sa_ptr_add(r6, 8n));
+        r9 = __sa_ptr_add(r6, 16n);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), r7);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), r8);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r9);
         /* no-op release: !value_ptr */
         /* no-op release: !key_len */
         /* no-op release: !key_ptr */
@@ -2900,9 +3021,9 @@ export function sa_btree_map_first_entry_mut_ptr(map, out_key, out_ptr_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r1, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r1, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !empty */
         /* no-op release: !len */
         /* no-op release: !out_ptr_slot */
@@ -2930,21 +3051,21 @@ export function sa_btree_map_last_entry_mut_ptr(map, out_key, out_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_eq(r3, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_eq(r3, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 2); break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_sub(r3, 1);
-        r7 = __sa_mul(r6, 24);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_sub(r3, 1n);
+        r7 = __sa_mul(r6, 24n);
         r8 = __sa_ptr_add(r5, r7);
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
-        r10 = __sa_load_i64(__sa_ptr_add(r8, 8));
-        r11 = __sa_ptr_add(r8, 16);
-        __sa_store_i64(__sa_ptr_add(r1, 0), r9);
-        __sa_store_i64(__sa_ptr_add(r1, 8), r10);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r11);
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
+        r10 = __sa_load_i64(__sa_ptr_add(r8, 8n));
+        r11 = __sa_ptr_add(r8, 16n);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), r9);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), r10);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r11);
         /* no-op release: !value_ptr */
         /* no-op release: !key_len */
         /* no-op release: !key_ptr */
@@ -2960,9 +3081,9 @@ export function sa_btree_map_last_entry_mut_ptr(map, out_key, out_ptr_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r1, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r1, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !empty */
         /* no-op release: !len */
         /* no-op release: !out_ptr_slot */
@@ -2993,17 +3114,17 @@ export function sa_btree_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_pt
       }
       case 1: {
         r5 = btree_map_entry_cmp(r1, r2);
-        r6 = __sa_eq(r5, 0);
+        r6 = __sa_eq(r5, 0n);
         __pc = (__sa_truthy(r6) ? 7 : 2); break;
       }
       case 2: {
         r7 = sa_btree_map_get_mut_ptr(r0, r1, r3);
-        r8 = __sa_ne(r7, 0);
+        r8 = __sa_ne(r7, 0n);
         __pc = (__sa_truthy(r8) ? 3 : 6); break;
       }
       case 3: {
         r9 = sa_btree_map_get_mut_ptr(r0, r2, r4);
-        r10 = __sa_ne(r9, 0);
+        r10 = __sa_ne(r9, 0n);
         __pc = (__sa_truthy(r10) ? 4 : 5); break;
       }
       case 4: {
@@ -3021,8 +3142,8 @@ export function sa_btree_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_pt
         return (1);
       }
       case 5: {
-        __sa_store_i64(__sa_ptr_add(r3, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         /* no-op release: !has_b */
         /* no-op release: !found_b */
         /* no-op release: !has_a */
@@ -3037,8 +3158,8 @@ export function sa_btree_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_pt
         return (0);
       }
       case 6: {
-        __sa_store_i64(__sa_ptr_add(r3, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         /* no-op release: !has_a */
         /* no-op release: !found_a */
         /* no-op release: !same_key */
@@ -3051,8 +3172,8 @@ export function sa_btree_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_pt
         return (0);
       }
       case 7: {
-        __sa_store_i64(__sa_ptr_add(r3, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         /* no-op release: !same_key */
         /* no-op release: !key_cmp */
         /* no-op release: !out_ptr_b_slot */
@@ -3082,20 +3203,20 @@ export function sa_btree_map_first_key_value(map, out_key, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_eq(r3, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_eq(r3, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 2); break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_add(0, 0);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_add(0n, 0n);
         r7 = __sa_ptr_add(r5, r6);
-        r8 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r7, 8));
-        r10 = __sa_load_i64(__sa_ptr_add(r7, 16));
-        __sa_store_i64(__sa_ptr_add(r1, 0), r8);
-        __sa_store_i64(__sa_ptr_add(r1, 8), r9);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r10);
+        r8 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r7, 8n));
+        r10 = __sa_load_i64(__sa_ptr_add(r7, 16n));
+        __sa_store_i64(__sa_ptr_add(r1, 0n), r8);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), r9);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r10);
         /* no-op release: !value */
         /* no-op release: !key_len */
         /* no-op release: !key_ptr */
@@ -3110,9 +3231,9 @@ export function sa_btree_map_first_key_value(map, out_key, out_value_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r1, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r1, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !empty */
         /* no-op release: !len */
         /* no-op release: !out_value_slot */
@@ -3140,21 +3261,21 @@ export function sa_btree_map_last_key_value(map, out_key, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_eq(r3, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_eq(r3, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 2); break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_sub(r3, 1);
-        r7 = __sa_mul(r6, 24);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_sub(r3, 1n);
+        r7 = __sa_mul(r6, 24n);
         r8 = __sa_ptr_add(r5, r7);
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
-        r10 = __sa_load_i64(__sa_ptr_add(r8, 8));
-        r11 = __sa_load_i64(__sa_ptr_add(r8, 16));
-        __sa_store_i64(__sa_ptr_add(r1, 0), r9);
-        __sa_store_i64(__sa_ptr_add(r1, 8), r10);
-        __sa_store_i64(__sa_ptr_add(r2, 0), r11);
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
+        r10 = __sa_load_i64(__sa_ptr_add(r8, 8n));
+        r11 = __sa_load_i64(__sa_ptr_add(r8, 16n));
+        __sa_store_i64(__sa_ptr_add(r1, 0n), r9);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), r10);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), r11);
         /* no-op release: !value */
         /* no-op release: !key_len */
         /* no-op release: !key_ptr */
@@ -3170,9 +3291,9 @@ export function sa_btree_map_last_key_value(map, out_key, out_value_slot) {
         return (1);
       }
       case 3: {
-        __sa_store_i64(__sa_ptr_add(r1, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r1, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r2, 0), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), 0);
         /* no-op release: !empty */
         /* no-op release: !len */
         /* no-op release: !out_value_slot */
@@ -3200,20 +3321,20 @@ export function sa_btree_map_insert(map, key, value) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_salloc(8);
-        r4 = __sa_salloc(8);
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r3 = __sa_salloc(8n);
+        r4 = __sa_salloc(8n);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r5, r7, r1, r3, r4);
-        r8 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r8 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         __pc = (__sa_truthy(r9) ? 2 : 3); break;
       }
       case 2: {
-        r10 = __sa_mul(r8, 24);
+        r10 = __sa_mul(r8, 24n);
         r11 = __sa_ptr_add(r5, r10);
-        __sa_store_i64(__sa_ptr_add(r11, 16), r2);
+        __sa_store_i64(__sa_ptr_add(r11, 16n), r2);
         /* no-op release: !update_entry */
         /* no-op release: !update_off */
         /* no-op release: !find_index */
@@ -3243,31 +3364,31 @@ export function sa_btree_map_insert(map, key, value) {
         __pc = 6; break;
       }
       case 6: {
-        r13 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r14 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r15 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r15, 0), r14);
+        r13 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r14 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r15 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r15, 0n), r14);
         __pc = 7; break;
       }
       case 7: {
-        r16 = __sa_load_i64(__sa_ptr_add(r15, 0));
+        r16 = __sa_load_i64(__sa_ptr_add(r15, 0n));
         r17 = __sa_eq(r16, r8);
         __pc = (__sa_truthy(r17) ? 9 : 8); break;
       }
       case 8: {
-        r18 = __sa_sub(r16, 1);
-        r19 = __sa_mul(r18, 24);
-        r20 = __sa_mul(r16, 24);
+        r18 = __sa_sub(r16, 1n);
+        r19 = __sa_mul(r18, 24n);
+        r20 = __sa_mul(r16, 24n);
         r21 = __sa_ptr_add(r13, r19);
         r22 = __sa_ptr_add(r13, r20);
-        r23 = __sa_load_i64(__sa_ptr_add(r21, 0));
-        r24 = __sa_load_i64(__sa_ptr_add(r21, 8));
-        r25 = __sa_load_i64(__sa_ptr_add(r21, 16));
-        __sa_store_i64(__sa_ptr_add(r22, 0), r23);
-        __sa_store_i64(__sa_ptr_add(r22, 8), r24);
-        __sa_store_i64(__sa_ptr_add(r22, 16), r25);
-        r26 = __sa_sub(r16, 1);
-        __sa_store_i64(__sa_ptr_add(r15, 0), r26);
+        r23 = __sa_load_i64(__sa_ptr_add(r21, 0n));
+        r24 = __sa_load_i64(__sa_ptr_add(r21, 8n));
+        r25 = __sa_load_i64(__sa_ptr_add(r21, 16n));
+        __sa_store_i64(__sa_ptr_add(r22, 0n), r23);
+        __sa_store_i64(__sa_ptr_add(r22, 8n), r24);
+        __sa_store_i64(__sa_ptr_add(r22, 16n), r25);
+        r26 = __sa_sub(r16, 1n);
+        __sa_store_i64(__sa_ptr_add(r15, 0n), r26);
         /* no-op release: !prev_idx */
         /* no-op release: !next_shift */
         /* no-op release: !prev_value */
@@ -3282,15 +3403,15 @@ export function sa_btree_map_insert(map, key, value) {
         __pc = 7; break;
       }
       case 9: {
-        r27 = __sa_mul(r8, 24);
+        r27 = __sa_mul(r8, 24n);
         r28 = __sa_ptr_add(r13, r27);
-        r29 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r30 = __sa_load_i64(__sa_ptr_add(r1, 8));
-        __sa_store_i64(__sa_ptr_add(r28, 0), r29);
-        __sa_store_i64(__sa_ptr_add(r28, 8), r30);
-        __sa_store_i64(__sa_ptr_add(r28, 16), r2);
-        r31 = __sa_add(r14, 1);
-        __sa_store_i64(__sa_ptr_add(r0, 16), r31);
+        r29 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r30 = __sa_load_i64(__sa_ptr_add(r1, 8n));
+        __sa_store_i64(__sa_ptr_add(r28, 0n), r29);
+        __sa_store_i64(__sa_ptr_add(r28, 8n), r30);
+        __sa_store_i64(__sa_ptr_add(r28, 16n), r2);
+        r31 = __sa_add(r14, 1n);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r31);
         /* no-op release: !key_len */
         /* no-op release: !key_ptr */
         /* no-op release: !insert_entry */
@@ -3353,14 +3474,14 @@ export function sa_btree_map_try_insert(map, key, value, out_value_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_salloc(8);
+        r4 = __sa_salloc(8n);
         r5 = sa_btree_map_get_mut_ptr(r0, r1, r4);
-        r6 = __sa_ne(r5, 0);
+        r6 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r6) ? 2 : 3); break;
       }
       case 2: {
-        r7 = __sa_load_i64(__sa_ptr_add(r4, 0));
-        __sa_store_i64(__sa_ptr_add(r3, 0), r7);
+        r7 = __sa_load_i64(__sa_ptr_add(r4, 0n));
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r7);
         /* no-op release: !existing_ptr */
         /* no-op release: !exists */
         /* no-op release: !found */
@@ -3373,8 +3494,8 @@ export function sa_btree_map_try_insert(map, key, value, out_value_ptr_slot) {
       case 3: {
         sa_btree_map_insert(r0, r1, r2);
         r8 = sa_btree_map_get_mut_ptr(r0, r1, r4);
-        r9 = __sa_load_i64(__sa_ptr_add(r4, 0));
-        __sa_store_i64(__sa_ptr_add(r3, 0), r9);
+        r9 = __sa_load_i64(__sa_ptr_add(r4, 0n));
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r9);
         /* no-op release: !inserted_ptr */
         /* no-op release: !inserted_found */
         /* no-op release: !exists */
@@ -3404,23 +3525,23 @@ export function sa_btree_map_keys_set(map) {
       }
       case 1: {
         r1 = sa_btree_map_new();
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r5 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         r6 = __sa_eq(r5, r3);
         __pc = (__sa_truthy(r6) ? 4 : 3); break;
       }
       case 3: {
-        r7 = __sa_mul(r5, 24);
+        r7 = __sa_mul(r5, 24n);
         r8 = __sa_ptr_add(r2, r7);
         sa_btree_map_insert(r1, r8, 1);
-        r9 = __sa_add(r5, 1);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r9);
+        r9 = __sa_add(r5, 1n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r9);
         /* no-op release: !next_idx */
         /* no-op release: !entry */
         /* no-op release: !entry_off */
@@ -3454,25 +3575,25 @@ export function sa_btree_map_values_vec(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r2 = sa_vec_with_capacity(r1, 8);
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r5 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         r6 = __sa_eq(r5, r1);
         __pc = (__sa_truthy(r6) ? 4 : 3); break;
       }
       case 3: {
-        r7 = __sa_mul(r5, 24);
+        r7 = __sa_mul(r5, 24n);
         r8 = __sa_ptr_add(r3, r7);
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 16));
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 16n));
         r2 = sa_vec_push(r2, r9, 8);
-        r10 = __sa_add(r5, 1);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r10);
+        r10 = __sa_add(r5, 1n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r10);
         /* no-op release: !next_idx */
         /* no-op release: !value */
         /* no-op release: !entry */
@@ -3507,26 +3628,26 @@ export function sa_btree_map_value_mut_ptrs_vec(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r2 = sa_vec_with_capacity(r1, 8);
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r5 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         r6 = __sa_eq(r5, r1);
         __pc = (__sa_truthy(r6) ? 4 : 3); break;
       }
       case 3: {
-        r7 = __sa_mul(r5, 24);
+        r7 = __sa_mul(r5, 24n);
         r8 = __sa_ptr_add(r3, r7);
-        r9 = __sa_ptr_add(r8, 16);
-        r10 = (r9);
+        r9 = __sa_ptr_add(r8, 16n);
+        r10 = __sa_cvt_bitcast_u64(r9);
         r2 = sa_vec_push(r2, r10, 8);
-        r11 = __sa_add(r5, 1);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r11);
+        r11 = __sa_add(r5, 1n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r11);
         /* no-op release: !next_idx */
         /* no-op release: !value_ptr_bits */
         /* no-op release: !value_ptr */
@@ -3562,35 +3683,35 @@ export function sa_btree_map_keys_vec(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r2 = __sa_add(r1, 1);
-        r3 = __sa_mul(r2, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r2 = __sa_add(r1, 1n);
+        r3 = __sa_mul(r2, 4n);
         r4 = __sa_alloc(r3);
-        r5 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r4);
-        __sa_store_i64(__sa_ptr_add(r5, 8), r1);
+        r5 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r4);
+        __sa_store_i64(__sa_ptr_add(r5, 8n), r1);
         __sa_free(r4);
-        r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r8 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r8, 0), 0);
+        r6 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r8 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
         r10 = __sa_eq(r9, r1);
         __pc = (__sa_truthy(r10) ? 4 : 3); break;
       }
       case 3: {
-        r11 = __sa_mul(r9, 24);
+        r11 = __sa_mul(r9, 24n);
         r12 = __sa_ptr_add(r7, r11);
-        r13 = __sa_load_i64(__sa_ptr_add(r12, 0));
-        r14 = __sa_load_i32(__sa_ptr_add(r13, 0));
-        r15 = __sa_mul(r9, 4);
+        r13 = __sa_load_i64(__sa_ptr_add(r12, 0n));
+        r14 = __sa_load_i32(__sa_ptr_add(r13, 0n));
+        r15 = __sa_mul(r9, 4n);
         r16 = __sa_add(r6, r15);
-        __sa_store_i32(__sa_ptr_add(r16, 0), r14);
-        r17 = __sa_add(r9, 1);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r17);
+        __sa_store_i32(__sa_ptr_add(r16, 0n), r14);
+        r17 = __sa_add(r9, 1n);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r17);
         /* no-op release: !next_idx */
         /* no-op release: !w */
         /* no-op release: !daddr */
@@ -3630,35 +3751,35 @@ export function sa_btree_map_values_word_vec(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r2 = __sa_add(r1, 1);
-        r3 = __sa_mul(r2, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r2 = __sa_add(r1, 1n);
+        r3 = __sa_mul(r2, 4n);
         r4 = __sa_alloc(r3);
-        r5 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r4);
-        __sa_store_i64(__sa_ptr_add(r5, 8), r1);
+        r5 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r4);
+        __sa_store_i64(__sa_ptr_add(r5, 8n), r1);
         __sa_free(r4);
-        r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r8 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r8, 0), 0);
+        r6 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r8 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
         r10 = __sa_eq(r9, r1);
         __pc = (__sa_truthy(r10) ? 4 : 3); break;
       }
       case 3: {
-        r11 = __sa_mul(r9, 24);
+        r11 = __sa_mul(r9, 24n);
         r12 = __sa_ptr_add(r7, r11);
-        r13 = __sa_load_i64(__sa_ptr_add(r12, 16));
-        r14 = (r13);
-        r15 = __sa_mul(r9, 4);
+        r13 = __sa_load_i64(__sa_ptr_add(r12, 16n));
+        r14 = __sa_cvt_trunc_i32(r13);
+        r15 = __sa_mul(r9, 4n);
         r16 = __sa_add(r6, r15);
-        __sa_store_i32(__sa_ptr_add(r16, 0), r14);
-        r17 = __sa_add(r9, 1);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r17);
+        __sa_store_i32(__sa_ptr_add(r16, 0n), r14);
+        r17 = __sa_add(r9, 1n);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r17);
         /* no-op release: !next_idx */
         /* no-op release: !w */
         /* no-op release: !value */
@@ -3698,19 +3819,19 @@ export function sa_btree_map_iter_vec(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r2 = __sa_eq(3, 0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r2 = __sa_eq(3n, 0n);
         __pc = (__sa_truthy(r2) ? 5 : 2); break;
       }
       case 2: {
-        r3 = __sa_mul(r1, 3);
-        r4 = __sa_udiv(r3, 3);
+        r3 = __sa_mul(r1, 3n);
+        r4 = __sa_udiv(r3, 3n);
         r5 = __sa_eq(r4, r1);
         __pc = (__sa_truthy(r5) ? 3 : 4); break;
       }
       case 3: {
-        r6 = __sa_add(r3, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(r3, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_btree_iter_cap_ok */
         /* no-op release: !__num_mul_roundtrip_btree_iter_cap_ok */
         /* no-op release: !__num_mul_product_btree_iter_cap_ok */
@@ -3718,8 +3839,8 @@ export function sa_btree_map_iter_vec(map) {
         __pc = 6; break;
       }
       case 4: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 0);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_btree_iter_cap_ok */
         /* no-op release: !__num_mul_roundtrip_btree_iter_cap_ok */
         /* no-op release: !__num_mul_product_btree_iter_cap_ok */
@@ -3727,8 +3848,8 @@ export function sa_btree_map_iter_vec(map) {
         __pc = 6; break;
       }
       case 5: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_btree_iter_cap_ok */
         __pc = 6; break;
       }
@@ -3741,28 +3862,28 @@ export function sa_btree_map_iter_vec(map) {
       }
       case 8: {
         r8 = sa_vec_with_capacity(r6, 8);
-        r9 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r10 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r10, 0), 0);
+        r9 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r10 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), 0);
         __pc = 9; break;
       }
       case 9: {
-        r11 = __sa_load_i64(__sa_ptr_add(r10, 0));
+        r11 = __sa_load_i64(__sa_ptr_add(r10, 0n));
         r12 = __sa_eq(r11, r1);
         __pc = (__sa_truthy(r12) ? 11 : 10); break;
       }
       case 10: {
-        r13 = __sa_mul(r11, 24);
+        r13 = __sa_mul(r11, 24n);
         r14 = __sa_ptr_add(r9, r13);
-        r15 = __sa_load_i64(__sa_ptr_add(r14, 0));
-        r16 = __sa_load_i64(__sa_ptr_add(r14, 8));
-        r17 = __sa_load_i64(__sa_ptr_add(r14, 16));
-        r18 = (r15);
+        r15 = __sa_load_i64(__sa_ptr_add(r14, 0n));
+        r16 = __sa_load_i64(__sa_ptr_add(r14, 8n));
+        r17 = __sa_load_i64(__sa_ptr_add(r14, 16n));
+        r18 = __sa_cvt_bitcast_u64(r15);
         r8 = sa_vec_push(r8, r18, 8);
         r8 = sa_vec_push(r8, r16, 8);
         r8 = sa_vec_push(r8, r17, 8);
-        r19 = __sa_add(r11, 1);
-        __sa_store_i64(__sa_ptr_add(r10, 0), r19);
+        r19 = __sa_add(r11, 1n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), r19);
         /* no-op release: !next_idx */
         /* no-op release: !key_ptr_bits */
         /* no-op release: !value */
@@ -3802,19 +3923,19 @@ export function sa_btree_map_iter_mut_ptrs_vec(map) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r2 = __sa_eq(3, 0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r2 = __sa_eq(3n, 0n);
         __pc = (__sa_truthy(r2) ? 5 : 2); break;
       }
       case 2: {
-        r3 = __sa_mul(r1, 3);
-        r4 = __sa_udiv(r3, 3);
+        r3 = __sa_mul(r1, 3n);
+        r4 = __sa_udiv(r3, 3n);
         r5 = __sa_eq(r4, r1);
         __pc = (__sa_truthy(r5) ? 3 : 4); break;
       }
       case 3: {
-        r6 = __sa_add(r3, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(r3, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_btree_iter_mut_cap_ok */
         /* no-op release: !__num_mul_roundtrip_btree_iter_mut_cap_ok */
         /* no-op release: !__num_mul_product_btree_iter_mut_cap_ok */
@@ -3822,8 +3943,8 @@ export function sa_btree_map_iter_mut_ptrs_vec(map) {
         __pc = 6; break;
       }
       case 4: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 0);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_btree_iter_mut_cap_ok */
         /* no-op release: !__num_mul_roundtrip_btree_iter_mut_cap_ok */
         /* no-op release: !__num_mul_product_btree_iter_mut_cap_ok */
@@ -3831,8 +3952,8 @@ export function sa_btree_map_iter_mut_ptrs_vec(map) {
         __pc = 6; break;
       }
       case 5: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_btree_iter_mut_cap_ok */
         __pc = 6; break;
       }
@@ -3845,29 +3966,29 @@ export function sa_btree_map_iter_mut_ptrs_vec(map) {
       }
       case 8: {
         r8 = sa_vec_with_capacity(r6, 8);
-        r9 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r10 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r10, 0), 0);
+        r9 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r10 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), 0);
         __pc = 9; break;
       }
       case 9: {
-        r11 = __sa_load_i64(__sa_ptr_add(r10, 0));
+        r11 = __sa_load_i64(__sa_ptr_add(r10, 0n));
         r12 = __sa_eq(r11, r1);
         __pc = (__sa_truthy(r12) ? 11 : 10); break;
       }
       case 10: {
-        r13 = __sa_mul(r11, 24);
+        r13 = __sa_mul(r11, 24n);
         r14 = __sa_ptr_add(r9, r13);
-        r15 = __sa_load_i64(__sa_ptr_add(r14, 0));
-        r16 = __sa_load_i64(__sa_ptr_add(r14, 8));
-        r17 = __sa_ptr_add(r14, 16);
-        r18 = (r15);
-        r19 = (r17);
+        r15 = __sa_load_i64(__sa_ptr_add(r14, 0n));
+        r16 = __sa_load_i64(__sa_ptr_add(r14, 8n));
+        r17 = __sa_ptr_add(r14, 16n);
+        r18 = __sa_cvt_bitcast_u64(r15);
+        r19 = __sa_cvt_bitcast_u64(r17);
         r8 = sa_vec_push(r8, r18, 8);
         r8 = sa_vec_push(r8, r16, 8);
         r8 = sa_vec_push(r8, r19, 8);
-        r20 = __sa_add(r11, 1);
-        __sa_store_i64(__sa_ptr_add(r10, 0), r20);
+        r20 = __sa_add(r11, 1n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), r20);
         /* no-op release: !next_idx */
         /* no-op release: !value_ptr_bits */
         /* no-op release: !key_ptr_bits */
@@ -3910,19 +4031,19 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_eq(3, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r4 = __sa_eq(3n, 0n);
         __pc = (__sa_truthy(r4) ? 5 : 2); break;
       }
       case 2: {
-        r5 = __sa_mul(r3, 3);
-        r6 = __sa_udiv(r5, 3);
+        r5 = __sa_mul(r3, 3n);
+        r6 = __sa_udiv(r5, 3n);
         r7 = __sa_eq(r6, r3);
         __pc = (__sa_truthy(r7) ? 3 : 4); break;
       }
       case 3: {
-        r8 = __sa_add(r5, 0);
-        r9 = __sa_add(0, 1);
+        r8 = __sa_add(r5, 0n);
+        r9 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok_btree_range_mut_cap_ok */
         /* no-op release: !__num_mul_roundtrip_btree_range_mut_cap_ok */
         /* no-op release: !__num_mul_product_btree_range_mut_cap_ok */
@@ -3930,8 +4051,8 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
         __pc = 6; break;
       }
       case 4: {
-        r8 = __sa_add(0, 0);
-        r9 = __sa_add(0, 0);
+        r8 = __sa_add(0n, 0n);
+        r9 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok_btree_range_mut_cap_ok */
         /* no-op release: !__num_mul_roundtrip_btree_range_mut_cap_ok */
         /* no-op release: !__num_mul_product_btree_range_mut_cap_ok */
@@ -3939,8 +4060,8 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
         __pc = 6; break;
       }
       case 5: {
-        r8 = __sa_add(0, 0);
-        r9 = __sa_add(0, 1);
+        r8 = __sa_add(0n, 0n);
+        r9 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero_btree_range_mut_cap_ok */
         __pc = 6; break;
       }
@@ -3953,34 +4074,34 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
       }
       case 8: {
         r10 = sa_vec_with_capacity(r8, 8);
-        r11 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r12 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r12, 0), 0);
+        r11 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r12 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r12, 0n), 0);
         __pc = 9; break;
       }
       case 9: {
-        r13 = __sa_load_i64(__sa_ptr_add(r12, 0));
+        r13 = __sa_load_i64(__sa_ptr_add(r12, 0n));
         r14 = __sa_eq(r13, r3);
         __pc = (__sa_truthy(r14) ? 16 : 10); break;
       }
       case 10: {
-        r15 = __sa_mul(r13, 24);
+        r15 = __sa_mul(r13, 24n);
         r16 = __sa_ptr_add(r11, r15);
         r17 = btree_map_entry_cmp(r16, r1);
-        r18 = __sa_sge(r17, 0);
+        r18 = __sa_sge(r17, 0n);
         __pc = (__sa_truthy(r18) ? 11 : 14); break;
       }
       case 11: {
         r19 = btree_map_entry_cmp(r16, r2);
-        r20 = __sa_slt(r19, 0);
+        r20 = __sa_slt(r19, 0n);
         __pc = (__sa_truthy(r20) ? 12 : 13); break;
       }
       case 12: {
-        r21 = __sa_load_i64(__sa_ptr_add(r16, 0));
-        r22 = __sa_load_i64(__sa_ptr_add(r16, 8));
-        r23 = __sa_ptr_add(r16, 16);
-        r24 = (r21);
-        r25 = (r23);
+        r21 = __sa_load_i64(__sa_ptr_add(r16, 0n));
+        r22 = __sa_load_i64(__sa_ptr_add(r16, 8n));
+        r23 = __sa_ptr_add(r16, 16n);
+        r24 = __sa_cvt_bitcast_u64(r21);
+        r25 = __sa_cvt_bitcast_u64(r23);
         r10 = sa_vec_push(r10, r24, 8);
         r10 = sa_vec_push(r10, r22, 8);
         r10 = sa_vec_push(r10, r25, 8);
@@ -4008,8 +4129,8 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
         __pc = 15; break;
       }
       case 15: {
-        r26 = __sa_add(r13, 1);
-        __sa_store_i64(__sa_ptr_add(r12, 0), r26);
+        r26 = __sa_add(r13, 1n);
+        __sa_store_i64(__sa_ptr_add(r12, 0n), r26);
         /* no-op release: !next_idx */
         /* no-op release: !entry */
         /* no-op release: !entry_off */
@@ -4051,7 +4172,7 @@ export function sa_btree_map_remove_entry(map, key, out_key, out_value_slot) {
       }
       case 1: {
         r4 = sa_btree_map_try_get_key_value(r0, r1, r2, r3);
-        r5 = __sa_ne(r4, 0);
+        r5 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r5) ? 2 : 3); break;
       }
       case 2: {
@@ -4095,7 +4216,7 @@ export function sa_btree_map_pop_first(map, out_key, out_value_slot) {
       }
       case 1: {
         r3 = sa_btree_map_first_key_value(r0, r1, r2);
-        r4 = __sa_ne(r3, 0);
+        r4 = __sa_ne(r3, 0n);
         __pc = (__sa_truthy(r4) ? 2 : 3); break;
       }
       case 2: {
@@ -4137,7 +4258,7 @@ export function sa_btree_map_pop_last(map, out_key, out_value_slot) {
       }
       case 1: {
         r3 = sa_btree_map_last_key_value(r0, r1, r2);
-        r4 = __sa_ne(r3, 0);
+        r4 = __sa_ne(r3, 0n);
         __pc = (__sa_truthy(r4) ? 2 : 3); break;
       }
       case 2: {
@@ -4177,24 +4298,24 @@ export function sa_btree_map_append(map, other) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r3 = __sa_load_i64(__sa_ptr_add(r1, 16));
-        r4 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 0);
+        r2 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r3 = __sa_load_i64(__sa_ptr_add(r1, 16n));
+        r4 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r5 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r5 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         r6 = __sa_eq(r5, r3);
         __pc = (__sa_truthy(r6) ? 4 : 3); break;
       }
       case 3: {
-        r7 = __sa_mul(r5, 24);
+        r7 = __sa_mul(r5, 24n);
         r8 = __sa_ptr_add(r2, r7);
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 16));
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 16n));
         sa_btree_map_insert(r0, r8, r9);
-        r10 = __sa_add(r5, 1);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r10);
+        r10 = __sa_add(r5, 1n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r10);
         /* no-op release: !next_idx */
         /* no-op release: !value */
         /* no-op release: !entry */
@@ -4233,31 +4354,31 @@ export function sa_btree_map_split_off(map, key) {
       }
       case 1: {
         r2 = sa_btree_map_new();
-        r3 = __sa_salloc(8);
-        r4 = __sa_salloc(8);
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r3 = __sa_salloc(8n);
+        r4 = __sa_salloc(8n);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         btree_map_find(r5, r6, r1, r3, r4);
-        r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r7);
+        r7 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r8 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r7);
         __pc = 2; break;
       }
       case 2: {
-        r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r8, 0n));
         r10 = __sa_eq(r9, r6);
         __pc = (__sa_truthy(r10) ? 4 : 3); break;
       }
       case 3: {
-        r11 = __sa_mul(r9, 24);
+        r11 = __sa_mul(r9, 24n);
         r12 = __sa_ptr_add(r5, r11);
-        r13 = __sa_load_i64(__sa_ptr_add(r12, 16));
+        r13 = __sa_load_i64(__sa_ptr_add(r12, 16n));
         sa_btree_map_insert(r2, r12, r13);
-        __sa_store_i64(__sa_ptr_add(r12, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r12, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r12, 16), 0);
-        r14 = __sa_add(r9, 1);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r14);
+        __sa_store_i64(__sa_ptr_add(r12, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r12, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r12, 16n), 0);
+        r14 = __sa_add(r9, 1n);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r14);
         /* no-op release: !next_idx */
         /* no-op release: !value */
         /* no-op release: !entry */
@@ -4267,7 +4388,7 @@ export function sa_btree_map_split_off(map, key) {
         __pc = 2; break;
       }
       case 4: {
-        __sa_store_i64(__sa_ptr_add(r0, 16), r7);
+        __sa_store_i64(__sa_ptr_add(r0, 16n), r7);
         /* no-op release: !done */
         /* no-op release: !idx */
         /* no-op release: !split_index */
@@ -4298,31 +4419,31 @@ export function sa_btree_map_range(map, start_key, end_key) {
       }
       case 1: {
         r3 = sa_btree_map_new();
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r6 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r6, 0), 0);
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 16n));
+        r6 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r6, 0n), 0);
         __pc = 2; break;
       }
       case 2: {
-        r7 = __sa_load_i64(__sa_ptr_add(r6, 0));
+        r7 = __sa_load_i64(__sa_ptr_add(r6, 0n));
         r8 = __sa_eq(r7, r5);
         __pc = (__sa_truthy(r8) ? 9 : 3); break;
       }
       case 3: {
-        r9 = __sa_mul(r7, 24);
+        r9 = __sa_mul(r7, 24n);
         r10 = __sa_ptr_add(r4, r9);
         r11 = btree_map_entry_cmp(r10, r1);
-        r12 = __sa_sge(r11, 0);
+        r12 = __sa_sge(r11, 0n);
         __pc = (__sa_truthy(r12) ? 4 : 7); break;
       }
       case 4: {
         r13 = btree_map_entry_cmp(r10, r2);
-        r14 = __sa_slt(r13, 0);
+        r14 = __sa_slt(r13, 0n);
         __pc = (__sa_truthy(r14) ? 5 : 6); break;
       }
       case 5: {
-        r15 = __sa_load_i64(__sa_ptr_add(r10, 16));
+        r15 = __sa_load_i64(__sa_ptr_add(r10, 16n));
         sa_btree_map_insert(r3, r10, r15);
         /* no-op release: !value */
         /* no-op release: !before_end */
@@ -4344,8 +4465,8 @@ export function sa_btree_map_range(map, start_key, end_key) {
         __pc = 8; break;
       }
       case 8: {
-        r16 = __sa_add(r7, 1);
-        __sa_store_i64(__sa_ptr_add(r6, 0), r16);
+        r16 = __sa_add(r7, 1n);
+        __sa_store_i64(__sa_ptr_add(r6, 0n), r16);
         /* no-op release: !next_idx */
         /* no-op release: !entry */
         /* no-op release: !entry_off */
@@ -4380,21 +4501,21 @@ export function main() {
         __pc = 1; break;
       }
       case 1: {
-        r0 = (0);
-        r1 = (0);
-        r2 = (0);
-        r3 = (0);
-        r4 = (0);
+        r0 = (0n);
+        r1 = (0n);
+        r2 = (0n);
+        r3 = (0n);
+        r4 = (0n);
         r0 = sa_btree_map_new();
-        r1 = __sa_alloc(16);
-        r2 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r1, 0), C_KEY_ALPHA);
-        __sa_store_i64(__sa_ptr_add(r1, 8), 5);
-        __sa_store_i64(__sa_ptr_add(r2, 0), C_KEY_ALPHA);
-        __sa_store_i64(__sa_ptr_add(r2, 8), 5);
+        r1 = __sa_alloc(16n);
+        r2 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), C_KEY_ALPHA);
+        __sa_store_i64(__sa_ptr_add(r1, 8n), 5);
+        __sa_store_i64(__sa_ptr_add(r2, 0n), C_KEY_ALPHA);
+        __sa_store_i64(__sa_ptr_add(r2, 8n), 5);
         sa_btree_map_insert(r0, r1, 5);
         r3 = sa_btree_map_get(r0, r2);
-        r4 = __sa_eq(r3, 5);
+        r4 = __sa_eq(r3, 5n);
         /* no-op release: !value */
         __sa_free(r2);
         __sa_free(r1);

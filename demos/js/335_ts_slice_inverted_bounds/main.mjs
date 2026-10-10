@@ -21,7 +21,7 @@ function __sa_num(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
 function __sa_addr(a) { return (typeof a === "bigint") ? Number(BigInt.asUintN(32, a)) : (a | 0); }
 function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
 function __sa_alloc(size) {
-  size = __sa_align((size | 0), 8);
+  size = __sa_align((__sa_num(size) | 0), 8);
   const bucket = __sa_fl[size];
   if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
   const total = (size + 8); // 8-byte header holds the aligned user size
@@ -36,10 +36,10 @@ function __sa_alloc(size) {
 }
 function __sa_free(ptr) {
   // Mirrors the interpreter: only exact live heap bases are recycled.
-  // i64 bigints, i32 values, interior pointers, consts and unknown
-  // addresses are no-ops (never present in __sa_live).
-  if (typeof ptr !== "number") return 0;
-  const p = ptr | 0;
+  // BigInt pointers are normalized to 32-bit addresses first so
+  // 64-bit-typed bases stay freeable; interior pointers, consts and
+  // unknown addresses remain no-ops (never present in __sa_live).
+  const p = __sa_addr(ptr);
   if (!__sa_live.has(p)) return 0;
   __sa_live.delete(p);
   const size = __sa_view.getUint32((p - 8), true);
@@ -63,12 +63,12 @@ function __sa_load_i32(addr) { return __sa_view.getInt32(__sa_addr(addr), true);
 function __sa_load_u32(addr) { return __sa_view.getUint32(__sa_addr(addr), true); }
 function __sa_load_f32(addr) { return __sa_view.getFloat32(__sa_addr(addr), true); }
 function __sa_load_f64(addr) { return __sa_view.getFloat64(__sa_addr(addr), true); }
-function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), v | 0); }
-function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), v | 0); }
-function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), v | 0, true); }
-function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), v | 0, true); }
-function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), v | 0, true); }
-function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), v >>> 0, true); }
+function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), __sa_narrow(v, 8, true)); }
+function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), __sa_narrow(v, 8, false)); }
+function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), __sa_narrow(v, 16, true), true); }
+function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), __sa_narrow(v, 16, false), true); }
+function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), __sa_narrow(v, 32, true), true); }
+function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), __sa_narrow(v, 32, false), true); }
 function __sa_store_f32(addr, v) { __sa_view.setFloat32(__sa_addr(addr), +v, true); }
 function __sa_store_f64(addr, v) { __sa_view.setFloat64(__sa_addr(addr), +v, true); }
 function __sa_load_i64(addr) { return __sa_view.getBigInt64(__sa_addr(addr), true); }
@@ -89,9 +89,9 @@ function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)
 function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
 function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
 function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { if (BigInt(b) === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt(a) / BigInt(b)); } if ((b | 0) === 0) __sa_trap("div by zero"); return (Math.trunc(a / b)) | 0; }
-function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a) / d); } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
+function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a)) / d; } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
 function __sa_srem(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) % BigInt(b)) : ((a % b) | 0); }
-function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a) % d); } return (((a >>> 0) % (b >>> 0)) | 0); }
+function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a)) % d; } return (((a >>> 0) % (b >>> 0)) | 0); }
 function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
 function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
 function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
@@ -121,9 +121,130 @@ function __sa_flt(a, b) { return (((+a) < (+b)) ? 1 : 0); }
 function __sa_fle(a, b) { return (((+a) <= (+b)) ? 1 : 0); }
 function __sa_fgt(a, b) { return (((+a) > (+b)) ? 1 : 0); }
 function __sa_fge(a, b) { return (((+a) >= (+b)) ? 1 : 0); }
-function __sa_cvt(v) { return v; }
+function __sa_narrow(v, bits, signed) {
+  // Narrow any int-domain value to a target width, returned as Number.
+  // BigInt inputs are 64-bit sources; Number inputs are 32-bit (or
+  // smaller) sources. Matches interpreter wrap-around for
+  // trunc/zext/sext/bitcast to widths <= 32.
+  if (typeof v === "bigint") return signed ? Number(BigInt.asIntN(bits, v)) : Number(BigInt.asUintN(bits, v));
+  if (bits === 32) return signed ? (v | 0) : (v >>> 0);
+  if (bits === 1) return (v & 1);
+  const m = Math.pow(2, bits);
+  let r = Math.trunc(+v) % m;
+  if (r < 0) r += m;
+  if (signed && r >= m / 2) r -= m;
+  return r;
+}
+function __sa_wide(v, signed) {
+  // Widen any int-domain value to 64 bits, returned as BigInt.
+  // BigInt inputs are 64-bit sources (modular); Number inputs are
+  // 32-bit sources read with signed/unsigned 32-bit semantics.
+  if (typeof v === "bigint") return signed ? BigInt.asIntN(64, v) : BigInt.asUintN(64, v);
+  if (!Number.isFinite(+v)) return 0n;
+  return signed ? BigInt((+v) | 0) : BigInt((+v) >>> 0);
+}
+function __sa_cvt_trunc_i8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_trunc_i16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_trunc_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_trunc_i32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_trunc_u8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_trunc_u16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_trunc_u32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_trunc_i64(v) { return __sa_wide(v, true); }
+function __sa_cvt_trunc_u64(v) { return __sa_wide(v, false); }
+function __sa_cvt_trunc_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_zext_i8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_zext_i16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_zext_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_zext_i32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_zext_u8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_zext_u16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_zext_u32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_zext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) >>> 0); }
+function __sa_cvt_zext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt((+v) >>> 0); }
+function __sa_cvt_zext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sext_i8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_sext_i16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_sext_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_sext_i32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
+function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
+function __sa_cvt_sext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+function __sa_cvt_uitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+function __sa_cvt_uitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+function __sa_cvt_fptosi_i64(v) {
+  // Truncate toward zero like LLVM fptosi; out-of-range/NaN/Inf
+  // maps to INT64_MIN (x86 cvttsd2si behavior) instead of throwing.
+  const t = Math.trunc(+v);
+  if (!Number.isFinite(t) || t >= 9223372036854775808 || t < -9223372036854775808) return -9223372036854775808n;
+  return BigInt(t);
+}
+function __sa_cvt_fptosi_u64(v) { return BigInt.asUintN(64, __sa_cvt_fptosi_i64(v)); }
+function __sa_cvt_fptosi_i32(v) { return Number(BigInt.asIntN(32, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u32(v) { return Number(BigInt.asUintN(32, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i16(v) { return Number(BigInt.asIntN(16, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u16(v) { return Number(BigInt.asUintN(16, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i8(v) { return Number(BigInt.asIntN(8, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u8(v) { return Number(BigInt.asUintN(8, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i1(v) { return Number(BigInt.asUintN(1, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_ptr(v) { return __sa_addr(__sa_cvt_fptosi_i64(v)); }
+function __sa_cvt_fptrunc_f32(v) { return Math.fround(+v); }
+function __sa_cvt_fpext_f64(v) { return (+v); }
+const __sa_bc_dv = new DataView(new ArrayBuffer(8));
+function __sa_cvt_bitcast_i8(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(8, v)) : ((v << 24) >> 24); }
+function __sa_cvt_bitcast_u8(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(8, v)) : (v & 0xFF); }
+function __sa_cvt_bitcast_i16(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(16, v)) : ((v << 16) >> 16); }
+function __sa_cvt_bitcast_u16(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(16, v)) : (v & 0xFFFF); }
+function __sa_cvt_bitcast_i1(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(1, v)) : (v & 1); }
+function __sa_cvt_bitcast_i32(v) {
+  // Non-integer Numbers are f32-domain values (f64 sources are
+  // rejected by the verifier for 32-bit bitcasts); reinterpret them.
+  if (typeof v === "bigint") return Number(BigInt.asIntN(32, v));
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getInt32(0, true); }
+  return (v | 0);
+}
+function __sa_cvt_bitcast_u32(v) {
+  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getUint32(0, true); }
+  return (v >>> 0);
+}
+function __sa_cvt_bitcast_i64(v) {
+  // Non-integer Numbers are f64-domain values; reinterpret them.
+  // Integer Numbers are immediates (f64-integral bitcasts are a
+  // known edge; use sitofp-produced values only via fptosi).
+  if (typeof v === "bigint") return BigInt.asIntN(64, v);
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return __sa_bc_dv.getBigInt64(0, true); }
+  return BigInt(v);
+}
+function __sa_cvt_bitcast_u64(v) {
+  if (typeof v === "bigint") return BigInt.asUintN(64, v);
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return BigInt.asUintN(64, __sa_bc_dv.getBigInt64(0, true)); }
+  return BigInt(v);
+}
+function __sa_cvt_bitcast_ptr(v) {
+  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+  return (v | 0);
+}
+function __sa_cvt_bitcast_f32(v) {
+  // BigInt/integer inputs are int-domain bits; fractional inputs are
+  // already f32-domain values (f32-to-f32 is identity).
+  if (typeof v === "bigint") { __sa_bc_dv.setUint32(0, Number(BigInt.asUintN(32, v)), true); return __sa_bc_dv.getFloat32(0, true); }
+  if (!Number.isInteger(v)) return (+v);
+  __sa_bc_dv.setInt32(0, v | 0, true); return __sa_bc_dv.getFloat32(0, true);
+}
+function __sa_cvt_bitcast_f64(v) {
+  // Number inputs are always f64-domain here (equal-bits rule keeps
+  // int-domain f64 bitcasts on the BigInt path).
+  if (typeof v === "bigint") { __sa_bc_dv.setBigInt64(0, BigInt.asIntN(64, v), true); return __sa_bc_dv.getFloat64(0, true); }
+  return (+v);
+}
 // ---- end runtime ----
-// source: demos/rosetta/335_ts_slice_inverted_bounds/main.sa
+// source: demos/js/335_ts_slice_inverted_bounds/main.sa
 const __sa_ftable = [];
 const C_jn_empty = 4096; // utf8 (1 bytes)
 __sa_u8.set([0], 4096);
@@ -144,15 +265,15 @@ export function ts_arr_push_word(h, v) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_add(r2, 1);
-        r5 = __sa_mul(r4, 4);
-        r6 = __sa_eq(r5, 0);
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_add(r2, 1n);
+        r5 = __sa_mul(r4, 4n);
+        r6 = __sa_eq(r5, 0n);
         __pc = (__sa_truthy(r6) ? 2 : 3); break;
       }
       case 2: {
-        r7 = __sa_alloc(4);
+        r7 = __sa_alloc(4n);
         __pc = 4; break;
       }
       case 3: {
@@ -160,7 +281,7 @@ export function ts_arr_push_word(h, v) {
         __pc = 4; break;
       }
       case 4: {
-        r8 = (0);
+        r8 = (0n);
         __pc = 5; break;
       }
       case 5: {
@@ -168,21 +289,21 @@ export function ts_arr_push_word(h, v) {
         __pc = (__sa_truthy(r9) ? 6 : 7); break;
       }
       case 6: {
-        r10 = __sa_mul(r8, 4);
+        r10 = __sa_mul(r8, 4n);
         r11 = __sa_add(r3, r10);
-        r12 = __sa_load_i32(__sa_ptr_add(r11, 0));
+        r12 = __sa_load_i32(__sa_ptr_add(r11, 0n));
         r13 = __sa_add(r7, r10);
-        __sa_store_i32(__sa_ptr_add(r13, 0), r12);
-        r14 = __sa_add(r8, 1);
+        __sa_store_i32(__sa_ptr_add(r13, 0n), r12);
+        r14 = __sa_add(r8, 1n);
         r8 = (r14);
         __pc = 5; break;
       }
       case 7: {
-        r15 = __sa_mul(r2, 4);
+        r15 = __sa_mul(r2, 4n);
         r16 = __sa_add(r7, r15);
-        __sa_store_i32(__sa_ptr_add(r16, 0), r1);
-        __sa_store_i64(__sa_ptr_add(r0, 0), r7);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r4);
+        __sa_store_i32(__sa_ptr_add(r16, 0n), r1);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r7);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r4);
         /* no-op release: !ndata */
         return (r0);
         return __sa_trap("fallthrough end of function");
@@ -205,19 +326,19 @@ export function ts_arr_concat2(a, b) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r3 = __sa_load_i64(__sa_ptr_add(r1, 8));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r3 = __sa_load_i64(__sa_ptr_add(r1, 8n));
         r4 = __sa_add(r2, r3);
-        r5 = __sa_mul(r4, 4);
+        r5 = __sa_mul(r4, 4n);
         r6 = __sa_alloc(r5);
-        r7 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r7, 0), r6);
-        __sa_store_i64(__sa_ptr_add(r7, 8), r4);
+        r7 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r7, 0n), r6);
+        __sa_store_i64(__sa_ptr_add(r7, 8n), r4);
         __sa_free(r6);
-        r8 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r10 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r11 = (0);
+        r8 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r10 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r11 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -225,18 +346,18 @@ export function ts_arr_concat2(a, b) {
         __pc = (__sa_truthy(r12) ? 3 : 4); break;
       }
       case 3: {
-        r13 = __sa_mul(r11, 4);
+        r13 = __sa_mul(r11, 4n);
         r14 = __sa_add(r8, r13);
-        r15 = __sa_load_i32(__sa_ptr_add(r14, 0));
-        r16 = __sa_mul(r11, 4);
+        r15 = __sa_load_i32(__sa_ptr_add(r14, 0n));
+        r16 = __sa_mul(r11, 4n);
         r17 = __sa_add(r10, r16);
-        __sa_store_i32(__sa_ptr_add(r17, 0), r15);
-        r18 = __sa_add(r11, 1);
+        __sa_store_i32(__sa_ptr_add(r17, 0n), r15);
+        r18 = __sa_add(r11, 1n);
         r11 = (r18);
         __pc = 2; break;
       }
       case 4: {
-        r19 = (0);
+        r19 = (0n);
         __pc = 5; break;
       }
       case 5: {
@@ -244,14 +365,14 @@ export function ts_arr_concat2(a, b) {
         __pc = (__sa_truthy(r20) ? 6 : 7); break;
       }
       case 6: {
-        r21 = __sa_mul(r19, 4);
+        r21 = __sa_mul(r19, 4n);
         r22 = __sa_add(r9, r21);
-        r23 = __sa_load_i32(__sa_ptr_add(r22, 0));
+        r23 = __sa_load_i32(__sa_ptr_add(r22, 0n));
         r24 = __sa_add(r2, r19);
-        r25 = __sa_mul(r24, 4);
+        r25 = __sa_mul(r24, 4n);
         r26 = __sa_add(r10, r25);
-        __sa_store_i32(__sa_ptr_add(r26, 0), r23);
-        r27 = __sa_add(r19, 1);
+        __sa_store_i32(__sa_ptr_add(r26, 0n), r23);
+        r27 = __sa_add(r19, 1n);
         r19 = (r27);
         __pc = 5; break;
       }
@@ -281,24 +402,24 @@ export function ts_arr_splice(src, start, del, items) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r5 = __sa_load_i64(__sa_ptr_add(r3, 8));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r7 = __sa_alloc(8);
-        r8 = __sa_slt(r1, 0);
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r5 = __sa_load_i64(__sa_ptr_add(r3, 8n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r7 = __sa_alloc(8n);
+        r8 = __sa_slt(r1, 0n);
         __pc = (__sa_truthy(r8) ? 2 : 5); break;
       }
       case 2: {
         r9 = __sa_add(r1, r4);
-        r10 = __sa_sge(r9, 0);
+        r10 = __sa_sge(r9, 0n);
         __pc = (__sa_truthy(r10) ? 3 : 4); break;
       }
       case 3: {
-        __sa_store_i32(__sa_ptr_add(r7, 0), r9);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), r9);
         __pc = 8; break;
       }
       case 4: {
-        __sa_store_i32(__sa_ptr_add(r7, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), 0);
         __pc = 8; break;
       }
       case 5: {
@@ -306,22 +427,22 @@ export function ts_arr_splice(src, start, del, items) {
         __pc = (__sa_truthy(r11) ? 6 : 7); break;
       }
       case 6: {
-        __sa_store_i32(__sa_ptr_add(r7, 0), r1);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), r1);
         __pc = 8; break;
       }
       case 7: {
-        __sa_store_i32(__sa_ptr_add(r7, 0), r4);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), r4);
         __pc = 8; break;
       }
       case 8: {
-        r12 = __sa_load_i32(__sa_ptr_add(r7, 0));
+        r12 = __sa_load_i32(__sa_ptr_add(r7, 0n));
         __sa_free(r7);
-        r13 = __sa_alloc(8);
-        r14 = __sa_slt(r2, 0);
+        r13 = __sa_alloc(8n);
+        r14 = __sa_slt(r2, 0n);
         __pc = (__sa_truthy(r14) ? 9 : 10); break;
       }
       case 9: {
-        __sa_store_i32(__sa_ptr_add(r13, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r13, 0n), 0);
         __pc = 13; break;
       }
       case 10: {
@@ -330,28 +451,28 @@ export function ts_arr_splice(src, start, del, items) {
         __pc = (__sa_truthy(r16) ? 11 : 12); break;
       }
       case 11: {
-        __sa_store_i32(__sa_ptr_add(r13, 0), r15);
+        __sa_store_i32(__sa_ptr_add(r13, 0n), r15);
         __pc = 13; break;
       }
       case 12: {
-        __sa_store_i32(__sa_ptr_add(r13, 0), r2);
+        __sa_store_i32(__sa_ptr_add(r13, 0n), r2);
         __pc = 13; break;
       }
       case 13: {
-        r17 = __sa_load_i32(__sa_ptr_add(r13, 0));
+        r17 = __sa_load_i32(__sa_ptr_add(r13, 0n));
         __sa_free(r13);
         r18 = __sa_add(r12, r17);
         r19 = __sa_sub(r4, r17);
         r20 = __sa_add(r19, r5);
-        r21 = __sa_alloc(16);
-        r22 = __sa_mul(r17, 4);
+        r21 = __sa_alloc(16n);
+        r22 = __sa_mul(r17, 4n);
         r23 = __sa_alloc(r22);
-        __sa_store_i64(__sa_ptr_add(r21, 0), r23);
-        __sa_store_i64(__sa_ptr_add(r21, 8), r17);
+        __sa_store_i64(__sa_ptr_add(r21, 0n), r23);
+        __sa_store_i64(__sa_ptr_add(r21, 8n), r17);
         __sa_free(r23);
-        r24 = __sa_load_i64(__sa_ptr_add(r21, 0));
-        r25 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r26 = (0);
+        r24 = __sa_load_i64(__sa_ptr_add(r21, 0n));
+        r25 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r26 = (0n);
         __pc = 14; break;
       }
       case 14: {
@@ -360,21 +481,21 @@ export function ts_arr_splice(src, start, del, items) {
       }
       case 15: {
         r28 = __sa_add(r12, r26);
-        r29 = __sa_mul(r28, 4);
+        r29 = __sa_mul(r28, 4n);
         r30 = __sa_add(r6, r29);
-        r31 = __sa_load_i32(__sa_ptr_add(r30, 0));
-        r32 = __sa_mul(r26, 4);
+        r31 = __sa_load_i32(__sa_ptr_add(r30, 0n));
+        r32 = __sa_mul(r26, 4n);
         r33 = __sa_add(r24, r32);
-        __sa_store_i32(__sa_ptr_add(r33, 0), r31);
-        r34 = __sa_add(r26, 1);
+        __sa_store_i32(__sa_ptr_add(r33, 0n), r31);
+        r34 = __sa_add(r26, 1n);
         r26 = (r34);
         __pc = 14; break;
       }
       case 16: {
-        r35 = __sa_mul(r20, 4);
+        r35 = __sa_mul(r20, 4n);
         r36 = __sa_alloc(r35);
-        r37 = __sa_add(r36, 0);
-        r38 = (0);
+        r37 = __sa_add(r36, 0n);
+        r38 = (0n);
         __pc = 17; break;
       }
       case 17: {
@@ -382,18 +503,18 @@ export function ts_arr_splice(src, start, del, items) {
         __pc = (__sa_truthy(r39) ? 18 : 19); break;
       }
       case 18: {
-        r40 = __sa_mul(r38, 4);
+        r40 = __sa_mul(r38, 4n);
         r41 = __sa_add(r6, r40);
-        r42 = __sa_load_i32(__sa_ptr_add(r41, 0));
-        r43 = __sa_mul(r38, 4);
+        r42 = __sa_load_i32(__sa_ptr_add(r41, 0n));
+        r43 = __sa_mul(r38, 4n);
         r44 = __sa_add(r37, r43);
-        __sa_store_i32(__sa_ptr_add(r44, 0), r42);
-        r45 = __sa_add(r38, 1);
+        __sa_store_i32(__sa_ptr_add(r44, 0n), r42);
+        r45 = __sa_add(r38, 1n);
         r38 = (r45);
         __pc = 17; break;
       }
       case 19: {
-        r46 = (0);
+        r46 = (0n);
         __pc = 20; break;
       }
       case 20: {
@@ -401,20 +522,20 @@ export function ts_arr_splice(src, start, del, items) {
         __pc = (__sa_truthy(r47) ? 21 : 22); break;
       }
       case 21: {
-        r48 = __sa_mul(r46, 4);
+        r48 = __sa_mul(r46, 4n);
         r49 = __sa_add(r25, r48);
-        r50 = __sa_load_i32(__sa_ptr_add(r49, 0));
+        r50 = __sa_load_i32(__sa_ptr_add(r49, 0n));
         r51 = __sa_add(r12, r46);
-        r52 = __sa_mul(r51, 4);
+        r52 = __sa_mul(r51, 4n);
         r53 = __sa_add(r37, r52);
-        __sa_store_i32(__sa_ptr_add(r53, 0), r50);
-        r54 = __sa_add(r46, 1);
+        __sa_store_i32(__sa_ptr_add(r53, 0n), r50);
+        r54 = __sa_add(r46, 1n);
         r46 = (r54);
         __pc = 20; break;
       }
       case 22: {
         r55 = __sa_add(r12, r5);
-        r56 = (0);
+        r56 = (0n);
         __pc = 23; break;
       }
       case 23: {
@@ -426,24 +547,24 @@ export function ts_arr_splice(src, start, del, items) {
         __pc = (__sa_truthy(r58) ? 25 : 26); break;
       }
       case 25: {
-        r59 = __sa_mul(r56, 4);
+        r59 = __sa_mul(r56, 4n);
         r60 = __sa_add(r6, r59);
-        r61 = __sa_load_i32(__sa_ptr_add(r60, 0));
+        r61 = __sa_load_i32(__sa_ptr_add(r60, 0n));
         r62 = __sa_sub(r56, r17);
         r63 = __sa_add(r62, r5);
-        r64 = __sa_mul(r63, 4);
+        r64 = __sa_mul(r63, 4n);
         r65 = __sa_add(r37, r64);
-        __sa_store_i32(__sa_ptr_add(r65, 0), r61);
+        __sa_store_i32(__sa_ptr_add(r65, 0n), r61);
         __pc = 26; break;
       }
       case 26: {
-        r66 = __sa_add(r56, 1);
+        r66 = __sa_add(r56, 1n);
         r56 = (r66);
         __pc = 23; break;
       }
       case 27: {
-        __sa_store_i64(__sa_ptr_add(r0, 0), r37);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r20);
+        __sa_store_i64(__sa_ptr_add(r0, 0n), r37);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r20);
         /* no-op release: !sbuf */
         /* no-op release: !nbuf */
         /* no-op release: !src */
@@ -473,23 +594,23 @@ export function ts_arr_tospliced(src, start, del, items) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r5 = __sa_load_i64(__sa_ptr_add(r3, 8));
-        r6 = __sa_alloc(8);
-        r7 = __sa_slt(r1, 0);
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r5 = __sa_load_i64(__sa_ptr_add(r3, 8n));
+        r6 = __sa_alloc(8n);
+        r7 = __sa_slt(r1, 0n);
         __pc = (__sa_truthy(r7) ? 2 : 5); break;
       }
       case 2: {
         r8 = __sa_add(r1, r4);
-        r9 = __sa_sge(r8, 0);
+        r9 = __sa_sge(r8, 0n);
         __pc = (__sa_truthy(r9) ? 3 : 4); break;
       }
       case 3: {
-        __sa_store_i32(__sa_ptr_add(r6, 0), r8);
+        __sa_store_i32(__sa_ptr_add(r6, 0n), r8);
         __pc = 8; break;
       }
       case 4: {
-        __sa_store_i32(__sa_ptr_add(r6, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r6, 0n), 0);
         __pc = 8; break;
       }
       case 5: {
@@ -497,22 +618,22 @@ export function ts_arr_tospliced(src, start, del, items) {
         __pc = (__sa_truthy(r10) ? 6 : 7); break;
       }
       case 6: {
-        __sa_store_i32(__sa_ptr_add(r6, 0), r1);
+        __sa_store_i32(__sa_ptr_add(r6, 0n), r1);
         __pc = 8; break;
       }
       case 7: {
-        __sa_store_i32(__sa_ptr_add(r6, 0), r4);
+        __sa_store_i32(__sa_ptr_add(r6, 0n), r4);
         __pc = 8; break;
       }
       case 8: {
-        r11 = __sa_load_i32(__sa_ptr_add(r6, 0));
+        r11 = __sa_load_i32(__sa_ptr_add(r6, 0n));
         __sa_free(r6);
-        r12 = __sa_alloc(8);
-        r13 = __sa_slt(r2, 0);
+        r12 = __sa_alloc(8n);
+        r13 = __sa_slt(r2, 0n);
         __pc = (__sa_truthy(r13) ? 9 : 10); break;
       }
       case 9: {
-        __sa_store_i32(__sa_ptr_add(r12, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r12, 0n), 0);
         __pc = 13; break;
       }
       case 10: {
@@ -521,28 +642,28 @@ export function ts_arr_tospliced(src, start, del, items) {
         __pc = (__sa_truthy(r15) ? 11 : 12); break;
       }
       case 11: {
-        __sa_store_i32(__sa_ptr_add(r12, 0), r14);
+        __sa_store_i32(__sa_ptr_add(r12, 0n), r14);
         __pc = 13; break;
       }
       case 12: {
-        __sa_store_i32(__sa_ptr_add(r12, 0), r2);
+        __sa_store_i32(__sa_ptr_add(r12, 0n), r2);
         __pc = 13; break;
       }
       case 13: {
-        r16 = __sa_load_i32(__sa_ptr_add(r12, 0));
+        r16 = __sa_load_i32(__sa_ptr_add(r12, 0n));
         __sa_free(r12);
         r17 = __sa_sub(r4, r16);
         r18 = __sa_add(r17, r5);
-        r19 = __sa_mul(r18, 4);
+        r19 = __sa_mul(r18, 4n);
         r20 = __sa_alloc(r19);
-        r21 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r21, 0), r20);
-        __sa_store_i64(__sa_ptr_add(r21, 8), r18);
+        r21 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r21, 0n), r20);
+        __sa_store_i64(__sa_ptr_add(r21, 8n), r18);
         __sa_free(r20);
-        r22 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r23 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r24 = __sa_load_i64(__sa_ptr_add(r21, 0));
-        r25 = (0);
+        r22 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r23 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r24 = __sa_load_i64(__sa_ptr_add(r21, 0n));
+        r25 = (0n);
         __pc = 14; break;
       }
       case 14: {
@@ -550,18 +671,18 @@ export function ts_arr_tospliced(src, start, del, items) {
         __pc = (__sa_truthy(r26) ? 15 : 16); break;
       }
       case 15: {
-        r27 = __sa_mul(r25, 4);
+        r27 = __sa_mul(r25, 4n);
         r28 = __sa_add(r22, r27);
-        r29 = __sa_load_i32(__sa_ptr_add(r28, 0));
-        r30 = __sa_mul(r25, 4);
+        r29 = __sa_load_i32(__sa_ptr_add(r28, 0n));
+        r30 = __sa_mul(r25, 4n);
         r31 = __sa_add(r24, r30);
-        __sa_store_i32(__sa_ptr_add(r31, 0), r29);
-        r32 = __sa_add(r25, 1);
+        __sa_store_i32(__sa_ptr_add(r31, 0n), r29);
+        r32 = __sa_add(r25, 1n);
         r25 = (r32);
         __pc = 14; break;
       }
       case 16: {
-        r33 = (0);
+        r33 = (0n);
         __pc = 17; break;
       }
       case 17: {
@@ -569,21 +690,21 @@ export function ts_arr_tospliced(src, start, del, items) {
         __pc = (__sa_truthy(r34) ? 18 : 19); break;
       }
       case 18: {
-        r35 = __sa_mul(r33, 4);
+        r35 = __sa_mul(r33, 4n);
         r36 = __sa_add(r23, r35);
-        r37 = __sa_load_i32(__sa_ptr_add(r36, 0));
+        r37 = __sa_load_i32(__sa_ptr_add(r36, 0n));
         r38 = __sa_add(r11, r33);
-        r39 = __sa_mul(r38, 4);
+        r39 = __sa_mul(r38, 4n);
         r40 = __sa_add(r24, r39);
-        __sa_store_i32(__sa_ptr_add(r40, 0), r37);
-        r41 = __sa_add(r33, 1);
+        __sa_store_i32(__sa_ptr_add(r40, 0n), r37);
+        r41 = __sa_add(r33, 1n);
         r33 = (r41);
         __pc = 17; break;
       }
       case 19: {
         r42 = __sa_add(r11, r16);
         r43 = __sa_add(r11, r5);
-        r44 = (0);
+        r44 = (0n);
         __pc = 20; break;
       }
       case 20: {
@@ -595,18 +716,18 @@ export function ts_arr_tospliced(src, start, del, items) {
         __pc = (__sa_truthy(r46) ? 22 : 23); break;
       }
       case 22: {
-        r47 = __sa_mul(r44, 4);
+        r47 = __sa_mul(r44, 4n);
         r48 = __sa_add(r22, r47);
-        r49 = __sa_load_i32(__sa_ptr_add(r48, 0));
+        r49 = __sa_load_i32(__sa_ptr_add(r48, 0n));
         r50 = __sa_sub(r44, r16);
         r51 = __sa_add(r50, r5);
-        r52 = __sa_mul(r51, 4);
+        r52 = __sa_mul(r51, 4n);
         r53 = __sa_add(r24, r52);
-        __sa_store_i32(__sa_ptr_add(r53, 0), r49);
+        __sa_store_i32(__sa_ptr_add(r53, 0n), r49);
         __pc = 23; break;
       }
       case 23: {
-        r54 = __sa_add(r44, 1);
+        r54 = __sa_add(r44, 1n);
         r44 = (r54);
         __pc = 20; break;
       }
@@ -637,22 +758,22 @@ export function ts_arr_slice_copy(src, start, end) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r4 = __sa_alloc(8);
-        r5 = __sa_slt(r1, 0);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r4 = __sa_alloc(8n);
+        r5 = __sa_slt(r1, 0n);
         __pc = (__sa_truthy(r5) ? 2 : 5); break;
       }
       case 2: {
         r6 = __sa_add(r1, r3);
-        r7 = __sa_sge(r6, 0);
+        r7 = __sa_sge(r6, 0n);
         __pc = (__sa_truthy(r7) ? 3 : 4); break;
       }
       case 3: {
-        __sa_store_i32(__sa_ptr_add(r4, 0), r6);
+        __sa_store_i32(__sa_ptr_add(r4, 0n), r6);
         __pc = 8; break;
       }
       case 4: {
-        __sa_store_i32(__sa_ptr_add(r4, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r4, 0n), 0);
         __pc = 8; break;
       }
       case 5: {
@@ -660,31 +781,31 @@ export function ts_arr_slice_copy(src, start, end) {
         __pc = (__sa_truthy(r8) ? 6 : 7); break;
       }
       case 6: {
-        __sa_store_i32(__sa_ptr_add(r4, 0), r1);
+        __sa_store_i32(__sa_ptr_add(r4, 0n), r1);
         __pc = 8; break;
       }
       case 7: {
-        __sa_store_i32(__sa_ptr_add(r4, 0), r3);
+        __sa_store_i32(__sa_ptr_add(r4, 0n), r3);
         __pc = 8; break;
       }
       case 8: {
-        r9 = __sa_load_i32(__sa_ptr_add(r4, 0));
+        r9 = __sa_load_i32(__sa_ptr_add(r4, 0n));
         __sa_free(r4);
-        r10 = __sa_alloc(8);
-        r11 = __sa_slt(r2, 0);
+        r10 = __sa_alloc(8n);
+        r11 = __sa_slt(r2, 0n);
         __pc = (__sa_truthy(r11) ? 9 : 12); break;
       }
       case 9: {
         r12 = __sa_add(r2, r3);
-        r13 = __sa_sge(r12, 0);
+        r13 = __sa_sge(r12, 0n);
         __pc = (__sa_truthy(r13) ? 10 : 11); break;
       }
       case 10: {
-        __sa_store_i32(__sa_ptr_add(r10, 0), r12);
+        __sa_store_i32(__sa_ptr_add(r10, 0n), r12);
         __pc = 15; break;
       }
       case 11: {
-        __sa_store_i32(__sa_ptr_add(r10, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r10, 0n), 0);
         __pc = 15; break;
       }
       case 12: {
@@ -692,15 +813,15 @@ export function ts_arr_slice_copy(src, start, end) {
         __pc = (__sa_truthy(r14) ? 13 : 14); break;
       }
       case 13: {
-        __sa_store_i32(__sa_ptr_add(r10, 0), r2);
+        __sa_store_i32(__sa_ptr_add(r10, 0n), r2);
         __pc = 15; break;
       }
       case 14: {
-        __sa_store_i32(__sa_ptr_add(r10, 0), r3);
+        __sa_store_i32(__sa_ptr_add(r10, 0n), r3);
         __pc = 15; break;
       }
       case 15: {
-        r15 = __sa_load_i32(__sa_ptr_add(r10, 0));
+        r15 = __sa_load_i32(__sa_ptr_add(r10, 0n));
         __sa_free(r10);
         r16 = __sa_sge(r15, r9);
         __pc = (__sa_truthy(r16) ? 16 : 17); break;
@@ -710,19 +831,19 @@ export function ts_arr_slice_copy(src, start, end) {
         __pc = 18; break;
       }
       case 17: {
-        r17 = (0);
+        r17 = (0n);
         __pc = 18; break;
       }
       case 18: {
-        r18 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r19 = __sa_mul(r17, 4);
+        r18 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r19 = __sa_mul(r17, 4n);
         r20 = __sa_alloc(r19);
-        r21 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r21, 0), r20);
-        __sa_store_i64(__sa_ptr_add(r21, 8), r17);
+        r21 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r21, 0n), r20);
+        __sa_store_i64(__sa_ptr_add(r21, 8n), r17);
         __sa_free(r20);
-        r22 = __sa_load_i64(__sa_ptr_add(r21, 0));
-        r23 = (0);
+        r22 = __sa_load_i64(__sa_ptr_add(r21, 0n));
+        r23 = (0n);
         __pc = 19; break;
       }
       case 19: {
@@ -731,13 +852,13 @@ export function ts_arr_slice_copy(src, start, end) {
       }
       case 20: {
         r25 = __sa_add(r9, r23);
-        r26 = __sa_mul(r25, 4);
+        r26 = __sa_mul(r25, 4n);
         r27 = __sa_add(r18, r26);
-        r28 = __sa_load_i32(__sa_ptr_add(r27, 0));
-        r29 = __sa_mul(r23, 4);
+        r28 = __sa_load_i32(__sa_ptr_add(r27, 0n));
+        r29 = __sa_mul(r23, 4n);
         r30 = __sa_add(r22, r29);
-        __sa_store_i32(__sa_ptr_add(r30, 0), r28);
-        r31 = __sa_add(r23, 1);
+        __sa_store_i32(__sa_ptr_add(r30, 0n), r28);
+        r31 = __sa_add(r23, 1n);
         r23 = (r31);
         __pc = 19; break;
       }
@@ -767,19 +888,19 @@ export function ts_arr_with(src, idx, val) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r5 = __sa_mul(r3, 4);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r5 = __sa_mul(r3, 4n);
         r6 = __sa_alloc(r5);
-        r7 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r7, 0), r6);
-        __sa_store_i64(__sa_ptr_add(r7, 8), r3);
+        r7 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r7, 0n), r6);
+        __sa_store_i64(__sa_ptr_add(r7, 8n), r3);
         __sa_free(r6);
-        r8 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r9 = __sa_slt(r1, 0);
+        r8 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r9 = __sa_slt(r1, 0n);
         r10 = __sa_mul(r3, r9);
         r11 = __sa_add(r1, r10);
-        r12 = (0);
+        r12 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -787,18 +908,18 @@ export function ts_arr_with(src, idx, val) {
         __pc = (__sa_truthy(r13) ? 3 : 4); break;
       }
       case 3: {
-        r14 = __sa_mul(r12, 4);
+        r14 = __sa_mul(r12, 4n);
         r15 = __sa_add(r4, r14);
-        r16 = __sa_load_i32(__sa_ptr_add(r15, 0));
-        r17 = __sa_mul(r12, 4);
+        r16 = __sa_load_i32(__sa_ptr_add(r15, 0n));
+        r17 = __sa_mul(r12, 4n);
         r18 = __sa_add(r8, r17);
-        __sa_store_i32(__sa_ptr_add(r18, 0), r16);
-        r19 = __sa_add(r12, 1);
+        __sa_store_i32(__sa_ptr_add(r18, 0n), r16);
+        r19 = __sa_add(r12, 1n);
         r12 = (r19);
         __pc = 2; break;
       }
       case 4: {
-        r20 = __sa_slt(r11, 0);
+        r20 = __sa_slt(r11, 0n);
         r21 = __sa_sge(r11, r3);
         r22 = __sa_bor(r20, r21);
         __pc = (__sa_truthy(r22) ? 5 : 6); break;
@@ -808,9 +929,9 @@ export function ts_arr_with(src, idx, val) {
         __pc = 6; break;
       }
       case 6: {
-        r23 = __sa_mul(r11, 4);
+        r23 = __sa_mul(r11, 4n);
         r24 = __sa_add(r8, r23);
-        __sa_store_i32(__sa_ptr_add(r24, 0), r2);
+        __sa_store_i32(__sa_ptr_add(r24, 0n), r2);
         __pc = 7; break;
       }
       case 7: {
@@ -837,16 +958,16 @@ export function ts_arr_toreversed(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_mul(r1, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_mul(r1, 4n);
         r4 = __sa_alloc(r3);
-        r5 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r4);
-        __sa_store_i64(__sa_ptr_add(r5, 8), r1);
+        r5 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r4);
+        __sa_store_i64(__sa_ptr_add(r5, 8n), r1);
         __sa_free(r4);
-        r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        r7 = (0);
+        r6 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        r7 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -854,15 +975,15 @@ export function ts_arr_toreversed(src) {
         __pc = (__sa_truthy(r8) ? 3 : 4); break;
       }
       case 3: {
-        r9 = __sa_sub(r1, 1);
+        r9 = __sa_sub(r1, 1n);
         r10 = __sa_sub(r9, r7);
-        r11 = __sa_mul(r10, 4);
+        r11 = __sa_mul(r10, 4n);
         r12 = __sa_add(r2, r11);
-        r13 = __sa_load_i32(__sa_ptr_add(r12, 0));
-        r14 = __sa_mul(r7, 4);
+        r13 = __sa_load_i32(__sa_ptr_add(r12, 0n));
+        r14 = __sa_mul(r7, 4n);
         r15 = __sa_add(r6, r14);
-        __sa_store_i32(__sa_ptr_add(r15, 0), r13);
-        r16 = __sa_add(r7, 1);
+        __sa_store_i32(__sa_ptr_add(r15, 0n), r13);
+        r16 = __sa_add(r7, 1n);
         r7 = (r16);
         __pc = 2; break;
       }
@@ -888,16 +1009,16 @@ export function ts_arr_tosorted(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_mul(r1, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_mul(r1, 4n);
         r4 = __sa_alloc(r3);
-        r5 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r4);
-        __sa_store_i64(__sa_ptr_add(r5, 8), r1);
+        r5 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r4);
+        __sa_store_i64(__sa_ptr_add(r5, 8n), r1);
         __sa_free(r4);
-        r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        r7 = (0);
+        r6 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        r7 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -905,18 +1026,18 @@ export function ts_arr_tosorted(src) {
         __pc = (__sa_truthy(r8) ? 3 : 4); break;
       }
       case 3: {
-        r9 = __sa_mul(r7, 4);
+        r9 = __sa_mul(r7, 4n);
         r10 = __sa_add(r2, r9);
-        r11 = __sa_load_i32(__sa_ptr_add(r10, 0));
-        r12 = __sa_mul(r7, 4);
+        r11 = __sa_load_i32(__sa_ptr_add(r10, 0n));
+        r12 = __sa_mul(r7, 4n);
         r13 = __sa_add(r6, r12);
-        __sa_store_i32(__sa_ptr_add(r13, 0), r11);
-        r14 = __sa_add(r7, 1);
+        __sa_store_i32(__sa_ptr_add(r13, 0n), r11);
+        r14 = __sa_add(r7, 1n);
         r7 = (r14);
         __pc = 2; break;
       }
       case 4: {
-        r15 = (1);
+        r15 = (1n);
         __pc = 5; break;
       }
       case 5: {
@@ -924,38 +1045,38 @@ export function ts_arr_tosorted(src) {
         __pc = (__sa_truthy(r16) ? 6 : 11); break;
       }
       case 6: {
-        r17 = __sa_mul(r15, 4);
+        r17 = __sa_mul(r15, 4n);
         r18 = __sa_add(r6, r17);
-        r19 = __sa_load_i32(__sa_ptr_add(r18, 0));
-        r20 = __sa_sub(r15, 1);
+        r19 = __sa_load_i32(__sa_ptr_add(r18, 0n));
+        r20 = __sa_sub(r15, 1n);
         __pc = 7; break;
       }
       case 7: {
-        r21 = __sa_sge(r20, 0);
+        r21 = __sa_sge(r20, 0n);
         __pc = (__sa_truthy(r21) ? 8 : 10); break;
       }
       case 8: {
-        r22 = __sa_mul(r20, 4);
+        r22 = __sa_mul(r20, 4n);
         r23 = __sa_add(r6, r22);
-        r24 = __sa_load_i32(__sa_ptr_add(r23, 0));
+        r24 = __sa_load_i32(__sa_ptr_add(r23, 0n));
         r25 = __sa_sgt(r24, r19);
         __pc = (__sa_truthy(r25) ? 9 : 10); break;
       }
       case 9: {
-        r26 = __sa_add(r20, 1);
-        r27 = __sa_mul(r26, 4);
+        r26 = __sa_add(r20, 1n);
+        r27 = __sa_mul(r26, 4n);
         r28 = __sa_add(r6, r27);
-        __sa_store_i32(__sa_ptr_add(r28, 0), r24);
-        r29 = __sa_sub(r20, 1);
+        __sa_store_i32(__sa_ptr_add(r28, 0n), r24);
+        r29 = __sa_sub(r20, 1n);
         r20 = (r29);
         __pc = 7; break;
       }
       case 10: {
-        r30 = __sa_add(r20, 1);
-        r31 = __sa_mul(r30, 4);
+        r30 = __sa_add(r20, 1n);
+        r31 = __sa_mul(r30, 4n);
         r32 = __sa_add(r6, r31);
-        __sa_store_i32(__sa_ptr_add(r32, 0), r19);
-        r33 = __sa_add(r15, 1);
+        __sa_store_i32(__sa_ptr_add(r32, 0n), r19);
+        r33 = __sa_add(r15, 1n);
         r15 = (r33);
         __pc = 5; break;
       }
@@ -981,9 +1102,9 @@ export function ts_arr_sort(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = (1);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = (1n);
         __pc = 2; break;
       }
       case 2: {
@@ -991,38 +1112,38 @@ export function ts_arr_sort(src) {
         __pc = (__sa_truthy(r4) ? 3 : 8); break;
       }
       case 3: {
-        r5 = __sa_mul(r3, 4);
+        r5 = __sa_mul(r3, 4n);
         r6 = __sa_add(r2, r5);
-        r7 = __sa_load_i32(__sa_ptr_add(r6, 0));
-        r8 = __sa_sub(r3, 1);
+        r7 = __sa_load_i32(__sa_ptr_add(r6, 0n));
+        r8 = __sa_sub(r3, 1n);
         __pc = 4; break;
       }
       case 4: {
-        r9 = __sa_sge(r8, 0);
+        r9 = __sa_sge(r8, 0n);
         __pc = (__sa_truthy(r9) ? 5 : 7); break;
       }
       case 5: {
-        r10 = __sa_mul(r8, 4);
+        r10 = __sa_mul(r8, 4n);
         r11 = __sa_add(r2, r10);
-        r12 = __sa_load_i32(__sa_ptr_add(r11, 0));
+        r12 = __sa_load_i32(__sa_ptr_add(r11, 0n));
         r13 = __sa_sgt(r12, r7);
         __pc = (__sa_truthy(r13) ? 6 : 7); break;
       }
       case 6: {
-        r14 = __sa_add(r8, 1);
-        r15 = __sa_mul(r14, 4);
+        r14 = __sa_add(r8, 1n);
+        r15 = __sa_mul(r14, 4n);
         r16 = __sa_add(r2, r15);
-        __sa_store_i32(__sa_ptr_add(r16, 0), r12);
-        r17 = __sa_sub(r8, 1);
+        __sa_store_i32(__sa_ptr_add(r16, 0n), r12);
+        r17 = __sa_sub(r8, 1n);
         r8 = (r17);
         __pc = 4; break;
       }
       case 7: {
-        r18 = __sa_add(r8, 1);
-        r19 = __sa_mul(r18, 4);
+        r18 = __sa_add(r8, 1n);
+        r19 = __sa_mul(r18, 4n);
         r20 = __sa_add(r2, r19);
-        __sa_store_i32(__sa_ptr_add(r20, 0), r7);
-        r21 = __sa_add(r3, 1);
+        __sa_store_i32(__sa_ptr_add(r20, 0n), r7);
+        r21 = __sa_add(r3, 1n);
         r3 = (r21);
         __pc = 2; break;
       }
@@ -1048,9 +1169,9 @@ export function ts_arr_sort_str(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = (1);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = (1n);
         __pc = 2; break;
       }
       case 2: {
@@ -1058,25 +1179,25 @@ export function ts_arr_sort_str(src) {
         __pc = (__sa_truthy(r4) ? 3 : 15); break;
       }
       case 3: {
-        r5 = __sa_mul(r3, 4);
+        r5 = __sa_mul(r3, 4n);
         r6 = __sa_add(r2, r5);
-        r7 = __sa_load_i32(__sa_ptr_add(r6, 0));
-        r8 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r9 = __sa_load_i64(__sa_ptr_add(r7, 8));
-        r10 = __sa_sub(r3, 1);
+        r7 = __sa_load_i32(__sa_ptr_add(r6, 0n));
+        r8 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r9 = __sa_load_i64(__sa_ptr_add(r7, 8n));
+        r10 = __sa_sub(r3, 1n);
         __pc = 4; break;
       }
       case 4: {
-        r11 = __sa_sge(r10, 0);
+        r11 = __sa_sge(r10, 0n);
         __pc = (__sa_truthy(r11) ? 5 : 14); break;
       }
       case 5: {
-        r12 = __sa_mul(r10, 4);
+        r12 = __sa_mul(r10, 4n);
         r13 = __sa_add(r2, r12);
-        r14 = __sa_load_i32(__sa_ptr_add(r13, 0));
-        r15 = __sa_load_i64(__sa_ptr_add(r14, 0));
-        r16 = __sa_load_i64(__sa_ptr_add(r14, 8));
-        r17 = (0);
+        r14 = __sa_load_i32(__sa_ptr_add(r13, 0n));
+        r15 = __sa_load_i64(__sa_ptr_add(r14, 0n));
+        r16 = __sa_load_i64(__sa_ptr_add(r14, 8n));
+        r17 = (0n);
         __pc = 6; break;
       }
       case 6: {
@@ -1090,8 +1211,8 @@ export function ts_arr_sort_str(src) {
       case 8: {
         r20 = __sa_add(r15, r17);
         r21 = __sa_add(r8, r17);
-        r22 = __sa_load_u8(__sa_ptr_add(r20, 0));
-        r23 = __sa_load_u8(__sa_ptr_add(r21, 0));
+        r22 = __sa_load_u8(__sa_ptr_add(r20, 0n));
+        r23 = __sa_load_u8(__sa_ptr_add(r21, 0n));
         r24 = __sa_ult(r22, r23);
         __pc = (__sa_truthy(r24) ? 14 : 9); break;
       }
@@ -1100,7 +1221,7 @@ export function ts_arr_sort_str(src) {
         __pc = (__sa_truthy(r25) ? 13 : 10); break;
       }
       case 10: {
-        r26 = __sa_add(r17, 1);
+        r26 = __sa_add(r17, 1n);
         r17 = (r26);
         __pc = 6; break;
       }
@@ -1111,20 +1232,20 @@ export function ts_arr_sort_str(src) {
         __pc = 13; break;
       }
       case 13: {
-        r27 = __sa_add(r10, 1);
-        r28 = __sa_mul(r27, 4);
+        r27 = __sa_add(r10, 1n);
+        r28 = __sa_mul(r27, 4n);
         r29 = __sa_add(r2, r28);
-        __sa_store_i32(__sa_ptr_add(r29, 0), r14);
-        r30 = __sa_sub(r10, 1);
+        __sa_store_i32(__sa_ptr_add(r29, 0n), r14);
+        r30 = __sa_sub(r10, 1n);
         r10 = (r30);
         __pc = 4; break;
       }
       case 14: {
-        r31 = __sa_add(r10, 1);
-        r32 = __sa_mul(r31, 4);
+        r31 = __sa_add(r10, 1n);
+        r32 = __sa_mul(r31, 4n);
         r33 = __sa_add(r2, r32);
-        __sa_store_i32(__sa_ptr_add(r33, 0), r7);
-        r34 = __sa_add(r3, 1);
+        __sa_store_i32(__sa_ptr_add(r33, 0n), r7);
+        r34 = __sa_add(r3, 1n);
         r3 = (r34);
         __pc = 2; break;
       }
@@ -1150,10 +1271,10 @@ export function ts_arr_reverse(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_sdiv(r1, 2);
-        r4 = (0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_sdiv(r1, 2n);
+        r4 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1161,17 +1282,17 @@ export function ts_arr_reverse(src) {
         __pc = (__sa_truthy(r5) ? 3 : 4); break;
       }
       case 3: {
-        r6 = __sa_sub(r1, 1);
+        r6 = __sa_sub(r1, 1n);
         r7 = __sa_sub(r6, r4);
-        r8 = __sa_mul(r4, 4);
+        r8 = __sa_mul(r4, 4n);
         r9 = __sa_add(r2, r8);
-        r10 = __sa_mul(r7, 4);
+        r10 = __sa_mul(r7, 4n);
         r11 = __sa_add(r2, r10);
-        r12 = __sa_load_i32(__sa_ptr_add(r9, 0));
-        r13 = __sa_load_i32(__sa_ptr_add(r11, 0));
-        __sa_store_i32(__sa_ptr_add(r9, 0), r13);
-        __sa_store_i32(__sa_ptr_add(r11, 0), r12);
-        r14 = __sa_add(r4, 1);
+        r12 = __sa_load_i32(__sa_ptr_add(r9, 0n));
+        r13 = __sa_load_i32(__sa_ptr_add(r11, 0n));
+        __sa_store_i32(__sa_ptr_add(r9, 0n), r13);
+        __sa_store_i32(__sa_ptr_add(r11, 0n), r12);
+        r14 = __sa_add(r4, 1n);
         r4 = (r14);
         __pc = 2; break;
       }
@@ -1198,9 +1319,9 @@ export function ts_arr_fill(src, val) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = (0);
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1208,10 +1329,10 @@ export function ts_arr_fill(src, val) {
         __pc = (__sa_truthy(r5) ? 3 : 4); break;
       }
       case 3: {
-        r6 = __sa_mul(r4, 4);
+        r6 = __sa_mul(r4, 4n);
         r7 = __sa_add(r3, r6);
-        __sa_store_i32(__sa_ptr_add(r7, 0), r1);
-        r8 = __sa_add(r4, 1);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), r1);
+        r8 = __sa_add(r4, 1n);
         r4 = (r8);
         __pc = 2; break;
       }
@@ -1243,40 +1364,40 @@ export function ts_arr_scan(src, want, from, hasfrom, rev, wantidx) {
         __pc = 1; break;
       }
       case 1: {
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r8 = __sa_alloc(8);
-        r9 = __sa_ne(r3, 0);
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r8 = __sa_alloc(8n);
+        r9 = __sa_ne(r3, 0n);
         __pc = (__sa_truthy(r9) ? 5 : 2); break;
       }
       case 2: {
-        r10 = __sa_ne(r4, 0);
+        r10 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r10) ? 3 : 4); break;
       }
       case 3: {
-        r11 = __sa_sub(r6, 1);
-        __sa_store_i32(__sa_ptr_add(r8, 0), r11);
+        r11 = __sa_sub(r6, 1n);
+        __sa_store_i32(__sa_ptr_add(r8, 0n), r11);
         __pc = 12; break;
       }
       case 4: {
-        __sa_store_i32(__sa_ptr_add(r8, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r8, 0n), 0);
         __pc = 12; break;
       }
       case 5: {
-        r12 = __sa_slt(r2, 0);
+        r12 = __sa_slt(r2, 0n);
         __pc = (__sa_truthy(r12) ? 6 : 9); break;
       }
       case 6: {
         r13 = __sa_add(r2, r6);
-        r14 = __sa_sge(r13, 0);
+        r14 = __sa_sge(r13, 0n);
         __pc = (__sa_truthy(r14) ? 7 : 8); break;
       }
       case 7: {
-        __sa_store_i32(__sa_ptr_add(r8, 0), r13);
+        __sa_store_i32(__sa_ptr_add(r8, 0n), r13);
         __pc = 12; break;
       }
       case 8: {
-        __sa_store_i32(__sa_ptr_add(r8, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r8, 0n), 0);
         __pc = 12; break;
       }
       case 9: {
@@ -1284,33 +1405,33 @@ export function ts_arr_scan(src, want, from, hasfrom, rev, wantidx) {
         __pc = (__sa_truthy(r15) ? 10 : 11); break;
       }
       case 10: {
-        __sa_store_i32(__sa_ptr_add(r8, 0), r2);
+        __sa_store_i32(__sa_ptr_add(r8, 0n), r2);
         __pc = 12; break;
       }
       case 11: {
-        __sa_store_i32(__sa_ptr_add(r8, 0), r6);
+        __sa_store_i32(__sa_ptr_add(r8, 0n), r6);
         __pc = 12; break;
       }
       case 12: {
-        r16 = __sa_load_i32(__sa_ptr_add(r8, 0));
+        r16 = __sa_load_i32(__sa_ptr_add(r8, 0n));
         __sa_free(r8);
-        r17 = __sa_ne(r5, 0);
+        r17 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r17) ? 13 : 14); break;
       }
       case 13: {
-        r18 = (-1);
+        r18 = (-1n);
         __pc = 15; break;
       }
       case 14: {
-        r18 = (0);
+        r18 = (0n);
         __pc = 15; break;
       }
       case 15: {
-        r19 = __sa_add(r16, 0);
+        r19 = __sa_add(r16, 0n);
         __pc = 16; break;
       }
       case 16: {
-        r20 = __sa_ne(r4, 0);
+        r20 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r20) ? 18 : 17); break;
       }
       case 17: {
@@ -1318,39 +1439,39 @@ export function ts_arr_scan(src, want, from, hasfrom, rev, wantidx) {
         __pc = (__sa_truthy(r21) ? 19 : 26); break;
       }
       case 18: {
-        r22 = __sa_sge(r19, 0);
+        r22 = __sa_sge(r19, 0n);
         __pc = (__sa_truthy(r22) ? 19 : 26); break;
       }
       case 19: {
-        r23 = __sa_mul(r19, 4);
+        r23 = __sa_mul(r19, 4n);
         r24 = __sa_add(r7, r23);
-        r25 = __sa_load_i32(__sa_ptr_add(r24, 0));
+        r25 = __sa_load_i32(__sa_ptr_add(r24, 0n));
         r26 = __sa_eq(r25, r1);
         __pc = (__sa_truthy(r26) ? 20 : 23); break;
       }
       case 20: {
-        r27 = __sa_ne(r5, 0);
+        r27 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r27) ? 21 : 22); break;
       }
       case 21: {
-        r18 = __sa_add(r19, 0);
+        r18 = __sa_add(r19, 0n);
         __pc = 26; break;
       }
       case 22: {
-        r18 = (1);
+        r18 = (1n);
         __pc = 26; break;
       }
       case 23: {
-        r28 = __sa_ne(r4, 0);
+        r28 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r28) ? 25 : 24); break;
       }
       case 24: {
-        r29 = __sa_add(r19, 1);
+        r29 = __sa_add(r19, 1n);
         r19 = (r29);
         __pc = 16; break;
       }
       case 25: {
-        r30 = __sa_sub(r19, 1);
+        r30 = __sa_sub(r19, 1n);
         r19 = (r30);
         __pc = 16; break;
       }
@@ -1381,13 +1502,13 @@ export function ts_arr_pop(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_sub(r1, 1);
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_mul(r2, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_sub(r1, 1n);
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_mul(r2, 4n);
         r5 = __sa_add(r3, r4);
-        r6 = __sa_load_i32(__sa_ptr_add(r5, 0));
-        __sa_store_i64(__sa_ptr_add(r0, 8), r2);
+        r6 = __sa_load_i32(__sa_ptr_add(r5, 0n));
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r2);
         /* no-op release: !src */
         return (r6);
         return __sa_trap("fallthrough end of function");
@@ -1409,11 +1530,11 @@ export function ts_arr_shift(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_load_i32(__sa_ptr_add(r2, 0));
-        r4 = __sa_sub(r1, 1);
-        r5 = (0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_load_i32(__sa_ptr_add(r2, 0n));
+        r4 = __sa_sub(r1, 1n);
+        r5 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1421,19 +1542,19 @@ export function ts_arr_shift(src) {
         __pc = (__sa_truthy(r6) ? 3 : 4); break;
       }
       case 3: {
-        r7 = __sa_add(r5, 1);
-        r8 = __sa_mul(r7, 4);
+        r7 = __sa_add(r5, 1n);
+        r8 = __sa_mul(r7, 4n);
         r9 = __sa_add(r2, r8);
-        r10 = __sa_load_i32(__sa_ptr_add(r9, 0));
-        r11 = __sa_mul(r5, 4);
+        r10 = __sa_load_i32(__sa_ptr_add(r9, 0n));
+        r11 = __sa_mul(r5, 4n);
         r12 = __sa_add(r2, r11);
-        __sa_store_i32(__sa_ptr_add(r12, 0), r10);
-        r13 = __sa_add(r5, 1);
+        __sa_store_i32(__sa_ptr_add(r12, 0n), r10);
+        r13 = __sa_add(r5, 1n);
         r5 = (r13);
         __pc = 2; break;
       }
       case 4: {
-        __sa_store_i64(__sa_ptr_add(r0, 8), r4);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r4);
         /* no-op release: !src */
         return (r3);
         return __sa_trap("fallthrough end of function");
@@ -1459,9 +1580,9 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = 1; break;
       }
       case 1: {
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r7 = __sa_slt(r1, 0);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r7 = __sa_slt(r1, 0n);
         __pc = (__sa_truthy(r7) ? 2 : 3); break;
       }
       case 2: {
@@ -1469,15 +1590,15 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = 4; break;
       }
       case 3: {
-        r8 = __sa_add(r1, 0);
+        r8 = __sa_add(r1, 0n);
         __pc = 4; break;
       }
       case 4: {
-        r9 = __sa_slt(r8, 0);
+        r9 = __sa_slt(r8, 0n);
         __pc = (__sa_truthy(r9) ? 5 : 6); break;
       }
       case 5: {
-        r10 = (0);
+        r10 = (0n);
         __pc = 9; break;
       }
       case 6: {
@@ -1485,15 +1606,15 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = (__sa_truthy(r11) ? 7 : 8); break;
       }
       case 7: {
-        r10 = __sa_add(r5, 0);
+        r10 = __sa_add(r5, 0n);
         __pc = 9; break;
       }
       case 8: {
-        r10 = __sa_add(r8, 0);
+        r10 = __sa_add(r8, 0n);
         __pc = 9; break;
       }
       case 9: {
-        r12 = __sa_slt(r2, 0);
+        r12 = __sa_slt(r2, 0n);
         __pc = (__sa_truthy(r12) ? 10 : 11); break;
       }
       case 10: {
@@ -1501,15 +1622,15 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = 12; break;
       }
       case 11: {
-        r13 = __sa_add(r2, 0);
+        r13 = __sa_add(r2, 0n);
         __pc = 12; break;
       }
       case 12: {
-        r14 = __sa_slt(r13, 0);
+        r14 = __sa_slt(r13, 0n);
         __pc = (__sa_truthy(r14) ? 13 : 14); break;
       }
       case 13: {
-        r15 = (0);
+        r15 = (0n);
         __pc = 17; break;
       }
       case 14: {
@@ -1517,23 +1638,23 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = (__sa_truthy(r16) ? 15 : 16); break;
       }
       case 15: {
-        r15 = __sa_add(r5, 0);
+        r15 = __sa_add(r5, 0n);
         __pc = 17; break;
       }
       case 16: {
-        r15 = __sa_add(r13, 0);
+        r15 = __sa_add(r13, 0n);
         __pc = 17; break;
       }
       case 17: {
-        r17 = __sa_ne(r4, 0);
+        r17 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r17) ? 19 : 18); break;
       }
       case 18: {
-        r18 = __sa_add(r5, 0);
+        r18 = __sa_add(r5, 0n);
         __pc = 27; break;
       }
       case 19: {
-        r19 = __sa_slt(r3, 0);
+        r19 = __sa_slt(r3, 0n);
         __pc = (__sa_truthy(r19) ? 20 : 21); break;
       }
       case 20: {
@@ -1541,15 +1662,15 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = 22; break;
       }
       case 21: {
-        r20 = __sa_add(r3, 0);
+        r20 = __sa_add(r3, 0n);
         __pc = 22; break;
       }
       case 22: {
-        r21 = __sa_slt(r20, 0);
+        r21 = __sa_slt(r20, 0n);
         __pc = (__sa_truthy(r21) ? 23 : 24); break;
       }
       case 23: {
-        r18 = (0);
+        r18 = (0n);
         __pc = 27; break;
       }
       case 24: {
@@ -1557,11 +1678,11 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = (__sa_truthy(r22) ? 25 : 26); break;
       }
       case 25: {
-        r18 = __sa_add(r5, 0);
+        r18 = __sa_add(r5, 0n);
         __pc = 27; break;
       }
       case 26: {
-        r18 = __sa_add(r20, 0);
+        r18 = __sa_add(r20, 0n);
         __pc = 27; break;
       }
       case 27: {
@@ -1571,15 +1692,15 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = (__sa_truthy(r25) ? 28 : 29); break;
       }
       case 28: {
-        r26 = __sa_add(r23, 0);
+        r26 = __sa_add(r23, 0n);
         __pc = 30; break;
       }
       case 29: {
-        r26 = __sa_add(r24, 0);
+        r26 = __sa_add(r24, 0n);
         __pc = 30; break;
       }
       case 30: {
-        r27 = __sa_sgt(r26, 0);
+        r27 = __sa_sgt(r26, 0n);
         __pc = (__sa_truthy(r27) ? 31 : 40); break;
       }
       case 31: {
@@ -1587,7 +1708,7 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = (__sa_truthy(r28) ? 32 : 36); break;
       }
       case 32: {
-        r29 = (0);
+        r29 = (0n);
         __pc = 33; break;
       }
       case 33: {
@@ -1596,14 +1717,14 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
       }
       case 34: {
         r31 = __sa_add(r15, r29);
-        r32 = __sa_mul(r31, 4);
+        r32 = __sa_mul(r31, 4n);
         r33 = __sa_add(r6, r32);
-        r34 = __sa_load_i32(__sa_ptr_add(r33, 0));
+        r34 = __sa_load_i32(__sa_ptr_add(r33, 0n));
         r35 = __sa_add(r10, r29);
-        r36 = __sa_mul(r35, 4);
+        r36 = __sa_mul(r35, 4n);
         r37 = __sa_add(r6, r36);
-        __sa_store_i32(__sa_ptr_add(r37, 0), r34);
-        r38 = __sa_add(r29, 1);
+        __sa_store_i32(__sa_ptr_add(r37, 0n), r34);
+        r38 = __sa_add(r29, 1n);
         r29 = (r38);
         __pc = 33; break;
       }
@@ -1611,23 +1732,23 @@ export function ts_arr_copywithin(src, target, start, end, hasend) {
         __pc = 40; break;
       }
       case 36: {
-        r39 = __sa_sub(r26, 1);
+        r39 = __sa_sub(r26, 1n);
         __pc = 37; break;
       }
       case 37: {
-        r40 = __sa_sge(r39, 0);
+        r40 = __sa_sge(r39, 0n);
         __pc = (__sa_truthy(r40) ? 38 : 39); break;
       }
       case 38: {
         r41 = __sa_add(r15, r39);
-        r42 = __sa_mul(r41, 4);
+        r42 = __sa_mul(r41, 4n);
         r43 = __sa_add(r6, r42);
-        r44 = __sa_load_i32(__sa_ptr_add(r43, 0));
+        r44 = __sa_load_i32(__sa_ptr_add(r43, 0n));
         r45 = __sa_add(r10, r39);
-        r46 = __sa_mul(r45, 4);
+        r46 = __sa_mul(r45, 4n);
         r47 = __sa_add(r6, r46);
-        __sa_store_i32(__sa_ptr_add(r47, 0), r44);
-        r48 = __sa_sub(r39, 1);
+        __sa_store_i32(__sa_ptr_add(r47, 0n), r44);
+        r48 = __sa_sub(r39, 1n);
         r39 = (r48);
         __pc = 37; break;
       }
@@ -1660,23 +1781,23 @@ export function ts_arr_rotr1(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_sub(r1, 1);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_sub(r1, 1n);
         __pc = 2; break;
       }
       case 2: {
-        r4 = __sa_sgt(r3, 0);
+        r4 = __sa_sgt(r3, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 4); break;
       }
       case 3: {
-        r5 = __sa_sub(r3, 1);
-        r6 = __sa_mul(r5, 4);
+        r5 = __sa_sub(r3, 1n);
+        r6 = __sa_mul(r5, 4n);
         r7 = __sa_add(r2, r6);
-        r8 = __sa_load_i32(__sa_ptr_add(r7, 0));
-        r9 = __sa_mul(r3, 4);
+        r8 = __sa_load_i32(__sa_ptr_add(r7, 0n));
+        r9 = __sa_mul(r3, 4n);
         r10 = __sa_add(r2, r9);
-        __sa_store_i32(__sa_ptr_add(r10, 0), r8);
+        __sa_store_i32(__sa_ptr_add(r10, 0n), r8);
         r3 = (r5);
         __pc = 2; break;
       }
@@ -1703,9 +1824,9 @@ export function ts_arr_append_slice(dst, src) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r1, 8));
-        r3 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        r4 = (0);
+        r2 = __sa_load_i64(__sa_ptr_add(r1, 8n));
+        r3 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        r4 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1713,11 +1834,11 @@ export function ts_arr_append_slice(dst, src) {
         __pc = (__sa_truthy(r5) ? 3 : 4); break;
       }
       case 3: {
-        r6 = __sa_mul(r4, 4);
+        r6 = __sa_mul(r4, 4n);
         r7 = __sa_add(r3, r6);
-        r8 = __sa_load_i32(__sa_ptr_add(r7, 0));
+        r8 = __sa_load_i32(__sa_ptr_add(r7, 0n));
         ts_arr_push_word(r0, r8);
-        r9 = __sa_add(r4, 1);
+        r9 = __sa_add(r4, 1n);
         r4 = (r9);
         __pc = 2; break;
       }
@@ -1746,7 +1867,7 @@ export function ts_arr_copy_range(sdata, ddata, s0, s1, d0) {
         __pc = 1; break;
       }
       case 1: {
-        r5 = __sa_add(r2, 0);
+        r5 = __sa_add(r2, 0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1755,19 +1876,19 @@ export function ts_arr_copy_range(sdata, ddata, s0, s1, d0) {
       }
       case 3: {
         r7 = __sa_sub(r5, r2);
-        r8 = __sa_mul(r5, 4);
+        r8 = __sa_mul(r5, 4n);
         r9 = __sa_add(r0, r8);
-        r10 = __sa_load_i32(__sa_ptr_add(r9, 0));
+        r10 = __sa_load_i32(__sa_ptr_add(r9, 0n));
         r11 = __sa_add(r4, r7);
-        r12 = __sa_mul(r11, 4);
+        r12 = __sa_mul(r11, 4n);
         r13 = __sa_add(r1, r12);
-        __sa_store_i32(__sa_ptr_add(r13, 0), r10);
-        r14 = __sa_add(r5, 1);
+        __sa_store_i32(__sa_ptr_add(r13, 0n), r10);
+        r14 = __sa_add(r5, 1n);
         r5 = (r14);
         __pc = 2; break;
       }
       case 4: {
-        r15 = (0);
+        r15 = (0n);
         return (r15);
         return __sa_trap("fallthrough end of function");
       }
@@ -1788,17 +1909,17 @@ export function ts_arr_clone_flat(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_alloc(16);
-        r4 = __sa_add(r1, 1);
-        r5 = __sa_mul(r4, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_alloc(16n);
+        r4 = __sa_add(r1, 1n);
+        r5 = __sa_mul(r4, 4n);
         r6 = __sa_alloc(r5);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r6);
-        __sa_store_i64(__sa_ptr_add(r3, 8), r1);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r6);
+        __sa_store_i64(__sa_ptr_add(r3, 8n), r1);
         __sa_free(r6);
-        r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = (0);
+        r7 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r8 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1806,12 +1927,12 @@ export function ts_arr_clone_flat(src) {
         __pc = (__sa_truthy(r9) ? 3 : 4); break;
       }
       case 3: {
-        r10 = __sa_mul(r8, 4);
+        r10 = __sa_mul(r8, 4n);
         r11 = __sa_add(r2, r10);
         r12 = __sa_add(r7, r10);
-        r13 = __sa_load_i32(__sa_ptr_add(r11, 0));
-        __sa_store_i32(__sa_ptr_add(r12, 0), r13);
-        r14 = __sa_add(r8, 1);
+        r13 = __sa_load_i32(__sa_ptr_add(r11, 0n));
+        __sa_store_i32(__sa_ptr_add(r12, 0n), r13);
+        r14 = __sa_add(r8, 1n);
         r8 = (r14);
         __pc = 2; break;
       }
@@ -1836,12 +1957,12 @@ export function ts_arr_mkcopy(nlen) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_add(r0, 1);
-        r2 = __sa_mul(r1, 4);
+        r1 = __sa_add(r0, 1n);
+        r2 = __sa_mul(r1, 4n);
         r3 = __sa_alloc(r2);
-        r4 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r3);
-        __sa_store_i64(__sa_ptr_add(r4, 8), r0);
+        r4 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r3);
+        __sa_store_i64(__sa_ptr_add(r4, 8n), r0);
         __sa_free(r3);
         return (r4);
         return __sa_trap("fallthrough end of function");
@@ -1864,21 +1985,21 @@ export function ts_arr_flat(recv, isnest) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_ne(r1, 0);
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_ne(r1, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 2); break;
       }
       case 2: {
         r5 = ts_arr_mkcopy(r2);
-        r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
+        r6 = __sa_load_i64(__sa_ptr_add(r5, 0n));
         ts_arr_copy_range(r3, r6, 0, r2, 0);
         return (r5);
       }
       case 3: {
-        r7 = __sa_alloc(8);
-        __sa_store_i32(__sa_ptr_add(r7, 0), 0);
-        r8 = (0);
+        r7 = __sa_alloc(8n);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), 0);
+        r8 = (0n);
         __pc = 4; break;
       }
       case 4: {
@@ -1886,25 +2007,25 @@ export function ts_arr_flat(recv, isnest) {
         __pc = (__sa_truthy(r9) ? 5 : 6); break;
       }
       case 5: {
-        r10 = __sa_mul(r8, 4);
+        r10 = __sa_mul(r8, 4n);
         r11 = __sa_add(r3, r10);
-        r12 = __sa_load_i32(__sa_ptr_add(r11, 0));
-        r13 = __sa_load_i64(__sa_ptr_add(r12, 8));
-        r14 = __sa_load_i32(__sa_ptr_add(r7, 0));
+        r12 = __sa_load_i32(__sa_ptr_add(r11, 0n));
+        r13 = __sa_load_i64(__sa_ptr_add(r12, 8n));
+        r14 = __sa_load_i32(__sa_ptr_add(r7, 0n));
         r15 = __sa_add(r14, r13);
-        __sa_store_i32(__sa_ptr_add(r7, 0), r15);
-        r16 = __sa_add(r8, 1);
+        __sa_store_i32(__sa_ptr_add(r7, 0n), r15);
+        r16 = __sa_add(r8, 1n);
         r8 = (r16);
         __pc = 4; break;
       }
       case 6: {
-        r17 = __sa_load_i32(__sa_ptr_add(r7, 0));
+        r17 = __sa_load_i32(__sa_ptr_add(r7, 0n));
         /* no-op release: !total */
         r5 = ts_arr_mkcopy(r17);
-        r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        r18 = __sa_alloc(8);
-        __sa_store_i32(__sa_ptr_add(r18, 0), 0);
-        r19 = (0);
+        r6 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        r18 = __sa_alloc(8n);
+        __sa_store_i32(__sa_ptr_add(r18, 0n), 0);
+        r19 = (0n);
         __pc = 7; break;
       }
       case 7: {
@@ -1912,16 +2033,16 @@ export function ts_arr_flat(recv, isnest) {
         __pc = (__sa_truthy(r20) ? 8 : 9); break;
       }
       case 8: {
-        r21 = __sa_mul(r19, 4);
+        r21 = __sa_mul(r19, 4n);
         r22 = __sa_add(r3, r21);
-        r23 = __sa_load_i32(__sa_ptr_add(r22, 0));
-        r24 = __sa_load_i64(__sa_ptr_add(r23, 0));
-        r25 = __sa_load_i64(__sa_ptr_add(r23, 8));
-        r26 = __sa_load_i32(__sa_ptr_add(r18, 0));
+        r23 = __sa_load_i32(__sa_ptr_add(r22, 0n));
+        r24 = __sa_load_i64(__sa_ptr_add(r23, 0n));
+        r25 = __sa_load_i64(__sa_ptr_add(r23, 8n));
+        r26 = __sa_load_i32(__sa_ptr_add(r18, 0n));
         ts_arr_copy_range(r24, r6, 0, r25, r26);
         r27 = __sa_add(r26, r25);
-        __sa_store_i32(__sa_ptr_add(r18, 0), r27);
-        r28 = __sa_add(r19, 1);
+        __sa_store_i32(__sa_ptr_add(r18, 0n), r27);
+        r28 = __sa_add(r19, 1n);
         r19 = (r28);
         __pc = 7; break;
       }
@@ -1947,17 +2068,17 @@ export function ts_arr_clone_deep(src) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_alloc(16);
-        r4 = __sa_add(r1, 1);
-        r5 = __sa_mul(r4, 4);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_alloc(16n);
+        r4 = __sa_add(r1, 1n);
+        r5 = __sa_mul(r4, 4n);
         r6 = __sa_alloc(r5);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r6);
-        __sa_store_i64(__sa_ptr_add(r3, 8), r1);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r6);
+        __sa_store_i64(__sa_ptr_add(r3, 8n), r1);
         __sa_free(r6);
-        r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = (0);
+        r7 = __sa_load_i64(__sa_ptr_add(r3, 0n));
+        r8 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -1965,13 +2086,13 @@ export function ts_arr_clone_deep(src) {
         __pc = (__sa_truthy(r9) ? 3 : 4); break;
       }
       case 3: {
-        r10 = __sa_mul(r8, 4);
+        r10 = __sa_mul(r8, 4n);
         r11 = __sa_add(r2, r10);
         r12 = __sa_add(r7, r10);
-        r13 = __sa_load_i32(__sa_ptr_add(r11, 0));
+        r13 = __sa_load_i32(__sa_ptr_add(r11, 0n));
         r14 = ts_arr_clone_flat(r13);
-        __sa_store_i32(__sa_ptr_add(r12, 0), r14);
-        r15 = __sa_add(r8, 1);
+        __sa_store_i32(__sa_ptr_add(r12, 0n), r14);
+        r15 = __sa_add(r8, 1n);
         r8 = (r15);
         __pc = 2; break;
       }
@@ -2000,7 +2121,7 @@ export function ts_str_equals(lp, llen, rp, rlen) {
       }
       case 1: {
         r4 = sa_string_index_of(r0, r1, r2, r3, 0);
-        r5 = __sa_eq(r4, 0);
+        r5 = __sa_eq(r4, 0n);
         r6 = __sa_eq(r1, r3);
         r7 = __sa_band(r5, r6);
         return (r7);
@@ -2027,15 +2148,15 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = 1; break;
       }
       case 1: {
-        r5 = __sa_slt(r2, 0);
+        r5 = __sa_slt(r2, 0n);
         __pc = (__sa_truthy(r5) ? 2 : 5); break;
       }
       case 2: {
-        r6 = __sa_ne(r4, 0);
+        r6 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r6) ? 3 : 4); break;
       }
       case 3: {
-        r7 = (0);
+        r7 = (0n);
         __pc = 6; break;
       }
       case 4: {
@@ -2043,15 +2164,15 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = 6; break;
       }
       case 5: {
-        r7 = __sa_add(r2, 0);
+        r7 = __sa_add(r2, 0n);
         __pc = 6; break;
       }
       case 6: {
-        r8 = __sa_slt(r7, 0);
+        r8 = __sa_slt(r7, 0n);
         __pc = (__sa_truthy(r8) ? 7 : 8); break;
       }
       case 7: {
-        r9 = (0);
+        r9 = (0n);
         __pc = 11; break;
       }
       case 8: {
@@ -2059,23 +2180,23 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = (__sa_truthy(r10) ? 9 : 10); break;
       }
       case 9: {
-        r9 = __sa_add(r1, 0);
+        r9 = __sa_add(r1, 0n);
         __pc = 11; break;
       }
       case 10: {
-        r9 = __sa_add(r7, 0);
+        r9 = __sa_add(r7, 0n);
         __pc = 11; break;
       }
       case 11: {
-        r11 = __sa_slt(r3, 0);
+        r11 = __sa_slt(r3, 0n);
         __pc = (__sa_truthy(r11) ? 12 : 15); break;
       }
       case 12: {
-        r12 = __sa_ne(r4, 0);
+        r12 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r12) ? 13 : 14); break;
       }
       case 13: {
-        r13 = (0);
+        r13 = (0n);
         __pc = 16; break;
       }
       case 14: {
@@ -2083,15 +2204,15 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = 16; break;
       }
       case 15: {
-        r13 = __sa_add(r3, 0);
+        r13 = __sa_add(r3, 0n);
         __pc = 16; break;
       }
       case 16: {
-        r14 = __sa_slt(r13, 0);
+        r14 = __sa_slt(r13, 0n);
         __pc = (__sa_truthy(r14) ? 17 : 18); break;
       }
       case 17: {
-        r15 = (0);
+        r15 = (0n);
         __pc = 21; break;
       }
       case 18: {
@@ -2099,15 +2220,15 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = (__sa_truthy(r16) ? 19 : 20); break;
       }
       case 19: {
-        r15 = __sa_add(r1, 0);
+        r15 = __sa_add(r1, 0n);
         __pc = 21; break;
       }
       case 20: {
-        r15 = __sa_add(r13, 0);
+        r15 = __sa_add(r13, 0n);
         __pc = 21; break;
       }
       case 21: {
-        r17 = __sa_ne(r4, 0);
+        r17 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r17) ? 22 : 25); break;
       }
       case 22: {
@@ -2115,7 +2236,7 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = (__sa_truthy(r18) ? 23 : 24); break;
       }
       case 23: {
-        r19 = __sa_add(r9, 0);
+        r19 = __sa_add(r9, 0n);
         r9 = (r15);
         r15 = (r19);
         __pc = 27; break;
@@ -2128,15 +2249,15 @@ export function ts_str_slice(bp, bl, start, end, sub) {
         __pc = (__sa_truthy(r20) ? 26 : 27); break;
       }
       case 26: {
-        r15 = __sa_add(r9, 0);
+        r15 = __sa_add(r9, 0n);
         __pc = 27; break;
       }
       case 27: {
         r21 = __sa_add(r0, r9);
         r22 = __sa_sub(r15, r9);
-        r23 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r23, 0), r21);
-        __sa_store_i64(__sa_ptr_add(r23, 8), r22);
+        r23 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r23, 0n), r21);
+        __sa_store_i64(__sa_ptr_add(r23, 8n), r22);
         return (r23);
         return __sa_trap("fallthrough end of function");
       }
@@ -2160,20 +2281,20 @@ export function ts_str_parse_int(bp, bl, radix, start) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = (0);
-        r5 = __sa_add(r3, 0);
-        r6 = (0);
-        r7 = __sa_ne(r1, 0);
+        r4 = (0n);
+        r5 = __sa_add(r3, 0n);
+        r6 = (0n);
+        r7 = __sa_ne(r1, 0n);
         __pc = (__sa_truthy(r7) ? 2 : 4); break;
       }
       case 2: {
-        r8 = __sa_load_u8(__sa_ptr_add(r0, 0));
-        r9 = __sa_eq(r8, 45);
+        r8 = __sa_load_u8(__sa_ptr_add(r0, 0n));
+        r9 = __sa_eq(r8, 45n);
         __pc = (__sa_truthy(r9) ? 3 : 4); break;
       }
       case 3: {
-        r6 = (1);
-        r10 = __sa_add(r5, 1);
+        r6 = (1n);
+        r10 = __sa_add(r5, 1n);
         r5 = (r10);
         __pc = 4; break;
       }
@@ -2183,23 +2304,23 @@ export function ts_str_parse_int(bp, bl, radix, start) {
       }
       case 5: {
         r12 = __sa_add(r0, r5);
-        r13 = __sa_load_u8(__sa_ptr_add(r12, 0));
-        r14 = __sa_sub(r13, 48);
-        r15 = __sa_bor(r13, 32);
-        r16 = __sa_sub(r15, 87);
-        r17 = __sa_sle(r14, 9);
-        r18 = __sa_sge(r14, 0);
+        r13 = __sa_load_u8(__sa_ptr_add(r12, 0n));
+        r14 = __sa_sub(r13, 48n);
+        r15 = __sa_bor(r13, 32n);
+        r16 = __sa_sub(r15, 87n);
+        r17 = __sa_sle(r14, 9n);
+        r18 = __sa_sge(r14, 0n);
         r19 = __sa_band(r17, r18);
-        r20 = __sa_sge(r16, 10);
+        r20 = __sa_sge(r16, 10n);
         r21 = __sa_slt(r16, r2);
         r22 = __sa_band(r20, r21);
         r23 = __sa_bor(r19, r22);
         __pc = (__sa_truthy(r23) ? 6 : 8); break;
       }
       case 6: {
-        r24 = __sa_add(r14, 0);
-        r25 = __sa_add(r16, 0);
-        r26 = __sa_sub(1, r19);
+        r24 = __sa_add(r14, 0n);
+        r25 = __sa_add(r16, 0n);
+        r26 = __sa_sub(1n, r19);
         r27 = __sa_mul(r25, r26);
         r28 = __sa_mul(r24, r19);
         r29 = __sa_add(r28, r27);
@@ -2209,16 +2330,16 @@ export function ts_str_parse_int(bp, bl, radix, start) {
         __pc = 7; break;
       }
       case 7: {
-        r32 = __sa_add(r5, 1);
+        r32 = __sa_add(r5, 1n);
         r5 = (r32);
         __pc = 4; break;
       }
       case 8: {
-        r33 = __sa_ne(r6, 0);
+        r33 = __sa_ne(r6, 0n);
         __pc = (__sa_truthy(r33) ? 9 : 11); break;
       }
       case 9: {
-        r34 = __sa_sub(0, r4);
+        r34 = __sa_sub(0n, r4);
         r4 = (r34);
         __pc = 11; break;
       }
@@ -2247,25 +2368,25 @@ export function ts_str_hex_i0(bp, bl) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_sge(r1, 2);
+        r2 = __sa_sge(r1, 2n);
         __pc = (__sa_truthy(r2) ? 2 : 4); break;
       }
       case 2: {
-        r3 = __sa_load_u8(__sa_ptr_add(r0, 0));
-        r4 = __sa_add(r0, 1);
-        r5 = __sa_load_u8(__sa_ptr_add(r4, 0));
-        r6 = __sa_eq(r3, 48);
-        r7 = __sa_bor(r5, 32);
-        r8 = __sa_eq(r7, 120);
+        r3 = __sa_load_u8(__sa_ptr_add(r0, 0n));
+        r4 = __sa_add(r0, 1n);
+        r5 = __sa_load_u8(__sa_ptr_add(r4, 0n));
+        r6 = __sa_eq(r3, 48n);
+        r7 = __sa_bor(r5, 32n);
+        r8 = __sa_eq(r7, 120n);
         r9 = __sa_band(r6, r8);
         __pc = (__sa_truthy(r9) ? 3 : 4); break;
       }
       case 3: {
-        r10 = (2);
+        r10 = (2n);
         __pc = 5; break;
       }
       case 4: {
-        r10 = (0);
+        r10 = (0n);
         __pc = 5; break;
       }
       case 5: {
@@ -2291,9 +2412,9 @@ export function ts_str_char_at(bp, idx) {
       }
       case 1: {
         r2 = __sa_add(r0, r1);
-        r3 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r2);
-        __sa_store_i64(__sa_ptr_add(r3, 8), 1);
+        r3 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r2);
+        __sa_store_i64(__sa_ptr_add(r3, 8n), 1);
         return (r3);
         return __sa_trap("fallthrough end of function");
       }
@@ -2319,69 +2440,69 @@ export function ts_str_split(bp, bl, sp, sl, lim, haslim) {
         __pc = 1; break;
       }
       case 1: {
-        r6 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r6, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r6, 8), 0);
-        r7 = __sa_add(r0, 0);
-        r8 = __sa_add(r1, 0);
-        r9 = __sa_add(r2, 0);
-        r10 = __sa_add(r3, 0);
-        r11 = (0);
-        r12 = __sa_slt(r4, 0);
+        r6 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r6, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r6, 8n), 0);
+        r7 = __sa_add(r0, 0n);
+        r8 = __sa_add(r1, 0n);
+        r9 = __sa_add(r2, 0n);
+        r10 = __sa_add(r3, 0n);
+        r11 = (0n);
+        r12 = __sa_slt(r4, 0n);
         __pc = (__sa_truthy(r12) ? 2 : 3); break;
       }
       case 2: {
-        r13 = (2147483647);
+        r13 = (2147483647n);
         __pc = 4; break;
       }
       case 3: {
-        r13 = __sa_add(r4, 0);
+        r13 = __sa_add(r4, 0n);
         __pc = 4; break;
       }
       case 4: {
-        r14 = __sa_ne(r5, 0);
+        r14 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r14) ? 5 : 6); break;
       }
       case 5: {
-        r15 = __sa_add(r13, 0);
+        r15 = __sa_add(r13, 0n);
         __pc = 7; break;
       }
       case 6: {
-        r15 = (2147483647);
+        r15 = (2147483647n);
         __pc = 7; break;
       }
       case 7: {
-        r16 = __sa_load_i32(__sa_ptr_add(r6, 8));
+        r16 = __sa_load_i32(__sa_ptr_add(r6, 8n));
         r17 = __sa_slt(r16, r15);
         __pc = (__sa_truthy(r17) ? 8 : 12); break;
       }
       case 8: {
         r18 = sa_string_index_of(r7, r8, r9, r10, r11);
-        r19 = __sa_ne(r18, -1);
+        r19 = __sa_ne(r18, -1n);
         __pc = (__sa_truthy(r19) ? 9 : 10); break;
       }
       case 9: {
         r20 = __sa_add(r7, r11);
         r21 = __sa_sub(r18, r11);
-        r22 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r22, 0), r20);
-        __sa_store_i64(__sa_ptr_add(r22, 8), r21);
+        r22 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r22, 0n), r20);
+        __sa_store_i64(__sa_ptr_add(r22, 8n), r21);
         ts_arr_push_word(r6, r22);
         r23 = __sa_add(r18, r3);
         r11 = (r23);
         __pc = 7; break;
       }
       case 10: {
-        r24 = __sa_load_i32(__sa_ptr_add(r6, 8));
+        r24 = __sa_load_i32(__sa_ptr_add(r6, 8n));
         r25 = __sa_slt(r24, r15);
         __pc = (__sa_truthy(r25) ? 11 : 12); break;
       }
       case 11: {
         r26 = __sa_add(r7, r11);
         r27 = __sa_sub(r8, r11);
-        r28 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r28, 0), r26);
-        __sa_store_i64(__sa_ptr_add(r28, 8), r27);
+        r28 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r28, 0n), r26);
+        __sa_store_i64(__sa_ptr_add(r28, 8n), r27);
         ts_arr_push_word(r6, r28);
         __pc = 12; break;
       }
@@ -2412,91 +2533,91 @@ export function ts_str_arr_scan(src, np, nl, from, hasfrom, rev, wantidx) {
         __pc = 1; break;
       }
       case 1: {
-        r7 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r8 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r9 = __sa_alloc(8);
-        r10 = __sa_ne(r4, 0);
+        r7 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r8 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r9 = __sa_alloc(8n);
+        r10 = __sa_ne(r4, 0n);
         __pc = (__sa_truthy(r10) ? 5 : 2); break;
       }
       case 2: {
-        r11 = __sa_ne(r5, 0);
+        r11 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r11) ? 3 : 4); break;
       }
       case 3: {
-        r12 = __sa_sub(r7, 1);
-        __sa_store_i32(__sa_ptr_add(r9, 0), r12);
+        r12 = __sa_sub(r7, 1n);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), r12);
         __pc = 16; break;
       }
       case 4: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), 0);
         __pc = 16; break;
       }
       case 5: {
-        r13 = __sa_slt(r3, 0);
+        r13 = __sa_slt(r3, 0n);
         __pc = (__sa_truthy(r13) ? 6 : 11); break;
       }
       case 6: {
         r14 = __sa_add(r3, r7);
-        r15 = __sa_sge(r14, 0);
+        r15 = __sa_sge(r14, 0n);
         __pc = (__sa_truthy(r15) ? 7 : 8); break;
       }
       case 7: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), r14);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), r14);
         __pc = 16; break;
       }
       case 8: {
-        r16 = __sa_ne(r5, 0);
+        r16 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r16) ? 9 : 10); break;
       }
       case 9: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), -1);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), -1);
         __pc = 16; break;
       }
       case 10: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), 0);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), 0);
         __pc = 16; break;
       }
       case 11: {
-        r17 = __sa_ne(r5, 0);
+        r17 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r17) ? 12 : 15); break;
       }
       case 12: {
-        r18 = __sa_sub(r7, 1);
+        r18 = __sa_sub(r7, 1n);
         r19 = __sa_slt(r3, r7);
         __pc = (__sa_truthy(r19) ? 13 : 14); break;
       }
       case 13: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), r3);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), r3);
         __pc = 16; break;
       }
       case 14: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), r18);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), r18);
         __pc = 16; break;
       }
       case 15: {
-        __sa_store_i32(__sa_ptr_add(r9, 0), r3);
+        __sa_store_i32(__sa_ptr_add(r9, 0n), r3);
         __pc = 16; break;
       }
       case 16: {
-        r20 = __sa_load_i32(__sa_ptr_add(r9, 0));
+        r20 = __sa_load_i32(__sa_ptr_add(r9, 0n));
         __sa_free(r9);
-        r21 = __sa_ne(r6, 0);
+        r21 = __sa_ne(r6, 0n);
         __pc = (__sa_truthy(r21) ? 17 : 18); break;
       }
       case 17: {
-        r22 = (-1);
+        r22 = (-1n);
         __pc = 19; break;
       }
       case 18: {
-        r22 = (0);
+        r22 = (0n);
         __pc = 19; break;
       }
       case 19: {
-        r23 = __sa_add(r20, 0);
+        r23 = __sa_add(r20, 0n);
         __pc = 20; break;
       }
       case 20: {
-        r24 = __sa_ne(r5, 0);
+        r24 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r24) ? 22 : 21); break;
       }
       case 21: {
@@ -2504,42 +2625,42 @@ export function ts_str_arr_scan(src, np, nl, from, hasfrom, rev, wantidx) {
         __pc = (__sa_truthy(r25) ? 23 : 30); break;
       }
       case 22: {
-        r26 = __sa_sge(r23, 0);
+        r26 = __sa_sge(r23, 0n);
         __pc = (__sa_truthy(r26) ? 23 : 30); break;
       }
       case 23: {
-        r27 = __sa_mul(r23, 4);
+        r27 = __sa_mul(r23, 4n);
         r28 = __sa_add(r8, r27);
-        r29 = __sa_load_i32(__sa_ptr_add(r28, 0));
-        r30 = __sa_load_i64(__sa_ptr_add(r29, 0));
-        r31 = __sa_load_i64(__sa_ptr_add(r29, 8));
+        r29 = __sa_load_i32(__sa_ptr_add(r28, 0n));
+        r30 = __sa_load_i64(__sa_ptr_add(r29, 0n));
+        r31 = __sa_load_i64(__sa_ptr_add(r29, 8n));
         r32 = ts_str_equals(r30, r31, r1, r2);
-        r33 = __sa_ne(r32, 0);
+        r33 = __sa_ne(r32, 0n);
         __pc = (__sa_truthy(r33) ? 24 : 27); break;
       }
       case 24: {
-        r34 = __sa_ne(r6, 0);
+        r34 = __sa_ne(r6, 0n);
         __pc = (__sa_truthy(r34) ? 25 : 26); break;
       }
       case 25: {
-        r22 = __sa_add(r23, 0);
+        r22 = __sa_add(r23, 0n);
         __pc = 30; break;
       }
       case 26: {
-        r22 = (1);
+        r22 = (1n);
         __pc = 30; break;
       }
       case 27: {
-        r35 = __sa_ne(r5, 0);
+        r35 = __sa_ne(r5, 0n);
         __pc = (__sa_truthy(r35) ? 29 : 28); break;
       }
       case 28: {
-        r36 = __sa_add(r23, 1);
+        r36 = __sa_add(r23, 1n);
         r23 = (r36);
         __pc = 20; break;
       }
       case 29: {
-        r37 = __sa_sub(r23, 1);
+        r37 = __sa_sub(r23, 1n);
         r23 = (r37);
         __pc = 20; break;
       }
@@ -2567,34 +2688,34 @@ export function ts_str_trim(bp, bl, mode) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_eq(r2, 2);
+        r3 = __sa_eq(r2, 2n);
         __pc = (__sa_truthy(r3) ? 2 : 3); break;
       }
       case 2: {
         r4 = sa_str_trim_ascii_end_len(r0, r1);
-        r5 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r0);
-        __sa_store_i64(__sa_ptr_add(r5, 8), r4);
+        r5 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r0);
+        __sa_store_i64(__sa_ptr_add(r5, 8n), r4);
         return (r5);
       }
       case 3: {
         r6 = sa_str_trim_ascii_start_index(r0, r1);
         r7 = __sa_sub(r1, r6);
         r8 = __sa_add(r0, r6);
-        r9 = __sa_eq(r2, 1);
+        r9 = __sa_eq(r2, 1n);
         __pc = (__sa_truthy(r9) ? 4 : 5); break;
       }
       case 4: {
-        r10 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r10, 0), r8);
-        __sa_store_i64(__sa_ptr_add(r10, 8), r7);
+        r10 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r10, 0n), r8);
+        __sa_store_i64(__sa_ptr_add(r10, 8n), r7);
         return (r10);
       }
       case 5: {
         r11 = sa_str_trim_ascii_end_len(r8, r7);
-        r12 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r12, 0), r8);
-        __sa_store_i64(__sa_ptr_add(r12, 8), r11);
+        r12 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r12, 0n), r8);
+        __sa_store_i64(__sa_ptr_add(r12, 8n), r11);
         return (r12);
         return __sa_trap("fallthrough end of function");
       }
@@ -2617,14 +2738,14 @@ export function ts_arr_join_vals(h, sp, sl) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r3, 0), C_jn_empty);
-        __sa_store_i64(__sa_ptr_add(r3, 8), 0);
-        r4 = __sa_alloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r3);
-        r5 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r7 = (0);
+        r3 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), C_jn_empty);
+        __sa_store_i64(__sa_ptr_add(r3, 8n), 0);
+        r4 = __sa_alloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r3);
+        r5 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r6 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r7 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -2632,43 +2753,43 @@ export function ts_arr_join_vals(h, sp, sl) {
         __pc = (__sa_truthy(r8) ? 3 : 6); break;
       }
       case 3: {
-        r9 = __sa_ne(r7, 0);
+        r9 = __sa_ne(r7, 0n);
         __pc = (__sa_truthy(r9) ? 4 : 5); break;
       }
       case 4: {
-        r10 = __sa_load_i64(__sa_ptr_add(r4, 0));
-        r11 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r11, 0), r1);
-        __sa_store_i64(__sa_ptr_add(r11, 8), r2);
+        r10 = __sa_load_i64(__sa_ptr_add(r4, 0n));
+        r11 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r11, 0n), r1);
+        __sa_store_i64(__sa_ptr_add(r11, 8n), r2);
         r12 = ts_arr_join_append(r10, r11, r2);
         __sa_free(r11);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r12);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r12);
         __pc = 5; break;
       }
       case 5: {
-        r13 = __sa_mul(r7, 4);
+        r13 = __sa_mul(r7, 4n);
         r14 = __sa_add(r6, r13);
-        r15 = __sa_load_i32(__sa_ptr_add(r14, 0));
-        r16 = (r15);
-        r17 = __sa_alloc(64);
-        r18 = __sa_alloc(8);
+        r15 = __sa_load_i32(__sa_ptr_add(r14, 0n));
+        r16 = __sa_cvt_sext_i64(r15);
+        r17 = __sa_alloc(64n);
+        r18 = __sa_alloc(8n);
         r19 = sa_fmt_i64_into(r16, 10, r17, 64, r18);
         /* no-op release: !rc */
-        r20 = __sa_load_i64(__sa_ptr_add(r18, 0));
+        r20 = __sa_load_i64(__sa_ptr_add(r18, 0n));
         __sa_free(r18);
-        r21 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r21, 0), r17);
-        __sa_store_i64(__sa_ptr_add(r21, 8), r20);
-        r22 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r21 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r21, 0n), r17);
+        __sa_store_i64(__sa_ptr_add(r21, 8n), r20);
+        r22 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         r23 = ts_arr_join_append(r22, r21, r20);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r23);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r23);
         __sa_free(r21);
-        r24 = __sa_add(r7, 1);
+        r24 = __sa_add(r7, 1n);
         r7 = (r24);
         __pc = 2; break;
       }
       case 6: {
-        r25 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r25 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         /* no-op release: !aslot */
         return (r25);
         return __sa_trap("fallthrough end of function");
@@ -2692,16 +2813,16 @@ export function ts_arr_join_append(lh, rh, rlen) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r5 = __sa_load_i64(__sa_ptr_add(r1, 0));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r5 = __sa_load_i64(__sa_ptr_add(r1, 0n));
         r6 = sa_string_concat(r3, r4, r5, r2);
         r7 = sa_fmt_buffer_data(r6);
         r8 = sa_fmt_buffer_len(r6);
         /* no-op release: !obuf */
-        r9 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r9, 0), r7);
-        __sa_store_i64(__sa_ptr_add(r9, 8), r8);
+        r9 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r9, 0n), r7);
+        __sa_store_i64(__sa_ptr_add(r9, 8n), r8);
         return (r9);
         return __sa_trap("fallthrough end of function");
       }
@@ -2722,14 +2843,14 @@ export function ts_arr_join_strs(h) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_alloc(16);
-        __sa_store_i64(__sa_ptr_add(r3, 0), C_jn_empty);
-        __sa_store_i64(__sa_ptr_add(r3, 8), 0);
-        r4 = __sa_alloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r3);
-        r5 = (0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_alloc(16n);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), C_jn_empty);
+        __sa_store_i64(__sa_ptr_add(r3, 8n), 0);
+        r4 = __sa_alloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r3);
+        r5 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -2737,19 +2858,19 @@ export function ts_arr_join_strs(h) {
         __pc = (__sa_truthy(r6) ? 3 : 4); break;
       }
       case 3: {
-        r7 = __sa_mul(r5, 4);
+        r7 = __sa_mul(r5, 4n);
         r8 = __sa_add(r2, r7);
-        r9 = __sa_load_i32(__sa_ptr_add(r8, 0));
-        r10 = __sa_load_i64(__sa_ptr_add(r9, 8));
-        r11 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r9 = __sa_load_i32(__sa_ptr_add(r8, 0n));
+        r10 = __sa_load_i64(__sa_ptr_add(r9, 8n));
+        r11 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         r12 = ts_arr_join_append(r11, r9, r10);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r12);
-        r13 = __sa_add(r5, 1);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r12);
+        r13 = __sa_add(r5, 1n);
         r5 = (r13);
         __pc = 2; break;
       }
       case 4: {
-        r14 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r14 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         /* no-op release: !aslot */
         return (r14);
         return __sa_trap("fallthrough end of function");
@@ -2774,7 +2895,7 @@ export function ts_str_compare(lp, llen, rp, rlen) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = (0);
+        r4 = (0n);
         __pc = 2; break;
       }
       case 2: {
@@ -2788,8 +2909,8 @@ export function ts_str_compare(lp, llen, rp, rlen) {
       case 4: {
         r7 = __sa_add(r0, r4);
         r8 = __sa_add(r2, r4);
-        r9 = __sa_load_u8(__sa_ptr_add(r7, 0));
-        r10 = __sa_load_u8(__sa_ptr_add(r8, 0));
+        r9 = __sa_load_u8(__sa_ptr_add(r7, 0n));
+        r10 = __sa_load_u8(__sa_ptr_add(r8, 0n));
         r11 = __sa_ult(r9, r10);
         __pc = (__sa_truthy(r11) ? 8 : 5); break;
       }
@@ -2798,7 +2919,7 @@ export function ts_str_compare(lp, llen, rp, rlen) {
         __pc = (__sa_truthy(r12) ? 9 : 6); break;
       }
       case 6: {
-        r13 = __sa_add(r4, 1);
+        r13 = __sa_add(r4, 1n);
         r4 = (r13);
         __pc = 2; break;
       }
@@ -2806,19 +2927,19 @@ export function ts_str_compare(lp, llen, rp, rlen) {
         __pc = (__sa_truthy(r6) ? 11 : 8); break;
       }
       case 8: {
-        r14 = __sa_sub(0, 1);
+        r14 = __sa_sub(0n, 1n);
         __pc = 12; break;
       }
       case 9: {
-        r14 = (1);
+        r14 = (1n);
         __pc = 12; break;
       }
       case 10: {
-        r14 = (1);
+        r14 = (1n);
         __pc = 12; break;
       }
       case 11: {
-        r14 = (0);
+        r14 = (0n);
         __pc = 12; break;
       }
       case 12: {
@@ -2842,8 +2963,8 @@ export function main() {
       }
       case 1: {
         r0 = ts_str_slice(C_WORD, 4, 3, 1, 0);
-        r1 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r2 = __sa_eq(r1, 0);
+        r1 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r2 = __sa_eq(r1, 0n);
         __sa_free(r0);
         /* no-op release: !nlen */
         __pc = (__sa_truthy(r2) ? 2 : 3); break;

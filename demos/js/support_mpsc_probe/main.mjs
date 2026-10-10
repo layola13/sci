@@ -21,7 +21,7 @@ function __sa_num(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
 function __sa_addr(a) { return (typeof a === "bigint") ? Number(BigInt.asUintN(32, a)) : (a | 0); }
 function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
 function __sa_alloc(size) {
-  size = __sa_align((size | 0), 8);
+  size = __sa_align((__sa_num(size) | 0), 8);
   const bucket = __sa_fl[size];
   if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
   const total = (size + 8); // 8-byte header holds the aligned user size
@@ -36,10 +36,10 @@ function __sa_alloc(size) {
 }
 function __sa_free(ptr) {
   // Mirrors the interpreter: only exact live heap bases are recycled.
-  // i64 bigints, i32 values, interior pointers, consts and unknown
-  // addresses are no-ops (never present in __sa_live).
-  if (typeof ptr !== "number") return 0;
-  const p = ptr | 0;
+  // BigInt pointers are normalized to 32-bit addresses first so
+  // 64-bit-typed bases stay freeable; interior pointers, consts and
+  // unknown addresses remain no-ops (never present in __sa_live).
+  const p = __sa_addr(ptr);
   if (!__sa_live.has(p)) return 0;
   __sa_live.delete(p);
   const size = __sa_view.getUint32((p - 8), true);
@@ -63,12 +63,12 @@ function __sa_load_i32(addr) { return __sa_view.getInt32(__sa_addr(addr), true);
 function __sa_load_u32(addr) { return __sa_view.getUint32(__sa_addr(addr), true); }
 function __sa_load_f32(addr) { return __sa_view.getFloat32(__sa_addr(addr), true); }
 function __sa_load_f64(addr) { return __sa_view.getFloat64(__sa_addr(addr), true); }
-function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), v | 0); }
-function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), v | 0); }
-function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), v | 0, true); }
-function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), v | 0, true); }
-function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), v | 0, true); }
-function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), v >>> 0, true); }
+function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), __sa_narrow(v, 8, true)); }
+function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), __sa_narrow(v, 8, false)); }
+function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), __sa_narrow(v, 16, true), true); }
+function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), __sa_narrow(v, 16, false), true); }
+function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), __sa_narrow(v, 32, true), true); }
+function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), __sa_narrow(v, 32, false), true); }
 function __sa_store_f32(addr, v) { __sa_view.setFloat32(__sa_addr(addr), +v, true); }
 function __sa_store_f64(addr, v) { __sa_view.setFloat64(__sa_addr(addr), +v, true); }
 function __sa_load_i64(addr) { return __sa_view.getBigInt64(__sa_addr(addr), true); }
@@ -89,9 +89,9 @@ function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)
 function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
 function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
 function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { if (BigInt(b) === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt(a) / BigInt(b)); } if ((b | 0) === 0) __sa_trap("div by zero"); return (Math.trunc(a / b)) | 0; }
-function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a) / d); } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
+function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("div by zero"); return __sa_BU(BigInt(a)) / d; } if ((b >>> 0) === 0) __sa_trap("div by zero"); return (Math.trunc((a >>> 0) / (b >>> 0))) | 0; }
 function __sa_srem(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) % BigInt(b)) : ((a % b) | 0); }
-function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a) % d); } return (((a >>> 0) % (b >>> 0)) | 0); }
+function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const d = __sa_BU(b); if (d === 0n) __sa_trap("rem by zero"); return __sa_BU(BigInt(a)) % d; } return (((a >>> 0) % (b >>> 0)) | 0); }
 function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
 function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
 function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
@@ -121,9 +121,130 @@ function __sa_flt(a, b) { return (((+a) < (+b)) ? 1 : 0); }
 function __sa_fle(a, b) { return (((+a) <= (+b)) ? 1 : 0); }
 function __sa_fgt(a, b) { return (((+a) > (+b)) ? 1 : 0); }
 function __sa_fge(a, b) { return (((+a) >= (+b)) ? 1 : 0); }
-function __sa_cvt(v) { return v; }
+function __sa_narrow(v, bits, signed) {
+  // Narrow any int-domain value to a target width, returned as Number.
+  // BigInt inputs are 64-bit sources; Number inputs are 32-bit (or
+  // smaller) sources. Matches interpreter wrap-around for
+  // trunc/zext/sext/bitcast to widths <= 32.
+  if (typeof v === "bigint") return signed ? Number(BigInt.asIntN(bits, v)) : Number(BigInt.asUintN(bits, v));
+  if (bits === 32) return signed ? (v | 0) : (v >>> 0);
+  if (bits === 1) return (v & 1);
+  const m = Math.pow(2, bits);
+  let r = Math.trunc(+v) % m;
+  if (r < 0) r += m;
+  if (signed && r >= m / 2) r -= m;
+  return r;
+}
+function __sa_wide(v, signed) {
+  // Widen any int-domain value to 64 bits, returned as BigInt.
+  // BigInt inputs are 64-bit sources (modular); Number inputs are
+  // 32-bit sources read with signed/unsigned 32-bit semantics.
+  if (typeof v === "bigint") return signed ? BigInt.asIntN(64, v) : BigInt.asUintN(64, v);
+  if (!Number.isFinite(+v)) return 0n;
+  return signed ? BigInt((+v) | 0) : BigInt((+v) >>> 0);
+}
+function __sa_cvt_trunc_i8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_trunc_i16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_trunc_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_trunc_i32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_trunc_u8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_trunc_u16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_trunc_u32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_trunc_i64(v) { return __sa_wide(v, true); }
+function __sa_cvt_trunc_u64(v) { return __sa_wide(v, false); }
+function __sa_cvt_trunc_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_zext_i8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_zext_i16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_zext_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_zext_i32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_zext_u8(v) { return __sa_narrow(v, 8, false); }
+function __sa_cvt_zext_u16(v) { return __sa_narrow(v, 16, false); }
+function __sa_cvt_zext_u32(v) { return __sa_narrow(v, 32, false); }
+function __sa_cvt_zext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) >>> 0); }
+function __sa_cvt_zext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt((+v) >>> 0); }
+function __sa_cvt_zext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sext_i8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_sext_i16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_sext_i1(v) { return __sa_narrow(v, 1, false); }
+function __sa_cvt_sext_i32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
+function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
+function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
+function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
+function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
+function __sa_cvt_sext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+function __sa_cvt_uitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+function __sa_cvt_uitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
+function __sa_cvt_fptosi_i64(v) {
+  // Truncate toward zero like LLVM fptosi; out-of-range/NaN/Inf
+  // maps to INT64_MIN (x86 cvttsd2si behavior) instead of throwing.
+  const t = Math.trunc(+v);
+  if (!Number.isFinite(t) || t >= 9223372036854775808 || t < -9223372036854775808) return -9223372036854775808n;
+  return BigInt(t);
+}
+function __sa_cvt_fptosi_u64(v) { return BigInt.asUintN(64, __sa_cvt_fptosi_i64(v)); }
+function __sa_cvt_fptosi_i32(v) { return Number(BigInt.asIntN(32, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u32(v) { return Number(BigInt.asUintN(32, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i16(v) { return Number(BigInt.asIntN(16, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u16(v) { return Number(BigInt.asUintN(16, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i8(v) { return Number(BigInt.asIntN(8, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_u8(v) { return Number(BigInt.asUintN(8, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_i1(v) { return Number(BigInt.asUintN(1, __sa_cvt_fptosi_i64(v))); }
+function __sa_cvt_fptosi_ptr(v) { return __sa_addr(__sa_cvt_fptosi_i64(v)); }
+function __sa_cvt_fptrunc_f32(v) { return Math.fround(+v); }
+function __sa_cvt_fpext_f64(v) { return (+v); }
+const __sa_bc_dv = new DataView(new ArrayBuffer(8));
+function __sa_cvt_bitcast_i8(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(8, v)) : ((v << 24) >> 24); }
+function __sa_cvt_bitcast_u8(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(8, v)) : (v & 0xFF); }
+function __sa_cvt_bitcast_i16(v) { return (typeof v === "bigint") ? Number(BigInt.asIntN(16, v)) : ((v << 16) >> 16); }
+function __sa_cvt_bitcast_u16(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(16, v)) : (v & 0xFFFF); }
+function __sa_cvt_bitcast_i1(v) { return (typeof v === "bigint") ? Number(BigInt.asUintN(1, v)) : (v & 1); }
+function __sa_cvt_bitcast_i32(v) {
+  // Non-integer Numbers are f32-domain values (f64 sources are
+  // rejected by the verifier for 32-bit bitcasts); reinterpret them.
+  if (typeof v === "bigint") return Number(BigInt.asIntN(32, v));
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getInt32(0, true); }
+  return (v | 0);
+}
+function __sa_cvt_bitcast_u32(v) {
+  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat32(0, v, true); return __sa_bc_dv.getUint32(0, true); }
+  return (v >>> 0);
+}
+function __sa_cvt_bitcast_i64(v) {
+  // Non-integer Numbers are f64-domain values; reinterpret them.
+  // Integer Numbers are immediates (f64-integral bitcasts are a
+  // known edge; use sitofp-produced values only via fptosi).
+  if (typeof v === "bigint") return BigInt.asIntN(64, v);
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return __sa_bc_dv.getBigInt64(0, true); }
+  return BigInt(v);
+}
+function __sa_cvt_bitcast_u64(v) {
+  if (typeof v === "bigint") return BigInt.asUintN(64, v);
+  if (!Number.isInteger(v)) { __sa_bc_dv.setFloat64(0, v, true); return BigInt.asUintN(64, __sa_bc_dv.getBigInt64(0, true)); }
+  return BigInt(v);
+}
+function __sa_cvt_bitcast_ptr(v) {
+  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
+  return (v | 0);
+}
+function __sa_cvt_bitcast_f32(v) {
+  // BigInt/integer inputs are int-domain bits; fractional inputs are
+  // already f32-domain values (f32-to-f32 is identity).
+  if (typeof v === "bigint") { __sa_bc_dv.setUint32(0, Number(BigInt.asUintN(32, v)), true); return __sa_bc_dv.getFloat32(0, true); }
+  if (!Number.isInteger(v)) return (+v);
+  __sa_bc_dv.setInt32(0, v | 0, true); return __sa_bc_dv.getFloat32(0, true);
+}
+function __sa_cvt_bitcast_f64(v) {
+  // Number inputs are always f64-domain here (equal-bits rule keeps
+  // int-domain f64 bitcasts on the BigInt path).
+  if (typeof v === "bigint") { __sa_bc_dv.setBigInt64(0, BigInt.asIntN(64, v), true); return __sa_bc_dv.getFloat64(0, true); }
+  return (+v);
+}
 // ---- end runtime ----
-// source: /content/sa_all/sci/demos/support/mpsc_probe.sa
+// source: demos/js/support_mpsc_probe/main.sa
 const __sa_ftable = [];
 const C_RESULT_OK = 4096; // utf8 (8 bytes)
 __sa_u8.set([109,112,115,99,32,111,107,10], 4096);
@@ -143,11 +264,11 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_ne(r2, 0);
+        r3 = __sa_ne(r2, 0n);
         __pc = (__sa_truthy(r3) ? 2 : 7); break;
       }
       case 2: {
-        r4 = __sa_eq(r0, 0);
+        r4 = __sa_eq(r0, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 4); break;
       }
       case 3: {
@@ -155,7 +276,7 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 4; break;
       }
       case 4: {
-        r5 = __sa_eq(r1, 0);
+        r5 = __sa_eq(r1, 0n);
         __pc = (__sa_truthy(r5) ? 5 : 6); break;
       }
       case 5: {
@@ -168,29 +289,29 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 7; break;
       }
       case 7: {
-        r6 = __sa_salloc(8);
-        r7 = __sa_salloc(8);
-        r8 = __sa_salloc(8);
-        r9 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r6, 0), 0);
-        r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
-        __sa_store_i64(__sa_ptr_add(r7, 0), 1);
-        r11 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        __sa_store_i64(__sa_ptr_add(r8, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r9, 0), r2);
+        r6 = __sa_salloc(8n);
+        r7 = __sa_salloc(8n);
+        r8 = __sa_salloc(8n);
+        r9 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r6, 0n), 0);
+        r10 = __sa_load_i64(__sa_ptr_add(r6, 0n));
+        __sa_store_i64(__sa_ptr_add(r7, 0n), 1);
+        r11 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        __sa_store_i64(__sa_ptr_add(r8, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r9, 0n), r2);
         __pc = 8; break;
       }
       case 8: {
-        r12 = __sa_load_i64(__sa_ptr_add(r8, 0));
-        r13 = __sa_load_i64(__sa_ptr_add(r9, 0));
+        r12 = __sa_load_i64(__sa_ptr_add(r8, 0n));
+        r13 = __sa_load_i64(__sa_ptr_add(r9, 0n));
         r14 = __sa_eq(r13, r10);
         __pc = (__sa_truthy(r14) ? 10 : 9); break;
       }
       case 9: {
         r15 = __sa_ptr_add(r1, r12);
         r16 = __sa_ptr_add(r0, r12);
-        r17 = __sa_load_u8(__sa_ptr_add(r15, 0));
-        __sa_store_u8(__sa_ptr_add(r16, 0), r17);
+        r17 = __sa_load_u8(__sa_ptr_add(r15, 0n));
+        __sa_store_u8(__sa_ptr_add(r16, 0n), r17);
         r18 = __sa_add(r12, r11);
         r19 = __sa_sub(r13, r11);
         /* no-op release: !src_ip */
@@ -199,8 +320,8 @@ export function sa_mem_copy(dst, src, count) {
         /* no-op release: !offset */
         /* no-op release: !remaining */
         /* no-op release: !done */
-        __sa_store_i64(__sa_ptr_add(r8, 0), r18);
-        __sa_store_i64(__sa_ptr_add(r9, 0), r19);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r18);
+        __sa_store_i64(__sa_ptr_add(r9, 0n), r19);
         /* no-op release: !next_offset */
         /* no-op release: !next_remaining */
         __pc = 8; break;
@@ -237,11 +358,11 @@ export function sa_mem_set(dst, val, count) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_ne(r2, 0);
+        r3 = __sa_ne(r2, 0n);
         __pc = (__sa_truthy(r3) ? 2 : 5); break;
       }
       case 2: {
-        r4 = __sa_eq(r0, 0);
+        r4 = __sa_eq(r0, 0n);
         __pc = (__sa_truthy(r4) ? 3 : 4); break;
       }
       case 3: {
@@ -253,35 +374,35 @@ export function sa_mem_set(dst, val, count) {
         __pc = 5; break;
       }
       case 5: {
-        r5 = __sa_salloc(8);
-        r6 = __sa_salloc(8);
-        r7 = __sa_salloc(8);
-        r8 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r5, 0), 0);
-        r9 = __sa_load_i64(__sa_ptr_add(r5, 0));
-        __sa_store_i64(__sa_ptr_add(r6, 0), 1);
-        r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
-        __sa_store_i64(__sa_ptr_add(r7, 0), 0);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r2);
+        r5 = __sa_salloc(8n);
+        r6 = __sa_salloc(8n);
+        r7 = __sa_salloc(8n);
+        r8 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), 0);
+        r9 = __sa_load_i64(__sa_ptr_add(r5, 0n));
+        __sa_store_i64(__sa_ptr_add(r6, 0n), 1);
+        r10 = __sa_load_i64(__sa_ptr_add(r6, 0n));
+        __sa_store_i64(__sa_ptr_add(r7, 0n), 0);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r2);
         __pc = 6; break;
       }
       case 6: {
-        r11 = __sa_load_i64(__sa_ptr_add(r7, 0));
-        r12 = __sa_load_i64(__sa_ptr_add(r8, 0));
+        r11 = __sa_load_i64(__sa_ptr_add(r7, 0n));
+        r12 = __sa_load_i64(__sa_ptr_add(r8, 0n));
         r13 = __sa_eq(r12, r9);
         __pc = (__sa_truthy(r13) ? 8 : 7); break;
       }
       case 7: {
         r14 = __sa_ptr_add(r0, r11);
-        __sa_store_u8(__sa_ptr_add(r14, 0), r1);
+        __sa_store_u8(__sa_ptr_add(r14, 0n), r1);
         r15 = __sa_add(r11, r10);
         r16 = __sa_sub(r12, r10);
         /* no-op release: !dst_ip */
         /* no-op release: !offset */
         /* no-op release: !remaining */
         /* no-op release: !done */
-        __sa_store_i64(__sa_ptr_add(r7, 0), r15);
-        __sa_store_i64(__sa_ptr_add(r8, 0), r16);
+        __sa_store_i64(__sa_ptr_add(r7, 0n), r15);
+        __sa_store_i64(__sa_ptr_add(r8, 0n), r16);
         /* no-op release: !next_offset */
         /* no-op release: !next_remaining */
         __pc = 6; break;
@@ -317,14 +438,14 @@ export function __mpsc_try_send(chan, value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r5 = __sa_uge(r4, r3);
         __pc = (__sa_truthy(r5) ? 3 : 2); break;
       }
       case 2: {
-        r6 = __sa_add(r2, 0);
+        r6 = __sa_add(r2, 0n);
         __pc = 4; break;
       }
       case 3: {
@@ -345,8 +466,8 @@ export function __mpsc_try_send(chan, value_slot) {
         return (0);
       }
       case 6: {
-        r8 = __sa_add(r4, 1);
-        { const __addr = __sa_ptr_add(r0, 16); const __old = __sa_load_i64(__addr); const __exp = (r4); const __ok = ((__old == __exp) ? 1 : 0); if (__ok) __sa_store_i64(__addr, (r8)); r9 = __old; r10 = __ok; }
+        r8 = __sa_add(r4, 1n);
+        { const __addr = __sa_ptr_add(r0, 16n); const __old = __sa_load_i64(__addr); const __exp = (r4); const __ok = ((__old == __exp) ? 1 : 0); if (__ok) __sa_store_i64(__addr, (r8)); r9 = __old; r10 = __ok; }
         __pc = (__sa_truthy(r10) ? 8 : 7); break;
       }
       case 7: {
@@ -363,12 +484,12 @@ export function __mpsc_try_send(chan, value_slot) {
       }
       case 8: {
         r11 = __sa_urem(r4, r2);
-        r12 = __sa_ptr_add(r0, 32);
-        r13 = __sa_mul(r11, 16);
+        r12 = __sa_ptr_add(r0, 32n);
+        r13 = __sa_mul(r11, 16n);
         r14 = __sa_ptr_add(r12, r13);
-        r15 = __sa_load_i64(__sa_ptr_add(r1, 0));
-        __sa_store_i64(__sa_ptr_add(r14, 0), r15);
-        __sa_store_i64(__sa_ptr_add(r14, 8), 1);
+        r15 = __sa_load_i64(__sa_ptr_add(r1, 0n));
+        __sa_store_i64(__sa_ptr_add(r14, 0n), r15);
+        __sa_store_i64(__sa_ptr_add(r14, 8n), 1);
         /* no-op release: !message */
         /* no-op release: !slot */
         /* no-op release: !slot_index */
@@ -404,9 +525,9 @@ export function __mpsc_try_recv(chan, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r3 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r4 = __sa_load_i64(__sa_ptr_add(r0, 16));
+        r2 = __sa_load_i64(__sa_ptr_add(r0, 0n));
+        r3 = __sa_load_i64(__sa_ptr_add(r0, 8n));
+        r4 = __sa_load_i64(__sa_ptr_add(r0, 16n));
         r5 = __sa_uge(r4, r3);
         __pc = (__sa_truthy(r5) ? 3 : 2); break;
       }
@@ -431,11 +552,11 @@ export function __mpsc_try_recv(chan, out_value_slot) {
       }
       case 5: {
         r7 = __sa_urem(r3, r2);
-        r8 = __sa_ptr_add(r0, 32);
-        r9 = __sa_mul(r7, 16);
+        r8 = __sa_ptr_add(r0, 32n);
+        r9 = __sa_mul(r7, 16n);
         r10 = __sa_ptr_add(r8, r9);
-        r11 = __sa_load_i64(__sa_ptr_add(r10, 8));
-        r12 = __sa_eq(r11, 1);
+        r11 = __sa_load_i64(__sa_ptr_add(r10, 8n));
+        r12 = __sa_eq(r11, 1n);
         __pc = (__sa_truthy(r12) ? 7 : 6); break;
       }
       case 6: {
@@ -452,11 +573,11 @@ export function __mpsc_try_recv(chan, out_value_slot) {
         return (0);
       }
       case 7: {
-        r13 = __sa_load_i64(__sa_ptr_add(r10, 0));
-        __sa_store_i64(__sa_ptr_add(r10, 8), 0);
-        r14 = __sa_add(r3, 1);
-        __sa_store_i64(__sa_ptr_add(r0, 8), r14);
-        __sa_store_i64(__sa_ptr_add(r1, 0), r13);
+        r13 = __sa_load_i64(__sa_ptr_add(r10, 0n));
+        __sa_store_i64(__sa_ptr_add(r10, 8n), 0);
+        r14 = __sa_add(r3, 1n);
+        __sa_store_i64(__sa_ptr_add(r0, 8n), r14);
+        __sa_store_i64(__sa_ptr_add(r1, 0n), r13);
         /* no-op release: !message */
         /* no-op release: !next_head */
         /* no-op release: !is_ready */
@@ -492,8 +613,8 @@ export function __mpsc_try_recv_timeout_ns(chan, out_value_slot, timeout_ns) {
       }
       case 1: {
         r3 = sa_time_instant_ns();
-        r4 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 1);
+        r4 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 1);
         __pc = 2; break;
       }
       case 2: {
@@ -514,14 +635,14 @@ export function __mpsc_try_recv_timeout_ns(chan, out_value_slot, timeout_ns) {
         __pc = (__sa_truthy(r8) ? 8 : 5); break;
       }
       case 5: {
-        r9 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         sa_time_sleep_ns(r9);
-        r10 = __sa_uge(r9, 1024);
+        r10 = __sa_uge(r9, 1024n);
         __pc = (__sa_truthy(r10) ? 7 : 6); break;
       }
       case 6: {
-        r11 = __sa_shl(r9, 1);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r11);
+        r11 = __sa_shl(r9, 1n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r11);
         /* no-op release: !next */
         /* no-op release: !at_limit */
         /* no-op release: !backoff_ns */
@@ -564,8 +685,8 @@ export function __mpsc_try_send_timeout_ns(chan, value_slot, timeout_ns) {
       }
       case 1: {
         r3 = sa_time_instant_ns();
-        r4 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r4, 0), 1);
+        r4 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), 1);
         __pc = 2; break;
       }
       case 2: {
@@ -588,14 +709,14 @@ export function __mpsc_try_send_timeout_ns(chan, value_slot, timeout_ns) {
         __pc = (__sa_truthy(r8) ? 8 : 5); break;
       }
       case 5: {
-        r9 = __sa_load_i64(__sa_ptr_add(r4, 0));
+        r9 = __sa_load_i64(__sa_ptr_add(r4, 0n));
         sa_time_sleep_ns(r9);
-        r10 = __sa_uge(r9, 1024);
+        r10 = __sa_uge(r9, 1024n);
         __pc = (__sa_truthy(r10) ? 7 : 6); break;
       }
       case 6: {
-        r11 = __sa_shl(r9, 1);
-        __sa_store_i64(__sa_ptr_add(r4, 0), r11);
+        r11 = __sa_shl(r9, 1n);
+        __sa_store_i64(__sa_ptr_add(r4, 0n), r11);
         /* no-op release: !next */
         /* no-op release: !at_limit */
         /* no-op release: !backoff_ns */
@@ -637,10 +758,10 @@ export function producer_a(chan) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = (10);
-        r2 = (20);
-        r3 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r1);
+        r1 = (10n);
+        r2 = (20n);
+        r3 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r1);
         __pc = 2; break;
       }
       case 2: {
@@ -655,8 +776,8 @@ export function producer_a(chan) {
       case 4: {
         /* no-op release: !v10 */
         /* no-op release: !__mpsc_send_ok_v10 */
-        r5 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r2);
+        r5 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r2);
         __pc = 5; break;
       }
       case 5: {
@@ -691,10 +812,10 @@ export function producer_b(chan) {
         __pc = 1; break;
       }
       case 1: {
-        r1 = (30);
-        r2 = (40);
-        r3 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r3, 0), r1);
+        r1 = (30n);
+        r2 = (40n);
+        r3 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r3, 0n), r1);
         __pc = 2; break;
       }
       case 2: {
@@ -709,8 +830,8 @@ export function producer_b(chan) {
       case 4: {
         /* no-op release: !v30 */
         /* no-op release: !__mpsc_send_ok_v30 */
-        r5 = __sa_salloc(8);
-        __sa_store_i64(__sa_ptr_add(r5, 0), r2);
+        r5 = __sa_salloc(8n);
+        __sa_store_i64(__sa_ptr_add(r5, 0n), r2);
         __pc = 5; break;
       }
       case 5: {
@@ -744,20 +865,20 @@ export function main() {
         __pc = 1; break;
       }
       case 1: {
-        r0 = __sa_eq(4, 0);
-        r1 = __sa_add(4, r0);
-        r2 = __sa_eq(16, 0);
+        r0 = __sa_eq(4n, 0n);
+        r1 = __sa_add(4n, r0);
+        r2 = __sa_eq(16n, 0n);
         __pc = (__sa_truthy(r2) ? 5 : 2); break;
       }
       case 2: {
-        r3 = __sa_mul(r1, 16);
-        r4 = __sa_udiv(r3, 16);
+        r3 = __sa_mul(r1, 16n);
+        r4 = __sa_udiv(r3, 16n);
         r5 = __sa_eq(r4, r1);
         __pc = (__sa_truthy(r5) ? 3 : 4); break;
       }
       case 3: {
-        r6 = __sa_add(r3, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(r3, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_ok___mpsc_data_ok_chan */
         /* no-op release: !__num_mul_roundtrip___mpsc_data_ok_chan */
         /* no-op release: !__num_mul_product___mpsc_data_ok_chan */
@@ -765,8 +886,8 @@ export function main() {
         __pc = 6; break;
       }
       case 4: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 0);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 0n);
         /* no-op release: !__num_mul_ok___mpsc_data_ok_chan */
         /* no-op release: !__num_mul_roundtrip___mpsc_data_ok_chan */
         /* no-op release: !__num_mul_product___mpsc_data_ok_chan */
@@ -774,8 +895,8 @@ export function main() {
         __pc = 6; break;
       }
       case 5: {
-        r6 = __sa_add(0, 0);
-        r7 = __sa_add(0, 1);
+        r6 = __sa_add(0n, 0n);
+        r7 = __sa_add(0n, 1n);
         /* no-op release: !__num_mul_rhs_zero___mpsc_data_ok_chan */
         __pc = 6; break;
       }
@@ -787,20 +908,20 @@ export function main() {
         __pc = 8; break;
       }
       case 8: {
-        r8 = __sa_add(32, r6);
-        r9 = __sa_ult(r8, 32);
+        r8 = __sa_add(32n, r6);
+        r9 = __sa_ult(r8, 32n);
         __pc = (__sa_truthy(r9) ? 10 : 9); break;
       }
       case 9: {
-        r10 = __sa_add(r8, 0);
-        r11 = __sa_add(0, 1);
+        r10 = __sa_add(r8, 0n);
+        r11 = __sa_add(0n, 1n);
         /* no-op release: !__num_add_overflow___mpsc_total_ok_chan */
         /* no-op release: !__num_add_sum___mpsc_total_ok_chan */
         __pc = 11; break;
       }
       case 10: {
-        r10 = __sa_add(0, 0);
-        r11 = __sa_add(0, 0);
+        r10 = __sa_add(0n, 0n);
+        r11 = __sa_add(0n, 0n);
         /* no-op release: !__num_add_overflow___mpsc_total_ok_chan */
         /* no-op release: !__num_add_sum___mpsc_total_ok_chan */
         __pc = 11; break;
@@ -815,9 +936,9 @@ export function main() {
       case 13: {
         r12 = __sa_alloc(r10);
         sa_mem_set(r12, 0, r10);
-        __sa_store_i64(__sa_ptr_add(r12, 0), r1);
-        __sa_store_i64(__sa_ptr_add(r12, 8), 0);
-        __sa_store_i64(__sa_ptr_add(r12, 16), 0);
+        __sa_store_i64(__sa_ptr_add(r12, 0n), r1);
+        __sa_store_i64(__sa_ptr_add(r12, 8n), 0);
+        __sa_store_i64(__sa_ptr_add(r12, 16n), 0);
         /* no-op release: !__mpsc_total_ok_chan */
         /* no-op release: !__mpsc_total_bytes_chan */
         /* no-op release: !__mpsc_data_ok_chan */
@@ -826,7 +947,7 @@ export function main() {
         /* no-op release: !__mpsc_cap_is_zero_chan */
         producer_a(r12);
         producer_b(r12);
-        r13 = __sa_salloc(8);
+        r13 = __sa_salloc(8n);
         __pc = 14; break;
       }
       case 14: {
@@ -839,9 +960,9 @@ export function main() {
         __pc = 14; break;
       }
       case 16: {
-        r15 = __sa_load_i64(__sa_ptr_add(r13, 0));
+        r15 = __sa_load_i64(__sa_ptr_add(r13, 0n));
         /* no-op release: !__mpsc_recv_ok_first */
-        r16 = __sa_salloc(8);
+        r16 = __sa_salloc(8n);
         __pc = 17; break;
       }
       case 17: {
@@ -854,9 +975,9 @@ export function main() {
         __pc = 17; break;
       }
       case 19: {
-        r18 = __sa_load_i64(__sa_ptr_add(r16, 0));
+        r18 = __sa_load_i64(__sa_ptr_add(r16, 0n));
         /* no-op release: !__mpsc_recv_ok_second */
-        r19 = __sa_salloc(8);
+        r19 = __sa_salloc(8n);
         __pc = 20; break;
       }
       case 20: {
@@ -869,9 +990,9 @@ export function main() {
         __pc = 20; break;
       }
       case 22: {
-        r21 = __sa_load_i64(__sa_ptr_add(r19, 0));
+        r21 = __sa_load_i64(__sa_ptr_add(r19, 0n));
         /* no-op release: !__mpsc_recv_ok_third */
-        r22 = __sa_salloc(8);
+        r22 = __sa_salloc(8n);
         __pc = 23; break;
       }
       case 23: {
@@ -884,12 +1005,12 @@ export function main() {
         __pc = 23; break;
       }
       case 25: {
-        r24 = __sa_load_i64(__sa_ptr_add(r22, 0));
+        r24 = __sa_load_i64(__sa_ptr_add(r22, 0n));
         /* no-op release: !__mpsc_recv_ok_fourth */
-        r25 = __sa_eq(r15, 10);
-        r26 = __sa_eq(r18, 20);
-        r27 = __sa_eq(r21, 30);
-        r28 = __sa_eq(r24, 40);
+        r25 = __sa_eq(r15, 10n);
+        r26 = __sa_eq(r18, 20n);
+        r27 = __sa_eq(r21, 30n);
+        r28 = __sa_eq(r24, 40n);
         r29 = __sa_band(r25, r26);
         r30 = __sa_band(r27, r28);
         r31 = __sa_band(r29, r30);

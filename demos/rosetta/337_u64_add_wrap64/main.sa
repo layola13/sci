@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"337\n"
+
+// 337 - 64-bit arithmetic keeps full precision.
+//
+// The JS backend used to carry 64-bit immediates as plain Numbers, so
+// `__sa_add`/`__sa_mul` wrapped at 32 bits (`|0`/`imul`) and unsigned
+// division read the dividend as signed. All three shapes below exceed
+// 32 bits but fit in 64 (the toolchain cannot express wider wraps).
+@main() -> i32:
+L_ENTRY:
+    a = 3000000000 as u64
+    b = 3000000000 as u64
+    s = add a, b
+    ok_a = eq s, 6000000000
+    h = 100000 as u64
+    m = mul h, h
+    ok_b = eq m, 10000000000
+    neg = -1 as i64
+    two = 2 as i64
+    q = udiv neg, two
+    ok_c = eq q, 9223372036854775807
+    ok = and ok_a, ok_b
+    ok = and ok, ok_c
+    !a
+    !b
+    !s
+    !h
+    !m
+    !neg
+    !two
+    !q
+    !ok_a
+    !ok_b
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

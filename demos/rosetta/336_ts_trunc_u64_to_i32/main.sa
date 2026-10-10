@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"336\n"
+
+// 336 - trunc u64 to i32 narrows modulo 2^32.
+//
+// The JS backend used to emit conversions as identity `(v)`, so
+// truncating 4294967301 kept the full value and the comparison failed.
+// (Note: `N as i32` on an immediate folds to i64, so the i32 sources
+// below are forced with trunc, exactly as user code does.)
+@main() -> i32:
+L_ENTRY:
+    big = 4294967301 as u64
+    t = trunc big as i32
+    ok_a = eq t, 5
+    max32 = 4294967295 as u64
+    tm = trunc max32 as i32
+    ok_b = eq tm, -1
+    ok = and ok_a, ok_b
+    !big
+    !t
+    !max32
+    !tm
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

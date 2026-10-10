@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"338\n"
+
+// 338 - zext i32 to i64 zero-extends.
+//
+// Note: `N as i32` on an immediate folds to i64, so the genuinely
+// i32-typed source below is forced with trunc (the honest shape).
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` (interpreter) prints 338
+// but the `sa build-exe` binary exits 1 -- the LLVM conversion lowering
+// produces the wrong value for this shape (it only sees the target
+// type, not the 32-bit source width). Minimal repro kept here until
+// the llvmc conversion lowering tracks source widths.
+// The JS backend implements the specified (interpreter) semantics.
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    m1 = trunc big as i32
+    z = zext m1 as i64
+    ok_a = eq z, 4294967295
+    p = 2147483647 as i32
+    zp = zext p as i64
+    ok_b = eq zp, 2147483647
+    ok = and ok_a, ok_b
+    !big
+    !m1
+    !z
+    !p
+    !zp
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

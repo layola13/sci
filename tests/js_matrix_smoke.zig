@@ -432,6 +432,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/333_weak_cyclic_reference/main.sa", "upgraded\n");
     try assertJsMatrixStdout("demos/rosetta/334_indirect_import_shadow/main.sa", "334\n");
     try assertJsMatrixStdout("demos/rosetta/335_ts_slice_inverted_bounds/main.sa", "335\n");
+    try assertJsMatrixStdout("demos/rosetta/336_ts_trunc_u64_to_i32/main.sa", "336\n");
+    try assertJsMatrixStdout("demos/rosetta/337_u64_add_wrap64/main.sa", "337\n");
+    try assertJsMatrixStdout("demos/rosetta/338_zext_i32_to_i64/main.sa", "338\n");
+    try assertJsMatrixStdout("demos/rosetta/339_sext_i32_to_i64/main.sa", "339\n");
+    try assertJsMatrixStdout("demos/rosetta/340_sitofp_fptosi_roundtrip/main.sa", "340\n");
+    try assertJsMatrixStdout("demos/rosetta/341_fptosi_truncates_toward_zero/main.sa", "341\n");
+    try assertJsMatrixStdout("demos/rosetta/342_uitofp_large_u64_roundtrip/main.sa", "342\n");
+    try assertJsMatrixStdout("demos/rosetta/343_bitcast_i32_u32/main.sa", "343\n");
+    try assertJsMatrixStdout("demos/rosetta/344_bitcast_u64_i64/main.sa", "344\n");
+    try assertJsMatrixStdout("demos/rosetta/345_fptrunc_f32_rounding/main.sa", "345\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
