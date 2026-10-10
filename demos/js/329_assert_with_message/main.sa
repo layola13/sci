@@ -1,0 +1,77 @@
+// 329 - Assert with Custom Message
+// SA: 用 ASSERT_MSG / ASSERT_NE_MSG 宏模拟 Rust 的 assert!(cond, msg)
+// 宏检查条件，失败时 panic 并记录错误码
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"5\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def PANIC_DIV_ZERO = 200
+#def PANIC_NEGATIVE = 201
+
+// ASSERT_NE_ZERO: 断言 %val != 0，否则 panic(%panic_code)
+[MACRO] ASSERT_NE_ZERO %val, %panic_code, %label_ok
+    _anz_cmp = ne %val, 0
+    br _anz_cmp -> %label_ok, L_ANZ_FAIL
+
+L_ANZ_FAIL:
+    !_anz_cmp
+    panic(%panic_code)
+[END_MACRO]
+
+// ASSERT_GE_ZERO: 断言 %val >= 0，否则 panic(%panic_code)
+[MACRO] ASSERT_GE_ZERO %val, %panic_code, %label_ok
+    _agz_ok = sge %val, 0
+    br _agz_ok -> %label_ok, L_AGZ_FAIL
+
+L_AGZ_FAIL:
+    !_agz_ok
+    panic(%panic_code)
+[END_MACRO]
+
+// ASSERT_RANGE: 断言 %lo <= %val <= %hi，否则 panic
+[MACRO] ASSERT_RANGE %val, %lo, %hi, %panic_code, %label_ok
+    _ar_lo = sle %lo, %val
+    _ar_hi = sle %val, %hi
+    _ar_ok = and _ar_lo, _ar_hi
+    !_ar_lo
+    !_ar_hi
+    br _ar_ok -> %label_ok, L_AR_FAIL
+
+L_AR_FAIL:
+    !_ar_ok
+    panic(%panic_code)
+[END_MACRO]
+
+@safe_divide(a: i32, b: i32) -> i32:
+L_ENTRY:
+    // assert!(b != 0)
+    EXPAND ASSERT_NE_ZERO b, PANIC_DIV_ZERO, L_DIV_B_OK
+
+L_DIV_B_OK:
+    // assert!(a >= 0)
+    EXPAND ASSERT_GE_ZERO a, PANIC_NEGATIVE, L_DIV_A_OK
+
+L_DIV_A_OK:
+    result = sdiv a, b
+    !a
+    !b
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    result = call @safe_divide(10, 2)
+    ok = eq result, 5
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

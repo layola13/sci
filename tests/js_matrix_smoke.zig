@@ -417,6 +417,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/320_from_into_conversion/main.sa", "212\n");
     try assertJsMatrixStdout("demos/rosetta/321_operator_overload_macro/main.sa", "4,6\n");
     try assertJsMatrixStdout("demos/rosetta/322_deref_coercion_macro/main.sa", "52\n");
+    try assertJsMatrixStdout("demos/rosetta/323_index_trait_macro/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/324_drop_guard_macro/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/325_loop_break_value_macro/main.sa", "25\n");
+    try assertJsMatrixStdout("demos/rosetta/326_lazy_static_macro/main.sa", "84\n");
+    try assertJsMatrixStdout("demos/rosetta/327_thread_local_macro/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/328_cfg_runtime_macro/main.sa", "x86_64\n");
+    try assertJsMatrixStdout("demos/rosetta/329_assert_with_message/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/330_closure_with_state_macro/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/331_rc_shared_ownership/main.sa", "42,42\n");
+    try assertJsMatrixStdout("demos/rosetta/332_cell_interior_mutability/main.sa", "100\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

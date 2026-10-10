@@ -1,0 +1,50 @@
+// 330 - Closure With State Macro
+// SA: 用 CLOSURE_CALL 宏模拟 Rust FnMut 闭包
+// 卫生宏保证 _cur/_next 每次展开独立
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+// CLOSURE_CALL: 调用计数器闭包 (count += 1, return count)
+// 不释放 %env，由调用方负责
+[MACRO] CLOSURE_CALL %out, %env
+    _cur = load %env+0 as i32
+    _next = add _cur, 1
+    !_cur
+    store %env+0, _next as i32
+    %out = add _next, 0
+    !_next
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    // make_counter(0)
+    env = alloc 4
+    store env+0, 0 as i32
+
+    // c() 三次：卫生宏保证 _cur/_next 每次独立
+    EXPAND CLOSURE_CALL a, env
+    EXPAND CLOSURE_CALL b, env
+    EXPAND CLOSURE_CALL c_val, env
+
+    !env
+
+    total0 = add a, b
+    total = add total0, c_val
+    ok = eq total, 6
+    !a
+    !b
+    !c_val
+    !total0
+    !total
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
