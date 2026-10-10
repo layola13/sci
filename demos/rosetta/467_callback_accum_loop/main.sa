@@ -1,0 +1,67 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"467\n"
+@const HALF_VT = vtable { call = @half_cb }
+
+// 467 - invoke a registered callback per loop iteration,
+// accumulating 0.5 four times (== 2.0).
+@half_cb(dummy: i64, ctx: ptr) -> f64:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    h = fdiv one_f, two_f
+    !dummy
+    !ctx
+    !one_i
+    !two_i
+    !one_f
+    !two_f
+    return h
+
+@main() -> i32:
+    t = &HALF_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    zero_i = 0 as i32
+    one_i = 1 as i64
+    acc = sitofp zero_i as f64
+    i = 0 as i64
+    jmp L_LOOP
+L_LOOP:
+    c = slt i, 4
+    br c -> L_BODY, L_DONE
+L_BODY:
+    cb = load reg+0 as ptr
+    ctx = alloc 8
+    r = call_indirect cb(i, ctx)
+    acc = fadd acc, r
+    i = add i, one_i
+    !c
+    !cb
+    !ctx
+    !r
+    jmp L_LOOP
+L_DONE:
+    !c
+    two_i = 2 as i32
+    expect = sitofp two_i as f64
+    ok = fcmp_eq acc, expect
+    !t
+    !fp
+    !reg
+    !zero_i
+    !one_i
+    !acc
+    !i
+    !two_i
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

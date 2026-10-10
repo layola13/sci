@@ -1,0 +1,94 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"470\n"
+@const SMALL_VT = vtable { call = @small_cb }
+@const BIG_VT = vtable { call = @big_cb }
+
+// 470 - registry holds two callbacks; the tag selects which slot
+// runs (0 -> 1.5, 1 -> 2.5; sum is 4.0).
+@small_cb(dummy: i64, ctx: ptr) -> f64:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    !dummy
+    !ctx
+    !three
+    !two
+    !three_f
+    !two_f
+    return h
+
+@big_cb(dummy: i64, ctx: ptr) -> f64:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !dummy
+    !ctx
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+
+@invoke(reg: ptr, tag: i64) -> f64:
+L_ENTRY:
+    c = eq tag, 0
+    br c -> L_S, L_B
+L_S:
+    cb = load reg+0 as ptr
+    !c
+    jmp L_DO
+L_B:
+    cb = load reg+8 as ptr
+    !c
+    jmp L_DO
+L_DO:
+    ctx = alloc 8
+    r = call_indirect cb(tag, ctx)
+    !reg
+    !tag
+    !cb
+    !ctx
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t0 = &SMALL_VT
+    fp0 = load t0 + 0 as ptr
+    t1 = &BIG_VT
+    fp1 = load t1 + 0 as ptr
+    reg = alloc 16
+    store reg+0, fp0 as ptr
+    store reg+8, fp1 as ptr
+    z = 0 as i64
+    r0 = call @invoke(reg, z)
+    o = 1 as i64
+    r1 = call @invoke(reg, o)
+    s = fadd r0, r1
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq s, four
+    !t0
+    !fp0
+    !t1
+    !fp1
+    !reg
+    !z
+    !r0
+    !o
+    !r1
+    !s
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

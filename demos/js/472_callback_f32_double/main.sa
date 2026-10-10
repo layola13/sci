@@ -1,0 +1,55 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"472\n"
+@const DBL32_VT = vtable { call = @dbl32_cb }
+
+// 472 - callback doubles in f32 (1.5f x 2 == 3.0f).
+@dbl32_cb(x: f32, ctx: ptr) -> f32:
+    two_i = 2 as i32
+    two_whole = sitofp two_i as f64
+    two32 = fptrunc two_whole as f32
+    r = fmul x, two32
+    !x
+    !ctx
+    !two_i
+    !two_whole
+    !two32
+    return r
+
+@main() -> i32:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    one32 = fptrunc one_half as f32
+    t = &DBL32_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    cb = load reg+0 as ptr
+    ctx = alloc 8
+    r = call_indirect cb(one32, ctx)
+    three32 = fptrunc three_f as f32
+    ok = fcmp_eq r, three32
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !one32
+    !t
+    !fp
+    !reg
+    !cb
+    !ctx
+    !r
+    !three32
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

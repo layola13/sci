@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"466\n"
+@const DBL_VT = vtable { call = @dbl_cb }
+
+// 466 - register a callback (fn ptr stored to a registry slot),
+// then invoke it once (2 x 1.5 == 3.0).
+@dbl_cb(x: f64, ctx: ptr) -> f64:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    r = fmul x, two_f
+    !ctx
+    !x
+    !two_i
+    !two_f
+    return r
+
+@main() -> i32:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    t = &DBL_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    cb = load reg+0 as ptr
+    ctx = alloc 8
+    r = call_indirect cb(one_half, ctx)
+    ok = fcmp_eq r, three_f
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !t
+    !fp
+    !reg
+    !cb
+    !ctx
+    !r
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

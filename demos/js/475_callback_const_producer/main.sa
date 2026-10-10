@@ -1,0 +1,55 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"475\n"
+@const CONST_VT = vtable { call = @const_cb }
+
+// 475 - const-producer callback invoked twice (2.5 + 2.5 == 5.0).
+@const_cb(dummy: i64, ctx: ptr) -> f64:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !dummy
+    !ctx
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+
+@main() -> i32:
+    t = &CONST_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    cb = load reg+0 as ptr
+    ctx0 = alloc 8
+    zero = 0 as i64
+    r0 = call_indirect cb(zero, ctx0)
+    ctx1 = alloc 8
+    r1 = call_indirect cb(zero, ctx1)
+    s = fadd r0, r1
+    five_i = 5 as i32
+    five = sitofp five_i as f64
+    ok = fcmp_eq s, five
+    !t
+    !fp
+    !reg
+    !cb
+    !ctx0
+    !zero
+    !r0
+    !ctx1
+    !r1
+    !s
+    !five_i
+    !five
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -562,6 +562,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/463_vtable_branchy_pick/main.sa", "463\n");
     try assertJsMatrixStdout("demos/rosetta/464_vtable_fallible/main.sa", "464\n");
     try assertJsMatrixStdout("demos/rosetta/465_vtable_fneg/main.sa", "465\n");
+    try assertJsMatrixStdout("demos/rosetta/466_callback_register_invoke/main.sa", "466\n");
+    try assertJsMatrixStdout("demos/rosetta/467_callback_accum_loop/main.sa", "467\n");
+    try assertJsMatrixStdout("demos/rosetta/468_callback_slot_write/main.sa", "468\n");
+    try assertJsMatrixStdout("demos/rosetta/469_callback_chain/main.sa", "469\n");
+    try assertJsMatrixStdout("demos/rosetta/470_callback_select/main.sa", "470\n");
+    try assertJsMatrixStdout("demos/rosetta/471_callback_int_float/main.sa", "471\n");
+    try assertJsMatrixStdout("demos/rosetta/472_callback_f32_double/main.sa", "472\n");
+    try assertJsMatrixStdout("demos/rosetta/473_callback_nested_invoke/main.sa", "473\n");
+    try assertJsMatrixStdout("demos/rosetta/474_callback_signed_branch/main.sa", "474\n");
+    try assertJsMatrixStdout("demos/rosetta/475_callback_const_producer/main.sa", "475\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

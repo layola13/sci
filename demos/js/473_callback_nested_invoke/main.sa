@@ -1,0 +1,75 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"473\n"
+@const INNER_VT = vtable { call = @inner_cb }
+@const OUTER_VT = vtable { call = @outer_cb }
+
+// 473 - nested callback invocation: the outer callback invokes the
+// inner one and adds 1.5 (2.5 + 1.5 == 4.0).
+@inner_cb(dummy: i64, ctx: ptr) -> f64:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !dummy
+    !ctx
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+
+@outer_cb(dummy: i64, ctx: ptr) -> f64:
+    ti = &INNER_VT
+    fp = load ti + 0 as ptr
+    inner_ctx = alloc 8
+    v = call_indirect fp(dummy, inner_ctx)
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    s = fadd v, one_half
+    !dummy
+    !ctx
+    !ti
+    !fp
+    !inner_ctx
+    !v
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    return s
+
+@main() -> i32:
+    t = &OUTER_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    cb = load reg+0 as ptr
+    ctx = alloc 8
+    zero = 0 as i64
+    r = call_indirect cb(zero, ctx)
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq r, four
+    !t
+    !fp
+    !reg
+    !cb
+    !ctx
+    !zero
+    !r
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
