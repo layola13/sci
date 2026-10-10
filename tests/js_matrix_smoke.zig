@@ -276,6 +276,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/182_mmap_memory_mapping/main.sa", "4\n");
     try assertJsMatrixStdout("demos/rosetta/183_signal_handling_setup/main.sa", "2\n");
     try assertJsMatrixStdout("demos/rosetta/184_pthread_spawn_join/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/185_dynamic_lib_dlopen/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/186_sqlite_c_api_binding/main.sa", "8\n");
+    try assertJsMatrixStdout("demos/rosetta/187_opengl_context_swap/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/188_websocket_frame_parse/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/189_protobuf_varint_decode/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/190_base64_encode_simd/main.sa", "TWFu\n");
+    try assertJsMatrixStdout("demos/rosetta/191_macro_rules_ast_emit/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/192_proc_macro_derive_ast/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/193_attribute_macro_rewrite/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/194_cfg_conditional_compilation/main.sa", "x86\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

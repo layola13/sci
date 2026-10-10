@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"x86\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    arch = alloc 8
+    store arch+0, 120 as u8
+    store arch+1, 56 as u8
+    store arch+2, 54 as u8
+    store arch+3, 0 as u8
+    head = load arch+0 as u8
+    mid = load arch+1 as u8
+    tail = load arch+2 as u8
+    ok0 = eq head, 120
+    ok1 = eq mid, 56
+    ok2 = eq tail, 54
+    ok3 = and ok0, ok1
+    ok = and ok3, ok2
+    !head
+    !mid
+    !tail
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !arch
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

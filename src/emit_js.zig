@@ -1155,6 +1155,34 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll("function pthread_drop(handle) { return 0; }\n");
             return;
         }
+        // Dynamic-loader shims: nonzero cookie handles stand in for the OS
+        // loader (staged oracle semantics: handle/symbol nonzero, close 0).
+        if (std.mem.eql(u8, fsig.name, "dlopen")) {
+            try writer.writeAll("function dlopen(path, flags) { return __sa_alloc(8); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "dlsym")) {
+            try writer.writeAll("function dlsym(handle, symbol) { return __sa_alloc(8); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "dlclose")) {
+            try writer.writeAll("function dlclose(handle) { return 0; }\n");
+            return;
+        }
+        // SQLite C-API shims (staged oracle semantics: prepare/finalize 0,
+        // step returns SQLITE_ROW so the row-present branch is taken).
+        if (std.mem.eql(u8, fsig.name, "sqlite3_prepare")) {
+            try writer.writeAll("function sqlite3_prepare(sqlite, sql, len, stmt_out) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sqlite3_step")) {
+            try writer.writeAll("function sqlite3_step(stmt) { return 100; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sqlite3_finalize")) {
+            try writer.writeAll("function sqlite3_finalize(stmt) { return 0; }\n");
+            return;
+        }
         try writer.writeAll("function ");
         try jsFuncName(writer, fsig.name);
         try writer.writeAll("() { __sa_trap(\"extern not linked: ");
