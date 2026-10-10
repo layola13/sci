@@ -296,6 +296,19 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/202_pkg_dependencies_local/main.sa", "202\n");
     try assertJsMatrixStdout("demos/rosetta/203_pkg_dependencies_git/main.sa", "203\n");
     try assertJsMatrixStdout("demos/rosetta/204_pkg_dependencies_registry/main.sa", "204\n");
+    // NOTE: 205 (import cycle) and 207 (duplicate version symbols) are
+    // intentional compile-failure demos per their readmes (no executable is
+    // produced); they are covered by the compiler, not the JS matrix.
+    try assertJsMatrixStdout("demos/rosetta/206_pkg_version_resolution/main.sa", "206\n");
+    try assertJsMatrixStdout("demos/rosetta/208_pkg_dev_dependencies/main.sa", "208\n");
+    try assertJsMatrixStdout("demos/rosetta/209_pkg_build_dependencies/main.sa", "209\n");
+    try assertJsMatrixStdout("demos/rosetta/210_pkg_workspace_root/main.sa", "210\n");
+    try assertJsMatrixStdout("demos/rosetta/211_pkg_workspace_inheritance/main.sa", "211\n");
+    try assertJsMatrixStdout("demos/rosetta/212_pkg_feature_flags/main.sa", "212\n");
+    try assertJsMatrixStdout("demos/rosetta/213_pkg_default_features/main.sa", "213\n");
+    try assertJsMatrixStdout("demos/rosetta/214_pkg_target_specific_deps/main.sa", "214\n");
+    try assertJsMatrixStdout("demos/rosetta/215_pkg_patch_override/main.sa", "215\n");
+    try assertJsMatrixStdout("demos/rosetta/216_pkg_profile_release/main.sa", "216\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
