@@ -286,6 +286,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/192_proc_macro_derive_ast/main.sa", "6\n");
     try assertJsMatrixStdout("demos/rosetta/193_attribute_macro_rewrite/main.sa", "2\n");
     try assertJsMatrixStdout("demos/rosetta/194_cfg_conditional_compilation/main.sa", "x86\n");
+    try assertJsMatrixStdout("demos/rosetta/195_build_script_codegen/main.sa", "build output\n");
+    try assertJsMatrixStdout("demos/rosetta/196_lto_link_time_opt/main.sa", "37\n");
+    try assertJsMatrixStdout("demos/rosetta/197_profile_guided_opt/main.sa", "10\n");
+    try assertJsMatrixStdout("demos/rosetta/198_control_flow_guard_cfi/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/199_address_sanitizer_asan/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/200_sa_asm_quine/main.sa", "@import \"sa_std/io/print.sai\"\n\n@const RESULT_ERR = utf8:\"error\\n\"\n@const SOURCE = utf8:\"@import \\\"sa_std/io/print.sai\\\"\\n\\n@const RESULT_ERR = utf8:\\\"error\\\\n\\\"\\n@const SOURCE = utf8:\"\n\n@main() -> i32");
+    try assertJsMatrixStdout("demos/rosetta/201_pkg_manifest_basic/main.sa", "201\n");
+    try assertJsMatrixStdout("demos/rosetta/202_pkg_dependencies_local/main.sa", "202\n");
+    try assertJsMatrixStdout("demos/rosetta/203_pkg_dependencies_git/main.sa", "203\n");
+    try assertJsMatrixStdout("demos/rosetta/204_pkg_dependencies_registry/main.sa", "204\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
