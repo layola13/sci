@@ -226,6 +226,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/129_seqlock_optimistic/main.sa", "10\n");
     try assertJsMatrixStdout("demos/rosetta/130_park_unpark_thread/main.sa", "1\n");
     try assertJsMatrixStdout("demos/rosetta/131_waker_vtable_mechanics/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/132_pinning_and_unpin/main.sa", "8\n");
+    try assertJsMatrixStdout("demos/rosetta/133_select_macro_race/main.sa", "11\n");
+    try assertJsMatrixStdout("demos/rosetta/134_join_all_futures/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/135_async_streams/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/136_executor_task_queue/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/137_io_uring_submission/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/138_epoll_kqueue_event/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/139_cancellation_safety/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/140_yield_now_suspend/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/141_dynamically_sized_types/main.sa", "2\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

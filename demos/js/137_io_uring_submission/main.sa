@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Ring_SIZE = 8
+#def Ring_head = +0
+#def Ring_tail = +4
+
+@main() -> i32:
+L_ENTRY:
+    ring = alloc Ring_SIZE
+    store ring+Ring_head, 0 as i32
+    store ring+Ring_tail, 1 as i32
+    head = load ring+Ring_head as i32
+    tail = load ring+Ring_tail as i32
+    depth = sub tail, head
+    ok = eq depth, 1
+    !head
+    !tail
+    !depth
+    !ring
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
