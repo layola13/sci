@@ -1,0 +1,85 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"524\n"
+
+// 524 - (code, value) threaded through stages in one slot:
+// (0, 1.5) + 1.0, then x2 -> (0, 5.0); code stays 0 throughout.
+@stage_add(buf: ptr, x: f64) -> i64:
+L_ENTRY:
+    cur = load buf+8 as f64
+    s = fadd cur, x
+    store buf+8, s as f64
+    code = load buf+0 as i64
+    !buf
+    !x
+    !cur
+    !s
+    return code
+
+@stage_mul(buf: ptr, x: f64) -> i64:
+L_ENTRY:
+    cur = load buf+8 as f64
+    p = fmul cur, x
+    store buf+8, p as f64
+    code = load buf+0 as i64
+    !buf
+    !x
+    !cur
+    !p
+    return code
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    one_whole = sitofp three as f64
+    one = fdiv three_f, three_f
+    buf = alloc 16
+    store buf+0, 0 as i64
+    store buf+8, one_half as f64
+    c0 = call @stage_add(buf, one)
+    five_f = sitofp five as f64
+    c1 = call @stage_mul(buf, two_f)
+    code = load buf+0 as i64
+    val = load buf+8 as f64
+    five_whole = sitofp five as f64
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, five_whole
+    ok_s = eq c0, 0
+    ok_m = eq c1, 0
+    t0 = and ok_c, ok_v
+    t1 = and ok_s, ok_m
+    ok = and t0, t1
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !one_whole
+    !one
+    !buf
+    !c0
+    !five_f
+    !c1
+    !code
+    !val
+    !five_whole
+    !ok_c
+    !ok_v
+    !ok_s
+    !ok_m
+    !t0
+    !t1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

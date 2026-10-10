@@ -1,0 +1,58 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"525\n"
+
+// 525 - Range guard produces codes: 150.0 is out of [0, 100]
+// (code 1), 2.5 is inside (code 0).
+@guard(x: f64) -> i64:
+L_ENTRY:
+    hundred_i = 100 as i32
+    hundred = sitofp hundred_i as f64
+    big = fcmp_gt x, hundred
+    br big -> L_OUT, L_IN
+L_OUT:
+    !x
+    !hundred_i
+    !hundred
+    !big
+    return 1
+L_IN:
+    !x
+    !hundred_i
+    !hundred
+    !big
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    big_i = 150 as i32
+    big = sitofp big_i as f64
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    small = fdiv five_f, two_f
+    c0 = call @guard(big)
+    c1 = call @guard(small)
+    ok0 = eq c0, 1
+    ok1 = eq c1, 0
+    ok = and ok0, ok1
+    !big_i
+    !big
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !small
+    !c0
+    !c1
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,101 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"531\n"
+
+// 531 - Branchy pick returns (code, value): tag 0 -> (0, 1.5),
+// tag 1 -> (7, fallback 2.5); the main maps code 7 explicitly.
+@pick(tag: i64) -> i64:
+L_ENTRY:
+    c = eq tag, 0
+    br c -> L_SMALL, L_BIG
+L_SMALL:
+    !tag
+    !c
+    return 0
+L_BIG:
+    !tag
+    !c
+    return 7
+
+@pick_value(tag: i64) -> f64:
+L_ENTRY:
+    c = eq tag, 0
+    br c -> L_SMALL, L_BIG
+L_SMALL:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    !tag
+    !c
+    !three
+    !two
+    !three_f
+    !two_f
+    return h
+L_BIG:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !tag
+    !c
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    code0 = call @pick(z)
+    v0 = call @pick_value(z)
+    o = 1 as i64
+    code1 = call @pick(o)
+    mapped1 = call @pick_value(o)
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    one_half = fdiv three_f, two_f
+    two_half = fdiv five_f, two_f
+    ok0 = eq code0, 0
+    ok1 = fcmp_eq v0, one_half
+    ok2 = eq code1, 7
+    ok3 = fcmp_eq mapped1, two_half
+    t0 = and ok0, ok1
+    t1 = and ok2, ok3
+    ok = and t0, t1
+    !z
+    !code0
+    !v0
+    !o
+    !code1
+    !mapped1
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !five_f
+    !one_half
+    !two_half
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !t0
+    !t1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

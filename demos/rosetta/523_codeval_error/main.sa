@@ -1,0 +1,62 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"523\n"
+
+// 523 - Error code maps to a fallback float: code 7 carries no
+// payload, the consumer substitutes 2.5.
+@code_value(code: i64) -> f64:
+L_ENTRY:
+    c = eq code, 7
+    br c -> L_ERR7, L_MISS
+L_ERR7:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !code
+    !c
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+L_MISS:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    h = fdiv one_f, two_f
+    !code
+    !c
+    !one_i
+    !two_i
+    !one_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    seven = 7 as i64
+    v = call @code_value(seven)
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    ok = fcmp_eq v, expect
+    !seven
+    !v
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
