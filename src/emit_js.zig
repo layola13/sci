@@ -209,9 +209,16 @@ const FuncTask = struct {
 /// blobs, JS objects, string returns) is rejected with
 /// UnsupportedNpmBinding so mis-marshals trap at build time instead of
 /// corrupting linear memory at runtime.
+///
+/// Binding shapes (`#npm_bind <extern> "<spec>#<export>"`):
+/// - `"spec#name"`       named import: `import { name as alias }`.
+/// - `"spec#ns.member"`  namespace import: `import * as alias_ns`
+///   and calls lower to `alias_ns.member(...)`. Exactly one dot level;
+///   deeper paths are rejected (bind a narrower export instead).
 const NpmImport = struct {
     spec: []const u8,
     export_name: []const u8,
+    member: ?[]const u8,
     alias: []const u8,
     extern_name: []const u8,
 };
@@ -232,7 +239,20 @@ fn collectNpmImports(
         if (hash == 0 or hash + 1 >= binding.len) return JsEmitError.UnsupportedNpmBinding;
         const spec = binding[0..hash];
         const export_name = binding[hash + 1 ..];
-        if (!isNpmExportIdent(export_name)) return JsEmitError.UnsupportedNpmBinding;
+        // Namespace form `"spec#ns.member"`: split one dot level; both
+        // sides must be plain JS identifiers (deeper paths rejected).
+        var member: ?[]const u8 = null;
+        var export_id = export_name;
+        if (std.mem.indexOfScalar(u8, export_name, '.')) |dot| {
+            if (dot == 0 or dot + 1 >= export_name.len) return JsEmitError.UnsupportedNpmBinding;
+            if (std.mem.indexOfScalarPos(u8, export_name, dot + 1, '.') != null) return JsEmitError.UnsupportedNpmBinding;
+            const ns = export_name[0..dot];
+            member = export_name[dot + 1 ..];
+            if (!isNpmExportIdent(ns) or !isNpmExportIdent(member.?)) return JsEmitError.UnsupportedNpmBinding;
+            export_id = ns;
+        } else if (!isNpmExportIdent(export_name)) {
+            return JsEmitError.UnsupportedNpmBinding;
+        }
         var exists = false;
         for (out.items) |item| {
             if (std.mem.eql(u8, item.extern_name, fsig.name)) {
@@ -241,10 +261,14 @@ fn collectNpmImports(
             }
         }
         if (exists) continue;
-        const alias = try std.fmt.allocPrint(allocator, "sa_npm_{d}", .{out.items.len});
+        const alias = if (member == null)
+            try std.fmt.allocPrint(allocator, "sa_npm_{d}", .{out.items.len})
+        else
+            try std.fmt.allocPrint(allocator, "sa_npm_ns_{d}", .{out.items.len});
         try out.append(.{
             .spec = spec,
-            .export_name = export_name,
+            .export_name = export_id,
+            .member = member,
             .alias = alias,
             .extern_name = fsig.name,
         });
@@ -252,9 +276,9 @@ fn collectNpmImports(
     return out.toOwnedSlice();
 }
 
-fn npmAliasFor(imports: []const NpmImport, extern_name: []const u8) ?[]const u8 {
+fn npmImportFor(imports: []const NpmImport, extern_name: []const u8) ?NpmImport {
     for (imports) |item| {
-        if (std.mem.eql(u8, item.extern_name, extern_name)) return item.alias;
+        if (std.mem.eql(u8, item.extern_name, extern_name)) return item;
     }
     return null;
 }
@@ -292,7 +316,7 @@ fn isNpmNumericType(ty: sig.PrimType) bool {
 fn emitNpmWrapper(
     writer: anytype,
     fsig: sig.FunctionSig,
-    alias: []const u8,
+    npm_item: NpmImport,
     js_opt: JsEmitOptions,
 ) !void {
     if (fsig.return_ty == .void or fsig.return_ty == .blob_handle or fsig.return_ty == .v128) {
@@ -339,7 +363,11 @@ fn emitNpmWrapper(
         }
     }
     try writer.writeAll("  const __sa_npm_r = ");
-    try writer.writeAll(alias);
+    try writer.writeAll(npm_item.alias);
+    if (npm_item.member) |member| {
+        try writer.writeAll(".");
+        try writer.writeAll(member);
+    }
     try writer.writeAll("(...__sa_npm_args);\n");
     try writer.writeAll("  if (typeof __sa_npm_r !== \"number\" && typeof __sa_npm_r !== \"bigint\" && typeof __sa_npm_r !== \"boolean\") __sa_trap(\"npm extern returned non-numeric: ");
     try jsFuncName(writer, fsig.name);
@@ -386,33 +414,46 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
     // Third-party/host ESM imports for `#npm_bind` externs (JS target only).
     // Grouped by specifier; one alias per bound export. Bare npm specifiers
     // resolve through the runner's node_modules; `node:` builtins need none.
+    // Namespace bindings (`"spec#ns.member"`) get their own
+    // `import * as` statement each.
     if (npm_imports.len != 0) {
         if (js_opt.format == .esm) {
-            var i: usize = 0;
-            while (i < npm_imports.len) {
-                const spec = npm_imports[i].spec;
+            // Named imports, one statement per specifier.
+            for (npm_imports, 0..) |item, idx| {
+                if (item.member != null) continue;
+                var done = false;
+                for (npm_imports[0..idx]) |prev| {
+                    if (prev.member == null and std.mem.eql(u8, prev.spec, item.spec)) {
+                        done = true;
+                        break;
+                    }
+                }
+                if (done) continue;
                 try writer.writeAll("import { ");
-                var j = i;
                 var first = true;
-                while (j < npm_imports.len and std.mem.eql(u8, npm_imports[j].spec, spec)) : (j += 1) {
+                for (npm_imports) |other| {
+                    if (other.member != null or !std.mem.eql(u8, other.spec, item.spec)) continue;
                     if (!first) try writer.writeAll(", ");
                     first = false;
-                    try writer.writeAll(npm_imports[j].export_name);
+                    try writer.writeAll(other.export_name);
                     try writer.writeAll(" as ");
-                    try writer.writeAll(npm_imports[j].alias);
+                    try writer.writeAll(other.alias);
                 }
-                try writer.print(" }} from \"{s}\";\n", .{spec});
-                i = j;
+                try writer.print(" }} from \"{s}\";\n", .{item.spec});
+            }
+            // Namespace imports, one statement each.
+            for (npm_imports) |item| {
+                if (item.member == null) continue;
+                try writer.print("import * as {s} from \"{s}\";\n", .{ item.alias, item.spec });
             }
         } else {
-            var i: usize = 0;
-            while (i < npm_imports.len) {
-                const spec = npm_imports[i].spec;
-                var j = i;
-                while (j < npm_imports.len and std.mem.eql(u8, npm_imports[j].spec, spec)) : (j += 1) {
-                    try writer.print("const {{ {s}: {s} }} = require(\"{s}\");\n", .{ npm_imports[j].export_name, npm_imports[j].alias, spec });
-                }
-                i = j;
+            for (npm_imports) |item| {
+                if (item.member != null) continue;
+                try writer.print("const {{ {s}: {s} }} = require(\"{s}\");\n", .{ item.export_name, item.alias, item.spec });
+            }
+            for (npm_imports) |item| {
+                if (item.member == null) continue;
+                try writer.print("const {s} = require(\"{s}\");\n", .{ item.alias, item.spec });
             }
         }
     }
@@ -2955,10 +2996,10 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const fsig = verified.function_sigs[task.fsig_index];
-        if (npmAliasFor(npm_imports, fsig.name)) |alias| {
+        if (npmImportFor(npm_imports, fsig.name)) |npm_item| {
             if (emitted.contains(fsig.name)) continue;
             last_js_func = fsig.name;
-            try emitNpmWrapper(writer, fsig, alias, js_opt);
+            try emitNpmWrapper(writer, fsig, npm_item, js_opt);
             try emitted.put(fsig.name, {});
             continue;
         }
