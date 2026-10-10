@@ -331,6 +331,18 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/236_mod_extern_block_grouping/main.sa", "236\n");
     try assertJsMatrixStdout("demos/rosetta/237_mod_inline_submodule/main.sa", "237\n");
     try assertJsMatrixStdout("demos/rosetta/238_mod_path_resolution_order/main.sa", "238\n");
+    try assertJsMatrixStdout("demos/rosetta/239_mod_version_suffix_isolation/main.sa", "239\n");
+    try assertJsMatrixStdout("demos/rosetta/240_mod_entry_point_override/main.sa", "240\n");
+    try assertJsMatrixStdout("demos/rosetta/241_contract_layout_stability/main.sa", "241\n");
+    try assertJsMatrixStdout("demos/rosetta/242_contract_opaque_struct/main.sa", "242\n");
+    // NOTE: 243 is an intentional CapabilityMismatch failure demo per its
+    // readme (broken call site, no executable produced).
+    try assertJsMatrixStdout("demos/rosetta/244_contract_vtable_export/main.sa", "244\n");
+    try assertJsMatrixStdout("demos/rosetta/245_contract_generic_monomorph_share/main.sa", "245\n");
+    try assertJsMatrixStdout("demos/rosetta/246_contract_semver_minor_update/main.sa", "246\n");
+    try assertJsMatrixStdout("demos/rosetta/247_contract_semver_major_break/main.sa", "247\n");
+    try assertJsMatrixStdout("demos/rosetta/248_contract_ffi_boundary_trust/main.sa", "248\n");
+    try assertJsMatrixStdout("demos/rosetta/249_contract_macro_export/main.sa", "249\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
