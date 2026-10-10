@@ -730,30 +730,39 @@ fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glo
 /// Packing: low 31 bits = width, high bit = float domain.
 const WidthMap = std.AutoHashMap(u32, u32);
 
+/// Packing: low 31 bits = width, bit 30 = signed integer domain,
+/// bit 31 = float domain.
+const WidthSignBit: u32 = 0x40000000;
+const WidthFloatBit: u32 = 0x80000000;
+
 fn packWidth(prim: sig.PrimType) ?u32 {
     return switch (prim) {
         .i1 => 1,
-        .i8 => 8,
-        .i16 => 16,
-        .i32 => 32,
-        .i64 => 64,
+        .i8 => 8 | WidthSignBit,
+        .i16 => 16 | WidthSignBit,
+        .i32 => 32 | WidthSignBit,
+        .i64 => 64 | WidthSignBit,
         .u8 => 8,
         .u16 => 16,
         .u32 => 32,
         .u64 => 64,
         .ptr, .blob_handle => 64,
-        .f32 => 0x80000000 | 32,
-        .f64 => 0x80000000 | 64,
+        .f32 => WidthFloatBit | 32,
+        .f64 => WidthFloatBit | 64,
         else => null,
     };
 }
 
 fn widthIsFloat(code: u32) bool {
-    return (code & 0x80000000) != 0;
+    return (code & WidthFloatBit) != 0;
+}
+
+fn widthIsSigned(code: u32) bool {
+    return (code & WidthSignBit) != 0;
 }
 
 fn widthBits(code: u32) u8 {
-    return @intCast(code & 0x7fffffff);
+    return @intCast(code & 0xff);
 }
 
 fn widthRemoveSlot(widths: *WidthMap, op: inst.Operand) void {
@@ -771,10 +780,50 @@ fn widthCopySlot(widths: *WidthMap, dst_op: inst.Operand, src_op: inst.Operand) 
         return;
     }
     switch (src_op) {
-        .imm_int, .imm_i64, .imm_u64 => widths.put(dst_op.reg, 64) catch return,
-        .imm_float => widths.put(dst_op.reg, 0x80000000 | 64) catch return,
+        .imm_int, .imm_i64 => widths.put(dst_op.reg, 64 | WidthSignBit) catch return,
+        .imm_u64 => widths.put(dst_op.reg, 64) catch return,
+        .imm_float => widths.put(dst_op.reg, WidthFloatBit | 64) catch return,
         else => _ = widths.remove(dst_op.reg),
     }
+}
+
+/// Operand domain for kind-driven compat aliases (div/rem/gt/lt/shr),
+/// mirroring interp numKind: float wins, then signed, else unsigned.
+/// Unknown preserves today's forced-signed lowering exactly.
+const OpndKind = enum { float, signed, unsigned, unknown };
+
+fn operandKind(op: inst.Operand, widths: *const WidthMap) OpndKind {
+    switch (op) {
+        .reg => |id| {
+            const w = widths.get(id) orelse return .unknown;
+            if (widthIsFloat(w)) return .float;
+            return if (widthIsSigned(w)) .signed else .unsigned;
+        },
+        .imm_float => return .float,
+        .imm_int, .imm_i64 => return .signed,
+        .imm_u64 => return .unsigned,
+        .text, .native_text => |t| {
+            var text = std.mem.trim(u8, t, " \t");
+            if (text.len == 0) return .unknown;
+            if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+            if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
+            if (text.len == 0) return .unknown;
+            if (std.fmt.parseInt(i64, text, 10)) |_| return .signed else |_| {}
+            if (std.fmt.parseInt(u64, text, 10)) |_| return .unsigned else |_| {}
+            if (std.mem.indexOfAny(u8, text, ".eE")) |_| {
+                if (std.fmt.parseFloat(f64, text)) |_| return .float else |_| {}
+            }
+            return .unknown;
+        },
+        else => return .unknown,
+    }
+}
+
+fn combinedKind(a: OpndKind, b: OpndKind) OpndKind {
+    if (a == .float or b == .float) return .float;
+    if (a == .signed or b == .signed) return .signed;
+    if (a == .unsigned and b == .unsigned) return .unsigned;
+    return .unknown;
 }
 
 /// Forward type-width transfer for one instruction. Mirrors native typing:
@@ -818,9 +867,21 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
             switch (opcode) {
                 .neg, .not, .fneg => widthCopySlot(widths, base.operands[0], base.operands[1]),
                 .eq, .ne, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => widths.put(dst, 1) catch return,
-                .fadd, .fsub, .fmul, .fdiv => widths.put(dst, 0x80000000 | 64) catch return,
+                .fadd, .fsub, .fmul, .fdiv => widths.put(dst, WidthFloatBit | 64) catch return,
+                .sdiv, .srem, .ashr => widths.put(dst, 64 | WidthSignBit) catch return,
+                .udiv, .urem, .lshr => widths.put(dst, 64) catch return,
                 .add_v128, .sub_v128, .mul_v128, .shuffle_v128, .extract_lane, .insert_lane => _ = widths.remove(dst),
-                else => widths.put(dst, 64) catch return,
+                .add, .sub, .mul, .div, .rem, .@"and", .@"or", .xor, .shl, .shr => {
+                    // Kind-driven like interp numKind; unknown keeps today's
+                    // forced-signed lowering exactly (no behavior change).
+                    switch (combinedKind(operandKind(base.operands[1], widths), operandKind(base.operands[2], widths))) {
+                        .float => _ = widths.remove(dst),
+                        .signed => widths.put(dst, 64 | WidthSignBit) catch return,
+                        .unsigned => widths.put(dst, 64) catch return,
+                        .unknown => widths.put(dst, 64 | WidthSignBit) catch return,
+                    }
+                },
+                else => widths.put(dst, 64 | WidthSignBit) catch return,
             }
         },
         .assign, .assume_safe, .assume_borrow => widthCopySlot(widths, base.operands[0], base.operands[1]),
@@ -855,7 +916,46 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
     }
 }
 
-fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand) !void {
+/// Runtime callee for kind-driven compat aliases (div/rem/gt/lt/shr),
+/// mirroring interp numKind. Unknown keeps today's forced-signed
+/// lowering exactly, so only statically-known shapes change.
+fn aliasCallee(opcode: inst.OpKind, k: OpndKind) []const u8 {
+    return switch (opcode) {
+        .div => switch (k) {
+            .float => "__sa_fdiv",
+            .unsigned => "__sa_udiv",
+            else => "__sa_sdiv",
+        },
+        .rem => switch (k) {
+            .unsigned => "__sa_urem",
+            else => "__sa_srem",
+        },
+        .shr => switch (k) {
+            .signed => "__sa_ashr",
+            else => "__sa_lshr",
+        },
+        .gt => switch (k) {
+            .float => "__sa_fgt",
+            .unsigned => "__sa_ugt",
+            else => "__sa_sgt",
+        },
+        .lt => switch (k) {
+            .float => "__sa_flt",
+            .unsigned => "__sa_ult",
+            else => "__sa_slt",
+        },
+        else => unreachable,
+    };
+}
+
+fn emitAliasOperands(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, lhs: inst.Operand, rhs: inst.Operand) !void {
+    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+    try writer.writeAll(", ");
+    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+    try writer.writeAll(")");
+}
+
+fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap) !void {
     switch (opcode) {
         .add => {
             try writer.writeAll("__sa_add(");
@@ -878,12 +978,17 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
-        .sdiv, .div => {
+        .sdiv => {
             try writer.writeAll("__sa_sdiv(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
+        },
+        .div => {
+            try writer.writeAll(aliasCallee(.div, combinedKind(operandKind(lhs, widths), operandKind(rhs, widths))));
+            try writer.writeAll("(");
+            try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .udiv => {
             try writer.writeAll("__sa_udiv(");
@@ -892,12 +997,17 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
-        .srem, .rem => {
+        .srem => {
             try writer.writeAll("__sa_srem(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
+        },
+        .rem => {
+            try writer.writeAll(aliasCallee(.rem, combinedKind(operandKind(lhs, widths), operandKind(rhs, widths))));
+            try writer.writeAll("(");
+            try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .urem => {
             try writer.writeAll("__sa_urem(");
@@ -934,12 +1044,17 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
-        .lshr, .shr => {
+        .lshr => {
             try writer.writeAll("__sa_lshr(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
+        },
+        .shr => {
+            try writer.writeAll(aliasCallee(.shr, combinedKind(operandKind(lhs, widths), operandKind(rhs, widths))));
+            try writer.writeAll("(");
+            try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .ashr => {
             try writer.writeAll("__sa_ashr(");
@@ -962,12 +1077,17 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
-        .slt, .lt => {
+        .slt => {
             try writer.writeAll("__sa_slt(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
+        },
+        .lt => {
+            try writer.writeAll(aliasCallee(.lt, combinedKind(operandKind(lhs, widths), operandKind(rhs, widths))));
+            try writer.writeAll("(");
+            try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .sle => {
             try writer.writeAll("__sa_sle(");
@@ -976,12 +1096,17 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
-        .sgt, .gt => {
+        .sgt => {
             try writer.writeAll("__sa_sgt(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
+        },
+        .gt => {
+            try writer.writeAll(aliasCallee(.gt, combinedKind(operandKind(lhs, widths), operandKind(rhs, widths))));
+            try writer.writeAll("(");
+            try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .sge => {
             try writer.writeAll("__sa_sge(");
@@ -1292,7 +1417,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 try writer.writeAll("));\n");
                 return;
             }
-            try emitOpExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, base.operands[1], base.operands[2]);
+            try emitOpExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, base.operands[1], base.operands[2], widths);
             try writer.writeAll(";\n");
         },
         .alloc => {
