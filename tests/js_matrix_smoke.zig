@@ -373,6 +373,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/278_build_reproducible_builds/main.sa", "278\n");
     try assertJsMatrixStdout("demos/rosetta/279_build_artifact_caching_remote/main.sa", "279\n");
     try assertJsMatrixStdout("demos/rosetta/280_build_ci_cd_integration/main.sa", "280\n");
+    try assertJsMatrixStdout("demos/rosetta/281_ffi_link_system_libc/main.sa", "281\n");
+    try assertJsMatrixStdout("demos/rosetta/282_ffi_link_static_c_lib/main.sa", "282\n");
+    try assertJsMatrixStdout("demos/rosetta/283_ffi_link_dynamic_c_lib/main.sa", "283\n");
+    try assertJsMatrixStdout("demos/rosetta/284_ffi_pkg_config_integration/main.sa", "284\n");
+    try assertJsMatrixStdout("demos/rosetta/285_ffi_objective_c_framework/main.sa", "285\n");
+    try assertJsMatrixStdout("demos/rosetta/286_ffi_rust_staticlib_integration/main.sa", "286\n");
+    try assertJsMatrixStdout("demos/rosetta/287_ffi_zig_export_integration/main.sa", "287\n");
+    try assertJsMatrixStdout("demos/rosetta/288_ffi_cxx_name_mangling/main.sa", "288\n");
+    try assertJsMatrixStdout("demos/rosetta/289_ffi_opaque_handle_passing/main.sa", "289\n");
+    try assertJsMatrixStdout("demos/rosetta/290_ffi_callback_thunk/main.sa", "290\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
