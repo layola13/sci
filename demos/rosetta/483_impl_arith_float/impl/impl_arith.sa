@@ -1,0 +1,20 @@
+@export impl_arith_value() -> f64:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    s = fadd one_half, two_half
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    return s

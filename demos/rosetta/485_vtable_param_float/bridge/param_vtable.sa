@@ -1,0 +1,11 @@
+@const PARAM_VT = vtable { scale = @param_scale_fn }
+
+@param_scale_fn(x: f64, ctx: ptr) -> f64:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    r = fmul x, two_f
+    !x
+    !ctx
+    !two_i
+    !two_f
+    return r

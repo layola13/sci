@@ -1,0 +1,15 @@
+@export make_float_slot() -> ptr:
+L_ENTRY:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    buf = alloc 8
+    store buf+0, h as f64
+    !five
+    !two
+    !five_f
+    !two_f
+    !h
+    return buf

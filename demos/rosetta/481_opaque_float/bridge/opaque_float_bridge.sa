@@ -1,0 +1,19 @@
+@import "bridge/../layout/private.sal"
+
+@opaque_float_bridge_value(&slot: ptr) -> f64:
+L_ENTRY:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    store slot+Opaque_tag, 1 as i32
+    store slot+Opaque_payload, h as f64
+    value = load slot+Opaque_payload as f64
+    !slot
+    !five
+    !two
+    !five_f
+    !two_f
+    !h
+    return value

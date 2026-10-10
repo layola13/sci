@@ -1,0 +1,15 @@
+@const FLOAT_VT = vtable { get = @float_vtable_get }
+
+@float_vtable_get(dummy: i64, ctx: ptr) -> f64:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    !dummy
+    !ctx
+    !three
+    !two
+    !three_f
+    !two_f
+    return h
