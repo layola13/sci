@@ -437,3 +437,38 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/support/once_probe.sa", "once ok\n");
     try assertJsMatrixStdout("demos/support/mpsc_probe.sa", "mpsc ok\n");
 }
+
+fn assertJsBuildRejects(path: []const u8) !void {
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_js_argv = [_][]const u8{ "sa", "build-js", source_path, "-o", "rejected.mjs", "--project-root", repo_root };
+    const build_js_code = saasm.cli.execute(std.testing.allocator, build_js_argv[0..]) catch |err| {
+        // A hard CLI error also counts as a rejection.
+        std.debug.print("[js-negative] rejected via error: {s}: {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+    std.debug.print("[js-negative] demo={s} exit={}\n", .{ path, build_js_code });
+    try std.testing.expect(build_js_code != 0);
+}
+
+test "js backend rejects intentional-fail demos like the native backend" {
+    // Mirrors the native negative coverage in cli_smoke.zig
+    // ("package and module roadmap demos are rejected ..."): the JS backend
+    // must trap these instead of emitting runnable modules.
+    try assertJsBuildRejects("demos/rosetta/205_pkg_cyclic_dependency_reject/main.sa");
+    try assertJsBuildRejects("demos/rosetta/207_pkg_multiple_versions_conflict/main.sa");
+    try assertJsBuildRejects("demos/rosetta/226_mod_cyclic_import_detect/main.sa");
+    try assertJsBuildRejects("demos/rosetta/227_mod_shadowing_prevention/main.sa");
+    try assertJsBuildRejects("demos/rosetta/243_contract_sig_mismatch_link/main.sa");
+}
