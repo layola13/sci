@@ -1,0 +1,70 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"465\n"
+@const NEG_VT = vtable { neg = @neg_field }
+
+#def DynNeg_SIZE = 16
+#def DynNeg_DATA = +0
+#def DynNeg_VTABLE = +8
+
+#def VTable_neg = +0
+
+#def Val_SIZE = 8
+#def Val_val = +0
+
+@neg_field(&self: ptr) -> f64:
+L_ENTRY:
+    v = load self+Val_val as f64
+    n = fneg v
+    !self
+    !v
+    return n
+
+@render(&item: ptr) -> f64:
+L_ENTRY:
+    data_ptr = load item+DynNeg_DATA as ptr
+    vtable_ptr = load item+DynNeg_VTABLE as ptr
+    neg_ptr = load vtable_ptr+VTable_neg as ptr
+    result = call_indirect neg_ptr(&data_ptr)
+    !neg_ptr
+    !vtable_ptr
+    !data_ptr
+    !item
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    zero_i = 0 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    val = alloc Val_SIZE
+    store val+Val_val, two_half as f64
+    fat = alloc DynNeg_SIZE
+    store fat+DynNeg_DATA, val as ptr
+    store fat+DynNeg_VTABLE, &NEG_VT as ptr
+    n = call @render(&fat)
+    s = fadd two_half, n
+    zero = sitofp zero_i as f64
+    ok = fcmp_eq s, zero
+    !five
+    !two_i
+    !zero_i
+    !five_f
+    !two_f
+    !two_half
+    !val
+    !fat
+    !n
+    !s
+    !zero
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

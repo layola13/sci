@@ -1,0 +1,74 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"462\n"
+@const MUL_VT = vtable { mul = @mul_int }
+
+#def DynMul_SIZE = 16
+#def DynMul_DATA = +0
+#def DynMul_VTABLE = +8
+
+#def VTable_mul = +0
+
+#def Fac_SIZE = 8
+#def Fac_val = +0
+
+@mul_int(&self: ptr, n: i64) -> f64:
+L_ENTRY:
+    fac = load self+Fac_val as f64
+    nf = sitofp n as f64
+    p = fmul nf, fac
+    !self
+    !n
+    !fac
+    !nf
+    return p
+
+@render(&item: ptr, n: i64) -> f64:
+L_ENTRY:
+    data_ptr = load item+DynMul_DATA as ptr
+    vtable_ptr = load item+DynMul_VTABLE as ptr
+    mul_ptr = load vtable_ptr+VTable_mul as ptr
+    result = call_indirect mul_ptr(&data_ptr, n)
+    !mul_ptr
+    !vtable_ptr
+    !data_ptr
+    !item
+    !n
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    six_i = 6 as i32
+    four = 4 as i64
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    fac = alloc Fac_SIZE
+    store fac+Fac_val, one_half as f64
+    fat = alloc DynMul_SIZE
+    store fat+DynMul_DATA, fac as ptr
+    store fat+DynMul_VTABLE, &MUL_VT as ptr
+    result = call @render(&fat, four)
+    six = sitofp six_i as f64
+    ok = fcmp_eq result, six
+    !three
+    !two_i
+    !six_i
+    !four
+    !three_f
+    !two_f
+    !one_half
+    !fac
+    !fat
+    !result
+    !six
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

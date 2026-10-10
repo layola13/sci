@@ -1,0 +1,81 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"461\n"
+@const CHAIN_VT = vtable { step = @chain_step }
+
+#def DynChain_SIZE = 16
+#def DynChain_DATA = +0
+#def DynChain_VTABLE = +8
+
+#def VTable_step = +0
+
+#def Acc_SIZE = 8
+#def Acc_val = +0
+
+@base_half() -> f64:
+L_ENTRY:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    h = fdiv one_f, two_f
+    !one_i
+    !two_i
+    !one_f
+    !two_f
+    return h
+
+@chain_step(&self: ptr) -> f64:
+L_ENTRY:
+    cur = load self+Acc_val as f64
+    h = call @base_half()
+    s = fadd cur, h
+    !self
+    !cur
+    !h
+    return s
+
+@render(&item: ptr) -> f64:
+L_ENTRY:
+    data_ptr = load item+DynChain_DATA as ptr
+    vtable_ptr = load item+DynChain_VTABLE as ptr
+    step_ptr = load vtable_ptr+VTable_step as ptr
+    result = call_indirect step_ptr(&data_ptr)
+    !step_ptr
+    !vtable_ptr
+    !data_ptr
+    !item
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    acc = alloc Acc_SIZE
+    store acc+Acc_val, one_half as f64
+    fat = alloc DynChain_SIZE
+    store fat+DynChain_DATA, acc as ptr
+    store fat+DynChain_VTABLE, &CHAIN_VT as ptr
+    result = call @render(&fat)
+    two_whole = sitofp two_i as f64
+    ok = fcmp_eq result, two_whole
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !acc
+    !fat
+    !result
+    !two_whole
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

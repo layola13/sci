@@ -552,6 +552,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/453_struct_copy/main.sa", "453\n");
     try assertJsMatrixStdout("demos/rosetta/454_struct_mixed_three/main.sa", "454\n");
     try assertJsMatrixStdout("demos/rosetta/455_struct_swap_fields/main.sa", "455\n");
+    try assertJsMatrixStdout("demos/rosetta/456_vtable_f64_const/main.sa", "456\n");
+    try assertJsMatrixStdout("demos/rosetta/457_vtable_f64_scale/main.sa", "457\n");
+    try assertJsMatrixStdout("demos/rosetta/458_vtable_two_impls/main.sa", "458\n");
+    try assertJsMatrixStdout("demos/rosetta/459_vtable_struct_add/main.sa", "459\n");
+    try assertJsMatrixStdout("demos/rosetta/460_vtable_mem_spill/main.sa", "460\n");
+    try assertJsMatrixStdout("demos/rosetta/461_vtable_chain/main.sa", "461\n");
+    try assertJsMatrixStdout("demos/rosetta/462_vtable_int_param/main.sa", "462\n");
+    try assertJsMatrixStdout("demos/rosetta/463_vtable_branchy_pick/main.sa", "463\n");
+    try assertJsMatrixStdout("demos/rosetta/464_vtable_fallible/main.sa", "464\n");
+    try assertJsMatrixStdout("demos/rosetta/465_vtable_fneg/main.sa", "465\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

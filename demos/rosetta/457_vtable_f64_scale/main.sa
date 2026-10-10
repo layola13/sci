@@ -1,0 +1,66 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"457\n"
+@const SCALE_VT = vtable { scale = @scale_fn }
+
+#def DynScale_SIZE = 16
+#def DynScale_DATA = +0
+#def DynScale_VTABLE = +8
+
+#def VTable_scale = +0
+
+#def Scale_SIZE = 8
+#def Scale_factor = +0
+
+@scale_fn(&self: ptr, x: f64) -> f64:
+L_ENTRY:
+    factor = load self+Scale_factor as f64
+    r = fmul x, factor
+    !self
+    !x
+    !factor
+    return r
+
+@render(&item: ptr, x: f64) -> f64:
+L_ENTRY:
+    data_ptr = load item+DynScale_DATA as ptr
+    vtable_ptr = load item+DynScale_VTABLE as ptr
+    scale_ptr = load vtable_ptr+VTable_scale as ptr
+    result = call_indirect scale_ptr(&data_ptr, x)
+    !scale_ptr
+    !vtable_ptr
+    !data_ptr
+    !item
+    !x
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    factor = alloc Scale_SIZE
+    store factor+Scale_factor, two_f as f64
+    fat = alloc DynScale_SIZE
+    store fat+DynScale_DATA, factor as ptr
+    store fat+DynScale_VTABLE, &SCALE_VT as ptr
+    result = call @render(&fat, one_half)
+    ok = fcmp_eq result, three_f
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !factor
+    !fat
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
