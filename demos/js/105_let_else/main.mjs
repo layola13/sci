@@ -152,7 +152,7 @@ function __sa_cvt_trunc_u16(v) { return __sa_narrow(v, 16, false); }
 function __sa_cvt_trunc_u32(v) { return __sa_narrow(v, 32, false); }
 function __sa_cvt_trunc_i64(v) { return __sa_wide(v, true); }
 function __sa_cvt_trunc_u64(v) { return __sa_wide(v, false); }
-function __sa_cvt_trunc_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_trunc_ptr(v) { return __sa_cvt_ptr64(v); }
 function __sa_cvt_zext_i8(v) { return __sa_narrow(v, 8, false); }
 function __sa_cvt_zext_i16(v) { return __sa_narrow(v, 16, false); }
 function __sa_cvt_zext_i1(v) { return __sa_narrow(v, 1, false); }
@@ -162,7 +162,7 @@ function __sa_cvt_zext_u16(v) { return __sa_narrow(v, 16, false); }
 function __sa_cvt_zext_u32(v) { return __sa_narrow(v, 32, false); }
 function __sa_cvt_zext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) >>> 0); }
 function __sa_cvt_zext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt((+v) >>> 0); }
-function __sa_cvt_zext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_zext_ptr(v) { return __sa_cvt_ptr64(v); }
 function __sa_cvt_sext_i8(v) { return __sa_narrow(v, 8, true); }
 function __sa_cvt_sext_i16(v) { return __sa_narrow(v, 16, true); }
 function __sa_cvt_sext_i1(v) { return __sa_narrow(v, 1, false); }
@@ -172,7 +172,7 @@ function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
 function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
 function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
 function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
-function __sa_cvt_sext_ptr(v) { return __sa_addr(v); }
+function __sa_cvt_sext_ptr(v) { return __sa_cvt_ptr64(v); }
 function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
 function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
 function __sa_cvt_uitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
@@ -227,8 +227,17 @@ function __sa_cvt_bitcast_u64(v) {
   return BigInt(v);
 }
 function __sa_cvt_bitcast_ptr(v) {
-  if (typeof v === "bigint") return Number(BigInt.asUintN(32, v));
-  return (v | 0);
+  // Pointers carry full 64-bit patterns in every backend (only
+  // real heap bases are 32-bit); narrowing here would break
+  // bitcast roundtrips of high-bit patterns.
+  if (typeof v === "bigint") return BigInt.asUintN(64, v);
+  return v;
+}
+function __sa_cvt_ptr64(v) {
+  // 64-bit-preserving pointer conversion (trunc/zext/sext to ptr):
+  // same as bitcast_ptr, factored for the int-conversion family.
+  if (typeof v === "bigint") return BigInt.asUintN(64, v);
+  return v;
 }
 function __sa_cvt_bitcast_f32(v) {
   // BigInt/integer inputs are int-domain bits; fractional inputs are
@@ -242,6 +251,39 @@ function __sa_cvt_bitcast_f64(v) {
   // int-domain f64 bitcasts on the BigInt path).
   if (typeof v === "bigint") { __sa_bc_dv.setBigInt64(0, BigInt.asIntN(64, v), true); return __sa_bc_dv.getFloat64(0, true); }
   return (+v);
+}
+function __sa_srcmask(v, w, signed) {
+  // Restrict a value to a known source width (statically tracked by
+  // the emitter for load-defined slots) before zext/sext, so
+  // sub-32-bit sources (e.g. i8 0xFF) extend from the right bits
+  // instead of the 32-bit value-inference default.
+  if (typeof v === "bigint") return signed ? BigInt.asIntN(w, v) : BigInt.asUintN(w, v);
+  if (w >= 64) return v;
+  if (w === 32) return signed ? (v | 0) : (v >>> 0);
+  if (w === 1) return (v & 1);
+  const s = 32 - w;
+  return signed ? ((v << s) >> s) : (((v << s) >>> s));
+}
+function __sa_cvt_bitcast_f64i(v) {
+  // int-domain source with a 64-bit target: reinterpret the bits.
+  // Used when the emitter statically knows the source is integral
+  // (plain bitcast_f64 treats Numbers as f64-domain values).
+  const b = (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt(Math.trunc(+v));
+  __sa_bc_dv.setBigInt64(0, b, true); return __sa_bc_dv.getFloat64(0, true);
+}
+function __sa_cvt_bitcast_i32f(v) {
+  // float-domain f32 source reinterpreted as i32 (emitter-known).
+  __sa_bc_dv.setFloat32(0, +v, true); return __sa_bc_dv.getInt32(0, true);
+}
+function __sa_cvt_bitcast_u32f(v) {
+  __sa_bc_dv.setFloat32(0, +v, true); return __sa_bc_dv.getUint32(0, true);
+}
+function __sa_cvt_bitcast_i64b(v) {
+  // float-domain f64 source reinterpreted as i64 (emitter-known).
+  __sa_bc_dv.setFloat64(0, +v, true); return __sa_bc_dv.getBigInt64(0, true);
+}
+function __sa_cvt_bitcast_u64b(v) {
+  __sa_bc_dv.setFloat64(0, +v, true); return BigInt.asUintN(64, __sa_bc_dv.getBigInt64(0, true));
 }
 // ---- end runtime ----
 // source: demos/rosetta/105_let_else/main.sa
