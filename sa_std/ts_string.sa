@@ -103,6 +103,10 @@ L_SSL_SWAP:
 L_SSL_KEEP:
     jmp L_SSL_DONE
 L_SSL_NOSWAP:
+    c0 = sgt s, f
+    br c0 -> L_SSL_NEMPTY, L_SSL_DONE
+L_SSL_NEMPTY:
+    f = add s, 0
     jmp L_SSL_DONE
 L_SSL_DONE:
     nptr = add bp, s
