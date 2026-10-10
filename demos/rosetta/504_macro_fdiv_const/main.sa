@@ -1,0 +1,49 @@
+// 504 - Macro FDiv Const
+// SA: 用 FDIV_SEVEN_HALF 宏发射 7.0 / 2.0 == 3.5 的浮点除法
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"504\n"
+
+// FDIV_SEVEN_HALF: %out = 7.0 / 2.0
+[MACRO] FDIV_SEVEN_HALF %out
+    _seven = 7 as i32
+    _two = 2 as i32
+    _seven_f = sitofp _seven as f64
+    _two_f = sitofp _two as f64
+    %out = fdiv _seven_f, _two_f
+    !_seven
+    !_two
+    !_seven_f
+    !_two_f
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND FDIV_SEVEN_HALF q
+    one_i = 1 as i32
+    two_i = 2 as i32
+    three_i = 3 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    three_f = sitofp three_i as f64
+    half = fdiv one_f, two_f
+    expect = fadd three_f, half
+    ok = fcmp_eq q, expect
+    !q
+    !one_i
+    !two_i
+    !three_i
+    !one_f
+    !two_f
+    !three_f
+    !half
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

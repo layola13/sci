@@ -1,0 +1,49 @@
+// 506 - Rep FAdd Accum
+// SA: ADD_HALF 宏展开 4 次串联累加 0.5 x 4 == 2.0（每次展开独立寄存器）
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"506\n"
+
+// ADD_HALF: %out = %acc + 0.5
+[MACRO] ADD_HALF %out, %acc
+    _one = 1 as i32
+    _two = 2 as i32
+    _one_f = sitofp _one as f64
+    _two_f = sitofp _two as f64
+    _half = fdiv _one_f, _two_f
+    %out = fadd %acc, _half
+    !_one
+    !_two
+    !_one_f
+    !_two_f
+    !_half
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    zero_i = 0 as i32
+    a0 = sitofp zero_i as f64
+    EXPAND ADD_HALF a1, a0
+    EXPAND ADD_HALF a2, a1
+    EXPAND ADD_HALF a3, a2
+    EXPAND ADD_HALF a4, a3
+    two_i = 2 as i32
+    expect = sitofp two_i as f64
+    ok = fcmp_eq a4, expect
+    !zero_i
+    !a0
+    !a1
+    !a2
+    !a3
+    !a4
+    !two_i
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

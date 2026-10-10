@@ -598,6 +598,15 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/499_npm_util_isequal/main.sa", "499\n");
     try assertJsMatrixStdout("demos/rosetta/500_npm_ns_isabs/main.sa", "500\n");
     try assertJsMatrixStdout("demos/rosetta/501_npm_ns_isequal/main.sa", "501\n");
+    try assertJsMatrixStdout("demos/rosetta/503_macro_fadd_emit/main.sa", "503\n");
+    try assertJsMatrixStdout("demos/rosetta/504_macro_fdiv_const/main.sa", "504\n");
+    try assertJsMatrixStdout("demos/rosetta/505_macro_chain_float/main.sa", "505\n");
+    try assertJsMatrixStdout("demos/rosetta/506_rep_fadd_accum/main.sa", "506\n");
+    try assertJsMatrixStdout("demos/rosetta/507_macro_fcmp_guard/main.sa", "507\n");
+    try assertJsMatrixStdout("demos/rosetta/508_macro_double_twice/main.sa", "508\n");
+    try assertJsMatrixStdout("demos/rosetta/509_macro_f32_conv/main.sa", "509\n");
+    try assertJsMatrixStdout("demos/rosetta/510_macro_branchy_float/main.sa", "510\n");
+    try assertJsMatrixStdout("demos/rosetta/511_macro_mem_float/main.sa", "511\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
@@ -638,6 +647,7 @@ test "js backend rejects intentional-fail demos like the native backend" {
     try assertJsBuildRejects("demos/rosetta/226_mod_cyclic_import_detect/main.sa");
     try assertJsBuildRejects("demos/rosetta/227_mod_shadowing_prevention/main.sa");
     try assertJsBuildRejects("demos/rosetta/243_contract_sig_mismatch_link/main.sa");
+    try assertJsBuildRejects("demos/rosetta/502_bare_crossdir_import_reject/main.sa");
 }
 
 fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !void {

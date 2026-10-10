@@ -1,0 +1,62 @@
+// 505 - Macro Chain Float
+// SA: 两个宏串联 (1.5 + 2.5) * 2.0 - 1.0 == 7.0
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"505\n"
+
+// FADD_15_25: %out = 1.5 + 2.5
+[MACRO] FADD_15_25 %out
+    _three = 3 as i32
+    _two = 2 as i32
+    _five = 5 as i32
+    _three_f = sitofp _three as f64
+    _two_f = sitofp _two as f64
+    _one_half = fdiv _three_f, _two_f
+    _five_f = sitofp _five as f64
+    _two_half = fdiv _five_f, _two_f
+    %out = fadd _one_half, _two_half
+    !_three
+    !_two
+    !_five
+    !_three_f
+    !_two_f
+    !_one_half
+    !_five_f
+    !_two_half
+[END_MACRO]
+
+// MUL2_SUB1: %out = %x * 2.0 - 1.0
+[MACRO] MUL2_SUB1 %out, %x
+    _two = 2 as i32
+    _one = 1 as i32
+    _two_f = sitofp _two as f64
+    _one_f = sitofp _one as f64
+    _p = fmul %x, _two_f
+    %out = fsub _p, _one_f
+    !_two
+    !_one
+    !_two_f
+    !_one_f
+    !_p
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND FADD_15_25 s
+    EXPAND MUL2_SUB1 r, s
+    seven_i = 7 as i32
+    seven = sitofp seven_i as f64
+    ok = fcmp_eq r, seven
+    !s
+    !r
+    !seven_i
+    !seven
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
