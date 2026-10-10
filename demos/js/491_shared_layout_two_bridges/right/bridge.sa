@@ -1,0 +1,16 @@
+@import "right/../layout/dims.sal"
+
+@export right_write(&slot: ptr) -> f64:
+L_ENTRY:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    store slot+Dims_y, h as f64
+    !slot
+    !five
+    !two
+    !five_f
+    !two_f
+    return h

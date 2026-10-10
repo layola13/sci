@@ -582,6 +582,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/483_impl_arith_float/main.sa", "483\n");
     try assertJsMatrixStdout("demos/rosetta/484_error_fallback_float/main.sa", "484\n");
     try assertJsMatrixStdout("demos/rosetta/485_vtable_param_float/main.sa", "485\n");
+    try assertJsMatrixStdout("demos/rosetta/486_diamond_shared_leaf/main.sa", "486\n");
+    try assertJsMatrixStdout("demos/rosetta/487_four_level_chain/main.sa", "487\n");
+    try assertJsMatrixStdout("demos/rosetta/488_sibling_cross_import/main.sa", "488\n");
+    try assertJsMatrixStdout("demos/rosetta/489_same_basename_isolation/main.sa", "489\n");
+    try assertJsMatrixStdout("demos/rosetta/490_barrel_three_leaves/main.sa", "490\n");
+    try assertJsMatrixStdout("demos/rosetta/491_shared_layout_two_bridges/main.sa", "491\n");
+    try assertJsMatrixStdout("demos/rosetta/492_stateful_shared_module/main.sa", "492\n");
+    try assertJsMatrixStdout("demos/rosetta/493_float_deep_chain/main.sa", "493\n");
+    try assertJsMatrixStdout("demos/rosetta/494_versioned_float_iface/main.sa", "494\n");
+    try assertJsMatrixStdout("demos/rosetta/495_fanout_three_leaves/main.sa", "495\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
