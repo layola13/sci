@@ -431,6 +431,7 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/332_cell_interior_mutability/main.sa", "100\n");
     try assertJsMatrixStdout("demos/rosetta/333_weak_cyclic_reference/main.sa", "upgraded\n");
     try assertJsMatrixStdout("demos/rosetta/334_indirect_import_shadow/main.sa", "334\n");
+    try assertJsMatrixStdout("demos/rosetta/335_ts_slice_inverted_bounds/main.sa", "335\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
