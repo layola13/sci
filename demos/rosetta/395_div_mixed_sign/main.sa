@@ -1,0 +1,25 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"395\n"
+
+// 395 - the `div` alias with mixed signs follows the signed side:
+// div(-7, u64-2) = -3 (armor for the either-signed rule).
+@main() -> i32:
+L_ENTRY:
+    m7 = -7 as i64
+    t = 2 as i64
+    two64 = trunc t as u64
+    d = div m7, two64
+    ok = eq d, -3
+    !m7
+    !t
+    !two64
+    !d
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

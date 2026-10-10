@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"387\n"
+
+// 387 - the `div` alias on signed operands truncates toward zero.
+@main() -> i32:
+L_ENTRY:
+    m7 = -7 as i64
+    two = 2 as i64
+    d = div m7, two
+    ok = eq d, -3
+    !m7
+    !two
+    !d
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

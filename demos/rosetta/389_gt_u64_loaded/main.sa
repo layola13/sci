@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"389\n"
+
+// 389 - the `gt` alias on u64 operands compares unsigned: a loaded
+// u64-max is greater than u64-zero. Forced-signed lowering reads the
+// negative-held value as -1 and answers 0.
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 389 but the
+// `sa build-exe` binary exits 1 (same class as 388).
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    buf = alloc 8
+    store buf+0, max as u64
+    ld = load buf+0 as u64
+    z0 = 0 as i64
+    z = trunc z0 as u64
+    g = gt ld, z
+    ok = eq g, 1
+    !max
+    !buf
+    !ld
+    !z0
+    !z
+    !g
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

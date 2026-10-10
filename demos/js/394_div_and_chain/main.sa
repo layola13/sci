@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"394\n"
+
+// 394 - op-result kinds propagate: `and` of two u64 values stays u64,
+// so a later `div` dispatches unsigned (u64-max / 1 = u64-max).
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    m = and max, max
+    o = 1 as i64
+    one64 = trunc o as u64
+    d = div m, one64
+    ok = eq d, max
+    !max
+    !m
+    !o
+    !one64
+    !d
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
