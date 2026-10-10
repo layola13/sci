@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -126,6 +135,8 @@ __sa_u8.set([1,0,0,0,0,0,65,83], 4120);
 __sa_u8.set([2,0,0,0,0,0,65,83], 4128);
 __sa_u8.set([3,0,0,0,0,0,65,83], 4136);
 export function waker_clone(self) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_RESULT_OK, r3 = C_RESULT_ERR, r4 = C_WAKER_VT;
   r0 = self;
   let __pc = 0;
@@ -143,8 +154,11 @@ export function waker_clone(self) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function waker_wake(self) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = C_RESULT_OK, r4 = C_RESULT_ERR, r5 = C_WAKER_VT;
   r0 = self;
   let __pc = 0;
@@ -164,8 +178,11 @@ export function waker_wake(self) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function waker_wake_by_ref(self) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = C_RESULT_OK, r4 = C_RESULT_ERR, r5 = C_WAKER_VT;
   r0 = self;
   let __pc = 0;
@@ -185,8 +202,11 @@ export function waker_wake_by_ref(self) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function waker_drop(self) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = C_RESULT_OK, r2 = C_RESULT_ERR, r3 = C_WAKER_VT;
   r0 = self;
   let __pc = 0;
@@ -203,8 +223,11 @@ export function waker_drop(self) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_RESULT_OK, r6 = C_RESULT_ERR, r7 = C_WAKER_VT;
   let __pc = 0;
   while (true) {
@@ -240,6 +263,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_print_bytes(ptr, len) {
   const a = __sa_addr(ptr), n = __sa_num(len);
@@ -249,5 +273,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

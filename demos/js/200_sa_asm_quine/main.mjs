@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -121,6 +130,8 @@ __sa_u8.set([101,114,114,111,114,10], 4096);
 const C_SOURCE = 4104; // utf8 (263 bytes)
 __sa_u8.set([64,105,109,112,111,114,116,32,34,115,97,95,115,116,100,47,105,111,47,112,114,105,110,116,46,115,97,105,34,10,10,64,99,111,110,115,116,32,82,69,83,85,76,84,95,69,82,82,32,61,32,117,116,102,56,58,34,101,114,114,111,114,92,110,34,10,64,99,111,110,115,116,32,83,79,85,82,67,69,32,61,32,117,116,102,56,58,34,64,105,109,112,111,114,116,32,92,34,115,97,95,115,116,100,47,105,111,47,112,114,105,110,116,46,115,97,105,92,34,92,110,92,110,64,99,111,110,115,116,32,82,69,83,85,76,84,95,69,82,82,32,61,32,117,116,102,56,58,92,34,101,114,114,111,114,92,92,110,92,34,92,110,64,99,111,110,115,116,32,83,79,85,82,67,69,32,61,32,117,116,102,56,58,34,10,10,64,109,97,105,110,40,41,32,45,62,32,105,51,50,58,10,76,95,69,78,84,82,89,58,10,32,32,32,32,99,97,108,108,32,64,115,97,95,112,114,105,110,116,95,98,121,116,101,115,40,38,83,79,85,82,67,69,44,32,50,48,48,41,10,32,32,32,32,114,101,116,117,114,110,32,48,10], 4104);
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = C_RESULT_ERR, r1 = C_SOURCE;
   let __pc = 0;
   while (true) {
@@ -136,6 +147,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_print_bytes(ptr, len) {
   const a = __sa_addr(ptr), n = __sa_num(len);
@@ -145,5 +157,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

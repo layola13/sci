@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -123,6 +132,8 @@ __sa_u8.set([101,114,114,111,114,10], 4104);
 const C_B64 = 4112; // utf8 (64 bytes)
 __sa_u8.set([65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,48,49,50,51,52,53,54,55,56,57,43,47], 4112);
 export function encode_block(out, input) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = C_B64, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0, r30 = 0, r31 = 0, r32 = C_RESULT_OK, r33 = C_RESULT_ERR;
   r0 = out;
   r1 = input;
@@ -206,8 +217,11 @@ export function encode_block(out, input) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = C_RESULT_OK, r17 = C_RESULT_ERR, r18 = C_B64;
   let __pc = 0;
   while (true) {
@@ -267,6 +281,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_print_bytes(ptr, len) {
   const a = __sa_addr(ptr), n = __sa_num(len);
@@ -276,5 +291,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

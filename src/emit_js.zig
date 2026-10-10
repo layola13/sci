@@ -286,6 +286,15 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16) !v
         \\  (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
         \\  return 0;
         \\}
+        \\const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+        \\function __sa_salloc(size) {
+        \\  // Function-scoped allocation: freed when the owning frame returns
+        \\  // (mirrors stack-slot lifetime; the interpreter never frees these
+        \\  // mid-frame either). Returned to the free list on frame pop.
+        \\  const ptr = __sa_alloc(size);
+        \\  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+        \\  return ptr;
+        \\}
         \\function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
         \\function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
         \\function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -912,9 +921,10 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         },
         .stack_alloc => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
-            // Mirrors the interpreter: stack slots are never freed.
+            // Mirrors the interpreter: stack slots are never freed mid-frame;
+            // they are recycled when the owning frame returns (finally pop).
             _ = bases.remove(slot);
-            try writer.print("  r{d} = __sa_alloc(", .{slot});
+            try writer.print("  r{d} = __sa_salloc(", .{slot});
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
             try writer.writeAll(");\n");
         },
@@ -1707,6 +1717,10 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         try jsIdent(writer, p.name);
     }
     try writer.writeAll(") {\n");
+    // Frame scope for stack slots: push on entry, recycle on exit via
+    // finally (covers early returns and panics). Indentation of the wrapped
+    // body is irrelevant to JS semantics.
+    try writer.writeAll("  __sa_fstack.push([]);\n  try {\n");
     if (js_opt.debug_comments) {
         try writer.print("  // sa-sig: {s} -> {s} regs={d}\n", .{ fsig.name, sig.primTypeName(fsig.return_ty), fsig.reg_ids.len });
     }
@@ -1744,7 +1758,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         }
     }
     try emitBodyAsPcMachine(writer, allocator, verified, fsig, task, const_addrs, fn_idx, js_opt, retbase);
-    try writer.writeAll("}\n");
+    try writer.writeAll("  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }\n}\n");
 }
 
 pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions) ![]u8 {
@@ -1893,7 +1907,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     }
     // exports + main runner
     if (js_opt.format == .cjs) {
-        try writer.writeAll("\nmodule.exports = { __sa_memory, __sa_view, __sa_u8, __sa_alloc");
+        try writer.writeAll("\nmodule.exports = { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc");
         for (tasks) |task| {
             if (task.kind == .extern_decl) continue;
             const fsig = verified.function_sigs[task.fsig_index];
@@ -1903,7 +1917,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try writer.writeAll(" };\n");
         if (has_main) try writer.writeAll("if (require.main === module) { main(); }\n");
     } else {
-        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc };\n");
+        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };\n");
         if (has_main) try writer.writeAll("if (typeof globalThis.process !== \"undefined\" && globalThis.process.argv && globalThis.process.argv[1] && /\\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }\n");
     }
     return out.toOwnedSlice();

@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -121,6 +130,8 @@ __sa_u8.set([115,111,114,116,32,111,107,10], 4096);
 const C_I32_CMP_VT = 4104; // vtable (8 bytes)
 __sa_u8.set([0,0,0,0,0,0,65,83], 4104);
 export function sa_mem_copy(dst, src, count) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;
   r0 = dst;
   r1 = src;
@@ -157,10 +168,10 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 7; break;
       }
       case 7: {
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
-        r9 = __sa_alloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
+        r9 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r6, 0), 0);
         r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
         __sa_store_i64(__sa_ptr_add(r7, 0), 1);
@@ -210,8 +221,11 @@ export function sa_mem_copy(dst, src, count) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_mem_set(dst, val, count) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0;
   r0 = dst;
   r1 = val;
@@ -239,10 +253,10 @@ export function sa_mem_set(dst, val, count) {
         __pc = 5; break;
       }
       case 5: {
-        r5 = __sa_alloc(8);
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         r9 = __sa_load_i64(__sa_ptr_add(r5, 0));
         __sa_store_i64(__sa_ptr_add(r6, 0), 1);
@@ -288,8 +302,11 @@ export function sa_mem_set(dst, val, count) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sort_swap_bytes(lhs, rhs, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = lhs;
   r1 = rhs;
@@ -301,7 +318,7 @@ export function sort_swap_bytes(lhs, rhs, elem_size) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(r2);
+        r3 = __sa_salloc(r2);
         sa_mem_copy(r3, r0, r2);
         sa_mem_copy(r0, r1, r2);
         sa_mem_copy(r1, r3, r2);
@@ -314,8 +331,11 @@ export function sort_swap_bytes(lhs, rhs, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sort_partition_bounds(base, lo, hi, elem_size, cmp_vt) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0;
   r0 = base;
   r1 = lo;
@@ -329,8 +349,8 @@ export function sort_partition_bounds(base, lo, hi, elem_size, cmp_vt) {
         __pc = 1; break;
       }
       case 1: {
-        r5 = __sa_alloc(8);
-        r6 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
+        r6 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), r1);
         __sa_store_i64(__sa_ptr_add(r6, 0), r1);
         r7 = __sa_mul(r2, r3);
@@ -408,8 +428,11 @@ export function sort_partition_bounds(base, lo, hi, elem_size, cmp_vt) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sort_qsort_bounds(base, lo, hi, elem_size, cmp_vt) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = base;
   r1 = lo;
@@ -480,8 +503,11 @@ export function sort_qsort_bounds(base, lo, hi, elem_size, cmp_vt) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sort_qsort_len(base, len, elem_size, cmp_vt) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = C_RESULT_OK, r7 = C_I32_CMP_VT;
   r0 = base;
   r1 = len;
@@ -519,8 +545,11 @@ export function sort_qsort_len(base, len, elem_size, cmp_vt) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function cmp_i32_asc(lhs, rhs) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = C_RESULT_OK, r7 = C_I32_CMP_VT;
   r0 = lhs;
   r1 = rhs;
@@ -569,8 +598,11 @@ export function cmp_i32_asc(lhs, rhs) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_I32_CMP_VT, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = C_RESULT_OK;
   let __pc = 0;
   while (true) {
@@ -631,6 +663,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_print_bytes(ptr, len) {
   const a = __sa_addr(ptr), n = __sa_num(len);
@@ -640,5 +673,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

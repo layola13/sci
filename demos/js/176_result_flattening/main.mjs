@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -131,6 +140,8 @@ __sa_u8.set([50,10], 4272);
 const C_RESULT_ERR = 4280; // utf8 (6 bytes)
 __sa_u8.set([101,114,114,111,114,10], 4280);
 export function make_inner(slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = C_TODO_PANIC, r2 = C_UNIMPLEMENTED_PANIC, r3 = C_UNREACHABLE_PANIC, r4 = C_RESULT_UNWRAP_PANIC, r5 = C_RESULT_UNWRAP_ERR_PANIC, r6 = C_RESULT_OK, r7 = C_RESULT_ERR;
   r0 = slot;
   let __pc = 0;
@@ -150,8 +161,11 @@ export function make_inner(slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function make_outer(slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = C_TODO_PANIC, r5 = C_UNIMPLEMENTED_PANIC, r6 = C_UNREACHABLE_PANIC, r7 = C_RESULT_UNWRAP_PANIC, r8 = C_RESULT_UNWRAP_ERR_PANIC, r9 = C_RESULT_OK, r10 = C_RESULT_ERR;
   r0 = slot;
   let __pc = 0;
@@ -176,8 +190,11 @@ export function make_outer(slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function flatten_result(outer) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = C_TODO_PANIC, r8 = C_UNIMPLEMENTED_PANIC, r9 = C_UNREACHABLE_PANIC, r10 = C_RESULT_UNWRAP_PANIC, r11 = C_RESULT_UNWRAP_ERR_PANIC, r12 = C_RESULT_OK, r13 = C_RESULT_ERR;
   r0 = outer;
   let __pc = 0;
@@ -222,8 +239,11 @@ export function flatten_result(outer) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = C_TODO_PANIC, r7 = C_UNIMPLEMENTED_PANIC, r8 = C_UNREACHABLE_PANIC, r9 = C_RESULT_UNWRAP_PANIC, r10 = C_RESULT_UNWRAP_ERR_PANIC, r11 = C_RESULT_OK, r12 = C_RESULT_ERR;
   let __pc = 0;
   while (true) {
@@ -257,6 +277,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_print_bytes(ptr, len) {
   const a = __sa_addr(ptr), n = __sa_num(len);
@@ -266,5 +287,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

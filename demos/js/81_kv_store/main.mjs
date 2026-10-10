@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -123,6 +132,8 @@ __sa_u8.set([53,10], 4104);
 const C_RESULT_ERR = 4112; // utf8 (6 bytes)
 __sa_u8.set([101,114,114,111,114,10], 4112);
 export function sa_mem_copy(dst, src, count) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;
   r0 = dst;
   r1 = src;
@@ -159,10 +170,10 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 7; break;
       }
       case 7: {
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
-        r9 = __sa_alloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
+        r9 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r6, 0), 0);
         r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
         __sa_store_i64(__sa_ptr_add(r7, 0), 1);
@@ -212,8 +223,11 @@ export function sa_mem_copy(dst, src, count) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_mem_set(dst, val, count) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0;
   r0 = dst;
   r1 = val;
@@ -241,10 +255,10 @@ export function sa_mem_set(dst, val, count) {
         __pc = 5; break;
       }
       case 5: {
-        r5 = __sa_alloc(8);
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         r9 = __sa_load_i64(__sa_ptr_add(r5, 0));
         __sa_store_i64(__sa_ptr_add(r6, 0), 1);
@@ -290,16 +304,22 @@ export function sa_mem_set(dst, val, count) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_new() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0;
   r0 = __sa_alloc(24);
   __sa_store_i64(__sa_ptr_add(r0, 0), 0);
   __sa_store_i64(__sa_ptr_add(r0, 8), 0);
   __sa_store_i64(__sa_ptr_add(r0, 16), 0);
   return (r0);
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_with_capacity(cap, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = cap;
   r1 = elem_size;
@@ -382,8 +402,11 @@ export function sa_vec_with_capacity(cap, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_len(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = vec;
   let __pc = 0;
@@ -401,8 +424,11 @@ export function sa_vec_len(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_capacity(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = vec;
   let __pc = 0;
@@ -420,8 +446,11 @@ export function sa_vec_capacity(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_is_empty(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = vec;
   let __pc = 0;
@@ -442,8 +471,11 @@ export function sa_vec_is_empty(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_clear(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0;
   r0 = vec;
   let __pc = 0;
@@ -461,8 +493,11 @@ export function sa_vec_clear(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_truncate(vec, new_len) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = vec;
   r1 = new_len;
@@ -496,8 +531,11 @@ export function sa_vec_truncate(vec, new_len) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_reserve(vec, additional, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0;
   r0 = vec;
   r1 = additional;
@@ -658,8 +696,11 @@ export function sa_vec_reserve(vec, additional, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_push(vec, value, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0;
   r0 = vec;
   r1 = value;
@@ -850,8 +891,11 @@ export function sa_vec_push(vec, value, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_pop(vec, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = vec;
   r1 = out_value_slot;
@@ -899,8 +943,11 @@ export function sa_vec_try_pop(vec, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_extend_from_slice(vec, slice, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0, r30 = 0, r31 = 0, r32 = 0, r33 = 0, r34 = 0, r35 = 0, r36 = 0, r37 = 0, r38 = 0, r39 = 0, r40 = 0;
   r0 = vec;
   r1 = slice;
@@ -1162,8 +1209,11 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_append(dst_vec, src_vec, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0;
   r0 = dst_vec;
   r1 = src_vec;
@@ -1193,8 +1243,11 @@ export function sa_vec_append(dst_vec, src_vec, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_swap_remove(vec, index, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0;
   r0 = vec;
   r1 = index;
@@ -1252,8 +1305,11 @@ export function sa_vec_try_swap_remove(vec, index, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0;
   r0 = vec;
   r1 = index;
@@ -1283,7 +1339,7 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
       }
       case 3: {
         r14 = __sa_ptr_add(r8, r3);
-        r15 = __sa_alloc(8);
+        r15 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r15, 0), 0);
         __pc = 4; break;
       }
@@ -1342,8 +1398,11 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0;
   r0 = vec;
   r1 = index;
@@ -1407,8 +1466,11 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_shrink_to(vec, min_cap, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0;
   r0 = vec;
   r1 = min_cap;
@@ -1573,8 +1635,11 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_shrink_to_fit(vec, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0;
   r0 = vec;
   r1 = elem_size;
@@ -1594,8 +1659,11 @@ export function sa_vec_shrink_to_fit(vec, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = vec;
   r1 = new_len;
@@ -1624,7 +1692,7 @@ export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
       case 3: {
         r6 = __sa_sub(r1, r4);
         r0 = sa_vec_reserve(r0, r6, r3);
-        r7 = __sa_alloc(8);
+        r7 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r7, 0), r6);
         __pc = 4; break;
       }
@@ -1657,16 +1725,22 @@ export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_free(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = vec;
   r1 = __sa_load_i64(__sa_ptr_add(r0, 0));
   /* no-op release: !inner_ptr */
   /* no-op release: !vec */
   return 0;
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_entry_cmp(lhs, rhs) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0;
   r0 = lhs;
   r1 = rhs;
@@ -1684,8 +1758,11 @@ export function btree_map_entry_cmp(lhs, rhs) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_entry_cmp_at(lhs, rhs, idx) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0;
   r0 = lhs;
   r1 = rhs;
@@ -1810,8 +1887,11 @@ export function btree_map_entry_cmp_at(lhs, rhs, idx) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_find(entries, len, key, out_index, out_found) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0;
   r0 = entries;
   r1 = len;
@@ -1839,8 +1919,11 @@ export function btree_map_find(entries, len, key, out_index, out_found) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_find_at(entries, len, key, idx, out_index, out_found) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0;
   r0 = entries;
   r1 = len;
@@ -1931,8 +2014,11 @@ export function btree_map_find_at(entries, len, key, idx, out_index, out_found) 
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_hash_entries_str_u64(hasher, entries, len, idx) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;
   r0 = hasher;
   r1 = entries;
@@ -1954,7 +2040,7 @@ export function btree_map_hash_entries_str_u64(hasher, entries, len, idx) {
         r7 = __sa_load_i64(__sa_ptr_add(r6, 16));
         r8 = __sa_load_i64(__sa_ptr_add(r6, 0));
         r9 = __sa_load_i64(__sa_ptr_add(r6, 8));
-        r10 = __sa_alloc(8);
+        r10 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r10, 0), 0);
         __pc = 3; break;
       }
@@ -2026,8 +2112,11 @@ export function btree_map_hash_entries_str_u64(hasher, entries, len, idx) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_write_hash_str_u64(hasher, map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0;
   r0 = hasher;
   r1 = map;
@@ -2058,8 +2147,11 @@ export function btree_map_write_hash_str_u64(hasher, map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function btree_map_grow(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0;
   r0 = map;
   let __pc = 0;
@@ -2201,8 +2293,11 @@ export function btree_map_grow(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_new() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0;
   let __pc = 0;
   while (true) {
@@ -2226,8 +2321,11 @@ export function sa_btree_map_new() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_free(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = map;
   let __pc = 0;
@@ -2246,8 +2344,11 @@ export function sa_btree_map_free(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_len(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = map;
   let __pc = 0;
@@ -2265,8 +2366,11 @@ export function sa_btree_map_len(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_is_empty(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = map;
   let __pc = 0;
@@ -2287,8 +2391,11 @@ export function sa_btree_map_is_empty(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_contains_key(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
   r0 = map;
   r1 = key;
@@ -2299,8 +2406,8 @@ export function sa_btree_map_contains_key(map, key) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_alloc(8);
-        r3 = __sa_alloc(8);
+        r2 = __sa_salloc(8);
+        r3 = __sa_salloc(8);
         r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
         btree_map_find(r4, r5, r1, r2, r3);
@@ -2318,8 +2425,11 @@ export function sa_btree_map_contains_key(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_clear(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   let __pc = 0;
@@ -2393,8 +2503,11 @@ export function sa_btree_map_clear(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_remove(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0;
   r0 = map;
   r1 = key;
@@ -2405,8 +2518,8 @@ export function sa_btree_map_remove(map, key) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_alloc(8);
-        r3 = __sa_alloc(8);
+        r2 = __sa_salloc(8);
+        r3 = __sa_salloc(8);
         r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
         btree_map_find(r4, r5, r1, r2, r3);
@@ -2419,10 +2532,10 @@ export function sa_btree_map_remove(map, key) {
         r9 = __sa_mul(r6, 24);
         r10 = __sa_ptr_add(r4, r9);
         r11 = __sa_load_i64(__sa_ptr_add(r10, 16));
-        r12 = __sa_alloc(8);
+        r12 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r12, 0), r11);
         r13 = __sa_sub(r5, 1);
-        r14 = __sa_alloc(8);
+        r14 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r14, 0), r6);
         __pc = 3; break;
       }
@@ -2496,8 +2609,11 @@ export function sa_btree_map_remove(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_get(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0;
   r0 = map;
   r1 = key;
@@ -2508,8 +2624,8 @@ export function sa_btree_map_get(map, key) {
         __pc = 1; break;
       }
       case 1: {
-        r2 = __sa_alloc(8);
-        r3 = __sa_alloc(8);
+        r2 = __sa_salloc(8);
+        r3 = __sa_salloc(8);
         r4 = __sa_add(0, 0);
         r5 = (0);
         r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
@@ -2551,8 +2667,11 @@ export function sa_btree_map_get(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_try_get(map, key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0;
   r0 = map;
   r1 = key;
@@ -2564,8 +2683,8 @@ export function sa_btree_map_try_get(map, key, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
-        r4 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
+        r4 = __sa_salloc(8);
         r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r6 = __sa_load_i64(__sa_ptr_add(r0, 16));
         btree_map_find(r5, r6, r1, r3, r4);
@@ -2608,8 +2727,11 @@ export function sa_btree_map_try_get(map, key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_try_get_key_value(map, key, out_key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0;
   r0 = map;
   r1 = key;
@@ -2622,8 +2744,8 @@ export function sa_btree_map_try_get_key_value(map, key, out_key, out_value_slot
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_alloc(8);
-        r5 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
+        r5 = __sa_salloc(8);
         r6 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r7 = __sa_load_i64(__sa_ptr_add(r0, 16));
         btree_map_find(r6, r7, r1, r4, r5);
@@ -2676,8 +2798,11 @@ export function sa_btree_map_try_get_key_value(map, key, out_key, out_value_slot
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_get_mut_ptr(map, key, out_ptr_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0;
   r0 = map;
   r1 = key;
@@ -2689,8 +2814,8 @@ export function sa_btree_map_get_mut_ptr(map, key, out_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
-        r4 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
+        r4 = __sa_salloc(8);
         r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r6 = __sa_load_i64(__sa_ptr_add(r0, 16));
         btree_map_find(r5, r6, r1, r3, r4);
@@ -2733,8 +2858,11 @@ export function sa_btree_map_get_mut_ptr(map, key, out_ptr_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_first_entry_mut_ptr(map, out_key, out_ptr_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   r1 = out_key;
@@ -2786,8 +2914,11 @@ export function sa_btree_map_first_entry_mut_ptr(map, out_key, out_ptr_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_last_entry_mut_ptr(map, out_key, out_ptr_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0;
   r0 = map;
   r1 = out_key;
@@ -2843,8 +2974,11 @@ export function sa_btree_map_last_entry_mut_ptr(map, out_key, out_ptr_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_ptr_a_slot, out_ptr_b_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = map;
   r1 = key_a;
@@ -2932,8 +3066,11 @@ export function sa_btree_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_pt
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_first_key_value(map, out_key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = map;
   r1 = out_key;
@@ -2987,8 +3124,11 @@ export function sa_btree_map_first_key_value(map, out_key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_last_key_value(map, out_key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0;
   r0 = map;
   r1 = out_key;
@@ -3044,8 +3184,11 @@ export function sa_btree_map_last_key_value(map, out_key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_insert(map, key, value) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0, r30 = 0, r31 = 0;
   r0 = map;
   r1 = key;
@@ -3057,8 +3200,8 @@ export function sa_btree_map_insert(map, key, value) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
-        r4 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
+        r4 = __sa_salloc(8);
         r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r6 = __sa_load_i64(__sa_ptr_add(r0, 8));
         r7 = __sa_load_i64(__sa_ptr_add(r0, 16));
@@ -3102,7 +3245,7 @@ export function sa_btree_map_insert(map, key, value) {
       case 6: {
         r13 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r14 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r15 = __sa_alloc(8);
+        r15 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r15, 0), r14);
         __pc = 7; break;
       }
@@ -3164,8 +3307,11 @@ export function sa_btree_map_insert(map, key, value) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_insert_old(map, key, value, out_old_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0;
   r0 = map;
   r1 = key;
@@ -3190,8 +3336,11 @@ export function sa_btree_map_insert_old(map, key, value, out_old_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_try_insert(map, key, value, out_value_ptr_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   r1 = key;
@@ -3204,7 +3353,7 @@ export function sa_btree_map_try_insert(map, key, value, out_value_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         r5 = sa_btree_map_get_mut_ptr(r0, r1, r4);
         r6 = __sa_ne(r5, 0);
         __pc = (__sa_truthy(r6) ? 2 : 3); break;
@@ -3240,8 +3389,11 @@ export function sa_btree_map_try_insert(map, key, value, out_value_ptr_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_keys_set(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   let __pc = 0;
@@ -3254,7 +3406,7 @@ export function sa_btree_map_keys_set(map) {
         r1 = sa_btree_map_new();
         r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r3 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         __pc = 2; break;
       }
@@ -3288,8 +3440,11 @@ export function sa_btree_map_keys_set(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_values_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = map;
   let __pc = 0;
@@ -3302,7 +3457,7 @@ export function sa_btree_map_values_vec(map) {
         r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
         r2 = sa_vec_with_capacity(r1, 8);
         r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         __pc = 2; break;
       }
@@ -3338,8 +3493,11 @@ export function sa_btree_map_values_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_value_mut_ptrs_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0;
   r0 = map;
   let __pc = 0;
@@ -3352,7 +3510,7 @@ export function sa_btree_map_value_mut_ptrs_vec(map) {
         r1 = __sa_load_i64(__sa_ptr_add(r0, 16));
         r2 = sa_vec_with_capacity(r1, 8);
         r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         __pc = 2; break;
       }
@@ -3390,8 +3548,11 @@ export function sa_btree_map_value_mut_ptrs_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_keys_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0;
   r0 = map;
   let __pc = 0;
@@ -3411,7 +3572,7 @@ export function sa_btree_map_keys_vec(map) {
         __sa_free(r4);
         r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
         r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r8 = __sa_alloc(8);
+        r8 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r8, 0), 0);
         __pc = 2; break;
       }
@@ -3455,8 +3616,11 @@ export function sa_btree_map_keys_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_values_word_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0;
   r0 = map;
   let __pc = 0;
@@ -3476,7 +3640,7 @@ export function sa_btree_map_values_word_vec(map) {
         __sa_free(r4);
         r6 = __sa_load_i64(__sa_ptr_add(r5, 0));
         r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r8 = __sa_alloc(8);
+        r8 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r8, 0), 0);
         __pc = 2; break;
       }
@@ -3520,8 +3684,11 @@ export function sa_btree_map_values_word_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_iter_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;
   r0 = map;
   let __pc = 0;
@@ -3575,7 +3742,7 @@ export function sa_btree_map_iter_vec(map) {
       case 8: {
         r8 = sa_vec_with_capacity(r6, 8);
         r9 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r10 = __sa_alloc(8);
+        r10 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r10, 0), 0);
         __pc = 9; break;
       }
@@ -3621,8 +3788,11 @@ export function sa_btree_map_iter_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_iter_mut_ptrs_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0;
   r0 = map;
   let __pc = 0;
@@ -3676,7 +3846,7 @@ export function sa_btree_map_iter_mut_ptrs_vec(map) {
       case 8: {
         r8 = sa_vec_with_capacity(r6, 8);
         r9 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r10 = __sa_alloc(8);
+        r10 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r10, 0), 0);
         __pc = 9; break;
       }
@@ -3724,8 +3894,11 @@ export function sa_btree_map_iter_mut_ptrs_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0;
   r0 = map;
   r1 = start_key;
@@ -3781,7 +3954,7 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
       case 8: {
         r10 = sa_vec_with_capacity(r8, 8);
         r11 = __sa_load_i64(__sa_ptr_add(r0, 0));
-        r12 = __sa_alloc(8);
+        r12 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r12, 0), 0);
         __pc = 9; break;
       }
@@ -3860,8 +4033,11 @@ export function sa_btree_map_range_mut_ptrs_vec(map, start_key, end_key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_remove_entry(map, key, out_key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0;
   r0 = map;
   r1 = key;
@@ -3902,8 +4078,11 @@ export function sa_btree_map_remove_entry(map, key, out_key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_pop_first(map, out_key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0;
   r0 = map;
   r1 = out_key;
@@ -3941,8 +4120,11 @@ export function sa_btree_map_pop_first(map, out_key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_pop_last(map, out_key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0;
   r0 = map;
   r1 = out_key;
@@ -3980,8 +4162,11 @@ export function sa_btree_map_pop_last(map, out_key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_append(map, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = map;
   r1 = other;
@@ -3994,7 +4179,7 @@ export function sa_btree_map_append(map, other) {
       case 1: {
         r2 = __sa_load_i64(__sa_ptr_add(r1, 0));
         r3 = __sa_load_i64(__sa_ptr_add(r1, 16));
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         __pc = 2; break;
       }
@@ -4032,8 +4217,11 @@ export function sa_btree_map_append(map, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_split_off(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0;
   r0 = map;
   r1 = key;
@@ -4045,13 +4233,13 @@ export function sa_btree_map_split_off(map, key) {
       }
       case 1: {
         r2 = sa_btree_map_new();
-        r3 = __sa_alloc(8);
-        r4 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
+        r4 = __sa_salloc(8);
         r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r6 = __sa_load_i64(__sa_ptr_add(r0, 16));
         btree_map_find(r5, r6, r1, r3, r4);
         r7 = __sa_load_i64(__sa_ptr_add(r3, 0));
-        r8 = __sa_alloc(8);
+        r8 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r8, 0), r7);
         __pc = 2; break;
       }
@@ -4093,8 +4281,11 @@ export function sa_btree_map_split_off(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_btree_map_range(map, start_key, end_key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0;
   r0 = map;
   r1 = start_key;
@@ -4109,7 +4300,7 @@ export function sa_btree_map_range(map, start_key, end_key) {
         r3 = sa_btree_map_new();
         r4 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r5 = __sa_load_i64(__sa_ptr_add(r0, 16));
-        r6 = __sa_alloc(8);
+        r6 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r6, 0), 0);
         __pc = 2; break;
       }
@@ -4176,8 +4367,11 @@ export function sa_btree_map_range(map, start_key, end_key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_KEY_ALPHA, r6 = C_RESULT_OK, r7 = C_RESULT_ERR;
   let __pc = 0;
   while (true) {
@@ -4220,6 +4414,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_num_add_checked() { __sa_trap("extern not linked: sa_num_add_checked"); }
 function sa_num_sub_checked() { __sa_trap("extern not linked: sa_num_sub_checked"); }
@@ -4232,5 +4427,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

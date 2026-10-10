@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -121,6 +130,8 @@ __sa_u8.set([50,51,54,10], 4096);
 const C_RESULT_ERR = 4104; // utf8 (6 bytes)
 __sa_u8.set([101,114,114,111,114,10], 4104);
 export function ffi_seed() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0;
   let __pc = 0;
   while (true) {
@@ -137,8 +148,11 @@ export function ffi_seed() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function ffi_probe(slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = slot;
   let __pc = 0;
@@ -160,8 +174,11 @@ export function ffi_probe(slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function ffi_reset(slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = slot;
   let __pc = 0;
@@ -180,8 +197,11 @@ export function ffi_reset(slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function ffi_group_value() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_RESULT_OK, r6 = C_RESULT_ERR;
   let __pc = 0;
   while (true) {
@@ -206,8 +226,11 @@ export function ffi_group_value() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_RESULT_OK, r3 = C_RESULT_ERR;
   let __pc = 0;
   while (true) {
@@ -235,6 +258,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_print_bytes(ptr, len) {
   const a = __sa_addr(ptr), n = __sa_num(len);
@@ -246,5 +270,5 @@ function sa_print_bytes(ptr, len) {
 function ffi_probe_contract() { __sa_trap("extern not linked: ffi_probe_contract"); }
 function ffi_reset_contract() { __sa_trap("extern not linked: ffi_reset_contract"); }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }

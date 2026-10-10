@@ -46,6 +46,15 @@ function __sa_free(ptr) {
   (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
   return 0;
 }
+const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
+function __sa_salloc(size) {
+  // Function-scoped allocation: freed when the owning frame returns
+  // (mirrors stack-slot lifetime; the interpreter never frees these
+  // mid-frame either). Returned to the free list on frame pop.
+  const ptr = __sa_alloc(size);
+  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+  return ptr;
+}
 function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
 function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
 function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
@@ -127,6 +136,8 @@ __sa_u8.set([115,101,116,32,111,107,10], 4120);
 const C_RESULT_ERR = 4128; // utf8 (6 bytes)
 __sa_u8.set([101,114,114,111,114,10], 4128);
 export function sa_mem_copy(dst, src, count) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;
   r0 = dst;
   r1 = src;
@@ -163,10 +174,10 @@ export function sa_mem_copy(dst, src, count) {
         __pc = 7; break;
       }
       case 7: {
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
-        r9 = __sa_alloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
+        r9 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r6, 0), 0);
         r10 = __sa_load_i64(__sa_ptr_add(r6, 0));
         __sa_store_i64(__sa_ptr_add(r7, 0), 1);
@@ -216,8 +227,11 @@ export function sa_mem_copy(dst, src, count) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_mem_set(dst, val, count) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0;
   r0 = dst;
   r1 = val;
@@ -245,10 +259,10 @@ export function sa_mem_set(dst, val, count) {
         __pc = 5; break;
       }
       case 5: {
-        r5 = __sa_alloc(8);
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         r9 = __sa_load_i64(__sa_ptr_add(r5, 0));
         __sa_store_i64(__sa_ptr_add(r6, 0), 1);
@@ -294,16 +308,22 @@ export function sa_mem_set(dst, val, count) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_new() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0;
   r0 = __sa_alloc(24);
   __sa_store_i64(__sa_ptr_add(r0, 0), 0);
   __sa_store_i64(__sa_ptr_add(r0, 8), 0);
   __sa_store_i64(__sa_ptr_add(r0, 16), 0);
   return (r0);
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_with_capacity(cap, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = cap;
   r1 = elem_size;
@@ -386,8 +406,11 @@ export function sa_vec_with_capacity(cap, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_len(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = vec;
   let __pc = 0;
@@ -405,8 +428,11 @@ export function sa_vec_len(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_capacity(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = vec;
   let __pc = 0;
@@ -424,8 +450,11 @@ export function sa_vec_capacity(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_is_empty(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = vec;
   let __pc = 0;
@@ -446,8 +475,11 @@ export function sa_vec_is_empty(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_clear(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0;
   r0 = vec;
   let __pc = 0;
@@ -465,8 +497,11 @@ export function sa_vec_clear(vec) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_truncate(vec, new_len) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = vec;
   r1 = new_len;
@@ -500,8 +535,11 @@ export function sa_vec_truncate(vec, new_len) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_reserve(vec, additional, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0;
   r0 = vec;
   r1 = additional;
@@ -662,8 +700,11 @@ export function sa_vec_reserve(vec, additional, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_push(vec, value, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0;
   r0 = vec;
   r1 = value;
@@ -854,8 +895,11 @@ export function sa_vec_push(vec, value, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_pop(vec, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = vec;
   r1 = out_value_slot;
@@ -903,8 +947,11 @@ export function sa_vec_try_pop(vec, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_extend_from_slice(vec, slice, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0, r30 = 0, r31 = 0, r32 = 0, r33 = 0, r34 = 0, r35 = 0, r36 = 0, r37 = 0, r38 = 0, r39 = 0, r40 = 0;
   r0 = vec;
   r1 = slice;
@@ -1166,8 +1213,11 @@ export function sa_vec_extend_from_slice(vec, slice, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_append(dst_vec, src_vec, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0;
   r0 = dst_vec;
   r1 = src_vec;
@@ -1197,8 +1247,11 @@ export function sa_vec_append(dst_vec, src_vec, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_swap_remove(vec, index, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0;
   r0 = vec;
   r1 = index;
@@ -1256,8 +1309,11 @@ export function sa_vec_try_swap_remove(vec, index, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0;
   r0 = vec;
   r1 = index;
@@ -1287,7 +1343,7 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
       }
       case 3: {
         r14 = __sa_ptr_add(r8, r3);
-        r15 = __sa_alloc(8);
+        r15 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r15, 0), 0);
         __pc = 4; break;
       }
@@ -1346,8 +1402,11 @@ export function sa_vec_try_remove(vec, index, out_value_slot, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0;
   r0 = vec;
   r1 = index;
@@ -1411,8 +1470,11 @@ export function sa_vec_try_split_off(vec, index, elem_size, out_vec_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_shrink_to(vec, min_cap, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0;
   r0 = vec;
   r1 = min_cap;
@@ -1577,8 +1639,11 @@ export function sa_vec_shrink_to(vec, min_cap, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_shrink_to_fit(vec, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0;
   r0 = vec;
   r1 = elem_size;
@@ -1598,8 +1663,11 @@ export function sa_vec_shrink_to_fit(vec, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
   r0 = vec;
   r1 = new_len;
@@ -1628,7 +1696,7 @@ export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
       case 3: {
         r6 = __sa_sub(r1, r4);
         r0 = sa_vec_reserve(r0, r6, r3);
-        r7 = __sa_alloc(8);
+        r7 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r7, 0), r6);
         __pc = 4; break;
       }
@@ -1661,16 +1729,22 @@ export function sa_vec_resize(vec, new_len, fill_value, elem_size) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_vec_free(vec) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = vec;
   r1 = __sa_load_i64(__sa_ptr_add(r0, 0));
   /* no-op release: !inner_ptr */
   /* no-op release: !vec */
   return 0;
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_hash_ptr(key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = key;
   let __pc = 0;
@@ -1688,8 +1762,11 @@ export function map_hash_ptr(key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_hash_ptr_seed(key, seed) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0;
   r0 = key;
   r1 = seed;
@@ -1729,8 +1806,11 @@ export function map_hash_ptr_seed(key, seed) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_table_probe(slots, cap, hash, key, out_index, out_found) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0;
   r0 = slots;
   r1 = cap;
@@ -1745,8 +1825,8 @@ export function map_table_probe(slots, cap, hash, key, out_index, out_found) {
         __pc = 1; break;
       }
       case 1: {
-        r6 = __sa_alloc(8);
-        r7 = __sa_alloc(8);
+        r6 = __sa_salloc(8);
+        r7 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         r8 = __sa_eq(r1, 0);
@@ -1865,8 +1945,11 @@ export function map_table_probe(slots, cap, hash, key, out_index, out_found) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_table_insert(slots, cap, hash, key, value) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = slots;
   r1 = cap;
@@ -1880,8 +1963,8 @@ export function map_table_insert(slots, cap, hash, key, value) {
         __pc = 1; break;
       }
       case 1: {
-        r5 = __sa_alloc(8);
-        r6 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
+        r6 = __sa_salloc(8);
         map_table_probe(r0, r1, r2, r3, r5, r6);
         r7 = __sa_load_i64(__sa_ptr_add(r5, 0));
         r8 = __sa_mul(r7, 32);
@@ -1904,8 +1987,11 @@ export function map_table_insert(slots, cap, hash, key, value) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_next_capacity(requested) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0;
   r0 = requested;
   let __pc = 0;
@@ -1970,8 +2056,11 @@ export function map_next_capacity(requested) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_rehash(map, new_cap) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0;
   r0 = map;
   r1 = new_cap;
@@ -2031,10 +2120,10 @@ export function map_rehash(map, new_cap) {
         __sa_store_i64(__sa_ptr_add(r0, 8), r1);
         __sa_store_i64(__sa_ptr_add(r0, 16), 0);
         __sa_store_i64(__sa_ptr_add(r0, 24), 0);
-        r11 = __sa_alloc(8);
+        r11 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r11, 0), 0);
-        r12 = __sa_alloc(8);
-        r13 = __sa_alloc(8);
+        r12 = __sa_salloc(8);
+        r13 = __sa_salloc(8);
         r14 = __sa_eq(r3, 0);
         __pc = (__sa_truthy(r14) ? 14 : 9); break;
       }
@@ -2097,8 +2186,11 @@ export function map_rehash(map, new_cap) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function map_probe_existing(map, key, out_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0;
   r0 = map;
   r1 = key;
@@ -2118,8 +2210,8 @@ export function map_probe_existing(map, key, out_slot) {
       case 2: {
         r6 = __sa_load_i64(__sa_ptr_add(r0, 32));
         r7 = map_hash_ptr_seed(r1, r6);
-        r8 = __sa_alloc(8);
-        r9 = __sa_alloc(8);
+        r8 = __sa_salloc(8);
+        r9 = __sa_salloc(8);
         map_table_probe(r3, r4, r7, r1, r8, r9);
         r10 = __sa_load_i64(__sa_ptr_add(r9, 0));
         r11 = __sa_ne(r10, 0);
@@ -2173,8 +2265,11 @@ export function map_probe_existing(map, key, out_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_new() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0;
   let __pc = 0;
   while (true) {
@@ -2195,8 +2290,11 @@ export function sa_map_new() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_with_seed(seed) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = seed;
   let __pc = 0;
@@ -2215,8 +2313,11 @@ export function sa_map_with_seed(seed) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_with_capacity(cap) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = cap;
   let __pc = 0;
@@ -2234,8 +2335,11 @@ export function sa_map_with_capacity(cap) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_with_capacity_seed(cap, seed) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0;
   r0 = cap;
   r1 = seed;
@@ -2268,8 +2372,11 @@ export function sa_map_with_capacity_seed(cap, seed) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_try_with_capacity(cap, out_map_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0;
   r0 = cap;
   r1 = out_map_slot;
@@ -2291,8 +2398,11 @@ export function sa_map_try_with_capacity(cap, out_map_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_len(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = map;
   let __pc = 0;
@@ -2310,8 +2420,11 @@ export function sa_map_len(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_capacity(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = map;
   let __pc = 0;
@@ -2329,8 +2442,11 @@ export function sa_map_capacity(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_reserve(map, additional) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   r1 = additional;
@@ -2399,8 +2515,11 @@ export function sa_map_reserve(map, additional) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_try_reserve(map, additional) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0;
   r0 = map;
   r1 = additional;
@@ -2420,8 +2539,11 @@ export function sa_map_try_reserve(map, additional) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_shrink_to(map, min_capacity) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
   r0 = map;
   r1 = min_capacity;
@@ -2495,8 +2617,11 @@ export function sa_map_shrink_to(map, min_capacity) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_shrink_to_fit(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0;
   r0 = map;
   let __pc = 0;
@@ -2570,8 +2695,11 @@ export function sa_map_shrink_to_fit(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_is_empty(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0;
   r0 = map;
   let __pc = 0;
@@ -2592,8 +2720,11 @@ export function sa_map_is_empty(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_contains_key(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0;
   r0 = map;
   r1 = key;
@@ -2612,8 +2743,8 @@ export function sa_map_contains_key(map, key) {
       case 2: {
         r5 = __sa_load_i64(__sa_ptr_add(r0, 32));
         r6 = map_hash_ptr_seed(r1, r5);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
         map_table_probe(r2, r3, r6, r1, r7, r8);
         r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
         r10 = __sa_ne(r9, 0);
@@ -2638,8 +2769,11 @@ export function sa_map_contains_key(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_clear(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   let __pc = 0;
@@ -2714,8 +2848,11 @@ export function sa_map_clear(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_free(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0;
   r0 = map;
   let __pc = 0;
@@ -2742,8 +2879,11 @@ export function sa_map_free(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_put(map, key, value) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0;
   r0 = map;
   r1 = key;
@@ -2826,8 +2966,8 @@ export function sa_map_put(map, key, value) {
       case 12: {
         r17 = __sa_load_i64(__sa_ptr_add(r0, 32));
         r18 = map_hash_ptr_seed(r1, r17);
-        r19 = __sa_alloc(8);
-        r20 = __sa_alloc(8);
+        r19 = __sa_salloc(8);
+        r20 = __sa_salloc(8);
         map_table_probe(r3, r4, r18, r1, r19, r20);
         r21 = __sa_load_i64(__sa_ptr_add(r19, 0));
         r22 = __sa_load_i64(__sa_ptr_add(r20, 0));
@@ -2902,8 +3042,11 @@ export function sa_map_put(map, key, value) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_get(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0;
   r0 = map;
   r1 = key;
@@ -2922,8 +3065,8 @@ export function sa_map_get(map, key) {
       case 2: {
         r5 = __sa_load_i64(__sa_ptr_add(r0, 32));
         r6 = map_hash_ptr_seed(r1, r5);
-        r7 = __sa_alloc(8);
-        r8 = __sa_alloc(8);
+        r7 = __sa_salloc(8);
+        r8 = __sa_salloc(8);
         map_table_probe(r2, r3, r6, r1, r7, r8);
         r9 = __sa_load_i64(__sa_ptr_add(r8, 0));
         r10 = __sa_ne(r9, 0);
@@ -2967,8 +3110,11 @@ export function sa_map_get(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_try_get(map, key, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0;
   r0 = map;
   r1 = key;
@@ -2980,7 +3126,7 @@ export function sa_map_try_get(map, key, out_value_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
         r4 = map_probe_existing(r0, r1, r3);
         r5 = __sa_ne(r4, 0);
         __pc = (__sa_truthy(r5) ? 2 : 3); break;
@@ -3011,8 +3157,11 @@ export function sa_map_try_get(map, key, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_try_get_key_value(map, key, out_key_slot, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   r1 = key;
@@ -3025,7 +3174,7 @@ export function sa_map_try_get_key_value(map, key, out_key_slot, out_value_slot)
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         r5 = map_probe_existing(r0, r1, r4);
         r6 = __sa_ne(r5, 0);
         __pc = (__sa_truthy(r6) ? 2 : 3); break;
@@ -3062,8 +3211,11 @@ export function sa_map_try_get_key_value(map, key, out_key_slot, out_value_slot)
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_get_mut_ptr(map, key, out_ptr_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0;
   r0 = map;
   r1 = key;
@@ -3075,7 +3227,7 @@ export function sa_map_get_mut_ptr(map, key, out_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
         r4 = map_probe_existing(r0, r1, r3);
         r5 = __sa_ne(r4, 0);
         __pc = (__sa_truthy(r5) ? 2 : 3); break;
@@ -3106,8 +3258,11 @@ export function sa_map_get_mut_ptr(map, key, out_ptr_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_ptr_a_slot, out_ptr_b_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   r1 = key_a;
@@ -3190,8 +3345,11 @@ export function sa_map_try_get_disjoint_mut_ptrs(map, key_a, key_b, out_ptr_a_sl
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_insert(map, key, value, out_old_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0;
   r0 = map;
   r1 = key;
@@ -3216,8 +3374,11 @@ export function sa_map_insert(map, key, value, out_old_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_try_insert(map, key, value, out_value_ptr_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
   r0 = map;
   r1 = key;
@@ -3230,7 +3391,7 @@ export function sa_map_try_insert(map, key, value, out_value_ptr_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         r5 = map_probe_existing(r0, r1, r4);
         r6 = __sa_ne(r5, 0);
         __pc = (__sa_truthy(r6) ? 2 : 3); break;
@@ -3270,8 +3431,11 @@ export function sa_map_try_insert(map, key, value, out_value_ptr_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_keys_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0;
   r0 = map;
   let __pc = 0;
@@ -3285,7 +3449,7 @@ export function sa_map_keys_vec(map) {
         r2 = sa_vec_with_capacity(r1, 8);
         r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r5 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         __pc = 2; break;
       }
@@ -3334,8 +3498,11 @@ export function sa_map_keys_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_values_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0;
   r0 = map;
   let __pc = 0;
@@ -3349,7 +3516,7 @@ export function sa_map_values_vec(map) {
         r2 = sa_vec_with_capacity(r1, 8);
         r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r5 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         __pc = 2; break;
       }
@@ -3398,8 +3565,11 @@ export function sa_map_values_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_value_mut_ptrs_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0;
   r0 = map;
   let __pc = 0;
@@ -3413,7 +3583,7 @@ export function sa_map_value_mut_ptrs_vec(map) {
         r2 = sa_vec_with_capacity(r1, 8);
         r3 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r4 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r5 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         __pc = 2; break;
       }
@@ -3462,8 +3632,11 @@ export function sa_map_value_mut_ptrs_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_iter_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0;
   r0 = map;
   let __pc = 0;
@@ -3503,7 +3676,7 @@ export function sa_map_iter_vec(map) {
         r6 = sa_vec_with_capacity(r4, 8);
         r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r8 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r9 = __sa_alloc(8);
+        r9 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r9, 0), 0);
         __pc = 7; break;
       }
@@ -3559,8 +3732,11 @@ export function sa_map_iter_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_iter_mut_ptrs_vec(map) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0;
   r0 = map;
   let __pc = 0;
@@ -3600,7 +3776,7 @@ export function sa_map_iter_mut_ptrs_vec(map) {
         r6 = sa_vec_with_capacity(r4, 8);
         r7 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r8 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r9 = __sa_alloc(8);
+        r9 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r9, 0), 0);
         __pc = 7; break;
       }
@@ -3656,8 +3832,11 @@ export function sa_map_iter_mut_ptrs_vec(map) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_remove_entry(map, key, out_key_slot, out_value_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0;
   r0 = map;
   r1 = key;
@@ -3698,8 +3877,11 @@ export function sa_map_remove_entry(map, key, out_key_slot, out_value_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_map_del(map, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = C_HASHSET_SENTINEL;
   r0 = map;
   r1 = key;
@@ -3720,8 +3902,8 @@ export function sa_map_del(map, key) {
       case 2: {
         r7 = __sa_load_i64(__sa_ptr_add(r0, 32));
         r8 = map_hash_ptr_seed(r1, r7);
-        r9 = __sa_alloc(8);
-        r10 = __sa_alloc(8);
+        r9 = __sa_salloc(8);
+        r10 = __sa_salloc(8);
         map_table_probe(r2, r3, r8, r1, r9, r10);
         r11 = __sa_load_i64(__sa_ptr_add(r10, 0));
         r12 = __sa_ne(r11, 0);
@@ -3784,8 +3966,11 @@ export function sa_map_del(map, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function set_insert_all(dst, src) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = C_HASHSET_SENTINEL;
   r0 = dst;
   r1 = src;
@@ -3798,7 +3983,7 @@ export function set_insert_all(dst, src) {
       case 1: {
         r2 = __sa_load_i64(__sa_ptr_add(r1, 0));
         r3 = __sa_load_i64(__sa_ptr_add(r1, 8));
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         __pc = 2; break;
       }
@@ -3846,8 +4031,11 @@ export function set_insert_all(dst, src) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function set_insert_intersection(dst, src, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = C_HASHSET_SENTINEL;
   r0 = dst;
   r1 = src;
@@ -3861,7 +4049,7 @@ export function set_insert_intersection(dst, src, other) {
       case 1: {
         r3 = __sa_load_i64(__sa_ptr_add(r1, 0));
         r4 = __sa_load_i64(__sa_ptr_add(r1, 8));
-        r5 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         __pc = 2; break;
       }
@@ -3923,8 +4111,11 @@ export function set_insert_intersection(dst, src, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function set_insert_difference(dst, src, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = C_HASHSET_SENTINEL;
   r0 = dst;
   r1 = src;
@@ -3938,7 +4129,7 @@ export function set_insert_difference(dst, src, other) {
       case 1: {
         r3 = __sa_load_i64(__sa_ptr_add(r1, 0));
         r4 = __sa_load_i64(__sa_ptr_add(r1, 8));
-        r5 = __sa_alloc(8);
+        r5 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r5, 0), 0);
         __pc = 2; break;
       }
@@ -4000,8 +4191,11 @@ export function set_insert_difference(dst, src, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_new() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = C_HASHSET_SENTINEL;
   let __pc = 0;
   while (true) {
@@ -4017,8 +4211,11 @@ export function sa_set_new() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_with_capacity(cap) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_HASHSET_SENTINEL;
   r0 = cap;
   let __pc = 0;
@@ -4036,8 +4233,11 @@ export function sa_set_with_capacity(cap) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_try_with_capacity(cap, out_set_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = C_HASHSET_SENTINEL;
   r0 = cap;
   r1 = out_set_slot;
@@ -4059,8 +4259,11 @@ export function sa_set_try_with_capacity(cap, out_set_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_len(set) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_HASHSET_SENTINEL;
   r0 = set;
   let __pc = 0;
@@ -4078,8 +4281,11 @@ export function sa_set_len(set) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_capacity(set) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_HASHSET_SENTINEL;
   r0 = set;
   let __pc = 0;
@@ -4097,8 +4303,11 @@ export function sa_set_capacity(set) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_reserve(set, additional) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = additional;
@@ -4118,8 +4327,11 @@ export function sa_set_reserve(set, additional) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_try_reserve(set, additional) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = additional;
@@ -4139,8 +4351,11 @@ export function sa_set_try_reserve(set, additional) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_shrink_to(set, min_capacity) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = min_capacity;
@@ -4160,8 +4375,11 @@ export function sa_set_shrink_to(set, min_capacity) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_shrink_to_fit(set) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = C_HASHSET_SENTINEL;
   r0 = set;
   let __pc = 0;
@@ -4179,8 +4397,11 @@ export function sa_set_shrink_to_fit(set) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_is_empty(set) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = C_HASHSET_SENTINEL;
   r0 = set;
   let __pc = 0;
@@ -4201,8 +4422,11 @@ export function sa_set_is_empty(set) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_clear(set) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = C_HASHSET_SENTINEL;
   r0 = set;
   let __pc = 0;
@@ -4220,8 +4444,11 @@ export function sa_set_clear(set) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_free(set) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = C_HASHSET_SENTINEL;
   r0 = set;
   let __pc = 0;
@@ -4238,8 +4465,11 @@ export function sa_set_free(set) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_insert(set, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = C_HASHSET_SENTINEL, r5 = 0, r6 = 0, r7 = 0;
   r0 = set;
   r1 = key;
@@ -4267,8 +4497,11 @@ export function sa_set_insert(set, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_contains(set, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = key;
@@ -4291,8 +4524,11 @@ export function sa_set_contains(set, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_get(set, key, out_key_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = key;
@@ -4304,7 +4540,7 @@ export function sa_set_get(set, key, out_key_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
         r4 = sa_map_try_get_key_value(r0, r1, r2, r3);
         /* no-op release: !out_key_slot */
         /* no-op release: !key */
@@ -4315,8 +4551,11 @@ export function sa_set_get(set, key, out_key_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_take(set, key, out_key_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = key;
@@ -4328,7 +4567,7 @@ export function sa_set_take(set, key, out_key_slot) {
         __pc = 1; break;
       }
       case 1: {
-        r3 = __sa_alloc(8);
+        r3 = __sa_salloc(8);
         r4 = sa_map_remove_entry(r0, r1, r2, r3);
         /* no-op release: !out_key_slot */
         /* no-op release: !key */
@@ -4339,8 +4578,11 @@ export function sa_set_take(set, key, out_key_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_replace(set, key, out_old_key_slot) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = key;
@@ -4365,8 +4607,11 @@ export function sa_set_replace(set, key, out_old_key_slot) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_is_subset(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4385,7 +4630,7 @@ export function sa_set_is_subset(set, other) {
       case 2: {
         r5 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r6 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r7 = __sa_alloc(8);
+        r7 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r7, 0), 0);
         __pc = 3; break;
       }
@@ -4468,8 +4713,11 @@ export function sa_set_is_subset(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_is_superset(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4489,8 +4737,11 @@ export function sa_set_is_superset(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_is_disjoint(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4503,7 +4754,7 @@ export function sa_set_is_disjoint(set, other) {
       case 1: {
         r2 = __sa_load_i64(__sa_ptr_add(r0, 0));
         r3 = __sa_load_i64(__sa_ptr_add(r0, 8));
-        r4 = __sa_alloc(8);
+        r4 = __sa_salloc(8);
         __sa_store_i64(__sa_ptr_add(r4, 0), 0);
         __pc = 2; break;
       }
@@ -4572,8 +4823,11 @@ export function sa_set_is_disjoint(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_remove(set, key) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = key;
@@ -4600,8 +4854,11 @@ export function sa_set_remove(set, key) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_union(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4629,8 +4886,11 @@ export function sa_set_union(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_intersection(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4670,8 +4930,11 @@ export function sa_set_intersection(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_difference(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4694,8 +4957,11 @@ export function sa_set_difference(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function sa_set_symmetric_difference(set, other) {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = C_HASHSET_SENTINEL;
   r0 = set;
   r1 = other;
@@ -4723,8 +4989,11 @@ export function sa_set_symmetric_difference(set, other) {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 export function main() {
+  __sa_fstack.push([]);
+  try {
   let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0, r11 = C_KEY_A, r12 = C_KEY_B, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0, r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = C_HASHSET_SENTINEL, r29 = C_RESULT_OK, r30 = C_RESULT_ERR;
   let __pc = 0;
   while (true) {
@@ -4810,6 +5079,7 @@ export function main() {
       default: return __sa_trap("bad pc " + __pc);
     }
   }
+  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }
 }
 function sa_num_add_checked() { __sa_trap("extern not linked: sa_num_add_checked"); }
 function sa_num_sub_checked() { __sa_trap("extern not linked: sa_num_sub_checked"); }
@@ -4822,5 +5092,5 @@ function sa_print_bytes(ptr, len) {
   return 0;
 }
 
-export { __sa_memory, __sa_view, __sa_u8, __sa_alloc };
+export { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };
 if (typeof globalThis.process !== "undefined" && globalThis.process.argv && globalThis.process.argv[1] && /\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }
