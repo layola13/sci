@@ -462,6 +462,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/363_fence_noop/main.sa", "363\n");
     try assertJsMatrixStdout("demos/rosetta/364_br_null_loaded/main.sa", "364\n");
     try assertJsMatrixStdout("demos/rosetta/365_br_null_chain/main.sa", "365\n");
+    try assertJsMatrixStdout("demos/rosetta/366_try_unpack_const/main.sa", "366\n");
+    try assertJsMatrixStdout("demos/rosetta/367_try_params_arith/main.sa", "367\n");
+    try assertJsMatrixStdout("demos/rosetta/368_try_chained/main.sa", "368\n");
+    try assertJsMatrixStdout("demos/rosetta/369_try_nested_fallible/main.sa", "369\n");
+    try assertJsMatrixStdout("demos/rosetta/370_try_u64_payload/main.sa", "370\n");
+    try assertJsMatrixStdout("demos/rosetta/371_try_in_loop/main.sa", "371\n");
+    try assertJsMatrixStdout("demos/rosetta/372_try_br_null_combo/main.sa", "372\n");
+    try assertJsMatrixStdout("demos/rosetta/373_try_mem_roundtrip/main.sa", "373\n");
+    try assertJsMatrixStdout("demos/rosetta/374_try_f64_payload/main.sa", "374\n");
+    try assertJsMatrixStdout("demos/rosetta/375_try_branchy_returns/main.sa", "375\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
@@ -502,4 +512,59 @@ test "js backend rejects intentional-fail demos like the native backend" {
     try assertJsBuildRejects("demos/rosetta/226_mod_cyclic_import_detect/main.sa");
     try assertJsBuildRejects("demos/rosetta/227_mod_shadowing_prevention/main.sa");
     try assertJsBuildRejects("demos/rosetta/243_contract_sig_mismatch_link/main.sa");
+}
+
+fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !void {
+    // Counterpart of assertJsMatrixStdout for programs that must BUILD
+    // cleanly but TRAP at runtime: node must exit nonzero and carry the
+    // diagnostic on stderr. Probes live in demos/support (never rosetta,
+    // so the native/wasm matrices that expect exit 0 stay untouched).
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const node_probe = std.process.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.setAsCwd();
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_js_argv = [_][]const u8{ "sa", "build-js", source_path, "-o", "trap.mjs", "--project-root", repo_root };
+    const build_js_code = saasm.cli.execute(std.testing.allocator, build_js_argv[0..]) catch |err| {
+        std.debug.print("build-js errored: {s}: {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
+    try std.testing.expectEqual(@as(u8, 0), build_js_code);
+
+    const js_result = try runJsWithNode(std.testing.allocator, "trap.mjs");
+    defer std.testing.allocator.free(js_result.stdout);
+    defer std.testing.allocator.free(js_result.stderr);
+    switch (js_result.term) {
+        .Exited => |code| {
+            std.debug.print("[js-trap] demo={s} exit={} stderr={s}\n", .{ path, code, js_result.stderr });
+            try std.testing.expect(code != 0);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expect(std.mem.indexOf(u8, js_result.stderr, expected_stderr_substr) != null);
+}
+
+test "js backend runtime traps surface through node with diagnostics" {
+    try assertJsRuntimeTrap("demos/support/panic_code.sa", "[sa-panic] code=99");
+    try assertJsRuntimeTrap("demos/support/panic_msg_probe.sa", "panic_msg");
 }

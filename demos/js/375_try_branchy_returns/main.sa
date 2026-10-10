@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"375\n"
+
+// 375 - fallible returns from both sides of a branch (each return
+// wraps its own {s, v} object).
+@pick(which: i64) -> i64!:
+L_ENTRY:
+    c = eq which, 0
+    br c -> L_ZERO, L_NONZERO
+L_ZERO:
+    !which
+    !c
+    return 100
+L_NONZERO:
+    !which
+    !c
+    return 200
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    r0 = call @pick(z)
+    v0 = ?r0
+    o = 1 as i64
+    r1 = call @pick(o)
+    v1 = ?r1
+    s = add v0, v1
+    ok = eq s, 300
+    !z
+    !r0
+    !v0
+    !o
+    !r1
+    !v1
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

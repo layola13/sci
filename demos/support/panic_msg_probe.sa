@@ -1,0 +1,7 @@
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 3
+    store buf+0, 104 as i8
+    store buf+1, 105 as i8
+    store buf+2, 0 as i8
+    panic_msg(23, *buf, 2)

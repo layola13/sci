@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"373\n"
+
+// 373 - unpacked fallible values roundtrip through linear memory.
+@nine() -> i64!:
+L_ENTRY:
+    return 9
+
+@main() -> i32:
+L_ENTRY:
+    slot = alloc 8
+    r = call @nine()
+    v = ?r
+    store slot+0, v as i64
+    w = load slot+0 as i64
+    ok = eq w, 9
+    !slot
+    !r
+    !v
+    !w
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

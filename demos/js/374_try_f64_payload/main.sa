@@ -1,0 +1,35 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"374\n"
+
+// 374 - `?` carries float payloads (plain Numbers pass {s, v} through).
+@half() -> f64!:
+L_ENTRY:
+    a = 29 as i32
+    b = 10 as i32
+    fa = sitofp a as f64
+    fb = sitofp b as f64
+    f = fdiv fa, fb
+    !a
+    !b
+    !fa
+    !fb
+    return f
+
+@main() -> i32:
+L_ENTRY:
+    r = call @half()
+    v = ?r
+    i = fptosi v as i64
+    ok = eq i, 2
+    !r
+    !v
+    !i
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

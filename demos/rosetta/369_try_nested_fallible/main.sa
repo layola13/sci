@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"369\n"
+
+// 369 - nested fallible functions: a `!:` caller unpacks with `?` and
+// re-wraps its own result.
+@base() -> i64!:
+L_ENTRY:
+    return 21
+
+@wrap() -> i64!:
+L_ENTRY:
+    r = call @base()
+    v = ?r
+    d = add v, v
+    !r
+    !v
+    return d
+
+@main() -> i32:
+L_ENTRY:
+    r = call @wrap()
+    v = ?r
+    ok = eq v, 42
+    !r
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
