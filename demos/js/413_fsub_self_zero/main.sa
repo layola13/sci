@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"413\n"
+
+// 413 - fsub of a value from itself is zero (3.75 - 3.75 == 0.0).
+@main() -> i32:
+L_ENTRY:
+    fifteen = 15 as i32
+    four_i = 4 as i32
+    zero_i = 0 as i32
+    fifteen_f = sitofp fifteen as f64
+    four_f = sitofp four_i as f64
+    f = fdiv fifteen_f, four_f
+    z = fsub f, f
+    zero = sitofp zero_i as f64
+    ok = fcmp_eq z, zero
+    !fifteen
+    !four_i
+    !zero_i
+    !fifteen_f
+    !four_f
+    !f
+    !z
+    !zero
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

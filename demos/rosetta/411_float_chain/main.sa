@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"411\n"
+
+// 411 - chained float arithmetic ((1.5 + 2.5) * 2.0 - 1.0 == 7.0).
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    one_i = 1 as i32
+    seven_i = 7 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    s = fadd one_half, two_half
+    p = fmul s, two_f
+    one_f = sitofp one_i as f64
+    r = fsub p, one_f
+    seven = sitofp seven_i as f64
+    ok = fcmp_eq r, seven
+    !three
+    !two_i
+    !five
+    !one_i
+    !seven_i
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !s
+    !p
+    !one_f
+    !r
+    !seven
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

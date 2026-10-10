@@ -502,6 +502,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/403_bitcast_f32_i32/main.sa", "403\n");
     try assertJsMatrixStdout("demos/rosetta/404_bitcast_f64_roundtrip/main.sa", "404\n");
     try assertJsMatrixStdout("demos/rosetta/405_fneg_basic/main.sa", "405\n");
+    try assertJsMatrixStdout("demos/rosetta/406_fadd_basic/main.sa", "406\n");
+    try assertJsMatrixStdout("demos/rosetta/407_fsub_basic/main.sa", "407\n");
+    try assertJsMatrixStdout("demos/rosetta/408_fmul_basic/main.sa", "408\n");
+    try assertJsMatrixStdout("demos/rosetta/409_fdiv_basic/main.sa", "409\n");
+    try assertJsMatrixStdout("demos/rosetta/410_fcmp_family/main.sa", "410\n");
+    try assertJsMatrixStdout("demos/rosetta/411_float_chain/main.sa", "411\n");
+    try assertJsMatrixStdout("demos/rosetta/412_fmul_by_zero/main.sa", "412\n");
+    try assertJsMatrixStdout("demos/rosetta/413_fsub_self_zero/main.sa", "413\n");
+    try assertJsMatrixStdout("demos/rosetta/414_fadd_loop_accum/main.sa", "414\n");
+    try assertJsMatrixStdout("demos/rosetta/415_fneg_add_zero/main.sa", "415\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

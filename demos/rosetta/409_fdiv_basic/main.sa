@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"409\n"
+
+// 409 - fdiv divides exactly (7.0 / 2.0 == 3.0 + 0.5).
+@main() -> i32:
+L_ENTRY:
+    seven = 7 as i32
+    two_i = 2 as i32
+    one_i = 1 as i32
+    three_i = 3 as i32
+    seven_f = sitofp seven as f64
+    two_f = sitofp two_i as f64
+    q = fdiv seven_f, two_f
+    one_f = sitofp one_i as f64
+    three_f = sitofp three_i as f64
+    half = fdiv one_f, two_f
+    expect = fadd three_f, half
+    ok = fcmp_eq q, expect
+    !seven
+    !two_i
+    !one_i
+    !three_i
+    !seven_f
+    !two_f
+    !q
+    !one_f
+    !three_f
+    !half
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
