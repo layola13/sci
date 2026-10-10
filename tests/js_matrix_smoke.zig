@@ -216,6 +216,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/119_simd_intrinsics/main.sa", "4\n");
     try assertJsMatrixStdout("demos/rosetta/120_volatile_memory_access/main.sa", "5\n");
     try assertJsMatrixStdout("demos/rosetta/121_rwlock_reader_writer/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/122_condvar_wait_notify/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/123_barrier_sync/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/124_thread_local_storage/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/125_once_cell_lazy/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/126_mpmc_channel/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/127_hazard_pointers/main.sa", "9\n");
+    try assertJsMatrixStdout("demos/rosetta/128_rcu_read_copy_update/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/129_seqlock_optimistic/main.sa", "10\n");
+    try assertJsMatrixStdout("demos/rosetta/130_park_unpark_thread/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/131_waker_vtable_mechanics/main.sa", "4\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
