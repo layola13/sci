@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"10\n"
+@const MSG_ERR = utf8:"error\n"
+
+@do_select() -> i32:
+L_ENTRY:
+    fut_a = alloc 8
+    store fut_a+0, 0 as u32
+    store fut_a+4, 10 as i32
+    fut_b = alloc 8
+    store fut_b+0, 0 as u32
+    store fut_b+4, 20 as i32
+    store fut_a+0, 1 as u32
+    store fut_b+0, 1 as u32
+    val = load fut_a+4 as i32
+    !fut_a
+    !fut_b
+    return val
+
+@main() -> i32:
+L_ENTRY:
+    result = call @do_select()
+    ok = eq result, 10
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 3)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

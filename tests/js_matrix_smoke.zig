@@ -407,6 +407,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/310_generator_yield_macro/main.sa", "6\n");
     try assertJsMatrixStdout("demos/rosetta/311_cstring_literal_macro/main.sa", "5\n");
     try assertJsMatrixStdout("demos/rosetta/312_dbg_macro/main.sa", "11\n");
+    try assertJsMatrixStdout("demos/rosetta/313_matches_macro/main.sa", "1\n");
+    try assertJsMatrixStdout("demos/rosetta/314_tail_call_become/main.sa", "3628800\n");
+    try assertJsMatrixStdout("demos/rosetta/315_async_closure_macro/main.sa", "15\n");
+    try assertJsMatrixStdout("demos/rosetta/316_select_with_patterns/main.sa", "10\n");
+    try assertJsMatrixStdout("demos/rosetta/317_for_each_iter_macro/main.sa", "150\n");
+    try assertJsMatrixStdout("demos/rosetta/318_vec_literal_macro/main.sa", "4,100\n");
+    try assertJsMatrixStdout("demos/rosetta/319_default_trait_macro/main.sa", "1400\n");
+    try assertJsMatrixStdout("demos/rosetta/320_from_into_conversion/main.sa", "212\n");
+    try assertJsMatrixStdout("demos/rosetta/321_operator_overload_macro/main.sa", "4,6\n");
+    try assertJsMatrixStdout("demos/rosetta/322_deref_coercion_macro/main.sa", "52\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

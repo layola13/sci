@@ -1,0 +1,47 @@
+// 322 - Deref Coercion Macro
+// SA: 用 DEREF_LOAD 宏模拟 Rust Deref coercion
+// 卫生宏保证 _inner 每次展开独立
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"52\n"
+@const MSG_ERR = utf8:"error\n"
+
+// DEREF_LOAD: 解引用智能指针并加载值
+// 不释放 %smart_ptr，由调用方负责
+[MACRO] DEREF_LOAD %out, %smart_ptr
+    _inner = load %smart_ptr+0 as ptr
+    %out = load _inner+0 as i32
+    !_inner
+[END_MACRO]
+
+@add_ten(val: i32) -> i32:
+L_ENTRY:
+    result = add val, 10
+    !val
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    inner = alloc 4
+    store inner+0, 42 as i32
+
+    sp = alloc 8
+    store sp+0, inner as ptr
+
+    EXPAND DEREF_LOAD loaded, sp
+    result = call @add_ten(loaded)
+
+    !sp
+    !inner
+
+    ok = eq result, 52
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 3)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

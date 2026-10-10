@@ -1,0 +1,83 @@
+// 315 - Async Closure Macro
+// SA: 用 ASYNC_CLOSURE_POLL 宏模拟 Rust async closure
+// 卫生宏保证 _state/_is0/_env/_result/L_ACP_* 每次展开独立
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"15\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def PollPending = 0
+#def PollReady = 1
+
+#def AsyncAdd_SIZE = 16
+#def AsyncAdd_env = +0
+#def AsyncAdd_state = +4
+#def AsyncAdd_result = +8
+#def AsyncAdd_status = +12
+
+// ASYNC_CLOSURE_POLL: 轮询 async closure 状态机
+// %out: poll 结果, %ctx: 上下文
+[MACRO] ASYNC_CLOSURE_POLL %out, %ctx
+    _state = load %ctx+AsyncAdd_state as u32
+    _is0 = eq _state, 0
+    br _is0 -> L_ACP_S0, L_ACP_S1
+L_ACP_S0:
+    !_is0
+    !_state
+    store %ctx+AsyncAdd_state, 1 as u32
+    store %ctx+AsyncAdd_status, PollPending as u32
+    %out = add PollPending, 0
+    jmp L_ACP_END
+L_ACP_S1:
+    !_is0
+    !_state
+    _env = load %ctx+AsyncAdd_env as i32
+    _result = add _env, 10
+    !_env
+    store %ctx+AsyncAdd_state, 2 as u32
+    store %ctx+AsyncAdd_result, _result as i32
+    store %ctx+AsyncAdd_status, PollReady as u32
+    !_result
+    %out = add PollReady, 0
+L_ACP_END:
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    captured = 5
+    ctx = alloc AsyncAdd_SIZE
+    store ctx+AsyncAdd_env, captured as i32
+    store ctx+AsyncAdd_state, 0 as u32
+    store ctx+AsyncAdd_result, 0 as i32
+    store ctx+AsyncAdd_status, 0 as u32
+
+    // 两次轮询：卫生宏保证 _state/_is0/_env/_result 每次独立
+    EXPAND ASYNC_CLOSURE_POLL poll0, ctx
+    is_pending0 = eq poll0, PollPending
+
+    EXPAND ASYNC_CLOSURE_POLL poll1, ctx
+    is_ready1 = eq poll1, PollReady
+    result = load ctx+AsyncAdd_result as i32
+    ok_val = eq result, 15
+
+    ok = and is_pending0, is_ready1
+    ok_final = and ok, ok_val
+    !captured
+    !poll0
+    !poll1
+    !is_pending0
+    !is_ready1
+    !result
+    !ok_val
+    !ok
+    !ctx
+    br ok_final -> L_OK, L_ERR
+L_OK:
+    !ok_final
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+L_ERR:
+    !ok_final
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

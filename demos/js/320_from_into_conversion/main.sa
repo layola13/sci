@@ -1,0 +1,50 @@
+// 320 - From/Into Conversion Trait
+// SA: 用 FROM_CELSIUS 宏模拟 Rust 的 From/Into 转换
+// 宏封装 C→F 温度转换逻辑
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"212\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Temp_SIZE = 8
+#def Temp_val = +0
+
+// FROM_CELSIUS_FAHRENHEIT: C → F 转换
+// F = C * 9 / 5 + 32 (整数近似)
+[MACRO] FROM_CELSIUS_FAHRENHEIT %out, %celsius_ptr
+    _fc_val = load %celsius_ptr+Temp_val as i32
+    _fc_mul9 = mul _fc_val, 9
+    _fc_div5 = sdiv _fc_mul9, 5
+    _fc_f = add _fc_div5, 32
+    store %out+Temp_val, _fc_f as i32
+    !_fc_val
+    !_fc_mul9
+    !_fc_div5
+    !_fc_f
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    boiling = alloc Temp_SIZE
+    store boiling+Temp_val, 100 as i32
+
+    fahrenheit = alloc Temp_SIZE
+    EXPAND FROM_CELSIUS_FAHRENHEIT fahrenheit, boiling
+
+    result = load fahrenheit+Temp_val as i32
+    ok = eq result, 212
+    !result
+    !boiling
+    !fahrenheit
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

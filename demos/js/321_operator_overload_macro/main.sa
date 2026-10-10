@@ -1,0 +1,110 @@
+// 321 - Operator Overloading
+// SA: 用 VEC2_ADD 宏模拟 Rust 的 impl Add for Vec2
+// 宏逐字段执行加法并写入输出结构体
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"4,6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Vec2_SIZE = 8
+#def Vec2_x = +0
+#def Vec2_y = +4
+
+// VEC2_ADD: 实现 Vec2 + Vec2 → Vec2
+[MACRO] VEC2_ADD %out, %lhs, %rhs
+    _v2a_lx = load %lhs+Vec2_x as i32
+    _v2a_rx = load %rhs+Vec2_x as i32
+    _v2a_ox = add _v2a_lx, _v2a_rx
+    store %out+Vec2_x, _v2a_ox as i32
+    !_v2a_lx
+    !_v2a_rx
+    !_v2a_ox
+    _v2a_ly = load %lhs+Vec2_y as i32
+    _v2a_ry = load %rhs+Vec2_y as i32
+    _v2a_oy = add _v2a_ly, _v2a_ry
+    store %out+Vec2_y, _v2a_oy as i32
+    !_v2a_ly
+    !_v2a_ry
+    !_v2a_oy
+[END_MACRO]
+
+// VEC2_SUB: Vec2 - Vec2 → Vec2
+[MACRO] VEC2_SUB %out, %lhs, %rhs
+    _v2s_lx = load %lhs+Vec2_x as i32
+    _v2s_rx = load %rhs+Vec2_x as i32
+    _v2s_ox = sub _v2s_lx, _v2s_rx
+    store %out+Vec2_x, _v2s_ox as i32
+    !_v2s_lx
+    !_v2s_rx
+    !_v2s_ox
+    _v2s_ly = load %lhs+Vec2_y as i32
+    _v2s_ry = load %rhs+Vec2_y as i32
+    _v2s_oy = sub _v2s_ly, _v2s_ry
+    store %out+Vec2_y, _v2s_oy as i32
+    !_v2s_ly
+    !_v2s_ry
+    !_v2s_oy
+[END_MACRO]
+
+// VEC2_DOT: Vec2 · Vec2 → i32 (点积)
+[MACRO] VEC2_DOT %out, %lhs, %rhs
+    _v2d_lx = load %lhs+Vec2_x as i32
+    _v2d_rx = load %rhs+Vec2_x as i32
+    _v2d_mx = mul _v2d_lx, _v2d_rx
+    !_v2d_lx
+    !_v2d_rx
+    _v2d_ly = load %lhs+Vec2_y as i32
+    _v2d_ry = load %rhs+Vec2_y as i32
+    _v2d_my = mul _v2d_ly, _v2d_ry
+    !_v2d_ly
+    !_v2d_ry
+    %out = add _v2d_mx, _v2d_my
+    !_v2d_mx
+    !_v2d_my
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    a = alloc Vec2_SIZE
+    store a+Vec2_x, 1 as i32
+    store a+Vec2_y, 2 as i32
+
+    b = alloc Vec2_SIZE
+    store b+Vec2_x, 3 as i32
+    store b+Vec2_y, 4 as i32
+
+    c = alloc Vec2_SIZE
+    EXPAND VEC2_ADD c, a, b
+
+    // Also test dot product
+    EXPAND VEC2_DOT dot, a, b
+
+    cx = load c+Vec2_x as i32
+    cy = load c+Vec2_y as i32
+    ok_cx = eq cx, 4
+    ok_cy = eq cy, 6
+    ok_dot = eq dot, 11
+    ok0 = and ok_cx, ok_cy
+    ok = and ok0, ok_dot
+    !cx
+    !cy
+    !dot
+    !ok_cx
+    !ok_cy
+    !ok_dot
+    !ok0
+    !a
+    !b
+    !c
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
