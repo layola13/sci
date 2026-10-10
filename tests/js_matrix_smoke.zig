@@ -246,6 +246,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/149_packed_repr/main.sa", "3\n");
     try assertJsMatrixStdout("demos/rosetta/150_c_repr_alignment/main.sa", "3\n");
     try assertJsMatrixStdout("demos/rosetta/151_global_alloc_trait/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/152_memory_layout_struct/main.sa", "12\n");
+    try assertJsMatrixStdout("demos/rosetta/153_box_into_raw/main.sa", "9\n");
+    try assertJsMatrixStdout("demos/rosetta/154_box_from_raw/main.sa", "11\n");
+    try assertJsMatrixStdout("demos/rosetta/155_arena_allocator_bump/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/156_slab_allocator_freelist/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/157_aligned_alloc_simd/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/158_custom_dst_alloc/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/159_mem_forget_leak/main.sa", "9\n");
+    try assertJsMatrixStdout("demos/rosetta/160_manually_drop_union/main.sa", "11\n");
+    try assertJsMatrixStdout("demos/rosetta/161_generic_associated_types/main.sa", "42\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
