@@ -121,6 +121,22 @@ fn fillConstBytes(out: []u8, value: const_decl.ConstValue) !void {
     }
 }
 
+/// Write text escaped for interpolation into a double-quoted JS string
+/// literal (prevents raw SA text containing `"` or `\` from breaking
+/// the generated module).
+fn writeJsStrEscaped(writer: anytype, text: []const u8) !void {
+    for (text) |c| {
+        switch (c) {
+            '\\' => try writer.writeAll("\\\\"),
+            '"' => try writer.writeAll("\\\""),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(c),
+        }
+    }
+}
+
 /// JS identifier for a const's address slot: `C_<sanitized>`.
 fn writeConstSlot(writer: anytype, name: []const u8) !void {
     try writer.writeAll("C_");
@@ -941,8 +957,24 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         .move_, .release, .assume_safe, .assume_borrow => {
             try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
         },
+        .native => {
+            // Empty-template `asm sideeffect ""` carries no observable effect;
+            // downgrade to a no-op (value passes through, matching demo intent).
+            // Non-empty native escapes stay a loud trap, escaped so quotes in
+            // the raw text cannot break the generated JS module.
+            const raw = std.mem.trim(u8, base.raw_text, " \t\r\n");
+            if (std.mem.indexOf(u8, raw, "asm sideeffect \"\"") != null) {
+                try writer.writeAll("  /* no-op empty inline asm (single-threaded JS runtime) */\n");
+            } else {
+                try writer.writeAll("  __sa_trap(\"unsupported native: ");
+                try writeJsStrEscaped(writer, raw);
+                try writer.writeAll("\");\n");
+            }
+        },
         else => {
-            try writer.print("  __sa_trap(\"unsupported {s}: {s}\");\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+            try writer.print("  __sa_trap(\"unsupported {s}: ", .{@tagName(base.kind)});
+            try writeJsStrEscaped(writer, std.mem.trim(u8, base.raw_text, " \t\r\n"));
+            try writer.writeAll("\");\n");
         },
     }
 }

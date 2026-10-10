@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"4\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    vec = alloc 16
+    store vec+0, 1 as i32
+    store vec+4, 1 as i32
+    store vec+8, 1 as i32
+    store vec+12, 1 as i32
+    lane0 = load vec+0 as i32
+    lane1 = load vec+4 as i32
+    lane2 = load vec+8 as i32
+    lane3 = load vec+12 as i32
+    sum0 = add lane0, lane1
+    sum1 = add lane2, lane3
+    total = add sum0, sum1
+    ok = eq total, 4
+    !lane0
+    !lane1
+    !lane2
+    !lane3
+    !sum0
+    !sum1
+    !total
+    !vec
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

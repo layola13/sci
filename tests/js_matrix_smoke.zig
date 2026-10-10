@@ -206,6 +206,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/108_atomic_spin_lock/main.sa", "1\n");
     try assertJsMatrixStdout("demos/rosetta/109_atomic_fetch_add/main.sa", "13\n");
     try assertJsMatrixStdout("demos/rosetta/111_extern_c_abi/main.sa", "23\n");
+    try assertJsMatrixStdout("demos/rosetta/112_raw_pointer_arithmetic/main.sa", "3\n");
+    try assertJsMatrixStdout("demos/rosetta/113_union_ffi_types/main.sa", "36\n");
+    try assertJsMatrixStdout("demos/rosetta/114_callback_from_c/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/115_opaque_pointers/main.sa", "0\n");
+    try assertJsMatrixStdout("demos/rosetta/116_va_list_variadic/main.sa", "6\n");
+    try assertJsMatrixStdout("demos/rosetta/117_inline_assembly/main.sa", "7\n");
+    try assertJsMatrixStdout("demos/rosetta/118_global_mutable_state/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/119_simd_intrinsics/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/120_volatile_memory_access/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/121_rwlock_reader_writer/main.sa", "3\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
