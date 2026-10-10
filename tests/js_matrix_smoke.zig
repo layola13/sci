@@ -256,6 +256,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/159_mem_forget_leak/main.sa", "9\n");
     try assertJsMatrixStdout("demos/rosetta/160_manually_drop_union/main.sa", "11\n");
     try assertJsMatrixStdout("demos/rosetta/161_generic_associated_types/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/162_auto_traits_send_sync/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/163_object_safety_rules/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/164_trait_upcasting/main.sa", "5\n");
+    try assertJsMatrixStdout("demos/rosetta/165_blanket_impl_resolution/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/166_specialization_fallback/main.sa", "2\n");
+    try assertJsMatrixStdout("demos/rosetta/167_const_generics_expansion/main.sa", "4\n");
+    try assertJsMatrixStdout("demos/rosetta/168_type_alias_impl_trait/main.sa", "0\n");
+    try assertJsMatrixStdout("demos/rosetta/169_negative_impls/main.sa", "0\n");
+    try assertJsMatrixStdout("demos/rosetta/170_marker_traits/main.sa", "42\n");
+    try assertJsMatrixStdout("demos/rosetta/171_anyhow_dynamic_error/main.sa", "0\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
