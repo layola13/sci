@@ -1,0 +1,96 @@
+// 310 - Generator Yield Macro
+// SA: 用 GEN_NEXT 宏模拟 Rust generator yield
+// 卫生宏保证每次展开 state/done/val/next/L_GN_* 互不冲突
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"6\n"
+@const MSG_ERR = utf8:"error\n"
+
+#def Option_SIZE = 8
+
+// GEN_NEXT: 从生成器状态读取下一个值，写入 Option %out_opt
+// 不释放调用方的 %state_ptr
+[MACRO] GEN_NEXT %state_ptr, %out_opt
+    _state = load %state_ptr+0 as u32
+    _done = uge _state, 3
+    br _done -> L_GN_DONE, L_GN_YIELD
+L_GN_YIELD:
+    !_done
+    _val = add _state, 1
+    store %out_opt+0, 1 as u32
+    store %out_opt+4, _val as i32
+    !_val
+    _next = add _state, 1
+    store %state_ptr+0, _next as u32
+    !_next
+    !_state
+    jmp L_GN_END
+L_GN_DONE:
+    !_done
+    !_state
+    store %out_opt+0, 0 as u32
+L_GN_END:
+[END_MACRO]
+
+// READ_OPT: 读取 Option 值
+[MACRO] READ_OPT %out, %opt_ptr
+    _rtag = load %opt_ptr+0 as u32
+    _rsome = eq _rtag, 1
+    !_rtag
+    br _rsome -> L_RO_SOME, L_RO_NONE
+L_RO_SOME:
+    !_rsome
+    %out = load %opt_ptr+4 as i32
+    jmp L_RO_END
+L_RO_NONE:
+    !_rsome
+    %out = add 0, 0
+L_RO_END:
+[END_MACRO]
+
+@run_gen() -> i32:
+L_ENTRY:
+    gen = alloc 4
+    store gen+0, 0 as u32
+    out = alloc Option_SIZE
+
+    EXPAND GEN_NEXT gen, out
+    EXPAND READ_OPT v1, out
+
+    EXPAND GEN_NEXT gen, out
+    EXPAND READ_OPT v2, out
+
+    EXPAND GEN_NEXT gen, out
+    EXPAND READ_OPT v3, out
+
+    EXPAND GEN_NEXT gen, out
+    EXPAND READ_OPT v4, out
+
+    !gen
+    !out
+
+    s01 = add v1, v2
+    s012 = add s01, v3
+    sum = add s012, v4
+    !v1
+    !v2
+    !v3
+    !v4
+    !s01
+    !s012
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    result = call @run_gen()
+    ok = eq result, 6
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 2)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

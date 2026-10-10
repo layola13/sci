@@ -1,0 +1,110 @@
+// 304 - While-Let Pattern
+// SA: 用 UNWRAP_OR_ZERO 宏模拟 Rust 的 while let Some(v) = opt
+// 卫生宏保证每次展开时 _tag/_is_some 独立不冲突
+// 标签通过参数传入，避免 verifier PhiStateConflict
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"6\n"
+@const MSG_ERR = utf8:"error\n"
+#def Option_SIZE = 8
+
+// UNWRAP_OR_ZERO: 读取 Option，Some → load 值，None → 0
+// %out: 结果, %opt_ptr: Option 指针
+// %l_some/%l_none/%l_end: 跳转标签（由调用方提供，避免内部标签冲突）
+[MACRO] UNWRAP_OR_ZERO %out, %opt_ptr, %l_some, %l_none, %l_end
+    _tag = load %opt_ptr+0 as u32
+    _is_some = eq _tag, 1
+    !_tag
+    br _is_some -> %l_some, %l_none
+[END_MACRO]
+
+// UNWRAP_SOME_BODY: Some 分支体 — 从 Option 加载值
+[MACRO] UNWRAP_SOME_BODY %out, %opt_ptr, %l_end
+    %out = load %opt_ptr+4 as i32
+    jmp %l_end
+[END_MACRO]
+
+// UNWRAP_NONE_BODY: None 分支体 — 返回 0
+[MACRO] UNWRAP_NONE_BODY %out, %l_end
+    %out = add 0, 0
+[END_MACRO]
+
+@sum_options() -> i32:
+L_ENTRY:
+    opt0 = alloc Option_SIZE
+    store opt0+0, 1 as u32
+    store opt0+4, 1 as i32
+
+    opt1 = alloc Option_SIZE
+    store opt1+0, 1 as u32
+    store opt1+4, 2 as i32
+
+    opt2 = alloc Option_SIZE
+    store opt2+0, 1 as u32
+    store opt2+4, 3 as i32
+
+    opt3 = alloc Option_SIZE
+    store opt3+0, 0 as u32
+
+    // opt0: unwrap
+    EXPAND UNWRAP_OR_ZERO v0, opt0, L_S0_SOME, L_S0_NONE, L_S0_END
+L_S0_SOME:
+    EXPAND UNWRAP_SOME_BODY v0, opt0, L_S0_END
+L_S0_NONE:
+    EXPAND UNWRAP_NONE_BODY v0, L_S0_END
+L_S0_END:
+
+    // opt1: unwrap
+    EXPAND UNWRAP_OR_ZERO v1, opt1, L_S1_SOME, L_S1_NONE, L_S1_END
+L_S1_SOME:
+    EXPAND UNWRAP_SOME_BODY v1, opt1, L_S1_END
+L_S1_NONE:
+    EXPAND UNWRAP_NONE_BODY v1, L_S1_END
+L_S1_END:
+
+    // opt2: unwrap
+    EXPAND UNWRAP_OR_ZERO v2, opt2, L_S2_SOME, L_S2_NONE, L_S2_END
+L_S2_SOME:
+    EXPAND UNWRAP_SOME_BODY v2, opt2, L_S2_END
+L_S2_NONE:
+    EXPAND UNWRAP_NONE_BODY v2, L_S2_END
+L_S2_END:
+
+    // opt3: unwrap (None case)
+    EXPAND UNWRAP_OR_ZERO v3, opt3, L_S3_SOME, L_S3_NONE, L_S3_END
+L_S3_SOME:
+    EXPAND UNWRAP_SOME_BODY v3, opt3, L_S3_END
+L_S3_NONE:
+    EXPAND UNWRAP_NONE_BODY v3, L_S3_END
+L_S3_END:
+
+    !opt0
+    !opt1
+    !opt2
+    !opt3
+
+    s01 = add v0, v1
+    s012 = add s01, v2
+    sum = add s012, v3
+    !v0
+    !v1
+    !v2
+    !v3
+    !s01
+    !s012
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    result = call @sum_options()
+    ok = eq result, 6
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 2)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

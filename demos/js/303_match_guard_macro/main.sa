@@ -1,0 +1,105 @@
+// 303 - Match Guard Pattern
+// SA: 用 MATCH_GUARD 宏模拟 Rust 的 match + if guard
+// 宏将 tag 检查和值条件合并为单一的分支调度
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"negative,zero,small,large\n"
+@const RESULT_ERR = utf8:"error\n"
+
+// --- SA 宏定义 ---
+
+// MATCH_GUARD_LT: 如果 %val < %bound 则跳转 %label_yes, 否则 %label_no
+[MACRO] MATCH_GUARD_LT %val, %bound, %label_yes, %label_no
+    _guard_lt = slt %val, %bound
+    br _guard_lt -> %label_yes, %label_no
+[END_MACRO]
+
+// MATCH_GUARD_EQ: 如果 %val == %bound 则跳转 %label_yes, 否则 %label_no
+[MACRO] MATCH_GUARD_EQ %val, %bound, %label_yes, %label_no
+    _guard_eq = eq %val, %bound
+    br _guard_eq -> %label_yes, %label_no
+[END_MACRO]
+
+// MATCH_GUARD_LE: 如果 %val <= %bound 则跳转 %label_yes, 否则 %label_no
+[MACRO] MATCH_GUARD_LE %val, %bound, %label_yes, %label_no
+    _guard_le = sle %val, %bound
+    br _guard_le -> %label_yes, %label_no
+[END_MACRO]
+
+// GUARD_CLEANUP: 释放 guard 寄存器并跳转
+[MACRO] GUARD_CLEANUP %reg, %target
+    !%reg
+    jmp %target
+[END_MACRO]
+
+// --- 使用 MATCH_GUARD 模拟 Rust match guard ---
+
+@classify(n: i32) -> i32:
+L_ENTRY:
+    // match n { x if x < 0 => -1, x if x == 0 => 0, x if x <= 10 => 1, _ => 2 }
+    EXPAND MATCH_GUARD_LT n, 0, L_NEGATIVE, L_GUARD_ZERO
+
+L_NEGATIVE:
+    // x < 0 → "negative" → return code -1
+    !n
+    result_neg = sub 0, 1
+    return result_neg
+
+L_GUARD_ZERO:
+    EXPAND MATCH_GUARD_EQ n, 0, L_ZERO, L_GUARD_SMALL
+
+L_ZERO:
+    // x == 0 → "zero" → return code 0
+    !n
+    return 0
+
+L_GUARD_SMALL:
+    EXPAND MATCH_GUARD_LE n, 10, L_SMALL, L_DEFAULT
+
+L_SMALL:
+    // x <= 10 → "small" → return code 1
+    !n
+    return 1
+
+L_DEFAULT:
+    // _ => "large" → return code 2
+    !n
+    return 2
+
+@main() -> i32:
+L_ENTRY:
+    a = call @classify(-3)
+    b = call @classify(0)
+    c = call @classify(7)
+    d = call @classify(99)
+
+    // verify: a=-1, b=0, c=1, d=2
+    ok_a = eq a, -1
+    ok_b = eq b, 0
+    ok_c = eq c, 1
+    ok_d = eq d, 2
+    ok0 = and ok_a, ok_b
+    ok1 = and ok_c, ok_d
+    ok = and ok0, ok1
+    !a
+    !b
+    !c
+    !d
+    !ok_a
+    !ok_b
+    !ok_c
+    !ok_d
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 26)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
