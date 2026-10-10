@@ -1327,7 +1327,17 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             try writer.print(") ? {d} : {d}); break;\n", .{ tpc, fpc });
         },
         .br_null => {
-            try writer.print("        __sa_trap(\"unsupported br_null: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+            // Null test on raw bits (mirrors interp `cond.bits == 0`):
+            // only 0 / 0n count as null. NaN is *not* null (bits != 0),
+            // so this intentionally differs from `!v` / `__sa_truthy`.
+            const tpc = try labelPcOf(label_pc, base.operands[1]);
+            const fpc = try labelPcOf(label_pc, base.operands[3]);
+            try writer.writeAll("        __pc = ((((");
+            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+            try writer.writeAll(") === 0) || ((");
+            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+            try writer.writeAll(") === 0n))");
+            try writer.print(" ? {d} : {d}); break;\n", .{ tpc, fpc });
         },
         .return_ => try emitReturnStmt(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0], "        "),
         else => {
@@ -1824,7 +1834,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             continue;
         }
         try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase);
-        prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .return_;
+        prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .br_null or base.kind == .return_;
     }
     try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");
 }
