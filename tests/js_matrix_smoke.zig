@@ -321,6 +321,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/224_mod_reexport_pub_use/main.sa", "224\n");
     try assertJsMatrixStdout("demos/rosetta/225_mod_namespace_prefix/main.sa", "225\n");
     try assertJsMatrixStdout("demos/rosetta/228_mod_iface_separation/main.sa", "228\n");
+    try assertJsMatrixStdout("demos/rosetta/229_mod_layout_injection/main.sa", "229\n");
+    try assertJsMatrixStdout("demos/rosetta/230_mod_std_prelude/main.sa", "230\n");
+    try assertJsMatrixStdout("demos/rosetta/231_mod_directory_module/main.sa", "231\n");
+    try assertJsMatrixStdout("demos/rosetta/232_mod_conditional_import/main.sa", "232\n");
+    try assertJsMatrixStdout("demos/rosetta/233_mod_alias_import/main.sa", "233\n");
+    try assertJsMatrixStdout("demos/rosetta/234_mod_unused_import_lint/main.sa", "234\n");
+    try assertJsMatrixStdout("demos/rosetta/235_mod_transitive_dependency/main.sa", "235\n");
+    try assertJsMatrixStdout("demos/rosetta/236_mod_extern_block_grouping/main.sa", "236\n");
+    try assertJsMatrixStdout("demos/rosetta/237_mod_inline_submodule/main.sa", "237\n");
+    try assertJsMatrixStdout("demos/rosetta/238_mod_path_resolution_order/main.sa", "238\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
