@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"922\n"
+
+// 922 - Affirm: double negation (922!=0)!=0 holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 922 as i64
+    z = 0 as i64
+    n0 = eq a, z
+    n1 = eq n0, 0
+    one = 1 as i64
+    aff = eq n1, one
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and aff, ok_c
+    !a
+    !z
+    !n0
+    !n1
+    !one
+    !aff
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
