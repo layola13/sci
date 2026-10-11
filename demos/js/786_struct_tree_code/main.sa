@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"786\n"
+
+// 786 - Tree sum: root 700 with leaves 50 + 36 == 786, code 0.
+@main() -> i32:
+L_ENTRY:
+    root = alloc 24
+    store root+0, 700 as i64
+    store root+8, 50 as i64
+    store root+16, 36 as i64
+    r = load root+0 as i64
+    l = load root+8 as i64
+    rr = load root+16 as i64
+    s0 = add r, l
+    got = add s0, rr
+    want = 786 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !root
+    !r
+    !l
+    !rr
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

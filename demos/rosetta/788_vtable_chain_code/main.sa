@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"788\n"
+@const CH_VT = vtable { step = @chain_step }
+
+// 788 - Vtable chain: 700 + 44 + 44 == 788 via two indirect calls.
+@chain_step(x: i64) -> i64:
+L_ENTRY:
+    k = 44 as i64
+    r = add x, k
+    !x
+    !k
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &CH_VT
+    fp = load t + 0 as ptr
+    v0 = 700 as i64
+    v1 = call_indirect fp(v0)
+    v = call_indirect fp(v1)
+    want = 788 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v1
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
