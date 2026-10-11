@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"946\n"
+
+// 946 - Header: version 1, (900, 46) payload sums == 946.
+@main() -> i32:
+L_ENTRY:
+    hdr = alloc 24
+    store hdr+0, 1 as i64
+    store hdr+8, 900 as i64
+    store hdr+16, 46 as i64
+    ver = load hdr+0 as i64
+    p0 = load hdr+8 as i64
+    p1 = load hdr+16 as i64
+    one = 1 as i64
+    ok_ver = eq ver, one
+    got = add p0, p1
+    want = 946 as i64
+    ok_v = eq got, want
+    ok = and ok_ver, ok_v
+    !hdr
+    !ver
+    !p0
+    !p1
+    !one
+    !ok_ver
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

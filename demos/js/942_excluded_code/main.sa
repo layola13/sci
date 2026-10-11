@@ -1,0 +1,24 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"942\n"
+
+// 942 - Excluded middle: (942==942) or (942!=942) holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 942 as i64
+    b = 942 as i64
+    p = eq a, b
+    np = eq p, 0
+    ok = or p, np
+    !a
+    !b
+    !p
+    !np
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
