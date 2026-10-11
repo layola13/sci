@@ -1,0 +1,58 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"774\n"
+
+// 774 - Star: center 700 plus 4 arms of 18 and 2 of 1 == 774.
+@arm774() -> i64:
+L_ENTRY:
+    return 18
+
+@one774() -> i64:
+L_ENTRY:
+    return 1
+
+@main() -> i32:
+L_ENTRY:
+    base = 700 as i64
+    a = call @arm774()
+    b = call @arm774()
+    c = call @arm774()
+    d = call @arm774()
+    e = call @one774()
+    f = call @one774()
+    ab = add a, b
+    cd = add c, d
+    ef = add e, f
+    s0 = add ab, cd
+    arms = add s0, ef
+    got = add base, arms
+    want = 774 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !ab
+    !cd
+    !ef
+    !s0
+    !arms
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
