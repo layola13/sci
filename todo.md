@@ -389,10 +389,12 @@
 > 背景：融合原语已拿下 u32sum 反超 2.5x/2.0x、fill 扯平；剩余硬墙如下，按 ROI 排序。
 > 口径铁律：只写 SA（禁手写 mjs）、双点斜率、DSE-proof 形态。
 
-- [ ] **1. IR 层引入 SIMD 语义（最高优先级，啃 find/scan/codec 墙）**
-  - **问题**：`sa→native` 自身离 Bun 原生 codec 仍有 19x~67x（§14 实锤与 JS 无关，是全后端缺自动向量化）；`find-u32` 即使走 `TypedArray.indexOf` 仍输 2.9x（原生 memchr 墙）；byte-scan 卡边界检查。
-  - **方案**：IR 层引入 SIMD 语义（scan/find/codec 的向量化 lowering），先 native 后 wasm/js。
-  - **验收**：find-u32 进 1.5x 内；byte-scan 逼近 bun readUInt8 的 0.77ns/B。
+- [ ] **1. IR 层引入 SIMD 语义（范围已缩小：只剩 codec 尾巴＋wasm）**
+  - **问题**：默认档 `sa→native` 曾离 Bun 原生 codec 19x~67x。
+  - **更新（2026-10-11 实测）：`--release-fast` 下 LLVM 自动向量化已解决大半**——
+    read-write 反超 bun 14x、escape 反超 2x；find 1.5x、b64 2.5x、hex 3.2x。
+  - **方案**：显式 SIMD intrinsic 只覆盖向量化死角（查表＋分支 codec），先 native 后 wasm；JS 无 SIMD，按现有融合路线维持。
+  - **验收**：native codec 全进 1.5x 内；wasm 开 SIMD128 后接近 native-release-fast。
 - [ ] **2. 单遍融合 hex 解码器（消除链税）**
   - **问题**：`sa_hexdec` 走 TextDecoder＋parse＋拷出三遍，64KB 同尺寸仍输 3.7x（b64 同理 3x）；三档尺寸测 flatline，证实是 throughput 税非固定成本。
   - **方案**：单遍融合解码（查表＋存回一遍过），干掉中间 string 与二次拷贝。
