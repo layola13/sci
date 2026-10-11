@@ -3169,7 +3169,12 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         if (std.mem.eql(u8, fsig.name, "sa_mfind_u32")) {
             try writer.writeAll(
                 \\function sa_mfind_u32(ptr, len, needle) {
-                \\  const a = __sa_addr(ptr), n = __sa_num(len), t = __sa_num(needle) >>> 0, u = __sa_u8;
+                \\  const a = __sa_addr(ptr), n = __sa_num(len), t = __sa_num(needle) >>> 0;
+                \\  if ((a & 3) === 0) {
+                \\    const r = __sa_tu32.subarray(a >> 2, (a >> 2) + n).indexOf(t);
+                \\    return r < 0 ? n : r;
+                \\  }
+                \\  const u = __sa_u8;
                 \\  const b0 = t & 255, b1 = (t >> 8) & 255, b2 = (t >> 16) & 255, b3 = (t >>> 24) & 255;
                 \\  for (let i = 0; i < n; i++) {
                 \\    const o = a + (i << 2);
