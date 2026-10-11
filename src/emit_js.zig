@@ -801,6 +801,95 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\const __sa_modstate = new Map();
         \\const __sa_jsonnodes = new Map();
         \\let __sa_jsonnext = 1;
+        \\const __sa_jsonwriters = new Map();
+        \\let __sa_jsonwriternext = 1;
+        \\const __sa_jsonbufs = new Map();
+        \\let __sa_jsonbufnext = 1;
+        \\function __sa_json_quote(bytes, esc_uni) {
+        \\  const s = new globalThis.TextDecoder().decode(bytes);
+        \\  let o = '"';
+        \\  for (const ch of s) {
+        \\    const c = ch.codePointAt(0);
+        \\    if (c === 34) o += '\\"';
+        \\    else if (c === 92) o += '\\\\';
+        \\    else if (c === 8) o += '\\b';
+        \\    else if (c === 9) o += '\\t';
+        \\    else if (c === 10) o += '\\n';
+        \\    else if (c === 12) o += '\\f';
+        \\    else if (c === 13) o += '\\r';
+        \\    else if (c < 0x20) o += '\\u00' + c.toString(16).padStart(2, '0');
+        \\    else if (esc_uni && c > 0x7f) {
+        \\      if (c > 0xffff) {
+        \\        const v = c - 0x10000;
+        \\        o += '\\u' + (0xd800 + (v >> 10)).toString(16).padStart(4, '0');
+        \\        o += '\\u' + (0xdc00 + (v & 0x3ff)).toString(16).padStart(4, '0');
+        \\      } else o += '\\u' + c.toString(16).padStart(4, '0');
+        \\    }
+        \\    else o += ch;
+        \\  }
+        \\  return o + '"';
+        \\}
+        \\function __sa_json_f64_str(x) {
+        \\  // Zig std.json shortest-scientific float format (probed native:
+        \\  // 7->7e0, 0.5->5e-1, 1e21->1e21, NaN->"nan", Inf->inf, -0->0e0).
+        \\  const v = (typeof x === "bigint") ? Number(x) : (+x);
+        \\  if (Number.isNaN(v)) return '"nan"';
+        \\  if (v === Infinity) return 'inf';
+        \\  if (v === -Infinity) return '-inf';
+        \\  const a = (v < 0) ? -v : v;
+        \\  const e = a.toExponential().replace("e+", "e");
+        \\  return ((v < 0) ? "-" : "") + e;
+        \\}
+        \\function __sa_jw_begin(w, open) {
+        \\  if (w.result !== null) return 2;
+        \\  if (w.root_done && w.stack.length === 0) return 1;
+        \\  if (w.stack.length !== 0) {
+        \\    const top = w.stack[w.stack.length - 1];
+        \\    if (top.t === 1) {
+        \\      if (!top.first) w.parts.push(',');
+        \\      top.first = false;
+        \\    }
+        \\    // Object parents: the field key (with its comma) was emitted
+        \\    // by object_field/field_* just before; push directly.
+        \\  }
+        \\  w.parts.push(open);
+        \\  w.stack.push({ t: open === '{' ? 0 : 1, first: true });
+        \\  return 0;
+        \\}
+        \\function __sa_jw_scalar(w, text) {
+        \\  if (w.result !== null) return 2;
+        \\  if (w.stack.length !== 0) {
+        \\    const top = w.stack[w.stack.length - 1];
+        \\    if (top.t !== 1) return 1;
+        \\    if (!top.first) w.parts.push(',');
+        \\    top.first = false;
+        \\  } else {
+        \\    if (w.root_done) return 1;
+        \\    w.root_done = true;
+        \\  }
+        \\  w.parts.push(text);
+        \\  return 0;
+        \\}
+        \\function __sa_jw_field(w, key_bytes) {
+        \\  if (w.result !== null) return 2;
+        \\  if (w.stack.length === 0) return 1;
+        \\  const top = w.stack[w.stack.length - 1];
+        \\  if (top.t !== 0) return 1;
+        \\  if (!top.first) w.parts.push(',');
+        \\  top.first = false;
+        \\  w.parts.push(__sa_json_quote(key_bytes, w.esc_uni));
+        \\  w.parts.push(':');
+        \\  return 0;
+        \\}
+        \\function __sa_jw_end(w, close) {
+        \\  if (w.result !== null) return 2;
+        \\  if (w.stack.length === 0) return 1;
+        \\  const top = w.stack.pop();
+        \\  if ((close === '}' && top.t !== 0) || (close === ']' && top.t !== 1)) return 1;
+        \\  w.parts.push(close);
+        \\  if (w.stack.length === 0) w.root_done = true;
+        \\  return 0;
+        \\}
         \\function __sa_buf_open(bytes) {
         \\  // Owned byte buffer (mirrors openOwnedBuffer): handle is a u64.
         \\  const h = __sa_bufnext++;
@@ -2355,6 +2444,30 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_json_as_f64")) return true;
     if (std.mem.eql(u8, name, "sa_json_as_bool")) return true;
     if (std.mem.eql(u8, name, "sa_json_free")) return true;
+    if (std.mem.eql(u8, name, "sa_json_value_count")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_new")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_begin_object")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_end_object")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_begin_array")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_end_array")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_object_field")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_field_string")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_field_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_field_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_field_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_field_null")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_write_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_write_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_write_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_write_string")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_write_null")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_finish")) return true;
+    if (std.mem.eql(u8, name, "sa_json_writer_finish_buffer")) return true;
+    if (std.mem.eql(u8, name, "sa_json_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_json_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_json_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_time_set_field")) return true;
     if (std.mem.eql(u8, name, "fd_open")) return true;
     if (std.mem.eql(u8, name, "fd_close")) return true;
     if (std.mem.eql(u8, name, "fd_read")) return true;
@@ -3832,6 +3945,332 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         if (std.mem.eql(u8, fsig.name, "sa_json_free")) {
             try writer.writeAll(
                 \\function sa_json_free(node) { __sa_jsonnodes.delete(__sa_num(node)); return 0; }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_value_count")) {
+            try writer.writeAll(
+                \\function sa_json_value_count(node, out_count) {
+                \\  __sa_store_i64(out_count, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined) return 2;
+                \\  if (Array.isArray(v)) { __sa_store_i64(out_count, v.length); return 0; }
+                \\  if (v !== null && typeof v === "object") { __sa_store_i64(out_count, Object.keys(v).length); return 0; }
+                \\  return 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        // Streaming JSON writer (mirror sa_json_writer_* in sa_std.zig).
+        // Only minified whitespace is supported exactly (all tsgosa demos
+        // use it; native itself crashes on indented shapes, so non-zero
+        // whitespace fails loudly rather than emitting wrong bytes).
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_new")) {
+            try writer.writeAll(
+                \\function sa_json_writer_new(whitespace, e_null, e_arr, esc_uni, e_nonport, out_handle) {
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  if (__sa_num(whitespace) !== 0) return 1;
+                \\  const h = __sa_jsonwriternext++;
+                \\  __sa_jsonwriters.set(h, { parts: [], stack: [], root_done: false, result: null, esc_uni: __sa_num(esc_uni) !== 0 });
+                \\  __sa_store_i64(out_handle, BigInt(h));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_free")) {
+            try writer.writeAll(
+                \\function sa_json_writer_free(writer) { __sa_jsonwriters.delete(__sa_num(writer)); return 0; }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_begin_object")) {
+            try writer.writeAll(
+                \\function sa_json_writer_begin_object(writer) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_begin(w, '{');
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_end_object")) {
+            try writer.writeAll(
+                \\function sa_json_writer_end_object(writer) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_end(w, '}');
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_begin_array")) {
+            try writer.writeAll(
+                \\function sa_json_writer_begin_array(writer) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_begin(w, '[');
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_end_array")) {
+            try writer.writeAll(
+                \\function sa_json_writer_end_array(writer) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_end(w, ']');
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_object_field")) {
+            try writer.writeAll(
+                \\function sa_json_writer_object_field(writer, key_ptr, key_len) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_field(w, __sa_mem_bytes(key_ptr, key_len));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_field_string")) {
+            try writer.writeAll(
+                \\function sa_json_writer_field_string(writer, key_ptr, key_len, data_ptr, data_len) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  const rc = __sa_jw_field(w, __sa_mem_bytes(key_ptr, key_len));
+                \\  if (rc !== 0) return rc;
+                \\  w.parts.push(__sa_json_quote(__sa_mem_bytes(data_ptr, data_len), w.esc_uni));
+                \\  if (w.stack.length === 0) w.root_done = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_field_bool")) {
+            try writer.writeAll(
+                \\function sa_json_writer_field_bool(writer, key_ptr, key_len, value) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  const rc = __sa_jw_field(w, __sa_mem_bytes(key_ptr, key_len));
+                \\  if (rc !== 0) return rc;
+                \\  w.parts.push(__sa_num(value) !== 0 ? "true" : "false");
+                \\  if (w.stack.length === 0) w.root_done = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_field_i64")) {
+            try writer.writeAll(
+                \\function sa_json_writer_field_i64(writer, key_ptr, key_len, value) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  const rc = __sa_jw_field(w, __sa_mem_bytes(key_ptr, key_len));
+                \\  if (rc !== 0) return rc;
+                \\  w.parts.push(BigInt.asIntN(64, BigInt(__sa_num(value))).toString(10));
+                \\  if (w.stack.length === 0) w.root_done = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_field_f64")) {
+            try writer.writeAll(
+                \\function sa_json_writer_field_f64(writer, key_ptr, key_len, value) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  const rc = __sa_jw_field(w, __sa_mem_bytes(key_ptr, key_len));
+                \\  if (rc !== 0) return rc;
+                \\  w.parts.push(__sa_json_f64_str(value));
+                \\  if (w.stack.length === 0) w.root_done = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_field_null")) {
+            try writer.writeAll(
+                \\function sa_json_writer_field_null(writer, key_ptr, key_len) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  const rc = __sa_jw_field(w, __sa_mem_bytes(key_ptr, key_len));
+                \\  if (rc !== 0) return rc;
+                \\  w.parts.push("null");
+                \\  if (w.stack.length === 0) w.root_done = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_write_bool")) {
+            try writer.writeAll(
+                \\function sa_json_writer_write_bool(writer, value) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_scalar(w, __sa_num(value) !== 0 ? "true" : "false");
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_write_i64")) {
+            try writer.writeAll(
+                \\function sa_json_writer_write_i64(writer, value) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_scalar(w, BigInt.asIntN(64, BigInt(__sa_num(value))).toString(10));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_write_f64")) {
+            try writer.writeAll(
+                \\function sa_json_writer_write_f64(writer, value) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_scalar(w, __sa_json_f64_str(value));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_write_string")) {
+            try writer.writeAll(
+                \\function sa_json_writer_write_string(writer, data_ptr, data_len) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_scalar(w, __sa_json_quote(__sa_mem_bytes(data_ptr, data_len), w.esc_uni));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_write_null")) {
+            try writer.writeAll(
+                \\function sa_json_writer_write_null(writer) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  return __sa_jw_scalar(w, "null");
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_finish")) {
+            try writer.writeAll(
+                \\function sa_json_writer_finish(writer, out_handle) {
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 2;
+                \\  if (w.result !== null) { __sa_store_i64(out_handle, BigInt(w.result)); return 0; }
+                \\  if (!w.root_done || w.stack.length !== 0) return 1;
+                \\  const bytes = new globalThis.TextEncoder().encode(w.parts.join(""));
+                \\  const h = __sa_jsonbufnext++;
+                \\  __sa_jsonbufs.set(h, bytes);
+                \\  w.result = h;
+                \\  __sa_store_i64(out_handle, BigInt(h));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_writer_finish_buffer")) {
+            try writer.writeAll(
+                \\function sa_json_writer_finish_buffer(writer) {
+                \\  const w = __sa_jsonwriters.get(__sa_num(writer));
+                \\  if (w === undefined) return 0n;
+                \\  if (w.result !== null) return BigInt(w.result);
+                \\  if (!w.root_done || w.stack.length !== 0) return 0n;
+                \\  const bytes = new globalThis.TextEncoder().encode(w.parts.join(""));
+                \\  const h = __sa_jsonbufnext++;
+                \\  __sa_jsonbufs.set(h, bytes);
+                \\  w.result = h;
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_json_buffer_data(handle) {
+                \\  const b = __sa_jsonbufs.get(__sa_num(handle));
+                \\  if (b === undefined) return 0;
+                \\  const p = __sa_alloc(b.length);
+                \\  __sa_u8.set(b, p);
+                \\  return p;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_json_buffer_len(handle) {
+                \\  const b = __sa_jsonbufs.get(__sa_num(handle));
+                \\  return (b === undefined) ? 0n : BigInt(b.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_json_buffer_free(handle) { __sa_jsonbufs.delete(__sa_num(handle)); return 0; }
+                \\
+            );
+            return;
+        }
+        // Date set-field (mirror sa_time_set_field in sa_std.zig; fields
+        // 0..6 = year/month0/date/hours/minutes/seconds/ms, else identity).
+        if (std.mem.eql(u8, fsig.name, "sa_time_set_field")) {
+            try writer.writeAll(
+                \\function sa_time_set_field(ms, field, value) {
+                \\  const c = __sa_civil(ms);
+                \\  let y = c[0], mo = c[1], d = c[2];
+                \\  let tod = c[3] * 3600000n + c[4] * 60000n + c[5] * 1000n + c[6];
+                \\  const v = BigInt.asIntN(64, BigInt(__sa_num(value)));
+                \\  const f = __sa_num(field);
+                \\  if (f === 0) y = v;
+                \\  else if (f === 1) { const tm = y * 12n + v; y = __sa_divfloor(tm, 12n); mo = __sa_modfloor(tm, 12n) + 1n; }
+                \\  else if (f === 2) d = v;
+                \\  else if (f === 3) tod = v * 3600000n + __sa_modfloor(tod, 3600000n);
+                \\  else if (f === 4) tod = (tod - __sa_modfloor(tod, 3600000n)) + v * 60000n + __sa_modfloor(tod, 60000n);
+                \\  else if (f === 5) tod = (tod - __sa_modfloor(tod, 60000n)) + v * 1000n + __sa_modfloor(tod, 1000n);
+                \\  else if (f === 6) tod = tod - __sa_modfloor(tod, 1000n) + v;
+                \\  else return BigInt.asIntN(64, (typeof ms === "bigint") ? ms : BigInt(Math.trunc(+ms)));
+                \\  const tm2 = y * 12n + (mo - 1n);
+                \\  const y2 = __sa_divfloor(tm2, 12n);
+                \\  const m2 = __sa_modfloor(tm2, 12n) + 1n;
+                \\  const yp = m2 <= 2n ? y2 - 1n : y2;
+                \\  const era = yp >= 0n ? __sa_divfloor(yp, 400n) : __sa_divfloor(yp - 399n, 400n);
+                \\  const yoe = yp - era * 400n;
+                \\  const mp = __sa_modfloor(m2 - 3n, 12n);
+                \\  const doy = __sa_divfloor(153n * mp + 2n, 5n);
+                \\  const doe = yoe * 365n + __sa_divfloor(yoe, 4n) - __sa_divfloor(yoe, 100n) + doy;
+                \\  const days = era * 146097n + doe - 719468n + (d - 1n);
+                \\  const total = days + __sa_divfloor(tod, 86400000n);
+                \\  const norm = tod - __sa_divfloor(tod, 86400000n) * 86400000n;
+                \\  return BigInt.asIntN(64, (total * 86400n) * 1000n + norm);
+                \\}
                 \\
             );
             return;
