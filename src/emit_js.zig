@@ -2589,6 +2589,7 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_msum_u32")) return true;
     if (std.mem.eql(u8, name, "sa_mwrite_u8")) return true;
     if (std.mem.eql(u8, name, "sa_mfind_u32")) return true;
+    if (std.mem.eql(u8, name, "sa_mfind_u8")) return true;
     if (std.mem.eql(u8, name, "sa_b64dec")) return true;
     if (std.mem.eql(u8, name, "sa_hexdec")) return true;
     if (std.mem.eql(u8, name, "sa_esc_html")) return true;
@@ -3179,6 +3180,29 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  for (let i = 0; i < n; i++) {
                 \\    const o = a + (i << 2);
                 \\    if (u[o] === b0 && u[o + 1] === b1 && u[o + 2] === b2 && u[o + 3] === b3) return i;
+                \\  }
+                \\  return n;
+                \\}
+                \\
+            );
+            return;
+        }
+        // Fused byte-substring search: first-byte filter + memcmp, single
+        // call. Returns byte offset of first hit, or hay_len (miss sentinel).
+        // Empty needle matches at 0; needle longer than haystack misses.
+        if (std.mem.eql(u8, fsig.name, "sa_mfind_u8")) {
+            try writer.writeAll(
+                \\function sa_mfind_u8(hay_ptr, hay_len, ndl_ptr, ndl_len) {
+                \\  const h = __sa_addr(hay_ptr), n = __sa_num(hay_len);
+                \\  const q = __sa_addr(ndl_ptr), m = __sa_num(ndl_len), u = __sa_u8;
+                \\  if (m === 0) return 0;
+                \\  if (m > n) return n;
+                \\  const b0 = u[q], last = n - m;
+                \\  for (let i = 0; i <= last; i++) {
+                \\    if (u[h + i] !== b0) continue;
+                \\    let k = 1;
+                \\    for (; k < m; k++) { if (u[h + i + k] !== u[q + k]) break; }
+                \\    if (k === m) return i;
                 \\  }
                 \\  return n;
                 \\}
