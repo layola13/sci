@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"566\n"
+
+// 566 - Struct quad: four slots, last holds 566, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 32
+    store p+0, 0 as i64
+    store p+8, 1 as i64
+    store p+16, 2 as i64
+    want = 566 as i64
+    store p+24, want as i64
+    c0 = load p+0 as i64
+    c1 = load p+8 as i64
+    c2 = load p+16 as i64
+    got = load p+24 as i64
+    ok0 = eq c0, 0
+    ok1 = eq c1, 1
+    ok2 = eq c2, 2
+    ok3 = eq got, want
+    t0 = and ok0, ok1
+    t1 = and ok2, ok3
+    ok = and t0, t1
+    !p
+    !want
+    !c0
+    !c1
+    !c2
+    !got
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !t0
+    !t1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

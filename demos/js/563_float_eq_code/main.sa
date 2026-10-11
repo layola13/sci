@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"563\n"
+
+// 563 - Float eq: 2.5 == 2.5 holds with code 0.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    a = fdiv five_f, two_f
+    b = fdiv five_f, two_f
+    eqf = fcmp_eq a, b
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and eqf, ok_c
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !a
+    !b
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
