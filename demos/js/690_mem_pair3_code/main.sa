@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"690\n"
+
+// 690 - Pair chain: (600, 90) copied slot to slot, sum == 690.
+@main() -> i32:
+L_ENTRY:
+    s = alloc 16
+    d = alloc 16
+    store s+0, 600 as i64
+    store s+8, 90 as i64
+    t0 = load s+0 as i64
+    t1 = load s+8 as i64
+    store d+0, t0 as i64
+    store d+8, t1 as i64
+    c = load d+0 as i64
+    e = load d+8 as i64
+    got = add c, e
+    want = 690 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !s
+    !d
+    !t0
+    !t1
+    !c
+    !e
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
