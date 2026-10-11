@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"917\n"
+
+// 917 - Stride7 sum 0+7 == 7, plus 910 == 917.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    seven = 7 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 14
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, seven
+    jmp L_COND
+L_DONE:
+    !done
+    want_sum = 7 as i64
+    ok_sum = eq acc, want_sum
+    base = 910 as i64
+    got = add acc, base
+    want = 917 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !i
+    !seven
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

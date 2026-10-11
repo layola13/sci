@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"916\n"
+
+// 916 - Field update: slot 800 bumped by 116 == 916, code 0.
+@main() -> i32:
+L_ENTRY:
+    rec = alloc 16
+    store rec+0, 800 as i64
+    store rec+8, 0 as i64
+    base = load rec+0 as i64
+    bump = 116 as i64
+    nv = add base, bump
+    store rec+8, nv as i64
+    got = load rec+8 as i64
+    want = 916 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !rec
+    !base
+    !bump
+    !nv
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

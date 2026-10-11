@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"914\n"
+
+// 914 - Lanes: 4 lanes (800, 50, 40, 24) sum == 914.
+@ln800() -> i64:
+L_ENTRY:
+    return 800
+
+@ln50() -> i64:
+L_ENTRY:
+    return 50
+
+@ln40() -> i64:
+L_ENTRY:
+    return 40
+
+@ln24() -> i64:
+L_ENTRY:
+    return 24
+
+@main() -> i32:
+L_ENTRY:
+    a = call @ln800()
+    b = call @ln50()
+    c = call @ln40()
+    d = call @ln24()
+    ab = add a, b
+    cd = add c, d
+    got = add ab, cd
+    want = 914 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
