@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"714\n"
+
+// 714 - Braid: interleave two chains, 700 + 14 == 714.
+@left714(x: i64) -> i64:
+L_ENTRY:
+    seven = 7 as i64
+    r = add x, seven
+    !x
+    !seven
+    return r
+
+@right714(x: i64) -> i64:
+L_ENTRY:
+    seven = 7 as i64
+    r = add x, seven
+    !x
+    !seven
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 700 as i64
+    a = call @left714(base)
+    b = call @right714(a)
+    c = call @left714(b)
+    want = 721 as i64
+    over = eq c, want
+    got = sub c, 7
+    want2 = 714 as i64
+    ok_v = eq got, want2
+    ok = and over, ok_v
+    !base
+    !a
+    !b
+    !c
+    !want
+    !over
+    !got
+    !want2
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

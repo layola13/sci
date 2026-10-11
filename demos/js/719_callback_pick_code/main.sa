@@ -1,0 +1,58 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"719\n"
+@const PK_VT = vtable { invoke = @pick719 }
+
+// 719 - Callback pick: nonzero flag yields 719 through indirect call.
+@pick719(flag: i64, alt: i64) -> i64:
+L_ENTRY:
+    use_alt = eq flag, 0
+    br use_alt -> L_ALT, L_FLAG
+L_ALT:
+    !flag
+    !use_alt
+    m = add alt, 0
+    !alt
+    jmp L_OUT
+L_FLAG:
+    !alt
+    !use_alt
+    m = add flag, 0
+    !flag
+    jmp L_OUT
+L_OUT:
+    base = 700 as i64
+    r = add m, base
+    !m
+    !base
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &PK_VT
+    fp = load t + 0 as ptr
+    f = 19 as i64
+    z = 0 as i64
+    v = call_indirect fp(f, z)
+    want = 719 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !f
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

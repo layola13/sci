@@ -1,0 +1,28 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"712\n"
+
+// 712 - Eq chain: 700+12 == 712 and 712 == 712 hold, code 0.
+@main() -> i32:
+L_ENTRY:
+    x = 700 as i64
+    y = 12 as i64
+    v = add x, y
+    want = 712 as i64
+    ok0 = eq v, want
+    ok1 = eq v, v
+    ok = and ok0, ok1
+    !x
+    !y
+    !v
+    !want
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
