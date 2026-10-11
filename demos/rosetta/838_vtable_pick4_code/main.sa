@@ -1,0 +1,64 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"838\n"
+@const P4_VT = vtable { pick = @pick_fourth }
+
+// 838 - Vtable pick4: 4th of (800, 810, 820, 838) max == 838.
+@pick_fourth(a: i64, b: i64) -> i64:
+L_ENTRY:
+    big = slt a, b
+    br big -> L_B, L_A
+L_B:
+    !a
+    !big
+    m = add b, 0
+    !b
+    jmp L_OUT
+L_A:
+    !b
+    !big
+    m = add a, 0
+    !a
+    jmp L_OUT
+L_OUT:
+    ret8 = add m, 0
+    !m
+    return ret8
+
+@main() -> i32:
+L_ENTRY:
+    t = &P4_VT
+    fp = load t + 0 as ptr
+    a0 = 800 as i64
+    b0 = 810 as i64
+    m01 = call_indirect fp(a0, b0)
+    a1 = 820 as i64
+    b1 = 838 as i64
+    m23 = call_indirect fp(a1, b1)
+    v = call_indirect fp(m01, m23)
+    want = 838 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !a0
+    !b0
+    !m01
+    !a1
+    !b1
+    !m23
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
