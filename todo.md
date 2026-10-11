@@ -402,10 +402,12 @@
   - **问题**：无类型整数字面量一律 u64（BigInt），污染所有 ≤32 位循环；当前靠发射器 magnitude 猜＋运行时动态提升兜底（337/347/350 教训）。
   - **方案**：前端按语境把 u32 上下文的字面量定型为原生 Number；i64/u64 保持 BigInt；native/wasm 联测。
   - **验收**：非融合纯 SA 循环普遍再快数倍；`zig build js-matrix`＋`wasm-matrix` 全绿。
-- [ ] **4. 跟进 wasmtime 反超 native 之谜**
+- [x] **4. 跟进 wasmtime 反超 native 之谜（已闭环）**
   - **问题**：`sa→wasm`（wasmtime）在 read-write（126ms vs 150ms）、indexOf（69.9ms vs 94.5ms）上超过 LLVM 驱动的 `sa→native`。
-  - **方案**：确认是 LLVM O1 配置保守还是 wasmtime JIT 更激进；评估 native 提优化等级或对齐 wasmtime 策略。
-  - **验收**：结论写入 sala ＋ 相应配置项。
+  - **结论（2026-10-11 实测）**：默认 `sa build` 优化等级保守是主因，不是 wasmtime 更强。
+    改 `--release-fast` 重编后 native 反杀 20~50x：read-write 20.5M 扫描 3.3ms
+    （0.16ns/B，比 bun 原题快约 5x，校验和全过非 DCE），find 10.2M 查找 5.6ms。
+    结论已写入 sala §14；默认构建是否提等级属产品决策，未动（用户要峰值请显式加旗）。
 - [ ] **5. 全量 js-matrix/wasm-matrix 绿灯背书（待用户放行）**
   - **问题**：目前只有 9 靶向 demo＋34 peer 校验；用户禁全量跑，完整背书缺失。
   - **方案**：用户放行后跑全量两矩阵，失败项按 337/347/350 模式个个击破。
