@@ -793,6 +793,10 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\}
         \\const __sa_buffers = new Map();
         \\let __sa_bufnext = 1;
+        \\const __sa_regexes = new Map();
+        \\let __sa_regexnext = 1;
+        \\const __sa_regexmatches = new Map();
+        \\let __sa_regexmatchnext = 1;
         \\function __sa_buf_open(bytes) {
         \\  // Owned byte buffer (mirrors openOwnedBuffer): handle is a u64.
         \\  const h = __sa_bufnext++;
@@ -840,6 +844,22 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  return [((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f), 4];
         \\}
         \\function __sa_is_ws(b) { return b === 32 || b === 9 || b === 10 || b === 13 || b === 11 || b === 12; }
+        \\function __sa_tou(v) {
+        \\  // u64 wrapping conversion for index/count params (mirrors Zig
+        \\  // u64 param passing: negative Numbers wrap huge, then callers
+        \\  // clamp with Math.min against the real length).
+        \\  const n = (typeof v === "bigint") ? v : BigInt(Math.trunc(+v));
+        \\  return Number(BigInt.asUintN(64, n));
+        \\}
+        \\function __sa_regex_group(match, group_idx) {
+        \\  const r = __sa_regexmatches.get(__sa_num(match));
+        \\  if (r === undefined) return null;
+        \\  const i = __sa_num(group_idx);
+        \\  if (!(i >= 0) || i >= r.groups.length) return null;
+        \\  const g = r.groups[i];
+        \\  if (g[0] < 0 || g[1] < 0) return null;
+        \\  return { rec: r, so: g[0], eo: g[1] };
+        \\}
         \\function __sa_fmt_f64_str(v, prec) {
         \\  // Zig std.fmt.formatFloat decimal mode with precision p (mirrors
         \\  // sa_fmt_f64_into). Returns the text or null on invalid precision.
@@ -1653,9 +1673,11 @@ fn provKill(bases: *BaseSet, fsig: sig.FunctionSig, use_global: bool, op: inst.O
 }
 
 /// Slot of a textual value (`store` keeps its value operand as `.text`;
-/// see flattener.zig). Mirrors resolveTextToJs name resolution so escape
-/// kills apply to textual values too; immediates never name slots.
+/// see flattener.zig). Mirrors resolveTextToJs name resolution exactly
+/// (global id -> slotOf, ignoring use_global) so escape kills apply to
+/// textual values too; immediates never name slots.
 fn provTextSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, text: []const u8) ?u32 {
+    _ = use_global;
     var t = std.mem.trim(u8, text, " \t");
     if (t.len == 0) return null;
     if (t[0] == '&' or t[0] == '*' or t[0] == '^') t = std.mem.trim(u8, t[1..], " \t");
@@ -1664,7 +1686,7 @@ fn provTextSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, text:
     if (std.fmt.parseInt(i64, t, 10)) |_| return null else |_| {}
     if (std.fmt.parseFloat(f64, t)) |_| return null else |_| {}
     const id = symbols.findId(t) orelse return null;
-    return regSlot(fsig, use_global, id) catch null;
+    return fsig.slotOf(id);
 }
 
 /// Forget the stored value's slot on `.store` (any operand shape).
@@ -2277,6 +2299,14 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_str_utf8_char_at_byte")) return true;
     if (std.mem.eql(u8, name, "sa_str_utf8_lossy_next")) return true;
     if (std.mem.eql(u8, name, "sa_str_utf8_char_range_at")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_compile")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_match")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_group_ptr")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_group_len")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_group_start")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_group_count")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_free")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_match_free")) return true;
     if (std.mem.eql(u8, name, "fd_open")) return true;
     if (std.mem.eql(u8, name, "fd_close")) return true;
     if (std.mem.eql(u8, name, "fd_read")) return true;
@@ -3021,7 +3051,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll(
                 \\function sa_string_index_of(hay_ptr, hay_len, ndl_ptr, ndl_len, from) {
                 \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len);
-                \\  const start = Math.min(__sa_num(from), hay.length);
+                \\  const start = Math.min(__sa_tou(from), hay.length);
                 \\  if (ndl.length === 0) return Math.min(start, hay.length);
                 \\  if (ndl.length > hay.length) return -1;
                 \\  outer: for (let i = start; i + ndl.length <= hay.length; i++) {
@@ -3038,7 +3068,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll(
                 \\function sa_string_last_index_of(hay_ptr, hay_len, ndl_ptr, ndl_len, from) {
                 \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len);
-                \\  const start = Math.min(__sa_num(from), hay.length);
+                \\  const start = Math.min(__sa_tou(from), hay.length);
                 \\  if (ndl.length === 0) return Math.min(start, hay.length);
                 \\  if (ndl.length > hay.length) return -1;
                 \\  outer: for (let i = Math.min(start, hay.length - ndl.length); ; i--) {
@@ -3142,8 +3172,10 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll(
                 \\function sa_string_repeat(ptr, len, count) {
                 \\  const b = __sa_mem_bytes(ptr, len);
+                \\  if (b.length === 0) return __sa_buf_open(new Uint8Array(0));
                 \\  const n = __sa_num(count);
-                \\  if (n === 0 || b.length === 0) return __sa_buf_open(new Uint8Array(0));
+                \\  if (n === 0) return __sa_buf_open(new Uint8Array(0));
+                \\  if (!(n > 0) || !Number.isSafeInteger(n) || n > 4294967295 / b.length) return 0n;
                 \\  const out = new Uint8Array(b.length * n);
                 \\  for (let i = 0; i < n; i++) out.set(b, i * b.length);
                 \\  return __sa_buf_open(out);
@@ -3347,7 +3379,8 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  __sa_store_i64(out_len, 0n);
                 \\  const b = __sa_mem_bytes(ptr, len);
                 \\  const idx = __sa_num(byte_index);
-                \\  const d = (idx < 0 || idx >= b.length) ? null : __sa_utf8_dec(b, idx);
+                \\  if (idx < 0 || idx >= b.length) return 3;
+                \\  const d = __sa_utf8_dec(b, idx);
                 \\  if (d === null) return 1;
                 \\  __sa_store_i64(out_codepoint, d[0]);
                 \\  __sa_store_i64(out_len, d[1]);
@@ -3398,6 +3431,120 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\    bi += d[1]; cur++;
                 \\  }
                 \\  return 3;
+                \\}
+                \\
+            );
+            return;
+        }
+        // POSIX-regex shims via JS RegExp (mirror sa_regex_* in sa_std.zig:
+        // compile/match handles, group (so,eo) triples, NUL-payload
+        // refusal). Byte offsets equal JS indices on ASCII payloads, which
+        // is all the tsgosa regex table emits; non-ASCII edges may differ.
+        if (std.mem.eql(u8, fsig.name, "sa_regex_compile")) {
+            try writer.writeAll(
+                \\function sa_regex_compile(pattern, pattern_len, cflags) {
+                \\  const bytes = __sa_mem_bytes(pattern, pattern_len);
+                \\  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) return 0n;
+                \\  const src = new globalThis.TextDecoder().decode(bytes);
+                \\  const f = __sa_num(cflags);
+                \\  let flags = "d";
+                \\  if ((f & 2) !== 0) flags += "i";
+                \\  if ((f & 4) !== 0) flags += "m";
+                \\  let re;
+                \\  try { re = new RegExp(src, flags); } catch (e) { return 0n; }
+                \\  let ngroups = 0;
+                \\  try {
+                \\    const probe = new RegExp("(?:" + src + ")|()", flags);
+                \\    const pm = probe.exec("");
+                \\    ngroups = (pm && pm.indices) ? pm.indices.length - 2 : 0;
+                \\  } catch (e) { ngroups = 0; }
+                \\  const h = __sa_regexnext++;
+                \\  __sa_regexes.set(h, { re: re, ngroups: ngroups });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_match")) {
+            try writer.writeAll(
+                \\function sa_regex_match(regex, text, text_len) {
+                \\  const rec = __sa_regexes.get(__sa_num(regex));
+                \\  if (rec === undefined) return 0n;
+                \\  const bytes = __sa_mem_bytes(text, text_len);
+                \\  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) return 0n;
+                \\  const s = new globalThis.TextDecoder().decode(bytes);
+                \\  rec.re.lastIndex = 0;
+                \\  const m = rec.re.exec(s);
+                \\  if (m === null || m.indices === undefined) return 0n;
+                \\  const p = __sa_alloc(bytes.length);
+                \\  __sa_u8.set(bytes, p);
+                \\  const groups = m.indices.map((g) => ((g === undefined) ? [-1, -1] : [g[0], g[1]]));
+                \\  const h = __sa_regexmatchnext++;
+                \\  __sa_regexmatches.set(h, { base: p, len: bytes.length, groups: groups });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_group_ptr")) {
+            try writer.writeAll(
+                \\function sa_regex_group_ptr(match, group_idx) {
+                \\  const g = __sa_regex_group(match, group_idx);
+                \\  if (g === null) return 0;
+                \\  return __sa_ptr_add(g.rec.base, g.so);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_group_len")) {
+            try writer.writeAll(
+                \\function sa_regex_group_len(match, group_idx) {
+                \\  const g = __sa_regex_group(match, group_idx);
+                \\  if (g === null) return 0n;
+                \\  return BigInt(g.eo - g.so);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_group_start")) {
+            try writer.writeAll(
+                \\function sa_regex_group_start(match, group_idx) {
+                \\  const g = __sa_regex_group(match, group_idx);
+                \\  if (g === null) return 0n;
+                \\  return BigInt(g.so);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_group_count")) {
+            try writer.writeAll(
+                \\function sa_regex_group_count(regex) {
+                \\  const rec = __sa_regexes.get(__sa_num(regex));
+                \\  if (rec === undefined) return 0n;
+                \\  return BigInt(rec.ngroups + 1);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_free")) {
+            try writer.writeAll(
+                \\function sa_regex_free(regex) { __sa_regexes.delete(__sa_num(regex)); return 0; }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_match_free")) {
+            try writer.writeAll(
+                \\function sa_regex_match_free(match) {
+                \\  const r = __sa_regexmatches.get(__sa_num(match));
+                \\  if (r !== undefined) { __sa_regexmatches.delete(__sa_num(match)); __sa_free(r.base); }
+                \\  return 0;
                 \\}
                 \\
             );
