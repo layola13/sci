@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"830\n"
+
+// 830 - Table2: 830 = 400 + 430 across row slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    row = alloc 16
+    store row+0, 400 as i64
+    store row+8, 430 as i64
+    a = load row+0 as i64
+    b = load row+8 as i64
+    got = add a, b
+    want = 830 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !row
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
