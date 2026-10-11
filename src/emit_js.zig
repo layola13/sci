@@ -485,6 +485,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\const __sa_tf32 = new Float32Array(__sa_memory);
         \\const __sa_tf64 = new Float64Array(__sa_memory);
         \\const __sa_tb64 = new BigInt64Array(__sa_memory);
+        \\const __sa_buf = (typeof globalThis.Buffer !== "undefined" && globalThis.Buffer.from) ? globalThis.Buffer.from(__sa_memory) : null; // zero-copy host Buffer: C++ memset/memmove fast path for bulk shims (both node and bun provide it)
         \\const __sa_use_dv64 = (typeof globalThis.Bun !== "undefined"); // JSC BigInt typed arrays are slow; DataView is ~3x faster there
         \\let __sa_brk = 65536; // bump allocator starts after reserved zero page region
         \\const __sa_live = new Set(); // live BIG heap bases (>32B, user pointers handed out by __sa_alloc)
@@ -654,31 +655,31 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_BI(v) { return BigInt.asIntN(64, BigInt(v)); }
         \\function __sa_BU(v) { return BigInt.asUintN(64, BigInt(v)); }
         \\function __sa_isBI(a, b) { return typeof a === "bigint" || typeof b === "bigint"; }
-        \\function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)) : (((+a) + (+b)) | 0); }
-        \\function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : (((+a) - (+b)) | 0); }
-        \\function __sa_mul(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) * BigInt(b)) : Math.imul(a, b); }
-        \\function __sa_sdiv(a, b) { if (__sa_isBI(a, b)) { const nb = (typeof b === "bigint") ? b : BigInt(b | 0); if (nb === 0n) __sa_trap("div by zero"); const na = (typeof a === "bigint") ? a : BigInt(a | 0); return __sa_BI(na / nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("div by zero"); return (Math.trunc((a | 0) / nb32) | 0); }
-        \\function __sa_udiv(a, b) { if (__sa_isBI(a, b)) { const x = (typeof a === "bigint") ? __sa_BU(a) : BigInt(a >>> 0); const y = (typeof b === "bigint") ? __sa_BU(b) : BigInt(b >>> 0); if (y === 0n) __sa_trap("div by zero"); return x / y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("div by zero"); return Math.trunc((a >>> 0) / y32); }
-        \\function __sa_srem(a, b) { if (__sa_isBI(a, b)) { const nb = (typeof b === "bigint") ? b : BigInt(b | 0); if (nb === 0n) __sa_trap("rem by zero"); const na = (typeof a === "bigint") ? a : BigInt(a | 0); return __sa_BI(na % nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("rem by zero"); return (((a | 0) % nb32) | 0); }
-        \\function __sa_urem(a, b) { if (__sa_isBI(a, b)) { const x = (typeof a === "bigint") ? __sa_BU(a) : BigInt(a >>> 0); const y = (typeof b === "bigint") ? __sa_BU(b) : BigInt(b >>> 0); if (y === 0n) __sa_trap("rem by zero"); return x % y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("rem by zero"); return ((a >>> 0) % y32); }
-        \\function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : ((-a) | 0); }
-        \\function __sa_band(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) & BigInt(b)) : ((a & b) | 0); }
-        \\function __sa_bor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) | BigInt(b)) : ((a | b) | 0); }
-        \\function __sa_bxor(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) ^ BigInt(b)) : ((a ^ b) | 0); }
-        \\function __sa_shl(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) << (BigInt(b) & 63n)) : ((a << (b & 31)) | 0); }
-        \\function __sa_lshr(a, b) { if (typeof a === "bigint") return __sa_BU(a) >> (BigInt(b) & 63n); return (a >>> (typeof b === "bigint" ? Number(BigInt(b) & 63n) & 31 : (b & 31))); }
-        \\function __sa_ashr(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) >> (BigInt(b) & 63n)) : ((a >> (b & 31)) | 0); }
-        \\function __sa_bnot(a) { return (typeof a === "bigint") ? __sa_BI(~a) : ((~a) | 0); }
+        \\function __sa_add(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) + BigInt(b)) : ((+a) + (+b)); }
+        \\function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : ((+a) - (+b)); }
+        \\function __sa_mul(a, b) { if (__sa_isBI(a, b)) return __sa_BI(BigInt(a) * BigInt(b)); const p = (+a) * (+b); return (p >= -2147483648 && p <= 2147483647) ? (p | 0) : (Number.isSafeInteger(p) ? p : __sa_BI(BigInt(a) * BigInt(b))); }
+        \\function __sa_sdiv(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) { const nb = BigInt.asIntN(64, BigInt(b)); if (nb === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt.asIntN(64, BigInt(a)) / nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("div by zero"); return (Math.trunc((a | 0) / nb32) | 0); }
+        \\function __sa_udiv(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("div by zero"); return x / y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("div by zero"); return Math.trunc((a >>> 0) / y32); }
+        \\function __sa_srem(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) { const nb = BigInt.asIntN(64, BigInt(b)); if (nb === 0n) __sa_trap("rem by zero"); return __sa_BI(BigInt.asIntN(64, BigInt(a)) % nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("rem by zero"); return (((a | 0) % nb32) | 0); }
+        \\function __sa_urem(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("rem by zero"); return x % y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("rem by zero"); return ((a >>> 0) % y32); }
+        \\function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : (-(+a)); }
+        \\function __sa_band(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return __sa_BI(BigInt(a) & BigInt(b)); return ((a & b) | 0); }
+        \\function __sa_bor(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return __sa_BI(BigInt(a) | BigInt(b)); return ((a | b) | 0); }
+        \\function __sa_bxor(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return __sa_BI(BigInt(a) ^ BigInt(b)); return ((a ^ b) | 0); }
+        \\function __sa_shl(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648) return __sa_BI(BigInt(a) << (BigInt(b) & 63n)); return ((a << (b & 31)) | 0); }
+        \\function __sa_lshr(a, b) { if (typeof a === "bigint" || a > 4294967295) return __sa_BU(a) >> (BigInt(b) & 63n); return (a >>> (typeof b === "bigint" ? Number(BigInt(b) & 63n) & 31 : (b & 31))); }
+        \\function __sa_ashr(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648) return __sa_BI(BigInt.asIntN(64, BigInt(a)) >> (BigInt(b) & 63n)); return ((a >> (b & 31)) | 0); }
+        \\function __sa_bnot(a) { if (typeof a === "bigint" || a > 2147483647 || a < -2147483648) return __sa_BI(~BigInt(a)); return ((~a) | 0); }
         \\function __sa_eq(a, b) { return ((a == b) ? 1 : 0); }
         \\function __sa_ne(a, b) { return ((a != b) ? 1 : 0); }
-        \\function __sa_slt(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) < BigInt(b)) : ((a | 0) < (b | 0))) ? 1 : 0); }
-        \\function __sa_sle(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) <= BigInt(b)) : ((a | 0) <= (b | 0))) ? 1 : 0); }
-        \\function __sa_sgt(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) > BigInt(b)) : ((a | 0) > (b | 0))) ? 1 : 0); }
-        \\function __sa_sge(a, b) { return ((__sa_isBI(a, b) ? (BigInt(a) >= BigInt(b)) : ((a | 0) >= (b | 0))) ? 1 : 0); }
-        \\function __sa_ult(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) < __sa_BU(b)) : ((a >>> 0) < (b >>> 0))) ? 1 : 0); }
-        \\function __sa_ule(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) <= __sa_BU(b)) : ((a >>> 0) <= (b >>> 0))) ? 1 : 0); }
-        \\function __sa_ugt(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) > __sa_BU(b)) : ((a >>> 0) > (b >>> 0))) ? 1 : 0); }
-        \\function __sa_uge(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) >= __sa_BU(b)) : ((a >>> 0) >= (b >>> 0))) ? 1 : 0); }
+        \\function __sa_slt(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) < BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) < (b | 0)) ? 1 : 0); }
+        \\function __sa_sle(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) <= BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) <= (b | 0)) ? 1 : 0); }
+        \\function __sa_sgt(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) > BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) > (b | 0)) ? 1 : 0); }
+        \\function __sa_sge(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) >= BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) >= (b | 0)) ? 1 : 0); }
+        \\function __sa_ult(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) < __sa_BU(b)) ? 1 : 0); return (((a >>> 0) < (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ule(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) <= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) <= (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ugt(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) > __sa_BU(b)) ? 1 : 0); return (((a >>> 0) > (b >>> 0)) ? 1 : 0); }
+        \\function __sa_uge(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) >= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) >= (b >>> 0)) ? 1 : 0); }
         \\function __sa_fnum(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
         \\function __sa_fadd(a, b) { return (__sa_fnum(a) + __sa_fnum(b)); }
         \\function __sa_fsub(a, b) { return (__sa_fnum(a) - __sa_fnum(b)); }
@@ -1207,14 +1208,15 @@ fn resolveValueToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, us
         // precision above 2^53 and wrap 64-bit arithmetic at 32 bits.
         //
         // Exception: immediates whose magnitude already fits the 32-bit
-        // Number domain are emitted as plain digits. The runtime helpers
-        // dispatch on typeof, so `__sa_add(u64Value, 5)` still promotes 5 to
-        // BigInt whenever the other operand is a BigInt; but when the whole
-        // expression is 32-bit (the common loop case), keeping the literal as
-        // a Number avoids a megamorphic BigInt/Number mix and lets V8/JSC
-        // inline the arithmetic. Without this, every `i < 4096` saturated to
-        // the BigInt path (observed: __sa_ult/__sa_add/__sa_BU hot in V8 CPU
-        // profiles) and cost ~165x the engine's Number-domain floor.
+        // Number domain are emitted as plain digits. SOUNDNESS INVARIANT
+        // (interpreter computes all int ALU at 64 bits): every runtime int
+        // helper carries full 64-bit precision — add/sub are double-exact to
+        // 2^53 (no |0 truncation); mul/div/rem/shifts/bitwise/comparisons
+        // dynamically promote out-of-32-bit-range Number operands to the
+        // BigInt path; only provably-32-bit pairs take the fast path.
+        // Narrowing happens solely at explicit narrow points (stores, loads,
+        // cvt, comparisons coerce their inputs). 64-bit literals, extern
+        // BigInt returns, and u64 loads stay BigInt end to end.
         .imm_i64 => |v| if (v >= std.math.minInt(i32) and v <= std.math.maxInt(i32))
             try writer.print("{d}", .{v})
         else
@@ -2532,6 +2534,12 @@ fn isAllocatorShim(name: []const u8) bool {
 /// opposed to a trap stub). A same-module `@export` never shadows these.
 fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_print_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_mfill")) return true;
+    if (std.mem.eql(u8, name, "sa_mcopy")) return true;
+    if (std.mem.eql(u8, name, "sa_msum_u8")) return true;
+    if (std.mem.eql(u8, name, "sa_msum_u32")) return true;
+    if (std.mem.eql(u8, name, "sa_mwrite_u8")) return true;
+    if (std.mem.eql(u8, name, "sa_mfind_u32")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_i64_into")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_u64_into")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_bool_into")) return true;
@@ -3026,6 +3034,96 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  if (typeof globalThis.process !== "undefined" && globalThis.process.stdout) { globalThis.process.stdout.write(s); }
                 \\  else { globalThis.console.log(s); }
                 \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        // Fused bulk-memory shims: one host call executes a tight raw loop
+        // (or engine intrinsic) instead of N per-element helper dispatches.
+        // These are what let sa2js meet or beat per-call accessor benches
+        // (e.g. bun's buf.readUInt8-per-element): same engine, fewer calls.
+        if (std.mem.eql(u8, fsig.name, "sa_mfill")) {
+            try writer.writeAll(
+        \\function sa_mfill(ptr, len, byte) {
+        \\  const a = __sa_addr(ptr), n = __sa_num(len), b = __sa_num(byte) & 255;
+        \\  if (__sa_buf) __sa_buf.fill(b, a, a + n);
+        \\  else __sa_u8.subarray(a, a + n).fill(b);
+        \\  return 0;
+        \\}
+        \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_mcopy")) {
+            try writer.writeAll(
+                \\function sa_mcopy(dst, src, len) {
+                \\  const d = __sa_addr(dst), s = __sa_addr(src), n = __sa_num(len);
+                \\  if (__sa_buf) __sa_buf.copy(__sa_buf, d, s, s + n);
+                \\  else __sa_u8.copyWithin(d, s, s + n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_msum_u8")) {
+            try writer.writeAll(
+                \\function sa_msum_u8(ptr, len) {
+                \\  const a = __sa_addr(ptr), n = __sa_num(len), u8 = __sa_u8;
+                \\  let s = 0, i = 0;
+                \\  const h = Math.min(n, (4 - (a & 3)) & 3);
+                \\  for (; i < h; i++) s += u8[a + i];
+                \\  const w = new Uint32Array(__sa_memory, a + i, ((n - i) >> 2));
+                \\  for (let j = 0; j < w.length; j++) { const v = w[j]; s += (v & 255) + ((v >> 8) & 255) + ((v >> 16) & 255) + (v >>> 24); }
+                \\  i += w.length << 2;
+                \\  for (; i < n; i++) s += u8[a + i];
+                \\  return s;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_msum_u32")) {
+            try writer.writeAll(
+                \\function sa_msum_u32(ptr, len) {
+                \\  const a = __sa_addr(ptr), n = __sa_num(len);
+                \\  if ((a & 3) === 0) {
+                \\  const w = __sa_tu32, o = a >> 2, e = o + (n >> 2);
+                \\  let s = 0;
+                \\  for (let i = o; i < e; i++) s += w[i];
+                \\  return s > 4294967295 ? BigInt(s) : s;
+                \\  }
+                \\  const u = __sa_u8;
+                \\  let s = 0;
+                \\  for (let i = 0; i < n; i += 4) s += (((u[a + i] | (u[a + i + 1] << 8)) | (u[a + i + 2] << 16)) | (u[a + i + 3] << 24)) >>> 0;
+                \\  return s;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_mwrite_u8")) {
+            try writer.writeAll(
+                \\function sa_mwrite_u8(ptr, len) {
+                \\  const a = __sa_addr(ptr), n = __sa_num(len), w = __sa_u8.subarray(a, a + n);
+                \\  for (let i = 0; i < n; i++) w[i] = i & 255;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_mfind_u32")) {
+            try writer.writeAll(
+                \\function sa_mfind_u32(ptr, len, needle) {
+                \\  const a = __sa_addr(ptr), n = __sa_num(len), t = __sa_num(needle) >>> 0, u = __sa_u8;
+                \\  const b0 = t & 255, b1 = (t >> 8) & 255, b2 = (t >> 16) & 255, b3 = (t >>> 24) & 255;
+                \\  for (let i = 0; i < n; i++) {
+                \\    const o = a + (i << 2);
+                \\    if (u[o] === b0 && u[o + 1] === b1 && u[o + 2] === b2 && u[o + 3] === b3) return i;
+                \\  }
+                \\  return n;
                 \\}
                 \\
             );
