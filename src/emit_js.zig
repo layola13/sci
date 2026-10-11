@@ -485,9 +485,65 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\const __sa_tf32 = new Float32Array(__sa_memory);
         \\const __sa_tf64 = new Float64Array(__sa_memory);
         \\const __sa_tb64 = new BigInt64Array(__sa_memory);
+        \\const __sa_use_dv64 = (typeof globalThis.Bun !== "undefined"); // JSC BigInt typed arrays are slow; DataView is ~3x faster there
         \\let __sa_brk = 65536; // bump allocator starts after reserved zero page region
-        \\const __sa_live = new Set(); // live heap bases (user pointers handed out by __sa_alloc)
-        \\const __sa_fl = Object.create(null); // free-list buckets: aligned size -> stack of user pointers
+        \\const __sa_live = new Set(); // live BIG heap bases (>32B, user pointers handed out by __sa_alloc)
+        \\const __sa_fl = Object.create(null); // free-list buckets: aligned size -> stack of user pointers (big blocks only)
+        \\const __sa_SMALL_MAX = 32; // headerless slab classes: 8/16/24/32
+        \\const __sa_SLAB = 4096; // bytes per slab chunk carved from linear memory
+        \\const __sa_slab_by_page = new Map(); // (chunkBase >>> 12) -> slab record
+        \\const __sa_slab_by_class = { 8: [], 16: [], 24: [], 32: [] }; // per-class slab chunks
+        \\const __sa_slab_hint = { 8: null, 16: null, 24: null, 32: null }; // slab known to have a free slot
+        \\function __sa_slab_new(sc) {
+        \\  __sa_brk = (__sa_brk + (__sa_SLAB - 1)) & ~(__sa_SLAB - 1);
+        \\  const base = __sa_brk;
+        \\  __sa_brk += __sa_SLAB;
+        \\  if (__sa_brk >= __sa_memory.byteLength) __sa_trap("out of memory (slab)");
+        \\  __sa_u8.fill(0, base, base + __sa_SLAB);
+        \\  const count = (__sa_SLAB / sc) | 0;
+        \\  const slab = { base, sc, count, next: 0, free: new Int32Array(count), top: 0, live: new Uint8Array(count) };
+        \\  __sa_slab_by_page.set(base >>> 12, slab);
+        \\  __sa_slab_by_class[sc].push(slab);
+        \\  __sa_slab_hint[sc] = slab;
+        \\  return slab;
+        \\}
+        \\function __sa_slab_take(slab) {
+        \\  let idx;
+        \\  if (slab.top > 0) idx = slab.free[--slab.top];
+        \\  else idx = slab.next++;
+        \\  slab.live[idx] = 1;
+        \\  if (slab.top === 0 && slab.next >= slab.count && __sa_slab_hint[slab.sc] === slab) __sa_slab_hint[slab.sc] = null;
+        \\  const ptr = slab.base + idx * slab.sc;
+        \\  __sa_u8.fill(0, ptr, ptr + slab.sc);
+        \\  return ptr | 0;
+        \\}
+        \\function __sa_slab_alloc(sc) {
+        \\  let slab = __sa_slab_hint[sc];
+        \\  if (!slab || (slab.top === 0 && slab.next >= slab.count)) {
+        \\    const list = __sa_slab_by_class[sc];
+        \\    slab = null;
+        \\    for (let i = list.length - 1; i >= 0; i--) { const c = list[i]; if (c.top > 0 || c.next < c.count) { slab = c; break; } }
+        \\    if (!slab) slab = __sa_slab_new(sc);
+        \\    __sa_slab_hint[sc] = slab;
+        \\  }
+        \\  return __sa_slab_take(slab);
+        \\}
+        \\function __sa_slab_release(ptr) {
+        \\  // Recycle one live slab slot; foreign, misaligned, const or
+        \\  // already-free pointers report false (all stay silent no-ops).
+        \\  const p = __sa_addr(ptr);
+        \\  const slab = __sa_slab_by_page.get(p >>> 12);
+        \\  if (!slab) return false;
+        \\  const off = p - slab.base;
+        \\  const idx = (off / slab.sc) | 0;
+        \\  if (idx < 0 || idx >= slab.count || slab.base + idx * slab.sc !== p) return false;
+        \\  if (!slab.live[idx]) return false;
+        \\  slab.live[idx] = 0;
+        \\  slab.free[slab.top++] = idx;
+        \\  __sa_slab_hint[slab.sc] = slab;
+        \\  return true;
+        \\}
+        \\function __sa_mem_used() { return (__sa_brk - 65536) | 0; } // linear bytes consumed (slab metadata excluded)
         \\function __sa_trap(msg) { throw new Error("[sa-trap] " + msg); }
         \\function __sa_panic(code) { throw new Error("[sa-panic] code=" + code); }
         \\function __sa_truthy(v) { return !!v; }
@@ -502,6 +558,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
         \\function __sa_alloc(size) {
         \\  size = __sa_align((__sa_num(size) | 0), 8);
+        \\  if (size <= __sa_SMALL_MAX) return __sa_slab_alloc(size); // headerless, no live Set
         \\  const bucket = __sa_fl[size];
         \\  if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
         \\  const total = (size + 8); // 8-byte header holds the aligned user size
@@ -516,9 +573,11 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\}
         \\function __sa_free(ptr) {
         \\  // Mirrors the interpreter: only exact live heap bases are recycled.
-        \\  // BigInt pointers are normalized to 32-bit addresses first so
-        \\  // 64-bit-typed bases stay freeable; interior pointers, consts and
-        \\  // unknown addresses remain no-ops (never present in __sa_live).
+        \\  // Slab members (<=32B) recycle via bitset; big bases via the live
+        \\  // Set + header. BigInt pointers are normalized to 32-bit addresses
+        \\  // first so 64-bit-typed bases stay freeable; interior pointers,
+        \\  // consts and unknown addresses remain no-ops.
+        \\  if (__sa_slab_release(ptr)) return 0;
         \\  const p = __sa_addr(ptr);
         \\  if (!__sa_live.has(p)) return 0;
         \\  __sa_live.delete(p);
@@ -530,14 +589,18 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_salloc(size) {
         \\  // Function-scoped allocation: freed when the owning frame returns
         \\  // via __sa_sfree (mirrors stack-slot lifetime; the interpreter
-        \\  // never frees these mid-frame either). Shares the free-list pool
-        \\  // with __sa_alloc (every block keeps its 8-byte header) but never
-        \\  // touches __sa_live, so frame temporaries skip both Set add/delete
-        \\  // on the hot path. Returned blocks are recycled on frame pop.
+        \\  // never frees these mid-frame either). Small sizes ride the
+        \\  // headerless slab (no __sa_live); big sizes share the free-list
+        \\  // pool with __sa_alloc (every big block keeps its 8-byte header).
+        \\  // Either way the live Set is untouched, so frame temporaries skip
+        \\  // both Set add/delete on the hot path. Returned blocks are
+        \\  // recycled on frame pop.
         \\  size = __sa_align((__sa_num(size) | 0), 8);
         \\  if (!__sa_fstack.length) return __sa_alloc(size);
-        \\  const bucket = __sa_fl[size];
         \\  let ptr;
+        \\  if (size <= __sa_SMALL_MAX) { ptr = __sa_slab_alloc(size); }
+        \\  else {
+        \\  const bucket = __sa_fl[size];
         \\  if (bucket && bucket.length) { ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); }
         \\  else {
         \\    const base = __sa_brk;
@@ -547,12 +610,15 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\    __sa_view.setUint32(base, size, true);
         \\    ptr = (base + 8);
         \\  }
+        \\  }
         \\  __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
         \\  return ptr | 0;
         \\}
         \\function __sa_sfree(ptr) {
-        \\  // Frame-pop recycle for __sa_salloc blocks: header size is known,
-        \\  // no __sa_live membership test needed (salloc never registers).
+        \\  // Frame-pop recycle for __sa_salloc blocks: slab members via
+        \\  // bitset, big blocks via header size. No __sa_live membership
+        \\  // test needed (salloc never registers).
+        \\  if (__sa_slab_release(ptr)) return 0;
         \\  const p = __sa_addr(ptr);
         \\  const size = __sa_view.getUint32((p - 8), true);
         \\  (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
@@ -574,8 +640,8 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_store_u32(addr, v) { const a = __sa_addr(addr); const n = __sa_narrow(v, 32, false); if ((a & 3) === 0) __sa_tu32[a >> 2] = n; else __sa_view.setUint32(a, n, true); }
         \\function __sa_store_f32(addr, v) { const a = __sa_addr(addr); const n = +v; if ((a & 3) === 0) __sa_tf32[a >> 2] = n; else __sa_view.setFloat32(a, n, true); }
         \\function __sa_store_f64(addr, v) { const a = __sa_addr(addr); const n = +v; if ((a & 7) === 0) __sa_tf64[a >> 3] = n; else __sa_view.setFloat64(a, n, true); }
-        \\function __sa_load_i64(addr) { const a = __sa_addr(addr); return ((a & 7) === 0) ? __sa_tb64[a >> 3] : __sa_view.getBigInt64(a, true); }
-        \\function __sa_store_i64(addr, v) { const a = __sa_addr(addr); const n = BigInt.asIntN(64, BigInt(v)); if ((a & 7) === 0) __sa_tb64[a >> 3] = n; else __sa_view.setBigInt64(a, n, true); }
+        \\function __sa_load_i64(addr) { const a = __sa_addr(addr); if (__sa_use_dv64) return __sa_view.getBigInt64(a, true); return ((a & 7) === 0) ? __sa_tb64[a >> 3] : __sa_view.getBigInt64(a, true); }
+        \\function __sa_store_i64(addr, v) { const a = __sa_addr(addr); const n = BigInt.asIntN(64, BigInt(v)); if (__sa_use_dv64) { __sa_view.setBigInt64(a, n, true); return; } if ((a & 7) === 0) __sa_tb64[a >> 3] = n; else __sa_view.setBigInt64(a, n, true); }
         \\function __sa_load_ptr(addr) { return __sa_load_i64(addr); }
         \\function __sa_store_ptr(addr, v) { __sa_store_i64(addr, v); }
         \\function __sa_ptr_add(ptr, off) {
@@ -5276,7 +5342,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     }
     // exports + main runner
     if (js_opt.format == .cjs) {
-        try writer.writeAll("\nmodule.exports = { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc");
+        try writer.writeAll("\nmodule.exports = { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc, __sa_sfree, __sa_mem_used");
         for (tasks) |task| {
             if (task.kind == .extern_decl) continue;
             const fsig = verified.function_sigs[task.fsig_index];
@@ -5286,7 +5352,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try writer.writeAll(" };\n");
         if (has_main) try writer.writeAll("if (require.main === module) { main(); }\n");
     } else {
-        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc, __sa_sfree };\n");
+        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc, __sa_sfree, __sa_mem_used };\n");
         if (has_main) try writer.writeAll("if (typeof globalThis.process !== \"undefined\" && globalThis.process.argv && globalThis.process.argv[1] && /\\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }\n");
     }
     return out.toOwnedSlice();
