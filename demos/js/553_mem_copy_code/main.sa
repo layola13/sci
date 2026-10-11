@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"553\n"
+
+// 553 - Mem copy: i64 553 copies slot-to-slot with code 0.
+@main() -> i32:
+L_ENTRY:
+    src = alloc 8
+    dst = alloc 8
+    want = 553 as i64
+    store src+0, want as i64
+    tmp = load src+0 as i64
+    store dst+0, tmp as i64
+    got = load dst+0 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !src
+    !dst
+    !want
+    !tmp
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

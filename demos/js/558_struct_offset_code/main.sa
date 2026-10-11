@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"558\n"
+
+// 558 - Struct offsets: third field holds 558 with code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 24
+    store p+0, 0 as i64
+    store p+8, 1 as i64
+    want = 558 as i64
+    store p+16, want as i64
+    c0 = load p+0 as i64
+    c1 = load p+8 as i64
+    got = load p+16 as i64
+    ok0 = eq c0, 0
+    ok1 = eq c1, 1
+    ok2 = eq got, want
+    t0 = and ok0, ok1
+    ok = and t0, ok2
+    !p
+    !want
+    !c0
+    !c1
+    !got
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

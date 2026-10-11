@@ -1,0 +1,55 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"561\n"
+
+// 561 - Fallible chain: two ok steps (0,0), value 2.5 survives.
+@step(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    c0 = call @step(z)
+    c1 = call @step(c0)
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    v = fdiv five_f, two_f
+    ok0 = eq c0, 0
+    ok1 = eq c1, 0
+    ok2 = fcmp_eq v, expect
+    t0 = and ok0, ok1
+    ok = and t0, ok2
+    !z
+    !c0
+    !c1
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    !v
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
