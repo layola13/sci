@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"903\n"
+
+// 903 - Float avg3: (1.5 + 2.5 + 3.0) / 3 == 7/3 with code 0.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    seven = 7 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    seven_f = sitofp seven as f64
+    one_half = fdiv three_f, two_f
+    two_half = fdiv five_f, two_f
+    s0 = fadd one_half, two_half
+    s1 = fadd s0, three_f
+    mean = fdiv s1, three_f
+    expect = fdiv seven_f, three_f
+    ok_v = fcmp_eq mean, expect
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !three
+    !two_i
+    !five
+    !seven
+    !three_f
+    !two_f
+    !five_f
+    !seven_f
+    !one_half
+    !two_half
+    !s0
+    !s1
+    !mean
+    !expect
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

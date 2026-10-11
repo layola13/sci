@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"908\n"
+@const RD_VT = vtable { round = @round_fn }
+
+// 908 - Vtable round: 800 + 54 + 54 == 908 via two indirect calls.
+@round_fn(x: i64) -> i64:
+L_ENTRY:
+    k = 54 as i64
+    r = add x, k
+    !x
+    !k
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &RD_VT
+    fp = load t + 0 as ptr
+    v0 = 800 as i64
+    v1 = call_indirect fp(v0)
+    v = call_indirect fp(v1)
+    want = 908 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v1
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
