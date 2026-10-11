@@ -1,0 +1,47 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"809\n"
+@const SHL_VT = vtable { invoke = @shl_fn }
+
+// 809 - Callback shl-by-add: 809 doublings halved back == 809.
+@shl_fn(x: i64) -> i64:
+L_ENTRY:
+    d = add x, x
+    two = 2 as i64
+    h = sub d, x
+    h2 = sub h, x
+    back = add h2, x
+    !x
+    !d
+    !two
+    !h
+    !h2
+    return back
+
+@main() -> i32:
+L_ENTRY:
+    t = &SHL_VT
+    fp = load t + 0 as ptr
+    v0 = 809 as i64
+    v = call_indirect fp(v0)
+    want = 809 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

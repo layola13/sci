@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"806\n"
+
+// 806 - Wrap sub: 800 - 6 + 12 == 806 via slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 24
+    store p+0, 800 as i64
+    store p+8, 6 as i64
+    store p+16, 12 as i64
+    a = load p+0 as i64
+    b = load p+8 as i64
+    c = load p+16 as i64
+    d = sub a, b
+    got = add d, c
+    want = 806 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p
+    !a
+    !b
+    !c
+    !d
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

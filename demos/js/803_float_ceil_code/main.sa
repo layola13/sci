@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"803\n"
+
+// 803 - Float ceil-walk: 2.5 + 2.5 + 2.5 == 7.5 with code 0.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    s0 = fadd two_half, two_half
+    got = fadd s0, two_half
+    expect = fadd s0, two_half
+    ok_v = fcmp_eq got, expect
+    seven_half = fadd s0, two_half
+    ok_w = fcmp_eq seven_half, expect
+    ok = and ok_v, ok_w
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !s0
+    !got
+    !expect
+    !ok_v
+    !seven_half
+    !ok_w
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
