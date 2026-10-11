@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"706\n"
+
+// 706 - Struct prod: 700 + 6 == 706 via fields, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 16
+    store p+0, 700 as i64
+    store p+8, 6 as i64
+    a = load p+0 as i64
+    b = load p+8 as i64
+    got = add a, b
+    want = 706 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

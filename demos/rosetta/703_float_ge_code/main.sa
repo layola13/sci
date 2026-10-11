@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"703\n"
+
+// 703 - Float ge: 2.5 >= 2.5 via (gt or eq) with code 0.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    a = fdiv five_f, two_f
+    b = fdiv five_f, two_f
+    gt = fcmp_gt a, b
+    eqf = fcmp_eq a, b
+    ge = or gt, eqf
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ge, ok_c
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !a
+    !b
+    !gt
+    !eqf
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

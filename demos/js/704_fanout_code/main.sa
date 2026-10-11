@@ -1,0 +1,58 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"704\n"
+
+// 704 - Fan-out 8 leaves of 88 sum == 704.
+@leaf88() -> i64:
+L_ENTRY:
+    return 88
+
+@main() -> i32:
+L_ENTRY:
+    a = call @leaf88()
+    b = call @leaf88()
+    c = call @leaf88()
+    d = call @leaf88()
+    e = call @leaf88()
+    f = call @leaf88()
+    g = call @leaf88()
+    h = call @leaf88()
+    ab = add a, b
+    cd = add c, d
+    ef = add e, f
+    gh = add g, h
+    s0 = add ab, cd
+    s1 = add ef, gh
+    got = add s0, s1
+    want = 704 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !g
+    !h
+    !ab
+    !cd
+    !ef
+    !gh
+    !s0
+    !s1
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
