@@ -1,0 +1,59 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"859\n"
+@const NOR_VT = vtable { invoke = @nor_fn }
+
+// 859 - Callback nor: (0,0) yields 859 through indirect call.
+@nor_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    za = eq a, 0
+    zb = eq b, 0
+    either = or za, zb
+    both0 = and za, zb
+    br both0 -> L_HIT, L_MISS
+L_HIT:
+    !a
+    !b
+    !za
+    !zb
+    !either
+    !both0
+    return 859
+L_MISS:
+    !a
+    !b
+    !za
+    !zb
+    !either
+    !both0
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &NOR_VT
+    fp = load t + 0 as ptr
+    x = 0 as i64
+    y = 0 as i64
+    v = call_indirect fp(x, y)
+    want = 859 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
