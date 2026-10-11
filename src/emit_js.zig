@@ -2591,6 +2591,7 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_mfind_u32")) return true;
     if (std.mem.eql(u8, name, "sa_b64dec")) return true;
     if (std.mem.eql(u8, name, "sa_hexdec")) return true;
+    if (std.mem.eql(u8, name, "sa_esc_html")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_i64_into")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_u64_into")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_bool_into")) return true;
@@ -3204,6 +3205,30 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  const b = globalThis.Buffer.from(new globalThis.TextDecoder().decode(__sa_u8.subarray(a, a + n)), "hex");
                 \\  __sa_u8.set(b, o);
                 \\  return b.length;
+                \\}
+                \\
+            );
+            return;
+        }
+        // Fused HTML escape: single call, tight branchy loop. No host
+        // intrinsic exists on both runtimes (Bun.escapeHTML is bun-only),
+        // so this is a raw JS loop — still ~100x fewer dispatches than the
+        // per-element SA form (6 br + stores per byte).
+        if (std.mem.eql(u8, fsig.name, "sa_esc_html")) {
+            try writer.writeAll(
+                \\function sa_esc_html(in_ptr, in_len, out_ptr) {
+                \\  const a = __sa_addr(in_ptr), n = __sa_num(in_len), o = __sa_addr(out_ptr), u = __sa_u8;
+                \\  let w = o;
+                \\  for (let i = 0; i < n; i++) {
+                \\    const c = u[a + i];
+                \\    if (c === 60) { u[w] = 38; u[w + 1] = 108; u[w + 2] = 116; u[w + 3] = 59; w += 4; }
+                \\    else if (c === 62) { u[w] = 38; u[w + 1] = 103; u[w + 2] = 116; u[w + 3] = 59; w += 4; }
+                \\    else if (c === 38) { u[w] = 38; u[w + 1] = 97; u[w + 2] = 109; u[w + 3] = 112; u[w + 4] = 59; w += 5; }
+                \\    else if (c === 34) { u[w] = 38; u[w + 1] = 113; u[w + 2] = 117; u[w + 3] = 111; u[w + 4] = 116; u[w + 5] = 59; w += 6; }
+                \\    else if (c === 39) { u[w] = 38; u[w + 1] = 35; u[w + 2] = 51; u[w + 3] = 57; u[w + 4] = 59; w += 5; }
+                \\    else { u[w] = c; w += 1; }
+                \\  }
+                \\  return w - o;
                 \\}
                 \\
             );
