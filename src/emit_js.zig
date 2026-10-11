@@ -791,6 +791,82 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\    __sa_divfloor(__sa_modfloor(dm, 60000n), 1000n),
         \\    __sa_modfloor(dm, 1000n), days];
         \\}
+        \\const __sa_buffers = new Map();
+        \\let __sa_bufnext = 1;
+        \\function __sa_buf_open(bytes) {
+        \\  // Owned byte buffer (mirrors openOwnedBuffer): handle is a u64.
+        \\  const h = __sa_bufnext++;
+        \\  __sa_buffers.set(h, bytes.slice());
+        \\  return BigInt(h);
+        \\}
+        \\function __sa_buf_get(handle) {
+        \\  const b = __sa_buffers.get(__sa_num(handle));
+        \\  return (b !== undefined) ? b : null;
+        \\}
+        \\function __sa_mem_bytes(ptr, len) {
+        \\  // Copy of a linear-memory range as Uint8Array.
+        \\  const a = __sa_addr(ptr);
+        \\  let n = __sa_num(len);
+        \\  if (!(n > 0)) return new Uint8Array(0);
+        \\  if (a < 0) return new Uint8Array(0);
+        \\  return __sa_u8.slice(a, a + n);
+        \\}
+        \\function __sa_utf8_dec(bytes, idx) {
+        \\  // Strict UTF-8 scalar decode (mirrors utf8ScalarAt): returns
+        \\  // [scalar, width] or null (overlongs/surrogates rejected).
+        \\  if (idx >= bytes.length) return null;
+        \\  const b0 = bytes[idx];
+        \\  if (b0 < 0x80) return [b0, 1];
+        \\  let w = 0;
+        \\  if (b0 >= 0xc2 && b0 <= 0xdf) w = 2;
+        \\  else if (b0 >= 0xe0 && b0 <= 0xef) w = 3;
+        \\  else if (b0 >= 0xf0 && b0 <= 0xf4) w = 4;
+        \\  else return null;
+        \\  if (idx + w > bytes.length) return null;
+        \\  const b1 = bytes[idx + 1];
+        \\  if (b1 < 0x80 || b1 > 0xbf) return null;
+        \\  if (w === 2) return [((b0 & 0x1f) << 6) | (b1 & 0x3f), 2];
+        \\  const b2 = bytes[idx + 2];
+        \\  if (b2 < 0x80 || b2 > 0xbf) return null;
+        \\  if (w === 3) {
+        \\    if (b0 === 0xe0 && b1 < 0xa0) return null;
+        \\    if (b0 === 0xed && b1 >= 0xa0) return null;
+        \\    return [((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f), 3];
+        \\  }
+        \\  const b3 = bytes[idx + 3];
+        \\  if (b3 < 0x80 || b3 > 0xbf) return null;
+        \\  if (b0 === 0xf0 && b1 < 0x90) return null;
+        \\  if (b0 === 0xf4 && b1 >= 0x90) return null;
+        \\  return [((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f), 4];
+        \\}
+        \\function __sa_is_ws(b) { return b === 32 || b === 9 || b === 10 || b === 13 || b === 11 || b === 12; }
+        \\function __sa_fmt_f64_str(v, prec) {
+        \\  // Zig std.fmt.formatFloat decimal mode with precision p (mirrors
+        \\  // sa_fmt_f64_into). Returns the text or null on invalid precision.
+        \\  const p = __sa_num(prec);
+        \\  if (!Number.isInteger(p) || p < 0 || p > 100) return null;
+        \\  const x = +v;
+        \\  if (Number.isNaN(x)) return "nan";
+        \\  if (x === Infinity) return "inf";
+        \\  if (x === -Infinity) return "-inf";
+        \\  const neg = (x < 0) || (x === 0 && (1 / x) === -Infinity);
+        \\  const a = Math.abs(x);
+        \\  let s;
+        \\  if (a >= 1e21) {
+        \\    // Plain decimal notation (Zig never exponentiates); doubles this
+        \\    // large are integral so the fraction is all zeros.
+        \\    const e = a.toString();
+        \\    const m = /^(\\d)(?:\\.(\\d+))?e\\+(\\d+)$/.exec(e);
+        \\    if (!m) return (neg ? "-" : "") + e;
+        \\    const exp = parseInt(m[3], 10);
+        \\    let digits = m[1] + (m[2] || "");
+        \\    while (digits.length < exp + 1) digits += "0";
+        \\    s = digits.slice(0, exp + 1) + "." + "0".repeat(p);
+        \\  } else {
+        \\    s = a.toFixed(p);
+        \\  }
+        \\  return (neg ? "-" : "") + s;
+        \\}
         \\// ---- end runtime ----
         \\
     );
@@ -1166,7 +1242,12 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
                     _ = widths.remove(dst);
                     return;
                 }
-                if (packWidth(tagToPrim(base.operands[2].ty))) |w| {
+                // Mirrors the emitter: bare sitofp/uitofp default to f64.
+                var tgt = tagToPrim(base.operands[2].ty);
+                if ((opcode == .sitofp or opcode == .uitofp) and tgt != .f32 and tgt != .f64) {
+                    tgt = .f64;
+                }
+                if (packWidth(tgt)) |w| {
                     widths.put(dst, w) catch return;
                 } else {
                     _ = widths.remove(dst);
@@ -1740,8 +1821,17 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             const opcode = base.op_kind orelse return JsEmitError.InvalidOperand;
             if (inst.isTypeConversionOpKind(opcode)) {
                 if (base.operands[2] != .ty) return JsEmitError.InvalidOperand;
+                // Tsgosa emits bare `sitofp X` / `uitofp X` (Number()
+                // conversions) without `as f64`; the flattener defaults the
+                // target to i32, which no float conversion accepts. Native
+                // coerces to f64 at the consuming call site, so default the
+                // target to f64 here for identical observable behavior.
+                var tgt = tagToPrim(base.operands[2].ty);
+                if ((opcode == .sitofp or opcode == .uitofp) and tgt != .f32 and tgt != .f64) {
+                    tgt = .f64;
+                }
                 try writer.print("  r{d} = ", .{slot});
-                try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, tagToPrim(base.operands[2].ty), base.operands[1], widths);
+                try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, tgt, base.operands[1], widths);
                 try writer.writeAll(";\n");
                 return;
             }
@@ -2152,6 +2242,41 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_time_get_seconds")) return true;
     if (std.mem.eql(u8, name, "sa_time_get_milliseconds")) return true;
     if (std.mem.eql(u8, name, "sa_time_get_day")) return true;
+    if (std.mem.eql(u8, name, "sa_time_parse_iso")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_u64")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_f64_into")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_string_concat")) return true;
+    if (std.mem.eql(u8, name, "sa_string_from_char_code")) return true;
+    if (std.mem.eql(u8, name, "sa_string_index_of")) return true;
+    if (std.mem.eql(u8, name, "sa_string_last_index_of")) return true;
+    if (std.mem.eql(u8, name, "sa_string_starts_with")) return true;
+    if (std.mem.eql(u8, name, "sa_string_ends_with")) return true;
+    if (std.mem.eql(u8, name, "sa_string_to_lower_ascii")) return true;
+    if (std.mem.eql(u8, name, "sa_string_to_upper_ascii")) return true;
+    if (std.mem.eql(u8, name, "sa_parse_float")) return true;
+    if (std.mem.eql(u8, name, "sa_string_repeat")) return true;
+    if (std.mem.eql(u8, name, "sa_string_pad_start")) return true;
+    if (std.mem.eql(u8, name, "sa_string_pad_end")) return true;
+    if (std.mem.eql(u8, name, "sa_string_replace")) return true;
+    if (std.mem.eql(u8, name, "sa_string_code_point_at")) return true;
+    if (std.mem.eql(u8, name, "sa_string_from_code_point")) return true;
+    if (std.mem.eql(u8, name, "sa_str_is_ascii")) return true;
+    if (std.mem.eql(u8, name, "sa_str_eq_ignore_ascii_case")) return true;
+    if (std.mem.eql(u8, name, "sa_str_trim_ascii_start_index")) return true;
+    if (std.mem.eql(u8, name, "sa_str_trim_ascii_end_len")) return true;
+    if (std.mem.eql(u8, name, "sa_str_utf8_char_count")) return true;
+    if (std.mem.eql(u8, name, "sa_str_utf8_validate")) return true;
+    if (std.mem.eql(u8, name, "sa_str_utf8_char_at")) return true;
+    if (std.mem.eql(u8, name, "sa_str_utf8_char_at_byte")) return true;
+    if (std.mem.eql(u8, name, "sa_str_utf8_lossy_next")) return true;
+    if (std.mem.eql(u8, name, "sa_str_utf8_char_range_at")) return true;
     if (std.mem.eql(u8, name, "fd_open")) return true;
     if (std.mem.eql(u8, name, "fd_close")) return true;
     if (std.mem.eql(u8, name, "fd_read")) return true;
@@ -2679,6 +2804,603 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         }
         if (std.mem.eql(u8, fsig.name, "sa_time_get_day")) {
             try writer.writeAll("function sa_time_get_day(ms) { const d = __sa_civil(ms)[7]; return __sa_modfloor(d + 4n, 7n); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_day")) {
+            try writer.writeAll("function sa_time_get_day(ms) { const d = __sa_civil(ms)[7]; return __sa_modfloor(d + 4n, 7n); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_parse_iso")) {
+            try writer.writeAll(
+                \\function sa_time_parse_iso(iso_ptr, iso_len, out_ms) {
+                \\  __sa_store_i64(out_ms, 0n);
+                \\  const bytes = __sa_mem_bytes(iso_ptr, iso_len);
+                \\  let p = 0;
+                \\  const digits = (n) => {
+                \\    if (p + n > bytes.length) return null;
+                \\    let v = 0n;
+                \\    for (let i = 0; i < n; i++) {
+                \\      const c = bytes[p + i];
+                \\      if (c < 48 || c > 57) return null;
+                \\      v = v * 10n + BigInt(c - 48);
+                \\    }
+                \\    p += n;
+                \\    return v;
+                \\  };
+                \\  const year = digits(4); if (year === null) return 1;
+                \\  if (p >= bytes.length || bytes[p] !== 45) return 1; p += 1;
+                \\  const month = digits(2); if (month === null) return 1;
+                \\  if (p >= bytes.length || bytes[p] !== 45) return 1; p += 1;
+                \\  const day = digits(2); if (day === null) return 1;
+                \\  let hour = 0n, minute = 0n, second = 0n, milli = 0n;
+                \\  if (p < bytes.length) {
+                \\    const t = bytes[p];
+                \\    if (t !== 84 && t !== 116 && t !== 32) return 1; p += 1;
+                \\    hour = digits(2); if (hour === null) return 1;
+                \\    if (p >= bytes.length || bytes[p] !== 58) return 1; p += 1;
+                \\    minute = digits(2); if (minute === null) return 1;
+                \\    if (p >= bytes.length || bytes[p] !== 58) return 1; p += 1;
+                \\    second = digits(2); if (second === null) return 1;
+                \\    if (p < bytes.length && bytes[p] === 46) {
+                \\      p += 1;
+                \\      const fs = p;
+                \\      while (p < bytes.length && bytes[p] >= 48 && bytes[p] <= 57) p += 1;
+                \\      const fl = p - fs;
+                \\      if (fl === 0 || fl > 3) return 1;
+                \\      let f = 0n;
+                \\      for (let i = fs; i < p; i++) f = f * 10n + BigInt(bytes[i] - 48);
+                \\      milli = fl === 1 ? f * 100n : fl === 2 ? f * 10n : f;
+                \\    }
+                \\  }
+                \\  let off = 0n;
+                \\  if (p < bytes.length) {
+                \\    const z = bytes[p];
+                \\    if (z === 90 || z === 122) { p += 1; }
+                \\    else if (z === 43 || z === 45) {
+                \\      const neg = z === 45; p += 1;
+                \\      const oh = digits(2); if (oh === null) return 1;
+                \\      if (p >= bytes.length || bytes[p] !== 58) return 1; p += 1;
+                \\      const om = digits(2); if (om === null) return 1;
+                \\      if (oh > 23n || om > 59n) return 1;
+                \\      off = oh * 60n + om;
+                \\      if (neg) off = -off;
+                \\    } else return 1;
+                \\  }
+                \\  if (p !== bytes.length) return 1;
+                \\  if (month < 1n || month > 12n) return 1;
+                \\  const leap = __sa_modfloor(year, 4n) === 0n && (__sa_modfloor(year, 100n) !== 0n || __sa_modfloor(year, 400n) === 0n);
+                \\  const dim = (month === 1n || month === 3n || month === 5n || month === 7n || month === 8n || month === 10n || month === 12n) ? 31n
+                \\    : (month === 4n || month === 6n || month === 9n || month === 11n) ? 30n : (leap ? 29n : 28n);
+                \\  if (day < 1n || day > dim) return 1;
+                \\  if (hour > 23n || minute > 59n || second > 59n) return 1;
+                \\  const y = month <= 2n ? year - 1n : year;
+                \\  const era = y >= 0n ? __sa_divfloor(y, 400n) : __sa_divfloor(y - 399n, 400n);
+                \\  const yoe = y - era * 400n;
+                \\  const mp = __sa_modfloor(month - 3n, 12n);
+                \\  const doy = __sa_divfloor(153n * mp + 2n, 5n) + day - 1n;
+                \\  const doe = yoe * 365n + __sa_divfloor(yoe, 4n) - __sa_divfloor(yoe, 100n) + doy;
+                \\  const days = era * 146097n + doe - 719468n;
+                \\  __sa_store_i64(out_ms, ((days * 86400n + hour * 3600n + minute * 60n + second) * 1000n + milli) - off * 60000n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        // Owned-buffer handles (mirror openOwnedBuffer + sa_fmt_buffer_*):
+        // data is materialized into linear memory on read so handles stay
+        // valid across frees (ts_arr_join_append read-back pattern).
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_fmt_buffer_data(handle) {
+                \\  const b = __sa_buf_get(handle);
+                \\  if (b === null) return 0;
+                \\  const p = __sa_alloc(b.length);
+                \\  __sa_u8.set(b, p);
+                \\  return p;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_fmt_buffer_len(handle) {
+                \\  const b = __sa_buf_get(handle);
+                \\  return b === null ? 0n : BigInt(b.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_fmt_buffer_free(handle) { __sa_buffers.delete(__sa_num(handle)); return 0; }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_f64_into")) {
+            try writer.writeAll(
+                \\function sa_fmt_f64_into(value, precision, out, out_cap, out_len) {
+                \\  const text = __sa_fmt_f64_str(value, precision);
+                \\  if (text === null) return 1;
+                \\  const n = text.length;
+                \\  __sa_store_i64(out_len, n);
+                \\  const cap = __sa_num(out_cap);
+                \\  if (cap === 0) return 0;
+                \\  if (cap < n) return 9;
+                \\  const a = __sa_addr(out);
+                \\  for (let i = 0; i < n; i++) __sa_u8[a + i] = text.charCodeAt(i);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_i64")) {
+            try writer.writeAll(
+                \\function sa_fmt_i64(value, base) {
+                \\  const b = __sa_num(base);
+                \\  const v = BigInt.asIntN(64, BigInt(value));
+                \\  let text = null;
+                \\  if (b === 2 || b === 8 || b === 10) text = v.toString(b);
+                \\  else if (b === 16) text = v.toString(16);
+                \\  else if (b === 17) text = v.toString(16).toUpperCase();
+                \\  if (text === null) return 0n;
+                \\  return __sa_buf_open(new globalThis.TextEncoder().encode(text));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_u64")) {
+            try writer.writeAll(
+                \\function sa_fmt_u64(value, base) {
+                \\  const b = __sa_num(base);
+                \\  const v = BigInt.asUintN(64, BigInt(value));
+                \\  let text = null;
+                \\  if (b === 2 || b === 8 || b === 10) text = v.toString(b);
+                \\  else if (b === 16) text = v.toString(16);
+                \\  else if (b === 17) text = v.toString(16).toUpperCase();
+                \\  if (text === null) return 0n;
+                \\  return __sa_buf_open(new globalThis.TextEncoder().encode(text));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_f64")) {
+            try writer.writeAll(
+                \\function sa_fmt_f64(value, precision) {
+                \\  const text = __sa_fmt_f64_str(value, precision);
+                \\  if (text === null) return 0n;
+                \\  return __sa_buf_open(new globalThis.TextEncoder().encode(text));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_bool")) {
+            try writer.writeAll(
+                \\function sa_fmt_bool(value) {
+                \\  return __sa_buf_open(new globalThis.TextEncoder().encode(__sa_num(value) ? "true" : "false"));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_bytes")) {
+            try writer.writeAll(
+                \\function sa_fmt_bytes(buf, len) { return __sa_buf_open(__sa_mem_bytes(buf, len)); }
+                \\
+            );
+            return;
+        }
+        // Byte-oriented string ops (mirror sa_string_* in sa_std.zig).
+        if (std.mem.eql(u8, fsig.name, "sa_string_concat")) {
+            try writer.writeAll(
+                \\function sa_string_concat(left, left_len, right, right_len) {
+                \\  const l = __sa_mem_bytes(left, left_len), r = __sa_mem_bytes(right, right_len);
+                \\  const out = new Uint8Array(l.length + r.length);
+                \\  out.set(l, 0); out.set(r, l.length);
+                \\  return __sa_buf_open(out);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_from_char_code")) {
+            try writer.writeAll(
+                \\function sa_string_from_char_code(code) { return __sa_buf_open(new Uint8Array([__sa_num(code) & 0xff])); }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_index_of")) {
+            try writer.writeAll(
+                \\function sa_string_index_of(hay_ptr, hay_len, ndl_ptr, ndl_len, from) {
+                \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len);
+                \\  const start = Math.min(__sa_num(from), hay.length);
+                \\  if (ndl.length === 0) return Math.min(start, hay.length);
+                \\  if (ndl.length > hay.length) return -1;
+                \\  outer: for (let i = start; i + ndl.length <= hay.length; i++) {
+                \\    for (let j = 0; j < ndl.length; j++) if (hay[i + j] !== ndl[j]) continue outer;
+                \\    return i;
+                \\  }
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_last_index_of")) {
+            try writer.writeAll(
+                \\function sa_string_last_index_of(hay_ptr, hay_len, ndl_ptr, ndl_len, from) {
+                \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len);
+                \\  const start = Math.min(__sa_num(from), hay.length);
+                \\  if (ndl.length === 0) return Math.min(start, hay.length);
+                \\  if (ndl.length > hay.length) return -1;
+                \\  outer: for (let i = Math.min(start, hay.length - ndl.length); ; i--) {
+                \\    let ok = true;
+                \\    for (let j = 0; j < ndl.length; j++) if (hay[i + j] !== ndl[j]) { ok = false; break; }
+                \\    if (ok) return i;
+                \\    if (i === 0) break;
+                \\  }
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_starts_with")) {
+            try writer.writeAll(
+                \\function sa_string_starts_with(hay_ptr, hay_len, ndl_ptr, ndl_len) {
+                \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len);
+                \\  if (ndl.length > hay.length) return 0;
+                \\  for (let j = 0; j < ndl.length; j++) if (hay[j] !== ndl[j]) return 0;
+                \\  return 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_ends_with")) {
+            try writer.writeAll(
+                \\function sa_string_ends_with(hay_ptr, hay_len, ndl_ptr, ndl_len) {
+                \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len);
+                \\  if (ndl.length > hay.length) return 0;
+                \\  const o = hay.length - ndl.length;
+                \\  for (let j = 0; j < ndl.length; j++) if (hay[o + j] !== ndl[j]) return 0;
+                \\  return 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_to_lower_ascii")) {
+            try writer.writeAll(
+                \\function sa_string_to_lower_ascii(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  for (let i = 0; i < b.length; i++) if (b[i] >= 65 && b[i] <= 90) b[i] += 32;
+                \\  return __sa_buf_open(b);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_to_upper_ascii")) {
+            try writer.writeAll(
+                \\function sa_string_to_upper_ascii(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  for (let i = 0; i < b.length; i++) if (b[i] >= 97 && b[i] <= 122) b[i] -= 32;
+                \\  return __sa_buf_open(b);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_parse_float")) {
+            try writer.writeAll(
+                \\function sa_parse_float(ptr, len) {
+                \\  const bytes = __sa_mem_bytes(ptr, len);
+                \\  let i = 0;
+                \\  while (i < bytes.length && __sa_is_ws(bytes[i])) i++;
+                \\  let neg = false;
+                \\  if (i < bytes.length && (bytes[i] === 43 || bytes[i] === 45)) { neg = bytes[i] === 45; i++; }
+                \\  const rest = bytes.slice(i);
+                \\  const rs = (t) => String.fromCharCode.apply(null, t);
+                \\  if (rest.length >= 8 && rs(rest.slice(0, 8)) === "Infinity") return neg ? -Infinity : Infinity;
+                \\  if (rest.length >= 3 && rs(rest.slice(0, 3)) === "NaN") return NaN;
+                \\  let j = 0;
+                \\  while (j < rest.length && rest[j] >= 48 && rest[j] <= 57) j++;
+                \\  const ints = j;
+                \\  if (j < rest.length && rest[j] === 46) {
+                \\    j++;
+                \\    while (j < rest.length && rest[j] >= 48 && rest[j] <= 57) j++;
+                \\  }
+                \\  const fracs = j - ints - ((j > ints && rest[ints] === 46) ? 1 : 0);
+                \\  if (ints === 0 && fracs === 0) return NaN;
+                \\  let k = j;
+                \\  if (k < rest.length && (rest[k] === 101 || rest[k] === 69)) {
+                \\    let m = k + 1;
+                \\    if (m < rest.length && (rest[m] === 43 || rest[m] === 45)) m++;
+                \\    const es = m;
+                \\    while (m < rest.length && rest[m] >= 48 && rest[m] <= 57) m++;
+                \\    if (m > es) k = m;
+                \\  }
+                \\  const num = parseFloat(rs(rest.slice(0, k)));
+                \\  if (Number.isNaN(num)) return NaN;
+                \\  if (!Number.isFinite(num)) return neg ? -Infinity : Infinity;
+                \\  return neg ? -num : num;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_repeat")) {
+            try writer.writeAll(
+                \\function sa_string_repeat(ptr, len, count) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  const n = __sa_num(count);
+                \\  if (n === 0 || b.length === 0) return __sa_buf_open(new Uint8Array(0));
+                \\  const out = new Uint8Array(b.length * n);
+                \\  for (let i = 0; i < n; i++) out.set(b, i * b.length);
+                \\  return __sa_buf_open(out);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_pad_start")) {
+            try writer.writeAll(
+                \\function sa_string_pad_start(ptr, len, target_len, pad_ptr, pad_len) {
+                \\  const b = __sa_mem_bytes(ptr, len), pad = __sa_mem_bytes(pad_ptr, pad_len);
+                \\  const t = __sa_num(target_len);
+                \\  if (t <= b.length || pad.length === 0) return __sa_buf_open(b);
+                \\  const out = new Uint8Array(t);
+                \\  const fill = t - b.length;
+                \\  for (let i = 0; i < fill; i++) out[i] = pad[i % pad.length];
+                \\  out.set(b, fill);
+                \\  return __sa_buf_open(out);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_pad_end")) {
+            try writer.writeAll(
+                \\function sa_string_pad_end(ptr, len, target_len, pad_ptr, pad_len) {
+                \\  const b = __sa_mem_bytes(ptr, len), pad = __sa_mem_bytes(pad_ptr, pad_len);
+                \\  const t = __sa_num(target_len);
+                \\  if (t <= b.length || pad.length === 0) return __sa_buf_open(b);
+                \\  const out = new Uint8Array(t);
+                \\  out.set(b, 0);
+                \\  for (let i = b.length; i < t; i++) out[i] = pad[(i - b.length) % pad.length];
+                \\  return __sa_buf_open(out);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_replace")) {
+            try writer.writeAll(
+                \\function sa_string_replace(hay_ptr, hay_len, ndl_ptr, ndl_len, rep_ptr, rep_len, all) {
+                \\  const hay = __sa_mem_bytes(hay_ptr, hay_len), ndl = __sa_mem_bytes(ndl_ptr, ndl_len), rep = __sa_mem_bytes(rep_ptr, rep_len);
+                \\  const want_all = __sa_num(all) !== 0;
+                \\  const at = (i) => { for (let j = 0; j < ndl.length; j++) if (hay[i + j] !== ndl[j]) return false; return true; };
+                \\  if (ndl.length === 0) {
+                \\    if (!want_all) { const o = new Uint8Array(rep.length + hay.length); o.set(rep, 0); o.set(hay, rep.length); return __sa_buf_open(o); }
+                \\    const o = new Uint8Array(hay.length + rep.length * (hay.length + 1));
+                \\    let w = 0;
+                \\    for (let i = 0; i < hay.length; i++) { o.set(rep, w); w += rep.length; o[w++] = hay[i]; }
+                \\    o.set(rep, w); w += rep.length;
+                \\    return __sa_buf_open(o.slice(0, w));
+                \\  }
+                \\  if (ndl.length > hay.length) return __sa_buf_open(hay);
+                \\  const starts = [];
+                \\  if (!want_all) { for (let i = 0; i + ndl.length <= hay.length; i++) if (at(i)) { starts.push(i); break; } }
+                \\  else { for (let i = 0; i + ndl.length <= hay.length;) if (at(i)) { starts.push(i); i += ndl.length; } else i++; }
+                \\  if (starts.length === 0) return __sa_buf_open(hay);
+                \\  let total = hay.length;
+                \\  for (const s of starts) total += rep.length - ndl.length;
+                \\  const o = new Uint8Array(total);
+                \\  let w = 0, s = 0;
+                \\  for (const m of starts) {
+                \\    o.set(hay.slice(s, m), w); w += m - s;
+                \\    o.set(rep, w); w += rep.length;
+                \\    s = m + ndl.length;
+                \\  }
+                \\  o.set(hay.slice(s), w);
+                \\  return __sa_buf_open(o);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_code_point_at")) {
+            try writer.writeAll(
+                \\function sa_string_code_point_at(ptr, len, idx) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  const i = __sa_num(idx);
+                \\  if (i < 0 || i >= b.length) return -1;
+                \\  return b[i];
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_string_from_code_point")) {
+            try writer.writeAll(
+                \\function sa_string_from_code_point(code) {
+                \\  let cp = __sa_num(code);
+                \\  if (cp < 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) cp = 0xfffd;
+                \\  return __sa_buf_open(new globalThis.TextEncoder().encode(String.fromCodePoint(cp)));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_is_ascii")) {
+            try writer.writeAll(
+                \\function sa_str_is_ascii(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  for (let i = 0; i < b.length; i++) if (b[i] > 0x7f) return 0;
+                \\  return 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_eq_ignore_ascii_case")) {
+            try writer.writeAll(
+                \\function sa_str_eq_ignore_ascii_case(left_ptr, left_len, right_ptr, right_len) {
+                \\  const l = __sa_mem_bytes(left_ptr, left_len), r = __sa_mem_bytes(right_ptr, right_len);
+                \\  if (l.length !== r.length) return 0;
+                \\  const f = (c) => (c >= 65 && c <= 90) ? c + 32 : c;
+                \\  for (let i = 0; i < l.length; i++) if (f(l[i]) !== f(r[i])) return 0;
+                \\  return 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_trim_ascii_start_index")) {
+            try writer.writeAll(
+                \\function sa_str_trim_ascii_start_index(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  let i = 0;
+                \\  while (i < b.length && __sa_is_ws(b[i])) i++;
+                \\  return BigInt(i);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_trim_ascii_end_len")) {
+            try writer.writeAll(
+                \\function sa_str_trim_ascii_end_len(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  let e = b.length;
+                \\  while (e > 0 && __sa_is_ws(b[e - 1])) e--;
+                \\  return BigInt(e);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_utf8_char_count")) {
+            try writer.writeAll(
+                \\function sa_str_utf8_char_count(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  let i = 0, n = 0n;
+                \\  while (i < b.length) {
+                \\    const d = __sa_utf8_dec(b, i);
+                \\    if (d === null) return 0n;
+                \\    i += d[1]; n++;
+                \\  }
+                \\  return n;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_utf8_validate")) {
+            try writer.writeAll(
+                \\function sa_str_utf8_validate(ptr, len) {
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  let i = 0;
+                \\  while (i < b.length) {
+                \\    const d = __sa_utf8_dec(b, i);
+                \\    if (d === null) return 1;
+                \\    i += d[1];
+                \\  }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_utf8_char_at")) {
+            try writer.writeAll(
+                \\function sa_str_utf8_char_at(ptr, len, char_index, out_codepoint) {
+                \\  __sa_store_i64(out_codepoint, 0n);
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  let bi = 0, cur = 0n;
+                \\  const want = BigInt.asUintN(64, BigInt(__sa_num(char_index)));
+                \\  while (bi < b.length) {
+                \\    const d = __sa_utf8_dec(b, bi);
+                \\    if (d === null) return 1;
+                \\    if (cur === want) { __sa_store_i64(out_codepoint, d[0]); return 0; }
+                \\    bi += d[1]; cur++;
+                \\  }
+                \\  return 3;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_utf8_char_at_byte")) {
+            try writer.writeAll(
+                \\function sa_str_utf8_char_at_byte(ptr, len, byte_index, out_codepoint, out_len) {
+                \\  __sa_store_i64(out_codepoint, 0n);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  const idx = __sa_num(byte_index);
+                \\  const d = (idx < 0 || idx >= b.length) ? null : __sa_utf8_dec(b, idx);
+                \\  if (d === null) return 1;
+                \\  __sa_store_i64(out_codepoint, d[0]);
+                \\  __sa_store_i64(out_len, d[1]);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_utf8_lossy_next")) {
+            try writer.writeAll(
+                \\function sa_str_utf8_lossy_next(ptr, len, byte_index, out_codepoint, out_len) {
+                \\  __sa_store_i64(out_codepoint, 0n);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  const idx = __sa_num(byte_index);
+                \\  if (idx < 0 || idx >= b.length) return 1;
+                \\  const d = __sa_utf8_dec(b, idx);
+                \\  if (d === null) {
+                \\    let w = 1;
+                \\    const b0 = b[idx];
+                \\    const exp = (b0 >= 0xc2 && b0 <= 0xdf) ? 2 : (b0 >= 0xe0 && b0 <= 0xef) ? 3 : (b0 >= 0xf0 && b0 <= 0xf4) ? 4 : 1;
+                \\    while (w < exp && idx + w < b.length) { const c = b[idx + w]; if (c < 0x80 || c > 0xbf) break; w++; }
+                \\    __sa_store_i64(out_codepoint, 65533);
+                \\    __sa_store_i64(out_len, w);
+                \\    return 0;
+                \\  }
+                \\  __sa_store_i64(out_codepoint, d[0]);
+                \\  __sa_store_i64(out_len, d[1]);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_str_utf8_char_range_at")) {
+            try writer.writeAll(
+                \\function sa_str_utf8_char_range_at(ptr, len, char_index, out_start, out_len) {
+                \\  __sa_store_i64(out_start, 0n);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const b = __sa_mem_bytes(ptr, len);
+                \\  let bi = 0, cur = 0n;
+                \\  const want = BigInt.asUintN(64, BigInt(__sa_num(char_index)));
+                \\  while (bi < b.length) {
+                \\    const d = __sa_utf8_dec(b, bi);
+                \\    if (d === null) return 1;
+                \\    if (cur === want) { __sa_store_i64(out_start, bi); __sa_store_i64(out_len, d[1]); return 0; }
+                \\    bi += d[1]; cur++;
+                \\  }
+                \\  return 3;
+                \\}
+                \\
+            );
             return;
         }
         // POSIX-like host shims for OS-binding demos (single-threaded
