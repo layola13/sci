@@ -5,7 +5,7 @@
 
 📖 English: [`readme.md`](readme.md)
 
-SA（safe asm，安全汇编）不是"又一门给人手写的语言"。它是一条 **可被任何上游语言喂入的安全 IR / 运行时**，配套从浏览器前端到边缘后端的完整插件矩阵。核心仓库提供编译器、Referee 静态验证器、LLVM-C bitcode / WASM 直通发射、`sa_std` 标准库与 `.sa` / `.sai` / `.sal` 三类源文本。
+SA（safe asm，安全汇编）不是"又一门给人手写的语言"。它是一条 **可被任何上游语言喂入的安全 IR / 运行时**，配套从浏览器前端到边缘后端的完整插件矩阵。核心仓库提供编译器、Referee 静态验证器、LLVM-C bitcode / WASM / JS 直通发射、`sa_std` 标准库与 `.sa` / `.sai` / `.sal` 三类源文本。
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -18,7 +18,7 @@ SA（safe asm，安全汇编）不是"又一门给人手写的语言"。它是�
                            ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  SA 核心 (本仓库)                                                │
-│   Flattener → Referee (O(1) 位掩码) → LLVM-C / WASM Emitter      │
+│   Flattener → Referee (O(1) 位掩码) → LLVM-C / WASM / JS Emitters  │
 │   sa_std (Vec/HashMap/String/Arc/Mutex/io/fs/net/...)            │
 │   Gas Metering · Capability Mask · 气闸舱 FFI                     │
 └──────────────────────────┬─────────────────────────────────────┘
@@ -31,7 +31,7 @@ SA（safe asm，安全汇编）不是"又一门给人手写的语言"。它是�
 │   平台基建：pkg (零信任包管理) / vm (解释器)                       │
 └──────────────────────────┬─────────────────────────────────────┘
                            ▼
-              .exe / .o / .a / .wasm  (LLVM O1–O3)
+              .exe / .o / .a / .wasm  (LLVM O1–O3) / .mjs/.cjs (JS)
 ```
 
 ---
@@ -139,12 +139,28 @@ zig build -Doptimize=ReleaseFast
 # 编译到原生可执行
 ./zig-out/bin/sa build-exe examples/hello.sa -o hello
 
+# 编译到 JavaScript（默认 ESM；node / bun 直接运行，无需 WASI）
+./zig-out/bin/sa build-js examples/hello.sa -o hello.mjs
+node hello.mjs
+bun hello.mjs
+
 # 安装应用插件（以 SAX 为例）
 SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_sax
 sa sax build demos/counter.sax --out-dir /tmp/counter
 ```
 
 更多入口命令见各插件 README。
+
+### JS 目标说明
+
+- `sa build-js <文件> [-o out.mjs] [--format esm|cjs] [-g|--no-debug]` 生成自包含
+  JS 模块（hello-world 约 31KB，而 wasm 约 741KB、原生约 6.3MB）。产物直接用
+  `node` / `bun` 运行——不需要 WASI 运行器，也不需要传 argv。
+- `#npm_bind` npm 导入只在 `sa build-js` 下生效；`run`、`build-exe`、
+  `build-wasm`、`build-obj`、`test` 会直接报专用诊断错误。
+- `demos/rosetta` 实测口径：JS 构建最快，但计算密集循环下 native ≈ wasm/bun ≫
+  wasm/node ≫ js/node ≫ js/bun（1000 万次 u64 累加：68ms / 67ms / 198ms / 3.5s / 8.7s）。
+  完整命令参考见 sala 帮助"命令行参考 → 宿主侧 sa build-js"。
 
 ---
 

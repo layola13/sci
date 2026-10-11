@@ -5,7 +5,7 @@
 
 📖 中文版：[`readme_cn.md`](readme_cn.md)
 
-SA (safe asm) is **not yet another language for humans to hand-write.** It is a **safe IR + runtime that any upstream language can feed into**, accompanied by a complete plugin matrix spanning browser frontends to edge backends. This repository ships the compiler, the Referee static verifier, direct LLVM-C bitcode / WASM emitters, the `sa_std` standard library, and the `.sa` / `.sai` / `.sal` text formats.
+SA (safe asm) is **not yet another language for humans to hand-write.** It is a **safe IR + runtime that any upstream language can feed into**, accompanied by a complete plugin matrix spanning browser frontends to edge backends. This repository ships the compiler, the Referee static verifier, direct LLVM-C bitcode / WASM / JS emitters, the `sa_std` standard library, and the `.sa` / `.sai` / `.sal` text formats.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -18,7 +18,7 @@ SA (safe asm) is **not yet another language for humans to hand-write.** It is a 
                            ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  SA core (this repo)                                            │
-│   Flattener → Referee (O(1) bitmask) → LLVM-C / WASM Emitter     │
+│   Flattener → Referee (O(1) bitmask) → LLVM-C / WASM / JS Emitters   │
 │   sa_std (Vec/HashMap/String/Arc/Mutex/io/fs/net/...)            │
 │   Gas Metering · Capability Mask · Airlock FFI                   │
 └──────────────────────────┬─────────────────────────────────────┘
@@ -31,7 +31,7 @@ SA (safe asm) is **not yet another language for humans to hand-write.** It is a 
 │   Platform:     pkg (zero-trust package manager) / vm            │
 └──────────────────────────┬─────────────────────────────────────┘
                            ▼
-              .exe / .o / .a / .wasm  (LLVM O1–O3)
+              .exe / .o / .a / .wasm  (LLVM O1–O3) / .mjs/.cjs (JS)
 ```
 
 ---
@@ -159,12 +159,31 @@ zig build -Doptimize=ReleaseFast
 # Compile to native executable
 ./zig-out/bin/sa build-exe examples/hello.sa -o hello
 
+# Compile to JavaScript (ESM by default; run with node or bun, no WASI needed)
+./zig-out/bin/sa build-js examples/hello.sa -o hello.mjs
+node hello.mjs
+bun hello.mjs
+
 # Install an application plugin (SAX example)
 SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_sax
 sa sax build demos/counter.sax --out-dir /tmp/counter
 ```
 
 See each plugin's README for additional entry commands.
+
+### JS target notes
+
+- `sa build-js <file> [-o out.mjs] [--format esm|cjs] [-g|--no-debug]` emits a
+  self-contained JS module (~30 KB for hello-world, vs ~741 KB wasm and
+  ~6.3 MB native). It runs directly under `node` or `bun` — no WASI runner,
+  no argv passing needed.
+- `#npm_bind` npm imports are honored **only** by `sa build-js`; `run`,
+  `build-exe`, `build-wasm`, `build-obj` and `test` reject them with a
+  dedicated diagnostic.
+- Rule of thumb from `demos/rosetta` measurements: js builds fastest, but for
+  compute-heavy loops native ≈ wasm/bun ≫ wasm/node ≫ js/node ≫ js/bun
+  (10M-iteration u64 sum: 68ms / 67ms / 198ms / 3.5s / 8.7s). The sala help
+  chapter "命令行参考 → 宿主侧 sa build-js" has the full reference.
 
 ---
 
