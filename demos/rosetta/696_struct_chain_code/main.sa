@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"696\n"
+
+// 696 - Chain store: 696 flows through 3 slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = alloc 8
+    b = alloc 8
+    c = alloc 8
+    want = 696 as i64
+    store a+0, want as i64
+    t0 = load a+0 as i64
+    store b+0, t0 as i64
+    t1 = load b+0 as i64
+    store c+0, t1 as i64
+    got = load c+0 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !c
+    !want
+    !t0
+    !t1
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
