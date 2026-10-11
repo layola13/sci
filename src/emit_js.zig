@@ -477,6 +477,14 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\const __sa_memory = new ArrayBuffer(__SA_MEM_BYTES);
         \\const __sa_view = new DataView(__sa_memory);
         \\const __sa_u8 = new Uint8Array(__sa_memory);
+        \\const __sa_ti8 = new Int8Array(__sa_memory);
+        \\const __sa_ti16 = new Int16Array(__sa_memory);
+        \\const __sa_tu16 = new Uint16Array(__sa_memory);
+        \\const __sa_ti32 = new Int32Array(__sa_memory);
+        \\const __sa_tu32 = new Uint32Array(__sa_memory);
+        \\const __sa_tf32 = new Float32Array(__sa_memory);
+        \\const __sa_tf64 = new Float64Array(__sa_memory);
+        \\const __sa_tb64 = new BigInt64Array(__sa_memory);
         \\let __sa_brk = 65536; // bump allocator starts after reserved zero page region
         \\const __sa_live = new Set(); // live heap bases (user pointers handed out by __sa_alloc)
         \\const __sa_fl = Object.create(null); // free-list buckets: aligned size -> stack of user pointers
@@ -521,30 +529,53 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
         \\function __sa_salloc(size) {
         \\  // Function-scoped allocation: freed when the owning frame returns
-        \\  // (mirrors stack-slot lifetime; the interpreter never frees these
-        \\  // mid-frame either). Returned to the free list on frame pop.
-        \\  const ptr = __sa_alloc(size);
-        \\  if (__sa_fstack.length) __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
-        \\  return ptr;
+        \\  // via __sa_sfree (mirrors stack-slot lifetime; the interpreter
+        \\  // never frees these mid-frame either). Shares the free-list pool
+        \\  // with __sa_alloc (every block keeps its 8-byte header) but never
+        \\  // touches __sa_live, so frame temporaries skip both Set add/delete
+        \\  // on the hot path. Returned blocks are recycled on frame pop.
+        \\  size = __sa_align((__sa_num(size) | 0), 8);
+        \\  if (!__sa_fstack.length) return __sa_alloc(size);
+        \\  const bucket = __sa_fl[size];
+        \\  let ptr;
+        \\  if (bucket && bucket.length) { ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); }
+        \\  else {
+        \\    const base = __sa_brk;
+        \\    __sa_brk += (size + 8);
+        \\    if (__sa_brk >= __sa_memory.byteLength) __sa_trap("out of memory (bump)");
+        \\    __sa_u8.fill(0, base, base + size + 8);
+        \\    __sa_view.setUint32(base, size, true);
+        \\    ptr = (base + 8);
+        \\  }
+        \\  __sa_fstack[__sa_fstack.length - 1].push(ptr | 0);
+        \\  return ptr | 0;
         \\}
-        \\function __sa_load_i8(addr) { return __sa_view.getInt8(__sa_addr(addr)); }
-        \\function __sa_load_u8(addr) { return __sa_view.getUint8(__sa_addr(addr)); }
-        \\function __sa_load_i16(addr) { return __sa_view.getInt16(__sa_addr(addr), true); }
-        \\function __sa_load_u16(addr) { return __sa_view.getUint16(__sa_addr(addr), true); }
-        \\function __sa_load_i32(addr) { return __sa_view.getInt32(__sa_addr(addr), true); }
-        \\function __sa_load_u32(addr) { return __sa_view.getUint32(__sa_addr(addr), true); }
-        \\function __sa_load_f32(addr) { return __sa_view.getFloat32(__sa_addr(addr), true); }
-        \\function __sa_load_f64(addr) { return __sa_view.getFloat64(__sa_addr(addr), true); }
-        \\function __sa_store_i8(addr, v) { __sa_view.setInt8(__sa_addr(addr), __sa_narrow(v, 8, true)); }
-        \\function __sa_store_u8(addr, v) { __sa_view.setUint8(__sa_addr(addr), __sa_narrow(v, 8, false)); }
-        \\function __sa_store_i16(addr, v) { __sa_view.setInt16(__sa_addr(addr), __sa_narrow(v, 16, true), true); }
-        \\function __sa_store_u16(addr, v) { __sa_view.setUint16(__sa_addr(addr), __sa_narrow(v, 16, false), true); }
-        \\function __sa_store_i32(addr, v) { __sa_view.setInt32(__sa_addr(addr), __sa_narrow(v, 32, true), true); }
-        \\function __sa_store_u32(addr, v) { __sa_view.setUint32(__sa_addr(addr), __sa_narrow(v, 32, false), true); }
-        \\function __sa_store_f32(addr, v) { __sa_view.setFloat32(__sa_addr(addr), +v, true); }
-        \\function __sa_store_f64(addr, v) { __sa_view.setFloat64(__sa_addr(addr), +v, true); }
-        \\function __sa_load_i64(addr) { return __sa_view.getBigInt64(__sa_addr(addr), true); }
-        \\function __sa_store_i64(addr, v) { __sa_view.setBigInt64(__sa_addr(addr), BigInt.asIntN(64, BigInt(v)), true); }
+        \\function __sa_sfree(ptr) {
+        \\  // Frame-pop recycle for __sa_salloc blocks: header size is known,
+        \\  // no __sa_live membership test needed (salloc never registers).
+        \\  const p = __sa_addr(ptr);
+        \\  const size = __sa_view.getUint32((p - 8), true);
+        \\  (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
+        \\  return 0;
+        \\}
+        \\function __sa_load_i8(addr) { return __sa_ti8[__sa_addr(addr)]; }
+        \\function __sa_load_u8(addr) { return __sa_u8[__sa_addr(addr)]; }
+        \\function __sa_load_i16(addr) { const a = __sa_addr(addr); return ((a & 1) === 0) ? __sa_ti16[a >> 1] : __sa_view.getInt16(a, true); }
+        \\function __sa_load_u16(addr) { const a = __sa_addr(addr); return ((a & 1) === 0) ? __sa_tu16[a >> 1] : __sa_view.getUint16(a, true); }
+        \\function __sa_load_i32(addr) { const a = __sa_addr(addr); return ((a & 3) === 0) ? __sa_ti32[a >> 2] : __sa_view.getInt32(a, true); }
+        \\function __sa_load_u32(addr) { const a = __sa_addr(addr); return ((a & 3) === 0) ? __sa_tu32[a >> 2] : __sa_view.getUint32(a, true); }
+        \\function __sa_load_f32(addr) { const a = __sa_addr(addr); return ((a & 3) === 0) ? __sa_tf32[a >> 2] : __sa_view.getFloat32(a, true); }
+        \\function __sa_load_f64(addr) { const a = __sa_addr(addr); return ((a & 7) === 0) ? __sa_tf64[a >> 3] : __sa_view.getFloat64(a, true); }
+        \\function __sa_store_i8(addr, v) { __sa_ti8[__sa_addr(addr)] = __sa_narrow(v, 8, true); }
+        \\function __sa_store_u8(addr, v) { __sa_u8[__sa_addr(addr)] = __sa_narrow(v, 8, false); }
+        \\function __sa_store_i16(addr, v) { const a = __sa_addr(addr); const n = __sa_narrow(v, 16, true); if ((a & 1) === 0) __sa_ti16[a >> 1] = n; else __sa_view.setInt16(a, n, true); }
+        \\function __sa_store_u16(addr, v) { const a = __sa_addr(addr); const n = __sa_narrow(v, 16, false); if ((a & 1) === 0) __sa_tu16[a >> 1] = n; else __sa_view.setUint16(a, n, true); }
+        \\function __sa_store_i32(addr, v) { const a = __sa_addr(addr); const n = __sa_narrow(v, 32, true); if ((a & 3) === 0) __sa_ti32[a >> 2] = n; else __sa_view.setInt32(a, n, true); }
+        \\function __sa_store_u32(addr, v) { const a = __sa_addr(addr); const n = __sa_narrow(v, 32, false); if ((a & 3) === 0) __sa_tu32[a >> 2] = n; else __sa_view.setUint32(a, n, true); }
+        \\function __sa_store_f32(addr, v) { const a = __sa_addr(addr); const n = +v; if ((a & 3) === 0) __sa_tf32[a >> 2] = n; else __sa_view.setFloat32(a, n, true); }
+        \\function __sa_store_f64(addr, v) { const a = __sa_addr(addr); const n = +v; if ((a & 7) === 0) __sa_tf64[a >> 3] = n; else __sa_view.setFloat64(a, n, true); }
+        \\function __sa_load_i64(addr) { const a = __sa_addr(addr); return ((a & 7) === 0) ? __sa_tb64[a >> 3] : __sa_view.getBigInt64(a, true); }
+        \\function __sa_store_i64(addr, v) { const a = __sa_addr(addr); const n = BigInt.asIntN(64, BigInt(v)); if ((a & 7) === 0) __sa_tb64[a >> 3] = n; else __sa_view.setBigInt64(a, n, true); }
         \\function __sa_load_ptr(addr) { return __sa_load_i64(addr); }
         \\function __sa_store_ptr(addr, v) { __sa_store_i64(addr, v); }
         \\function __sa_ptr_add(ptr, off) {
@@ -1054,6 +1085,18 @@ fn resolveTextToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, con
         }
     }
     return JsEmitError.InvalidOperand;
+}
+
+/// Peephole predicate: address offset operand is a constant zero in any
+/// integer domain (x+0 == x in both Number and BigInt semantics), so the
+/// `__sa_ptr_add` wrapper can be skipped on the hot path.
+fn offIsZero(op: inst.Operand) bool {
+    return switch (op) {
+        .imm_int => |v| v == 0,
+        .imm_i64 => |v| v == 0,
+        .imm_u64 => |v| v == 0,
+        else => false,
+    };
 }
 
 /// Look up a function name in the indirect-call table, tolerating the
@@ -2023,11 +2066,20 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
             // Interior pointer (even at offset 0): never an owned base.
             _ = bases.remove(slot);
-            try writer.print("  r{d} = __sa_ptr_add(", .{slot});
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
-            try writer.writeAll(", ");
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
-            try writer.writeAll(");\n");
+            // Peephole: ptr_add(x, 0) is the identity; skipping the helper
+            // also skips BigInt materialization for 64-bit zero offsets on
+            // the hot path (correct: x+0 == x in both domains).
+            if (offIsZero(base.operands[2])) {
+                try writer.print("  r{d} = ", .{slot});
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(";\n");
+            } else {
+                try writer.print("  r{d} = __sa_ptr_add(", .{slot});
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(", ");
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll(");\n");
+            }
         },
         .load, .take, .atomic_load => {
             // NOTE: atomic ordering is ignored (single-threaded JS runtime).
@@ -2035,11 +2087,18 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             // Loaded data is never an owned base.
             _ = bases.remove(slot);
             const ty = memPrimType(base);
-            try writer.print("  r{d} = {s}(__sa_ptr_add(", .{ slot, memLoadFn(ty) });
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
-            try writer.writeAll(", ");
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
-            try writer.writeAll("));\n");
+            const load_fn = memLoadFn(ty);
+            if (offIsZero(base.operands[2])) {
+                try writer.print("  r{d} = {s}(", .{ slot, load_fn });
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(");\n");
+            } else {
+                try writer.print("  r{d} = {s}(__sa_ptr_add(", .{ slot, load_fn });
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(", ");
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll("));\n");
+            }
         },
         .store, .atomic_store => {
             // NOTE: atomic ordering is ignored (single-threaded JS runtime).
@@ -2048,13 +2107,22 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             // no-op (mirrors provTransfer; see the array-literal pattern).
             provKillStoreValue(bases, symbols, fsig, use_global, base.operands[2]);
             const ty = memPrimType(base);
-            try writer.print("  {s}(__sa_ptr_add(", .{memStoreFn(ty)});
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
-            try writer.writeAll(", ");
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
-            try writer.writeAll("), ");
-            try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
-            try writer.writeAll(");\n");
+            const store_fn = memStoreFn(ty);
+            if (offIsZero(base.operands[1])) {
+                try writer.print("  {s}(", .{store_fn});
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.writeAll(", ");
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll(");\n");
+            } else {
+                try writer.print("  {s}(__sa_ptr_add(", .{store_fn});
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.writeAll(", ");
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll("), ");
+                try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll(");\n");
+            }
         },
         .call => try emitCallInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases, retbase),
         .call_indirect => try emitCallIndirectInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, bases, retbase),
@@ -5043,7 +5111,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         }
     }
     try emitBodyAsPcMachine(writer, allocator, verified, fsig, task, const_addrs, fn_idx, js_opt, retbase);
-    try writer.writeAll("  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_free(__f[__k]); }\n}\n");
+    try writer.writeAll("  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_sfree(__f[__k]); }\n}\n");
 }
 
 pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
@@ -5218,7 +5286,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try writer.writeAll(" };\n");
         if (has_main) try writer.writeAll("if (require.main === module) { main(); }\n");
     } else {
-        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc };\n");
+        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc, __sa_sfree };\n");
         if (has_main) try writer.writeAll("if (typeof globalThis.process !== \"undefined\" && globalThis.process.argv && globalThis.process.argv[1] && /\\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }\n");
     }
     return out.toOwnedSlice();
