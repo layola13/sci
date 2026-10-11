@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"952\n"
+
+// 952 - Non-contradiction: not((952==952) and (952!=952)), code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 952 as i64
+    b = 952 as i64
+    p = eq a, b
+    np = eq p, 0
+    both = and p, np
+    ok = eq both, 0
+    !a
+    !b
+    !p
+    !np
+    !both
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

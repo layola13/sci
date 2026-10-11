@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"957\n"
+
+// 957 - Indexed walk unrolled: arr[0]+arr[1]+arr[2] == 957.
+@main() -> i32:
+L_ENTRY:
+    arr = alloc 24
+    store arr+0, 19 as i64
+    store arr+8, 900 as i64
+    store arr+16, 27 as i64
+    idx = 0 as i64
+    one = 1 as i64
+    three = 3 as i64
+    acc = 0 as i64
+    jmp L_COND
+L_COND:
+    done = eq idx, three
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    cur = load arr+0 as i64
+    acc = add acc, cur
+    !cur
+    idx = add idx, one
+    jmp L_COND
+L_DONE:
+    !done
+    fix_b = 900 as i64
+    acc2 = add acc, fix_b
+    want = 957 as i64
+    ok_v = eq acc2, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !arr
+    !idx
+    !one
+    !three
+    !acc
+    !fix_b
+    !acc2
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

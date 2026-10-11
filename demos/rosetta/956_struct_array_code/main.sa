@@ -1,0 +1,47 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"956\n"
+
+// 956 - Array sum: [900, 30, 26] == 956 via indexed slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    arr = alloc 24
+    store arr+0, 900 as i64
+    store arr+8, 30 as i64
+    store arr+16, 26 as i64
+    i0 = 0 as i64
+    i1 = 1 as i64
+    i2 = 2 as i64
+    eight = 8 as i64
+    a = load arr+0 as i64
+    b = load arr+8 as i64
+    c = load arr+16 as i64
+    ab = add a, b
+    got = add ab, c
+    want = 956 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !arr
+    !i0
+    !i1
+    !i2
+    !eight
+    !a
+    !b
+    !c
+    !ab
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
