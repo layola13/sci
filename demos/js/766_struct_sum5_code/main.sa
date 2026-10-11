@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"766\n"
+
+// 766 - Sum5: 700+30+20+10+6 == 766 via 5 slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 40
+    store p+0, 700 as i64
+    store p+8, 30 as i64
+    store p+16, 20 as i64
+    store p+24, 10 as i64
+    store p+32, 6 as i64
+    a = load p+0 as i64
+    b = load p+8 as i64
+    c = load p+16 as i64
+    d = load p+24 as i64
+    e = load p+32 as i64
+    ab = add a, b
+    cd = add c, d
+    s0 = add ab, cd
+    got = add s0, e
+    want = 766 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p
+    !a
+    !b
+    !c
+    !d
+    !e
+    !ab
+    !cd
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

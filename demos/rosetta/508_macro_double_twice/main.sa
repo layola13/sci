@@ -1,0 +1,41 @@
+// 508 - Macro Double Twice
+// SA: DOUBLE 宏复用两次 1.5 -> 3.0 -> 6.0（宏组合）
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"508\n"
+
+// FDOUBLE: %out = %x + %x
+[MACRO] FDOUBLE %out, %x
+    %out = fadd %x, %x
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    six_i = 6 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    EXPAND FDOUBLE d1, one_half
+    EXPAND FDOUBLE d2, d1
+    six = sitofp six_i as f64
+    ok = fcmp_eq d2, six
+    !three
+    !two_i
+    !six_i
+    !three_f
+    !two_f
+    !one_half
+    !d1
+    !d2
+    !six
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

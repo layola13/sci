@@ -1,0 +1,61 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"883\n"
+
+// 883 - Float dist: |4.0 - 1.5| == 2.5 via sub+neg select, code 0.
+@main() -> i32:
+L_ENTRY:
+    four_i = 4 as i32
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    four = sitofp four_i as f64
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    one_half = fdiv three_f, two_f
+    two_half = fdiv five_f, two_f
+    d = fsub four, one_half
+    z0 = 0 as i32
+    zf = sitofp z0 as f64
+    neg = fcmp_lt d, zf
+    br neg -> L_NEG, L_POS
+L_NEG:
+    !neg
+    ad = fsub zf, d
+    !d
+    jmp L_OUT
+L_POS:
+    !neg
+    ad = fadd d, zf
+    !d
+    jmp L_OUT
+L_OUT:
+    ok_v = fcmp_eq ad, two_half
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !four_i
+    !three
+    !two_i
+    !five
+    !four
+    !three_f
+    !two_f
+    !five_f
+    !one_half
+    !two_half
+    !z0
+    !zf
+    !ad
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

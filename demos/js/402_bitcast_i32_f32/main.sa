@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"402\n"
+
+// 402 - bitcast i32 bits to f32 reinterprets (0x3F800000 is 1.0f).
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 402 but the
+// `sa build-exe` binary exits 1 -- the int->float bitcast does not
+// reinterpret bits there (same f32-register fidelity gap as 400).
+@main() -> i32:
+L_ENTRY:
+    big = 1065353216 as u64
+    c = trunc big as i32
+    f = bitcast c as f32
+    one = 1 as i32
+    o = sitofp one as f64
+    ok = fcmp_eq f, o
+    !big
+    !c
+    !f
+    !one
+    !o
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

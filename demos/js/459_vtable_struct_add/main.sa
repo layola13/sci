@@ -1,0 +1,78 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"459\n"
+@const ADD_VT = vtable { add = @add_fields }
+
+#def DynAdd_SIZE = 16
+#def DynAdd_DATA = +0
+#def DynAdd_VTABLE = +8
+
+#def VTable_add = +0
+
+#def Pair_SIZE = 16
+#def Pair_a = +0
+#def Pair_b = +8
+
+@add_fields(&self: ptr) -> f64:
+L_ENTRY:
+    a = load self+Pair_a as f64
+    b = load self+Pair_b as f64
+    s = fadd a, b
+    !self
+    !a
+    !b
+    return s
+
+@render(&item: ptr) -> f64:
+L_ENTRY:
+    data_ptr = load item+DynAdd_DATA as ptr
+    vtable_ptr = load item+DynAdd_VTABLE as ptr
+    add_ptr = load vtable_ptr+VTable_add as ptr
+    result = call_indirect add_ptr(&data_ptr)
+    !add_ptr
+    !vtable_ptr
+    !data_ptr
+    !item
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    four_i = 4 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    pair = alloc Pair_SIZE
+    store pair+Pair_a, one_half as f64
+    store pair+Pair_b, two_half as f64
+    fat = alloc DynAdd_SIZE
+    store fat+DynAdd_DATA, pair as ptr
+    store fat+DynAdd_VTABLE, &ADD_VT as ptr
+    result = call @render(&fat)
+    four = sitofp four_i as f64
+    ok = fcmp_eq result, four
+    !three
+    !two_i
+    !five
+    !four_i
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !pair
+    !fat
+    !result
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

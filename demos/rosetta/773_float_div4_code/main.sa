@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"773\n"
+
+// 773 - Float div: 21.0 / 3.0 == 7.0 with code 0.
+@main() -> i32:
+L_ENTRY:
+    twenty = 21 as i32
+    three = 3 as i32
+    seven = 7 as i32
+    twenty_f = sitofp twenty as f64
+    three_f = sitofp three as f64
+    seven_f = sitofp seven as f64
+    got = fdiv twenty_f, three_f
+    ok_v = fcmp_eq got, seven_f
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !twenty
+    !three
+    !seven
+    !twenty_f
+    !three_f
+    !seven_f
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

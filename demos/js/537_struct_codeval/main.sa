@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"537\n"
+
+#def Pair_SIZE = 16
+#def Pair_a = +0
+#def Pair_b = +8
+
+// 537 - Struct pair spills (code 0, value 2.5) through heap slot.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    p = alloc 16
+    store p+0, 0 as i64
+    store p+8, two_half as f64
+    code = load p+0 as i64
+    val = load p+8 as f64
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, two_half
+    ok = and ok_c, ok_v
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !p
+    !code
+    !val
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

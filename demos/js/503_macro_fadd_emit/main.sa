@@ -1,0 +1,45 @@
+// 503 - Macro FAdd Emit
+// SA: 用 FADD_HALVES 宏发射 1.5 + 2.5 == 4.0 的浮点加法
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"503\n"
+
+// FADD_HALVES: %out = 1.5 + 2.5
+[MACRO] FADD_HALVES %out
+    _three = 3 as i32
+    _two = 2 as i32
+    _five = 5 as i32
+    _three_f = sitofp _three as f64
+    _two_f = sitofp _two as f64
+    _one_half = fdiv _three_f, _two_f
+    _five_f = sitofp _five as f64
+    _two_half = fdiv _five_f, _two_f
+    %out = fadd _one_half, _two_half
+    !_three
+    !_two
+    !_five
+    !_three_f
+    !_two_f
+    !_one_half
+    !_five_f
+    !_two_half
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    EXPAND FADD_HALVES s
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq s, four
+    !s
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

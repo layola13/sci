@@ -1,0 +1,91 @@
+@import "sa_std/io/print.sai"
+
+@const VT_SMALL = vtable { call = @small_fn }
+@const VT_BIG = vtable { call = @big_fn }
+@const OUT = utf8:"463\n"
+
+// 463 - branch-selected vtables returning f64 (1.5 + 2.5 == 4.0).
+@small_fn(dummy: i64, ctx: ptr) -> f64:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    !dummy
+    !ctx
+    !three
+    !two
+    !three_f
+    !two_f
+    return h
+
+@big_fn(dummy: i64, ctx: ptr) -> f64:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !dummy
+    !ctx
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+
+@main() -> i32:
+    z = 0 as i64
+    c = eq z, 0
+    br c -> L_S, L_B
+L_S:
+    t0 = &VT_SMALL
+    !c
+    jmp L_CALL
+L_B:
+    t0 = &VT_BIG
+    !c
+    jmp L_CALL
+L_CALL:
+    fp0 = load t0 + 0 as ptr
+    ctx0 = alloc 8
+    r0 = call_indirect fp0(z, ctx0)
+    !ctx0
+    !fp0
+    !t0
+    o = 1 as i64
+    c2 = eq o, 0
+    br c2 -> L_S2, L_B2
+L_S2:
+    t1 = &VT_SMALL
+    !c2
+    jmp L_CALL2
+L_B2:
+    t1 = &VT_BIG
+    !c2
+    jmp L_CALL2
+L_CALL2:
+    fp1 = load t1 + 0 as ptr
+    ctx1 = alloc 8
+    r1 = call_indirect fp1(o, ctx1)
+    !ctx1
+    !fp1
+    !t1
+    s = fadd r0, r1
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq s, four
+    !z
+    !r0
+    !o
+    !r1
+    !s
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

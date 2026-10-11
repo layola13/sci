@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"542\n"
+
+// 542 - Int add code: 500 + 42 == 542 with code 0.
+@add_parts(a: i64, b: i64) -> i64:
+L_ENTRY:
+    r = add a, b
+    !a
+    !b
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    x = 500 as i64
+    y = 42 as i64
+    v = call @add_parts(x, y)
+    want = 542 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

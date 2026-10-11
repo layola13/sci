@@ -1,0 +1,48 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"661\n"
+
+// 661 - Alloc chain: bump three slots, 600 + 61 == 661 code 0.
+@mk61() -> i64:
+L_ENTRY:
+    return 61
+
+@main() -> i32:
+L_ENTRY:
+    a = alloc 8
+    b = alloc 8
+    store a+0, 0 as i64
+    store b+0, 0 as i64
+    k = call @mk61()
+    base = 600 as i64
+    v = add base, k
+    want = 661 as i64
+    ok_v = eq v, want
+    z0 = load a+0 as i64
+    z1 = load b+0 as i64
+    zero = 0 as i64
+    ok0 = eq z0, zero
+    ok1 = eq z1, zero
+    t0 = and ok_v, ok0
+    ok = and t0, ok1
+    !a
+    !b
+    !k
+    !base
+    !v
+    !want
+    !ok_v
+    !z0
+    !z1
+    !zero
+    !ok0
+    !ok1
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

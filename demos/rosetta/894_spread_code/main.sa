@@ -1,0 +1,58 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"894\n"
+
+// 894 - Spread: 800 + 40 + 30 + 20 + 4 == 894 via 4 helpers.
+@sp40() -> i64:
+L_ENTRY:
+    return 40
+
+@sp30() -> i64:
+L_ENTRY:
+    return 30
+
+@sp20() -> i64:
+L_ENTRY:
+    return 20
+
+@sp4() -> i64:
+L_ENTRY:
+    return 4
+
+@main() -> i32:
+L_ENTRY:
+    base = 800 as i64
+    a = call @sp40()
+    b = call @sp30()
+    c = call @sp20()
+    d = call @sp4()
+    ab = add a, b
+    cd = add c, d
+    arms = add ab, cd
+    got = add base, arms
+    want = 894 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !arms
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

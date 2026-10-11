@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"701\n"
+
+// 701 - Milestone chain: 700 + 1 == 701 with code 0.
+@plus_one(x: i64) -> i64:
+L_ENTRY:
+    one = 1 as i64
+    r = add x, one
+    !x
+    !one
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 700 as i64
+    v = call @plus_one(base)
+    want = 701 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

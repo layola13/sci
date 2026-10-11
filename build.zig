@@ -298,6 +298,25 @@ pub fn build(b: *std.Build) void {
     const wasm_matrix_step = b.step("wasm-matrix", "Run LLVM-C native/wasm32 demo equivalence matrix");
     wasm_matrix_step.dependOn(&run_wasm_matrix.step);
 
+    const js_matrix_module = b.createModule(.{
+        .root_source_file = b.path("tests/js_matrix_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    js_matrix_module.addImport("saasm", lib_module);
+    js_matrix_module.addOptions("build_options", build_options);
+    const js_matrix = b.addTest(.{
+        .root_module = js_matrix_module,
+    });
+    const run_js_matrix = b.addRunArtifact(js_matrix);
+    run_js_matrix.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_js_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    run_js_matrix.step.name = "js-matrix";
+    run_js_matrix.step.dependOn(&sync_sa_std_artifact.step);
+    test_step.dependOn(&run_js_matrix.step);
+    const js_matrix_step = b.step("js-matrix", "Run JS backend demo equivalence matrix under node");
+    js_matrix_step.dependOn(&run_js_matrix.step);
+
     const cli_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,

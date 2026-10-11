@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"365\n"
+
+// 365 - chained null checks: two sequential br_null guards, where the
+// second sees a value produced after the first check.
+// (LLVM/wasm reject br_null, like 356.)
+@check_pair(first: ptr, second: ptr) -> i32:
+L_C_ENTRY:
+    br_null first -> L_C_FAIL, L_C_NEXT
+L_C_NEXT:
+    br_null second -> L_C_FAIL, L_C_OK
+L_C_FAIL:
+    !first
+    !second
+    return 1
+L_C_OK:
+    !first
+    !second
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    p = alloc 8
+    q = alloc 8
+    r = call @check_pair(p, q)
+    ok_a = eq r, 0
+    n = 0 as ptr
+    r2 = call @check_pair(p, n)
+    ok_b = eq r2, 1
+    ok = and ok_a, ok_b
+    !p
+    !q
+    !r
+    !n
+    !r2
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

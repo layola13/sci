@@ -1,0 +1,56 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"708\n"
+@const CMP_VT = vtable { cmp = @cmp_fn }
+
+// 708 - Vtable cmp: (700 < 708) selects 708 through indirect call.
+@cmp_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    big = slt a, b
+    br big -> L_YES, L_NO
+L_YES:
+    !a
+    !big
+    m = add b, 0
+    !b
+    jmp L_OUT
+L_NO:
+    !b
+    !big
+    m = add a, 0
+    !a
+    jmp L_OUT
+L_OUT:
+    ret3 = add m, 0
+    !m
+    return ret3
+
+@main() -> i32:
+L_ENTRY:
+    t = &CMP_VT
+    fp = load t + 0 as ptr
+    x = 700 as i64
+    y = 708 as i64
+    v = call_indirect fp(x, y)
+    want = 708 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

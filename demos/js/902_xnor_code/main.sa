@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"902\n"
+
+// 902 - Xnor: (5==5) xnor (902==902) is true, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 5 as i64
+    b = 5 as i64
+    c = 902 as i64
+    d = 902 as i64
+    p = eq a, b
+    q = eq c, d
+    x = eq p, q
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and x, ok_c
+    !a
+    !b
+    !c
+    !d
+    !p
+    !q
+    !x
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

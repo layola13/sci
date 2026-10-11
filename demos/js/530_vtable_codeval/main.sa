@@ -1,0 +1,64 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"530\n"
+@const SUM_VT = vtable { sum = @sum_fields }
+
+#def Pair_SIZE = 16
+#def Pair_a = +0
+#def Pair_b = +8
+
+// 530 - Vtable method returns a code and spills the float through
+// the ctx slot (1.5 + 2.5 == 4.0, code 0 on both paths).
+@sum_fields(dummy: i64, ctx: ptr) -> i64:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    s = fadd one_half, two_half
+    store ctx+0, s as f64
+    !dummy
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !s
+    return 0
+
+@main() -> i32:
+    t = &SUM_VT
+    fp = load t + 0 as ptr
+    ctx = alloc 8
+    zero = 0 as i64
+    code = call_indirect fp(zero, ctx)
+    val = load ctx+0 as f64
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, four
+    ok = and ok_c, ok_v
+    !t
+    !fp
+    !ctx
+    !zero
+    !code
+    !val
+    !four_i
+    !four
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

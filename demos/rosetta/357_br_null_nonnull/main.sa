@@ -1,0 +1,19 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"357\n"
+
+// 357 - br_null falls through to the non-null branch for live pointers.
+//
+// (verifier + interpreter + JS implement br_null; the LLVM and wasm
+// backends reject it, like 356.)
+@main() -> i32:
+L_ENTRY:
+    p = alloc 8
+    br_null p -> L_NULL, L_NOTNULL
+L_NULL:
+    !p
+    return 1
+L_NOTNULL:
+    !p
+    call @sa_print_bytes(&OUT, 4)
+    return 0

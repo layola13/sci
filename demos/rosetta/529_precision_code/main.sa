@@ -1,0 +1,48 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"529\n"
+
+// 529 - Precision guard: exactly representable integers roundtrip
+// (code 0), 2^53+1 does not (code 1, inexact).
+@exact_code(x: u64) -> i64:
+L_ENTRY:
+    f = uitofp x as f64
+    back = fptosi f as i64
+    same = eq back, x
+    br same -> L_EXACT, L_INEXACT
+L_EXACT:
+    !x
+    !f
+    !back
+    !same
+    return 0
+L_INEXACT:
+    !x
+    !f
+    !back
+    !same
+    return 1
+
+@main() -> i32:
+L_ENTRY:
+    p53 = 9007199254740992 as u64
+    p53p1 = 9007199254740993 as u64
+    c0 = call @exact_code(p53)
+    c1 = call @exact_code(p53p1)
+    ok0 = eq c0, 0
+    ok1 = eq c1, 1
+    ok = and ok0, ok1
+    !p53
+    !p53p1
+    !c0
+    !c1
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

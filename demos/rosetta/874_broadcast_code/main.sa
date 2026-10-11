@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"874\n"
+
+// 874 - Broadcast: one source 74 to 4 sinks plus 700 == 874.
+@src74() -> i64:
+L_ENTRY:
+    return 44
+
+@snk(a: i64) -> i64:
+L_ENTRY:
+    r = add a, 0
+    !a
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    s = call @src74()
+    a = call @snk(s)
+    b = call @snk(s)
+    c = call @snk(s)
+    d = call @snk(s)
+    ab = add a, b
+    cd = add c, d
+    arms = add ab, cd
+    base = 698 as i64
+    got = add base, arms
+    want = 874 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !s
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !arms
+    !base
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

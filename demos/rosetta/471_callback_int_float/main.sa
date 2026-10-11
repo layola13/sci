@@ -1,0 +1,53 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"471\n"
+@const SCALE_VT = vtable { call = @scale_cb }
+
+// 471 - callback takes i64 and returns f64 (4 x 1.5 == 6.0).
+@scale_cb(n: i64, ctx: ptr) -> f64:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    nf = sitofp n as f64
+    p = fmul nf, one_half
+    !n
+    !ctx
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !nf
+    return p
+
+@main() -> i32:
+    t = &SCALE_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    cb = load reg+0 as ptr
+    ctx = alloc 8
+    four = 4 as i64
+    r = call_indirect cb(four, ctx)
+    six_i = 6 as i32
+    six = sitofp six_i as f64
+    ok = fcmp_eq r, six
+    !t
+    !fp
+    !reg
+    !cb
+    !ctx
+    !four
+    !r
+    !six_i
+    !six
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

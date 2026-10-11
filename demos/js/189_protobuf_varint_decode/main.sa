@@ -1,0 +1,85 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"6\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Buf_SIZE = 8
+#def Buf_b0 = +0
+#def Buf_b1 = +1
+#def Buf_b2 = +2
+
+@decode_varint(&buf: ptr) -> i32:
+L_ENTRY:
+    idx_slot = stack_alloc 8
+    shift_slot = stack_alloc 8
+    acc_slot = stack_alloc 8
+    store idx_slot+0, 0 as i32
+    store shift_slot+0, 0 as i32
+    store acc_slot+0, 0 as i32
+    jmp L_LOOP
+
+L_LOOP:
+    idx = load idx_slot+0 as i32
+    shift = load shift_slot+0 as i32
+    acc = load acc_slot+0 as i32
+    byte_ptr = ptr_add buf, idx
+    byte = load byte_ptr+0 as u8
+    low = and byte, 127
+    part = shl low, shift
+    acc_next = add acc, part
+    store acc_slot+0, acc_next as i32
+    cont = and byte, 128
+    more = ne cont, 0
+    next_idx = add idx, 1
+    next_shift = add shift, 7
+    done = eq more, 0
+    done_idx = eq next_idx, 3
+    exit = or done, done_idx
+    !acc
+    !acc_next
+    !byte_ptr
+    !byte
+    !low
+    !part
+    !cont
+    br exit -> L_DONE, L_UPDATE
+
+L_UPDATE:
+    store idx_slot+0, next_idx as i32
+    store shift_slot+0, next_shift as i32
+    !idx
+    !shift
+    !next_idx
+    !next_shift
+    !more
+    !done
+    !done_idx
+    !exit
+    jmp L_LOOP
+
+L_DONE:
+    value = load acc_slot+0 as i32
+    !buf
+    return value
+
+@main() -> i32:
+L_ENTRY:
+    buf = alloc Buf_SIZE
+    store buf+Buf_b0, 6 as u8
+    store buf+Buf_b1, 0 as u8
+    store buf+Buf_b2, 0 as u8
+    value = call @decode_varint(&buf)
+    ok = eq value, 6
+    !value
+    !buf
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

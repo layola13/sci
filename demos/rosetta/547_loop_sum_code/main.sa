@@ -1,0 +1,41 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"547\n"
+
+// 547 - Loop sums 0..6 = 21 with code 0 on exit.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 7
+    br done -> L_DONE, L_BODY
+L_BODY:
+    acc = add acc, i
+    i = add i, one
+    !done
+    jmp L_COND
+L_DONE:
+    !done
+    want = 21 as i64
+    ok_sum = eq acc, want
+    zero = 0 as i64
+    ok_code = eq zero, 0
+    ok = and ok_sum, ok_code
+    !acc
+    !i
+    !one
+    !want
+    !zero
+    !ok_sum
+    !ok_code
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

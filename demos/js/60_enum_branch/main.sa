@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Flag_SIZE = 8
+#def Flag_tag = +0
+#def Flag_payload = +4
+
+@main() -> i32:
+L_ENTRY:
+    flag = alloc Flag_SIZE
+    store flag+Flag_tag, 1 as u32
+    tag = load flag+Flag_tag as u32
+    is_a = eq tag, 0
+    br is_a -> L_A, L_B
+
+L_A:
+    !tag
+    !is_a
+    !flag
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+L_B:
+    !tag
+    !is_a
+    !flag
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0

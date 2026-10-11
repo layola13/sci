@@ -1,0 +1,37 @@
+// 509 - Macro F32 Conv
+// SA: F32_HALF 宏做 f64 -> f32 -> f64 往返（421 的宏版）
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"509\n"
+
+// F32_ROUNDTRIP: %out = widen(trunc(%x))
+[MACRO] F32_ROUNDTRIP %out, %x
+    _t = fptrunc %x as f32
+    %out = fpext _t as f64
+    !_t
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    half = fdiv one_f, two_f
+    EXPAND F32_ROUNDTRIP rt, half
+    ok = fcmp_eq rt, half
+    !one_i
+    !two_i
+    !one_f
+    !two_f
+    !half
+    !rt
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

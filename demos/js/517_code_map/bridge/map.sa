@@ -1,0 +1,16 @@
+@export map_code(code: i64) -> i32!:
+L_ENTRY:
+    c = eq code, 0
+    br c -> L_HIT, L_MISS
+L_HIT:
+    v = add 517, 0
+    !code
+    !c
+    !v
+    return 517
+L_MISS:
+    v = add 0, 0
+    !code
+    !c
+    !v
+    return 0

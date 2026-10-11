@@ -1,0 +1,68 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"464\n"
+@const FALL_VT = vtable { get = @fall_get }
+
+#def DynFall_SIZE = 16
+#def DynFall_DATA = +0
+#def DynFall_VTABLE = +8
+
+#def VTable_get = +0
+
+#def Val_SIZE = 8
+#def Val_val = +0
+
+// 464 - indirect call inside a fallible wrapper: the vtable method
+// returns a plain f64 (? only applies to direct-call results;
+// indirect callee signatures are statically unknown, so the
+// fallible contract lives on the direct wrapper).
+@fall_get(&self: ptr) -> f64:
+L_ENTRY:
+    v = load self+Val_val as f64
+    !self
+    return v
+
+@render(&item: ptr) -> f64!:
+L_ENTRY:
+    data_ptr = load item+DynFall_DATA as ptr
+    vtable_ptr = load item+DynFall_VTABLE as ptr
+    get_fn = load vtable_ptr+VTable_get as ptr
+    v = call_indirect get_fn(&data_ptr)
+    !get_fn
+    !vtable_ptr
+    !data_ptr
+    !item
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    val = alloc Val_SIZE
+    store val+Val_val, two_half as f64
+    fat = alloc DynFall_SIZE
+    store fat+DynFall_DATA, val as ptr
+    store fat+DynFall_VTABLE, &FALL_VT as ptr
+    r = call @render(&fat)
+    v = ?r
+    ok = fcmp_eq v, two_half
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !val
+    !fat
+    !r
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

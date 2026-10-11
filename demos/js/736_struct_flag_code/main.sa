@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"736\n"
+
+// 736 - Flag struct: tag 1 set, 700 + 36 == 736, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 16
+    store p+0, 1 as i64
+    store p+8, 700 as i64
+    tag = load p+0 as i64
+    base = load p+8 as i64
+    one = 1 as i64
+    ok_tag = eq tag, one
+    addend = 36 as i64
+    got = add base, addend
+    want = 736 as i64
+    ok_v = eq got, want
+    ok = and ok_tag, ok_v
+    !p
+    !tag
+    !base
+    !one
+    !ok_tag
+    !addend
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

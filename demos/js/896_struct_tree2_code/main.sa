@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"896\n"
+
+// 896 - Tree2: root 800, kids 60 + 36 == 896, code 0.
+@main() -> i32:
+L_ENTRY:
+    tree = alloc 24
+    store tree+0, 800 as i64
+    store tree+8, 60 as i64
+    store tree+16, 36 as i64
+    r = load tree+0 as i64
+    k1 = load tree+8 as i64
+    k2 = load tree+16 as i64
+    s0 = add r, k1
+    got = add s0, k2
+    want = 896 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !tree
+    !r
+    !k1
+    !k2
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"890\n"
+
+// 890 - Store walk: 890 = 800 + 90 across store slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    s0 = alloc 8
+    s1 = alloc 8
+    store s0+0, 800 as i64
+    store s1+0, 90 as i64
+    a = load s0+0 as i64
+    b = load s1+0 as i64
+    got = add a, b
+    want = 890 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !s0
+    !s1
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"388\n"
+
+// 388 - the `rem` alias on u64 operands is unsigned: a loaded u64-max
+// (negative-held BigInt) mod 2 is 1, not -1. Forced-signed lowering
+// would compute -1 % 2 = -1.
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 388 but the
+// `sa build-exe` binary exits 1 (u64 loads land in signed C locals;
+// same source-width blindness class as 338).
+@main() -> i32:
+L_ENTRY:
+    max = 18446744073709551615 as u64
+    buf = alloc 8
+    store buf+0, max as u64
+    ld = load buf+0 as u64
+    t = 2 as i64
+    two64 = trunc t as u64
+    r = rem ld, two64
+    ok = eq r, 1
+    !max
+    !buf
+    !ld
+    !t
+    !two64
+    !r
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

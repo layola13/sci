@@ -1,0 +1,84 @@
+// 331 - Rc Shared Ownership
+// SA: 使用 RC_NEW, RC_CLONE, RC_DROP 模拟 Rust 的 Rc 共享所有权
+// 卫生宏保证宏内临时变量与标签在多次展开时互不冲突
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"42,42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def RcBox_SIZE = 24
+#def RcBox_strong = +0
+#def RcBox_weak = +8
+#def RcBox_data = +16
+
+@main() -> i32:
+L_ENTRY:
+    // Create new Rc containing 42
+    rc1 = alloc RcBox_SIZE
+    store rc1+RcBox_strong, 1 as u64
+    store rc1+RcBox_weak, 1 as u64
+    store rc1+RcBox_data, 42 as u64
+    
+    // Clone rc1 to rc2 (just copy pointer and increment strong count)
+    EXPAND RC_CLONE rc1
+    rc2 = add rc1, 0
+    
+    // Load and verify data from both
+    val1 = load rc1+RcBox_data as u64
+    val2 = load rc2+RcBox_data as u64
+    
+    ok1 = eq val1, 42
+    ok2 = eq val2, 42
+    ok = and ok1, ok2
+    
+    !val1
+    !val2
+    !ok1
+    !ok2
+    
+    // Drop both references
+    EXPAND RC_DROP rc1, L_RC1_DONE
+L_RC1_DONE:
+
+    EXPAND RC_DROP rc2, L_RC2_DONE
+L_RC2_DONE:
+
+L_VERIFY:
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    !rc1
+    !rc2
+    call @sa_print_bytes(&RESULT_OK, 6)
+    return 0
+
+L_ERR:
+    !ok
+    !rc1
+    !rc2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+// --- RC 宏定义 ---
+
+[MACRO] RC_CLONE %rc_reg
+    __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
+    __rc_next_strong_%rc_reg = add __rc_strong_%rc_reg, 1
+    store %rc_reg+RcBox_strong, __rc_next_strong_%rc_reg as u64
+    !__rc_next_strong_%rc_reg
+    !__rc_strong_%rc_reg
+[END_MACRO]
+
+[MACRO] RC_DROP %rc_reg, %cleanup_label
+    __rc_strong_%rc_reg = load %rc_reg+RcBox_strong as u64
+    __rc_next_strong_%rc_reg = sub __rc_strong_%rc_reg, 1
+    store %rc_reg+RcBox_strong, __rc_next_strong_%rc_reg as u64
+    __rc_is_last_%rc_reg = eq __rc_next_strong_%rc_reg, 0
+    br __rc_is_last_%rc_reg -> %cleanup_label, L_RC_DROP_DONE_%rc_reg
+L_RC_DROP_DONE_%rc_reg:
+    !__rc_is_last_%rc_reg
+    !__rc_next_strong_%rc_reg
+    !__rc_strong_%rc_reg
+[END_MACRO]

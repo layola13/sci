@@ -1,0 +1,53 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"453\n"
+
+// 453 - struct copy: {1.5, 2.5} duplicates field-wise into a
+// second struct and reads back equal.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    src = alloc 16
+    dst = alloc 16
+    store src+0, one_half as f64
+    store src+8, two_half as f64
+    t0 = load src+0 as f64
+    t1 = load src+8 as f64
+    store dst+0, t0 as f64
+    store dst+8, t1 as f64
+    x = load dst+0 as f64
+    y = load dst+8 as f64
+    ok_x = fcmp_eq x, one_half
+    ok_y = fcmp_eq y, two_half
+    ok = and ok_x, ok_y
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !src
+    !dst
+    !t0
+    !t1
+    !x
+    !y
+    !ok_x
+    !ok_y
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

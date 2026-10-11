@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@extern npm_isabs(&p: ptr, p_len: u64) -> u32
+#npm_bind npm_isabs "node:path#isAbsolute"
+
+@const ABS = utf8:"/a/b"
+@const REL = utf8:"rel"
+@const OUT = utf8:"498\n"
+
+// 498 - npm import with a UTF8 pair: node:path isAbsolute() takes one
+// (ptr, len) string ('/a/b' -> 1, 'rel' -> 0).
+@main() -> i32:
+L_ENTRY:
+    r1 = call @npm_isabs(&ABS, 4)
+    r2 = call @npm_isabs(&REL, 3)
+    ok1 = eq r1, 1
+    ok2 = eq r2, 0
+    ok = and ok1, ok2
+    !r1
+    !r2
+    !ok1
+    !ok2
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"429\n"
+
+// 429 - fallible fn roundtrips i64 through a memory slot (42).
+@slot_int() -> i64!:
+L_ENTRY:
+    v = 42 as i64
+    buf = alloc 8
+    store buf+0, v as i64
+    g = load buf+0 as i64
+    !v
+    !buf
+    return g
+
+@main() -> i32:
+L_ENTRY:
+    r = call @slot_int()
+    v = ?r
+    ok = eq v, 42
+    !r
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

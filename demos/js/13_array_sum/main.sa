@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"10\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    arr = alloc 16
+    store arr+0, 1 as i32
+    store arr+4, 2 as i32
+    store arr+8, 3 as i32
+    store arr+12, 4 as i32
+    a = load arr+0 as i32
+    b = load arr+4 as i32
+    c = load arr+8 as i32
+    d = load arr+12 as i32
+    ab = add a, b
+    cd = add c, d
+    sum = add ab, cd
+    ok = eq sum, 10
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !sum
+    !arr
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

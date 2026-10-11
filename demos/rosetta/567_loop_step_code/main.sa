@@ -1,0 +1,41 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"567\n"
+
+// 567 - Loop steps by 2 to 10: 0+2+4+6+8 == 20, code 0.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    two = 2 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 10
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, two
+    jmp L_COND
+L_DONE:
+    !done
+    want = 20 as i64
+    ok_sum = eq acc, want
+    zero = 0 as i64
+    ok_code = eq zero, 0
+    ok = and ok_sum, ok_code
+    !acc
+    !i
+    !two
+    !want
+    !zero
+    !ok_sum
+    !ok_code
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

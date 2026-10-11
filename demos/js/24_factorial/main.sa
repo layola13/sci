@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"120\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@factorial(n: i32) -> i32:
+L_ENTRY:
+    done = sle n, 1
+    br done -> L_BASE, L_RECURSE
+
+L_BASE:
+    !done
+    !n
+    return 1
+
+L_RECURSE:
+    !done
+    prev = sub n, 1
+    rec = call @factorial(prev)
+    result = mul n, rec
+    !n
+    !rec
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    result = call @factorial(5)
+    ok = eq result, 120
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 4)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

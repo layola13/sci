@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"692\n"
+
+// 692 - slt chain: 600 < 692 and 692 < 700 hold, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 600 as i64
+    b = 692 as i64
+    c = 700 as i64
+    lt0 = slt a, b
+    lt1 = slt b, c
+    ok = and lt0, lt1
+    !a
+    !b
+    !c
+    !lt0
+    !lt1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

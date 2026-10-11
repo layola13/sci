@@ -31,6 +31,7 @@ sa_regex_free
 sa_regex_group_count
 sa_regex_group_len
 sa_regex_group_ptr
+sa_regex_group_start
 sa_regex_match
 sa_regex_match_free
 sa_std_process_abort

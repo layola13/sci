@@ -11,11 +11,15 @@ pub const DefError = error{
 pub const DefDict = struct {
     allocator: std.mem.Allocator,
     entries: std.StringHashMap([]const u8),
+    /// `#npm_bind` targets: extern name -> "<specifier>#<export>" binding
+    /// text (JS target only; other backends reject non-empty tables).
+    npm_binds: std.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) DefDict {
         return .{
             .allocator = allocator,
             .entries = std.StringHashMap([]const u8).init(allocator),
+            .npm_binds = std.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -26,6 +30,12 @@ pub const DefDict = struct {
             self.allocator.free(entry.value_ptr.*);
         }
         self.entries.deinit();
+        var bind_it = self.npm_binds.iterator();
+        while (bind_it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.npm_binds.deinit();
     }
 
     pub fn putExpression(self: *DefDict, name: []const u8, expr: []const u8) DefError!void {
@@ -41,6 +51,21 @@ pub const DefDict = struct {
 
     pub fn get(self: *const DefDict, name: []const u8) ?[]const u8 {
         return self.entries.get(name);
+    }
+
+    /// Records a `#npm_bind` target. Duplicate targets are rejected like
+    /// duplicate `#def` entries; the spec text is stored verbatim
+    /// ("<specifier>#<export>") and split at emission time.
+    pub fn putNpmBind(self: *DefDict, name: []const u8, spec: []const u8) DefError!void {
+        if (self.npm_binds.contains(name)) {
+            std.debug.print("[sa debug] DefDict.putNpmBind DuplicateDef for name: {s}\n", .{name});
+            return DefError.DuplicateDef;
+        }
+        const key_copy = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(key_copy);
+        const value_copy = try self.allocator.dupe(u8, spec);
+        errdefer self.allocator.free(value_copy);
+        try self.npm_binds.put(key_copy, value_copy);
     }
 
     pub fn resolveToken(self: *const DefDict, token: []const u8) ?[]const u8 {
@@ -347,4 +372,13 @@ test "def dict ignores trailing inline comments in expressions" {
     try std.testing.expectEqualStrings("10", dict.get("MAX_ROWS").?);
     try std.testing.expectEqualStrings("8", dict.get("TABLE_ROW_BYTES").?);
     try std.testing.expectEqualStrings("80", dict.get("TOTAL").?);
+}
+
+test "def dict records npm binds verbatim and rejects duplicates" {
+    var dict = DefDict.init(std.testing.allocator);
+    defer dict.deinit();
+
+    try dict.putNpmBind("npm_totalmem", "node:os#totalmem");
+    try std.testing.expectEqualStrings("node:os#totalmem", dict.npm_binds.get("npm_totalmem").?);
+    try std.testing.expectError(DefError.DuplicateDef, dict.putNpmBind("npm_totalmem", "node:os#freemem"));
 }

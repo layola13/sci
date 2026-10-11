@@ -1,0 +1,66 @@
+// 317 - For-Each Iterator Macro
+// SA: 用 FOR_EACH_I32 宏模拟 Rust for elem in arr.iter()
+// 卫生宏保证 _idx/_off/_p/_more/L_FE_* 每次展开独立
+
+@import "sa_std/io/print.sai"
+@const MSG_OK = utf8:"150\n"
+@const MSG_ERR = utf8:"error\n"
+
+// FOR_EACH_I32: 遍历 i32 数组，每次迭代 add 到 %acc
+// 不释放 %buf 和 %count，由调用方负责
+[MACRO] FOR_EACH_I32 %acc, %buf, %count
+    _idx = add 0, 0
+    jmp L_FE_LOOP
+L_FE_LOOP:
+    _more = ult _idx, %count
+    br _more -> L_FE_BODY, L_FE_DONE
+L_FE_BODY:
+    _off = mul _idx, 4
+    _p = ptr_add %buf, _off
+    _elem = load _p+0 as i32
+    _new_acc = add %acc, _elem
+    !%acc
+    %acc = add _new_acc, 0
+    !_new_acc
+    _new_idx = add _idx, 1
+    !_idx
+    _idx = add _new_idx, 0
+    !_new_idx
+    !_off
+    !_p
+    !_elem
+    !_more
+    jmp L_FE_LOOP
+L_FE_DONE:
+    !_idx
+    !_more
+[END_MACRO]
+
+@sum_array() -> i32:
+L_ENTRY:
+    data = alloc 20
+    store data+0, 10 as i32
+    store data+4, 20 as i32
+    store data+8, 30 as i32
+    store data+12, 40 as i32
+    store data+16, 50 as i32
+
+    sum = add 0, 0
+    EXPAND FOR_EACH_I32 sum, data, 5
+    !data
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    result = call @sum_array()
+    ok = eq result, 150
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&MSG_OK, 4)
+    return 0
+L_ERR:
+    !ok
+    call @sa_print_bytes(&MSG_ERR, 6)
+    return 1

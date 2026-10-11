@@ -1,0 +1,67 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"432\n"
+
+// 432 - nested fallible fns each spill through their own slot
+// (2.5 + 1.5 == 4.0).
+@base() -> f64!:
+L_ENTRY:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    buf = alloc 8
+    store buf+0, h as f64
+    g = load buf+0 as f64
+    !five
+    !two
+    !five_f
+    !two_f
+    !h
+    !buf
+    return g
+
+@wrap() -> f64!:
+L_ENTRY:
+    r = call @base()
+    v = ?r
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    s = fadd v, one_half
+    buf = alloc 8
+    store buf+0, s as f64
+    g = load buf+0 as f64
+    !r
+    !v
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !s
+    !buf
+    return g
+
+@main() -> i32:
+L_ENTRY:
+    r = call @wrap()
+    v = ?r
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq v, four
+    !r
+    !v
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

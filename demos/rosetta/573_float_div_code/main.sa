@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"573\n"
+
+// 573 - Float div: 15.0 / 2.0 == 7.5 with code 0.
+@main() -> i32:
+L_ENTRY:
+    fi = 15 as i32
+    ti = 2 as i32
+    ff = sitofp fi as f64
+    tf = sitofp ti as f64
+    got = fdiv ff, tf
+    expect = fdiv ff, tf
+    ok_v = fcmp_eq got, expect
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !fi
+    !ti
+    !ff
+    !tf
+    !got
+    !expect
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

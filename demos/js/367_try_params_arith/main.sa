@@ -1,0 +1,28 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"367\n"
+
+// 367 - `?` unpacks values passed through fallible parameters.
+@double(x: i64) -> i64!:
+L_ENTRY:
+    d = add x, x
+    !x
+    return d
+
+@main() -> i32:
+L_ENTRY:
+    one = 1 as i64
+    r = call @double(one)
+    v = ?r
+    ok = eq v, 2
+    !one
+    !r
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

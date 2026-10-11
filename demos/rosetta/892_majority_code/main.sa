@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"892\n"
+
+// 892 - Majority: 2 of 3 true inputs yield true, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 1 as i64
+    b = 1 as i64
+    c = 0 as i64
+    ab = and a, b
+    ac = and a, c
+    bc = and b, c
+    t0 = or ab, ac
+    maj = or t0, bc
+    one = 1 as i64
+    ok_m = eq maj, one
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_m, ok_c
+    !a
+    !b
+    !c
+    !ab
+    !ac
+    !bc
+    !t0
+    !maj
+    !one
+    !ok_m
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

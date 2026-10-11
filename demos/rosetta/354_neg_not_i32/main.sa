@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"354\n"
+
+// 354 - neg/not basics on 32-bit values.
+//
+// KNOWN LLVM-BACKEND GAP (not JS): `sa run` prints 354 but
+// `sa build-exe` fails with InvalidOperand -- the LLVM lowering has
+// no unary neg/not case (only fneg via fsub). The JS backend
+// implements the specified semantics.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    n = neg five
+    ok_a = eq n, -5
+    m1 = -1 as i32
+    z = not m1
+    ok_b = eq z, 0
+    nn = neg m1
+    ok_c = eq nn, 1
+    ok = and ok_a, ok_b
+    ok = and ok, ok_c
+    !five
+    !n
+    !m1
+    !z
+    !nn
+    !ok_a
+    !ok_b
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

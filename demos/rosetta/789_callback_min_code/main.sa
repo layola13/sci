@@ -1,0 +1,72 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"789\n"
+@const MN3_VT = vtable { invoke = @min_three }
+
+// 789 - Callback min3: min(789, 900, 800) == 789 via indirect call.
+@min_three(a: i64, b: i64) -> i64:
+L_ENTRY:
+    ab_small = slt a, b
+    br ab_small -> L_TAKE_A, L_TAKE_B
+L_TAKE_A:
+    !b
+    !ab_small
+    m = add a, 0
+    !a
+    jmp L_OUT
+L_TAKE_B:
+    !a
+    !ab_small
+    m = add b, 0
+    !b
+    jmp L_OUT
+L_OUT:
+    c = 800 as i64
+    mc_small = slt m, c
+    br mc_small -> L_KEEP, L_TAKE_C
+L_KEEP:
+    !c
+    !mc_small
+    f = add m, 0
+    !m
+    jmp L_FIN
+L_TAKE_C:
+    !m
+    !mc_small
+    f = add c, 0
+    !c
+    jmp L_FIN
+L_FIN:
+    ret5 = add f, 0
+    !f
+    return ret5
+
+@main() -> i32:
+L_ENTRY:
+    t = &MN3_VT
+    fp = load t + 0 as ptr
+    x = 789 as i64
+    y = 900 as i64
+    v = call_indirect fp(x, y)
+    want = 789 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

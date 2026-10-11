@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"930\n"
+
+// 930 - Rack: 930 = 900 + 30 across rack slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    rk = alloc 16
+    store rk+0, 900 as i64
+    store rk+8, 30 as i64
+    a = load rk+0 as i64
+    b = load rk+8 as i64
+    got = add a, b
+    want = 930 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !rk
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

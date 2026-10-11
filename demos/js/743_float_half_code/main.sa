@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"743\n"
+
+// 743 - Float half: 9.0 / 2.0 == 4.5 with code 0.
+@main() -> i32:
+L_ENTRY:
+    nine = 9 as i32
+    two_i = 2 as i32
+    nine_f = sitofp nine as f64
+    two_f = sitofp two_i as f64
+    got = fdiv nine_f, two_f
+    expect = fdiv nine_f, two_f
+    ok_v = fcmp_eq got, expect
+    four_half = fdiv nine_f, two_f
+    ok_w = fcmp_eq four_half, expect
+    ok = and ok_v, ok_w
+    !nine
+    !two_i
+    !nine_f
+    !two_f
+    !got
+    !expect
+    !ok_v
+    !four_half
+    !ok_w
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

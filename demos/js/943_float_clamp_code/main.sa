@@ -1,0 +1,70 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"943\n"
+
+// 943 - Float clamp: max(1.5, 4.0) == 4.0 then min(4.0, 2.5) == 2.5.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    four_i = 4 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    four = sitofp four_i as f64
+    five_f = sitofp five as f64
+    one_half = fdiv three_f, two_f
+    two_half = fdiv five_f, two_f
+    z0 = 0 as i32
+    zf = sitofp z0 as f64
+    big = fcmp_lt one_half, four
+    br big -> L_MAXA, L_MAXB
+L_MAXA:
+    !big
+    himax = fadd four, zf
+    jmp L_MID
+L_MAXB:
+    !big
+    himax = fadd four, zf
+    jmp L_MID
+L_MID:
+    small = fcmp_lt himax, two_half
+    br small -> L_MINA, L_MINB
+L_MINA:
+    !small
+    mn = fadd himax, zf
+    jmp L_OUT
+L_MINB:
+    !small
+    mn = fadd two_half, zf
+    jmp L_OUT
+L_OUT:
+    ok_v = fcmp_eq mn, two_half
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !three
+    !two_i
+    !four_i
+    !five
+    !three_f
+    !two_f
+    !four
+    !five_f
+    !one_half
+    !two_half
+    !z0
+    !zf
+    !himax
+    !mn
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,41 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"660\n"
+
+// 660 - Grow walk: three allocs chained, last holds 660.
+@main() -> i32:
+L_ENTRY:
+    a = alloc 8
+    b = alloc 8
+    c = alloc 8
+    store a+0, 1 as i64
+    store b+0, 2 as i64
+    want = 660 as i64
+    store c+0, want as i64
+    x = load a+0 as i64
+    y = load b+0 as i64
+    got = load c+0 as i64
+    ok_xy = eq x, 1
+    ok_y = eq y, 2
+    ok_v = eq got, want
+    t0 = and ok_xy, ok_y
+    ok = and t0, ok_v
+    !a
+    !b
+    !c
+    !x
+    !y
+    !got
+    !want
+    !ok_xy
+    !ok_y
+    !ok_v
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

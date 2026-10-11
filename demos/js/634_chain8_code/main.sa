@@ -1,0 +1,57 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"634\n"
+
+// 634 - Chain of 8 calls returns 634 with code 0.
+@q8(x: i64) -> i64:
+L_ENTRY:
+    !x
+    return 634
+
+@q6(x: i64) -> i64:
+L_ENTRY:
+    v = call @q8(x)
+    !x
+    return v
+
+@q4(x: i64) -> i64:
+L_ENTRY:
+    v = call @q6(x)
+    !x
+    return v
+
+@q2(x: i64) -> i64:
+L_ENTRY:
+    v = call @q4(x)
+    !x
+    return v
+
+@q1(x: i64) -> i64:
+L_ENTRY:
+    v = call @q2(x)
+    !x
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    v = call @q1(z)
+    want = 634 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

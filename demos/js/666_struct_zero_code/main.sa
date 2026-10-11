@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"666\n"
+
+// 666 - Zero-struct: two zero slots plus 666 == 666, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 24
+    store p+0, 0 as i64
+    store p+8, 0 as i64
+    store p+16, 666 as i64
+    z0 = load p+0 as i64
+    z1 = load p+8 as i64
+    got = load p+16 as i64
+    zero = 0 as i64
+    ok0 = eq z0, zero
+    ok1 = eq z1, zero
+    want = 666 as i64
+    ok_v = eq got, want
+    t0 = and ok0, ok1
+    ok = and t0, ok_v
+    !p
+    !z0
+    !z1
+    !got
+    !zero
+    !ok0
+    !ok1
+    !want
+    !ok_v
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

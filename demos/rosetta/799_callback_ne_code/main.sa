@@ -1,0 +1,53 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"799\n"
+@const NE_VT = vtable { invoke = @ne_fn }
+
+// 799 - Callback ne: 799 != 700 yields 799 through indirect call.
+@ne_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    same = eq a, b
+    diff = eq same, 0
+    br diff -> L_YES, L_NO
+L_YES:
+    !a
+    !b
+    !same
+    !diff
+    return 799
+L_NO:
+    !a
+    !b
+    !same
+    !diff
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &NE_VT
+    fp = load t + 0 as ptr
+    x = 799 as i64
+    y = 700 as i64
+    v = call_indirect fp(x, y)
+    want = 799 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

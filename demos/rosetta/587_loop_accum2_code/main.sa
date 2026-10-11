@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"587\n"
+
+// 587 - Accumulate 1..4 twice: 10 + 10 == 20 with code 0.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 1 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 5
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !done
+    ten = 10 as i64
+    ok_first = eq acc, ten
+    acc2 = add acc, acc
+    want = 20 as i64
+    ok_sum = eq acc2, want
+    ok = and ok_first, ok_sum
+    !acc
+    !i
+    !one
+    !ten
+    !ok_first
+    !acc2
+    !want
+    !ok_sum
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

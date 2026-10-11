@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"440\n"
+
+// 440 - f32 epsilon is visible (1 + 2^-23 differs from 1.0 in f32,
+// yet equals its own recomputation).
+@main() -> i32:
+L_ENTRY:
+    one_i = 1 as i32
+    pow_i = 8388608 as i32
+    one = sitofp one_i as f64
+    pow = sitofp pow_i as f64
+    eps = fdiv one, pow
+    f = fadd one, eps
+    t = fptrunc f as f32
+    one32 = fptrunc one as f32
+    ne = fcmp_ne t, one32
+    self = fcmp_eq t, t
+    ok = and ne, self
+    !one_i
+    !pow_i
+    !one
+    !pow
+    !eps
+    !f
+    !t
+    !one32
+    !ne
+    !self
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

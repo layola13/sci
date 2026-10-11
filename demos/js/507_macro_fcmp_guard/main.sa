@@ -1,0 +1,77 @@
+// 507 - Macro FCmp Guard
+// SA: 用 FGUARD_GT_ZERO 宏模拟 float 的 match guard（303 的浮点版）
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"507\n"
+
+// FGUARD_GT_ZERO: 如果 %x > 0.0 则跳转 %label_yes, 否则 %label_no
+[MACRO] FGUARD_GT_ZERO %x, %label_yes, %label_no
+    _zero_i = 0 as i32
+    _zero = sitofp _zero_i as f64
+    _pos = fcmp_gt %x, _zero
+    !_zero_i
+    !_zero
+    br _pos -> %label_yes, %label_no
+[END_MACRO]
+
+// pick: x > 0.0 => x * 2, 否则 x * 3（303 式双分支返回）
+@pick(x: f64) -> f64:
+L_ENTRY:
+    EXPAND FGUARD_GT_ZERO x, L_POS, L_NEG
+L_POS:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    r_pos = fmul x, two_f
+    !x
+    !two_i
+    !two_f
+    return r_pos
+L_NEG:
+    three_i = 3 as i32
+    three_f = sitofp three_i as f64
+    r_neg = fmul x, three_f
+    !x
+    !three_i
+    !three_f
+    return r_neg
+
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    neg_two_i = -2 as i32
+    neg_two = sitofp neg_two_i as f64
+    r0 = call @pick(two_half)
+    r1 = call @pick(neg_two)
+    five_whole = sitofp five as f64
+    neg_six_i = -6 as i32
+    neg_six = sitofp neg_six_i as f64
+    ok0 = fcmp_eq r0, five_whole
+    ok1 = fcmp_eq r1, neg_six
+    ok = and ok0, ok1
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !neg_two_i
+    !neg_two
+    !r0
+    !r1
+    !five_whole
+    !neg_six_i
+    !neg_six
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

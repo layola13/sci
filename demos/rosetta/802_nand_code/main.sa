@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"802\n"
+
+// 802 - Nand: not((802==802) and (0==1)) holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 802 as i64
+    b = 802 as i64
+    c = 0 as i64
+    d = 1 as i64
+    ok0 = eq a, b
+    ok1 = eq c, d
+    both = and ok0, ok1
+    nand = eq both, 0
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and nand, ok_c
+    !a
+    !b
+    !c
+    !d
+    !ok0
+    !ok1
+    !both
+    !nand
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

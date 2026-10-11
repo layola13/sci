@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"772\n"
+
+// 772 - Or/And mix: ((1==0) or (2==2)) and (772==772) holds.
+@main() -> i32:
+L_ENTRY:
+    a = 1 as i64
+    b = 0 as i64
+    c = 2 as i64
+    d = 2 as i64
+    e = 772 as i64
+    f = 772 as i64
+    f0 = eq a, b
+    t0 = eq c, d
+    t1 = eq e, f
+    o = or f0, t0
+    ok = and o, t1
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !f0
+    !t0
+    !t1
+    !o
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,28 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"341\n"
+
+// 341 - fptosi truncates toward zero (29/10 = 2.9 becomes 2).
+@main() -> i32:
+L_ENTRY:
+    a = 29 as i32
+    b = 10 as i32
+    fa = sitofp a as f64
+    fb = sitofp b as f64
+    f = fdiv fa, fb
+    y = fptosi f as i64
+    ok = eq y, 2
+    !a
+    !b
+    !fa
+    !fb
+    !f
+    !y
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

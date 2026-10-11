@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"744\n"
+
+// 744 - Fan3: 248 * 3 == 744 via triple add, code 0.
+@triple(x: i64) -> i64:
+L_ENTRY:
+    d = add x, x
+    t = add d, x
+    !x
+    !d
+    return t
+
+@main() -> i32:
+L_ENTRY:
+    base = 248 as i64
+    v = call @triple(base)
+    want = 744 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

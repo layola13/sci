@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"888\n"
+@const GRD_VT = vtable { check = @guard_fn }
+
+// 888 - Vtable guard: nonzero 888 passes through, code 0.
+@guard_fn(x: i64) -> i64:
+L_ENTRY:
+    z = eq x, 0
+    nz = eq z, 0
+    br nz -> L_YES, L_NO
+L_YES:
+    !x
+    !z
+    !nz
+    return 888
+L_NO:
+    !x
+    !z
+    !nz
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &GRD_VT
+    fp = load t + 0 as ptr
+    v0 = 888 as i64
+    v = call_indirect fp(v0)
+    want = 888 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

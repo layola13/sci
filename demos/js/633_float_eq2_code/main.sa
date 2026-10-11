@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"633\n"
+
+// 633 - Float eq: 4.0 == 4.0 holds with code 0.
+@main() -> i32:
+L_ENTRY:
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    same = sitofp four_i as f64
+    eqf = fcmp_eq four, same
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and eqf, ok_c
+    !four_i
+    !four
+    !same
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

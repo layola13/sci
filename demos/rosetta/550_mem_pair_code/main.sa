@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"550\n"
+
+// 550 - Mem pair: (code 0, value 1.5) round-trips through 16-byte slot.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv three_f, two_f
+    buf = alloc 16
+    store buf+0, 0 as i64
+    store buf+8, expect as f64
+    code = load buf+0 as i64
+    val = load buf+8 as f64
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, expect
+    ok = and ok_c, ok_v
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !expect
+    !buf
+    !code
+    !val
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

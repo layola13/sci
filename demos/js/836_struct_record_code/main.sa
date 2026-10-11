@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"836\n"
+
+// 836 - Record: kind 2 with (800, 36) payload sums == 836.
+@main() -> i32:
+L_ENTRY:
+    rec = alloc 24
+    store rec+0, 2 as i64
+    store rec+8, 800 as i64
+    store rec+16, 36 as i64
+    kind = load rec+0 as i64
+    p0 = load rec+8 as i64
+    p1 = load rec+16 as i64
+    two = 2 as i64
+    ok_kind = eq kind, two
+    got = add p0, p1
+    want = 836 as i64
+    ok_v = eq got, want
+    ok = and ok_kind, ok_v
+    !rec
+    !kind
+    !p0
+    !p1
+    !two
+    !ok_kind
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

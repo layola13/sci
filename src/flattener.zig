@@ -1664,6 +1664,7 @@ fn emitParsedLine(
             try setPendingLoc(allocator, pending_loc, classified.parts[0], line_no, col_no);
         },
         .def => try dict.putExpression(classified.parts[0], classified.parts[1]),
+        .npm_bind => try dict.putNpmBind(classified.parts[0], classified.parts[1]),
         .native => {
             const inst_loc = try consumePendingLoc(loc_table, pending_loc);
             const raw_copy = try ownText(allocator, owned_text, raw_line);
@@ -2186,7 +2187,7 @@ fn collectMacroDefinitions(
         const line = lines[idx];
         recordErrorSourceLine(error_ctx, line.line_no);
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .if_start, .else_, .if_end, .macro_end => {},
+            .blank_or_comment, .def, .npm_bind, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .if_start, .else_, .if_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
@@ -3048,7 +3049,7 @@ fn emitRange(
                 const col_no = try std.fmt.parseInt(u32, line.classified.parts[2], 10);
                 try setPendingLoc(allocator, pending_loc, line.classified.parts[0], line_no, col_no);
             },
-            .def, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native, .unknown => {
+            .def, .npm_bind, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native, .unknown => {
                 const should_render = source_line_override != null or replacements.len != 0;
                 if (should_render) {
                     const rendered = try renderWithTokenReplacements(allocator, line.text, replacements);
@@ -3914,6 +3915,18 @@ fn mergeDefDictAllowingIdentical(target: *DefDict, source: *const DefDict) !void
         const value_copy = try target.allocator.dupe(u8, entry.value_ptr.*);
         errdefer target.allocator.free(value_copy);
         try target.entries.put(key_copy, value_copy);
+    }
+    var bind_it = source.npm_binds.iterator();
+    while (bind_it.next()) |entry| {
+        if (target.npm_binds.get(entry.key_ptr.*)) |existing| {
+            if (!std.mem.eql(u8, existing, entry.value_ptr.*)) return error.DuplicateDef;
+            continue;
+        }
+        const key_copy = try target.allocator.dupe(u8, entry.key_ptr.*);
+        errdefer target.allocator.free(key_copy);
+        const value_copy = try target.allocator.dupe(u8, entry.value_ptr.*);
+        errdefer target.allocator.free(value_copy);
+        try target.npm_binds.put(key_copy, value_copy);
     }
 }
 
@@ -4944,6 +4957,23 @@ fn flattenInternal(
     if (pending_loc) |loc| {
         allocator.free(loc.file);
         pending_loc = null;
+    }
+
+    // `#npm_bind` targets must name a declared `@extern`; anything else
+    // (unknown names, non-extern functions) is rejected here so backends
+    // never see a dangling binding.
+    {
+        var bind_it = dict.npm_binds.iterator();
+        while (bind_it.next()) |entry| {
+            var found = false;
+            for (function_sigs.items) |sig| {
+                if (sig.kind == .external and std.mem.eql(u8, sig.name, entry.key_ptr.*)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return error.UnknownNpmBindTarget;
+        }
     }
 
     const loc_table_slice = try collectLocTableEntries(allocator, instructions.items);

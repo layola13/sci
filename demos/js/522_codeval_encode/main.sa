@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"522\n"
+
+// 522 - (code, value) pair in one slot: code 0 with payload 2.5;
+// both halves read back and checked.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 16
+    store buf+0, 0 as i64
+    store buf+8, two_half as f64
+    code = load buf+0 as i64
+    val = load buf+8 as f64
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, two_half
+    ok = and ok_c, ok_v
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !buf
+    !code
+    !val
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

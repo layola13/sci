@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"576\n"
+
+// 576 - Struct two fields: (0, 576) spill and reload, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 16
+    store p+0, 0 as i64
+    want = 576 as i64
+    store p+8, want as i64
+    c0 = load p+0 as i64
+    got = load p+8 as i64
+    ok0 = eq c0, 0
+    ok1 = eq got, want
+    ok = and ok0, ok1
+    !p
+    !want
+    !c0
+    !got
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,23 @@
+@import "sa_std/io/print.sai"
+
+@extern npm_parallelism() -> u32
+#npm_bind npm_parallelism "node:os#availableParallelism"
+
+@const OUT = utf8:"497\n"
+
+// 497 - npm import sharing a specifier group: node:os
+// availableParallelism() is always at least 1. Its import joins the
+// same prologue group as any other node:os binding.
+@main() -> i32:
+L_ENTRY:
+    p = call @npm_parallelism()
+    ok = ugt p, 0
+    !p
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

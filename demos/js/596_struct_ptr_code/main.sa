@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"596\n"
+
+// 596 - Struct ptr chase: store 596, reload through second pointer.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 8
+    want = 596 as i64
+    store p+0, want as i64
+    q = load p+0 as i64
+    buf = alloc 8
+    store buf+0, q as i64
+    got = load buf+0 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p
+    !want
+    !q
+    !buf
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

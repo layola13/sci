@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"932\n"
+
+// 932 - Tautology: (7==7) or (7==8) holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 7 as i64
+    b = 7 as i64
+    c = 8 as i64
+    t = eq a, b
+    f = eq a, c
+    ok = or t, f
+    !a
+    !b
+    !c
+    !t
+    !f
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

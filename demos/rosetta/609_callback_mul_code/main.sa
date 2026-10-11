@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"609\n"
+@const MUL3_VT = vtable { invoke = @mul_fn }
+
+// 609 - Callback mul: 203 * 3 == 609 through indirect call.
+@mul_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    r = add a, a
+    s = add r, a
+    !a
+    !b
+    !r
+    return s
+
+@main() -> i32:
+L_ENTRY:
+    t = &MUL3_VT
+    fp = load t + 0 as ptr
+    x = 203 as i64
+    y = 3 as i64
+    v = call_indirect fp(x, y)
+    want = 609 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

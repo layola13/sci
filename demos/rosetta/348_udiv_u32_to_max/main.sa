@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"348\n"
+
+// 348 - 32-bit udiv keeps the unsigned 32-bit quotient as-is.
+//
+// Same `| 0` epilogue bug as 347: udiv(0xFFFFFFFF, 1) came back -1.
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    u = trunc big as u32
+    b1 = 1 as u64
+    d = trunc b1 as i32
+    q = udiv u, d
+    exp = trunc big as u32
+    ok = eq q, exp
+    !big
+    !u
+    !b1
+    !d
+    !q
+    !exp
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

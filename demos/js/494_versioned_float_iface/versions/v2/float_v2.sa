@@ -1,0 +1,12 @@
+@export v2_float_value() -> f64:
+L_ENTRY:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !five
+    !two
+    !five_f
+    !two_f
+    return h

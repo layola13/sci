@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"846\n"
+
+// 846 - Cell pair: two cells (800, 46) sum == 846, code 0.
+@main() -> i32:
+L_ENTRY:
+    c1 = alloc 8
+    c2 = alloc 8
+    store c1+0, 800 as i64
+    store c2+0, 46 as i64
+    a = load c1+0 as i64
+    b = load c2+0 as i64
+    got = add a, b
+    want = 846 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !c1
+    !c2
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"762\n"
+
+// 762 - Bit-and chain: (762==762) and (1==1) and (2==2) holds.
+@main() -> i32:
+L_ENTRY:
+    a = 762 as i64
+    b = 762 as i64
+    c = 1 as i64
+    d = 1 as i64
+    e = 2 as i64
+    f = 2 as i64
+    ok0 = eq a, b
+    ok1 = eq c, d
+    ok2 = eq e, f
+    t0 = and ok0, ok1
+    ok = and t0, ok2
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

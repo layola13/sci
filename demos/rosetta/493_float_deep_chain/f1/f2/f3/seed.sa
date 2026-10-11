@@ -1,0 +1,12 @@
+@export seed_value() -> f64:
+L_ENTRY:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    h = fdiv one_f, two_f
+    !one_i
+    !two_i
+    !one_f
+    !two_f
+    return h

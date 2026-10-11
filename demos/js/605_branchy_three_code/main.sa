@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"605\n"
+
+// 605 - Branchy three tags: 0 -> 0, 1 -> 7, 2 -> 7, all verified.
+@pick(tag: i64) -> i64:
+L_ENTRY:
+    c = eq tag, 0
+    br c -> L_SMALL, L_BIG
+L_SMALL:
+    !tag
+    !c
+    return 0
+L_BIG:
+    !tag
+    !c
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    o = 1 as i64
+    t = 2 as i64
+    c0 = call @pick(z)
+    c1 = call @pick(o)
+    c2 = call @pick(t)
+    ok0 = eq c0, 0
+    ok1 = eq c1, 7
+    ok2 = eq c2, 7
+    t0 = and ok0, ok1
+    ok = and t0, ok2
+    !z
+    !o
+    !t
+    !c0
+    !c1
+    !c2
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

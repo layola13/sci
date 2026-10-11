@@ -1,0 +1,69 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"674\n"
+
+// 674 - Chain of 12 calls returns 674 with code 0.
+@t12(x: i64) -> i64:
+L_ENTRY:
+    !x
+    return 674
+
+@t10(x: i64) -> i64:
+L_ENTRY:
+    v = call @t12(x)
+    !x
+    return v
+
+@t8(x: i64) -> i64:
+L_ENTRY:
+    v = call @t10(x)
+    !x
+    return v
+
+@t6(x: i64) -> i64:
+L_ENTRY:
+    v = call @t8(x)
+    !x
+    return v
+
+@t4(x: i64) -> i64:
+L_ENTRY:
+    v = call @t6(x)
+    !x
+    return v
+
+@t2(x: i64) -> i64:
+L_ENTRY:
+    v = call @t4(x)
+    !x
+    return v
+
+@t1(x: i64) -> i64:
+L_ENTRY:
+    v = call @t2(x)
+    !x
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    v = call @t1(z)
+    want = 674 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

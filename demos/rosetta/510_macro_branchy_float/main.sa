@@ -1,0 +1,87 @@
+// 510 - Macro Branchy Float
+// SA: FSIGN_CLASSIFY 宏做正负零三路分类（375 式分支 + 宏守卫）
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"510\n"
+
+// FSIGN_GT: 如果 %x > 0.0 则跳转 %label_yes, 否则 %label_no
+[MACRO] FSIGN_GT %x, %label_yes, %label_no
+    _zero_i = 0 as i32
+    _zero = sitofp _zero_i as f64
+    _gt = fcmp_gt %x, _zero
+    !_zero_i
+    !_zero
+    br _gt -> %label_yes, %label_no
+[END_MACRO]
+
+// FSIGN_LT: 如果 %x < 0.0 则跳转 %label_yes, 否则 %label_no
+[MACRO] FSIGN_LT %x, %label_yes, %label_no
+    _zero_i = 0 as i32
+    _zero = sitofp _zero_i as f64
+    _lt = fcmp_lt %x, _zero
+    !_zero_i
+    !_zero
+    br _lt -> %label_yes, %label_no
+[END_MACRO]
+
+// classify: > 0.0 => 1, < 0.0 => -1, 否则 0
+@classify(x: f64) -> i32:
+L_ENTRY:
+    EXPAND FSIGN_GT x, L_POS, L_NOT_POS
+L_POS:
+    !x
+    return 1
+L_NOT_POS:
+    EXPAND FSIGN_LT x, L_NEG, L_ZERO
+L_NEG:
+    !x
+    neg_one = sub 0, 1
+    return neg_one
+L_ZERO:
+    !x
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    neg_two_i = -2 as i32
+    neg_two = sitofp neg_two_i as f64
+    zero_i = 0 as i32
+    zero = sitofp zero_i as f64
+    a = call @classify(two_half)
+    b = call @classify(neg_two)
+    c = call @classify(zero)
+    ok_a = eq a, 1
+    ok_b = eq b, -1
+    ok_c = eq c, 0
+    t = and ok_a, ok_b
+    ok = and t, ok_c
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !neg_two_i
+    !neg_two
+    !zero_i
+    !zero
+    !a
+    !b
+    !c
+    !ok_a
+    !ok_b
+    !ok_c
+    !t
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

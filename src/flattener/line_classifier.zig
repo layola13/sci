@@ -9,6 +9,7 @@ pub const LineKind = enum {
     const_decl,
     import_decl,
     loc_hint,
+    npm_bind,
     func_decl,
     ffi_wrapper_decl,
     extern_decl,
@@ -361,6 +362,33 @@ fn parseImport(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
 
     var out = makeLine(.import_decl, raw, trimmed);
     addPart(&out, 0, path);
+    return out;
+}
+
+fn parseNpmBind(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
+    if (!startsWithWord(trimmed, "#npm_bind")) return null;
+
+    const after = std.mem.trimLeft(u8, trimmed["#npm_bind".len..], " \t");
+    const first = splitFirstWord(after);
+    if (first.word.len == 0 or first.rest.len == 0) return null;
+    if (!isIdentStart(first.word[0])) return null;
+    for (first.word[1..]) |c| {
+        if (!isIdentChar(c)) return null;
+    }
+    const spec = std.mem.trim(u8, first.rest, " \t");
+    if (spec.len < 2 or spec[0] != '"') return null;
+    const end_quote = std.mem.indexOfScalarPos(u8, spec, 1, '"') orelse return null;
+    const inner = spec[1..end_quote];
+    const rest = std.mem.trim(u8, spec[end_quote + 1 ..], " \t\r");
+    if (rest.len != 0) return null;
+    // Binding shape is "<specifier>#<export>" with both sides non-empty;
+    // split at the last '#' so scoped specifiers keep working.
+    const hash = std.mem.lastIndexOfScalar(u8, inner, '#') orelse return null;
+    if (hash == 0 or hash + 1 >= inner.len) return null;
+
+    var out = makeLine(.npm_bind, raw, trimmed);
+    addPart(&out, 0, first.word);
+    addPart(&out, 1, inner);
     return out;
 }
 
@@ -816,6 +844,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
 
     if (parseLocHint(line, trimmed)) |out| return out;
     if (parseImport(line, trimmed)) |out| return out;
+    if (parseNpmBind(line, trimmed)) |out| return out;
 
     if (parseFunctionHeader(line, trimmed, "@ffi_wrapper", .ffi_wrapper_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@extern", .extern_decl, false)) |out| return out;
@@ -1043,6 +1072,25 @@ test "classify representative line families" {
     const native = classifyLine("$const x = 1;$");
     try std.testing.expectEqual(LineKind.native, native.kind);
     try std.testing.expectEqualStrings("const x = 1;", native.parts[0]);
+
+    const npm_bind = classifyLine("#npm_bind npm_totalmem \"node:os#totalmem\"");
+    try std.testing.expectEqual(LineKind.npm_bind, npm_bind.kind);
+    try std.testing.expectEqualStrings("npm_totalmem", npm_bind.parts[0]);
+    try std.testing.expectEqualStrings("node:os#totalmem", npm_bind.parts[1]);
+
+    const npm_scoped = classifyLine("#npm_bind npm_uuid \"uuid@9.0.0#v4\"");
+    try std.testing.expectEqual(LineKind.npm_bind, npm_scoped.kind);
+    try std.testing.expectEqualStrings("npm_uuid", npm_scoped.parts[0]);
+    try std.testing.expectEqualStrings("uuid@9.0.0#v4", npm_scoped.parts[1]);
+
+    const npm_no_hash = classifyLine("#npm_bind bad \"node:os\"");
+    try std.testing.expectEqual(LineKind.unknown, npm_no_hash.kind);
+
+    const npm_empty_export = classifyLine("#npm_bind bad \"node:os#\"");
+    try std.testing.expectEqual(LineKind.unknown, npm_empty_export.kind);
+
+    const npm_no_ident = classifyLine("#npm_bind \"node:os#totalmem\"");
+    try std.testing.expectEqual(LineKind.unknown, npm_no_ident.kind);
 }
 
 test "native register extraction keeps bare identifiers and skips llvm sigils" {

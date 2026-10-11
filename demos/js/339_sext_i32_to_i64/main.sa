@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"339\n"
+
+// 339 - sext i32 to i64 sign-extends (i32 source forced with trunc;
+// bare `N as i32` immediates fold to i64).
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    m1 = trunc big as i32
+    s = sext m1 as i64
+    ok_a = eq s, -1
+    p = 2147483647 as i32
+    sp = sext p as i64
+    ok_b = eq sp, 2147483647
+    ok = and ok_a, ok_b
+    !big
+    !m1
+    !s
+    !p
+    !sp
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

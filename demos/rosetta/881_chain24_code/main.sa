@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"881\n"
+
+// 881 - Chain24: 857 + 24 == 881 with code 0.
+@add24(x: i64) -> i64:
+L_ENTRY:
+    t = 24 as i64
+    r = add x, t
+    !x
+    !t
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 857 as i64
+    v = call @add24(base)
+    want = 881 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"912\n"
+
+// 912 - Distinct: 900, 910, 912 all differ pairwise, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 900 as i64
+    b = 910 as i64
+    c = 912 as i64
+    ab = eq a, b
+    ac = eq a, c
+    bc = eq b, c
+    nab = eq ab, 0
+    nac = eq ac, 0
+    nbc = eq bc, 0
+    t0 = and nab, nac
+    ok = and t0, nbc
+    !a
+    !b
+    !c
+    !ab
+    !ac
+    !bc
+    !nab
+    !nac
+    !nbc
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

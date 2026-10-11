@@ -1,0 +1,61 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"844\n"
+
+// 844 - Branch3: three-way tag dispatch 0/1/2 -> 800/22/22, sum 844.
+@dispatch844(tag: i64) -> i64:
+L_ENTRY:
+    z = eq tag, 0
+    o = eq tag, 1
+    br z -> L_ZERO, L_NZ
+L_ZERO:
+    !tag
+    !z
+    !o
+    return 800
+L_NZ:
+    !tag
+    !z
+    br o -> L_ONE, L_TWO
+L_ONE:
+    !o
+    return 22
+L_TWO:
+    !o
+    return 22
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    o = 1 as i64
+    t = 2 as i64
+    a = call @dispatch844(z)
+    b = call @dispatch844(o)
+    c = call @dispatch844(t)
+    ab = add a, b
+    got = add ab, c
+    want = 844 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !z
+    !o
+    !t
+    !a
+    !b
+    !c
+    !ab
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

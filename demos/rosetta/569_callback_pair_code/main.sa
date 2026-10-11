@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"569\n"
+@const CB0_VT = vtable { invoke = @cb_zero }
+@const CB1_VT = vtable { invoke = @cb_one }
+
+// 569 - Callback pair: 0 and 569 summed == 569 through indirect calls.
+@cb_zero(dummy: i64) -> i64:
+L_ENTRY:
+    !dummy
+    return 0
+
+@cb_one(dummy: i64) -> i64:
+L_ENTRY:
+    !dummy
+    return 569
+
+@main() -> i32:
+L_ENTRY:
+    t0 = &CB0_VT
+    fp0 = load t0 + 0 as ptr
+    t1 = &CB1_VT
+    fp1 = load t1 + 0 as ptr
+    z = 0 as i64
+    a = call_indirect fp0(z)
+    b = call_indirect fp1(z)
+    v = add a, b
+    want = 569 as i64
+    ok = eq v, want
+    !t0
+    !fp0
+    !t1
+    !fp1
+    !z
+    !a
+    !b
+    !v
+    !want
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

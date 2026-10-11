@@ -1,0 +1,52 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"451\n"
+
+// 451 - nested-style flat struct sums three fields
+// (1.5 + 2.5 + 3.0 == 7.0).
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    seven_i = 7 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 24
+    store buf+0, one_half as f64
+    store buf+8, two_half as f64
+    store buf+16, three_f as f64
+    a = load buf+0 as f64
+    b = load buf+8 as f64
+    c = load buf+16 as f64
+    s1 = fadd a, b
+    s = fadd s1, c
+    seven = sitofp seven_i as f64
+    ok = fcmp_eq s, seven
+    !three
+    !two_i
+    !five
+    !seven_i
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !buf
+    !a
+    !b
+    !c
+    !s1
+    !s
+    !seven
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

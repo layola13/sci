@@ -1,0 +1,62 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"433\n"
+
+// 433 - loop over fallible calls that spill through a slot each time
+// (0.5 added 4 times == 2.0; repeated alloc/free across calls).
+@halfstep() -> f64!:
+L_ENTRY:
+    one_i = 1 as i32
+    two_i = 2 as i32
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    h = fdiv one_f, two_f
+    buf = alloc 8
+    store buf+0, h as f64
+    g = load buf+0 as f64
+    !one_i
+    !two_i
+    !one_f
+    !two_f
+    !h
+    !buf
+    return g
+
+@main() -> i32:
+L_ENTRY:
+    zero_i = 0 as i32
+    one_i = 1 as i64
+    acc = sitofp zero_i as f64
+    i = 0 as i64
+    jmp L_LOOP
+L_LOOP:
+    c = slt i, 4
+    br c -> L_BODY, L_DONE
+L_BODY:
+    r = call @halfstep()
+    v = ?r
+    acc = fadd acc, v
+    i = add i, one_i
+    !c
+    !r
+    !v
+    jmp L_LOOP
+L_DONE:
+    !c
+    two_i = 2 as i32
+    expect = sitofp two_i as f64
+    ok = fcmp_eq acc, expect
+    !zero_i
+    !one_i
+    !acc
+    !i
+    !two_i
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

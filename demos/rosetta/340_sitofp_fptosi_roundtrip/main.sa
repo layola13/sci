@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"340\n"
+
+// 340 - sitofp/fptosi roundtrip preserves signed integers.
+@main() -> i32:
+L_ENTRY:
+    x = -42 as i32
+    f = sitofp x as f64
+    y = fptosi f as i64
+    ok = eq y, -42
+    !x
+    !f
+    !y
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

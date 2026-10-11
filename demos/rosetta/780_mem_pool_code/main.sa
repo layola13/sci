@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"780\n"
+
+// 780 - Pool: 4 slabs of 195 sum == 780 with code 0.
+@main() -> i32:
+L_ENTRY:
+    p0 = alloc 8
+    p1 = alloc 8
+    p2 = alloc 8
+    p3 = alloc 8
+    store p0+0, 195 as i64
+    store p1+0, 195 as i64
+    store p2+0, 195 as i64
+    store p3+0, 195 as i64
+    a = load p0+0 as i64
+    b = load p1+0 as i64
+    c = load p2+0 as i64
+    d = load p3+0 as i64
+    ab = add a, b
+    cd = add c, d
+    got = add ab, cd
+    want = 780 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p0
+    !p1
+    !p2
+    !p3
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

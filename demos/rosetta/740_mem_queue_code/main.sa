@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"740\n"
+
+// 740 - Queue walk: head/tail advance, 700 + 40 == 740.
+@main() -> i32:
+L_ENTRY:
+    q = alloc 24
+    store q+0, 0 as i64
+    store q+8, 0 as i64
+    store q+16, 700 as i64
+    h0 = load q+0 as i64
+    t0 = load q+8 as i64
+    one = 1 as i64
+    h1 = add h0, one
+    t1 = add t0, one
+    store q+0, h1 as i64
+    store q+8, t1 as i64
+    base = load q+16 as i64
+    span = 40 as i64
+    got = add base, span
+    want = 740 as i64
+    ok_v = eq got, want
+    ok_h = eq h1, one
+    ok = and ok_v, ok_h
+    !q
+    !h0
+    !t0
+    !one
+    !h1
+    !t1
+    !base
+    !span
+    !got
+    !want
+    !ok_v
+    !ok_h
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

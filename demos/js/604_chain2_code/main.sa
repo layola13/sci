@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"604\n"
+
+// 604 - Nested 2-deep chain returns 604 with code 0.
+@deep(x: i64) -> i64:
+L_ENTRY:
+    !x
+    return 604
+
+@shallow(x: i64) -> i64:
+L_ENTRY:
+    v = call @deep(x)
+    !x
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    v = call @shallow(z)
+    want = 604 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

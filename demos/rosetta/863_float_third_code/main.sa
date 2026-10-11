@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"863\n"
+
+// 863 - Float third: 9.0 / 3.0 == 3.0 and 1.5 + 1.5 == 3.0.
+@main() -> i32:
+L_ENTRY:
+    nine = 9 as i32
+    three = 3 as i32
+    two_i = 2 as i32
+    nine_f = sitofp nine as f64
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    q = fdiv nine_f, three_f
+    ok_q = fcmp_eq q, three_f
+    one_half = fdiv three_f, two_f
+    s = fadd one_half, one_half
+    ok_s = fcmp_eq s, three_f
+    ok = and ok_q, ok_s
+    !nine
+    !three
+    !two_i
+    !nine_f
+    !three_f
+    !two_f
+    !q
+    !ok_q
+    !one_half
+    !s
+    !ok_s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

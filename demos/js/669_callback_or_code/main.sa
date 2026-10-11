@@ -1,0 +1,58 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"669\n"
+@const OR_VT = vtable { invoke = @or_fn }
+
+// 669 - Callback or-combine: (1 or 0) selects 669 through indirect call.
+@or_fn(flag: i64, alt: i64) -> i64:
+L_ENTRY:
+    pick_alt = eq flag, 0
+    br pick_alt -> L_ALT, L_BASE
+L_ALT:
+    !flag
+    !pick_alt
+    m = add alt, 0
+    !alt
+    jmp L_OUT
+L_BASE:
+    !alt
+    !pick_alt
+    m = add flag, 0
+    !flag
+    jmp L_OUT
+L_OUT:
+    base = 600 as i64
+    r = add m, base
+    !m
+    !base
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &OR_VT
+    fp = load t + 0 as ptr
+    z = 0 as i64
+    v69 = 69 as i64
+    v = call_indirect fp(z, v69)
+    want = 669 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !z
+    !v69
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

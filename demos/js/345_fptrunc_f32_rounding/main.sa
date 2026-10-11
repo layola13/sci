@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"345\n"
+
+// 345 - fptrunc rounds f64 to f32 (1+1e-10 is exactly 1.0 in f32);
+// fpext widens back without changing the value.
+@main() -> i32:
+L_ENTRY:
+    one_i = 1 as i32
+    ten_i = 10000000000 as i64
+    one = sitofp one_i as f64
+    ten = sitofp ten_i as f64
+    tiny = fdiv one, ten
+    f = fadd one, tiny
+    t = fptrunc f as f32
+    ok_a = fcmp_eq t, one
+    e = fpext t as f64
+    ok_b = fcmp_eq e, one
+    ok = and ok_a, ok_b
+    !one_i
+    !ten_i
+    !one
+    !ten
+    !tiny
+    !f
+    !t
+    !e
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

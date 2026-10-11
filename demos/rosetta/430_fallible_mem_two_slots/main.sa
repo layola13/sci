@@ -1,0 +1,57 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"430\n"
+
+// 430 - fallible fn joins two slots: f64 1.5 plus i64 7 (== 8.5).
+@join() -> f64!:
+L_ENTRY:
+    three = 3 as i32
+    two = 2 as i32
+    seven_i = 7 as i64
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    buf = alloc 16
+    store buf+0, h as f64
+    store buf+8, seven_i as i64
+    g = load buf+0 as f64
+    n = load buf+8 as i64
+    nf = sitofp n as f64
+    s = fadd g, nf
+    !three
+    !two
+    !seven_i
+    !three_f
+    !two_f
+    !h
+    !buf
+    !g
+    !n
+    !nf
+    return s
+
+@main() -> i32:
+L_ENTRY:
+    r = call @join()
+    v = ?r
+    seventeen = 17 as i32
+    two_i = 2 as i32
+    seventeen_f = sitofp seventeen as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv seventeen_f, two_f
+    ok = fcmp_eq v, expect
+    !r
+    !v
+    !seventeen
+    !two_i
+    !seventeen_f
+    !two_f
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

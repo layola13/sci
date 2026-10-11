@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"667\n"
+
+// 667 - Countdown from 8: 8+7+6+5+4+3+2+1 == 36, plus 631 == 667.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    n = 8 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq n, 0
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, n
+    n = sub n, one
+    jmp L_COND
+L_DONE:
+    !done
+    want_sum = 36 as i64
+    ok_sum = eq acc, want_sum
+    base = 631 as i64
+    got = add acc, base
+    want = 667 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !n
+    !one
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"376\n"
+
+// 376 - i8/u8 memory roundtrip (comparisons stay same-typed: mixed
+// u8/i64 `eq` follows the interpreter's signed-kind rule).
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 8
+    store buf+0, -1 as i8
+    a = load buf+0 as i8
+    ok_a = eq a, -1
+    store buf+1, 255 as u8
+    b = load buf+1 as u8
+    big = 255 as u64
+    exp = trunc big as u8
+    ok_b = eq b, exp
+    ok = and ok_a, ok_b
+    !buf
+    !a
+    !b
+    !big
+    !exp
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

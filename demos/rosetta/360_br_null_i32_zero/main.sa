@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"360\n"
+
+// 360 - br_null on an i32 zero (source forced with trunc) takes the
+// null branch; nonzero takes the other one.
+// (LLVM/wasm reject br_null, like 356.)
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    m = trunc big as i32
+    z0 = 0 as u64
+    z = trunc z0 as i32
+    br_null z -> L_ISNULL, L_FAIL
+L_ISNULL:
+    br_null m -> L_FAIL, L_DONE
+L_FAIL:
+    !big
+    !m
+    !z0
+    !z
+    return 1
+L_DONE:
+    !big
+    !m
+    !z0
+    !z
+    call @sa_print_bytes(&OUT, 4)
+    return 0

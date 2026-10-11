@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"640\n"
+
+// 640 - Copy chain: 640 through two slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    s = alloc 8
+    m = alloc 8
+    d = alloc 8
+    want = 640 as i64
+    store s+0, want as i64
+    t0 = load s+0 as i64
+    store m+0, t0 as i64
+    t1 = load m+0 as i64
+    store d+0, t1 as i64
+    got = load d+0 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !s
+    !m
+    !d
+    !want
+    !t0
+    !t1
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

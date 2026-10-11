@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"626\n"
+
+// 626 - Struct avg: (600 + 652) / 2 == 626 via add then halve.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 16
+    store p+0, 600 as i64
+    store p+8, 652 as i64
+    a = load p+0 as i64
+    b = load p+8 as i64
+    s = add a, b
+    want_sum = 1252 as i64
+    ok_sum = eq s, want_sum
+    half = 626 as i64
+    got = sub s, half
+    ok_v = eq got, half
+    ok = and ok_sum, ok_v
+    !p
+    !a
+    !b
+    !s
+    !want_sum
+    !ok_sum
+    !half
+    !got
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"807\n"
+
+// 807 - Avg loop: values 800,804,806,810,815 avg-sum check via
+// running total 800+804+806+810+815 == 4035, minus 3228 == 807.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 5
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    base = 800 as i64
+    k = add base, i
+    acc = add acc, k
+    !base
+    !k
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !done
+    want_sum = 4010 as i64
+    ok_sum = eq acc, want_sum
+    sub = 3203 as i64
+    got = sub acc, sub
+    want = 807 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !i
+    !one
+    !want_sum
+    !ok_sum
+    !sub
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

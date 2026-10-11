@@ -1,0 +1,23 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"442\n"
+
+// 442 - large negative integers are exact (sitofp/fptosi roundtrip
+// of -(2^53)-2).
+@main() -> i32:
+L_ENTRY:
+    neg = -9007199254740994 as i64
+    f = sitofp neg as f64
+    y = fptosi f as i64
+    ok = eq y, -9007199254740994
+    !neg
+    !f
+    !y
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

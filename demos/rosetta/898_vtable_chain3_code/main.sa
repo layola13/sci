@@ -1,0 +1,53 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"898\n"
+@const C3_VT = vtable { step = @step33 }
+
+// 898 - Vtable chain3: 800 + 33 + 33 + 32 == 898 via 3 calls.
+@step33(x: i64) -> i64:
+L_ENTRY:
+    k = 33 as i64
+    r = add x, k
+    !x
+    !k
+    return r
+
+@step32(x: i64) -> i64:
+L_ENTRY:
+    k = 32 as i64
+    r = add x, k
+    !x
+    !k
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &C3_VT
+    fp = load t + 0 as ptr
+    v0 = 800 as i64
+    v1 = call_indirect fp(v0)
+    v2 = call_indirect fp(v1)
+    w = call @step32(v2)
+    want = 898 as i64
+    ok_v = eq w, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v1
+    !v2
+    !w
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

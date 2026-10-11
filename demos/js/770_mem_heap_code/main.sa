@@ -1,0 +1,59 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"770\n"
+
+// 770 - Heap walk: 7 slots of 110 sum == 770 with code 0.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 56
+    store buf+0, 110 as i64
+    store buf+8, 110 as i64
+    store buf+16, 110 as i64
+    store buf+24, 110 as i64
+    store buf+32, 110 as i64
+    store buf+40, 110 as i64
+    store buf+48, 110 as i64
+    a = load buf+0 as i64
+    b = load buf+8 as i64
+    c = load buf+16 as i64
+    d = load buf+24 as i64
+    e = load buf+32 as i64
+    f = load buf+40 as i64
+    g = load buf+48 as i64
+    ab = add a, b
+    cd = add c, d
+    ef = add e, f
+    s0 = add ab, cd
+    s1 = add ef, g
+    got = add s0, s1
+    want = 770 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !buf
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !g
+    !ab
+    !cd
+    !ef
+    !s0
+    !s1
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

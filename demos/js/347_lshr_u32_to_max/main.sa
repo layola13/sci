@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"347\n"
+
+// 347 - 32-bit lshr keeps the unsigned 32-bit result as-is.
+//
+// The old `| 0` epilogue re-signed the result, turning lshr(-1, 0)
+// back into -1 instead of 4294967295.
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 347 but the
+// `sa build-exe` binary exits 1 (same source-width blindness class
+// as 338). The JS backend implements the specified semantics.
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    m = trunc big as i32
+    z0 = 0 as u64
+    z = trunc z0 as i32
+    s = lshr m, z
+    exp = trunc big as u32
+    ok = eq s, exp
+    !big
+    !m
+    !z0
+    !z
+    !s
+    !exp
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
