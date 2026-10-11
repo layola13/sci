@@ -1205,8 +1205,24 @@ fn resolveValueToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, us
         // typeof-dispatch (number = 32-bit/float, bigint = 64-bit) stays
         // exact across the full u64 range. Plain digits would silently lose
         // precision above 2^53 and wrap 64-bit arithmetic at 32 bits.
-        .imm_i64 => |v| try writer.print("{d}n", .{v}),
-        .imm_u64 => |v| try writer.print("{d}n", .{v}),
+        //
+        // Exception: immediates whose magnitude already fits the 32-bit
+        // Number domain are emitted as plain digits. The runtime helpers
+        // dispatch on typeof, so `__sa_add(u64Value, 5)` still promotes 5 to
+        // BigInt whenever the other operand is a BigInt; but when the whole
+        // expression is 32-bit (the common loop case), keeping the literal as
+        // a Number avoids a megamorphic BigInt/Number mix and lets V8/JSC
+        // inline the arithmetic. Without this, every `i < 4096` saturated to
+        // the BigInt path (observed: __sa_ult/__sa_add/__sa_BU hot in V8 CPU
+        // profiles) and cost ~165x the engine's Number-domain floor.
+        .imm_i64 => |v| if (v >= std.math.minInt(i32) and v <= std.math.maxInt(i32))
+            try writer.print("{d}", .{v})
+        else
+            try writer.print("{d}n", .{v}),
+        .imm_u64 => |v| if (v <= std.math.maxInt(u32))
+            try writer.print("{d}", .{v})
+        else
+            try writer.print("{d}n", .{v}),
         .imm_float => |v| try writer.print("{d}", .{v}),
         .text, .native_text => |t| try resolveTextToJs(writer, symbols, fsig, const_addrs, t),
         else => return JsEmitError.InvalidOperand,
