@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"652\n"
+
+// 652 - Emitter shadowing regression: functions named r2/r4 must not be
+// hidden by register locals (see isEmitterReserved in emit_js.zig).
+@r4(x: i64) -> i64:
+L_ENTRY:
+    six = 6 as i64
+    r = add x, six
+    !x
+    !six
+    return r
+
+@r2(x: i64) -> i64:
+L_ENTRY:
+    v = call @r4(x)
+    !x
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    base = 646 as i64
+    v = call @r2(base)
+    want = 652 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

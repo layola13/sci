@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"659\n"
+@const A4_VT = vtable { invoke = @add_four }
+
+// 659 - Callback add4: 600 + 50 + 9 == 659 through indirect call.
+@add_four(a: i64, b: i64) -> i64:
+L_ENTRY:
+    ab = add a, b
+    nine = 9 as i64
+    r = add ab, nine
+    !a
+    !b
+    !ab
+    !nine
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &A4_VT
+    fp = load t + 0 as ptr
+    x = 600 as i64
+    y = 50 as i64
+    v = call_indirect fp(x, y)
+    want = 659 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
