@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"628\n"
+@const A3_VT = vtable { calc = @add_three }
+
+// 628 - Vtable add3: 600 + 20 + 8 == 628 through indirect call.
+@add_three(a: i64, b: i64) -> i64:
+L_ENTRY:
+    ab = add a, b
+    eight = 8 as i64
+    r = add ab, eight
+    !a
+    !b
+    !ab
+    !eight
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &A3_VT
+    fp = load t + 0 as ptr
+    x = 600 as i64
+    y = 20 as i64
+    v = call_indirect fp(x, y)
+    want = 628 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
