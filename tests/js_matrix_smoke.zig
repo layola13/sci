@@ -977,6 +977,16 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/879_callback_nand_code/main.sa", "879\n");
     try assertJsMatrixStdout("demos/rosetta/880_mem_heap2_code/main.sa", "880\n");
     try assertJsMatrixStdout("demos/rosetta/881_chain24_code/main.sa", "881\n");
+    try assertJsMatrixStdout("demos/rosetta/882_xor3_code/main.sa", "882\n");
+    try assertJsMatrixStdout("demos/rosetta/883_float_dist_code/main.sa", "883\n");
+    try assertJsMatrixStdout("demos/rosetta/884_cascade_code/main.sa", "884\n");
+    try assertJsMatrixStdout("demos/rosetta/885_branchy_31_code/main.sa", "885\n");
+    try assertJsMatrixStdout("demos/rosetta/886_struct_stack_code/main.sa", "886\n");
+    try assertJsMatrixStdout("demos/rosetta/887_loop_accum5_code/main.sa", "887\n");
+    try assertJsMatrixStdout("demos/rosetta/888_vtable_guard_code/main.sa", "888\n");
+    try assertJsMatrixStdout("demos/rosetta/889_callback_iff_code/main.sa", "889\n");
+    try assertJsMatrixStdout("demos/rosetta/890_mem_store_code/main.sa", "890\n");
+    try assertJsMatrixStdout("demos/rosetta/891_chain25_code/main.sa", "891\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

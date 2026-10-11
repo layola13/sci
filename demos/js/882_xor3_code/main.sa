@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"882\n"
+
+// 882 - Xor3: exactly one of (1==1),(2==0),(3==3) false... check
+// (true,false,true): parity odd holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 1 as i64
+    b = 1 as i64
+    c = 2 as i64
+    d = 0 as i64
+    e = 3 as i64
+    f = 3 as i64
+    p = eq a, b
+    q = eq c, d
+    r = eq e, f
+    pq_same = eq p, q
+    pq_diff = eq pq_same, 0
+    pr_same = eq pq_diff, r
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and pr_same, ok_c
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !p
+    !q
+    !r
+    !pq_same
+    !pq_diff
+    !pr_same
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
