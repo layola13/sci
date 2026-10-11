@@ -659,16 +659,16 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_sub(a, b) { return __sa_isBI(a, b) ? __sa_BI(BigInt(a) - BigInt(b)) : ((+a) - (+b)); }
         \\function __sa_mul(a, b) { if (__sa_isBI(a, b)) return __sa_BI(BigInt(a) * BigInt(b)); const p = (+a) * (+b); return (p >= -2147483648 && p <= 2147483647) ? (p | 0) : (Number.isSafeInteger(p) ? p : __sa_BI(BigInt(a) * BigInt(b))); }
         \\function __sa_sdiv(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) { const nb = BigInt.asIntN(64, BigInt(b)); if (nb === 0n) __sa_trap("div by zero"); return __sa_BI(BigInt.asIntN(64, BigInt(a)) / nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("div by zero"); return (Math.trunc((a | 0) / nb32) | 0); }
-        \\function __sa_udiv(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("div by zero"); return x / y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("div by zero"); return Math.trunc((a >>> 0) / y32); }
+        \\function __sa_udiv(a, b) { if (__sa_isBI(a, b) || a < 0 || b < 0 || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("div by zero"); return x / y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("div by zero"); return Math.trunc((a >>> 0) / y32); }
         \\function __sa_srem(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) { const nb = BigInt.asIntN(64, BigInt(b)); if (nb === 0n) __sa_trap("rem by zero"); return __sa_BI(BigInt.asIntN(64, BigInt(a)) % nb); } const nb32 = (b | 0); if (nb32 === 0) __sa_trap("rem by zero"); return (((a | 0) % nb32) | 0); }
-        \\function __sa_urem(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("rem by zero"); return x % y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("rem by zero"); return ((a >>> 0) % y32); }
+        \\function __sa_urem(a, b) { if (__sa_isBI(a, b) || a < 0 || b < 0 || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("rem by zero"); return x % y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("rem by zero"); return ((a >>> 0) % y32); }
         \\function __sa_neg(a) { return (typeof a === "bigint") ? __sa_BI(-a) : (-(+a)); }
         \\function __sa_band(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return __sa_BI(BigInt(a) & BigInt(b)); return ((a & b) | 0); }
         \\function __sa_bor(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return __sa_BI(BigInt(a) | BigInt(b)); return ((a | b) | 0); }
         \\function __sa_bxor(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return __sa_BI(BigInt(a) ^ BigInt(b)); return ((a ^ b) | 0); }
-        \\function __sa_shl(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648) return __sa_BI(BigInt(a) << (BigInt(b) & 63n)); return ((a << (b & 31)) | 0); }
-        \\function __sa_lshr(a, b) { if (typeof a === "bigint" || a > 4294967295) return __sa_BU(a) >> (BigInt(b) & 63n); return (a >>> (typeof b === "bigint" ? Number(BigInt(b) & 63n) & 31 : (b & 31))); }
-        \\function __sa_ashr(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648) return __sa_BI(BigInt.asIntN(64, BigInt(a)) >> (BigInt(b) & 63n)); return ((a >> (b & 31)) | 0); }
+        \\function __sa_shl(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || (typeof b !== "bigint" && b > 31)) return __sa_BI(BigInt(a) << (BigInt(b) & 63n)); return ((a << (b & 31)) | 0); }
+        \\function __sa_lshr(a, b) { if (typeof a === "bigint" || a < 0 || a > 4294967295 || (typeof b !== "bigint" && b > 31)) return __sa_BU(a) >> (BigInt(b) & 63n); if (typeof b === "bigint") { const k = Number(BigInt(b) & 63n); return k >= 32 ? 0 : (a >>> k); } return (a >>> (b & 31)); }
+        \\function __sa_ashr(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || (typeof b !== "bigint" && b > 31)) return __sa_BI(BigInt.asIntN(64, BigInt(a)) >> (BigInt(b) & 63n)); return ((a >> (b & 31)) | 0); }
         \\function __sa_bnot(a) { if (typeof a === "bigint" || a > 2147483647 || a < -2147483648) return __sa_BI(~BigInt(a)); return ((~a) | 0); }
         \\function __sa_eq(a, b) { return ((a == b) ? 1 : 0); }
         \\function __sa_ne(a, b) { return ((a != b) ? 1 : 0); }
@@ -676,10 +676,17 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_sle(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) <= BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) <= (b | 0)) ? 1 : 0); }
         \\function __sa_sgt(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) > BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) > (b | 0)) ? 1 : 0); }
         \\function __sa_sge(a, b) { if (__sa_isBI(a, b) || a > 2147483647 || a < -2147483648 || b > 2147483647 || b < -2147483648) return ((BigInt.asIntN(64, BigInt(a)) >= BigInt.asIntN(64, BigInt(b))) ? 1 : 0); return (((a | 0) >= (b | 0)) ? 1 : 0); }
-        \\function __sa_ult(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) < __sa_BU(b)) ? 1 : 0); return (((a >>> 0) < (b >>> 0)) ? 1 : 0); }
-        \\function __sa_ule(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) <= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) <= (b >>> 0)) ? 1 : 0); }
-        \\function __sa_ugt(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) > __sa_BU(b)) ? 1 : 0); return (((a >>> 0) > (b >>> 0)) ? 1 : 0); }
-        \\function __sa_uge(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) >= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) >= (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ult(a, b) { if (__sa_isBI(a, b) || a < 0 || b < 0 || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) < __sa_BU(b)) ? 1 : 0); return (((a >>> 0) < (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ule(a, b) { if (__sa_isBI(a, b) || a < 0 || b < 0 || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) <= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) <= (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ugt(a, b) { if (__sa_isBI(a, b) || a < 0 || b < 0 || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) > __sa_BU(b)) ? 1 : 0); return (((a >>> 0) > (b >>> 0)) ? 1 : 0); }
+        \\function __sa_uge(a, b) { if (__sa_isBI(a, b) || a < 0 || b < 0 || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) >= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) >= (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ult32(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) < __sa_BU(b)) ? 1 : 0); return (((a >>> 0) < (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ule32(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) <= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) <= (b >>> 0)) ? 1 : 0); }
+        \\function __sa_ugt32(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) > __sa_BU(b)) ? 1 : 0); return (((a >>> 0) > (b >>> 0)) ? 1 : 0); }
+        \\function __sa_uge32(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) return ((__sa_BU(a) >= __sa_BU(b)) ? 1 : 0); return (((a >>> 0) >= (b >>> 0)) ? 1 : 0); }
+        \\function __sa_udiv32(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("div by zero"); return x / y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("div by zero"); return Math.trunc((a >>> 0) / y32); }
+        \\function __sa_urem32(a, b) { if (__sa_isBI(a, b) || a > 4294967295 || b > 4294967295) { const x = __sa_BU(a), y = __sa_BU(b); if (y === 0n) __sa_trap("rem by zero"); return x % y; } const y32 = (b >>> 0); if (y32 === 0) __sa_trap("rem by zero"); return ((a >>> 0) % y32); }
+        \\function __sa_lshr32(a, b) { if (typeof a === "bigint" || a > 4294967295 || (typeof b !== "bigint" && b > 31)) return __sa_BU(a) >> (BigInt(b) & 63n); if (typeof b === "bigint") { const k = Number(BigInt(b) & 63n); return k >= 32 ? 0 : (a >>> k); } return (a >>> (b & 31)); }
         \\function __sa_fnum(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
         \\function __sa_fadd(a, b) { return (__sa_fnum(a) + __sa_fnum(b)); }
         \\function __sa_fsub(a, b) { return (__sa_fnum(a) - __sa_fnum(b)); }
@@ -1217,7 +1224,12 @@ fn resolveValueToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, us
         // Narrowing happens solely at explicit narrow points (stores, loads,
         // cvt, comparisons coerce their inputs). 64-bit literals, extern
         // BigInt returns, and u64 loads stay BigInt end to end.
-        .imm_i64 => |v| if (v >= std.math.minInt(i32) and v <= std.math.maxInt(i32))
+        // Negative i64 literals stay BigInt (their unsigned reading is
+        // mod-2^64); unsigned-forcing ops (udiv/urem/ult/ule/ugt/uge/lshr)
+        // select the neg-checking GENERAL helper unless every relevant
+        // operand is statically <=32-bit (demos 337 vs 347), in which case
+        // the pure->>>0 FAST helper is bit-identical to legacy behavior.
+        .imm_i64 => |v| if (v >= 0 and v <= std.math.maxInt(i32))
             try writer.print("{d}", .{v})
         else
             try writer.print("{d}n", .{v}),
@@ -1483,6 +1495,43 @@ fn combinedKind(a: OpndKind, b: OpndKind) OpndKind {
     return .unknown;
 }
 
+/// Width-directed unsigned-op selection (demos 337 vs 347): a negative
+/// Number means mod-2^32 for <=32-bit regs but mod-2^64 for 64-bit regs,
+/// and the runtime cannot tell them apart. So unsigned-forcing ops
+/// (udiv/urem/ult/ule/ugt/uge/lshr) use the neg-checking GENERAL helper
+/// unless every relevant operand is provably 32-bit-or-safe, in which
+/// case the pure->>>0 FAST helper is bit-identical to the old behavior.
+/// A 64-bit reg holding a small Number still takes the >>>0 path inside
+/// GENERAL (values coincide); only actually-negative/big inputs pay BigInt.
+fn u32SafeOperand(op: inst.Operand, widths: *const WidthMap) bool {
+    switch (op) {
+        .reg => |id| {
+            const w = widths.get(id) orelse return false;
+            if (widthIsFloat(w)) return false;
+            return widthBits(w) <= 32;
+        },
+        .imm_int => |v| return v >= 0,
+        .imm_i64 => |v| return v >= 0,
+        .imm_u64 => return true,
+        .imm_float => return false,
+        .text, .native_text => |t| {
+            var text = std.mem.trim(u8, t, " \t");
+            if (text.len == 0) return false;
+            if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+            if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
+            if (std.fmt.parseInt(u64, text, 10)) |_| return true else |_| {}
+            return false;
+        },
+        else => return false,
+    }
+}
+
+fn useFastU32(lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap, checkBoth: bool) bool {
+    if (!u32SafeOperand(lhs, widths)) return false;
+    if (checkBoth and !u32SafeOperand(rhs, widths)) return false;
+    return true;
+}
+
 /// Forward type-width transfer for one instruction. Mirrors native typing:
 /// int-op results are 64-bit (interp always builds i64/u64), int compares
 /// are i1, float ops are f64. Anything unrecognized drops knowledge so a
@@ -1653,7 +1702,7 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .udiv => {
-            try writer.writeAll("__sa_udiv(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, true)) "__sa_udiv32(" else "__sa_udiv(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
@@ -1672,7 +1721,7 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try emitAliasOperands(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs);
         },
         .urem => {
-            try writer.writeAll("__sa_urem(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, true)) "__sa_urem32(" else "__sa_urem(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
@@ -1707,7 +1756,7 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try writer.writeAll(")");
         },
         .lshr => {
-            try writer.writeAll("__sa_lshr(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, false)) "__sa_lshr32(" else "__sa_lshr(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
@@ -1778,28 +1827,28 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
             try writer.writeAll(")");
         },
         .ult => {
-            try writer.writeAll("__sa_ult(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, true)) "__sa_ult32(" else "__sa_ult(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
         .ule => {
-            try writer.writeAll("__sa_ule(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, true)) "__sa_ule32(" else "__sa_ule(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
         .ugt => {
-            try writer.writeAll("__sa_ugt(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, true)) "__sa_ugt32(" else "__sa_ugt(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
         },
         .uge => {
-            try writer.writeAll("__sa_uge(");
+            try writer.writeAll(if (useFastU32(lhs, rhs, widths, true)) "__sa_uge32(" else "__sa_uge(");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
@@ -2540,6 +2589,8 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_msum_u32")) return true;
     if (std.mem.eql(u8, name, "sa_mwrite_u8")) return true;
     if (std.mem.eql(u8, name, "sa_mfind_u32")) return true;
+    if (std.mem.eql(u8, name, "sa_b64dec")) return true;
+    if (std.mem.eql(u8, name, "sa_hexdec")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_i64_into")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_u64_into")) return true;
     if (std.mem.eql(u8, name, "sa_fmt_bool_into")) return true;
@@ -3124,6 +3175,35 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\    if (u[o] === b0 && u[o + 1] === b1 && u[o + 2] === b2 && u[o + 3] === b3) return i;
                 \\  }
                 \\  return n;
+                \\}
+                \\
+            );
+            return;
+        }
+        // Host-codec shims: decode via the host Buffer (same intrinsic the
+        // bun benches call). Both node and bun provide globalThis.Buffer;
+        // without it these trap instead of silently falling back.
+        if (std.mem.eql(u8, fsig.name, "sa_b64dec")) {
+            try writer.writeAll(
+                \\function sa_b64dec(in_ptr, in_len, out_ptr) {
+                \\  if (!globalThis.Buffer) __sa_trap("no host Buffer for base64");
+                \\  const a = __sa_addr(in_ptr), n = __sa_num(in_len), o = __sa_addr(out_ptr);
+                \\  const b = globalThis.Buffer.from(new globalThis.TextDecoder().decode(__sa_u8.subarray(a, a + n)), "base64");
+                \\  __sa_u8.set(b, o);
+                \\  return b.length;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_hexdec")) {
+            try writer.writeAll(
+                \\function sa_hexdec(in_ptr, in_len, out_ptr) {
+                \\  if (!globalThis.Buffer) __sa_trap("no host Buffer for hex");
+                \\  const a = __sa_addr(in_ptr), n = __sa_num(in_len), o = __sa_addr(out_ptr);
+                \\  const b = globalThis.Buffer.from(new globalThis.TextDecoder().decode(__sa_u8.subarray(a, a + n)), "hex");
+                \\  __sa_u8.set(b, o);
+                \\  return b.length;
                 \\}
                 \\
             );
