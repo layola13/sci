@@ -1,0 +1,61 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"532\n"
+
+// 532 - Chain of 3 calls threads (code 0, value 2.5) through.
+@leaf(x: i64) -> i64:
+L_ENTRY:
+    !x
+    return 0
+
+@leaf_val(x: i64) -> f64:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    h = fdiv five_f, two_f
+    !x
+    !five
+    !two_i
+    !five_f
+    !two_f
+    return h
+
+@mid(x: i64) -> i64:
+L_ENTRY:
+    c = call @leaf(x)
+    !x
+    return c
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    code = call @mid(z)
+    v = call @leaf_val(z)
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    ok_c = eq code, 0
+    ok_v = fcmp_eq v, expect
+    ok = and ok_c, ok_v
+    !z
+    !code
+    !v
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

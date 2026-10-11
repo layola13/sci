@@ -1,0 +1,63 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"541\n"
+
+// 541 - Fallible-style code+value: ok path yields (0, 2.5), err path unused.
+@try_get(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@try_val(fail: i64) -> f64:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    h = fdiv five_f, two_f
+    !fail
+    !five
+    !two_i
+    !five_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    code = call @try_get(z)
+    v = call @try_val(z)
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    ok_c = eq code, 0
+    ok_v = fcmp_eq v, expect
+    ok = and ok_c, ok_v
+    !z
+    !code
+    !v
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

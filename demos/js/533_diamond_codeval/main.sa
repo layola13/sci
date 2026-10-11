@@ -1,0 +1,67 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"533\n"
+
+// 533 - Diamond: left/right both yield code 0 and 1.5, merge checks.
+@left(t: i64) -> i64:
+L_ENTRY:
+    !t
+    return 0
+
+@right(t: i64) -> f64:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    h = fdiv three_f, two_f
+    !t
+    !three
+    !two_i
+    !three_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    c0 = call @left(z)
+    v0 = call @right(z)
+    c1 = call @left(c0)
+    v1 = call @right(c0)
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv three_f, two_f
+    ok0 = eq c0, 0
+    ok1 = fcmp_eq v0, expect
+    ok2 = eq c1, 0
+    ok3 = fcmp_eq v1, expect
+    t0 = and ok0, ok1
+    t1 = and ok2, ok3
+    ok = and t0, t1
+    !z
+    !c0
+    !v0
+    !c1
+    !v1
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !expect
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !t0
+    !t1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,57 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"538\n"
+@const SUM_VT = vtable { sum = @sum_fields, code = @code_of }
+
+// 538 - Vtable with two slots: sum writes 4.0, code returns 0.
+@sum_fields(dummy: i64, ctx: ptr) -> i64:
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    store ctx+0, four as f64
+    !dummy
+    !four_i
+    !four
+    return 0
+
+@code_of(dummy: i64) -> i64:
+    !dummy
+    return 0
+
+@main() -> i32:
+    t = &SUM_VT
+    fp_sum = load t + 0 as ptr
+    fp_code = load t + 8 as ptr
+    ctx = alloc 8
+    zero = 0 as i64
+    c0 = call_indirect fp_code(zero)
+    c1 = call_indirect fp_sum(zero, ctx)
+    val = load ctx+0 as f64
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok0 = eq c0, 0
+    ok1 = eq c1, 0
+    ok2 = fcmp_eq val, four
+    t0 = and ok0, ok1
+    ok = and t0, ok2
+    !t
+    !fp_sum
+    !fp_code
+    !ctx
+    !zero
+    !c0
+    !c1
+    !val
+    !four_i
+    !four
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

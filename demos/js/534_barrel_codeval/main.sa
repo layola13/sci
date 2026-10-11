@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"534\n"
+
+// 534 - Barrel: three helpers each contribute code 0; float 4.0 total.
+@part_a() -> i64:
+L_ENTRY:
+    return 0
+
+@part_b() -> i64:
+L_ENTRY:
+    return 0
+
+@part_v() -> f64:
+L_ENTRY:
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    !four_i
+    return four
+
+@main() -> i32:
+L_ENTRY:
+    a = call @part_a()
+    b = call @part_b()
+    v = call @part_v()
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok0 = eq a, 0
+    ok1 = eq b, 0
+    ok2 = fcmp_eq v, four
+    t0 = and ok0, ok1
+    ok = and t0, ok2
+    !a
+    !b
+    !v
+    !four_i
+    !four
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
