@@ -1,0 +1,52 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"763\n"
+
+// 763 - Float max: max(1.5, 4.0) == 4.0 via gt-select, code 0.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    four_i = 4 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    four = sitofp four_i as f64
+    one_half = fdiv three_f, two_f
+    big = fcmp_gt one_half, four
+    z0 = 0 as i32
+    zf = sitofp z0 as f64
+    br big -> L_TAKE_S, L_TAKE_B
+L_TAKE_S:
+    !big
+    m = fadd one_half, zf
+    jmp L_OUT
+L_TAKE_B:
+    !big
+    m = fadd four, zf
+    jmp L_OUT
+L_OUT:
+    ok_v = fcmp_eq m, four
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !three
+    !two_i
+    !four_i
+    !three_f
+    !two_f
+    !four
+    !one_half
+    !z0
+    !zf
+    !m
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
