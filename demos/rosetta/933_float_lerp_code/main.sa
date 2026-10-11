@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"933\n"
+
+// 933 - Float lerp: 1.5 + (4.0 - 1.5) * 0.5 == 2.75 with code 0.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    four_i = 4 as i32
+    eleven = 11 as i32
+    one = 1 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    four = sitofp four_i as f64
+    eleven_f = sitofp eleven as f64
+    one_f = sitofp one as f64
+    one_half = fdiv three_f, two_f
+    span = fsub four, one_half
+    half = fdiv one_f, two_f
+    step = fmul span, half
+    got = fadd one_half, step
+    expect = fdiv eleven_f, four
+    ok_v = fcmp_eq got, expect
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !three
+    !two_i
+    !four_i
+    !eleven
+    !one
+    !three_f
+    !two_f
+    !four
+    !eleven_f
+    !one_f
+    !one_half
+    !span
+    !half
+    !step
+    !got
+    !expect
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

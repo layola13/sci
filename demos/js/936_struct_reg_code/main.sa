@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"936\n"
+
+// 936 - Reg triple: r0 900 + r1 30 + r2 6 == 936, code 0.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 24
+    store p+0, 900 as i64
+    store p+8, 30 as i64
+    store p+16, 6 as i64
+    r0 = load p+0 as i64
+    r1 = load p+8 as i64
+    r2 = load p+16 as i64
+    s0 = add r0, r1
+    got = add s0, r2
+    want = 936 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p
+    !r0
+    !r1
+    !r2
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

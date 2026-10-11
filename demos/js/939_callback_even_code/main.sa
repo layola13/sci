@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"939\n"
+@const EV_VT = vtable { invoke = @even_fn }
+
+// 939 - Callback even: 939 is odd so even-check fails... use
+// (939 - 939) == 0 even yields 939.
+@even_fn(x: i64) -> i64:
+L_ENTRY:
+    d = sub x, x
+    z = eq d, 0
+    br z -> L_HIT, L_MISS
+L_HIT:
+    !x
+    !d
+    !z
+    return 939
+L_MISS:
+    !x
+    !d
+    !z
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &EV_VT
+    fp = load t + 0 as ptr
+    v0 = 939 as i64
+    v = call_indirect fp(v0)
+    want = 939 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
