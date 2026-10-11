@@ -1,0 +1,72 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"794\n"
+
+// 794 - Mesh: 4 helpers feed 2 combiners, 700+94 == 794.
+@src_a() -> i64:
+L_ENTRY:
+    return 40
+
+@src_b() -> i64:
+L_ENTRY:
+    return 30
+
+@src_c() -> i64:
+L_ENTRY:
+    return 20
+
+@src_d() -> i64:
+L_ENTRY:
+    return 4
+
+@comb_ab(x: i64, y: i64) -> i64:
+L_ENTRY:
+    r = add x, y
+    !x
+    !y
+    return r
+
+@comb_cd(x: i64, y: i64) -> i64:
+L_ENTRY:
+    r = add x, y
+    !x
+    !y
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    a = call @src_a()
+    b = call @src_b()
+    c = call @src_c()
+    d = call @src_d()
+    ab = call @comb_ab(a, b)
+    cd = call @comb_cd(c, d)
+    arms = add ab, cd
+    base = 700 as i64
+    got = add base, arms
+    want = 794 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !arms
+    !base
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
