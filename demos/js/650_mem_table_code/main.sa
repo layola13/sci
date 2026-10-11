@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"650\n"
+
+// 650 - Table walk: 4 slots of 100, 100, 200, 250 sum == 650.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 32
+    store buf+0, 100 as i64
+    store buf+8, 100 as i64
+    store buf+16, 200 as i64
+    store buf+24, 250 as i64
+    a = load buf+0 as i64
+    b = load buf+8 as i64
+    c = load buf+16 as i64
+    d = load buf+24 as i64
+    ab = add a, b
+    cd = add c, d
+    got = add ab, cd
+    want = 650 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !buf
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

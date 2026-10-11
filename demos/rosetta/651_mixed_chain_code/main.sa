@@ -1,0 +1,51 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"651\n"
+
+// 651 - Mixed chain: add then guard, 600 + 51 == 651 code 0.
+@plus51(x: i64) -> i64:
+L_ENTRY:
+    f = 51 as i64
+    r = add x, f
+    !x
+    !f
+    return r
+
+@guard51(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    code = call @guard51(z)
+    base = 600 as i64
+    v = call @plus51(base)
+    want = 651 as i64
+    ok_v = eq v, want
+    ok_c = eq code, 0
+    ok = and ok_v, ok_c
+    !z
+    !code
+    !base
+    !v
+    !want
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

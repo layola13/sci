@@ -48,6 +48,19 @@ fn isJsReserved(name: []const u8) bool {
     return false;
 }
 
+/// Names the JS emitter reserves for itself: register locals `r<slot>`
+/// and the `__sa*` / `__SA*` runtime namespace. A user ident mapping onto
+/// those would be shadowed by function-scope locals (e.g. a function named
+/// `r1` is hidden by `let r1` inside every caller) or clobber the runtime.
+fn isEmitterReserved(name: []const u8) bool {
+    if (std.mem.startsWith(u8, name, "__sa") or std.mem.startsWith(u8, name, "__SA")) return true;
+    if (name.len < 2 or name[0] != 'r') return false;
+    for (name[1..]) |c| {
+        if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
+}
+
 fn jsIdent(writer: anytype, name: []const u8) !void {
     // SA names may contain characters invalid in JS; sanitize.
     // Reserved words get a `$` suffix; note `jsFuncName` must apply the same
@@ -69,6 +82,7 @@ fn jsIdent(writer: anytype, name: []const u8) !void {
         }
     }
     if (isJsReserved(name)) try writer.writeAll("$");
+    if (isEmitterReserved(name)) try writer.writeAll("$");
 }
 
 fn jsFuncName(writer: anytype, name: []const u8) !void {

@@ -1,0 +1,52 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"647\n"
+
+// 647 - Squares walk: 1 + 4 + 9 == 14, plus 633 == 647.
+@main() -> i32:
+L_ENTRY:
+    one = 1 as i64
+    two = 2 as i64
+    three = 3 as i64
+    o2 = add one, one
+    t2 = add two, two
+    s2 = add three, three
+    q1 = add o2, two
+    q2 = add t2, t2
+    q3 = add s2, s2
+    q6 = add q3, q3
+    acc = add q1, q2
+    acc = add acc, q3
+    acc = add acc, q6
+    want_sum = 48 as i64
+    ok_sum = eq acc, want_sum
+    base = 599 as i64
+    got = add acc, base
+    want = 647 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !one
+    !two
+    !three
+    !o2
+    !t2
+    !s2
+    !q1
+    !q2
+    !q3
+    !q6
+    !acc
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
