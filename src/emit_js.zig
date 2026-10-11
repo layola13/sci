@@ -757,6 +757,40 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_cvt_bitcast_u64b(v) {
         \\  __sa_bc_dv.setFloat64(0, +v, true); return BigInt.asUintN(64, __sa_bc_dv.getBigInt64(0, true));
         \\}
+        \\function __sa_divfloor(a, b) {
+        \\  // Floored BigInt division (Zig @divFloor semantics).
+        \\  const q = a / b, r = a % b;
+        \\  if ((r !== 0n) && ((r < 0n) !== (b < 0n))) return q - 1n;
+        \\  return q;
+        \\}
+        \\function __sa_modfloor(a, b) {
+        \\  // Floored BigInt modulo (Zig @mod semantics; b > 0 in our uses).
+        \\  const r = a % b;
+        \\  return (r < 0n) ? r + (b < 0n ? -b : b) : r;
+        \\}
+        \\function __sa_civil(ms) {
+        \\  // Howard Hinnant civil_from_days over unix millis (mirrors
+        \\  // src/runtime/sa_std.zig civilParts). Returns
+        \\  // [year, month1, day, hour, min, sec, milli, days] as BigInt.
+        \\  const m = (typeof ms === "bigint") ? BigInt.asIntN(64, ms) : BigInt(Math.trunc(+ms));
+        \\  const DAY = 86400000n;
+        \\  const days = __sa_divfloor(m, DAY);
+        \\  const dm = __sa_modfloor(m, DAY);
+        \\  const z = days + 719468n;
+        \\  const era = (z >= 0n) ? __sa_divfloor(z, 146097n) : __sa_divfloor(z - 146096n, 146097n);
+        \\  const doe = z - era * 146097n;
+        \\  const yoe = __sa_divfloor(doe - __sa_divfloor(doe, 1460n) + __sa_divfloor(doe, 36524n) - __sa_divfloor(doe, 146096n), 365n);
+        \\  const y = yoe + era * 400n;
+        \\  const doy = doe - (365n * yoe + __sa_divfloor(yoe, 4n) - __sa_divfloor(yoe, 100n));
+        \\  const mp = __sa_divfloor(5n * doy + 2n, 153n);
+        \\  const month = (mp < 10n) ? mp + 3n : mp - 9n;
+        \\  return [(month <= 2n) ? y + 1n : y, month,
+        \\    doy - __sa_divfloor(153n * mp + 2n, 5n) + 1n,
+        \\    __sa_divfloor(dm, 3600000n),
+        \\    __sa_divfloor(__sa_modfloor(dm, 3600000n), 60000n),
+        \\    __sa_divfloor(__sa_modfloor(dm, 60000n), 1000n),
+        \\    __sa_modfloor(dm, 1000n), days];
+        \\}
         \\// ---- end runtime ----
         \\
     );
@@ -1537,6 +1571,32 @@ fn provKill(bases: *BaseSet, fsig: sig.FunctionSig, use_global: bool, op: inst.O
     if (provSlotOf(fsig, use_global, op)) |slot| _ = bases.remove(slot);
 }
 
+/// Slot of a textual value (`store` keeps its value operand as `.text`;
+/// see flattener.zig). Mirrors resolveTextToJs name resolution so escape
+/// kills apply to textual values too; immediates never name slots.
+fn provTextSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, text: []const u8) ?u32 {
+    var t = std.mem.trim(u8, text, " \t");
+    if (t.len == 0) return null;
+    if (t[0] == '&' or t[0] == '*' or t[0] == '^') t = std.mem.trim(u8, t[1..], " \t");
+    if (std.mem.lastIndexOf(u8, t, " as ")) |idx| t = std.mem.trim(u8, t[0..idx], " \t\r");
+    if (t.len == 0) return null;
+    if (std.fmt.parseInt(i64, t, 10)) |_| return null else |_| {}
+    if (std.fmt.parseFloat(f64, t)) |_| return null else |_| {}
+    const id = symbols.findId(t) orelse return null;
+    return regSlot(fsig, use_global, id) catch null;
+}
+
+/// Forget the stored value's slot on `.store` (any operand shape).
+fn provKillStoreValue(bases: *BaseSet, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) void {
+    switch (op) {
+        .reg, .symbol => provKill(bases, fsig, use_global, op),
+        .text, .native_text => |t| {
+            if (provTextSlot(symbols, fsig, use_global, t)) |slot| _ = bases.remove(slot);
+        },
+        else => {},
+    }
+}
+
 fn provMark(bases: *BaseSet, fsig: sig.FunctionSig, use_global: bool, dst_op: inst.Operand, src_op: inst.Operand) JsEmitError!void {
     const dst = try dstSlot(fsig, use_global, dst_op);
     const src_base = if (provSlotOf(fsig, use_global, src_op)) |src| bases.get(src) != null else false;
@@ -1736,6 +1796,10 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         },
         .store, .atomic_store => {
             // NOTE: atomic ordering is ignored (single-threaded JS runtime).
+            // Escape: the stored value may be an owned base aliased into
+            // memory; forget the source slot so a later `release` stays a
+            // no-op (mirrors provTransfer; see the array-literal pattern).
+            provKillStoreValue(bases, symbols, fsig, use_global, base.operands[2]);
             const ty = memPrimType(base);
             try writer.print("  {s}(__sa_ptr_add(", .{memStoreFn(ty)});
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
@@ -1991,6 +2055,19 @@ fn provTransfer(
                 provKill(out_set, fsig, use_global, base.operands[0]);
                 provKill(out_set, fsig, use_global, base.operands[1]);
             },
+            .store, .atomic_store => {
+                // Storing an owned base into memory escapes it (struct
+                // fields, array slots, spills): the source register no
+                // longer solely owns the block, so a later `release` of
+                // the source must stay a no-op. Tsgosa emits this for
+                // every array literal (`store s+0, p as ptr` ... `!p`);
+                // freeing there corrupts the stored copy on free-list
+                // reuse (native malloc survives by luck: LIFO + no
+                // zeroing). Leaking instead is always observably safe.
+                // The value operand is `.text`-shaped (see flattener),
+                // so resolve it through the symbol table.
+                provKillStoreValue(out_set, symbols, fsig, use_global, base.operands[2]);
+            },
             .release, .stack_alloc => {
                 provKill(out_set, fsig, use_global, base.operands[0]);
             },
@@ -2057,6 +2134,24 @@ fn isAllocatorShim(name: []const u8) bool {
 /// opposed to a trap stub). A same-module `@export` never shadows these.
 fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_print_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_i64_into")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_u64_into")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_bool_into")) return true;
+    if (std.mem.eql(u8, name, "sa_fmt_bytes_into")) return true;
+    if (std.mem.eql(u8, name, "sa_time_unix_ms")) return true;
+    if (std.mem.eql(u8, name, "sa_time_unix_s")) return true;
+    if (std.mem.eql(u8, name, "sa_time_unix_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_time_instant_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_time_sleep_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_time_sleep_ms")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_full_year")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_month")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_date")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_hours")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_minutes")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_seconds")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_milliseconds")) return true;
+    if (std.mem.eql(u8, name, "sa_time_get_day")) return true;
     if (std.mem.eql(u8, name, "fd_open")) return true;
     if (std.mem.eql(u8, name, "fd_close")) return true;
     if (std.mem.eql(u8, name, "fd_read")) return true;
@@ -2437,6 +2532,153 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\}
                 \\
             );
+            return;
+        }
+        // Integer/bool/bytes formatting shims (mirror src/runtime/sa_std.zig
+        // writeFormattedInto: *out_len always set to text length, even when
+        // truncated or out_cap == 0; no partial copy on truncation).
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_i64_into")) {
+            try writer.writeAll(
+                \\function sa_fmt_i64_into(value, base, out, out_cap, out_len) {
+                \\  const b = __sa_num(base);
+                \\  const v = BigInt.asIntN(64, BigInt(value));
+                \\  let text;
+                \\  if (b === 2 || b === 8 || b === 10) text = v.toString(b);
+                \\  else if (b === 16) text = v.toString(16);
+                \\  else if (b === 17) text = v.toString(16).toUpperCase();
+                \\  else return 1;
+                \\  __sa_store_i64(out_len, text.length);
+                \\  const cap = __sa_num(out_cap);
+                \\  if (cap === 0) return 0;
+                \\  if (cap < text.length) return 9;
+                \\  const a = __sa_addr(out);
+                \\  for (let i = 0; i < text.length; i++) __sa_u8[a + i] = text.charCodeAt(i);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_u64_into")) {
+            try writer.writeAll(
+                \\function sa_fmt_u64_into(value, base, out, out_cap, out_len) {
+                \\  const b = __sa_num(base);
+                \\  const v = BigInt.asUintN(64, BigInt(value));
+                \\  let text;
+                \\  if (b === 2 || b === 8 || b === 10) text = v.toString(b);
+                \\  else if (b === 16) text = v.toString(16);
+                \\  else if (b === 17) text = v.toString(16).toUpperCase();
+                \\  else return 1;
+                \\  __sa_store_i64(out_len, text.length);
+                \\  const cap = __sa_num(out_cap);
+                \\  if (cap === 0) return 0;
+                \\  if (cap < text.length) return 9;
+                \\  const a = __sa_addr(out);
+                \\  for (let i = 0; i < text.length; i++) __sa_u8[a + i] = text.charCodeAt(i);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_bool_into")) {
+            try writer.writeAll(
+                \\function sa_fmt_bool_into(value, out, out_cap, out_len) {
+                \\  const text = __sa_num(value) ? "true" : "false";
+                \\  __sa_store_i64(out_len, text.length);
+                \\  const cap = __sa_num(out_cap);
+                \\  if (cap === 0) return 0;
+                \\  if (cap < text.length) return 9;
+                \\  const a = __sa_addr(out);
+                \\  for (let i = 0; i < text.length; i++) __sa_u8[a + i] = text.charCodeAt(i);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fmt_bytes_into")) {
+            try writer.writeAll(
+                \\function sa_fmt_bytes_into(buf, len, out, out_cap, out_len) {
+                \\  const n = __sa_num(len);
+                \\  __sa_store_i64(out_len, n);
+                \\  const cap = __sa_num(out_cap);
+                \\  if (cap === 0) return 0;
+                \\  if (cap < n) return 9;
+                \\  const s = __sa_addr(buf), d = __sa_addr(out);
+                \\  __sa_u8.copyWithin(d, s, s + n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_unix_ms")) {
+            try writer.writeAll(
+                \\function sa_time_unix_ms() { return BigInt.asIntN(64, BigInt(globalThis.Date.now())); }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_unix_s")) {
+            try writer.writeAll(
+                \\function sa_time_unix_s() { return BigInt.asIntN(64, BigInt(Math.floor(globalThis.Date.now() / 1000))); }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_unix_ns")) {
+            try writer.writeAll(
+                \\function sa_time_unix_ns() { return BigInt.asIntN(64, BigInt(globalThis.Date.now()) * 1000000n); }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_instant_ns")) {
+            try writer.writeAll(
+                \\function sa_time_instant_ns() { return BigInt.asUintN(64, BigInt(globalThis.Date.now()) * 1000000n); }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_sleep_ns")) {
+            try writer.writeAll("function sa_time_sleep_ns(ns) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_sleep_ms")) {
+            try writer.writeAll("function sa_time_sleep_ms(ms) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_full_year")) {
+            try writer.writeAll("function sa_time_get_full_year(ms) { return __sa_civil(ms)[0]; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_month")) {
+            try writer.writeAll("function sa_time_get_month(ms) { return __sa_civil(ms)[1] - 1n; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_date")) {
+            try writer.writeAll("function sa_time_get_date(ms) { return __sa_civil(ms)[2]; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_hours")) {
+            try writer.writeAll("function sa_time_get_hours(ms) { return __sa_civil(ms)[3]; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_minutes")) {
+            try writer.writeAll("function sa_time_get_minutes(ms) { return __sa_civil(ms)[4]; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_seconds")) {
+            try writer.writeAll("function sa_time_get_seconds(ms) { return __sa_civil(ms)[5]; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_milliseconds")) {
+            try writer.writeAll("function sa_time_get_milliseconds(ms) { return __sa_civil(ms)[6]; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_time_get_day")) {
+            try writer.writeAll("function sa_time_get_day(ms) { const d = __sa_civil(ms)[7]; return __sa_modfloor(d + 4n, 7n); }\n");
             return;
         }
         // POSIX-like host shims for OS-binding demos (single-threaded
