@@ -582,17 +582,18 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_ule(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) <= __sa_BU(b)) : ((a >>> 0) <= (b >>> 0))) ? 1 : 0); }
         \\function __sa_ugt(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) > __sa_BU(b)) : ((a >>> 0) > (b >>> 0))) ? 1 : 0); }
         \\function __sa_uge(a, b) { return ((__sa_isBI(a, b) ? (__sa_BU(a) >= __sa_BU(b)) : ((a >>> 0) >= (b >>> 0))) ? 1 : 0); }
-        \\function __sa_fadd(a, b) { return ((+a) + (+b)); }
-        \\function __sa_fsub(a, b) { return ((+a) - (+b)); }
-        \\function __sa_fmul(a, b) { return ((+a) * (+b)); }
-        \\function __sa_fdiv(a, b) { return ((+a) / (+b)); }
-        \\function __sa_fneg(a) { return (-(+a)); }
-        \\function __sa_feq(a, b) { return (((+a) === (+b)) ? 1 : 0); }
-        \\function __sa_fne(a, b) { return (((+a) !== (+b)) ? 1 : 0); }
-        \\function __sa_flt(a, b) { return (((+a) < (+b)) ? 1 : 0); }
-        \\function __sa_fle(a, b) { return (((+a) <= (+b)) ? 1 : 0); }
-        \\function __sa_fgt(a, b) { return (((+a) > (+b)) ? 1 : 0); }
-        \\function __sa_fge(a, b) { return (((+a) >= (+b)) ? 1 : 0); }
+        \\function __sa_fnum(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
+        \\function __sa_fadd(a, b) { return (__sa_fnum(a) + __sa_fnum(b)); }
+        \\function __sa_fsub(a, b) { return (__sa_fnum(a) - __sa_fnum(b)); }
+        \\function __sa_fmul(a, b) { return (__sa_fnum(a) * __sa_fnum(b)); }
+        \\function __sa_fdiv(a, b) { return (__sa_fnum(a) / __sa_fnum(b)); }
+        \\function __sa_fneg(a) { return (-__sa_fnum(a)); }
+        \\function __sa_feq(a, b) { return ((__sa_fnum(a) === __sa_fnum(b)) ? 1 : 0); }
+        \\function __sa_fne(a, b) { return ((__sa_fnum(a) !== __sa_fnum(b)) ? 1 : 0); }
+        \\function __sa_flt(a, b) { return ((__sa_fnum(a) < __sa_fnum(b)) ? 1 : 0); }
+        \\function __sa_fle(a, b) { return ((__sa_fnum(a) <= __sa_fnum(b)) ? 1 : 0); }
+        \\function __sa_fgt(a, b) { return ((__sa_fnum(a) > __sa_fnum(b)) ? 1 : 0); }
+        \\function __sa_fge(a, b) { return ((__sa_fnum(a) >= __sa_fnum(b)) ? 1 : 0); }
         \\function __sa_narrow(v, bits, signed) {
         \\  // Narrow any int-domain value to a target width, returned as Number.
         \\  // BigInt inputs are 64-bit sources; Number inputs are 32-bit (or
@@ -797,6 +798,9 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\let __sa_regexnext = 1;
         \\const __sa_regexmatches = new Map();
         \\let __sa_regexmatchnext = 1;
+        \\const __sa_modstate = new Map();
+        \\const __sa_jsonnodes = new Map();
+        \\let __sa_jsonnext = 1;
         \\function __sa_buf_open(bytes) {
         \\  // Owned byte buffer (mirrors openOwnedBuffer): handle is a u64.
         \\  const h = __sa_bufnext++;
@@ -859,6 +863,24 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  const g = r.groups[i];
         \\  if (g[0] < 0 || g[1] < 0) return null;
         \\  return { rec: r, so: g[0], eo: g[1] };
+        \\}
+        \\function __sa_json_kind_of(v) {
+        \\  if (v === null) return 0;
+        \\  if (typeof v === "boolean") return 1;
+        \\  if (typeof v === "number") return Number.isInteger(v) ? 2 : 3;
+        \\  if (typeof v === "string") return 5;
+        \\  if (Array.isArray(v)) return 6;
+        \\  if (typeof v === "object") return 7;
+        \\  return 4294967295;
+        \\}
+        \\function __sa_json_i64_of(v) {
+        \\  if (typeof v !== "number" || !Number.isInteger(v)) return null;
+        \\  if (v > 9223372036854775807 || v < -9223372036854775808) return null;
+        \\  return BigInt.asIntN(64, BigInt(v));
+        \\}
+        \\function __sa_json_f64_of(v) {
+        \\  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+        \\  return v;
         \\}
         \\function __sa_fmt_f64_str(v, prec) {
         \\  // Zig std.fmt.formatFloat decimal mode with precision p (mirrors
@@ -1756,14 +1778,19 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
         } else {
             _ = bases.remove(slot);
         }
-        for (parsed.args) |arg| {
-            if (arg.prefix == .move) {
-                if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = bases.remove(aslot);
-            }
-        }
         try writer.print("  r{d} = ", .{slot});
     } else {
         try writer.writeAll("  ");
+    }
+    // Move-prefix arguments are consumed. Bare (by_value) arguments
+    // may be retained by the callee: forget those slots too (leak
+    // beats use-after-free; mirrors the store-escape rule).
+    // Borrow (&) / raw (*) args are only read through: kept.
+    // Runs for dest-less calls too (push_word has no dest).
+    for (parsed.args) |arg| {
+        if (arg.prefix == .move or arg.prefix == .by_value) {
+            if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = bases.remove(aslot);
+        }
     }
     try jsFuncName(writer, parsed.callee);
     try writer.writeAll("(");
@@ -1796,14 +1823,19 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
         } else {
             _ = bases.remove(slot);
         }
-        for (parsed.args) |arg| {
-            if (arg.prefix == .move) {
-                if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = bases.remove(aslot);
-            }
-        }
         try writer.print("  r{d} = ", .{slot});
     } else {
         try writer.writeAll("  ");
+    }
+    // Move-prefix arguments are consumed. Bare (by_value) arguments
+    // may be retained by the callee: forget those slots too (leak
+    // beats use-after-free; mirrors the store-escape rule).
+    // Borrow (&) / raw (*) args are only read through: kept.
+    // Runs for dest-less calls too.
+    for (parsed.args) |arg| {
+        if (arg.prefix == .move or arg.prefix == .by_value) {
+            if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = bases.remove(aslot);
+        }
     }
     try writer.writeAll("__sa_call_indirect(");
     try resolveTextToJs(writer, symbols, fsig, const_addrs, parsed.callee);
@@ -2200,9 +2232,10 @@ fn provTransfer(
                         }
                     }
                 }
-                // Move-prefix arguments are consumed by the call.
+                // Move-prefix arguments are consumed by the call. Bare
+                // (by_value) arguments may be retained (mirrors emission).
                 for (parsed.args) |arg| {
-                    if (arg.prefix == .move) {
+                    if (arg.prefix == .move or arg.prefix == .by_value) {
                         if (provArgSlot(symbols, fsig, arg.text)) |aslot| _ = out_set.remove(aslot);
                     }
                 }
@@ -2307,6 +2340,21 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_regex_group_count")) return true;
     if (std.mem.eql(u8, name, "sa_regex_free")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_free")) return true;
+    if (std.mem.eql(u8, name, "sa_modstate_get_u64")) return true;
+    if (std.mem.eql(u8, name, "sa_modstate_set_u64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_parse")) return true;
+    if (std.mem.eql(u8, name, "sa_json_kind")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_get")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_get")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_key_at")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_get_string")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_get_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_get_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_get_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_as_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_as_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_as_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_json_free")) return true;
     if (std.mem.eql(u8, name, "fd_open")) return true;
     if (std.mem.eql(u8, name, "fd_close")) return true;
     if (std.mem.eql(u8, name, "fd_read")) return true;
@@ -3546,6 +3594,244 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  if (r !== undefined) { __sa_regexmatches.delete(__sa_num(match)); __sa_free(r.base); }
                 \\  return 0;
                 \\}
+                \\
+            );
+            return;
+        }
+        // Module-state slots (mirror modstate.sai over the thread-local
+        // registry): opaque u64 cells keyed by FNV-1a-64, zero on first
+        // touch. Single-threaded JS: a plain Map suffices.
+        if (std.mem.eql(u8, fsig.name, "sa_modstate_get_u64")) {
+            try writer.writeAll(
+                \\function sa_modstate_get_u64(key) {
+                \\  const v = __sa_modstate.get(__sa_tou(key));
+                \\  return (v === undefined) ? 0n : BigInt.asUintN(64, v);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_modstate_set_u64")) {
+            try writer.writeAll(
+                \\function sa_modstate_set_u64(key, value) {
+                \\  __sa_modstate.set(__sa_tou(key), BigInt.asUintN(64, BigInt(__sa_num(value))));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        // JSON reader family (mirror sa_json_* in sa_std.zig over
+        // std.json.Value). Handles index parsed JS values; children borrow
+        // (no ownership split needed single-threaded).
+        if (std.mem.eql(u8, fsig.name, "sa_json_parse")) {
+            try writer.writeAll(
+                \\function sa_json_parse(json_ptr, len) {
+                \\  const bytes = __sa_mem_bytes(json_ptr, len);
+                \\  let text = "";
+                \\  try { text = new globalThis.TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch (e) { return 0n; }
+                \\  let value;
+                \\  try { value = globalThis.JSON.parse(text); } catch (e) { return 0n; }
+                \\  if (value === undefined) return 0n;
+                \\  const h = __sa_jsonnext++;
+                \\  __sa_jsonnodes.set(h, value);
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_kind")) {
+            try writer.writeAll(
+                \\function sa_json_kind(node) {
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined) return 4294967295;
+                \\  return __sa_json_kind_of(v);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_get")) {
+            try writer.writeAll(
+                \\function sa_json_object_get(node, key_ptr, key_len, out_handle) {
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  if (!Object.prototype.hasOwnProperty.call(v, key)) return 3;
+                \\  const h = __sa_jsonnext++;
+                \\  __sa_jsonnodes.set(h, v[key]);
+                \\  __sa_store_i64(out_handle, BigInt(h));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_get")) {
+            try writer.writeAll(
+                \\function sa_json_array_get(node, index, out_handle) {
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  const i = __sa_tou(index);
+                \\  if (!(i >= 0) || i >= v.length) return 3;
+                \\  const h = __sa_jsonnext++;
+                \\  __sa_jsonnodes.set(h, v[i]);
+                \\  __sa_store_i64(out_handle, BigInt(h));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_key_at")) {
+            try writer.writeAll(
+                \\function sa_json_object_key_at(node, index, out_ptr, out_len) {
+                \\  __sa_store_i64(out_ptr, 0n);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const keys = Object.keys(v);
+                \\  const i = __sa_tou(index);
+                \\  if (!(i >= 0) || i >= keys.length) return 3;
+                \\  const bytes = new globalThis.TextEncoder().encode(keys[i]);
+                \\  const p = __sa_alloc(bytes.length);
+                \\  __sa_u8.set(bytes, p);
+                \\  __sa_store_i64(out_ptr, p);
+                \\  __sa_store_i64(out_len, bytes.length);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_get_string")) {
+            try writer.writeAll(
+                \\function sa_json_object_get_string(node, key_ptr, key_len, out_ptr, out_len) {
+                \\  __sa_store_i64(out_ptr, 0n);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  if (!Object.prototype.hasOwnProperty.call(v, key)) return 3;
+                \\  const s = v[key];
+                \\  if (typeof s !== "string") return 1;
+                \\  const bytes = new globalThis.TextEncoder().encode(s);
+                \\  const p = __sa_alloc(bytes.length);
+                \\  __sa_u8.set(bytes, p);
+                \\  __sa_store_i64(out_ptr, p);
+                \\  __sa_store_i64(out_len, bytes.length);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_get_bool")) {
+            try writer.writeAll(
+                \\function sa_json_object_get_bool(node, key_ptr, key_len, out_value) {
+                \\  __sa_store_u8(out_value, 0);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  if (!Object.prototype.hasOwnProperty.call(v, key)) return 3;
+                \\  const b = v[key];
+                \\  if (typeof b !== "boolean") return 1;
+                \\  __sa_store_u8(out_value, b ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_get_i64")) {
+            try writer.writeAll(
+                \\function sa_json_object_get_i64(node, key_ptr, key_len, out_value) {
+                \\  __sa_store_i64(out_value, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  if (!Object.prototype.hasOwnProperty.call(v, key)) return 3;
+                \\  const n = __sa_json_i64_of(v[key]);
+                \\  if (n === null) return 1;
+                \\  __sa_store_i64(out_value, n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_get_f64")) {
+            try writer.writeAll(
+                \\function sa_json_object_get_f64(node, key_ptr, key_len, out_value) {
+                \\  __sa_store_f64(out_value, 0);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  if (!Object.prototype.hasOwnProperty.call(v, key)) return 3;
+                \\  const n = __sa_json_f64_of(v[key]);
+                \\  if (n === null) return 1;
+                \\  __sa_store_f64(out_value, n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_as_i64")) {
+            try writer.writeAll(
+                \\function sa_json_as_i64(node, out_value) {
+                \\  __sa_store_i64(out_value, 0n);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined) return 2;
+                \\  const n = __sa_json_i64_of(v);
+                \\  if (n === null) return 1;
+                \\  __sa_store_i64(out_value, n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_as_f64")) {
+            try writer.writeAll(
+                \\function sa_json_as_f64(node, out_value) {
+                \\  __sa_store_f64(out_value, 0);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined) return 2;
+                \\  const n = __sa_json_f64_of(v);
+                \\  if (n === null) return 1;
+                \\  __sa_store_f64(out_value, n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_as_bool")) {
+            try writer.writeAll(
+                \\function sa_json_as_bool(node, out_value) {
+                \\  __sa_store_u8(out_value, 0);
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined) return 2;
+                \\  if (typeof v !== "boolean") return 1;
+                \\  __sa_store_u8(out_value, v ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_free")) {
+            try writer.writeAll(
+                \\function sa_json_free(node) { __sa_jsonnodes.delete(__sa_num(node)); return 0; }
                 \\
             );
             return;
