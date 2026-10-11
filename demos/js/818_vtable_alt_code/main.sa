@@ -1,0 +1,56 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"818\n"
+@const AL_VT = vtable { alt = @alt_fn }
+
+// 818 - Vtable alt: flag 0 selects alt 818 through indirect call.
+@alt_fn(flag: i64, alt: i64) -> i64:
+L_ENTRY:
+    use_alt = eq flag, 0
+    br use_alt -> L_ALT, L_FLAG
+L_ALT:
+    !flag
+    !use_alt
+    m = add alt, 0
+    !alt
+    jmp L_OUT
+L_FLAG:
+    !alt
+    !use_alt
+    m = add flag, 0
+    !flag
+    jmp L_OUT
+L_OUT:
+    ret7 = add m, 0
+    !m
+    return ret7
+
+@main() -> i32:
+L_ENTRY:
+    t = &AL_VT
+    fp = load t + 0 as ptr
+    z = 0 as i64
+    v818 = 818 as i64
+    v = call_indirect fp(z, v818)
+    want = 818 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !z
+    !v818
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

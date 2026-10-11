@@ -1,0 +1,70 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"814\n"
+
+// 814 - Collect: 6 sources (700,50,30,20,10,4) sum == 814.
+@c1() -> i64:
+L_ENTRY:
+    return 700
+
+@c2() -> i64:
+L_ENTRY:
+    return 50
+
+@c3() -> i64:
+L_ENTRY:
+    return 30
+
+@c4() -> i64:
+L_ENTRY:
+    return 20
+
+@c5() -> i64:
+L_ENTRY:
+    return 10
+
+@c6() -> i64:
+L_ENTRY:
+    return 4
+
+@main() -> i32:
+L_ENTRY:
+    a = call @c1()
+    b = call @c2()
+    c = call @c3()
+    d = call @c4()
+    e = call @c5()
+    f = call @c6()
+    ab = add a, b
+    cd = add c, d
+    ef = add e, f
+    s0 = add ab, cd
+    got = add s0, ef
+    want = 814 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !ab
+    !cd
+    !ef
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

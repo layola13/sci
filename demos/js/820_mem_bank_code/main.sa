@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"820\n"
+
+// 820 - Bank: 4 vaults of 205 sum == 820 with code 0.
+@main() -> i32:
+L_ENTRY:
+    v0 = alloc 8
+    v1 = alloc 8
+    v2 = alloc 8
+    v3 = alloc 8
+    store v0+0, 205 as i64
+    store v1+0, 205 as i64
+    store v2+0, 205 as i64
+    store v3+0, 205 as i64
+    a = load v0+0 as i64
+    b = load v1+0 as i64
+    c = load v2+0 as i64
+    d = load v3+0 as i64
+    ab = add a, b
+    cd = add c, d
+    got = add ab, cd
+    want = 820 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !v0
+    !v1
+    !v2
+    !v3
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

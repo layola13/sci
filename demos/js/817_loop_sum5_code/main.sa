@@ -1,0 +1,54 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"817\n"
+
+// 817 - Sum5 loop 0..4 doubled plus 797: (0+1+2+3+4)*2 == 20,
+// 20 + 797 == 817.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 5
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !done
+    ten = 10 as i64
+    ok_sum = eq acc, ten
+    dbl = add acc, acc
+    want_dbl = 20 as i64
+    ok_dbl = eq dbl, want_dbl
+    base = 797 as i64
+    got = add dbl, base
+    want = 817 as i64
+    ok_v = eq got, want
+    t0 = and ok_sum, ok_dbl
+    ok = and t0, ok_v
+    !acc
+    !i
+    !one
+    !ten
+    !ok_sum
+    !dbl
+    !want_dbl
+    !ok_dbl
+    !base
+    !got
+    !want
+    !ok_v
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

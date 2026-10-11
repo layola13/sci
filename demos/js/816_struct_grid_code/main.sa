@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"816\n"
+
+// 816 - Grid 2x2: 700+50+60+6 == 816, code 0.
+@main() -> i32:
+L_ENTRY:
+    g = alloc 32
+    store g+0, 700 as i64
+    store g+8, 50 as i64
+    store g+16, 60 as i64
+    store g+24, 6 as i64
+    a = load g+0 as i64
+    b = load g+8 as i64
+    c = load g+16 as i64
+    d = load g+24 as i64
+    ab = add a, b
+    cd = add c, d
+    got = add ab, cd
+    want = 816 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !g
+    !a
+    !b
+    !c
+    !d
+    !ab
+    !cd
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
