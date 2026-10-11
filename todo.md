@@ -381,3 +381,31 @@
 - [x] **Enhance `RefCell` for Shared Borrows**: Update `refcell.sa` to support multiple shared borrows (readers) and one exclusive borrow (writer), utilizing a signed or bit-masked counter.
 - [x] **Implement `sa_std/sync/rwlock.sa`**: Provide a multi-reader, single-writer lock based on atomic state transitions.
 - [x] **Standardize `Box` Macros**: Add `BOX_NEW` and `BOX_FREE` to `sa_std/core/mem.sa` for consistent heap management ergonomics.
+
+---
+
+## 对 Bun Benchmark 下一步重点修复 (2026-10-11, 证据见 sala §13/§14)
+
+> 背景：融合原语已拿下 u32sum 反超 2.5x/2.0x、fill 扯平；剩余硬墙如下，按 ROI 排序。
+> 口径铁律：只写 SA（禁手写 mjs）、双点斜率、DSE-proof 形态。
+
+- [ ] **1. IR 层引入 SIMD 语义（最高优先级，啃 find/scan/codec 墙）**
+  - **问题**：`sa→native` 自身离 Bun 原生 codec 仍有 19x~67x（§14 实锤与 JS 无关，是全后端缺自动向量化）；`find-u32` 即使走 `TypedArray.indexOf` 仍输 2.9x（原生 memchr 墙）；byte-scan 卡边界检查。
+  - **方案**：IR 层引入 SIMD 语义（scan/find/codec 的向量化 lowering），先 native 后 wasm/js。
+  - **验收**：find-u32 进 1.5x 内；byte-scan 逼近 bun readUInt8 的 0.77ns/B。
+- [ ] **2. 单遍融合 hex 解码器（消除链税）**
+  - **问题**：`sa_hexdec` 走 TextDecoder＋parse＋拷出三遍，64KB 同尺寸仍输 3.7x（b64 同理 3x）；三档尺寸测 flatline，证实是 throughput 税非固定成本。
+  - **方案**：单遍融合解码（查表＋存回一遍过），干掉中间 string 与二次拷贝。
+  - **验收**：hex-64KB 进 1.5x 内。
+- [ ] **3. 前端字面量按语境定型（全后端受益）**
+  - **问题**：无类型整数字面量一律 u64（BigInt），污染所有 ≤32 位循环；当前靠发射器 magnitude 猜＋运行时动态提升兜底（337/347/350 教训）。
+  - **方案**：前端按语境把 u32 上下文的字面量定型为原生 Number；i64/u64 保持 BigInt；native/wasm 联测。
+  - **验收**：非融合纯 SA 循环普遍再快数倍；`zig build js-matrix`＋`wasm-matrix` 全绿。
+- [ ] **4. 跟进 wasmtime 反超 native 之谜**
+  - **问题**：`sa→wasm`（wasmtime）在 read-write（126ms vs 150ms）、indexOf（69.9ms vs 94.5ms）上超过 LLVM 驱动的 `sa→native`。
+  - **方案**：确认是 LLVM O1 配置保守还是 wasmtime JIT 更激进；评估 native 提优化等级或对齐 wasmtime 策略。
+  - **验收**：结论写入 sala ＋ 相应配置项。
+- [ ] **5. 全量 js-matrix/wasm-matrix 绿灯背书（待用户放行）**
+  - **问题**：目前只有 9 靶向 demo＋34 peer 校验；用户禁全量跑，完整背书缺失。
+  - **方案**：用户放行后跑全量两矩阵，失败项按 337/347/350 模式个个击破。
+  - **验收**：两矩阵全绿，sala 注记。
