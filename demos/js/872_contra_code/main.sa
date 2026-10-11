@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"872\n"
+
+// 872 - Contrapositive: (3==3) implies (872==872) holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 3 as i64
+    b = 3 as i64
+    c = 872 as i64
+    d = 872 as i64
+    p = eq a, b
+    q = eq c, d
+    np = eq p, 0
+    o = or np, q
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and o, ok_c
+    !a
+    !b
+    !c
+    !d
+    !p
+    !q
+    !np
+    !o
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

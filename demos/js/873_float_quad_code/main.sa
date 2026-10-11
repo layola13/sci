@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"873\n"
+
+// 873 - Float quad: 2.5^2 == 6.25 and 6.25 - 2.5 == 3.75, code 0.
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    fifteen = 15 as i32
+    four_i = 4 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    fifteen_f = sitofp fifteen as f64
+    four_f = sitofp four_i as f64
+    two_half = fdiv five_f, two_f
+    sq = fmul two_half, two_half
+    three_half = fdiv fifteen_f, four_f
+    rest = fsub sq, two_half
+    ok_sq = fcmp_eq rest, three_half
+    back = fadd rest, two_half
+    ok_v = fcmp_eq back, sq
+    ok = and ok_sq, ok_v
+    !five
+    !two_i
+    !fifteen
+    !four_i
+    !five_f
+    !two_f
+    !fifteen_f
+    !four_f
+    !two_half
+    !sq
+    !three_half
+    !rest
+    !ok_sq
+    !back
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
