@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"592\n"
+
+// 592 - Int sub: 600 - 8 == 592 with code 0.
+@main() -> i32:
+L_ENTRY:
+    top = 600 as i64
+    bot = 8 as i64
+    v = sub top, bot
+    want = 592 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !top
+    !bot
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
