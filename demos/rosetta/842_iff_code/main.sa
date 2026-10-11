@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"842\n"
+
+// 842 - Iff: (842==842) iff (1==1) holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 842 as i64
+    b = 842 as i64
+    c = 1 as i64
+    d = 1 as i64
+    p = eq a, b
+    q = eq c, d
+    iff = eq p, q
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and iff, ok_c
+    !a
+    !b
+    !c
+    !d
+    !p
+    !q
+    !iff
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

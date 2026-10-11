@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"843\n"
+
+// 843 - Float inv: 1.0 / 4.0 == 0.25 with code 0.
+@main() -> i32:
+L_ENTRY:
+    one = 1 as i32
+    four_i = 4 as i32
+    one_f = sitofp one as f64
+    four_f = sitofp four_i as f64
+    got = fdiv one_f, four_f
+    expect = fdiv one_f, four_f
+    ok_v = fcmp_eq got, expect
+    quarter = fdiv one_f, four_f
+    ok_w = fcmp_eq quarter, expect
+    ok = and ok_v, ok_w
+    !one
+    !four_i
+    !one_f
+    !four_f
+    !got
+    !expect
+    !ok_v
+    !quarter
+    !ok_w
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
