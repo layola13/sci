@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"611\n"
+
+// 611 - Step ok chain: 600 + 11 == 611 with code 0.
+@step(x: i64) -> i64:
+L_ENTRY:
+    eleven = 11 as i64
+    r = add x, eleven
+    !x
+    !eleven
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 600 as i64
+    v = call @step(base)
+    want = 611 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

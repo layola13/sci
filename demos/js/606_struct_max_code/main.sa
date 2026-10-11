@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"606\n"
+
+// 606 - Struct max: max(300, 306) == 306, plus 300 == 606.
+@main() -> i32:
+L_ENTRY:
+    p = alloc 16
+    store p+0, 300 as i64
+    store p+8, 306 as i64
+    a = load p+0 as i64
+    b = load p+8 as i64
+    big = slt a, b
+    br big -> L_TAKE_B, L_TAKE_A
+L_TAKE_B:
+    !a
+    !big
+    m = add b, 0
+    !b
+    jmp L_MERGE
+L_TAKE_A:
+    !b
+    !big
+    m = add a, 0
+    !a
+    jmp L_MERGE
+L_MERGE:
+    three = 300 as i64
+    got = add m, three
+    want = 606 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !p
+    !m
+    !three
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
