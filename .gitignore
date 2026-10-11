@@ -100,3 +100,17 @@ sa_std.lib.obj
 # dist package builder scratch + output
 /dist/
 /.dist_stage/
+
+# agent/tooling session leftovers (not project sources)
+/.agents/
+/.codex-ultra/
+/.codex/skills/jev/
+/.codex/skills/sa-vm/
+/.gemini/
+/.grok/
+/.mini-agent/
+/.opencode/goals/
+/.opencode/skills/
+/.pi/
+AGENTS.md
+cxu.code-workspace
