@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"739\n"
+@const SGN_VT = vtable { invoke = @sign_fn }
+
+// 739 - Callback sign: 739 > 0 yields 739 through indirect call.
+@sign_fn(x: i64) -> i64:
+L_ENTRY:
+    neg = slt x, 0
+    br neg -> L_NEG, L_POS
+L_NEG:
+    !x
+    !neg
+    return 0
+L_POS:
+    !x
+    !neg
+    return 739
+
+@main() -> i32:
+L_ENTRY:
+    t = &SGN_VT
+    fp = load t + 0 as ptr
+    v0 = 739 as i64
+    v = call_indirect fp(v0)
+    want = 739 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"737\n"
+
+// 737 - Linear search 0..9 for 7: found at index 7, plus 730.
+@main() -> i32:
+L_ENTRY:
+    i = 0 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    hit = eq i, 7
+    br hit -> L_DONE, L_NEXT
+L_NEXT:
+    !hit
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !hit
+    seven = 7 as i64
+    ok_hit = eq i, seven
+    base = 730 as i64
+    got = add i, base
+    want = 737 as i64
+    ok_v = eq got, want
+    ok = and ok_hit, ok_v
+    !i
+    !one
+    !seven
+    !ok_hit
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

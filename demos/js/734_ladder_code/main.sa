@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"734\n"
+
+// 734 - Ladder: 700 +1 +2 +3 +4 +5 +6 +7 +8 == 736, minus 2 == 734.
+@step_l7(x: i64) -> i64:
+L_ENTRY:
+    s = 7 as i64
+    r = add x, s
+    !x
+    !s
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 700 as i64
+    v0 = call @step_l7(base)
+    v1 = add v0, 8
+    v2 = add v1, 9
+    v = add v2, 10
+    want = 734 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v0
+    !v1
+    !v2
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
