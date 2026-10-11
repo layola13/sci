@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"727\n"
+
+// 727 - GCD walk: gcd(48, 18) == 6 via subtraction loop, plus 721.
+@main() -> i32:
+L_ENTRY:
+    a = 48 as i64
+    b = 18 as i64
+    jmp L_COND
+L_COND:
+    done = eq a, b
+    br done -> L_DONE, L_STEP
+L_STEP:
+    !done
+    small = slt a, b
+    br small -> L_ADDB, L_SUBB
+L_ADDB:
+    !small
+    b = sub b, a
+    jmp L_COND
+L_SUBB:
+    !small
+    a = sub a, b
+    jmp L_COND
+L_DONE:
+    !done
+    six = 6 as i64
+    ok_g = eq a, six
+    base = 721 as i64
+    got = add a, base
+    want = 727 as i64
+    ok_v = eq got, want
+    ok = and ok_g, ok_v
+    !a
+    !b
+    !six
+    !ok_g
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,60 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"724\n"
+
+// 724 - Tower: 4 levels each add 6, 700 + 24 == 724.
+@lv4(x: i64) -> i64:
+L_ENTRY:
+    six = 6 as i64
+    r = add x, six
+    !x
+    !six
+    return r
+
+@lv3(x: i64) -> i64:
+L_ENTRY:
+    v = call @lv4(x)
+    !x
+    return v
+
+@lv2(x: i64) -> i64:
+L_ENTRY:
+    v = call @lv3(x)
+    !x
+    return v
+
+@lv1(x: i64) -> i64:
+L_ENTRY:
+    v = call @lv2(x)
+    !x
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    base = 700 as i64
+    v0 = call @lv1(base)
+    v1 = add v0, 6
+    v2 = add v1, 6
+    v = add v2, 6
+    want = 724 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v0
+    !v1
+    !v2
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

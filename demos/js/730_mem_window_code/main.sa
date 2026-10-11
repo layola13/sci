@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"730\n"
+
+// 730 - Window: sliding pairs (700,30) and (30,700) both sum 730.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 24
+    store buf+0, 700 as i64
+    store buf+8, 30 as i64
+    store buf+16, 0 as i64
+    a = load buf+0 as i64
+    b = load buf+8 as i64
+    w0 = add a, b
+    store buf+16, w0 as i64
+    c = load buf+16 as i64
+    want = 730 as i64
+    ok_v = eq c, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !buf
+    !a
+    !b
+    !w0
+    !c
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

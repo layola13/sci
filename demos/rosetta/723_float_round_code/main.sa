@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"723\n"
+
+// 723 - Float round-trip: 7.5 - 2.5 == 5.0 with code 0.
+@main() -> i32:
+L_ENTRY:
+    fifteen = 15 as i32
+    five = 5 as i32
+    two_i = 2 as i32
+    fifteen_f = sitofp fifteen as f64
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    seven_half = fdiv fifteen_f, two_f
+    two_half = fdiv five_f, two_f
+    got = fsub seven_half, two_half
+    ok_v = fcmp_eq got, five_f
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !fifteen
+    !five
+    !two_i
+    !fifteen_f
+    !five_f
+    !two_f
+    !seven_half
+    !two_half
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
