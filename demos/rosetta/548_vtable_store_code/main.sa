@@ -1,0 +1,57 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"548\n"
+@const ST_VT = vtable { store_it = @store_val }
+
+// 548 - Vtable store writes 2.5 through ctx slot, code 0.
+@store_val(dummy: i64, ctx: ptr) -> i64:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    h = fdiv five_f, two_f
+    store ctx+0, h as f64
+    !dummy
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !h
+    return 0
+
+@main() -> i32:
+    t = &ST_VT
+    fp = load t + 0 as ptr
+    ctx = alloc 8
+    zero = 0 as i64
+    code = call_indirect fp(zero, ctx)
+    val = load ctx+0 as f64
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, expect
+    ok = and ok_c, ok_v
+    !t
+    !fp
+    !ctx
+    !zero
+    !code
+    !val
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

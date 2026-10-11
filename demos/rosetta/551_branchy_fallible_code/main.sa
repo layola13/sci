@@ -1,0 +1,55 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"551\n"
+
+// 551 - Branchy fallible: ok path (0, 2.5), error code 7 unused.
+@try_get(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    code = call @try_get(z)
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    buf = alloc 16
+    store buf+0, code as i64
+    store buf+8, expect as f64
+    c2 = load buf+0 as i64
+    v2 = load buf+8 as f64
+    ok_c = eq c2, 0
+    ok_v = fcmp_eq v2, expect
+    ok = and ok_c, ok_v
+    !z
+    !code
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    !buf
+    !c2
+    !v2
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
