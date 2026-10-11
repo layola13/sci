@@ -971,6 +971,20 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  if (typeof v !== "number" || !Number.isFinite(v)) return null;
         \\  return v;
         \\}
+        \\function __sa_node_builtin(mod) {
+        \\  try {
+        \\    const p = globalThis.process;
+        \\    if (p && p.getBuiltinModule) return p.getBuiltinModule(mod);
+        \\  } catch (e) {}
+        \\  return null;
+        \\}
+        \\function __sa_node_emit(out_ptr, out_len, bytes) {
+        \\  const p = __sa_alloc(bytes.length);
+        \\  __sa_u8.set(bytes, p);
+        \\  __sa_store_i64(out_ptr, p);
+        \\  __sa_store_i64(out_len, bytes.length);
+        \\  return 0;
+        \\}
         \\function __sa_fmt_f64_str(v, prec) {
         \\  // Zig std.fmt.formatFloat decimal mode with precision p (mirrors
         \\  // sa_fmt_f64_into). Returns the text or null on invalid precision.
@@ -2468,6 +2482,27 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_json_buffer_len")) return true;
     if (std.mem.eql(u8, name, "sa_json_buffer_free")) return true;
     if (std.mem.eql(u8, name, "sa_time_set_field")) return true;
+    if (std.mem.eql(u8, name, "sa_std_fs_exists")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_path_join")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_path_normalize")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_path_dirname")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_path_extname")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_path_is_absolute")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_punycode_encode")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_punycode_decode")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_querystring_escape")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_querystring_unescape")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_buffer_concat")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_crypto_hash")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_atob")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_btoa")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_read_text_file")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_write_text_file")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_mkdir")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_remove")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_free_buffer")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_free_buffer")) return true;
     if (std.mem.eql(u8, name, "fd_open")) return true;
     if (std.mem.eql(u8, name, "fd_close")) return true;
     if (std.mem.eql(u8, name, "fd_read")) return true;
@@ -2516,10 +2551,13 @@ fn provArgSlot(symbols: anytype, fsig: sig.FunctionSig, arg_text: []const u8) ?u
     return fsig.slotOf(id);
 }
 
-/// Whether a call result slot is proven to hold an owned base: allocator
-/// shims and alloc-class callees always qualify; param-class callees qualify
-/// iff the corresponding argument is a transparent (by_value/move) proven
-/// base in the caller's set.
+/// Whether a call result slot is proven to hold a SOLELY-owned base:
+/// allocator shims and alloc-class callees always qualify. Param-class
+/// (pass-through) callees NEVER qualify: the result aliases the caller's
+/// argument block, so freeing through the result would corrupt the still
+/// live source (e.g. `t_8 = call @greet(t)` ... `!t_8` must stay a no-op
+/// while `t` is used again; native preserves the block). Leaking instead
+/// is always observably safe.
 fn provCallDestBase(
     set: *const BaseSet,
     symbols: anytype,
@@ -2528,20 +2566,13 @@ fn provCallDestBase(
     parsed_args: anytype,
     retbase: *const RetBaseTable,
 ) bool {
+    _ = set;
+    _ = symbols;
+    _ = fsig;
+    _ = parsed_args;
     if (isAllocatorShim(parsed_callee)) return true;
     const info = retbase.get(parsed_callee) orelse return false;
-    switch (info) {
-        .alloc => return true,
-        .param => |pi| {
-            if (pi >= parsed_args.len) return false;
-            const arg = parsed_args[pi];
-            if (arg.prefix != .by_value and arg.prefix != .move) return false;
-            if (provArgSlot(symbols, fsig, arg.text)) |aslot| {
-                return set.get(aslot) != null;
-            }
-            return false;
-        },
-    }
+    return info == .alloc;
 }
 
 const ProvBody = struct {
@@ -4271,6 +4302,325 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  const norm = tod - __sa_divfloor(tod, 86400000n) * 86400000n;
                 \\  return BigInt.asIntN(64, (total * 86400n) * 1000n + norm);
                 \\}
+                \\
+            );
+            return;
+        }
+        // Node/Deno plugin shims (mirror sa_plugin_node/deno externs).
+        // Implemented over the host Node.js builtins (the JS backend runs
+        // on node): node:path POSIX flavor, node:querystring/punycode,
+        // node:crypto, node:fs. Results materialize into linear memory;
+        // nonlocal nonzero statuses fail the same `ne st, 0` gates.
+        if (std.mem.eql(u8, fsig.name, "sa_std_fs_exists")) {
+            try writer.writeAll(
+                \\function sa_std_fs_exists(path_ptr, path_len) {
+                \\  // Status-code shape (mirror native): 0 exists,
+                \\  // NOT_FOUND(3) missing, INVALID_ARGUMENT(1) on bad input.
+                \\  const fs = __sa_node_builtin("node:fs");
+                \\  if (fs === null) return 1;
+                \\  try {
+                \\    const p = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    return fs.existsSync(p) ? 0 : 3;
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_path_normalize")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_path_normalize(path_ptr, path_len, out_ptr, out_len) {
+                \\  const pathmod = __sa_node_builtin("node:path");
+                \\  if (pathmod === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(pathmod.posix.normalize(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_path_dirname")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_path_dirname(path_ptr, path_len, out_ptr, out_len) {
+                \\  const pathmod = __sa_node_builtin("node:path");
+                \\  if (pathmod === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(pathmod.posix.dirname(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_path_extname")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_path_extname(path_ptr, path_len, out_ptr, out_len) {
+                \\  const pathmod = __sa_node_builtin("node:path");
+                \\  if (pathmod === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(pathmod.posix.extname(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_path_is_absolute")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_path_is_absolute(path_ptr, path_len, out_bool) {
+                \\  const pathmod = __sa_node_builtin("node:path");
+                \\  if (pathmod === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    __sa_store_i32(out_bool, pathmod.posix.isAbsolute(s) ? 1 : 0);
+                \\    return 0;
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_path_join")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_path_join(argv_ptr, argc, out_ptr, out_len) {
+                \\  const pathmod = __sa_node_builtin("node:path");
+                \\  if (pathmod === null) return 1;
+                \\  try {
+                \\    const base = __sa_addr(argv_ptr);
+                \\    const n = __sa_num(argc);
+                \\    const parts = [];
+                \\    for (let i = 0; i < n; i++) {
+                \\      const p = Number(__sa_view.getBigInt64(base + i * 16, true));
+                \\      const l = Number(__sa_view.getBigUint64(base + i * 16 + 8, true));
+                \\      parts.push(new globalThis.TextDecoder().decode(__sa_mem_bytes(p, l)));
+                \\    }
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(pathmod.posix.join(...parts)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_punycode_encode")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_punycode_encode(data_ptr, data_len, out_ptr, out_len) {
+                \\  const pu = __sa_node_builtin("punycode");
+                \\  if (pu === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, data_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(pu.encode(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_punycode_decode")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_punycode_decode(data_ptr, data_len, out_ptr, out_len) {
+                \\  const pu = __sa_node_builtin("punycode");
+                \\  if (pu === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, data_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(pu.decode(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_querystring_escape")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_querystring_escape(data_ptr, data_len, out_ptr, out_len) {
+                \\  const qs = __sa_node_builtin("node:querystring");
+                \\  if (qs === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, data_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(qs.escape(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_querystring_unescape")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_querystring_unescape(data_ptr, data_len, out_ptr, out_len) {
+                \\  const qs = __sa_node_builtin("node:querystring");
+                \\  if (qs === null) return 1;
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, data_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(qs.unescape(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_buffer_concat")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_buffer_concat(argv_ptr, argc, out_ptr, out_len) {
+                \\  try {
+                \\    const base = __sa_addr(argv_ptr);
+                \\    const n = __sa_num(argc);
+                \\    let total = 0;
+                \\    const parts = [];
+                \\    for (let i = 0; i < n; i++) {
+                \\      const p = Number(__sa_view.getBigInt64(base + i * 16, true));
+                \\      const l = Number(__sa_view.getBigUint64(base + i * 16 + 8, true));
+                \\      const b = __sa_mem_bytes(p, l);
+                \\      parts.push(b);
+                \\      total += b.length;
+                \\    }
+                \\    const out = new Uint8Array(total);
+                \\    let w = 0;
+                \\    for (const b of parts) { out.set(b, w); w += b.length; }
+                \\    return __sa_node_emit(out_ptr, out_len, out);
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_crypto_random_bytes")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_crypto_random_bytes(size, out_ptr) {
+                \\  const c = __sa_node_builtin("node:crypto");
+                \\  if (c === null) return 1;
+                \\  try {
+                \\    const n = __sa_num(size);
+                \\    const b = c.randomBytes(n);
+                \\    const p = __sa_alloc(b.length);
+                \\    __sa_u8.set(b, p);
+                \\    __sa_store_i64(out_ptr, p);
+                \\    return 0;
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_crypto_hash")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_crypto_hash(algo_ptr, algo_len, data_ptr, data_len, out_ptr, out_len) {
+                \\  const c = __sa_node_builtin("node:crypto");
+                \\  if (c === null) return 1;
+                \\  try {
+                \\    const algo = new globalThis.TextDecoder().decode(__sa_mem_bytes(algo_ptr, algo_len)).toLowerCase();
+                \\    if (algo !== "sha256" && algo !== "sha512" && algo !== "sha1" && algo !== "md5") return 2;
+                \\    const h = c.createHash(algo);
+                \\    h.update(__sa_mem_bytes(data_ptr, data_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(h.digest("hex")));
+                \\  } catch (e) { return 2; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_btoa")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_btoa(data_ptr, data_len, out_ptr, out_len) {
+                \\  try {
+                \\    const b = __sa_mem_bytes(data_ptr, data_len);
+                \\    let s = "";
+                \\    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(globalThis.btoa(s)));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_atob")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_atob(data_ptr, data_len, out_ptr, out_len) {
+                \\  try {
+                \\    const s = new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, data_len));
+                \\    const bin = globalThis.atob(s);
+                \\    const out = new Uint8Array(bin.length);
+                \\    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+                \\    return __sa_node_emit(out_ptr, out_len, out);
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_read_text_file")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_read_text_file(path_ptr, path_len, out_ptr, out_len) {
+                \\  const fs = __sa_node_builtin("node:fs");
+                \\  if (fs === null) return 1;
+                \\  try {
+                \\    const p = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    return __sa_node_emit(out_ptr, out_len, new globalThis.TextEncoder().encode(fs.readFileSync(p, "utf8")));
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_write_text_file")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_write_text_file(path_ptr, path_len, data_ptr, data_len) {
+                \\  const fs = __sa_node_builtin("node:fs");
+                \\  if (fs === null) return 1;
+                \\  try {
+                \\    const p = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    fs.writeFileSync(p, __sa_mem_bytes(data_ptr, data_len));
+                \\    return 0;
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_mkdir")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_mkdir(path_ptr, path_len, recursive) {
+                \\  const fs = __sa_node_builtin("node:fs");
+                \\  if (fs === null) return 1;
+                \\  try {
+                \\    const p = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    fs.mkdirSync(p, { recursive: __sa_num(recursive) !== 0 });
+                \\    return 0;
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_remove")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_remove(path_ptr, path_len, recursive) {
+                \\  const fs = __sa_node_builtin("node:fs");
+                \\  if (fs === null) return 1;
+                \\  try {
+                \\    const p = new globalThis.TextDecoder().decode(__sa_mem_bytes(path_ptr, path_len));
+                \\    if (__sa_num(recursive) !== 0) { fs.rmSync(p, { recursive: true }); return 0; }
+                \\    try { fs.unlinkSync(p); return 0; } catch (e) {}
+                \\    fs.rmdirSync(p);
+                \\    return 0;
+                \\  } catch (e) { return 1; }
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_node_plugin_free_buffer")) {
+            try writer.writeAll(
+                \\function sa_node_plugin_free_buffer(ptr, len) { __sa_free(ptr); return 0; }
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_deno_plugin_free_buffer")) {
+            try writer.writeAll(
+                \\function sa_deno_plugin_free_buffer(ptr, len) { __sa_free(ptr); return 0; }
                 \\
             );
             return;
