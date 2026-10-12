@@ -1,0 +1,111 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_hexdec_simd(in_ptr: ptr, in_len: u64, out_ptr: ptr) -> u64
+
+@const B64_OK = utf8:"HEXB OK\n"
+@const B64_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    in = alloc 36
+    out = alloc 18
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u32
+    rep_slot = stack_alloc 8
+    store rep_slot+0, 0 as u64
+    acc_slot = stack_alloc 8
+    store acc_slot+0, 0 as u64
+    jmp L_FILL_COND
+L_FILL_COND:
+    i = load i_slot+0 as u32
+    more = ult i, 36
+    br more -> L_FILL_BODY, L_FILL_END
+L_FILL_BODY:
+    lt = ult i, 32
+    br lt -> L_FB, L_FI
+L_FB:
+    c = 65
+    !lt
+    !i
+    !more
+    jmp L_FS
+L_FI:
+    c = 33
+    !lt
+    !i
+    !more
+    jmp L_FS
+L_FS:
+    slot = ptr_add in, i
+    store slot+0, c as u8
+    next = add i, 1
+    store i_slot+0, next as u32
+    !slot
+    !next
+    !c
+    jmp L_FILL_COND
+L_FILL_END:
+    !i
+    !more
+    jmp L_REP_COND
+L_REP_COND:
+    rep = load rep_slot+0 as u64
+    more3 = ult rep, 500
+    br more3 -> L_REP_BODY, L_REP_END
+L_REP_BODY:
+    !rep
+    !more3
+    n = call @sa_hexdec_simd(&in, 36, &out)
+    oklen = eq n, 16
+    br oklen -> L_SPOTS, L_DFAIL
+L_DFAIL:
+    !n
+    !oklen
+    !in
+    !out
+    call @sa_print_bytes(&B64_FAIL, 5)
+    return 1
+L_SPOTS:
+    !oklen
+    b0 = load out+0 as u8
+    b1 = load out+1 as u8
+    b2 = load out+2 as u8
+    acc = load acc_slot+0 as u64
+    a1 = add acc, b0
+    a2 = add a1, b1
+    a3 = add a2, b2
+    store acc_slot+0, a3 as u64
+    rep3 = load rep_slot+0 as u64
+    rep4 = add rep3, 1
+    store rep_slot+0, rep4 as u64
+    !n
+    !b0
+    !b1
+    !b2
+    !acc
+    !a1
+    !a2
+    !a3
+    !rep3
+    !rep4
+    jmp L_REP_COND
+L_REP_END:
+    !rep
+    !more3
+    total = load acc_slot+0 as u64
+    ok = eq total, 255000
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !total
+    !ok
+    !in
+    !out
+    call @sa_print_bytes(&B64_OK, 8)
+    return 0
+L_FAIL:
+    !total
+    !ok
+    !in
+    !out
+    call @sa_print_bytes(&B64_FAIL, 5)
+    return 1
