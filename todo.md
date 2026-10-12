@@ -409,6 +409,7 @@
   - **更新（2026-10-12 部分解冻：host 链内两遍 in-place，已落地）**：`sa_hexdec`/`sa_b64dec` 改 `latin1 快照＋Buffer.write 原地解码`（`emit_js.zig`，短输出 trap 防静默截断）；peer 双点斜率 hex node 0.90→0.72ns/B（1.25x，与 node 原题持平）、bun 0.26→0.22（1.2x，余 ~1.5-2x），b64 node 0.51→0.21（2.4x）、bun 0.36→0.25（1.4x，余 1.7x）。验收 `hex-64KB 进 1.5x 内`在 bun 侧仍差一口气（node 侧已达），故本项保持未勾选；纯标量路线继续冻结。
   - **裁决（2026-10-12 JS host链到结构地板，无代码改动）**：对照实验（/tmp紧循环64KB×2000中位数）快照编码latin1/ascii/utf8在bun为0.199/0.253/0.233，维持latin1；拆分示快照独占~0.165ns/B恰等于全部余量，去快照后parse+write反超bun原题；快照不可省（host write/from只要string，无bytes-in解码API）且已是memcpy速度。peer复测hex node 0.82/bun~0.2~0.3，b64 node 0.21/bun~0.29，与历史一致。1.5~1.7x即该路线终点线，不再投入。
   - **阶段A复核（2026-10-12，三点回归R²≥0.9973，线性成立）**：hex node 0.684/bun 0.228，b64 node 0.194/bun 0.229，wasm b64 node-WASI 0.663（节食成立）；bun-WASI同模块0.796（慢20%，口径仍用node侧）；nosnap回读双端同值防DCE；hex倒回修复（peer_hexmid锁定，wasm/native双过）；构建新鲜度无污染。
+  - **hex unroll探针（2026-10-12，无收益，已回退，零代码残留）**：node-WASI同harness A/B：单16B基线0.438 vs unroll×2后0.463（持平偏噪）——hex循环本已小，unroll省不出东西。附带发现：wasm hex的0.17出自wasmtime，node-WASI下从来是0.44（引擎差2.6x）；对bun口径（0.11~0.15原生C++）仍以wasmtime数为准，node侧差距另记。
 - [ ] **3. 前端字面量按语境定型（全后端受益）**
   - **问题**：无类型整数字面量一律 u64（BigInt），污染所有 ≤32 位循环；当前靠发射器 magnitude 猜＋运行时动态提升兜底（337/347/350 教训）。
   - **方案**：前端按语境把 u32 上下文的字面量定型为原生 Number；i64/u64 保持 BigInt；native/wasm 联测。
