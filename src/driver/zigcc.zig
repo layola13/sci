@@ -361,17 +361,17 @@ pub fn compileWasm(
 }
 
 test "argv helpers choose the requested optimization" {
-    var exe_small = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    var exe_small = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_small.deinit();
     try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
     try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_small.slice()[3]);
     try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[5]);
-    var exe_fast = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false);
+    var exe_fast = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_fast.deinit();
     try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
     try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_fast.slice()[3]);
 
-    var exe_debug = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, true);
+    var exe_debug = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, true, null);
     defer exe_debug.deinit();
     try std.testing.expectEqualStrings("-g", exe_debug.slice()[2]);
     try std.testing.expectEqualStrings("-O0", exe_debug.slice()[3]);
