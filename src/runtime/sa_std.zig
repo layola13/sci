@@ -5203,6 +5203,120 @@ test "sa_hexdec_simd stops at invalid char and odd tail" {
     try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(odd.ptr, 0, &out_odd));
 }
 
+// SIMD base64 decoder: native bulk-decode fast path. Decodes clean
+// A-Za-z0-9+/ quanta at 32 input chars per vector iteration with a
+// scalar tail. Stops at the first non-alphabet char (including '=')
+// and returns the bytes written so far; clean input of n chars with
+// n % 4 == 0 yields exactly n/4*3. Caller must provide that many bytes.
+fn b64SimdSextetVal(c: u8) ?u8 {
+    if (c >= 'A' and c <= 'Z') return c - 'A';
+    if (c >= 'a' and c <= 'z') return c - 'a' + 26;
+    if (c >= '0' and c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return null;
+}
+
+pub export fn sa_b64dec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64 {
+    const input = constBytes(in_ptr, in_len) catch return 0;
+    const n = input.len;
+    if (n == 0) return 0;
+    const out_p = out_ptr orelse return 0;
+    const out = out_p[0 .. n / 4 * 3];
+    const V32 = @Vector(32, u8);
+    const zA: V32 = @splat(@as(u8, 'A'));
+    const zZ: V32 = @splat(@as(u8, 'Z'));
+    const zza: V32 = @splat(@as(u8, 'a'));
+    const zzz: V32 = @splat(@as(u8, 'z'));
+    const z0: V32 = @splat(@as(u8, '0'));
+    const z9: V32 = @splat(@as(u8, '9'));
+    const plus: V32 = @splat(@as(u8, '+'));
+    const slash: V32 = @splat(@as(u8, '/'));
+    const one: V32 = @splat(@as(u8, 1));
+    const zero: V32 = @splat(@as(u8, 0));
+    const o0_idx: [8]i32 = .{ 0, 4, 8, 12, 16, 20, 24, 28 };
+    const o1_idx: [8]i32 = .{ 1, 5, 9, 13, 17, 21, 25, 29 };
+    const o2_idx: [8]i32 = .{ 2, 6, 10, 14, 18, 22, 26, 30 };
+    const o3_idx: [8]i32 = .{ 3, 7, 11, 15, 19, 23, 27, 31 };
+    // NOTE: single-source shuffles only — this toolchain miscompiles
+    // negative-mask cross-vector shuffles at -OReleaseFast
+    // ("Assigned value does not match type of forward declaration").
+    const m01_idx: [16]i32 = .{ 0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15 };
+    const fin_idx: [24]i32 = .{ 0, 1, 16, 2, 3, 17, 4, 5, 18, 6, 7, 19, 8, 9, 20, 10, 11, 21, 12, 13, 22, 14, 15, 23 };
+    var i: usize = 0;
+    var w: usize = 0;
+    while (i + 32 <= n) {
+        const chunk: V32 = input[i..][0..32].*;
+        const inAZ = @select(u8, chunk >= zA, @select(u8, chunk <= zZ, one, zero), zero);
+        const inaz = @select(u8, chunk >= zza, @select(u8, chunk <= zzz, one, zero), zero);
+        const in09 = @select(u8, chunk >= z0, @select(u8, chunk <= z9, one, zero), zero);
+        const isPlus = @select(u8, chunk == plus, one, zero);
+        const isSlash = @select(u8, chunk == slash, one, zero);
+        const valid = inAZ | inaz | in09 | isPlus | isSlash;
+        if (@reduce(.Min, valid) == 0) break;
+        const sext = inAZ * (chunk -% zA) + inaz * (chunk -% (zza -% @as(V32, @splat(@as(u8, 26))))) + in09 * (chunk +% @as(V32, @splat(@as(u8, 4)))) + isPlus * @as(V32, @splat(@as(u8, 62))) + isSlash * @as(V32, @splat(@as(u8, 63)));
+        const U = sext << @as(V32, @splat(@as(u8, 2)));
+        const W = sext >> @as(V32, @splat(@as(u8, 4)));
+        const X = (sext & @as(V32, @splat(@as(u8, 15)))) << @as(V32, @splat(@as(u8, 4)));
+        const Y = sext >> @as(V32, @splat(@as(u8, 2)));
+        const Z = (sext & @as(V32, @splat(@as(u8, 3)))) << @as(V32, @splat(@as(u8, 6)));
+        const o0 = @shuffle(u8, U, @as(V32, undefined), o0_idx) | @shuffle(u8, W, @as(V32, undefined), o1_idx);
+        const o1 = @shuffle(u8, X, @as(V32, undefined), o1_idx) | @shuffle(u8, Y, @as(V32, undefined), o2_idx);
+        const o2 = @shuffle(u8, Z, @as(V32, undefined), o2_idx) | @shuffle(u8, sext, @as(V32, undefined), o3_idx);
+        const o0a: [8]u8 = o0;
+        const o1a: [8]u8 = o1;
+        const o2a: [8]u8 = o2;
+        const m01v: @Vector(16, u8) = o0a ++ o1a;
+        const m01 = @shuffle(u8, m01v, @as(@Vector(16, u8), undefined), m01_idx);
+        const m01a: [16]u8 = m01;
+        const finv: @Vector(24, u8) = m01a ++ o2a;
+        const out24 = @shuffle(u8, finv, @as(@Vector(24, u8), undefined), fin_idx);
+        out[w..][0..24].* = out24;
+        i += 32;
+        w += 24;
+    }
+    while (i + 4 <= n) {
+        const a = b64SimdSextetVal(input[i]) orelse break;
+        const b = b64SimdSextetVal(input[i + 1]) orelse break;
+        const c = b64SimdSextetVal(input[i + 2]) orelse break;
+        const d = b64SimdSextetVal(input[i + 3]) orelse break;
+        out[w] = (a << 2) | (b >> 4);
+        out[w + 1] = ((b & 15) << 4) | (c >> 2);
+        out[w + 2] = ((c & 3) << 6) | d;
+        i += 4;
+        w += 3;
+    }
+    return @intCast(w);
+}
+
+test "sa_b64dec_simd clean alphabet roundtrips" {
+    const txt = "ABCDabcd01236789";
+    var out: [12]u8 = undefined;
+    const w = sa_b64dec_simd(txt.ptr, txt.len, &out);
+    try std.testing.expectEqual(@as(u64, 12), w);
+    const wn: usize = @intCast(w);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 16, 131, 105, 183, 29, 211, 93, 183, 235, 191, 61 }, out[0..wn]);
+}
+
+test "sa_b64dec_simd vector width then invalid stop" {
+    const clean64 = "BBBB" ** 16;
+    var out64: [48]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 48), sa_b64dec_simd(clean64.ptr, clean64.len, &out64));
+    try std.testing.expectEqual(@as(u8, 4), out64[0]);
+    try std.testing.expectEqual(@as(u8, 16), out64[1]);
+    try std.testing.expectEqual(@as(u8, 65), out64[2]);
+    try std.testing.expectEqual(@as(u8, 65), out64[47]);
+    const bad = "BBBB!!!!";
+    var out_bad: [6]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 3), sa_b64dec_simd(bad.ptr, bad.len, &out_bad));
+    const bad40 = ("BBBB" ** 8) ++ "!!!!!!!!";
+    var out_bad40: [30]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 24), sa_b64dec_simd(bad40.ptr, bad40.len, &out_bad40));
+    try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(null, 8, &out_bad));
+    try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, bad.len, null));
+    try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, 0, &out_bad));
+}
+
 pub export fn sa_deno_text_encode(data_ptr: ?[*]const u8, len: u64) u64 {
     const bytes = constBytes(data_ptr, len) catch return 0;
     const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
