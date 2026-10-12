@@ -1786,6 +1786,301 @@ static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
     LLVMBuildRet(e->builder, phi_ret);
 }
 
+/* sa_b64dec_simd for wasm: in-module vector base64 decoder (Mula-style).
+   Native links libsa instead; this only fills the body when a wasm_compat
+   module left an external declaration behind. Contract mirrors
+   sa_b64dec_simd in sa_std.zig: clean A-Za-z0-9+/ input with n % 4 == 0
+   yields n/4*3 bytes; stops at the first non-alphabet char (including
+   '='), returning bytes written. Vector path handles 32 input chars per
+   iteration; scalar tail covers whole trailing quanta. */
+static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_b64dec_simd");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMTypeRef i64 = e->i64_ty;
+    LLVMTypeRef v32 = LLVMVectorType(e->i8_ty, 32);
+    LLVMTypeRef v24 = LLVMVectorType(e->i8_ty, 24);
+    LLVMValueRef in_ptr = LLVMGetParam(fn, 0);
+    LLVMValueRef in_len = LLVMGetParam(fn, 1);
+    LLVMValueRef out_ptr = LLVMGetParam(fn, 2);
+    LLVMValueRef z0 = LLVMConstInt(i64, 0, 0);
+
+    LLVMValueRef zA = wasm_const_splat_u8(e, v32, 32, 'A');
+    LLVMValueRef zZ = wasm_const_splat_u8(e, v32, 32, 'Z');
+    LLVMValueRef zza = wasm_const_splat_u8(e, v32, 32, 'a');
+    LLVMValueRef zzz = wasm_const_splat_u8(e, v32, 32, 'z');
+    LLVMValueRef z0c = wasm_const_splat_u8(e, v32, 32, '0');
+    LLVMValueRef z9c = wasm_const_splat_u8(e, v32, 32, '9');
+    LLVMValueRef plusc = wasm_const_splat_u8(e, v32, 32, '+');
+    LLVMValueRef slashc = wasm_const_splat_u8(e, v32, 32, '/');
+    LLVMValueRef one = wasm_const_splat_u8(e, v32, 32, 1);
+    LLVMValueRef zero = wasm_const_splat_u8(e, v32, 32, 0);
+    LLVMValueRef sub26 = wasm_const_splat_u8(e, v32, 32, 26);
+    LLVMValueRef add4 = wasm_const_splat_u8(e, v32, 32, 4);
+    LLVMValueRef val62 = wasm_const_splat_u8(e, v32, 32, 62);
+    LLVMValueRef val63 = wasm_const_splat_u8(e, v32, 32, 63);
+    LLVMValueRef sh2 = wasm_const_splat_u8(e, v32, 32, 2);
+    LLVMValueRef sh4 = wasm_const_splat_u8(e, v32, 32, 4);
+    LLVMValueRef m15 = wasm_const_splat_u8(e, v32, 32, 15);
+    LLVMValueRef m3 = wasm_const_splat_u8(e, v32, 32, 3);
+    LLVMValueRef vundef32 = LLVMGetUndef(v32);
+    static const unsigned q0_idx[8] = { 0, 4, 8, 12, 16, 20, 24, 28 };
+    static const unsigned q1_idx[8] = { 1, 5, 9, 13, 17, 21, 25, 29 };
+    static const unsigned q2_idx[8] = { 2, 6, 10, 14, 18, 22, 26, 30 };
+    static const unsigned q3_idx[8] = { 3, 7, 11, 15, 19, 23, 27, 31 };
+    static const unsigned m01_idx[16] = { 0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15 };
+    static const unsigned dup_idx[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7 };
+    static const unsigned fin_idx[24] = { 0, 1, 16, 2, 3, 17, 4, 5, 18, 6, 7, 19, 8, 9, 20, 10, 11, 21, 12, 13, 22, 14, 15, 23 };
+    LLVMValueRef q0m = wasm_const_shuf_mask(e, q0_idx, 8);
+    LLVMValueRef q1m = wasm_const_shuf_mask(e, q1_idx, 8);
+    LLVMValueRef q2m = wasm_const_shuf_mask(e, q2_idx, 8);
+    LLVMValueRef q3m = wasm_const_shuf_mask(e, q3_idx, 8);
+    LLVMValueRef m01m = wasm_const_shuf_mask(e, m01_idx, 16);
+    LLVMValueRef dupm = wasm_const_shuf_mask(e, dup_idx, 16);
+    LLVMValueRef finm = wasm_const_shuf_mask(e, fin_idx, 24);
+    if (!zA || !zZ || !zza || !zzz || !z0c || !z9c || !plusc || !slashc || !one || !zero ||
+        !sub26 || !add4 || !val62 || !val63 || !sh2 || !sh4 || !m15 || !m3 ||
+        !q0m || !q1m || !q2m || !q3m || !m01m || !dupm || !finm) return;
+
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef vecloop = LLVMAppendBasicBlockInContext(e->ctx, fn, "vecloop");
+    LLVMBasicBlockRef vecbody = LLVMAppendBasicBlockInContext(e->ctx, fn, "vecbody");
+    LLVMBasicBlockRef scalarloop = LLVMAppendBasicBlockInContext(e->ctx, fn, "scalarloop");
+    LLVMBasicBlockRef scalarbody = LLVMAppendBasicBlockInContext(e->ctx, fn, "scalarbody");
+    LLVMBasicBlockRef ret = LLVMAppendBasicBlockInContext(e->ctx, fn, "ret");
+
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef bail = LLVMBuildOr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntEQ, LLVMBuildPtrToInt(e->builder, in_ptr, i64, ""), z0, ""),
+        LLVMBuildICmp(e->builder, LLVMIntEQ, LLVMBuildPtrToInt(e->builder, out_ptr, i64, ""), z0, ""), "");
+    bail = LLVMBuildOr(e->builder, bail, LLVMBuildICmp(e->builder, LLVMIntEQ, in_len, z0, ""), "");
+    LLVMBuildCondBr(e->builder, bail, ret, vecloop);
+
+    LLVMPositionBuilderAtEnd(e->builder, vecloop);
+    LLVMValueRef phi_i = LLVMBuildPhi(e->builder, i64, "i");
+    LLVMValueRef phi_w = LLVMBuildPhi(e->builder, i64, "w");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntULE,
+            LLVMBuildAdd(e->builder, phi_i, LLVMConstInt(i64, 32, 0), ""),
+            in_len, ""),
+        vecbody, scalarloop);
+
+    LLVMPositionBuilderAtEnd(e->builder, vecbody);
+    LLVMValueRef in_gep = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &phi_i, 1, "");
+    LLVMValueRef in_vgep = LLVMBuildBitCast(e->builder, in_gep, LLVMPointerType(v32, 0), "");
+    LLVMValueRef chunk = LLVMBuildLoad2(e->builder, v32, in_vgep, "");
+    LLVMSetAlignment(chunk, 1);
+    LLVMValueRef bAZ = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk, zA, ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, chunk, zZ, ""), "");
+    LLVMValueRef baz = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk, zza, ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, chunk, zzz, ""), "");
+    LLVMValueRef b09 = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk, z0c, ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, chunk, z9c, ""), "");
+    LLVMValueRef bPlus = LLVMBuildICmp(e->builder, LLVMIntEQ, chunk, plusc, "");
+    LLVMValueRef bSlash = LLVMBuildICmp(e->builder, LLVMIntEQ, chunk, slashc, "");
+    LLVMValueRef vAZ = LLVMBuildSub(e->builder, chunk, zA, "");
+    LLVMValueRef vaz = LLVMBuildSub(e->builder, chunk, LLVMBuildSub(e->builder, zza, sub26, ""), "");
+    LLVMValueRef v09 = LLVMBuildAdd(e->builder, chunk, add4, "");
+    LLVMValueRef sext = LLVMBuildSelect(e->builder, bAZ, vAZ,
+        LLVMBuildSelect(e->builder, baz, vaz,
+            LLVMBuildSelect(e->builder, b09, v09,
+                LLVMBuildSelect(e->builder, bPlus, val62, val63, ""), ""), ""), "");
+    LLVMValueRef U = LLVMBuildShl(e->builder, sext, sh2, "");
+    LLVMValueRef W = LLVMBuildLShr(e->builder, sext, sh4, "");
+    LLVMValueRef X = LLVMBuildShl(e->builder, LLVMBuildAnd(e->builder, sext, m15, ""), sh4, "");
+    LLVMValueRef Y = LLVMBuildLShr(e->builder, sext, sh2, "");
+    LLVMValueRef Z = LLVMBuildShl(e->builder, LLVMBuildAnd(e->builder, sext, m3, ""), wasm_const_splat_u8(e, v32, 32, 6), "");
+    LLVMValueRef o0 = LLVMBuildOr(e->builder,
+        LLVMBuildShuffleVector(e->builder, U, vundef32, q0m, ""),
+        LLVMBuildShuffleVector(e->builder, W, vundef32, q1m, ""), "");
+    LLVMValueRef o1 = LLVMBuildOr(e->builder,
+        LLVMBuildShuffleVector(e->builder, X, vundef32, q1m, ""),
+        LLVMBuildShuffleVector(e->builder, Y, vundef32, q2m, ""), "");
+    LLVMValueRef o2 = LLVMBuildOr(e->builder,
+        LLVMBuildShuffleVector(e->builder, Z, vundef32, q2m, ""),
+        LLVMBuildShuffleVector(e->builder, sext, vundef32, q3m, ""), "");
+    LLVMValueRef m01 = LLVMBuildShuffleVector(e->builder, o0, o1, m01m, "");
+    LLVMValueRef m2 = LLVMBuildShuffleVector(e->builder, o2, o2, dupm, "");
+    LLVMValueRef out24 = LLVMBuildShuffleVector(e->builder, m01, m2, finm, "");
+    LLVMValueRef out_gep = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &phi_w, 1, "");
+    LLVMValueRef out_vgep = LLVMBuildBitCast(e->builder, out_gep, LLVMPointerType(v24, 0), "");
+    LLVMValueRef vstore = LLVMBuildStore(e->builder, out24, out_vgep);
+    LLVMSetAlignment(vstore, 1);
+    LLVMValueRef ni = LLVMBuildAdd(e->builder, phi_i, LLVMConstInt(i64, 32, 0), "");
+    LLVMValueRef nw = LLVMBuildAdd(e->builder, phi_w, LLVMConstInt(i64, 24, 0), "");
+    LLVMValueRef vokb = LLVMBuildOr(e->builder,
+        LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, bAZ, baz, ""), b09, ""), bPlus, ""), bSlash, "");
+    LLVMValueRef okflat = LLVMBuildBitCast(e->builder, vokb, LLVMInt32TypeInContext(e->ctx), "");
+    LLVMValueRef allok = LLVMBuildICmp(e->builder, LLVMIntEQ, okflat, LLVMConstInt(LLVMInt32TypeInContext(e->ctx), 0xFFFFFFFF, 0), "");
+    LLVMBuildCondBr(e->builder, allok, vecloop, scalarloop);
+
+    LLVMPositionBuilderAtEnd(e->builder, scalarloop);
+    LLVMValueRef phi_i2 = LLVMBuildPhi(e->builder, i64, "i2");
+    LLVMValueRef phi_w2 = LLVMBuildPhi(e->builder, i64, "w2");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntULE,
+            LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 4, 0), ""),
+            in_len, ""),
+        scalarbody, ret);
+
+    LLVMPositionBuilderAtEnd(e->builder, scalarbody);
+    LLVMValueRef q0p = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &phi_i2, 1, "");
+    LLVMValueRef qa = LLVMBuildLoad2(e->builder, e->i8_ty, q0p, "");
+    LLVMValueRef q1i = LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 1, 0), "");
+    LLVMValueRef q1p = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &q1i, 1, "");
+    LLVMValueRef qb = LLVMBuildLoad2(e->builder, e->i8_ty, q1p, "");
+    LLVMValueRef q2i = LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 2, 0), "");
+    LLVMValueRef q2p = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &q2i, 1, "");
+    LLVMValueRef qc = LLVMBuildLoad2(e->builder, e->i8_ty, q2p, "");
+    LLVMValueRef q3i = LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 3, 0), "");
+    LLVMValueRef q3p = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &q3i, 1, "");
+    LLVMValueRef qd = LLVMBuildLoad2(e->builder, e->i8_ty, q3p, "");
+    LLVMValueRef c8_0 = LLVMConstInt(e->i8_ty, '0', 0);
+    LLVMValueRef c8_9 = LLVMConstInt(e->i8_ty, '9', 0);
+    LLVMValueRef c8_A = LLVMConstInt(e->i8_ty, 'A', 0);
+    LLVMValueRef c8_Z = LLVMConstInt(e->i8_ty, 'Z', 0);
+    LLVMValueRef c8_a = LLVMConstInt(e->i8_ty, 'a', 0);
+    LLVMValueRef c8_z = LLVMConstInt(e->i8_ty, 'z', 0);
+    /* Base64 sextet biases (Sub wraps mod 256): digit c-(-4)=c+4, upper c-65, lower c-71.
+       Names keep the legacy c8_* shape; values are what matter. */
+    LLVMValueRef c8_48 = LLVMConstInt(e->i8_ty, (uint64_t)(int64_t)-4, 0);
+    LLVMValueRef c8_55 = LLVMConstInt(e->i8_ty, 65, 0);
+    LLVMValueRef c8_87 = LLVMConstInt(e->i8_ty, 71, 0);
+    LLVMValueRef c8_4 = LLVMConstInt(e->i8_ty, 4, 0);
+    LLVMValueRef c8_15 = LLVMConstInt(e->i8_ty, 15, 0);
+    LLVMValueRef c8_2 = LLVMConstInt(e->i8_ty, 2, 0);
+    LLVMValueRef c8_3 = LLVMConstInt(e->i8_ty, 3, 0);
+    LLVMValueRef c8_6 = LLVMConstInt(e->i8_ty, 6, 0);
+    LLVMValueRef va = LLVMBuildSelect(e->builder,
+        LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qa, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qa, c8_9, ""), ""),
+        LLVMBuildSub(e->builder, qa, c8_48, ""),
+        LLVMBuildSelect(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qa, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qa, c8_Z, ""), ""),
+            LLVMBuildSub(e->builder, qa, c8_55, ""),
+            LLVMBuildSelect(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qa, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qa, c8_z, ""), ""),
+                LLVMBuildSub(e->builder, qa, c8_87, ""),
+                LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qa, LLVMConstInt(e->i8_ty, '+', 0), ""), LLVMConstInt(e->i8_ty, 62, 0),
+                    LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qa, LLVMConstInt(e->i8_ty, '/', 0), ""), LLVMConstInt(e->i8_ty, 63, 0), LLVMConstInt(e->i8_ty, 0, 0), ""), ""), ""), ""), "");
+    LLVMValueRef oka = LLVMBuildOr(e->builder,
+        LLVMBuildOr(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qa, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qa, c8_9, ""), ""),
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qa, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qa, c8_Z, ""), ""), ""),
+        LLVMBuildOr(e->builder,
+            LLVMBuildOr(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qa, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qa, c8_z, ""), ""),
+                LLVMBuildICmp(e->builder, LLVMIntEQ, qa, LLVMConstInt(e->i8_ty, '+', 0), ""), ""),
+            LLVMBuildICmp(e->builder, LLVMIntEQ, qa, LLVMConstInt(e->i8_ty, '/', 0), ""), ""), "");
+    LLVMValueRef vb = LLVMBuildSelect(e->builder,
+        LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qb, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qb, c8_9, ""), ""),
+        LLVMBuildSub(e->builder, qb, c8_48, ""),
+        LLVMBuildSelect(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qb, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qb, c8_Z, ""), ""),
+            LLVMBuildSub(e->builder, qb, c8_55, ""),
+            LLVMBuildSelect(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qb, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qb, c8_z, ""), ""),
+                LLVMBuildSub(e->builder, qb, c8_87, ""),
+                LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qb, LLVMConstInt(e->i8_ty, '+', 0), ""), LLVMConstInt(e->i8_ty, 62, 0),
+                    LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qb, LLVMConstInt(e->i8_ty, '/', 0), ""), LLVMConstInt(e->i8_ty, 63, 0), LLVMConstInt(e->i8_ty, 0, 0), ""), ""), ""), ""), "");
+    LLVMValueRef okb = LLVMBuildOr(e->builder,
+        LLVMBuildOr(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qb, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qb, c8_9, ""), ""),
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qb, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qb, c8_Z, ""), ""), ""),
+        LLVMBuildOr(e->builder,
+            LLVMBuildOr(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qb, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qb, c8_z, ""), ""),
+                LLVMBuildICmp(e->builder, LLVMIntEQ, qb, LLVMConstInt(e->i8_ty, '+', 0), ""), ""),
+            LLVMBuildICmp(e->builder, LLVMIntEQ, qb, LLVMConstInt(e->i8_ty, '/', 0), ""), ""), "");
+    LLVMValueRef vc = LLVMBuildSelect(e->builder,
+        LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qc, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qc, c8_9, ""), ""),
+        LLVMBuildSub(e->builder, qc, c8_48, ""),
+        LLVMBuildSelect(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qc, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qc, c8_Z, ""), ""),
+            LLVMBuildSub(e->builder, qc, c8_55, ""),
+            LLVMBuildSelect(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qc, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qc, c8_z, ""), ""),
+                LLVMBuildSub(e->builder, qc, c8_87, ""),
+                LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qc, LLVMConstInt(e->i8_ty, '+', 0), ""), LLVMConstInt(e->i8_ty, 62, 0),
+                    LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qc, LLVMConstInt(e->i8_ty, '/', 0), ""), LLVMConstInt(e->i8_ty, 63, 0), LLVMConstInt(e->i8_ty, 0, 0), ""), ""), ""), ""), "");
+    LLVMValueRef okc = LLVMBuildOr(e->builder,
+        LLVMBuildOr(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qc, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qc, c8_9, ""), ""),
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qc, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qc, c8_Z, ""), ""), ""),
+        LLVMBuildOr(e->builder,
+            LLVMBuildOr(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qc, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qc, c8_z, ""), ""),
+                LLVMBuildICmp(e->builder, LLVMIntEQ, qc, LLVMConstInt(e->i8_ty, '+', 0), ""), ""),
+            LLVMBuildICmp(e->builder, LLVMIntEQ, qc, LLVMConstInt(e->i8_ty, '/', 0), ""), ""), "");
+    LLVMValueRef vd = LLVMBuildSelect(e->builder,
+        LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qd, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qd, c8_9, ""), ""),
+        LLVMBuildSub(e->builder, qd, c8_48, ""),
+        LLVMBuildSelect(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qd, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qd, c8_Z, ""), ""),
+            LLVMBuildSub(e->builder, qd, c8_55, ""),
+            LLVMBuildSelect(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qd, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qd, c8_z, ""), ""),
+                LLVMBuildSub(e->builder, qd, c8_87, ""),
+                LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qd, LLVMConstInt(e->i8_ty, '+', 0), ""), LLVMConstInt(e->i8_ty, 62, 0),
+                    LLVMBuildSelect(e->builder, LLVMBuildICmp(e->builder, LLVMIntEQ, qd, LLVMConstInt(e->i8_ty, '/', 0), ""), LLVMConstInt(e->i8_ty, 63, 0), LLVMConstInt(e->i8_ty, 0, 0), ""), ""), ""), ""), "");
+    LLVMValueRef okd = LLVMBuildOr(e->builder,
+        LLVMBuildOr(e->builder,
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qd, c8_0, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qd, c8_9, ""), ""),
+            LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qd, c8_A, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qd, c8_Z, ""), ""), ""),
+        LLVMBuildOr(e->builder,
+            LLVMBuildOr(e->builder,
+                LLVMBuildAnd(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, qd, c8_a, ""), LLVMBuildICmp(e->builder, LLVMIntULE, qd, c8_z, ""), ""),
+                LLVMBuildICmp(e->builder, LLVMIntEQ, qd, LLVMConstInt(e->i8_ty, '+', 0), ""), ""),
+            LLVMBuildICmp(e->builder, LLVMIntEQ, qd, LLVMConstInt(e->i8_ty, '/', 0), ""), ""), "");
+    LLVMValueRef qok = LLVMBuildAnd(e->builder, LLVMBuildAnd(e->builder, oka, okb, ""), LLVMBuildAnd(e->builder, okc, okd, ""), "");
+    LLVMValueRef ob0 = LLVMBuildOr(e->builder,
+        LLVMBuildShl(e->builder, va, c8_2, ""),
+        LLVMBuildLShr(e->builder, vb, c8_4, ""), "");
+    LLVMValueRef ob1 = LLVMBuildOr(e->builder,
+        LLVMBuildShl(e->builder, LLVMBuildAnd(e->builder, vb, c8_15, ""), c8_4, ""),
+        LLVMBuildLShr(e->builder, vc, c8_2, ""), "");
+    LLVMValueRef ob2 = LLVMBuildOr(e->builder,
+        LLVMBuildShl(e->builder, LLVMBuildAnd(e->builder, vc, c8_3, ""), c8_6, ""),
+        vd, "");
+    LLVMValueRef obp = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &phi_w2, 1, "");
+    LLVMBuildStore(e->builder, ob0, obp);
+    LLVMValueRef ob1i = LLVMBuildAdd(e->builder, phi_w2, LLVMConstInt(i64, 1, 0), "");
+    LLVMValueRef ob1p = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &ob1i, 1, "");
+    LLVMBuildStore(e->builder, ob1, ob1p);
+    LLVMValueRef ob2i = LLVMBuildAdd(e->builder, phi_w2, LLVMConstInt(i64, 2, 0), "");
+    LLVMValueRef ob2p = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &ob2i, 1, "");
+    LLVMBuildStore(e->builder, ob2, ob2p);
+    LLVMValueRef si2 = LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 4, 0), "");
+    LLVMValueRef sw2 = LLVMBuildAdd(e->builder, phi_w2, LLVMConstInt(i64, 3, 0), "");
+    LLVMBuildCondBr(e->builder, qok, scalarloop, ret);
+
+    /* vecloop preds: entry, vecbody. scalarloop preds: vecloop, vecbody,
+       scalarbody. ret preds: entry, scalarloop, scalarbody. */
+    {
+        LLVMValueRef ivals[2] = { z0, ni };
+        LLVMBasicBlockRef iblocks[2] = { entry, vecbody };
+        LLVMAddIncoming(phi_i, ivals, iblocks, 2);
+        LLVMValueRef wvals[2] = { z0, nw };
+        LLVMBasicBlockRef wblocks[2] = { entry, vecbody };
+        LLVMAddIncoming(phi_w, wvals, wblocks, 2);
+        LLVMValueRef i2vals[3] = { phi_i, ni, si2 };
+        LLVMBasicBlockRef i2blocks[3] = { vecloop, vecbody, scalarbody };
+        LLVMAddIncoming(phi_i2, i2vals, i2blocks, 3);
+        LLVMValueRef w2vals[3] = { phi_w, nw, sw2 };
+        LLVMBasicBlockRef w2blocks[3] = { vecloop, vecbody, scalarbody };
+        LLVMAddIncoming(phi_w2, w2vals, w2blocks, 3);
+    }
+    LLVMPositionBuilderAtEnd(e->builder, ret);
+    LLVMValueRef phi_ret = LLVMBuildPhi(e->builder, i64, "wret");
+    {
+        LLVMValueRef rvals[3] = { z0, phi_w2, phi_w2 };
+        LLVMBasicBlockRef rblocks[3] = { entry, scalarloop, scalarbody };
+        LLVMAddIncoming(phi_ret, rvals, rblocks, 3);
+    }
+    LLVMBuildRet(e->builder, phi_ret);
+}
+
 /* ------------------------------------------------------------------ */
 /* wasm32-wasi fmt runtime.                                            */
 /* `sa build-wasm` links only the emitted bitcode, so the sa_fmt_*     */
@@ -2669,6 +2964,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         emit_sa_print_bytes(e);
         emit_sa_fmt_wasm_runtime(e);
         emit_sa_hexdec_simd_wasm(e);
+        emit_sa_b64dec_simd_wasm(e);
     }
     emit_sys_runtime(e);
 
