@@ -2060,6 +2060,70 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMBuildRet(e->builder, phi_ret);
 }
 
+/* sa_mfind_u8 for wasm: thin wrapper over libc memmem (wasi-libc
+   provides it; same class as the native Zig std.mem.indexOf bridge).
+   Only fills the body when a wasm_compat module left an external
+   declaration behind. Contract mirrors sa_mfind_u8 in sa_std.zig:
+   byte offset of first hit, or hay_len on miss; empty needle matches
+   at 0; needle longer than haystack misses. */
+static void emit_sa_mfind_u8_wasm(EmitCtx *e) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_mfind_u8");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMTypeRef i64 = e->i64_ty;
+    LLVMTypeRef size = size_type(e);
+    LLVMValueRef hay = LLVMGetParam(fn, 0);
+    LLVMValueRef hay_len = LLVMGetParam(fn, 1);
+    LLVMValueRef ndl = LLVMGetParam(fn, 2);
+    LLVMValueRef ndl_len = LLVMGetParam(fn, 3);
+    LLVMValueRef z0 = LLVMConstInt(i64, 0, 0);
+    LLVMTypeRef mparams[4] = { e->ptr_ty, size, e->ptr_ty, size };
+    LLVMValueRef memmem = LLVMGetNamedFunction(e->module, "memmem");
+    if (memmem == NULL) {
+        memmem = LLVMAddFunction(e->module, "memmem",
+            LLVMFunctionType(e->ptr_ty, mparams, 4, 0));
+    }
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef check = LLVMAppendBasicBlockInContext(e->ctx, fn, "check");
+    LLVMBasicBlockRef callblk = LLVMAppendBasicBlockInContext(e->ctx, fn, "callblk");
+    LLVMBasicBlockRef diffblk = LLVMAppendBasicBlockInContext(e->ctx, fn, "diffblk");
+    LLVMBasicBlockRef ret = LLVMAppendBasicBlockInContext(e->ctx, fn, "ret");
+
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntEQ, ndl_len, z0, ""), ret, check);
+
+    LLVMPositionBuilderAtEnd(e->builder, check);
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGT, ndl_len, hay_len, ""), ret, callblk);
+
+    LLVMPositionBuilderAtEnd(e->builder, callblk);
+    LLVMValueRef hlen_t = LLVMBuildTrunc(e->builder, hay_len, size, "");
+    LLVMValueRef nlen_t = LLVMBuildTrunc(e->builder, ndl_len, size, "");
+    LLVMValueRef margs[4] = { hay, hlen_t, ndl, nlen_t };
+    LLVMValueRef p = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(memmem), memmem, margs, 4, "");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntEQ,
+            LLVMBuildPtrToInt(e->builder, p, size, ""),
+            LLVMConstInt(size, 0, 0), ""),
+        ret, diffblk);
+
+    LLVMPositionBuilderAtEnd(e->builder, diffblk);
+    LLVMValueRef d = LLVMBuildSub(e->builder,
+        LLVMBuildPtrToInt(e->builder, p, size, ""),
+        LLVMBuildPtrToInt(e->builder, hay, size, ""), "");
+    LLVMValueRef dw = LLVMBuildZExt(e->builder, d, i64, "");
+    LLVMBuildBr(e->builder, ret);
+
+    LLVMPositionBuilderAtEnd(e->builder, ret);
+    LLVMValueRef phi_ret = LLVMBuildPhi(e->builder, i64, "rret");
+    {
+        LLVMValueRef rvals[4] = { z0, hay_len, hay_len, dw };
+        LLVMBasicBlockRef rblocks[4] = { entry, check, callblk, diffblk };
+        LLVMAddIncoming(phi_ret, rvals, rblocks, 4);
+    }
+    LLVMBuildRet(e->builder, phi_ret);
+}
+
 /* ------------------------------------------------------------------ */
 /* wasm32-wasi fmt runtime.                                            */
 /* `sa build-wasm` links only the emitted bitcode, so the sa_fmt_*     */
@@ -2944,6 +3008,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         emit_sa_fmt_wasm_runtime(e);
         emit_sa_hexdec_simd_wasm(e);
         emit_sa_b64dec_simd_wasm(e);
+        emit_sa_mfind_u8_wasm(e);
     }
     emit_sys_runtime(e);
 
