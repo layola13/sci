@@ -21,6 +21,7 @@ sa_deno_responses_sse_normalize
 sa_b64dec_simd
 sa_hexdec_simd
 sa_http_client_resp_body_slice
+sa_mfind_u8
 sa_net_unix_addr_abstract_len
 sa_net_unix_addr_abstract_ptr
 sa_net_unix_addr_free

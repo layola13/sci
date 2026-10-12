@@ -5317,6 +5317,37 @@ test "sa_b64dec_simd vector width then invalid stop" {
     try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, 0, &out_bad));
 }
 
+// Bulk substring search for native peers (mirrors the sa_mfind_u8 JS
+// fused shim contract): returns the first index of needle in haystack,
+// or hay_len on miss (one-past-end sentinel, always representable).
+// Empty needle matches at 0 (memmem semantics). Delegates to the Zig
+// standard library search (library-grade, memchr-class).
+pub export fn sa_mfind_u8(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) u64 {
+    const hay = constBytes(hay_ptr, hay_len) catch return hay_len;
+    const ndl = constBytes(ndl_ptr, ndl_len) catch return hay.len;
+    if (ndl.len == 0) return 0;
+    if (ndl.len > hay.len) return hay.len;
+    if (std.mem.indexOf(u8, hay, ndl)) |idx| return @intCast(idx);
+    return hay.len;
+}
+
+test "sa_mfind_u8 hit/miss/edges match memmem contract" {
+    const hay = "abcdefgh" ** 8;
+    const hit0 = "abc";
+    try std.testing.expectEqual(@as(u64, 0), sa_mfind_u8(hay.ptr, hay.len, hit0.ptr, hit0.len));
+    const hitmid = "fgha";
+    try std.testing.expectEqual(@as(u64, 5), sa_mfind_u8(hay.ptr, hay.len, hitmid.ptr, hitmid.len));
+    const miss = "zzzzzzzz";
+    try std.testing.expectEqual(@as(u64, hay.len), sa_mfind_u8(hay.ptr, hay.len, miss.ptr, miss.len));
+    const empty = "";
+    try std.testing.expectEqual(@as(u64, 0), sa_mfind_u8(hay.ptr, hay.len, empty.ptr, empty.len));
+    const toolong = "abcdefgh" ** 9;
+    try std.testing.expectEqual(@as(u64, hay.len), sa_mfind_u8(hay.ptr, hay.len, toolong.ptr, toolong.len));
+    var one: [1]u8 = .{0xFF};
+    try std.testing.expectEqual(@as(u64, 8), sa_mfind_u8(null, 8, &one, 1));
+    try std.testing.expectEqual(@as(u64, 8), sa_mfind_u8(hay.ptr, 8, null, 1));
+}
+
 pub export fn sa_deno_text_encode(data_ptr: ?[*]const u8, len: u64) u64 {
     const bytes = constBytes(data_ptr, len) catch return 0;
     const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;

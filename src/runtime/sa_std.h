@@ -185,6 +185,7 @@ uint64_t sa_deno_args_json(void);
 uint64_t sa_deno_btoa(const uint8_t *data, uint64_t len);
 uint64_t sa_deno_atob(const uint8_t *data_base64, uint64_t data_base64_len);
 uint64_t sa_b64dec_simd(const uint8_t *data_base64, uint64_t b64_len, uint8_t *out);
+uint64_t sa_mfind_u8(const uint8_t *hay, uint64_t hay_len, const uint8_t *ndl, uint64_t ndl_len);
 uint64_t sa_hexdec_simd(const uint8_t *data_hex, uint64_t hex_len, uint8_t *out);
 uint64_t sa_deno_text_encode(const uint8_t *data, uint64_t len);
 uint64_t sa_deno_text_decode(const uint8_t *data, uint64_t len);
