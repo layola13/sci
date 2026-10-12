@@ -409,6 +409,7 @@
   - **方案**：前端按语境把 u32 上下文的字面量定型为原生 Number；i64/u64 保持 BigInt；native/wasm 联测。
   - **验收**：非融合纯 SA 循环普遍再快数倍；`zig build js-matrix`＋`wasm-matrix` 全绿。
   - **验证（2026-10-12 本机实测，`sci/demos/compare/peer_rw_u64.sa` / `peer_rw_u32.sa`，校验和 2611200000 双端 PEER OK）**：同 workload 只换累加/计数槽域（u64→u32），node 3.86s→1.35s（2.9x），bun 12.2s→0.44s（28x）；u32 版发射 `__sa_load_u32`＋`__sa_ult32` FAST 全 Number 单态。结论：JS 侧字面量 magnitude 猜＋ult32 FAST 已兑现本条主要收益；u64 槽 `load_i64` 返 BigInt 属显式域语义，自动窄化不 sound 不做；残余收窄为 native/wasm 字面量语境定型。
+  - **裁决（2026-10-13 helper 内联暂缓，需 range 分析单独立项）**：手改四格实验（`peer_rw_u32_{prom,inl,both}.mjs`，`/tmp`）prom-only node 0.41s（3.5x，已落地为槽提升）、inl-only 0.60s（2.4x）、both 0.20s（7x）。但链式 ALU（`mul/band` 结果）与堆基址在现有 widths 下证不出 Number/BigInt 无混淆（`mul` 另需积范围、`band` 需 int32 范围证明）；当前机械能覆盖的 `eq` 等冷点不足 1.1x，不值得 churn 发射器。0.60/0.26 即该项目验收线。
 - [x] **4. 跟进 wasmtime 反超 native 之谜（已闭环）**
   - **问题**：`sa→wasm`（wasmtime）在 read-write（126ms vs 150ms）、indexOf（69.9ms vs 94.5ms）上超过 LLVM 驱动的 `sa→native`。
   - **结论（2026-10-11 实测）**：默认 `sa build` 优化等级保守是主因，不是 wasmtime 更强。
