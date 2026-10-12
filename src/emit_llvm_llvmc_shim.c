@@ -1747,7 +1747,11 @@ static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
     LLVMBuildCondBr(e->builder, bothok, scalarloop, ret);
 
     /* vecloop preds: entry, vecbody. scalarloop preds: vecloop, vecbody,
-       scalarbody. ret preds: entry, scalarloop, scalarbody. */
+       scalarbody. ret preds: entry, scalarloop, scalarbody.
+       NOTE: the vecbody edge rewinds to (phi_i, phi_w) so a vector block
+       that fails validation is re-decoded by the scalar loop (stopping
+       exactly like native) instead of being skipped with garbage kept
+       (same fix as sa_b64dec_simd; locked by peer_hexmid). */
     {
         LLVMValueRef ivals[2] = { z0, ni };
         LLVMBasicBlockRef iblocks[2] = { entry, vecbody };
@@ -1755,10 +1759,10 @@ static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
         LLVMValueRef wvals[2] = { z0, nw };
         LLVMBasicBlockRef wblocks[2] = { entry, vecbody };
         LLVMAddIncoming(phi_w, wvals, wblocks, 2);
-        LLVMValueRef i2vals[3] = { phi_i, ni, si2 };
+        LLVMValueRef i2vals[3] = { phi_i, phi_i, si2 };
         LLVMBasicBlockRef i2blocks[3] = { vecloop, vecbody, scalarbody };
         LLVMAddIncoming(phi_i2, i2vals, i2blocks, 3);
-        LLVMValueRef w2vals[3] = { phi_w, nw, sw2 };
+        LLVMValueRef w2vals[3] = { phi_w, phi_w, sw2 };
         LLVMBasicBlockRef w2blocks[3] = { vecloop, vecbody, scalarbody };
         LLVMAddIncoming(phi_w2, w2vals, w2blocks, 3);
     }
