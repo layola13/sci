@@ -1,0 +1,88 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_b64dec_simd(in_ptr: ptr, in_len: u64, out_ptr: ptr) -> u64
+
+@const B64_OK = utf8:"B64M OK\n"
+@const B64_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    in = alloc 32
+    out = alloc 30
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u32
+    jmp L_FILL_COND
+L_FILL_COND:
+    i = load i_slot+0 as u32
+    more = ult i, 32
+    br more -> L_FILL_BODY, L_FILL_END
+L_FILL_BODY:
+    isbad = eq i, 5
+    br isbad -> L_FB, L_FG
+L_FB:
+    c = 33
+    !isbad
+    !i
+    !more
+    jmp L_FS
+L_FG:
+    c = 66
+    !isbad
+    !i
+    !more
+    jmp L_FS
+L_FS:
+    slot = ptr_add in, i
+    store slot+0, c as u8
+    next = add i, 1
+    store i_slot+0, next as u32
+    !slot
+    !next
+    !c
+    jmp L_FILL_COND
+L_FILL_END:
+    !i
+    !more
+    n = call @sa_b64dec_simd(&in, 32, &out)
+    oklen = eq n, 3
+    br oklen -> L_SPOTS, L_DFAIL
+L_DFAIL:
+    !n
+    !oklen
+    !in
+    !out
+    call @sa_print_bytes(&B64_FAIL, 5)
+    return 1
+L_SPOTS:
+    !oklen
+    b0 = load out+0 as u8
+    b1 = load out+1 as u8
+    b2 = load out+2 as u8
+    s0 = add b0, b1
+    s1 = add s0, b2
+    ok = eq s1, 85
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !s1
+    !ok
+    !n
+    !b0
+    !b1
+    !b2
+    !s0
+    !in
+    !out
+    call @sa_print_bytes(&B64_OK, 8)
+    return 0
+L_FAIL:
+    !s1
+    !ok
+    !n
+    !b0
+    !b1
+    !b2
+    !s0
+    !in
+    !out
+    call @sa_print_bytes(&B64_FAIL, 5)
+    return 1
