@@ -1,0 +1,87 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_mfind_u32(ptr: ptr, len: u64, needle: u64) -> u64
+
+@const FIND_OK = utf8:"FINDR OK\n"
+@const FIND_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 4096
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u32
+    rep_slot = stack_alloc 8
+    store rep_slot+0, 0 as u64
+    acc_slot = stack_alloc 8
+    store acc_slot+0, 0 as u64
+    jmp L_FILL_COND
+L_FILL_COND:
+    i = load i_slot+0 as u32
+    more = ult i, 1024
+    br more -> L_FILL_BODY, L_FILL_END
+L_FILL_BODY:
+    o = mul i, 4
+    slot = ptr_add buf, o
+    store slot+0, i as u32
+    !o
+    !slot
+    next = add i, 1
+    store i_slot+0, next as u32
+    !next
+    !i
+    !more
+    jmp L_FILL_COND
+L_FILL_END:
+    !i
+    !more
+    jmp L_REP_COND
+L_REP_COND:
+    rep = load rep_slot+0 as u64
+    more3 = ult rep, 5000
+    br more3 -> L_REP_BODY, L_REP_END
+L_REP_BODY:
+    !rep
+    !more3
+    f1 = call @sa_mfind_u32(&buf, 1024, 1000)
+    f2 = call @sa_mfind_u32(&buf, 1024, 512)
+    f3 = call @sa_mfind_u32(&buf, 1024, 1023)
+    f4 = call @sa_mfind_u32(&buf, 1024, 2048)
+    s1 = add f1, f2
+    s2 = add s1, f3
+    s3 = add s2, f4
+    acc = load acc_slot+0 as u64
+    acc2 = add acc, s3
+    store acc_slot+0, acc2 as u64
+    rep3 = load rep_slot+0 as u64
+    rep4 = add rep3, 1
+    store rep_slot+0, rep4 as u64
+    !f1
+    !f2
+    !f3
+    !f4
+    !s1
+    !s2
+    !s3
+    !acc
+    !acc2
+    !rep3
+    !rep4
+    jmp L_REP_COND
+L_REP_END:
+    !rep
+    !more3
+    total = load acc_slot+0 as u64
+    ok = eq total, 17795000
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !total
+    !ok
+    !buf
+    call @sa_print_bytes(&FIND_OK, 9)
+    return 0
+L_FAIL:
+    !total
+    !ok
+    !buf
+    call @sa_print_bytes(&FIND_FAIL, 5)
+    return 1
