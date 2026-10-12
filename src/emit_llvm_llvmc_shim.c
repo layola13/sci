@@ -1627,6 +1627,37 @@ static LLVMValueRef wasm_const_bytes16(EmitCtx *e, LLVMTypeRef vty, const uint8_
     return LLVMConstVector(elems, 16);
 }
 
+/* Looks up a 1-type-param vector intrinsic (e.g. "llvm.wasm.swizzle",
+   "llvm.wasm.avgr.unsigned", "llvm.uadd.sat"); NULL when the toolchain
+   predates it (caller must bail before emitting blocks). */
+static LLVMValueRef wasm_intrinsic1(EmitCtx *e, const char *name, LLVMTypeRef vty) {
+    unsigned id = LLVMLookupIntrinsicID(name, strlen(name));
+    if (id == 0) return NULL;
+    return LLVMGetIntrinsicDeclaration(e->module, id, &vty, 1);
+}
+
+/* Calls a (vty, vty) -> vty vector intrinsic. */
+static LLVMValueRef wasm_call2(EmitCtx *e, LLVMValueRef fn, LLVMTypeRef vty, LLVMValueRef a, LLVMValueRef bv) {
+    LLVMTypeRef pty[2] = { vty, vty };
+    LLVMTypeRef fty = LLVMFunctionType(vty, pty, 2, 0);
+    LLVMValueRef args[2] = { a, bv };
+    return LLVMBuildCall2(e->builder, fty, fn, args, 2, "");
+}
+
+/* Fixed-signature intrinsic (e.g. "llvm.wasm.swizzle" takes no type
+   suffix, unlike overloaded ones): declare via GetIntrinsicDeclaration
+   with an EMPTY type list, which yields the bare name as a TRUE
+   intrinsic. Both alternatives silently misbehave: appending types
+   creates "llvm.wasm.swizzle.v16i8" (undefined symbol at link time),
+   while LLVMAddFunction makes a plain non-intrinsic function that links
+   but is never lowered to the swizzle instruction (wrong output). */
+static LLVMValueRef wasm_fixed_intrinsic(EmitCtx *e, const char *name, LLVMTypeRef vty) {
+    (void)vty;
+    unsigned id = LLVMLookupIntrinsicID(name, strlen(name));
+    if (id == 0) return NULL;
+    return LLVMGetIntrinsicDeclaration(e->module, id, NULL, 0);
+}
+
 static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_hexdec_simd");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
@@ -1794,30 +1825,38 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMTypeRef v12 = LLVMVectorType(e->i8_ty, 12);
     LLVMTypeRef v8 = LLVMVectorType(e->i8_ty, 8);
     LLVMTypeRef v4 = LLVMVectorType(e->i8_ty, 4);
+    LLVMTypeRef v4i32 = LLVMVectorType(e->i32_ty, 4);
     LLVMValueRef in_ptr = LLVMGetParam(fn, 0);
     LLVMValueRef in_len = LLVMGetParam(fn, 1);
     LLVMValueRef out_ptr = LLVMGetParam(fn, 2);
     LLVMValueRef z0 = LLVMConstInt(i64, 0, 0);
 
-    LLVMValueRef zA = wasm_const_splat_u8(e, v16, 16, 'A');
-    LLVMValueRef zZ = wasm_const_splat_u8(e, v16, 16, 'Z');
-    LLVMValueRef zza = wasm_const_splat_u8(e, v16, 16, 'a');
-    LLVMValueRef zzz = wasm_const_splat_u8(e, v16, 16, 'z');
-    LLVMValueRef z0c = wasm_const_splat_u8(e, v16, 16, '0');
-    LLVMValueRef z9c = wasm_const_splat_u8(e, v16, 16, '9');
-    LLVMValueRef plusc = wasm_const_splat_u8(e, v16, 16, '+');
-    LLVMValueRef slashc = wasm_const_splat_u8(e, v16, 16, '/');
-    LLVMValueRef one = wasm_const_splat_u8(e, v16, 16, 1);
     LLVMValueRef zero = wasm_const_splat_u8(e, v16, 16, 0);
-    LLVMValueRef sub26 = wasm_const_splat_u8(e, v16, 16, 26);
-    LLVMValueRef add4 = wasm_const_splat_u8(e, v16, 16, 4);
-    LLVMValueRef val62 = wasm_const_splat_u8(e, v16, 16, 62);
-    LLVMValueRef val63 = wasm_const_splat_u8(e, v16, 16, 63);
+    LLVMValueRef m15 = wasm_const_splat_u8(e, v16, 16, 15);
     LLVMValueRef sh2 = wasm_const_splat_u8(e, v16, 16, 2);
     LLVMValueRef sh4 = wasm_const_splat_u8(e, v16, 16, 4);
-    LLVMValueRef m15 = wasm_const_splat_u8(e, v16, 16, 15);
-    LLVMValueRef m3 = wasm_const_splat_u8(e, v16, 16, 3);
     LLVMValueRef vundef16 = LLVMGetUndef(v16);
+    LLVMValueRef splat_i32_3 = LLVMConstVector(
+        (LLVMValueRef[]){ LLVMConstInt(e->i32_ty, 3, 0), LLVMConstInt(e->i32_ty, 3, 0),
+                          LLVMConstInt(e->i32_ty, 3, 0), LLVMConstInt(e->i32_ty, 3, 0) }, 4);
+    /* aqrit hash-translation tables (strict-standard halves, adapted from
+       simdutf src/haswell/avx2_base64.cpp, Apache-2.0, credit aqrit). */
+    static const uint8_t dasso_lanes[16] = { 0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x0F,0x00,0x0F };
+    static const uint8_t dvals_lanes[16] = { 0x00,0x00,0x00,0x13,0x04,0xBF,0xBF,0xB9,0xB9,0x00,0x10,0xC3,0xBF,0xBF,0xB9,0xB9 };
+    static const uint8_t casso_lanes[16] = { 0x0D,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x03,0x07,0x0B,0x0B,0x0B,0x0F };
+    static const uint8_t cvals_lanes[16] = { 0x80,0x80,0x80,0x80,0xCF,0xBF,0xD5,0xA6,0xB5,0x86,0xD1,0x80,0xB1,0x80,0x91,0x80 };
+    LLVMValueRef dAssoV = wasm_const_bytes16(e, v16, dasso_lanes);
+    LLVMValueRef dValsV = wasm_const_bytes16(e, v16, dvals_lanes);
+    LLVMValueRef cAssoV = wasm_const_bytes16(e, v16, casso_lanes);
+    LLVMValueRef cValsV = wasm_const_bytes16(e, v16, cvals_lanes);
+    LLVMValueRef swizzle_fn = wasm_fixed_intrinsic(e, "llvm.wasm.swizzle", v16);
+    LLVMValueRef avgr_fn = wasm_intrinsic1(e, "llvm.wasm.avgr.unsigned", v16);
+    /* SIGNED saturation (i8x16.add_sat_s): simdutf's tables are designed
+       around adds_epi8 clamping at +127. Unsigned saturation lets sums in
+       128..255 through and silently breaks both sextets and validity
+       (every block rewinds: correct but scalar-slow). Verified the
+       lowering with llc before using. */
+    LLVMValueRef uaddsat_fn = wasm_intrinsic1(e, "llvm.sadd.sat", v16);
     /* Full-width merge gathers: quartet k occupies lanes 3k..3k+2.
        Lanes 12..15 are don't-care (masked out before the store). */
     static const unsigned bc0_idx[16] = { 0,1,2, 4,5,6, 8,9,10, 12,13,14, 0,0,0,0 };
@@ -1832,8 +1871,11 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef m0v = wasm_const_bytes16(e, v16, m0_lanes);
     LLVMValueRef m1v = wasm_const_bytes16(e, v16, m1_lanes);
     LLVMValueRef m2v = wasm_const_bytes16(e, v16, m2_lanes);
-    if (!zA || !zZ || !zza || !zzz || !z0c || !z9c || !plusc || !slashc || !one || !zero ||
-        !sub26 || !add4 || !val62 || !val63 || !sh2 || !sh4 || !m15 || !m3 ||
+    if (!zero ||
+        !sh2 || !sh4 ||
+        !splat_i32_3 ||
+        !dAssoV || !dValsV || !cAssoV || !cValsV ||
+        !swizzle_fn || !avgr_fn || !uaddsat_fn ||
         !bc0m || !bc1m || !fin12m || !m0v || !m1v || !m2v) return;
 
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
@@ -1864,32 +1906,34 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef in_vgep = LLVMBuildBitCast(e->builder, in_gep, LLVMPointerType(v16, 0), "");
     LLVMValueRef chunk = LLVMBuildLoad2(e->builder, v16, in_vgep, "");
     LLVMSetAlignment(chunk, 1);
-    LLVMValueRef bAZ = LLVMBuildAnd(e->builder,
-        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk, zA, ""),
-        LLVMBuildICmp(e->builder, LLVMIntULE, chunk, zZ, ""), "");
-    LLVMValueRef baz = LLVMBuildAnd(e->builder,
-        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk, zza, ""),
-        LLVMBuildICmp(e->builder, LLVMIntULE, chunk, zzz, ""), "");
-    LLVMValueRef b09 = LLVMBuildAnd(e->builder,
-        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk, z0c, ""),
-        LLVMBuildICmp(e->builder, LLVMIntULE, chunk, z9c, ""), "");
-    LLVMValueRef bPlus = LLVMBuildICmp(e->builder, LLVMIntEQ, chunk, plusc, "");
-    LLVMValueRef bSlash = LLVMBuildICmp(e->builder, LLVMIntEQ, chunk, slashc, "");
-    LLVMValueRef vAZ = LLVMBuildSub(e->builder, chunk, zA, "");
-    LLVMValueRef vaz = LLVMBuildSub(e->builder, chunk, LLVMBuildSub(e->builder, zza, sub26, ""), "");
-    LLVMValueRef v09 = LLVMBuildAdd(e->builder, chunk, add4, "");
-    /* Flattened select tree: the five classes are mutually exclusive, so
-       OR-ing parallel selects equals the nested chain but halves the
-       select depth on sext's critical path (4 -> 2). Invalid chars yield
-       0 here; validity is still decided by the mask or-tree below. */
-    LLVMValueRef sext = LLVMBuildOr(e->builder,
-        LLVMBuildOr(e->builder,
-            LLVMBuildSelect(e->builder, bAZ, vAZ, zero, ""),
-            LLVMBuildSelect(e->builder, baz, vaz, zero, ""), ""),
-        LLVMBuildOr(e->builder,
-            LLVMBuildSelect(e->builder, b09, v09, zero, ""),
-            LLVMBuildSelect(e->builder, bPlus, val62,
-                LLVMBuildSelect(e->builder, bSlash, val63, zero, ""), ""), ""), "");
+    /* aqrit hash translation (tables adapted from simdutf, Apache-2.0):
+       shifted mixes 32-bit groups; delta/check hashes diffuse through
+       rounding average; saturating adds fold table deltas into sextets
+       (sext) and validity flags (chk, nonzero lane = invalid). Replaces
+       5 compares + flattened selects at ~half the v128 cost. */
+    LLVMValueRef as_i32 = LLVMBuildBitCast(e->builder, chunk, v4i32, "");
+    LLVMValueRef shr32 = LLVMBuildLShr(e->builder, as_i32, splat_i32_3, "");
+    LLVMValueRef shifted = LLVMBuildBitCast(e->builder, shr32, v16, "");
+    /* WASM swizzle zeroes out-of-range lanes (unlike pshufb's low-4-bit
+       select), so every table index is pre-masked with 15. Soundness of
+       the masked check chain is verified by exhaustive sweep (all 64
+       chars exact, all 192 non-alphabet bytes flagged). */
+    LLVMValueRef idxA = LLVMBuildAnd(e->builder, chunk, m15, "");
+    LLVMValueRef dHash = wasm_call2(e, avgr_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, dAssoV, idxA), shifted);
+    LLVMValueRef cHash = wasm_call2(e, avgr_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, cAssoV, idxA), shifted);
+    LLVMValueRef sext = wasm_call2(e, uaddsat_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, dValsV,
+            LLVMBuildAnd(e->builder, dHash, m15, "")), chunk);
+    LLVMValueRef chk = wasm_call2(e, uaddsat_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, cValsV,
+            LLVMBuildAnd(e->builder, cHash, m15, "")), chunk);
+    /* Validity is the SIGN bit (movemask semantics): valid lanes yield
+       small positive chk (e.g. 'B' -> 1), invalid lanes 0x80+. A !=0
+       test misfires on every clean block (all rewind: correct but
+       scalar-slow); SLT 0 is the exact movemask criterion. */
+    LLVMValueRef badv = LLVMBuildICmp(e->builder, LLVMIntSLT, chk, zero, "");
     /* Full-width merge: quartet k sits at lanes 3k..3k+2 of B/C.
        tA picks byte0 slots {0,3,6,9}, tB byte1 {1,4,7,10}, tC byte2
        {2,5,8,11}; lanes 12..15 are masked out. All shuffles are
@@ -1923,28 +1967,21 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef in_vgep2 = LLVMBuildBitCast(e->builder, in_gep2, LLVMPointerType(v16, 0), "");
     LLVMValueRef chunk2 = LLVMBuildLoad2(e->builder, v16, in_vgep2, "");
     LLVMSetAlignment(chunk2, 1);
-    LLVMValueRef bAZ2 = LLVMBuildAnd(e->builder,
-        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk2, zA, ""),
-        LLVMBuildICmp(e->builder, LLVMIntULE, chunk2, zZ, ""), "");
-    LLVMValueRef baz2 = LLVMBuildAnd(e->builder,
-        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk2, zza, ""),
-        LLVMBuildICmp(e->builder, LLVMIntULE, chunk2, zzz, ""), "");
-    LLVMValueRef b092 = LLVMBuildAnd(e->builder,
-        LLVMBuildICmp(e->builder, LLVMIntUGE, chunk2, z0c, ""),
-        LLVMBuildICmp(e->builder, LLVMIntULE, chunk2, z9c, ""), "");
-    LLVMValueRef bPlus2 = LLVMBuildICmp(e->builder, LLVMIntEQ, chunk2, plusc, "");
-    LLVMValueRef bSlash2 = LLVMBuildICmp(e->builder, LLVMIntEQ, chunk2, slashc, "");
-    LLVMValueRef vAZ2 = LLVMBuildSub(e->builder, chunk2, zA, "");
-    LLVMValueRef vaz2 = LLVMBuildSub(e->builder, chunk2, LLVMBuildSub(e->builder, zza, sub26, ""), "");
-    LLVMValueRef v092 = LLVMBuildAdd(e->builder, chunk2, add4, "");
-    LLVMValueRef sext2 = LLVMBuildOr(e->builder,
-        LLVMBuildOr(e->builder,
-            LLVMBuildSelect(e->builder, bAZ2, vAZ2, zero, ""),
-            LLVMBuildSelect(e->builder, baz2, vaz2, zero, ""), ""),
-        LLVMBuildOr(e->builder,
-            LLVMBuildSelect(e->builder, b092, v092, zero, ""),
-            LLVMBuildSelect(e->builder, bPlus2, val62,
-                LLVMBuildSelect(e->builder, bSlash2, val63, zero, ""), ""), ""), "");
+    LLVMValueRef as2_i32 = LLVMBuildBitCast(e->builder, chunk2, v4i32, "");
+    LLVMValueRef shr2_32 = LLVMBuildLShr(e->builder, as2_i32, splat_i32_3, "");
+    LLVMValueRef shifted2 = LLVMBuildBitCast(e->builder, shr2_32, v16, "");
+    LLVMValueRef idxB = LLVMBuildAnd(e->builder, chunk2, m15, "");
+    LLVMValueRef dHash2 = wasm_call2(e, avgr_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, dAssoV, idxB), shifted2);
+    LLVMValueRef cHash2 = wasm_call2(e, avgr_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, cAssoV, idxB), shifted2);
+    LLVMValueRef sext2 = wasm_call2(e, uaddsat_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, dValsV,
+            LLVMBuildAnd(e->builder, dHash2, m15, "")), chunk2);
+    LLVMValueRef chk2 = wasm_call2(e, uaddsat_fn, v16,
+        wasm_call2(e, swizzle_fn, v16, cValsV,
+            LLVMBuildAnd(e->builder, cHash2, m15, "")), chunk2);
+    LLVMValueRef badv2 = LLVMBuildICmp(e->builder, LLVMIntSLT, chk2, zero, "");
     LLVMValueRef Bv2 = LLVMBuildShuffleVector(e->builder, sext2, vundef16, bc0m, "");
     LLVMValueRef Cv2 = LLVMBuildShuffleVector(e->builder, sext2, vundef16, bc1m, "");
     LLVMValueRef tA2 = LLVMBuildOr(e->builder,
@@ -1966,18 +2003,17 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef out_vgep2 = LLVMBuildBitCast(e->builder, out_gep2, LLVMPointerType(v12, 0), "");
     LLVMValueRef vstore2 = LLVMBuildStore(e->builder, out12_2, out_vgep2);
     LLVMSetAlignment(vstore2, 1);
-    LLVMValueRef vokB = LLVMBuildOr(e->builder,
-        LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, bAZ2, baz2, ""), b092, ""), bPlus2, ""), bSlash2, "");
     LLVMValueRef ni = LLVMBuildAdd(e->builder, phi_i, LLVMConstInt(i64, 32, 0), "");
     LLVMValueRef nw = LLVMBuildAdd(e->builder, phi_w, LLVMConstInt(i64, 24, 0), "");
-    LLVMValueRef vokA = LLVMBuildOr(e->builder,
-        LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, bAZ, baz, ""), b09, ""), bPlus, ""), bSlash, "");
-    /* Validity is per-block reduction AND-ed: OR-ing the masks would let
-       a valid lane of one half cover an invalid lane of the other. */
-    LLVMValueRef okflatA = LLVMBuildBitCast(e->builder, vokA, LLVMInt16TypeInContext(e->ctx), "");
-    LLVMValueRef okA = LLVMBuildICmp(e->builder, LLVMIntEQ, okflatA, LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 0xFFFF, 0), "");
-    LLVMValueRef okflatB = LLVMBuildBitCast(e->builder, vokB, LLVMInt16TypeInContext(e->ctx), "");
-    LLVMValueRef okB = LLVMBuildICmp(e->builder, LLVMIntEQ, okflatB, LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 0xFFFF, 0), "");
+    /* Validity is per-block reduction AND-ed: chk carries the sign bit
+       exactly at invalid lanes (movemask semantics; valid lanes are
+       small positives, so !=0 misfires). OR-ing masks across halves
+       caused a real bug here before (good lane covering bad lane),
+       hence reductions. */
+    LLVMValueRef okflatA = LLVMBuildBitCast(e->builder, badv, LLVMInt16TypeInContext(e->ctx), "");
+    LLVMValueRef okA = LLVMBuildICmp(e->builder, LLVMIntEQ, okflatA, LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 0, 0), "");
+    LLVMValueRef okflatB = LLVMBuildBitCast(e->builder, badv2, LLVMInt16TypeInContext(e->ctx), "");
+    LLVMValueRef okB = LLVMBuildICmp(e->builder, LLVMIntEQ, okflatB, LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 0, 0), "");
     LLVMValueRef allok = LLVMBuildAnd(e->builder, okA, okB, "");
     LLVMBuildCondBr(e->builder, allok, vecloop, scalarloop);
 
