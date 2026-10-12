@@ -2125,7 +2125,139 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     try writer.writeAll(");\n");
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap) !void {
+/// Slot-promotion (register) analysis for the JS backend: finds `stack_alloc`
+/// slots whose every use is a zero-offset plain `.load`/`.store` base.
+/// Promoted slots become function-scope JS locals (`__sa_sp{slot}`), which
+/// lets V8/JSC keep counters/accumulators in registers instead of bouncing
+/// them through linear memory on every iteration. Soundness rules
+/// (conservative; anything unclear disqualifies):
+/// - the def must be the single `stack_alloc` in this function (params and
+///   heap allocs never qualify); any reassignment disqualifies;
+/// - any mention outside load/store base position disqualifies (borrows via
+///   `&`, ptr_add/call/return/br operands, nonzero offsets, take/atomics,
+///   cmpxchg, release), textual operands included;
+/// - all accesses must share one int type so the store-side conversion is
+///   exact (<=32-bit via `__sa_narrow`; 64-bit via `BigInt.asIntN`, mirroring
+///   `__sa_store_i64` which both i64 and u64 use); floats/pointers never
+///   qualify; init is an in-place load at the alloc site, so
+///   even never-stored slots observe identical stale bytes.
+const PromoInfo = struct {
+    load_fn: []const u8,
+    narrow_bits: u8,
+    narrow_signed: bool,
+};
+const PromoMap = std.AutoHashMap(u32, PromoInfo);
+
+fn promoNarrowBits(ty: sig.PrimType) ?struct { bits: u8, signed: bool } {
+    return switch (ty) {
+        .u8 => .{ .bits = 8, .signed = false },
+        .i8, .i1 => .{ .bits = 8, .signed = true },
+        .u16 => .{ .bits = 16, .signed = false },
+        .i16 => .{ .bits = 16, .signed = true },
+        .u32 => .{ .bits = 32, .signed = false },
+        .i32 => .{ .bits = 32, .signed = true },
+        // 64-bit mirror __sa_store_i64 exactly (asIntN for both i64/u64).
+        .i64, .u64 => .{ .bits = 64, .signed = true },
+        else => null,
+    };
+}
+
+/// Slot named by any operand shape (mirrors provKillStoreValue: textual
+/// values resolve exactly like regs; immediates never name slots).
+fn promoMentionSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
+    switch (op) {
+        .reg, .symbol => return provSlotOf(fsig, use_global, op),
+        .text, .native_text => |t| return provTextSlot(symbols, fsig, use_global, t),
+        else => return null,
+    }
+}
+
+fn collectPromotableSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, task: FuncTask, use_global: bool) !PromoMap {
+    var promo = PromoMap.init(allocator);
+    errdefer promo.deinit();
+    var defined = std.AutoHashMap(u32, void).init(allocator);
+    defer defined.deinit();
+    var bad = std.AutoHashMap(u32, void).init(allocator);
+    defer bad.deinit();
+    const UseInfo = struct { ty: sig.PrimType, loads: u32, stores: u32 };
+    var uses = std.AutoHashMap(u32, UseInfo).init(allocator);
+    defer uses.deinit();
+    for (fsig.param_ids) |gid| {
+        if (fsig.slotOf(gid)) |s| try bad.put(s, {});
+    }
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        const ops = base.operands;
+        switch (base.kind) {
+            .stack_alloc => {
+                if (ops.len < 1) continue;
+                if (promoMentionSlot(verified.symbols, fsig, use_global, ops[0])) |ds| {
+                    if (defined.get(ds) != null) try bad.put(ds, {});
+                    try defined.put(ds, {});
+                }
+                var k: usize = 1;
+                while (k < ops.len) : (k += 1) {
+                    if (promoMentionSlot(verified.symbols, fsig, use_global, ops[k])) |s| try bad.put(s, {});
+                }
+            },
+            .load => {
+                if (ops.len < 3) continue;
+                if (promoMentionSlot(verified.symbols, fsig, use_global, ops[0])) |ds| try bad.put(ds, {});
+                if (promoMentionSlot(verified.symbols, fsig, use_global, ops[2])) |os| try bad.put(os, {});
+                const b = promoMentionSlot(verified.symbols, fsig, use_global, ops[1]) orelse continue;
+                if (!offIsZero(ops[2])) { try bad.put(b, {}); continue; }
+                const ty = memPrimType(base);
+                const gop = try uses.getOrPut(b);
+                if (!gop.found_existing) gop.value_ptr.* = .{ .ty = ty, .loads = 0, .stores = 0 };
+                if (gop.value_ptr.ty != ty) { try bad.put(b, {}); continue; }
+                gop.value_ptr.loads += 1;
+            },
+            .store => {
+                if (ops.len < 3) continue;
+                if (promoMentionSlot(verified.symbols, fsig, use_global, ops[1])) |os| try bad.put(os, {});
+                if (promoMentionSlot(verified.symbols, fsig, use_global, ops[2])) |vs| try bad.put(vs, {});
+                const b = promoMentionSlot(verified.symbols, fsig, use_global, ops[0]) orelse continue;
+                if (!offIsZero(ops[1])) { try bad.put(b, {}); continue; }
+                const ty = memPrimType(base);
+                const gop = try uses.getOrPut(b);
+                if (!gop.found_existing) gop.value_ptr.* = .{ .ty = ty, .loads = 0, .stores = 0 };
+                if (gop.value_ptr.ty != ty) { try bad.put(b, {}); continue; }
+                gop.value_ptr.stores += 1;
+            },
+            else => {
+                for (ops) |op| {
+                    if (promoMentionSlot(verified.symbols, fsig, use_global, op)) |s| try bad.put(s, {});
+                }
+            },
+        }
+    }
+    var uit = uses.iterator();
+    while (uit.next()) |e| {
+        const s = e.key_ptr.*;
+        if (defined.get(s) == null) continue;
+        if (bad.get(s) != null) continue;
+        if (e.value_ptr.loads == 0 or e.value_ptr.stores == 0) continue;
+        const nb = promoNarrowBits(e.value_ptr.ty) orelse continue;
+        try promo.put(s, .{ .load_fn = memLoadFn(e.value_ptr.ty), .narrow_bits = nb.bits, .narrow_signed = nb.signed });
+    }
+    return promo;
+}
+
+/// Promoted base slot for a zero-offset plain load/store, else null.
+fn promoBaseSlot(fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, promo: *const PromoMap) ?u32 {
+    const is_load = base.kind == .load;
+    const is_store = base.kind == .store;
+    if (!is_load and !is_store) return null;
+    const base_op = if (is_load) base.operands[1] else base.operands[0];
+    const off_op = if (is_load) base.operands[2] else base.operands[1];
+    if (!offIsZero(off_op)) return null;
+    const bs = provSlotOf(fsig, use_global, base_op) orelse return null;
+    if (promo.get(bs) == null) return null;
+    return bs;
+}
+
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap, promo: *const PromoMap) !void {
     _ = js_opt;
     last_js_inst = base.raw_text;
     last_js_func = fsig.name;
@@ -2194,6 +2326,12 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try writer.print("  r{d} = __sa_salloc(", .{slot});
             try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
             try writer.writeAll(");\n");
+            // Promoted slot: snapshot the cell into its local (identical
+            // stale bytes to what the program would observe; re-executes
+            // correctly if the alloc itself is inside a loop).
+            if (promo.get(slot)) |info| {
+                try writer.print("  __sa_sp{d} = {s}(r{d});\n", .{ slot, info.load_fn, slot });
+            }
         },
         .ptr_add => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
@@ -2221,7 +2359,9 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             _ = bases.remove(slot);
             const ty = memPrimType(base);
             const load_fn = memLoadFn(ty);
-            if (offIsZero(base.operands[2])) {
+            if (promoBaseSlot(fsig, use_global, base, promo)) |bs| {
+                try writer.print("  r{d} = __sa_sp{d};\n", .{ slot, bs });
+            } else if (offIsZero(base.operands[2])) {
                 try writer.print("  r{d} = {s}(", .{ slot, load_fn });
                 try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
                 try writer.writeAll(");\n");
@@ -2241,7 +2381,42 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             provKillStoreValue(bases, symbols, fsig, use_global, base.operands[2]);
             const ty = memPrimType(base);
             const store_fn = memStoreFn(ty);
-            if (offIsZero(base.operands[1])) {
+            if (promoBaseSlot(fsig, use_global, base, promo)) |bs| {
+                const info = promo.get(bs).?;
+                // Narrow inline for 32-bit (bit-identical to __sa_narrow;
+                // value operands are pure refs so triple emission is safe,
+                // mirroring the br_null duplicate-operand precedent).
+                if (info.narrow_bits == 32) {
+                    try writer.print("  __sa_sp{d} = ((typeof (", .{bs});
+                    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                    if (info.narrow_signed) {
+                        try writer.writeAll(") === \"bigint\") ? Number(BigInt.asIntN(32, (");
+                    } else {
+                        try writer.writeAll(") === \"bigint\") ? Number(BigInt.asUintN(32, (");
+                    }
+                    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                    if (info.narrow_signed) {
+                        try writer.writeAll("))) : ((");
+                    } else {
+                        try writer.writeAll("))) : ((");
+                    }
+                    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                    if (info.narrow_signed) {
+                        try writer.writeAll(") | 0));\n");
+                    } else {
+                        try writer.writeAll(") >>> 0));\n");
+                    }
+                } else if (info.narrow_bits == 64) {
+                    // Mirrors __sa_store_i64 exactly (asIntN for both i64/u64).
+                    try writer.print("  __sa_sp{d} = BigInt.asIntN(64, BigInt((", .{bs});
+                    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                    try writer.writeAll(")));\n");
+                } else {
+                    try writer.print("  __sa_sp{d} = __sa_narrow(", .{bs});
+                    try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                    try writer.print(", {d}, {s});\n", .{ info.narrow_bits, if (info.narrow_signed) "true" else "false" });
+                }
+            } else if (offIsZero(base.operands[1])) {
                 try writer.print("  {s}(", .{store_fn});
                 try resolveValueToJs(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
                 try writer.writeAll(", ");
@@ -2402,7 +2577,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap) !void {
+fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap, promo: *const PromoMap) !void {
     switch (base.kind) {
         .jmp => {
             const npc = try labelPcOf(label_pc, base.operands[1]);
@@ -2434,7 +2609,7 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
             var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths);
+            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths, promo);
             const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
@@ -3029,11 +3204,25 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     defer widths.deinit();
     var prov = try provSolveBody(allocator, verified, fsig, use_global, task, retbase, null);
     defer prov.deinit();
+    // Slot promotion: unescaped stack slots become function-scope locals.
+    var promo = try collectPromotableSlots(allocator, verified, fsig, task, use_global);
+    defer promo.deinit();
+    if (promo.count() != 0) {
+        var pkeys = std.ArrayList(u32).init(allocator);
+        defer pkeys.deinit();
+        var pkit = promo.keyIterator();
+        while (pkit.next()) |k| try pkeys.append(k.*);
+        std.mem.sort(u32, pkeys.items, {}, std.sort.asc(u32));
+        for (pkeys.items) |s| {
+            const is64 = if (promo.get(s)) |info| info.narrow_bits == 64 else false;
+            if (is64) try writer.print("  let __sa_sp{d} = 0n;\n", .{s}) else try writer.print("  let __sa_sp{d} = 0;\n", .{s});
+        }
+    }
     // If no labels at all, emit straight-line body without pc machine.
     if (pcs == 1) {
         i = task.start_idx + 1;
         while (i < task.end_idx) : (i += 1) {
-            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase, &widths);
+            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase, &widths, &promo);
         }
         return;
     }
@@ -3068,7 +3257,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             prev_terminates = false;
             continue;
         }
-        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase, &widths);
+        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase, &widths, &promo);
         prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .br_null or base.kind == .return_;
     }
     try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");

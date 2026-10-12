@@ -1,0 +1,75 @@
+@import "sa_std/io/print.sai"
+
+@const EDGE_OK = utf8:"EDGE OK\n"
+@const EDGE_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    w_slot = stack_alloc 8
+    acc_slot = stack_alloc 8
+    b_slot = stack_alloc 8
+    h_slot = stack_alloc 8
+    k_slot = stack_alloc 8
+    u_slot = stack_alloc 8
+    m_slot = stack_alloc 8
+    store w_slot+0, 8589934591 as u32
+    a = load w_slot+0 as u32
+    t1 = add a, a
+    t2 = add t1, a
+    store acc_slot+0, t2 as u64
+    total = load acc_slot+0 as u64
+    ok1 = eq total, 12884901885
+    store b_slot+0, 200 as i8
+    v = load b_slot+0 as i8
+    z = add v, 56
+    ok2 = eq z, 0
+    store h_slot+0, 40000 as i16
+    vh = load h_slot+0 as i16
+    zh = add vh, 25536
+    ok3 = eq zh, 0
+    store k_slot+0, 4294967295 as i32
+    vk = load k_slot+0 as i32
+    zk = add vk, 1
+    ok4 = eq zk, 0
+    store u_slot+0, 70000 as u16
+    vu = load u_slot+0 as u16
+    ok5 = eq vu, 4464
+    store m_slot+0, 255 as u32
+    vm = load m_slot+0 as i32
+    ok6 = eq vm, 255
+    al1 = and ok1, ok2
+    al2 = and al1, ok3
+    al3 = and al2, ok4
+    al4 = and al3, ok5
+    all = and al4, ok6
+    !a
+    !t1
+    !t2
+    !total
+    !ok1
+    !v
+    !z
+    !ok2
+    !vh
+    !zh
+    !ok3
+    !vk
+    !zk
+    !ok4
+    !vu
+    !ok5
+    !vm
+    !ok6
+    !al1
+    !al2
+    !al3
+    !al4
+    br all -> L_OK, L_FAIL
+L_OK:
+    !all
+    call @sa_print_bytes(&EDGE_OK, 8)
+    return 0
+L_FAIL:
+    !all
+    call @sa_print_bytes(&EDGE_FAIL, 5)
+    return 1
