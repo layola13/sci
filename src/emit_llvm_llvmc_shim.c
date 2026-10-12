@@ -1644,6 +1644,14 @@ static LLVMValueRef wasm_call2(EmitCtx *e, LLVMValueRef fn, LLVMTypeRef vty, LLV
     return LLVMBuildCall2(e->builder, fty, fn, args, 2, "");
 }
 
+/* Calls a (vty, vty, vty) -> vty vector intrinsic (v128.bitselect). */
+static LLVMValueRef wasm_call3(EmitCtx *e, LLVMValueRef fn, LLVMTypeRef vty, LLVMValueRef a, LLVMValueRef bv, LLVMValueRef c) {
+    LLVMTypeRef pty[3] = { vty, vty, vty };
+    LLVMTypeRef fty = LLVMFunctionType(vty, pty, 3, 0);
+    LLVMValueRef args[3] = { a, bv, c };
+    return LLVMBuildCall2(e->builder, fty, fn, args, 3, "");
+}
+
 /* Calls a (v8i16, v8i16) -> v4i32 vector intrinsic (i32x4.dot_i16x8_s). */
 static LLVMValueRef wasm_call_dot(EmitCtx *e, LLVMValueRef fn, LLVMTypeRef v8i16, LLVMTypeRef v4i32, LLVMValueRef a, LLVMValueRef bv) {
     LLVMTypeRef pty[2] = { v8i16, v8i16 };
@@ -1877,6 +1885,13 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     static const unsigned finB_idx[12] = { 2,1,0,6,5,4,10,9,8,14,13,12 };
     static const uint8_t w64_lanes[16] = { 0x40,0x00,0x01,0x00,0x40,0x00,0x01,0x00,0x40,0x00,0x01,0x00,0x40,0x00,0x01,0x00 };
     static const uint8_t w4096_lanes[16] = { 0x00,0x10,0x01,0x00,0x00,0x10,0x01,0x00,0x00,0x10,0x01,0x00,0x00,0x10,0x01,0x00 };
+    /* 5-op pack (expert Q1, 2026-10): per-word mask selecting bit 6..11
+       from (x<<6) and the rest from (x>>8), so each i16 lane becomes
+       exactly 64a+b; one [4096,1] dot then yields the full 24-bit
+       quartet. Replaces zero-interleave(2)+L1dot(2)+pick(2)+blend(1)+
+       L2dot(1) = 9 ops with shl+shr+bitselect+dot = 4 ops (+1 final
+       shuffle, unchanged). Q<=4095 so signed dot stays exact. */
+    static const uint8_t packsel_lanes[16] = { 0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F };
     LLVMValueRef iloM = wasm_const_shuf_mask(e, ilo_idx, 16);
     LLVMValueRef ihiM = wasm_const_shuf_mask(e, ihi_idx, 16);
     LLVMValueRef pkM = wasm_const_shuf_mask(e, pk_idx, 16);
@@ -1884,12 +1899,30 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef finBM = wasm_const_shuf_mask(e, finB_idx, 12);
     LLVMValueRef w64v = wasm_const_bytes16(e, v16, w64_lanes);
     LLVMValueRef w4096v = wasm_const_bytes16(e, v16, w4096_lanes);
+    LLVMValueRef packselv = wasm_const_bytes16(e, v16, packsel_lanes);
     LLVMValueRef dot_fn = wasm_fixed_intrinsic(e, "llvm.wasm.dot", v16);
+    /* NB: llvm.wasm.bitselect is OVERLOADED in LLVM 14 (takes one type
+       param -> llvm.wasm.bitselect.v16i8), unlike swizzle/dot which are
+       fixed. Declaring it via the fixed helper segfaults inside
+       GetIntrinsicDeclaration; wasm_intrinsic1 yields the true
+       intrinsic, lowered to v128.bitselect. */
+    LLVMValueRef bitselect_fn = wasm_intrinsic1(e, "llvm.wasm.bitselect", v16);
+    LLVMValueRef splat6_16 = NULL, splat8_16 = NULL;
+    {
+        LLVMValueRef e6[8], e8[8];
+        for (unsigned k = 0; k < 8; k++) {
+            e6[k] = LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 6, 0);
+            e8[k] = LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 8, 0);
+        }
+        splat6_16 = LLVMConstVector(e6, 8);
+        splat8_16 = LLVMConstVector(e8, 8);
+    }
     if (!zero || !m15 ||
         !splat_i32_3 ||
         !dAssoV || !dValsV || !cAssoV || !cValsV ||
         !swizzle_fn || !avgr_fn || !uaddsat_fn || !dot_fn ||
-        !iloM || !ihiM || !pkM || !blM || !finBM || !w64v || !w4096v) return;
+        !iloM || !ihiM || !pkM || !blM || !finBM || !w64v || !w4096v ||
+        !packselv || !splat6_16 || !splat8_16) return;
 
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef vecloop = LLVMAppendBasicBlockInContext(e->ctx, fn, "vecloop");
@@ -1951,21 +1984,27 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
        tA picks byte0 slots {0,3,6,9}, tB byte1 {1,4,7,10}, tC byte2
        {2,5,8,11}; lanes 12..15 are masked out. All shuffles are
        single-source full-width (one swizzle each under Cranelift). */
-    LLVMValueRef zwLo = LLVMBuildShuffleVector(e->builder, sext, zero, iloM, "");
-    LLVMValueRef zwHi = LLVMBuildShuffleVector(e->builder, sext, zero, ihiM, "");
-    LLVMValueRef zwLo16 = LLVMBuildBitCast(e->builder, zwLo, v8i16, "");
-    LLVMValueRef zwHi16 = LLVMBuildBitCast(e->builder, zwHi, v8i16, "");
-    LLVMValueRef w64_16 = LLVMBuildBitCast(e->builder, w64v, v8i16, "");
-    LLVMValueRef tLo = wasm_call_dot(e, dot_fn, v8i16, v4i32, zwLo16, w64_16);
-    LLVMValueRef tHi = wasm_call_dot(e, dot_fn, v8i16, v4i32, zwHi16, w64_16);
-    LLVMValueRef tLoB = LLVMBuildBitCast(e->builder, tLo, v16, "");
-    LLVMValueRef tHiB = LLVMBuildBitCast(e->builder, tHi, v16, "");
-    LLVMValueRef p0 = LLVMBuildShuffleVector(e->builder, tLoB, vundef16, pkM, "");
-    LLVMValueRef p1 = LLVMBuildShuffleVector(e->builder, tHiB, vundef16, pkM, "");
-    LLVMValueRef t8 = LLVMBuildShuffleVector(e->builder, p0, p1, blM, "");
-    LLVMValueRef t8_16 = LLVMBuildBitCast(e->builder, t8, v8i16, "");
+    /* 5-op pack, first half: x=a|(b<<8) per word; L=x<<6, R=x>>8;
+       Q=bitselect(L,R,0x0FC0)=64a+b; P=dot(Q,[4096,1])=full word. */
+    LLVMValueRef x16 = LLVMBuildBitCast(e->builder, sext, v8i16, "");
+    LLVMValueRef shl6 = LLVMBuildShl(e->builder, x16, splat6_16, "");
+    LLVMValueRef shr8 = LLVMBuildLShr(e->builder, x16, splat8_16, "");
+    LLVMValueRef shl6b = LLVMBuildBitCast(e->builder, shl6, v16, "");
+    LLVMValueRef shr8b = LLVMBuildBitCast(e->builder, shr8, v16, "");
+    LLVMValueRef qpack;
+    if (bitselect_fn) {
+        qpack = wasm_call3(e, bitselect_fn, v16, shl6b, shr8b, packselv);
+    } else {
+        /* Fallback: (L&m)|(R&~m); ~m via xor with splat-FF. */
+        LLVMValueRef ff = wasm_const_splat_u8(e, v16, 16, 0xFF);
+        LLVMValueRef notm = LLVMBuildXor(e->builder, packselv, ff, "");
+        qpack = LLVMBuildOr(e->builder,
+            LLVMBuildAnd(e->builder, shl6b, packselv, ""),
+            LLVMBuildAnd(e->builder, shr8b, notm, ""), "");
+    }
+    LLVMValueRef q16 = LLVMBuildBitCast(e->builder, qpack, v8i16, "");
     LLVMValueRef w4096_16 = LLVMBuildBitCast(e->builder, w4096v, v8i16, "");
-    LLVMValueRef vv = wasm_call_dot(e, dot_fn, v8i16, v4i32, t8_16, w4096_16);
+    LLVMValueRef vv = wasm_call_dot(e, dot_fn, v8i16, v4i32, q16, w4096_16);
     LLVMValueRef vvB = LLVMBuildBitCast(e->builder, vv, v16, "");
     LLVMValueRef out12 = LLVMBuildShuffleVector(e->builder, vvB, vundef16, finBM, "");
     LLVMValueRef out_gep = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &phi_w, 1, "");
@@ -1995,21 +2034,24 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
         wasm_call2(e, swizzle_fn, v16, cValsV,
             LLVMBuildAnd(e->builder, cHash2, m15, "")), chunk2);
     LLVMValueRef badv2 = LLVMBuildICmp(e->builder, LLVMIntSLT, chk2, zero, "");
-    LLVMValueRef zwLo2 = LLVMBuildShuffleVector(e->builder, sext2, zero, iloM, "");
-    LLVMValueRef zwHi2 = LLVMBuildShuffleVector(e->builder, sext2, zero, ihiM, "");
-    LLVMValueRef zwLo2_16 = LLVMBuildBitCast(e->builder, zwLo2, v8i16, "");
-    LLVMValueRef zwHi2_16 = LLVMBuildBitCast(e->builder, zwHi2, v8i16, "");
-    LLVMValueRef w64_2 = LLVMBuildBitCast(e->builder, w64v, v8i16, "");
-    LLVMValueRef tLo2 = wasm_call_dot(e, dot_fn, v8i16, v4i32, zwLo2_16, w64_2);
-    LLVMValueRef tHi2 = wasm_call_dot(e, dot_fn, v8i16, v4i32, zwHi2_16, w64_2);
-    LLVMValueRef tLo2B = LLVMBuildBitCast(e->builder, tLo2, v16, "");
-    LLVMValueRef tHi2B = LLVMBuildBitCast(e->builder, tHi2, v16, "");
-    LLVMValueRef p02 = LLVMBuildShuffleVector(e->builder, tLo2B, vundef16, pkM, "");
-    LLVMValueRef p12 = LLVMBuildShuffleVector(e->builder, tHi2B, vundef16, pkM, "");
-    LLVMValueRef t82 = LLVMBuildShuffleVector(e->builder, p02, p12, blM, "");
-    LLVMValueRef t82_16 = LLVMBuildBitCast(e->builder, t82, v8i16, "");
+    LLVMValueRef x16_2 = LLVMBuildBitCast(e->builder, sext2, v8i16, "");
+    LLVMValueRef shl6_2 = LLVMBuildShl(e->builder, x16_2, splat6_16, "");
+    LLVMValueRef shr8_2 = LLVMBuildLShr(e->builder, x16_2, splat8_16, "");
+    LLVMValueRef shl6b_2 = LLVMBuildBitCast(e->builder, shl6_2, v16, "");
+    LLVMValueRef shr8b_2 = LLVMBuildBitCast(e->builder, shr8_2, v16, "");
+    LLVMValueRef qpack2;
+    if (bitselect_fn) {
+        qpack2 = wasm_call3(e, bitselect_fn, v16, shl6b_2, shr8b_2, packselv);
+    } else {
+        LLVMValueRef ff2 = wasm_const_splat_u8(e, v16, 16, 0xFF);
+        LLVMValueRef notm2 = LLVMBuildXor(e->builder, packselv, ff2, "");
+        qpack2 = LLVMBuildOr(e->builder,
+            LLVMBuildAnd(e->builder, shl6b_2, packselv, ""),
+            LLVMBuildAnd(e->builder, shr8b_2, notm2, ""), "");
+    }
+    LLVMValueRef q16_2 = LLVMBuildBitCast(e->builder, qpack2, v8i16, "");
     LLVMValueRef w4096_2 = LLVMBuildBitCast(e->builder, w4096v, v8i16, "");
-    LLVMValueRef vv2 = wasm_call_dot(e, dot_fn, v8i16, v4i32, t82_16, w4096_2);
+    LLVMValueRef vv2 = wasm_call_dot(e, dot_fn, v8i16, v4i32, q16_2, w4096_2);
     LLVMValueRef vv2B = LLVMBuildBitCast(e->builder, vv2, v16, "");
     LLVMValueRef out12_2 = LLVMBuildShuffleVector(e->builder, vv2B, vundef16, finBM, "");
     LLVMValueRef out_gep2 = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &w12b, 1, "");
