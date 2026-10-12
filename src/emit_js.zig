@@ -3361,8 +3361,9 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\function sa_mfind_u32(ptr, len, needle) {
                 \\  const a = __sa_addr(ptr), n = __sa_num(len), t = __sa_num(needle) >>> 0;
                 \\  if ((a & 3) === 0) {
-                \\    const r = __sa_tu32.subarray(a >> 2, (a >> 2) + n).indexOf(t);
-                \\    return r < 0 ? n : r;
+                \\    const base = a >> 2, r = __sa_tu32.indexOf(t, base);
+                \\    if (r < 0 || r - base >= n) return n;
+                \\    return r - base;
                 \\  }
                 \\  const u = __sa_u8;
                 \\  const b0 = t & 255, b1 = (t >> 8) & 255, b2 = (t >> 16) & 255, b3 = (t >>> 24) & 255;
@@ -3376,9 +3377,14 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             );
             return;
         }
-        // Fused byte-substring search: first-byte filter + memcmp, single
-        // call. Returns byte offset of first hit, or hay_len (miss sentinel).
-        // Empty needle matches at 0; needle longer than haystack misses.
+        // Fused byte-substring search: single host memmem call when a
+        // Buffer exists (same intrinsic the bun benches ultimately hit),
+        // scalar first-byte filter + memcmp fallback otherwise. Returns
+        // byte offset of first hit, or hay_len (miss sentinel). Empty
+        // needle matches at 0; needle longer than haystack misses. The
+        // indexOf scan may run past the hay range, so hits ending beyond
+        // h+n are rejected (no complete in-range occurrence can hide
+        // behind an earlier out-of-range one: indexOf returns the first).
         if (std.mem.eql(u8, fsig.name, "sa_mfind_u8")) {
             try writer.writeAll(
                 \\function sa_mfind_u8(hay_ptr, hay_len, ndl_ptr, ndl_len) {
@@ -3386,6 +3392,11 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  const q = __sa_addr(ndl_ptr), m = __sa_num(ndl_len), u = __sa_u8;
                 \\  if (m === 0) return 0;
                 \\  if (m > n) return n;
+                \\  if (__sa_buf) {
+                \\    const r = __sa_buf.indexOf(u.subarray(q, q + m), h);
+                \\    if (r < h || r + m > h + n) return n;
+                \\    return r - h;
+                \\  }
                 \\  const b0 = u[q], last = n - m;
                 \\  for (let i = 0; i <= last; i++) {
                 \\    if (u[h + i] !== b0) continue;
@@ -3436,13 +3447,13 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             );
             return;
         }
-        // Fused HTML escape: single call, table-driven loop. No host
-        // intrinsic exists on both runtimes (Bun.escapeHTML is bun-only),
-        // so this is a raw JS loop — still ~100x fewer dispatches than the
-        // per-element SA form (6 br + stores per byte). The common case
-        // (plain byte, ~94%) is one table load + one branch; only the five
-        // metachars take the sequence-copy path. Tables are built once per
-        // module and cached on the function object; bytes written are
+        // Fused HTML escape: single call, table-driven loop. Bridging
+        // Bun.escapeHTML was measured and REJECTED (2026-10-13): its
+        // string-in/string-out shape allocates 3 temp strings per call
+        // (snapshot + escaped + quote-normalize) whose GC tax exceeds the
+        // SIMD gain at 64KB granularity (bridge 342us vs table 155us
+        // slope). The zero-alloc in-place table loop wins; same lesson as
+        // the Buffer.write beat over Buffer.from+set. Bytes written are
         // identical to the old branch chain by construction.
         if (std.mem.eql(u8, fsig.name, "sa_esc_html")) {
             try writer.writeAll(

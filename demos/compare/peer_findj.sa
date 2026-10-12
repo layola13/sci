@@ -1,0 +1,119 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_mfind_u8(hay_ptr: ptr, hay_len: u64, ndl_ptr: ptr, ndl_len: u64) -> u64
+
+@const FIND_OK = utf8:"FINDJ OK\n"
+@const FIND_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    hay = alloc 4096
+    ndl = alloc 64
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u32
+    rep_slot = stack_alloc 8
+    store rep_slot+0, 0 as u64
+    acc_slot = stack_alloc 8
+    store acc_slot+0, 0 as u64
+    jmp L_FILL_COND
+L_FILL_COND:
+    i = load i_slot+0 as u32
+    more = ult i, 4096
+    br more -> L_FILL_BODY, L_FILL_END
+L_FILL_BODY:
+    t1 = mul i, 37
+    t2 = add t1, 11
+    v = and t2, 255
+    slot = ptr_add hay, i
+    store slot+0, v as u8
+    !t1
+    !t2
+    !v
+    !slot
+    next = add i, 1
+    store i_slot+0, next as u32
+    !next
+    !i
+    !more
+    jmp L_FILL_COND
+L_FILL_END:
+    !i
+    !more
+    call @fill_needle(&ndl)
+    jmp L_REP_COND
+L_REP_COND:
+    rep = load rep_slot+0 as u64
+    more3 = ult rep, 1000
+    br more3 -> L_REP_BODY, L_REP_END
+L_REP_BODY:
+    !rep
+    !more3
+    f = call @sa_mfind_u8(&hay, 4096, &ndl, 64)
+    oklen = eq f, 4096
+    br oklen -> L_SPOTS, L_DFAIL
+L_DFAIL:
+    !f
+    !oklen
+    !hay
+    !ndl
+    call @sa_print_bytes(&FIND_FAIL, 5)
+    return 1
+L_SPOTS:
+    !oklen
+    !f
+    acc = load acc_slot+0 as u64
+    acc2 = add acc, 7
+    store acc_slot+0, acc2 as u64
+    rep3 = load rep_slot+0 as u64
+    rep4 = add rep3, 1
+    store rep_slot+0, rep4 as u64
+    !acc
+    !acc2
+    !rep3
+    !rep4
+    jmp L_REP_COND
+L_REP_END:
+    !rep
+    !more3
+    total = load acc_slot+0 as u64
+    ok = eq total, 7000
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !total
+    !ok
+    !hay
+    !ndl
+    call @sa_print_bytes(&FIND_OK, 9)
+    return 0
+L_FAIL:
+    !total
+    !ok
+    !hay
+    !ndl
+    call @sa_print_bytes(&FIND_FAIL, 5)
+    return 1
+
+@fill_needle(out_ptr: ptr) -> i32:
+L_ENTRY:
+    j_slot = stack_alloc 8
+    store j_slot+0, 0 as u32
+    jmp L_COND
+L_COND:
+    j = load j_slot+0 as u32
+    more = ult j, 64
+    br more -> L_BODY, L_END
+L_BODY:
+    s = ptr_add out_ptr, j
+    store s+0, 255 as u8
+    nx = add j, 1
+    store j_slot+0, nx as u32
+    !s
+    !nx
+    !j
+    !more
+    jmp L_COND
+L_END:
+    !j
+    !more
+    !out_ptr
+    return 0
