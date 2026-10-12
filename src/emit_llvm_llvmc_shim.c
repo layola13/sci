@@ -1872,18 +1872,9 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
        (every block rewinds: correct but scalar-slow). Verified the
        lowering with llc before using. */
     LLVMValueRef uaddsat_fn = wasm_intrinsic1(e, "llvm.sadd.sat", v16);
-    /* Dot-pack merge (expert Q1 recipe): zero-interleave sextets to i16
-       pairs, two-level dot ([64,1] then [4096,1]) fuses all shifts+adds,
-       byte-pick narrows, one shuffle compresses to 12 bytes. 9 v128 ops
-       replace 16 (gathers+shifts+masks). All values non-negative
-       (sextets <64, level-1 <4096, level-2 <2^24), so signed dot is
-       exact. Verified the composition through the real backend first. */
-    static const unsigned ilo_idx[16] = { 0,16,1,17,2,18,3,19,4,20,5,21,6,22,7,23 };
-    static const unsigned ihi_idx[16] = { 8,16,9,17,10,18,11,19,12,20,13,21,14,22,15,23 };
-    static const unsigned pk_idx[16] = { 0,1,4,5,8,9,12,13,0,0,0,0,0,0,0,0 };
-    static const unsigned bl_idx[16] = { 0,1,2,3,4,5,6,7,16,17,18,19,20,21,22,23 };
+    /* Pack (expert Q1 5-op recipe, see packsel_lanes below). The final
+       12-byte compress shuffle mask: */
     static const unsigned finB_idx[12] = { 2,1,0,6,5,4,10,9,8,14,13,12 };
-    static const uint8_t w64_lanes[16] = { 0x40,0x00,0x01,0x00,0x40,0x00,0x01,0x00,0x40,0x00,0x01,0x00,0x40,0x00,0x01,0x00 };
     static const uint8_t w4096_lanes[16] = { 0x00,0x10,0x01,0x00,0x00,0x10,0x01,0x00,0x00,0x10,0x01,0x00,0x00,0x10,0x01,0x00 };
     /* 5-op pack (expert Q1, 2026-10): per-word mask selecting bit 6..11
        from (x<<6) and the rest from (x>>8), so each i16 lane becomes
@@ -1892,12 +1883,7 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
        L2dot(1) = 9 ops with shl+shr+bitselect+dot = 4 ops (+1 final
        shuffle, unchanged). Q<=4095 so signed dot stays exact. */
     static const uint8_t packsel_lanes[16] = { 0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F,0xC0,0x0F };
-    LLVMValueRef iloM = wasm_const_shuf_mask(e, ilo_idx, 16);
-    LLVMValueRef ihiM = wasm_const_shuf_mask(e, ihi_idx, 16);
-    LLVMValueRef pkM = wasm_const_shuf_mask(e, pk_idx, 16);
-    LLVMValueRef blM = wasm_const_shuf_mask(e, bl_idx, 16);
     LLVMValueRef finBM = wasm_const_shuf_mask(e, finB_idx, 12);
-    LLVMValueRef w64v = wasm_const_bytes16(e, v16, w64_lanes);
     LLVMValueRef w4096v = wasm_const_bytes16(e, v16, w4096_lanes);
     LLVMValueRef packselv = wasm_const_bytes16(e, v16, packsel_lanes);
     LLVMValueRef dot_fn = wasm_fixed_intrinsic(e, "llvm.wasm.dot", v16);
@@ -1921,7 +1907,7 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
         !splat_i32_3 ||
         !dAssoV || !dValsV || !cAssoV || !cValsV ||
         !swizzle_fn || !avgr_fn || !uaddsat_fn || !dot_fn ||
-        !iloM || !ihiM || !pkM || !blM || !finBM || !w64v || !w4096v ||
+        !finBM || !w4096v ||
         !packselv || !splat6_16 || !splat8_16) return;
 
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
