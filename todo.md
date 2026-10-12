@@ -396,6 +396,8 @@
   - **方案**：显式 SIMD intrinsic 只覆盖向量化死角（查表＋分支 codec），先 native 后 wasm；JS 无 SIMD，按现有融合路线维持。
   - **验收**：native codec 全进 1.5x 内；wasm 开 SIMD128 后接近 native-release-fast。
   - **进展（2026-10-12 escape 标量侧缓解，已落地）**：`sa_esc_html` 改表驱动（长度表 fast-path＋序列 rare-path，`emit_js.zig`，逐字节同构）；peer 双点斜率 node 持平（3.09→~3.1ns/B 噪声内）、bun 2.37→1.68（1.4x↑）。分支 codec 真 parity 仍需本项显式 SIMD，保持未勾选。
+  - **进展（2026-10-12/13 native 显式 SIMD 双核落地，本地提交）**：`sa_std.zig sa_hexdec_simd`（32字符→16字节向量＋标量尾，3单测）peer 双点 native默认档 0.085ns/B，反超 bun原题（0.11~0.15）约1.3~1.8x；`sa_b64dec_simd`（32→24 Mula式，2单测）0.22ns/B，余1.5x。ABI：`sa_std.h`声明＋`windows_unsupported`注记。工具链坑：本工具链`-OReleaseFast`误编译负掩码`@shuffle`（`Assigned value does not match type of forward declaration`），已绕行concat＋单源正掩码并注记。
+  - **进展（2026-10-13 wasm SIMD128 hex/b64核落地，本地提交）**：wasm链只认模块内bitcode（extern悬空`wasm-ld: undefined symbol`），遂`emit_llvm_llvmc_shim.c`内联发射v128核；`+simd128`自证无效（247 vs 266ms）遂`zigcc.zig`默认`-mcpu=generic+simd128`。hex标量0.76→核+simd128 0.17ns/B（余1.2~1.5x）；b64核1.0~1.1ns/B（余~6.7x，Cranelift密度税，后续shuffle节食）。`peer_b64t`（尾过渡）/`peer_b64bad`（非法截停）覆盖未测路径；强制标量对照抓出标量尾sextet偏置误用hex值，已修正。注：项目增量缓存不感知driver变更，测速须`--no-incremental`。
 - [ ] **2. 单遍融合 hex 解码器（消除链税）**
   - **问题**：`sa_hexdec` 走 TextDecoder＋parse＋拷出三遍，64KB 同尺寸仍输 3.7x（b64 同理 3x）；三档尺寸测 flatline，证实是 throughput 税非固定成本。
   - **方案**：单遍融合解码（查表＋存回一遍过），干掉中间 string 与二次拷贝。
