@@ -5217,7 +5217,16 @@ fn b64SimdSextetVal(c: u8) ?u8 {
     return null;
 }
 
+extern fn sa_cpu_has_avx2() c_int;
+extern fn sa_b64dec_avx2(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64;
+
 pub export fn sa_b64dec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64 {
+    // AVX2 swizzle kernel (src/runtime/sa_b64_swizzle.c, Apache-2.0
+    // attribution in-file) when the CPU supports it; otherwise the
+    // portable Mula path below. Non-x86_64 builds stub the C side out.
+    if (comptime builtin.cpu.arch == .x86_64) {
+        if (sa_cpu_has_avx2() != 0) return sa_b64dec_avx2(in_ptr, in_len, out_ptr);
+    }
     const input = constBytes(in_ptr, in_len) catch return 0;
     const n = input.len;
     if (n == 0) return 0;
@@ -5315,6 +5324,23 @@ test "sa_b64dec_simd vector width then invalid stop" {
     try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(null, 8, &out_bad));
     try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, bad.len, null));
     try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, 0, &out_bad));
+}
+
+test "sa_b64dec_simd avx2 block invalid rewinds to scalar" {
+    // 128B input, invalid byte inside the first 64B vector block: the AVX2
+    // path must stop before it (scalar re-decode), exactly like the
+    // portable path (peer_b64mid shape, wider).
+    var mid: [128]u8 = [_]u8{'B'} ** 128;
+    mid[5] = '!';
+    var out_mid: [96]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 3), sa_b64dec_simd(&mid, mid.len, &out_mid));
+    try std.testing.expectEqual(@as(u8, 4), out_mid[0]);
+    try std.testing.expectEqual(@as(u8, 16), out_mid[1]);
+    try std.testing.expectEqual(@as(u8, 65), out_mid[2]);
+    var clean128: [128]u8 = [_]u8{'B'} ** 128;
+    var out128: [96]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 96), sa_b64dec_simd(&clean128, clean128.len, &out128));
+    try std.testing.expectEqual(@as(u8, 65), out128[95]);
 }
 
 // Bulk substring search for native peers (mirrors the sa_mfind_u8 JS

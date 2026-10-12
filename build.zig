@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addHostThreadShimToModule(b, sa_std_static_module, target.result.os.tag);
+    addB64SwizzleToModule(b, sa_std_static_module);
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_static_module,
@@ -114,6 +115,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addHostThreadShimToModule(b, sa_std_shared_module, target.result.os.tag);
+    addB64SwizzleToModule(b, sa_std_shared_module);
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_shared_module,
@@ -1241,6 +1243,14 @@ fn addHostThreadShimToModule(b: *std.Build, module: *std.Build.Module, os_tag: s
         .windows => {},
         else => module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{} }),
     }
+}
+
+fn addB64SwizzleToModule(b: *std.Build, module: *std.Build.Module) void {
+    // AVX2 base64 kernel with Apache-2.0 attribution in-file; non-x86_64
+    // compiles to stubs (Zig falls back to the portable Mula path), so
+    // this is unconditional and needs no per-file -mavx2 flag (the kernel
+    // carries function-level target("avx2") attributes instead).
+    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_b64_swizzle.c"), .flags = &.{} });
 }
 
 fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
