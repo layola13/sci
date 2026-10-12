@@ -1,0 +1,190 @@
+@import "sa_std/io/print.sai"
+
+@const HEXS_OK = utf8:"HEXS OK\n"
+@const HEXS_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    in = alloc 65536
+    out = alloc 32768
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u32
+    j_slot = stack_alloc 8
+    store j_slot+0, 0 as u32
+    rep_slot = stack_alloc 8
+    store rep_slot+0, 0 as u64
+    acc_slot = stack_alloc 8
+    store acc_slot+0, 0 as u64
+    jmp L_FILL_COND
+L_FILL_COND:
+    i = load i_slot+0 as u32
+    more = ult i, 65536
+    br more -> L_FILL_BODY, L_FILL_END
+L_FILL_BODY:
+    slot = ptr_add in, i
+    store slot+0, 65 as u8
+    next = add i, 1
+    store i_slot+0, next as u32
+    !slot
+    !next
+    !i
+    !more
+    jmp L_FILL_COND
+L_FILL_END:
+    !i
+    !more
+    jmp L_REP_COND
+L_REP_COND:
+    rep = load rep_slot+0 as u64
+    more3 = ult rep, 500
+    br more3 -> L_REP_BODY, L_REP_END
+L_REP_BODY:
+    !rep
+    !more3
+    store j_slot+0, 0 as u32
+    jmp L_DEC_COND
+L_DEC_COND:
+    j = load j_slot+0 as u32
+    more4 = ult j, 32768
+    br more4 -> L_DEC_BODY, L_DEC_END
+L_DEC_BODY:
+    t1 = add j, j
+    p1 = ptr_add in, t1
+    c1 = load p1+0 as u8
+    c2 = load p1+1 as u8
+    lt1 = ult c1, 58
+    br lt1 -> L_D1, L_U1
+L_D1:
+    v1 = sub c1, 48
+    !lt1
+    !c1
+    !c2
+    !t1
+    !p1
+    !j
+    !more4
+    jmp L_C2
+L_U1:
+    !lt1
+    lu1 = ult c1, 71
+    br lu1 -> L_A1, L_B1
+L_A1:
+    v1 = sub c1, 55
+    !lu1
+    !c1
+    !c2
+    !t1
+    !p1
+    !j
+    !more4
+    jmp L_C2
+L_B1:
+    v1 = sub c1, 87
+    !lu1
+    !c1
+    !c2
+    !t1
+    !p1
+    !j
+    !more4
+    jmp L_C2
+L_C2:
+    lt2 = ult c2, 58
+    br lt2 -> L_D2, L_U2
+L_D2:
+    v2 = sub c2, 48
+    !lt2
+    !c2
+    jmp L_COMB
+L_U2:
+    !lt2
+    lu2 = ult c2, 71
+    br lu2 -> L_A2, L_B2
+L_A2:
+    v2 = sub c2, 55
+    !lu2
+    !c2
+    jmp L_COMB
+L_B2:
+    v2 = sub c2, 87
+    !lu2
+    !c2
+    jmp L_COMB
+L_COMB:
+    m = mul v1, 16
+    b = add m, v2
+    q = ptr_add out, j
+    store q+0, b as u8
+    next2 = add j, 1
+    store j_slot+0, next2 as u32
+    !v1
+    !v2
+    !m
+    !b
+    !q
+    !next2
+    jmp L_DEC_COND
+L_DEC_END:
+    !j
+    !more4
+    b0 = load out+0 as u8
+    b1 = load out+1 as u8
+    b2 = load out+2 as u8
+    b3 = load out+3 as u8
+    e0 = load out+32764 as u8
+    e1 = load out+32765 as u8
+    e2 = load out+32766 as u8
+    e3 = load out+32767 as u8
+    acc = load acc_slot+0 as u64
+    a1 = add acc, b0
+    a2 = add a1, b1
+    a3 = add a2, b2
+    a4 = add a3, b3
+    a5 = add a4, e0
+    a6 = add a5, e1
+    a7 = add a6, e2
+    a8 = add a7, e3
+    store acc_slot+0, a8 as u64
+    rep3 = load rep_slot+0 as u64
+    rep4 = add rep3, 1
+    store rep_slot+0, rep4 as u64
+    !b0
+    !b1
+    !b2
+    !b3
+    !e0
+    !e1
+    !e2
+    !e3
+    !acc
+    !a1
+    !a2
+    !a3
+    !a4
+    !a5
+    !a6
+    !a7
+    !a8
+    !rep3
+    !rep4
+    jmp L_REP_COND
+L_REP_END:
+    !rep
+    !more3
+    total = load acc_slot+0 as u64
+    ok = eq total, 680000
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !total
+    !ok
+    !in
+    !out
+    call @sa_print_bytes(&HEXS_OK, 8)
+    return 0
+L_FAIL:
+    !total
+    !ok
+    !in
+    !out
+    call @sa_print_bytes(&HEXS_FAIL, 5)
+    return 1

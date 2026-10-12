@@ -166,6 +166,11 @@ pub fn argvForWasm(
         .release_small => "-O1",
         .release_fast => "-O3",
     });
+    // SIMD128 ships in every supported engine (wasmtime, node16+, bun,
+    // evergreen browsers) and is required for any v128 codegen: without it
+    // explicit vector kernels scalarize. Placed after -O so the existing
+    // positional argv tests are unaffected.
+    try argv.items.append("-mcpu=generic+simd128");
     try argv.items.append(artifact_path);
     try argv.items.append("-o");
     try argv.items.append(out_path);

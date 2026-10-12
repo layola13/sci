@@ -1593,6 +1593,199 @@ static void emit_sa_print_bytes(EmitCtx *e) {
     LLVMBuildRetVoid(e->builder);
 }
 
+/* sa_hexdec_simd for wasm: in-module vector hex decoder. Native links
+   libsa (which owns the Zig @Vector implementation), so this only fills
+   the body when a wasm_compat module left an external declaration behind.
+   Contract mirrors sa_hexdec_simd in sa_std.zig: clean even-length input
+   of n chars yields n/2 bytes; stops at the first invalid char or odd
+   trailing nibble, returning bytes written. Vector path handles 16 input
+   chars per iteration (single-source shuffles only); scalar tail covers
+   the rest. Correct with or without SIMD128 (falls back to scalarized
+   vectors); +simd128 at link time uses real v128 ops. */
+static LLVMValueRef wasm_const_splat_u8(EmitCtx *e, LLVMTypeRef vty, unsigned lanes, uint8_t v) {
+    LLVMValueRef *vals = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * lanes);
+    if (vals == NULL) return NULL;
+    for (unsigned k = 0; k < lanes; k++) vals[k] = LLVMConstInt(e->i8_ty, v, 0);
+    LLVMValueRef out = LLVMConstVector(vals, lanes);
+    free(vals);
+    return out;
+}
+
+static LLVMValueRef wasm_const_shuf_mask(EmitCtx *e, const unsigned *idx, unsigned lanes) {
+    LLVMValueRef *vals = (LLVMValueRef *)malloc(sizeof(LLVMValueRef) * lanes);
+    if (vals == NULL) return NULL;
+    for (unsigned k = 0; k < lanes; k++) vals[k] = LLVMConstInt(e->i32_ty, idx[k], 0);
+    LLVMValueRef out = LLVMConstVector(vals, lanes);
+    free(vals);
+    return out;
+}
+
+static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_hexdec_simd");
+    if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMTypeRef i64 = e->i64_ty;
+    LLVMTypeRef v16 = LLVMVectorType(e->i8_ty, 16);
+    LLVMTypeRef v8 = LLVMVectorType(e->i8_ty, 8);
+    LLVMValueRef in_ptr = LLVMGetParam(fn, 0);
+    LLVMValueRef in_len = LLVMGetParam(fn, 1);
+    LLVMValueRef out_ptr = LLVMGetParam(fn, 2);
+    LLVMValueRef z0 = LLVMConstInt(i64, 0, 0);
+
+    LLVMValueRef s0 = wasm_const_splat_u8(e, v16, 16, '0');
+    LLVMValueRef s9 = wasm_const_splat_u8(e, v16, 16, '9');
+    LLVMValueRef sA = wasm_const_splat_u8(e, v16, 16, 'A');
+    LLVMValueRef sF = wasm_const_splat_u8(e, v16, 16, 'F');
+    LLVMValueRef sa = wasm_const_splat_u8(e, v16, 16, 'a');
+    LLVMValueRef sf = wasm_const_splat_u8(e, v16, 16, 'f');
+    LLVMValueRef s10 = wasm_const_splat_u8(e, v16, 16, 10);
+    LLVMValueRef s48 = wasm_const_splat_u8(e, v16, 16, 48);
+    LLVMValueRef s55 = wasm_const_splat_u8(e, v16, 16, 55);
+    LLVMValueRef s87v = wasm_const_splat_u8(e, v16, 16, 87);
+    LLVMValueRef s4v8 = wasm_const_splat_u8(e, v8, 8, 4);
+    LLVMValueRef vundef16 = LLVMGetUndef(v16);
+    LLVMValueRef vundef8 = LLVMGetUndef(v8);
+    static const unsigned even_idx[8] = { 0, 2, 4, 6, 8, 10, 12, 14 };
+    static const unsigned odd_idx[8] = { 1, 3, 5, 7, 9, 11, 13, 15 };
+    LLVMValueRef even_mask = wasm_const_shuf_mask(e, even_idx, 8);
+    LLVMValueRef odd_mask = wasm_const_shuf_mask(e, odd_idx, 8);
+    if (!s0 || !s9 || !sA || !sF || !sa || !sf || !s10 || !s48 || !s55 || !s87v || !s4v8 || !even_mask || !odd_mask) return;
+
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
+    LLVMBasicBlockRef vecloop = LLVMAppendBasicBlockInContext(e->ctx, fn, "vecloop");
+    LLVMBasicBlockRef vecbody = LLVMAppendBasicBlockInContext(e->ctx, fn, "vecbody");
+    LLVMBasicBlockRef scalarloop = LLVMAppendBasicBlockInContext(e->ctx, fn, "scalarloop");
+    LLVMBasicBlockRef scalarbody = LLVMAppendBasicBlockInContext(e->ctx, fn, "scalarbody");
+    LLVMBasicBlockRef ret = LLVMAppendBasicBlockInContext(e->ctx, fn, "ret");
+
+    LLVMPositionBuilderAtEnd(e->builder, entry);
+    LLVMValueRef null_ok = LLVMBuildICmp(e->builder, LLVMIntEQ, LLVMBuildPtrToInt(e->builder, in_ptr, i64, ""), z0, "");
+    LLVMValueRef null_ok2 = LLVMBuildICmp(e->builder, LLVMIntEQ, LLVMBuildPtrToInt(e->builder, out_ptr, i64, ""), z0, "");
+    LLVMValueRef bail = LLVMBuildOr(e->builder, null_ok, null_ok2, "");
+    bail = LLVMBuildOr(e->builder, bail, LLVMBuildICmp(e->builder, LLVMIntEQ, in_len, z0, ""), "");
+    LLVMBuildCondBr(e->builder, bail, ret, vecloop);
+
+    LLVMPositionBuilderAtEnd(e->builder, vecloop);
+    LLVMValueRef phi_i = LLVMBuildPhi(e->builder, i64, "i");
+    LLVMValueRef phi_w = LLVMBuildPhi(e->builder, i64, "w");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntULE,
+            LLVMBuildAdd(e->builder, phi_i, LLVMConstInt(i64, 16, 0), ""),
+            in_len, ""),
+        vecbody, scalarloop);
+
+    LLVMPositionBuilderAtEnd(e->builder, vecbody);
+    LLVMValueRef in_gep = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &phi_i, 1, "");
+    LLVMValueRef in_vgep = LLVMBuildBitCast(e->builder, in_gep, LLVMPointerType(v16, 0), "");
+    LLVMValueRef vload = LLVMBuildLoad2(e->builder, v16, in_vgep, "");
+    LLVMSetAlignment(vload, 1);
+    LLVMValueRef is09 = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, vload, s0, ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, vload, s9, ""), "");
+    LLVMValueRef isAF = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, vload, sA, ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, vload, sF, ""), "");
+    LLVMValueRef isaf = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, vload, sa, ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, vload, sf, ""), "");
+    LLVMValueRef okv = LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, is09, isAF, ""), isaf, "");
+    LLVMValueRef okflat = LLVMBuildBitCast(e->builder, okv, LLVMInt16TypeInContext(e->ctx), "");
+    LLVMValueRef allok = LLVMBuildICmp(e->builder, LLVMIntEQ, okflat, LLVMConstInt(LLVMInt16TypeInContext(e->ctx), 0xFFFF, 0), "");
+    LLVMValueRef nib = LLVMBuildSelect(e->builder, is09, LLVMBuildSub(e->builder, vload, s48, ""),
+        LLVMBuildSelect(e->builder, isAF, LLVMBuildSub(e->builder, vload, s55, ""),
+            LLVMBuildSub(e->builder, vload, s87v, ""), ""), "");
+    LLVMValueRef evens = LLVMBuildShuffleVector(e->builder, nib, vundef16, even_mask, "");
+    LLVMValueRef odds = LLVMBuildShuffleVector(e->builder, nib, vundef16, odd_mask, "");
+    LLVMValueRef packed = LLVMBuildOr(e->builder,
+        LLVMBuildShl(e->builder, evens, s4v8, ""),
+        odds, "");
+    LLVMValueRef out_gep = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &phi_w, 1, "");
+    LLVMValueRef out_vgep = LLVMBuildBitCast(e->builder, out_gep, LLVMPointerType(v8, 0), "");
+    LLVMValueRef vstore = LLVMBuildStore(e->builder, packed, out_vgep);
+    LLVMSetAlignment(vstore, 1);
+    LLVMValueRef ni = LLVMBuildAdd(e->builder, phi_i, LLVMConstInt(i64, 16, 0), "");
+    LLVMValueRef nw = LLVMBuildAdd(e->builder, phi_w, LLVMConstInt(i64, 8, 0), "");
+    LLVMBuildCondBr(e->builder, allok, vecloop, scalarloop);
+
+    LLVMPositionBuilderAtEnd(e->builder, scalarloop);
+    LLVMValueRef phi_i2 = LLVMBuildPhi(e->builder, i64, "i2");
+    LLVMValueRef phi_w2 = LLVMBuildPhi(e->builder, i64, "w2");
+    LLVMBuildCondBr(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntULE,
+            LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 2, 0), ""),
+            in_len, ""),
+        scalarbody, ret);
+
+    LLVMPositionBuilderAtEnd(e->builder, scalarbody);
+    LLVMValueRef c1p = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &phi_i2, 1, "");
+    LLVMValueRef c1 = LLVMBuildLoad2(e->builder, e->i8_ty, c1p, "");
+    LLVMValueRef i2p1 = LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 1, 0), "");
+    LLVMValueRef c2p = LLVMBuildGEP2(e->builder, e->i8_ty, in_ptr, &i2p1, 1, "");
+    LLVMValueRef c2 = LLVMBuildLoad2(e->builder, e->i8_ty, c2p, "");
+    LLVMValueRef d09 = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, c1, LLVMConstInt(e->i8_ty, '0', 0), ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, c1, LLVMConstInt(e->i8_ty, '9', 0), ""), "");
+    LLVMValueRef dAF = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, c1, LLVMConstInt(e->i8_ty, 'A', 0), ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, c1, LLVMConstInt(e->i8_ty, 'F', 0), ""), "");
+    LLVMValueRef daf = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, c1, LLVMConstInt(e->i8_ty, 'a', 0), ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, c1, LLVMConstInt(e->i8_ty, 'f', 0), ""), "");
+    LLVMValueRef e09 = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, c2, LLVMConstInt(e->i8_ty, '0', 0), ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, c2, LLVMConstInt(e->i8_ty, '9', 0), ""), "");
+    LLVMValueRef eAF = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, c2, LLVMConstInt(e->i8_ty, 'A', 0), ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, c2, LLVMConstInt(e->i8_ty, 'F', 0), ""), "");
+    LLVMValueRef eaf = LLVMBuildAnd(e->builder,
+        LLVMBuildICmp(e->builder, LLVMIntUGE, c2, LLVMConstInt(e->i8_ty, 'a', 0), ""),
+        LLVMBuildICmp(e->builder, LLVMIntULE, c2, LLVMConstInt(e->i8_ty, 'f', 0), ""), "");
+    LLVMValueRef dok = LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, d09, dAF, ""), daf, "");
+    LLVMValueRef eok = LLVMBuildOr(e->builder, LLVMBuildOr(e->builder, e09, eAF, ""), eaf, "");
+    LLVMValueRef bothok = LLVMBuildAnd(e->builder, dok, eok, "");
+    LLVMValueRef hi = LLVMBuildSelect(e->builder, d09,
+        LLVMBuildSub(e->builder, c1, LLVMConstInt(e->i8_ty, 48, 0), ""),
+        LLVMBuildSelect(e->builder, dAF,
+            LLVMBuildSub(e->builder, c1, LLVMConstInt(e->i8_ty, 55, 0), ""),
+            LLVMBuildSub(e->builder, c1, LLVMConstInt(e->i8_ty, 87, 0), ""), ""), "");
+    LLVMValueRef lo = LLVMBuildSelect(e->builder, e09,
+        LLVMBuildSub(e->builder, c2, LLVMConstInt(e->i8_ty, 48, 0), ""),
+        LLVMBuildSelect(e->builder, eAF,
+            LLVMBuildSub(e->builder, c2, LLVMConstInt(e->i8_ty, 55, 0), ""),
+            LLVMBuildSub(e->builder, c2, LLVMConstInt(e->i8_ty, 87, 0), ""), ""), "");
+    LLVMValueRef bytev = LLVMBuildOr(e->builder,
+        LLVMBuildShl(e->builder, hi, LLVMConstInt(e->i8_ty, 4, 0), ""), lo, "");
+    LLVMValueRef ob = LLVMBuildGEP2(e->builder, e->i8_ty, out_ptr, &phi_w2, 1, "");
+    LLVMBuildStore(e->builder, bytev, ob);
+    LLVMValueRef si2 = LLVMBuildAdd(e->builder, phi_i2, LLVMConstInt(i64, 2, 0), "");
+    LLVMValueRef sw2 = LLVMBuildAdd(e->builder, phi_w2, LLVMConstInt(i64, 1, 0), "");
+    LLVMBuildCondBr(e->builder, bothok, scalarloop, ret);
+
+    /* vecloop preds: entry, vecbody. scalarloop preds: vecloop, vecbody,
+       scalarbody. ret preds: entry, scalarloop, scalarbody. */
+    {
+        LLVMValueRef ivals[2] = { z0, ni };
+        LLVMBasicBlockRef iblocks[2] = { entry, vecbody };
+        LLVMAddIncoming(phi_i, ivals, iblocks, 2);
+        LLVMValueRef wvals[2] = { z0, nw };
+        LLVMBasicBlockRef wblocks[2] = { entry, vecbody };
+        LLVMAddIncoming(phi_w, wvals, wblocks, 2);
+        LLVMValueRef i2vals[3] = { phi_i, ni, si2 };
+        LLVMBasicBlockRef i2blocks[3] = { vecloop, vecbody, scalarbody };
+        LLVMAddIncoming(phi_i2, i2vals, i2blocks, 3);
+        LLVMValueRef w2vals[3] = { phi_w, nw, sw2 };
+        LLVMBasicBlockRef w2blocks[3] = { vecloop, vecbody, scalarbody };
+        LLVMAddIncoming(phi_w2, w2vals, w2blocks, 3);
+    }
+    LLVMPositionBuilderAtEnd(e->builder, ret);
+    LLVMValueRef phi_ret = LLVMBuildPhi(e->builder, i64, "wret");
+    {
+        LLVMValueRef rvals[3] = { z0, phi_w2, phi_w2 };
+        LLVMBasicBlockRef rblocks[3] = { entry, scalarloop, scalarbody };
+        LLVMAddIncoming(phi_ret, rvals, rblocks, 3);
+    }
+    LLVMBuildRet(e->builder, phi_ret);
+}
+
 /* ------------------------------------------------------------------ */
 /* wasm32-wasi fmt runtime.                                            */
 /* `sa build-wasm` links only the emitted bitcode, so the sa_fmt_*     */
@@ -2475,6 +2668,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     if (m->wasm_compat) {
         emit_sa_print_bytes(e);
         emit_sa_fmt_wasm_runtime(e);
+        emit_sa_hexdec_simd_wasm(e);
     }
     emit_sys_runtime(e);
 
