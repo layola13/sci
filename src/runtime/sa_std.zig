@@ -5104,6 +5104,105 @@ pub export fn sa_deno_atob(data_ptr: ?[*]const u8, len: u64) u64 {
     return openOwnedBuffer(decoded) catch return 0;
 }
 
+// SIMD hex decoder: native bulk-decode fast path (mirrors the sa_hexdec
+// JS host-codec shim contract). Decodes ASCII hex pairs into bytes at
+// 32 input chars per vector iteration with a scalar tail. Stops at the
+// first invalid char or odd trailing nibble and returns the bytes
+// written so far; clean even-length input of n chars yields exactly
+// n/2. Caller must provide at least n/2 bytes of output.
+fn hexSimdNibbleVal(c: u8) ?u8 {
+    if (c >= '0' and c <= '9') return c - '0';
+    if (c >= 'A' and c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' and c <= 'f') return c - 'a' + 10;
+    return null;
+}
+
+pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64 {
+    const input = constBytes(in_ptr, in_len) catch return 0;
+    const n = input.len;
+    if (n == 0) return 0;
+    const out_p = out_ptr orelse return 0;
+    const out = out_p[0 .. n / 2];
+    const V32 = @Vector(32, u8);
+    const z0: V32 = @splat(@as(u8, '0'));
+    const z9: V32 = @splat(@as(u8, '9'));
+    const zA: V32 = @splat(@as(u8, 'A'));
+    const zF: V32 = @splat(@as(u8, 'F'));
+    const za: V32 = @splat(@as(u8, 'a'));
+    const zf: V32 = @splat(@as(u8, 'f'));
+    const ten: V32 = @splat(@as(u8, 10));
+    const one: V32 = @splat(@as(u8, 1));
+    const zero: V32 = @splat(@as(u8, 0));
+    const four: @Vector(16, u8) = @splat(@as(u8, 4));
+    const even_idx: [16]i32 = .{ 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30 };
+    const odd_idx: [16]i32 = .{ 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31 };
+    var i: usize = 0;
+    var w: usize = 0;
+    while (i + 32 <= n) {
+        const chunk: V32 = input[i..][0..32].*;
+        const in09 = @select(u8, chunk >= z0, @select(u8, chunk <= z9, one, zero), zero);
+        const inAF = @select(u8, chunk >= zA, @select(u8, chunk <= zF, one, zero), zero);
+        const inaf = @select(u8, chunk >= za, @select(u8, chunk <= zf, one, zero), zero);
+        const valid = in09 | inAF | inaf;
+        if (@reduce(.Min, valid) == 0) break;
+        const nib = in09 * (chunk -% z0) + inAF * (chunk -% (zA -% ten)) + inaf * (chunk -% (za -% ten));
+        const evens = @shuffle(u8, nib, @as(V32, undefined), even_idx);
+        const odds = @shuffle(u8, nib, @as(V32, undefined), odd_idx);
+        const joined: @Vector(16, u8) = (evens << four) | odds;
+        out[w..][0..16].* = joined;
+        i += 32;
+        w += 16;
+    }
+    while (i + 2 <= n) {
+        const hi = hexSimdNibbleVal(input[i]) orelse break;
+        const lo = hexSimdNibbleVal(input[i + 1]) orelse break;
+        out[w] = (hi << 4) | lo;
+        i += 2;
+        w += 1;
+    }
+    return @intCast(w);
+}
+
+test "sa_hexdec_simd clean mixed-case roundtrips" {
+    const hex = "0123456789abcdefABCDEF";
+    var out: [11]u8 = undefined;
+    const w = sa_hexdec_simd(hex.ptr, hex.len, &out);
+    try std.testing.expectEqual(@as(u64, 11), w);
+    const wn: usize = @intCast(w);
+    try std.testing.expectEqualSlices(u8, &.{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xAB, 0xCD, 0xEF }, out[0..wn]);
+}
+
+test "sa_hexdec_simd vector block then scalar tail" {
+    // 64 clean chars exercise two vector iterations; 66 exercise tail.
+    const hex64 = "0123456789abcdef" ** 4;
+    var out64: [32]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 32), sa_hexdec_simd(hex64.ptr, hex64.len, &out64));
+    try std.testing.expectEqual(@as(u8, 0x01), out64[0]);
+    try std.testing.expectEqual(@as(u8, 0xef), out64[31]);
+    const hex66 = hex64 ++ "AB";
+    var out66: [33]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 33), sa_hexdec_simd(hex66.ptr, hex66.len, &out66));
+    try std.testing.expectEqual(@as(u8, 0xAB), out66[32]);
+}
+
+test "sa_hexdec_simd stops at invalid char and odd tail" {
+    const bad = "00zz00";
+    var out_bad: [3]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 1), sa_hexdec_simd(bad.ptr, bad.len, &out_bad));
+    try std.testing.expectEqual(@as(u8, 0x00), out_bad[0]);
+    // Invalid inside the second vector block falls back to scalar stop.
+    const bad64 = "0123456789abcdef" ** 2 ++ "zz" ++ "0123456789abcdef";
+    var out_bad64: [34]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 16), sa_hexdec_simd(bad64.ptr, bad64.len, &out_bad64));
+    const odd = "ABC";
+    var out_odd: [2]u8 = undefined;
+    try std.testing.expectEqual(@as(u64, 1), sa_hexdec_simd(odd.ptr, odd.len, &out_odd));
+    try std.testing.expectEqual(@as(u8, 0xAB), out_odd[0]);
+    try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(null, 10, &out_odd));
+    try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(odd.ptr, odd.len, null));
+    try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(odd.ptr, 0, &out_odd));
+}
+
 pub export fn sa_deno_text_encode(data_ptr: ?[*]const u8, len: u64) u64 {
     const bytes = constBytes(data_ptr, len) catch return 0;
     const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;

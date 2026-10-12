@@ -184,6 +184,7 @@ uint64_t sa_deno_random_uuid(void);
 uint64_t sa_deno_args_json(void);
 uint64_t sa_deno_btoa(const uint8_t *data, uint64_t len);
 uint64_t sa_deno_atob(const uint8_t *data_base64, uint64_t data_base64_len);
+uint64_t sa_hexdec_simd(const uint8_t *data_hex, uint64_t hex_len, uint8_t *out);
 uint64_t sa_deno_text_encode(const uint8_t *data, uint64_t len);
 uint64_t sa_deno_text_decode(const uint8_t *data, uint64_t len);
 uint64_t sa_deno_chat_sse_to_responses(const uint8_t *chat_body, uint64_t chat_body_len, const uint8_t *req_body, uint64_t req_body_len);

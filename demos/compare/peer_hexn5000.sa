@@ -1,0 +1,134 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_hexdec_simd(in_ptr: ptr, in_len: u64, out_ptr: ptr) -> u64
+
+@const HEX_OK = utf8:"HEXN OK\n"
+@const HEX_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    in = alloc 65536
+    out = alloc 32768
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u32
+    rep_slot = stack_alloc 8
+    store rep_slot+0, 0 as u64
+    acc_slot = stack_alloc 8
+    store acc_slot+0, 0 as u64
+    jmp L_FILL_COND
+L_FILL_COND:
+    i = load i_slot+0 as u32
+    more = ult i, 65536
+    br more -> L_FILL_BODY, L_FILL_END
+L_FILL_BODY:
+    k = and i, 15
+    lt = ult k, 10
+    br lt -> L_DIGIT, L_ALPHA
+L_DIGIT:
+    c = add k, 48
+    !k
+    !lt
+    !i
+    !more
+    jmp L_STORE
+L_ALPHA:
+    c = add k, 87
+    !k
+    !lt
+    !i
+    !more
+    jmp L_STORE
+L_STORE:
+    slot = ptr_add in, i
+    store slot+0, c as u8
+    next = add i, 1
+    store i_slot+0, next as u32
+    !slot
+    !next
+    !c
+    jmp L_FILL_COND
+L_FILL_END:
+    !i
+    !more
+    jmp L_REP_COND
+L_REP_COND:
+    rep = load rep_slot+0 as u64
+    more3 = ult rep, 5000
+    br more3 -> L_REP_BODY, L_REP_END
+L_REP_BODY:
+    !rep
+    !more3
+    n = call @sa_hexdec_simd(&in, 65536, &out)
+    oklen = eq n, 32768
+    br oklen -> L_SPOTS, L_DFAIL
+L_DFAIL:
+    !n
+    !oklen
+    !in
+    !out
+    call @sa_print_bytes(&HEX_FAIL, 5)
+    return 1
+L_SPOTS:
+    !oklen
+    b0 = load out+0 as u8
+    b1 = load out+1 as u8
+    b2 = load out+2 as u8
+    b3 = load out+3 as u8
+    e0 = load out+32764 as u8
+    e1 = load out+32765 as u8
+    e2 = load out+32766 as u8
+    e3 = load out+32767 as u8
+    acc = load acc_slot+0 as u64
+    a1 = add acc, b0
+    a2 = add a1, b1
+    a3 = add a2, b2
+    a4 = add a3, b3
+    a5 = add a4, e0
+    a6 = add a5, e1
+    a7 = add a6, e2
+    a8 = add a7, e3
+    store acc_slot+0, a8 as u64
+    rep3 = load rep_slot+0 as u64
+    rep4 = add rep3, 1
+    store rep_slot+0, rep4 as u64
+    !n
+    !b0
+    !b1
+    !b2
+    !b3
+    !e0
+    !e1
+    !e2
+    !e3
+    !acc
+    !a1
+    !a2
+    !a3
+    !a4
+    !a5
+    !a6
+    !a7
+    !a8
+    !rep3
+    !rep4
+    jmp L_REP_COND
+L_REP_END:
+    !rep
+    !more3
+    total = load acc_slot+0 as u64
+    ok = eq total, 4800000
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !total
+    !ok
+    !in
+    !out
+    call @sa_print_bytes(&HEX_OK, 8)
+    return 0
+L_FAIL:
+    !total
+    !ok
+    !in
+    !out
+    call @sa_print_bytes(&HEX_FAIL, 5)
+    return 1
