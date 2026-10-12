@@ -3247,23 +3247,34 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             );
             return;
         }
-        // Fused HTML escape: single call, tight branchy loop. No host
+        // Fused HTML escape: single call, table-driven loop. No host
         // intrinsic exists on both runtimes (Bun.escapeHTML is bun-only),
         // so this is a raw JS loop — still ~100x fewer dispatches than the
-        // per-element SA form (6 br + stores per byte).
+        // per-element SA form (6 br + stores per byte). The common case
+        // (plain byte, ~94%) is one table load + one branch; only the five
+        // metachars take the sequence-copy path. Tables are built once per
+        // module and cached on the function object; bytes written are
+        // identical to the old branch chain by construction.
         if (std.mem.eql(u8, fsig.name, "sa_esc_html")) {
             try writer.writeAll(
                 \\function sa_esc_html(in_ptr, in_len, out_ptr) {
                 \\  const a = __sa_addr(in_ptr), n = __sa_num(in_len), o = __sa_addr(out_ptr), u = __sa_u8;
+                \\  let T = sa_esc_html.T;
+                \\  if (!T) {
+                \\    const L = new Uint8Array(256).fill(1), S = new Uint8Array(1536);
+                \\    const put = (c, s) => { L[c] = s.length; for (let k = 0; k < s.length; k++) S[c * 6 + k] = s.charCodeAt(k); };
+                \\    put(60, "&lt;"); put(62, "&gt;"); put(38, "&amp;"); put(34, "&quot;"); put(39, "&#39;");
+                \\    T = sa_esc_html.T = [L, S];
+                \\  }
+                \\  const L = T[0], S = T[1];
                 \\  let w = o;
                 \\  for (let i = 0; i < n; i++) {
-                \\    const c = u[a + i];
-                \\    if (c === 60) { u[w] = 38; u[w + 1] = 108; u[w + 2] = 116; u[w + 3] = 59; w += 4; }
-                \\    else if (c === 62) { u[w] = 38; u[w + 1] = 103; u[w + 2] = 116; u[w + 3] = 59; w += 4; }
-                \\    else if (c === 38) { u[w] = 38; u[w + 1] = 97; u[w + 2] = 109; u[w + 3] = 112; u[w + 4] = 59; w += 5; }
-                \\    else if (c === 34) { u[w] = 38; u[w + 1] = 113; u[w + 2] = 117; u[w + 3] = 111; u[w + 4] = 116; u[w + 5] = 59; w += 6; }
-                \\    else if (c === 39) { u[w] = 38; u[w + 1] = 35; u[w + 2] = 51; u[w + 3] = 57; u[w + 4] = 59; w += 5; }
-                \\    else { u[w] = c; w += 1; }
+                \\    const c = u[a + i], l = L[c];
+                \\    if (l === 1) { u[w++] = c; continue; }
+                \\    const t = c * 6;
+                \\    u[w] = S[t]; u[w + 1] = S[t + 1]; u[w + 2] = S[t + 2]; u[w + 3] = S[t + 3];
+                \\    if (l > 4) { u[w + 4] = S[t + 4]; if (l > 5) u[w + 5] = S[t + 5]; }
+                \\    w += l;
                 \\  }
                 \\  return w - o;
                 \\}

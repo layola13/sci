@@ -395,6 +395,7 @@
     read-write 反超 bun 14x、escape 反超 2x；find 1.5x、b64 2.5x、hex 3.2x。
   - **方案**：显式 SIMD intrinsic 只覆盖向量化死角（查表＋分支 codec），先 native 后 wasm；JS 无 SIMD，按现有融合路线维持。
   - **验收**：native codec 全进 1.5x 内；wasm 开 SIMD128 后接近 native-release-fast。
+  - **进展（2026-10-12 escape 标量侧缓解，已落地）**：`sa_esc_html` 改表驱动（长度表 fast-path＋序列 rare-path，`emit_js.zig`，逐字节同构）；peer 双点斜率 node 持平（3.09→~3.1ns/B 噪声内）、bun 2.37→1.68（1.4x↑）。分支 codec 真 parity 仍需本项显式 SIMD，保持未勾选。
 - [ ] **2. 单遍融合 hex 解码器（消除链税）**
   - **问题**：`sa_hexdec` 走 TextDecoder＋parse＋拷出三遍，64KB 同尺寸仍输 3.7x（b64 同理 3x）；三档尺寸测 flatline，证实是 throughput 税非固定成本。
   - **方案**：单遍融合解码（查表＋存回一遍过），干掉中间 string 与二次拷贝。
