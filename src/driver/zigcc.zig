@@ -146,6 +146,7 @@ pub fn argvForWasm(
     target: Target,
     optimization: Optimization,
     debug: bool,
+    sa_std_archive_path: ?[]const u8,
 ) !Argv {
     var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
     errdefer argv.deinit();
@@ -172,6 +173,9 @@ pub fn argvForWasm(
     // positional argv tests are unaffected.
     try argv.items.append("-mcpu=generic+simd128");
     try argv.items.append(artifact_path);
+    if (sa_std_archive_path) |archive| {
+        try argv.items.append(archive);
+    }
     try argv.items.append("-o");
     try argv.items.append(out_path);
     return argv;
@@ -329,9 +333,10 @@ pub fn compileWasm(
     target: Target,
     optimization: Optimization,
     debug: bool,
+    sa_std_archive_path: ?[]const u8,
     stderr: anytype,
 ) !void {
-    var argv = try argvForWasm(allocator, artifact_path, out_path, target, optimization, debug);
+    var argv = try argvForWasm(allocator, artifact_path, out_path, target, optimization, debug, sa_std_archive_path);
     defer argv.deinit();
     const argv_slice = argv.slice();
     const term = runProcessFast(allocator, argv_slice) catch |err| {
@@ -374,10 +379,13 @@ test "argv helpers choose the requested optimization" {
         try std.testing.expect(!std.mem.eql(u8, arg, "-Wl,--strip-debug"));
     }
 
-    var wasm_small = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false);
+    var wasm_small = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false, null);
     defer wasm_small.deinit();
     try std.testing.expectEqualStrings("-O1", wasm_small.slice()[4]);
-    var wasm_fast = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false);
+    var wasm_fast = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false, null);
     defer wasm_fast.deinit();
     try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
+    var wasm_std = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_fast, false, "/repo/libsa_std.a");
+    defer wasm_std.deinit();
+    try std.testing.expectEqualStrings("/repo/libsa_std.a", wasm_std.slice()[wasm_std.slice().len - 3]);
 }

@@ -7371,9 +7371,23 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
+            const std_archive_path: ?[]const u8 = saStdArchivePathForTarget(allocator, target.triple) catch |err| blk: {
+                if (err == error.ArchiveNotFoundForTarget) {
+                    break :blk null;
+                }
+                return err;
+            };
+            defer if (std_archive_path) |p| allocator.free(p);
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
+            driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, std_archive_path, stderr) catch |err| switch (err) {
+                error.ChildProcessFailed => {
+                    if (std_archive_path == null) {
+                        try stderr.print("hint: no sa_std archive for target '{s}' was linked. Build it with:\n", .{target.triple});
+                        try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
+                        try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
+                    }
+                    return 1;
+                },
                 else => return err,
             };
             const link_ns = if (link_start) |start| elapsedNs(start) else null;

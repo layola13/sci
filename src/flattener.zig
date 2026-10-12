@@ -4880,9 +4880,10 @@ fn flattenInternal(
                 };
                 if (is_func_decl) allocator.free(loc.file);
             }
-            if (inst.atomic_expected_text) |text| allocator.free(text);
-            if (inst.atomic_new_text) |text| allocator.free(text);
-            for (inst.native_reg_names) |name| allocator.free(name);
+            // NOTE: atomic_expected/new_text alias owned_text entries (see
+            // ownFoldedText) and native_reg_names items are slices into the
+            // owned native_copy; both are freed via owned_text. Freeing them
+            // here double-frees on the error path.
             if (inst.native_reg_names.len > 0) allocator.free(inst.native_reg_names);
         }
         instructions.deinit();

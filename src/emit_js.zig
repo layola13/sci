@@ -496,6 +496,8 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\const __sa_slab_by_class = { 8: [], 16: [], 24: [], 32: [] }; // per-class slab chunks
         \\const __sa_slab_hint = { 8: null, 16: null, 24: null, 32: null }; // slab known to have a free slot
         \\function __sa_slab_new(sc) {
+        \\  if (!__sa_slab_by_class[sc]) __sa_slab_by_class[sc] = [];
+        \\  if (!(sc > 0)) __sa_trap("bad slab class");
         \\  __sa_brk = (__sa_brk + (__sa_SLAB - 1)) & ~(__sa_SLAB - 1);
         \\  const base = __sa_brk;
         \\  __sa_brk += __sa_SLAB;
@@ -519,6 +521,10 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  return ptr | 0;
         \\}
         \\function __sa_slab_alloc(sc) {
+        \\  sc = __sa_align((__sa_num(sc) | 0), 8);
+        \\  if (sc <= 0) sc = 8;
+        \\  if (sc > __sa_SMALL_MAX) __sa_trap("bad slab class " + sc);
+        \\  if (!__sa_slab_by_class[sc]) { __sa_slab_by_class[sc] = []; __sa_slab_hint[sc] = null; }
         \\  let slab = __sa_slab_hint[sc];
         \\  if (!slab || (slab.top === 0 && slab.next >= slab.count)) {
         \\    const list = __sa_slab_by_class[sc];
@@ -559,6 +565,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_align(n, a) { return (n + (a - 1)) & ~(a - 1); }
         \\function __sa_alloc(size) {
         \\  size = __sa_align((__sa_num(size) | 0), 8);
+        \\  if (!(size > 0)) size = 8; // malloc(0)-style: never hand out class 0 (was: slab list undefined -> TypeError length)
         \\  if (size <= __sa_SMALL_MAX) return __sa_slab_alloc(size); // headerless, no live Set
         \\  const bucket = __sa_fl[size];
         \\  if (bucket && bucket.length) { const ptr = bucket.pop(); __sa_u8.fill(0, ptr, ptr + size); __sa_live.add(ptr | 0); return ptr | 0; }
@@ -597,6 +604,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  // both Set add/delete on the hot path. Returned blocks are
         \\  // recycled on frame pop.
         \\  size = __sa_align((__sa_num(size) | 0), 8);
+        \\  if (!(size > 0)) size = 8;
         \\  if (!__sa_fstack.length) return __sa_alloc(size);
         \\  let ptr;
         \\  if (size <= __sa_SMALL_MAX) { ptr = __sa_slab_alloc(size); }
