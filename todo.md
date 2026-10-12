@@ -400,10 +400,12 @@
   - **方案**：单遍融合解码（查表＋存回一遍过），干掉中间 string 与二次拷贝。
   - **验收**：hex-64KB 进 1.5x 内。
   - **更新（2026-10-11 实测否决纯标量路线）**：已试纯标量单遍循环（查表＋位或＋存回），64KB 下 node 4.6ns/B、bun 3.3ns/B，**反不如 host 链（3.6/1.0ns/B）**——标量逐字节 4 次边界检查打不过 C++ codec；已回滚。此条仅当 SIMD 落地（见第 1 项）时才有意义，在此之前冻结。
+  - **更新（2026-10-12 部分解冻：host 链内两遍 in-place，已落地）**：`sa_hexdec`/`sa_b64dec` 改 `latin1 快照＋Buffer.write 原地解码`（`emit_js.zig`，短输出 trap 防静默截断）；peer 双点斜率 hex node 0.90→0.72ns/B（1.25x，与 node 原题持平）、bun 0.26→0.22（1.2x，余 ~1.5-2x），b64 node 0.51→0.21（2.4x）、bun 0.36→0.25（1.4x，余 1.7x）。验收 `hex-64KB 进 1.5x 内`在 bun 侧仍差一口气（node 侧已达），故本项保持未勾选；纯标量路线继续冻结。
 - [ ] **3. 前端字面量按语境定型（全后端受益）**
   - **问题**：无类型整数字面量一律 u64（BigInt），污染所有 ≤32 位循环；当前靠发射器 magnitude 猜＋运行时动态提升兜底（337/347/350 教训）。
   - **方案**：前端按语境把 u32 上下文的字面量定型为原生 Number；i64/u64 保持 BigInt；native/wasm 联测。
   - **验收**：非融合纯 SA 循环普遍再快数倍；`zig build js-matrix`＋`wasm-matrix` 全绿。
+  - **验证（2026-10-12 本机实测，`sci/demos/compare/peer_rw_u64.sa` / `peer_rw_u32.sa`，校验和 2611200000 双端 PEER OK）**：同 workload 只换累加/计数槽域（u64→u32），node 3.86s→1.35s（2.9x），bun 12.2s→0.44s（28x）；u32 版发射 `__sa_load_u32`＋`__sa_ult32` FAST 全 Number 单态。结论：JS 侧字面量 magnitude 猜＋ult32 FAST 已兑现本条主要收益；u64 槽 `load_i64` 返 BigInt 属显式域语义，自动窄化不 sound 不做；残余收窄为 native/wasm 字面量语境定型。
 - [x] **4. 跟进 wasmtime 反超 native 之谜（已闭环）**
   - **问题**：`sa→wasm`（wasmtime）在 read-write（126ms vs 150ms）、indexOf（69.9ms vs 94.5ms）上超过 LLVM 驱动的 `sa→native`。
   - **结论（2026-10-11 实测）**：默认 `sa build` 优化等级保守是主因，不是 wasmtime 更强。

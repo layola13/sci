@@ -3213,14 +3213,22 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         // Host-codec shims: decode via the host Buffer (same intrinsic the
         // bun benches call). Both node and bun provide globalThis.Buffer;
         // without it these trap instead of silently falling back.
+        // Two-pass in-place form: latin1 snapshot of the input range (one
+        // C++ pass, no UTF-8 validation) + Buffer.write decode directly
+        // into the output range (second C++ pass). No temp Buffer alloc,
+        // no copy-back, no TextDecoder. For clean ASCII input the bytes
+        // and return value are identical to Buffer.from(...).length.
+        // Contract is strict: a short decode (garbage input or an
+        // undersized out range) traps instead of returning short, so a
+        // caller bug can never become silent data truncation.
         if (std.mem.eql(u8, fsig.name, "sa_b64dec")) {
             try writer.writeAll(
                 \\function sa_b64dec(in_ptr, in_len, out_ptr) {
-                \\  if (!globalThis.Buffer) __sa_trap("no host Buffer for base64");
+                \\  if (!__sa_buf) __sa_trap("no host Buffer for base64");
                 \\  const a = __sa_addr(in_ptr), n = __sa_num(in_len), o = __sa_addr(out_ptr);
-                \\  const b = globalThis.Buffer.from(new globalThis.TextDecoder().decode(__sa_u8.subarray(a, a + n)), "base64");
-                \\  __sa_u8.set(b, o);
-                \\  return b.length;
+                \\  const w = __sa_buf.write(__sa_buf.toString("latin1", a, a + n), o, "base64");
+                \\  if (w * 4 < n - 4) __sa_trap("base64 decode short output");
+                \\  return w;
                 \\}
                 \\
             );
@@ -3229,11 +3237,11 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         if (std.mem.eql(u8, fsig.name, "sa_hexdec")) {
             try writer.writeAll(
                 \\function sa_hexdec(in_ptr, in_len, out_ptr) {
-                \\  if (!globalThis.Buffer) __sa_trap("no host Buffer for hex");
+                \\  if (!__sa_buf) __sa_trap("no host Buffer for hex");
                 \\  const a = __sa_addr(in_ptr), n = __sa_num(in_len), o = __sa_addr(out_ptr);
-                \\  const b = globalThis.Buffer.from(new globalThis.TextDecoder().decode(__sa_u8.subarray(a, a + n)), "hex");
-                \\  __sa_u8.set(b, o);
-                \\  return b.length;
+                \\  const w = __sa_buf.write(__sa_buf.toString("latin1", a, a + n), o, "hex");
+                \\  if ((w << 1) < (n & ~1)) __sa_trap("hex decode short output");
+                \\  return w;
                 \\}
                 \\
             );

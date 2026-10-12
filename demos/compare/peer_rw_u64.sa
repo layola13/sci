@@ -1,0 +1,76 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"PEER OK\n"
+@const RESULT_FAIL = utf8:"FAIL\n"
+
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 4096
+    rep_slot = stack_alloc 8
+    store rep_slot+0, 0 as u64
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    acc_slot = stack_alloc 8
+    store acc_slot+0, 0 as u64
+    jmp L_REP_COND
+L_REP_COND:
+    rep = load rep_slot+0 as u64
+    more = ult rep, 5000
+    br more -> L_REP_BODY, L_REP_END
+L_REP_BODY:
+    !rep
+    !more
+    jmp L_IN_COND
+L_IN_COND:
+    i = load i_slot+0 as u64
+    more2 = ult i, 4096
+    br more2 -> L_IN_BODY, L_IN_END
+L_IN_BODY:
+    t1 = mul i, 37
+    t2 = add t1, 11
+    v = and t2, 255
+    slot = ptr_add buf, i
+    store slot+0, v as u8
+    acc = load acc_slot+0 as u64
+    acc2 = add acc, v
+    store acc_slot+0, acc2 as u64
+    next = add i, 1
+    store i_slot+0, next as u64
+    !t1
+    !t2
+    !v
+    !slot
+    !acc
+    !acc2
+    !next
+    !i
+    !more2
+    jmp L_IN_COND
+L_IN_END:
+    !i
+    !more2
+    store i_slot+0, 0 as u64
+    rep3 = load rep_slot+0 as u64
+    rep4 = add rep3, 1
+    store rep_slot+0, rep4 as u64
+    !rep3
+    !rep4
+    jmp L_REP_COND
+L_REP_END:
+    !rep
+    !more
+    total = load acc_slot+0 as u64
+    ok = eq total, 2611200000
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !total
+    !ok
+    !buf
+    call @sa_print_bytes(&RESULT_OK, 8)
+    return 0
+L_FAIL:
+    !total
+    !ok
+    !buf
+    call @sa_print_bytes(&RESULT_FAIL, 5)
+    return 1
