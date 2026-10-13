@@ -42,7 +42,7 @@ pub const WS_OPCODE_BINARY: u32 = 2;
 pub const WS_OPCODE_CLOSE: u32 = 8;
 
 const Transport = union(enum) {
-    tcp: std.net.Stream,
+    tcp: std.Io.net.Stream,
     tls: u64, // sa_tls_client handle
 };
 
@@ -71,11 +71,46 @@ fn handleFromU64(handle: u64) *WsClientHandle {
 
 // ---- transport ---------------------------------------------------------------
 
+// NOTE(Zig 0.17): `std.Io.net.Stream` takes explicit `Io` and vectored
+// buffers; these helpers preserve the old single-buffer call shapes.
+fn tcpRead(stream: std.Io.net.Stream, buf: []u8) WsError!usize {
+    std.debug.assert(buf.len != 0);
+    // NOTE(Zig 0.17): `Stream.read` is unusable with the Threaded backend, so
+    // read the blocking socket fd directly (same single-short-read shape as
+    // the old `Stream.read`).
+    return std.posix.read(stream.socket.handle, buf) catch return WsError.EndOfStream;
+}
+
+fn tcpWriteAll(stream: std.Io.net.Stream, bytes: []const u8) WsError!void {
+    var wbuf: [8192]u8 = undefined;
+    var w = stream.writer(sio.io(), &wbuf);
+    w.interface.writeAll(bytes) catch return WsError.EndOfStream;
+    w.interface.flush() catch return WsError.EndOfStream;
+}
+
+fn boundPort(listener: *const std.Io.net.Server) u16 {
+    return switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
+}
+
+// Same dial policy as sa_tls_client (literals direct, hostnames via
+// Happy-Eyeballs HostName.connect); see dialHost there.
+fn dialTcp(host: []const u8, port: u16) WsError!std.Io.net.Stream {
+    if (std.Io.net.IpAddress.parse(host, port)) |addr| {
+        var a = addr;
+        return a.connect(sio.io(), .{ .mode = .stream }) catch return WsError.EndOfStream;
+    } else |_| {}
+    const hn = std.Io.net.HostName.init(host) catch return WsError.EndOfStream;
+    return hn.connect(sio.io(), port, .{ .mode = .stream }) catch return WsError.EndOfStream;
+}
+
 fn transportRead(t: Transport, buf: []u8) WsError!usize {
     std.debug.assert(buf.len != 0);
     switch (t) {
         .tcp => |stream| {
-            return stream.read(buf) catch return WsError.EndOfStream;
+            return try tcpRead(stream, buf);
         },
         .tls => |th| {
             var n: u64 = 0;
@@ -87,25 +122,25 @@ fn transportRead(t: Transport, buf: []u8) WsError!usize {
 }
 
 fn transportWriteAll(t: Transport, buf: []const u8) WsError!void {
-    var off: usize = 0;
-    while (off < buf.len) {
-        const n: usize = switch (t) {
-            .tcp => |stream| stream.write(buf[off..]) catch return WsError.EndOfStream,
-            .tls => |th| blk: {
+    switch (t) {
+        .tcp => |stream| try tcpWriteAll(stream, buf),
+        .tls => |th| {
+            var off: usize = 0;
+            while (off < buf.len) {
                 var w: u64 = 0;
                 const rc = tls_client.sa_std_tls_client_write(th, buf[off..].ptr, @as(u64, @intCast(buf.len - off)), &w);
                 if (rc != SA_STD_OK) return WsError.EndOfStream;
-                break :blk @as(usize, @intCast(w));
-            },
-        };
-        if (n == 0) return WsError.EndOfStream;
-        off += n;
+                const n: usize = @as(usize, @intCast(w));
+                if (n == 0) return WsError.EndOfStream;
+                off += n;
+            }
+        },
     }
 }
 
 fn transportClose(t: Transport) void {
     switch (t) {
-        .tcp => |stream| stream.close(),
+        .tcp => |stream| stream.close(sio.io()),
         .tls => |th| _ = tls_client.sa_std_tls_client_close(th),
     }
 }
@@ -131,7 +166,7 @@ fn doHandshake(h: *WsClientHandle, parts: primitives.UrlParts) WsError!void {
     const alloc = std.heap.page_allocator;
 
     var key_raw: [16]u8 = undefined;
-    std.crypto.random.bytes(&key_raw);
+    sio.io().random(&key_raw);
     var key_b64: [24]u8 = undefined;
     _ = std.base64.standard.Encoder.encode(&key_b64, &key_raw);
 
@@ -200,7 +235,7 @@ fn doHandshake(h: *WsClientHandle, parts: primitives.UrlParts) WsError!void {
 fn sendFrame(h: *WsClientHandle, opcode: u8, payload: []const u8) WsError!void {
     if (h.peer_closed) return WsError.Closed;
     var mask: [4]u8 = undefined;
-    std.crypto.random.bytes(&mask);
+    sio.io().random(&mask);
     const alloc = std.heap.page_allocator;
     // Max header is 14 bytes (1 + 8 length + 4 mask); provably enough.
     const out = alloc.alloc(u8, 14 + payload.len) catch return WsError.OutOfMemory;
@@ -287,7 +322,7 @@ pub export fn sa_std_ws_client_connect(url_ptr: ?[*]const u8, url_len: u64, out_
     const h = alloc.create(WsClientHandle) catch return SA_STD_ERR_NO_MEMORY;
     h.* = .{
         .transport = undefined,
-        .recv_buf = .{},
+        .recv_buf = .empty,
         .host = alloc.dupe(u8, parts.host) catch {
             alloc.destroy(h);
             return SA_STD_ERR_NO_MEMORY;
@@ -309,7 +344,7 @@ pub export fn sa_std_ws_client_connect(url_ptr: ?[*]const u8, url_len: u64, out_
         }
         h.transport = .{ .tls = th };
     } else {
-        const stream = std.net.tcpConnectToHost(alloc, parts.host, parts.port) catch {
+        const stream = dialTcp(parts.host, parts.port) catch {
             alloc.free(h.host);
             h.recv_buf.deinit(alloc);
             alloc.destroy(h);
@@ -368,7 +403,7 @@ pub export fn sa_std_ws_client_ping(handle: u64, buf: ?[*]const u8, len: u64) i3
 
 fn recvImpl(h: *WsClientHandle, opcode_slot: *u32, buf_slot: *u64) WsError!void {
     const alloc = std.heap.page_allocator;
-    var msg = std.ArrayListUnmanaged(u8){};
+    var msg = std.ArrayListUnmanaged(u8).empty;
     defer msg.deinit(alloc);
     var msg_opcode: u8 = 0;
     var in_fragment = false;
@@ -466,7 +501,7 @@ pub export fn sa_std_ws_client_status_json(out_handle: ?*u64) i32 {
 // ---- buffer handle registry (same shape as sa_tls_client.zig) --------------------
 
 var string_registry_mutex = std.Io.Mutex.init;
-var string_registry = std.ArrayListUnmanaged(?[]u8){};
+var string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 fn registerBuffer(bytes: []u8) WsError!u64 {
     string_registry_mutex.lockUncancelable(sio.io());
@@ -597,16 +632,16 @@ test "status json + buffer trio round-trips" {
 // it verifies. Deterministic, no sleeps.
 
 const SrvScript = struct {
-    listener: std.net.Server,
+    listener: std.Io.net.Server,
     err: *?anyerror,
 };
 
-fn srvReadFrame(stream: std.net.Stream, fbuf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator) !struct { opcode: u8, payload: []u8 } {
+fn srvReadFrame(stream: std.Io.net.Stream, fbuf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator) !struct { opcode: u8, payload: []u8 } {
     var tmp: [8192]u8 = undefined;
     while (true) {
         const fr = primitives.parseWsFrame(fbuf.items) catch |e| {
             if (e == error.Incomplete) {
-                const n = try stream.read(&tmp);
+                const n = try tcpRead(stream, tmp[0..]);
                 if (n == 0) return error.Eof;
                 try fbuf.appendSlice(alloc, tmp[0..n]);
                 continue;
@@ -623,28 +658,27 @@ fn srvReadFrame(stream: std.net.Stream, fbuf: *std.ArrayListUnmanaged(u8), alloc
     }
 }
 
-fn srvSendFrame(stream: std.net.Stream, opcode: u8, payload: []const u8, alloc: std.mem.Allocator) !void {
+fn srvSendFrame(stream: std.Io.net.Stream, opcode: u8, payload: []const u8, alloc: std.mem.Allocator) !void {
     // Servers MUST NOT mask.
     const out = try alloc.alloc(u8, 14 + payload.len);
     defer alloc.free(out);
     const n = try primitives.buildWsFrame(opcode, true, payload, null, out);
-    try stream.writeAll(out[0..n]);
+    try tcpWriteAll(stream, out[0..n]);
 }
 
-fn wsScriptedServer(listener: *std.net.Server) !void {
-    defer listener.deinit();
+fn wsScriptedServer(listener: *std.Io.net.Server) !void {
+    defer listener.deinit(sio.io());
     const alloc = testing.allocator;
-    var conn = try listener.accept();
-    defer conn.stream.close();
-    const stream = conn.stream;
+    var stream = try listener.accept(sio.io());
+    defer stream.close(sio.io());
 
     // --- HTTP Upgrade ---
-    var req = std.ArrayListUnmanaged(u8){};
+    var req = std.ArrayListUnmanaged(u8).empty;
     defer req.deinit(alloc);
     var tmp: [4096]u8 = undefined;
     while (std.mem.indexOf(u8, req.items, "\r\n\r\n") == null) {
         if (req.items.len > 32768) return error.ReqTooLarge;
-        const n = try stream.read(&tmp);
+        const n = try tcpRead(stream, tmp[0..]);
         if (n == 0) return error.Eof;
         try req.appendSlice(alloc, tmp[0..n]);
     }
@@ -660,10 +694,10 @@ fn wsScriptedServer(listener: *std.net.Server) !void {
     const accept = try primitives.websocketAccept(key orelse return error.NoKey);
     var resp: [256]u8 = undefined;
     const resp_s = try std.fmt.bufPrint(&resp, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {s}\r\n\r\n", .{accept});
-    try stream.writeAll(resp_s);
+    try tcpWriteAll(stream, resp_s);
 
     // --- scripted frame exchange ---
-    var fbuf = std.ArrayListUnmanaged(u8){};
+    var fbuf = std.ArrayListUnmanaged(u8).empty;
     defer fbuf.deinit(alloc);
 
     // 1. echo a text message
@@ -760,9 +794,9 @@ fn runClientScript(url: []const u8) !void {
 }
 
 test "loopback ws:// echo + server ping/pong + close handshake" {
-    const addr = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try addr.listen(.{ .reuse_address = true });
-    const port = listener.listen_address.getPort();
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try addr.listen(sio.io(), .{ .reuse_address = true });
+    const port = boundPort(&listener);
 
     var server_err: ?anyerror = null;
     const thread = try std.Thread.spawn(.{}, wsServerMain, .{SrvScript{ .listener = listener, .err = &server_err }});
@@ -776,9 +810,9 @@ test "loopback ws:// echo + server ping/pong + close handshake" {
 }
 
 test "loopback ws:// over IPv6 [::1]" {
-    const addr = try std.net.Address.parseIp6("::1", 0);
-    var listener = try addr.listen(.{ .reuse_address = true });
-    const port = listener.listen_address.getPort();
+    const addr = try std.Io.net.IpAddress.parseIp6("::1", 0);
+    var listener = try addr.listen(sio.io(), .{ .reuse_address = true });
+    const port = boundPort(&listener);
 
     var server_err: ?anyerror = null;
     const thread = try std.Thread.spawn(.{}, wsServerMain, .{SrvScript{ .listener = listener, .err = &server_err }});
@@ -795,10 +829,10 @@ test "loopback ws:// over IPv6 [::1]" {
 
 test "connect to a closed port fails cleanly" {
     // Grab a port, close it, then connect: expect IO error, handle stays 0.
-    const addr = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try addr.listen(.{});
-    const port = listener.listen_address.getPort();
-    listener.deinit();
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try addr.listen(sio.io(), .{});
+    const port = boundPort(&listener);
+    listener.deinit(sio.io());
 
     const url = try std.fmt.allocPrint(testing.allocator, "ws://127.0.0.1:{d}/", .{port});
     defer testing.allocator.free(url);
@@ -810,18 +844,18 @@ test "connect to a closed port fails cleanly" {
 // ---- protocol-violation tests: raw TCP server speaking bad frames --------------
 
 const ViolationServer = struct {
-    listener: *std.net.Server,
+    listener: *std.Io.net.Server,
     frame: []const u8,
     fn run(self: *ViolationServer) void {
         self.runImpl() catch {};
     }
     fn runImpl(self: *ViolationServer) !void {
-        var conn = try self.listener.accept();
-        defer conn.stream.close();
+        var stream = try self.listener.accept(sio.io());
+        defer stream.close(sio.io());
         var buf: [8192]u8 = undefined;
         var total: usize = 0;
         while (total < buf.len) {
-            const n = conn.stream.read(buf[total..]) catch break;
+            const n = tcpRead(stream, buf[total..]) catch break;
             if (n == 0) break;
             total += n;
             if (std.mem.indexOf(u8, buf[0..total], "\r\n\r\n") != null) break;
@@ -838,18 +872,18 @@ const ViolationServer = struct {
         const resp_str = std.fmt.bufPrint(&resp,
             "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {s}\r\n\r\n",
             .{accept}) catch return;
-        conn.stream.writeAll(resp_str) catch return;
-        conn.stream.writeAll(self.frame) catch {};
+        tcpWriteAll(stream, resp_str) catch return;
+        tcpWriteAll(stream, self.frame) catch {};
         // Hold the connection briefly so the client reads the bad frame.
-        std.time.sleep(500 * std.time.ns_per_ms);
+        std.Io.sleep(sio.io(), .fromMilliseconds(500), .awake) catch {};
     }
 };
 
 fn expectViolation(frame: []const u8) !void {
-    const addr = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try addr.listen(.{});
-    defer listener.deinit();
-    const port = listener.listen_address.getPort();
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try addr.listen(sio.io(), .{});
+    defer listener.deinit(sio.io());
+    const port = boundPort(&listener);
     var srv = ViolationServer{ .listener = &listener, .frame = frame };
     const t = try std.Thread.spawn(.{}, ViolationServer.run, .{&srv});
     defer t.join();
@@ -996,12 +1030,12 @@ fn makeSelfSigned(alloc: std.mem.Allocator, cert_path: []const u8, key_path: []c
         "-keyout", key_path, "-out", cert_path,
         "-days",  "1",   "-nodes", "-subj", "/CN=localhost/OU=sa-ws-client-test",
     };
-    var child = std.process.Child.init(&args, alloc);
+    var child = sio.Child.init(&args, alloc);
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
     const term = try child.spawnAndWait();
     switch (term) {
-        .Exited => |code| try testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try testing.expectEqual(@as(u8, 0), code),
         else => return error.OpensslFailed,
     }
 }
@@ -1010,7 +1044,8 @@ test "loopback wss:// via python ssl server, pinned CA and -100 without pin" {
     const alloc = testing.allocator;
     var td = testing.tmpDir(.{});
     defer td.cleanup();
-    const dirpath = try td.dir.realpathAlloc(alloc, ".");
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(alloc, ".");
     defer alloc.free(dirpath);
 
     const cert_path = try std.fs.path.join(alloc, &.{ dirpath, "cert.pem" });
@@ -1019,18 +1054,18 @@ test "loopback wss:// via python ssl server, pinned CA and -100 without pin" {
     defer alloc.free(key_path);
     try makeSelfSigned(alloc, cert_path, key_path);
 
-    const probe = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try probe.listen(.{ .reuse_address = true });
-    const port = listener.listen_address.getPort();
-    listener.deinit();
+    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
+    const port = boundPort(&listener);
+    listener.deinit(sio.io());
     const port_str = try std.fmt.allocPrint(alloc, "{d}", .{port});
     defer alloc.free(port_str);
 
     const py_path = try std.fs.path.join(alloc, &.{ dirpath, "wss_srv.py" });
     defer alloc.free(py_path);
-    try td.dir.writeFile(.{ .sub_path = "wss_srv.py", .data = wss_server_py });
+    try tdir.writeFile(.{ .sub_path = "wss_srv.py", .data = wss_server_py });
 
-    var child = std.process.Child.init(&.{ "python3", py_path, cert_path, key_path, port_str }, alloc);
+    var child = sio.Child.init(&.{ "python3", py_path, cert_path, key_path, port_str }, alloc);
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
     try child.spawn();
@@ -1070,7 +1105,7 @@ test "loopback wss:// via python ssl server, pinned CA and -100 without pin" {
 
     const term = try child.wait();
     switch (term) {
-        .Exited => |code| try testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try testing.expectEqual(@as(u8, 0), code),
         else => return error.ServerAbnormalExit,
     }
 }

@@ -181,7 +181,7 @@ fn writeAtomic(allocator: std.mem.Allocator, path: []const u8, sum_file: manifes
     }
 
     var random: [8]u8 = undefined;
-    std.crypto.random.bytes(&random);
+    sio.io().random(&random);
     const suffix = std.fmt.bytesToHex(random, .lower);
     const tmp = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ path, suffix[0..] });
     defer allocator.free(tmp);

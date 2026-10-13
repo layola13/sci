@@ -187,7 +187,7 @@ fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file
     }
 
     var random: [8]u8 = undefined;
-    std.crypto.random.bytes(&random);
+    sio.io().random(&random);
     const suffix = std.fmt.bytesToHex(random, .lower);
     const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ path, suffix[0..] });
     defer allocator.free(tmp_path);
