@@ -20,9 +20,9 @@ fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !si
 }
 
 fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !sio.Child.RunResult {
-    const args_json = try std.json.stringifyAlloc(allocator, args, .{});
+    const args_json = try std.json.Stringify.valueAlloc(allocator, args, .{});
     defer allocator.free(args_json);
-    const wasm_json = try std.json.stringifyAlloc(allocator, wasm_path, .{});
+    const wasm_json = try std.json.Stringify.valueAlloc(allocator, wasm_path, .{});
     defer allocator.free(wasm_json);
 
     const script = try std.fmt.allocPrint(allocator,
