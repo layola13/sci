@@ -5,7 +5,7 @@ const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
 const call = @import("referee/call.zig");
 const const_decl = @import("common/const_decl.zig");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub const EmitOptions = emit_options.EmitOptions;
 pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, OutOfMemory };

@@ -1,5 +1,5 @@
 const std = @import("std");
-const sio = @import("../src/sa_io.zig");
+const sio = @import("sio");
 const saasm = @import("src/lib.zig");
 
 const default_line_goal: usize = 1_000_000;

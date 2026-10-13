@@ -1,5 +1,5 @@
 const std = @import("std");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub const Termination = union(enum) {
     exited: u32,

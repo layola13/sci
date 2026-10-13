@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("sio");
 
 fn lineCount(text: []const u8) usize {
     if (text.len == 0) return 0;

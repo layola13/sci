@@ -2,7 +2,7 @@ const std = @import("std");
 const common_instruction = @import("common/instruction.zig");
 const call = @import("referee/call.zig");
 const referee = @import("referee.zig");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub const LowerError = error{
     InvalidOperand,

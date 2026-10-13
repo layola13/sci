@@ -1,5 +1,5 @@
 const std = @import("std");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub const abi_version: u32 = 1;
 pub const host_version: []const u8 = "sci-0.2";

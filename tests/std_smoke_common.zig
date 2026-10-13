@@ -1,6 +1,7 @@
 const Std = @import("std");
 const Saasm = @import("saasm");
 const test_build_options = @import("test_build_options");
+const sio = @import("sio");
 
 pub const std = Std;
 pub const saasm = Saasm;

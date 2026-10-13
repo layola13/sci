@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 const test_meta = @import("test_meta.zig");
 const test_result = @import("test_result.zig");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub const TestExecutor = struct {
     allocator: std.mem.Allocator,

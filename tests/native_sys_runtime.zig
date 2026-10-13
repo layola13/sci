@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 fn exeName(base: []const u8) []const u8 {
     return if (builtin.os.tag == .windows)

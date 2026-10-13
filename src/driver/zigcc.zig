@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("../sa_io.zig");
+const sio = @import("sio");
 
 pub const Optimization = enum {
     none,

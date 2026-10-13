@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const cli = @import("cli.zig");
 const cli_util = @import("cli_util.zig");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub fn main(init: std.process.Init) !void {
     var gpa = std.heap.DebugAllocator(.{}){};

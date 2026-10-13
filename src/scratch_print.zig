@@ -1,6 +1,6 @@
 const std = @import("std");
 const saasm = @import("saasm");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};

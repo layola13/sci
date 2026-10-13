@@ -1,6 +1,7 @@
 const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 fn parseJsonValue(allocator: std.mem.Allocator, text: []const u8) !std.json.Parsed(std.json.Value) {
     return try std.json.parseFromSlice(std.json.Value, allocator, text, .{});

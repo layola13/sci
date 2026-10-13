@@ -1,5 +1,5 @@
 const std = @import("std");
-const sio = @import("../../src/sa_io.zig");
+const sio = @import("sio");
 
 const Config = struct {
     listen_host: []const u8 = "127.0.0.1",

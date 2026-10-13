@@ -3,8 +3,8 @@
 //! This module preserves the Zig 0.14-era `std.fs` / `std.process` call shapes
 //! used across this repository, reimplemented on top of `std.Io`.
 //!
-//! Usage: add `const sio = @import("sa_io.zig");` (adjust the relative path
-//! for the importing file) and rename:
+//! Usage: add `const sio = @import("sio");` (registered as a named
+//! import in build.zig via `sio_module`) and rename:
 //!   `std.fs.cwd()`          -> `sio.cwd()`
 //!   `std.fs.Dir`            -> `sio.Dir`
 //!   `std.fs.File`           -> `sio.File`

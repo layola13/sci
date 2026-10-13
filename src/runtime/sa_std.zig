@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("../sa_io.zig");
+const sio = @import("sio");
 // Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
 // functions into the library object. Zig only emits `pub export fn`s of a
 // transitively-imported module when the root source actually retains the

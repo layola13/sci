@@ -56,6 +56,17 @@ pub fn build(b: *std.Build) void {
     const repo_root_lazy = b.path(".");
     const build_options = b.addOptions();
     const test_build_options = b.addOptions();
+    // NOTE(Zig 0.17): modules are rooted at their root_source_file's directory,
+    // so cross-directory `@import("../...")` is rejected ("import of file
+    // outside module path"). The I/O compat layer is therefore exposed as the
+    // named import "sio" (source: src/sa_io.zig); every module below registers
+    // it via `addImport("sio", sio_module)` and sources use
+    // `const sio = @import("sio");`.
+    const sio_module = b.createModule(.{
+        .root_source_file = b.path("src/sa_io.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const sa_std_archive_rel = targetSaStdArchivePath(target.result.os.tag);
     const sa_std_root = targetSaStdRoot(target.result.os.tag);
     validateLlvmConfig(b, target.result.os.tag, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
@@ -71,6 +82,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    lib_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, lib_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     lib_module.addOptions("build_options", build_options);
     if (target.result.os.tag == .linux) {
@@ -90,6 +102,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_static_module.addImport("sio", sio_module);
     addHostThreadShimToModule(b, sa_std_static_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_static_module);
     const sa_std_static = b.addLibrary(.{
@@ -107,6 +120,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_shared_module.addImport("sio", sio_module);
     addHostThreadShimToModule(b, sa_std_shared_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_shared_module);
     const sa_std_shared = b.addLibrary(.{
@@ -144,6 +158,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_root_smoke_module.addImport("sio", sio_module);
     lib_root_smoke_module.addImport("saasm", lib_module);
     lib_root_smoke_module.addOptions("build_options", build_options);
     const lib_root_smoke = b.addTest(.{
@@ -162,6 +177,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    plugin_host_smoke_module.addImport("sio", sio_module);
     plugin_host_smoke_module.addImport("saasm", lib_module);
     plugin_host_smoke_module.addOptions("build_options", build_options);
     const plugin_host_smoke = b.addTest(.{
@@ -180,6 +196,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    llvmc_test_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, llvmc_test_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     llvmc_test_module.addOptions("build_options", build_options);
     const llvmc_tests = b.addTest(.{
@@ -197,6 +214,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    windows_llvm_smoke_module.addImport("sio", sio_module);
     windows_llvm_smoke_module.addImport("saasm", lib_module);
     windows_llvm_smoke_module.addOptions("build_options", build_options);
     const windows_llvm_smoke = b.addTest(.{
@@ -218,6 +236,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    pkg_core_tests_module.addImport("sio", sio_module);
     pkg_core_tests_module.addOptions("build_options", build_options);
     const pkg_core_tests = b.addTest(.{
         .root_module = pkg_core_tests_module,
@@ -234,6 +253,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    pkg_sum_perf_tests_module.addImport("sio", sio_module);
     const pkg_sum_perf_tests = b.addTest(.{
         .root_module = pkg_sum_perf_tests_module,
         .filters = &.{"sum flattens one hundred transitive dependencies within budget"},
@@ -249,6 +269,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    pkg_audit_perf_tests_module.addImport("sio", sio_module);
     const pkg_audit_perf_tests = b.addTest(.{
         .root_module = pkg_audit_perf_tests_module,
         .filters = &.{"audit scans synthesized package within fifty milliseconds"},
@@ -264,6 +285,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    cli_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, cli_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     cli_module.addOptions("build_options", build_options);
     const exe = b.addExecutable(.{
@@ -281,6 +303,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    wasm_matrix_module.addImport("sio", sio_module);
     wasm_matrix_module.addImport("saasm", lib_module);
     wasm_matrix_module.addOptions("build_options", build_options);
     const wasm_matrix = b.addTest(.{
@@ -299,6 +322,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    js_matrix_module.addImport("sio", sio_module);
     js_matrix_module.addImport("saasm", lib_module);
     js_matrix_module.addOptions("build_options", build_options);
     const js_matrix = b.addTest(.{
@@ -318,6 +342,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_smoke_module.addImport("sio", sio_module);
     cli_smoke_module.addImport("saasm", lib_module);
     cli_smoke_module.addOptions("build_options", build_options);
     const cli_smoke = b.addTest(.{
@@ -344,6 +369,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_json_debug_smoke_module.addImport("sio", sio_module);
     cli_json_debug_smoke_module.addImport("saasm", lib_module);
     cli_json_debug_smoke_module.addOptions("build_options", build_options);
     const cli_json_debug_smoke = b.addTest(.{
@@ -362,6 +388,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_skills_smoke_module.addImport("sio", sio_module);
     cli_skills_smoke_module.addImport("saasm", lib_module);
     cli_skills_smoke_module.addOptions("build_options", build_options);
     const cli_skills_smoke = b.addTest(.{
@@ -382,6 +409,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_host_basic_module.addImport("sio", sio_module);
     cli_host_basic_module.addImport("saasm", lib_module);
     cli_host_basic_module.addOptions("build_options", build_options);
     const cli_host_basic = b.addTest(.{
@@ -402,6 +430,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    workspace_smoke_module.addImport("sio", sio_module);
     workspace_smoke_module.addImport("saasm", lib_module);
     workspace_smoke_module.addOptions("build_options", build_options);
     const workspace_smoke = b.addTest(.{
@@ -420,6 +449,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sab_corrupt_smoke_module.addImport("sio", sio_module);
     sab_corrupt_smoke_module.addImport("saasm", lib_module);
     sab_corrupt_smoke_module.addOptions("build_options", build_options);
     const sab_corrupt_smoke = b.addTest(.{
@@ -438,6 +468,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    pthread_vtable_smoke_module.addImport("sio", sio_module);
     pthread_vtable_smoke_module.addImport("saasm", lib_module);
     pthread_vtable_smoke_module.addOptions("build_options", build_options);
     const pthread_vtable_smoke = b.addTest(.{
@@ -456,6 +487,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    trap_baseline_module.addImport("sio", sio_module);
     trap_baseline_module.addImport("saasm", lib_module);
     trap_baseline_module.addOptions("build_options", build_options);
     const trap_baseline = b.addTest(.{
@@ -473,6 +505,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    std_smoke_core_module.addImport("sio", sio_module);
     std_smoke_core_module.addImport("saasm", lib_module);
     std_smoke_core_module.addOptions("build_options", build_options);
     std_smoke_core_module.addOptions("test_build_options", test_build_options);
@@ -491,6 +524,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    std_smoke_containers_module.addImport("sio", sio_module);
     std_smoke_containers_module.addImport("saasm", lib_module);
     std_smoke_containers_module.addOptions("build_options", build_options);
     std_smoke_containers_module.addOptions("test_build_options", test_build_options);
@@ -514,6 +548,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    unit_framework_module.addImport("sio", sio_module);
     unit_framework_module.addImport("saasm", lib_module);
     unit_framework_module.addOptions("build_options", build_options);
     const unit_framework = b.addTest(.{
@@ -540,6 +575,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_unit_module.addImport("sio", sio_module);
     sa_std_unit_module.addOptions("build_options", build_options);
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
@@ -555,6 +591,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sa_std_runtime_module.addImport("sio", sio_module);
     sa_std_runtime_module.addOptions("build_options", build_options);
     const sa_std_runtime = b.addTest(.{
         .root_module = sa_std_runtime_module,
@@ -571,6 +608,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sa_std_windows_runtime_module.addImport("sio", sio_module);
     sa_std_windows_runtime_module.addOptions("build_options", build_options);
     const sa_std_windows_runtime = b.addTest(.{
         .root_module = sa_std_windows_runtime_module,
@@ -594,6 +632,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_first_slice_module.addImport("sio", sio_module);
         windows_first_slice_module.addIncludePath(b.path("src/runtime"));
         windows_first_slice_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_first_slice.c"),
@@ -624,6 +663,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_address_module.addImport("sio", sio_module);
         windows_native_address_module.addIncludePath(b.path("src/runtime"));
         windows_native_address_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_address.c"),
@@ -654,6 +694,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_tcp_module.addImport("sio", sio_module);
         windows_native_tcp_module.addIncludePath(b.path("src/runtime"));
         windows_native_tcp_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_tcp.c"),
@@ -684,6 +725,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_udp_module.addImport("sio", sio_module);
         windows_native_udp_module.addIncludePath(b.path("src/runtime"));
         windows_native_udp_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_udp.c"),
@@ -714,6 +756,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_process_terminal_module.addImport("sio", sio_module);
         windows_native_process_terminal_module.addIncludePath(b.path("src/runtime"));
         windows_native_process_terminal_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_process_terminal.c"),
@@ -745,6 +788,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_net_uring_module.addImport("sio", sio_module);
     sa_net_uring_module.addOptions("build_options", build_options);
     const sa_net_uring_tests = b.addTest(.{
         .root_module = sa_net_uring_module,
@@ -760,6 +804,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_http2_module.addImport("sio", sio_module);
     sa_http2_module.addOptions("build_options", build_options);
     const sa_http2_tests = b.addTest(.{
         .root_module = sa_http2_module,
@@ -775,6 +820,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_tls_server_module.addImport("sio", sio_module);
     sa_tls_server_module.addOptions("build_options", build_options);
     const sa_tls_server_tests = b.addTest(.{
         .root_module = sa_tls_server_module,
@@ -790,6 +836,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_tls_client_module.addImport("sio", sio_module);
     sa_tls_client_module.addOptions("build_options", build_options);
     const sa_tls_client_tests = b.addTest(.{
         .root_module = sa_tls_client_module,
@@ -805,6 +852,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_ws_client_module.addImport("sio", sio_module);
     sa_ws_client_module.addOptions("build_options", build_options);
     const sa_ws_client_tests = b.addTest(.{
         .root_module = sa_ws_client_module,
@@ -820,6 +868,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_thread_local_module.addImport("sio", sio_module);
     sa_thread_local_module.addOptions("build_options", build_options);
     const sa_thread_local_tests = b.addTest(.{
         .root_module = sa_thread_local_module,
@@ -835,6 +884,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_dtls_module.addImport("sio", sio_module);
     sa_dtls_module.addOptions("build_options", build_options);
     const sa_dtls_tests = b.addTest(.{
         .root_module = sa_dtls_module,
@@ -850,6 +900,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_quic_module.addImport("sio", sio_module);
     sa_quic_module.addOptions("build_options", build_options);
     const sa_quic_tests = b.addTest(.{
         .root_module = sa_quic_module,
@@ -865,6 +916,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sa_term_runtime_module.addImport("sio", sio_module);
     sa_term_runtime_module.addOptions("build_options", build_options);
     const sa_term_runtime = b.addTest(.{
         .root_module = sa_term_runtime_module,
@@ -880,6 +932,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    native_sys_runtime_module.addImport("sio", sio_module);
     native_sys_runtime_module.addOptions("build_options", build_options);
     const native_sys_runtime = b.addTest(.{
         .root_module = native_sys_runtime_module,
@@ -937,6 +990,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    smoke_module.addImport("sio", sio_module);
     const smoke = b.addTest(.{
         .root_module = smoke_module,
     });
@@ -978,6 +1032,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    scope_demo_module.addImport("sio", sio_module);
     const scope_demo = b.addTest(.{
         .root_module = scope_demo_module,
     });
@@ -993,6 +1048,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    ffi_handle_demo_module.addImport("sio", sio_module);
     ffi_handle_demo_module.addImport("saasm", lib_module);
     ffi_handle_demo_module.addOptions("build_options", build_options);
     const ffi_handle_demo = b.addTest(.{
@@ -1011,6 +1067,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    hubproxy_module.addImport("sio", sio_module);
     hubproxy_module.addImport("saasm", lib_module);
     hubproxy_module.addOptions("build_options", build_options);
     const hubproxy_tests = b.addTest(.{
@@ -1068,6 +1125,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    bench_module.addImport("sio", sio_module);
     bench_module.addOptions("build_options", build_options);
     const bench_exe = b.addExecutable(.{
         .name = "saasm-bench-task-6-26",

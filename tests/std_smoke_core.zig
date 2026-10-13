@@ -1,5 +1,6 @@
 const std = @import("std");
 const common = @import("std_smoke_common.zig");
+const sio = @import("sio");
 const saasm = common.saasm;
 
 fn flattenFixture(allocator: std.mem.Allocator, path: []const u8, source: []const u8) !saasm.flattener.FlattenResult {

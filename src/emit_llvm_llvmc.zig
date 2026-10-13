@@ -9,7 +9,7 @@ const atomic = @import("common/atomic.zig");
 const sig = @import("common/signature.zig");
 const const_decl = @import("common/const_decl.zig");
 const upstream = @import("common/upstream_loc.zig");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 extern fn sa_llvmc_free(ptr: ?*anyopaque) callconv(.C) void;
 extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;

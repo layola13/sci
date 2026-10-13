@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 // Thin client: if SA_DAEMON_SOCKET is set, forward argv to a running daemon and
 // return its exit code. Returns null when no socket is configured, the request

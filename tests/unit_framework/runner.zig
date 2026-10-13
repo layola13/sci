@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;

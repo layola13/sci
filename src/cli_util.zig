@@ -1,6 +1,6 @@
 const std = @import("std");
 const trap = @import("common/trap.zig");
-const sio = @import("sa_io.zig");
+const sio = @import("sio");
 
 pub const DiagnosticsMode = enum {
     human,

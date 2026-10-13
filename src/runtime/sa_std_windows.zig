@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("../sa_io.zig");
+const sio = @import("sio");
 
 // TLS client: reuse the shared pure-Zig implementation
 // (src/runtime/sa_tls_client.zig, std.crypto.tls.Client + std.Io.net.Stream, no

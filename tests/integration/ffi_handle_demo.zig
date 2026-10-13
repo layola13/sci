@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     const result = try sio.Child.run(.{

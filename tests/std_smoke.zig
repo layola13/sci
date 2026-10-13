@@ -1,5 +1,6 @@
 const std = @import("std");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 fn repoRoot(allocator: std.mem.Allocator) ![]u8 {
     return sio.cwd().realpathAlloc(allocator, ".");

@@ -1,6 +1,7 @@
 const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 // JS backend equivalence matrix: `sa build-js` output executed with node
 // must match the expected stdout of each demo (verified against native

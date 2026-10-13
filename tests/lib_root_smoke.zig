@@ -1,5 +1,6 @@
 const std = @import("std");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 fn expectCliHelp(argv: []const []const u8, expected: []const u8) !void {
     var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);

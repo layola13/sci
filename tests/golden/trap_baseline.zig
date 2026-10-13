@@ -1,5 +1,6 @@
 const std = @import("std");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []const u8, expected_trap_code: u32, expected_message: []const u8) !void {
     var original_cwd = try sio.cwd().openDir(".", .{});
