@@ -226,7 +226,7 @@ fn splitPrimitiveTypedValue(text: []const u8) ?TypedSuffix {
     if (common_signature.parsePrimType(suffix.ty)) |_| {
         const body = splitFirstWord(suffix.body);
         if (body.word.len != 0 and std.mem.trim(u8, body.rest, " \t").len == 0) return suffix;
-    } else {}
+    } else |_| {}
     return null;
 }
 

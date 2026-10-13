@@ -264,7 +264,7 @@ pub export fn sa_std_dtls_server_close(ssl_handle: u64) i32 {
 }
 
 var dtls_string_mutex = std.Io.Mutex.init;
-var dtls_string_registry = std.ArrayListUnmanaged(?[]u8){};
+var dtls_string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 pub export fn sa_std_dtls_status_json(out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;

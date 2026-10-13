@@ -1379,8 +1379,7 @@ test "sab roundtrip covers every SA instruction and op kind" {
     var instructions = std.array_list.Managed(inst.Instruction).init(std.testing.allocator);
     defer instructions.deinit();
 
-    inline for (@typeInfo(inst.InstKind).@"enum".fields) |field| {
-        const kind: inst.InstKind = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.InstKind).*) |kind| {
         var item = inst.makeInstruction(kind, 10, @intCast(instructions.items.len), null, @tagName(kind));
         item.operands[0] = .{ .reg = 0 };
         item.operands[1] = .{ .symbol = 1 };
@@ -1389,8 +1388,7 @@ test "sab roundtrip covers every SA instruction and op kind" {
         try instructions.append(item);
     }
 
-    inline for (@typeInfo(inst.OpKind).@"enum".fields) |field| {
-        const op_kind: inst.OpKind = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.OpKind).*) |op_kind| {
         var item = inst.makeInstruction(.op, 20, @intCast(instructions.items.len), null, @tagName(op_kind));
         item.op_kind = op_kind;
         item.operands[0] = .{ .reg = 0 };
@@ -1440,15 +1438,13 @@ test "sab roundtrip covers every SA operand kind" {
         try instructions.append(item);
     }
 
-    inline for (@typeInfo(inst.OpCode).@"enum".fields) |field| {
-        const value: inst.OpCode = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.OpCode).*) |value| {
         var item = inst.makeInstruction(.op, 40, @intCast(instructions.items.len), null, @tagName(value));
         item.operands[0] = .{ .op_code = value };
         try instructions.append(item);
     }
 
-    inline for (@typeInfo(inst.CapPrefix).@"enum".fields) |field| {
-        const value: inst.CapPrefix = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.CapPrefix).*) |value| {
         var item = inst.makeInstruction(.borrow, 50, @intCast(instructions.items.len), null, @tagName(value));
         item.operands[0] = .{ .cap_prefix = value };
         try instructions.append(item);

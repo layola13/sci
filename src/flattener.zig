@@ -432,7 +432,7 @@ fn freeExpandedImportCacheEntry(entry: ExpandedImportCacheEntry) void {
 
 fn statImportSourceCacheEntry(path: []const u8) !struct { mtime: i128, size: u64 } {
     const stat = try sio.cwd().statFile(path);
-    return .{ .mtime = stat.mtime, .size = stat.size };
+    return .{ .mtime = @as(i128, stat.mtime.toNanoseconds()), .size = stat.size };
 }
 
 fn cachedImportStillValid(entry: ImportSourceCacheEntry) bool {

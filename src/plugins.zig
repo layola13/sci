@@ -826,7 +826,10 @@ fn runtimeBrokerHttpRequest(broker: *const RuntimeBroker, req: ?*const anyopaque
     defer http_request.deinit();
 
     if (method.requestHasBody()) {
-        http_request.sendBodyComplete(body) catch return .failed;
+        // NOTE(Zig 0.17): sendBodyComplete takes mutable []u8.
+        const body_mut = broker.allocator.dupe(u8, body) catch return .failed;
+        defer broker.allocator.free(body_mut);
+        http_request.sendBodyComplete(body_mut) catch return .failed;
     } else {
         http_request.sendBodiless() catch return .failed;
     }
@@ -1632,17 +1635,17 @@ pub const Runtime = struct {
                 // Plugin DLLs live outside the executable directory, so their
                 // own dependencies (LLVM-C.dll, sibling plugin DLLs) must be
                 // resolved relative to the DLL's install directory.
-                const path_z = std.fmt.allocPrintZ(self.allocator, "{s}", .{path}) catch |err| {
+                const path_raw = std.fmt.allocPrint(self.allocator, "{s}", .{path}) catch |err| {
+                    try self.addDiagnostic(path, @errorName(err));
+                    return;
+                };
+                defer self.allocator.free(path_raw);
+                const path_z = std.unicode.utf8ToUtf16LeAllocZ(self.allocator, path_raw) catch |err| {
                     try self.addDiagnostic(path, @errorName(err));
                     return;
                 };
                 defer self.allocator.free(path_z);
-                const path_w = std.unicode.utf8ToUtf16LeAllocZ(self.allocator, path_z) catch |err| {
-                    try self.addDiagnostic(path, @errorName(err));
-                    return;
-                };
-                defer self.allocator.free(path_w);
-                const handle = std.os.windows.LoadLibraryExW(path_w.ptr, .load_with_altered_search_path) catch |err| {
+                const handle = std.os.windows.LoadLibraryExW(path_z.ptr, .load_with_altered_search_path) catch |err| {
                     try self.addDiagnostic(path, @errorName(err));
                     return;
                 };
@@ -4116,12 +4119,12 @@ fn readFileAbsoluteAlloc(allocator: std.mem.Allocator, path: []const u8, max_byt
 
 fn copyFileAbsolute(src: []const u8, dst: []const u8) !void {
     try ensureParentDir(dst);
-    try std.fs.copyFileAbsolute(src, dst, .{});
+    try sio.copyFileAbsolute(src, dst);
 }
 
 fn writeFileAbsolute(path: []const u8, bytes: []const u8) !void {
     try ensureParentDir(path);
-    var file = try std.fs.createFileAbsolute(path, .{ .truncate = true });
+    var file = try sio.createFileAbsolute(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
 }
@@ -4189,7 +4192,7 @@ fn streamWriteAll(comptime Writer: type) StreamWriteAllFn {
     return struct {
         fn write(ctx: ?*anyopaque, bytes: [*]const u8, len: usize) callconv(.c) u32 {
             const stream_ctx = @as(*StreamCtx(Writer), @ptrCast(@alignCast(ctx orelse return @intFromEnum(AbiStatus.failed))));
-            stream_ctx.writer.writeAll(bytes[0..len]) catch return @intFromEnum(AbiStatus.failed);
+            stream_ctx.writer.*.writeAll(bytes[0..len]) catch return @intFromEnum(AbiStatus.failed);
             return @intFromEnum(AbiStatus.ok);
         }
     }.write;

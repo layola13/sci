@@ -464,7 +464,7 @@ fn saValue(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
         if (std.fmt.parseInt(u64, value[2..], 16)) |bits| {
             const number: f64 = @bitCast(bits);
             return try std.fmt.allocPrint(allocator, "{d}", .{number});
-        } else {}
+        } else |_| {}
     }
 
     if (std.mem.startsWith(u8, value, "getelementptr")) {

@@ -1144,17 +1144,17 @@ fn resolveTextToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, con
     if (std.fmt.parseInt(i64, text, 10)) |v| {
         try writer.print("{d}", .{v});
         return;
-    } else {}
+    } else |_| {}
     // u64-range literals that overflow i64 still materialize exactly as
     // BigInt (plain float formatting would lose precision above 2^53).
     if (std.fmt.parseInt(u64, text, 10)) |v| {
         try writer.print("{d}n", .{v});
         return;
-    } else {}
+    } else |_| {}
     if (std.fmt.parseFloat(f64, text)) |v| {
         try writer.print("{d}", .{v});
         return;
-    } else {}
+    } else |_| {}
     // Static consts live at fixed linear-memory addresses (mirrors
     // emit_llvm_llvmc.textOperand checking const_names before symbols).
     if (const_addrs.get(text)) |_| {

@@ -957,6 +957,10 @@ const StdinLineReader = struct {
         if (i == 0 and eof) return null;
         return buf[0..i];
     }
+
+    pub fn takeDelimiterExclusive(self: StdinLineReader, delimiter: u8) ![]u8 {
+        return try self.inner.takeDelimiterExclusive(delimiter);
+    }
 };
 
 fn isCiMode(options: ProjectBuildOptions) bool {
@@ -1207,8 +1211,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandFromName(name: []const u8) ?Command {
-    inline for (@typeInfo(Command).@"enum".fields) |field| {
-        const cmd: Command = @enumFromInt(field.value);
+    inline for (std.meta.tags(Command).*) |cmd| {
         if (std.mem.eql(u8, name, commandName(cmd))) return cmd;
     }
     return null;
@@ -3612,7 +3615,9 @@ fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
 fn restrictDaemonSocket(socket_path: []const u8) bool {
     if (comptime builtin.os.tag != .linux) return true;
     var path_buf: [sio.max_path_bytes + 1]u8 = undefined;
-    const path_z = std.fmt.bufPrintZ(path_buf[0..], "{s}", .{socket_path}) catch return false;
+    const path_slice = std.fmt.bufPrint(path_buf[0..sio.max_path_bytes], "{s}", .{socket_path}) catch return false;
+    path_buf[path_slice.len] = 0;
+    const path_z: [*:0]const u8 = @ptrCast(&path_buf);
     const rc = std.os.linux.chmod(path_z, 0o600);
     return std.os.linux.errno(rc) == .SUCCESS;
 }
@@ -4139,7 +4144,7 @@ fn trapFromPackagePreflightError(err: anyerror) ?trap.TrapReport {
 }
 
 fn pathExists(path: []const u8) !bool {
-    sio.cwd().access(path, .{ .mode = .read_only }) catch |err| switch (err) {
+    sio.cwd().access(path, .{ .read = true }) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -5704,7 +5709,7 @@ fn runtimeArchiveFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFinger
     const stat = sio.cwd().statFile(archive_path) catch return null;
     return .{
         .size = stat.size,
-        .mtime_ns = @as(u64, @truncate(@as(u128, @bitCast(stat.mtime)))),
+        .mtime_ns = @as(u64, @intCast(stat.mtime.toNanoseconds())),
     };
 }
 
@@ -5722,7 +5727,7 @@ fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem
 
 const SourceTreeFileStat = struct {
     path: []u8,
-    mtime: i128,
+    mtime: std.Io.Timestamp,
     size: u64,
 };
 
@@ -5803,7 +5808,7 @@ fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
     const entry = cache.getPtr(cache_key) orelse return null;
     for (entry.files) |file| {
         const stat = sio.cwd().statFile(file.path) catch return null;
-        if (stat.mtime != file.mtime or stat.size != file.size) return null;
+        if (stat.mtime.toNanoseconds() != file.mtime.toNanoseconds() or stat.size != file.size) return null;
     }
     entry.last_used_tick = nextSourceTreeHashCacheTickLocked();
     return entry.digest;
@@ -7593,7 +7598,8 @@ fn executeCheck(
     json_mode: bool,
     exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options = newCompileOptions(exec_options, stderr);
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var emit_sab_path: ?[]const u8 = null;
     var i: usize = 0;
@@ -7620,7 +7626,7 @@ fn executeCheck(
     // Flatten via compileSource front half by reusing compileSource then discarding codegen.
     // Fast path: if we already verified this instruction stream, skip verify.
     const compiled = try compileSourceForCheck(allocator, source_path, compile_options);
-    const wall_ns = if (total_start) |start| elapsedNs(start) else 0;
+    const wall_ns = elapsedNs(total_start);
     switch (compiled) {
         .trap => |report| {
             try printTrapReport(if (json_mode) stdout else stderr, report, if (json_mode) .json else .human);
@@ -7774,7 +7780,8 @@ fn executeGraph(
     json_mode: bool,
     exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options = newCompileOptions(exec_options, stderr);
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -7872,7 +7879,8 @@ fn executeSize(
     json_mode: bool,
     exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options = newCompileOptions(exec_options, stderr);
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -8487,7 +8495,8 @@ pub fn executeWithWritersAndOptions(
         .install => return try executeInstall(allocator, args[2..], stdout),
         .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
         .build => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8530,7 +8539,8 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_workspace => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .none;
@@ -8578,7 +8588,8 @@ pub fn executeWithWritersAndOptions(
         },
         .run => {
             if (args.len < 3) return error.MissingSourcePath;
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var runtime_args = std.array_list.Managed([]const u8).init(allocator);
             defer runtime_args.deinit();
@@ -8597,7 +8608,8 @@ pub fn executeWithWritersAndOptions(
             return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
         },
         .build_exe => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8640,7 +8652,8 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8688,7 +8701,8 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildObj(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_wasm => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
@@ -8738,7 +8752,8 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildWasm(allocator, final_source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_js => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var js_format: emit_js.JsFormat = .esm;
@@ -8796,7 +8811,8 @@ pub fn executeWithWritersAndOptions(
             return 0;
         },
         .test_cmd => {
-            var compile_options = newCompileOptions(exec_options, stderr);
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var include_filters = std.array_list.Managed([]const u8).init(allocator);
             defer include_filters.deinit();

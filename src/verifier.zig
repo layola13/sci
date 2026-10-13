@@ -2138,7 +2138,7 @@ fn buildFunctionRegScope(
                             }
                         }
                     }
-                } else {}
+                } else |_| {}
             },
             else => {},
         }
@@ -2245,7 +2245,7 @@ fn populateTrustedFunctionScope(
                     }
                 }
             }
-        } else {}
+        } else |_| {}
     }
     for (const_decls) |decl| {
         if (symbols.findId(decl.name)) |id| {
@@ -2375,7 +2375,7 @@ fn collectMetadata(
                     }
                 }
             }
-        } else {}
+        } else |_| {}
 
         switch (item.kind) {
             .label => {
@@ -2477,7 +2477,7 @@ fn collectMetadata(
                     if (parsed.dest) |dest| {
                         if (isIdentLike(dest)) _ = try symbols.intern(dest);
                     }
-                } else {}
+                } else |_| {}
             },
         }
     }

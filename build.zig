@@ -85,6 +85,9 @@ pub fn build(b: *std.Build) void {
     lib_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, lib_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     lib_module.addOptions("build_options", build_options);
+    // NOTE: lib re-exports runtime/sa_std.zig (swizzle/pthread C shims).
+    addHostThreadShimToModule(b, lib_module, target.result.os.tag);
+    addB64SwizzleToModule(b, lib_module);
     if (target.result.os.tag == .linux) {
         lib_module.linkSystemLibrary("dl", .{});
     }

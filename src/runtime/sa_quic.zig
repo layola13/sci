@@ -72,7 +72,7 @@ pub export fn sa_std_quic_supported(out: ?*u32) i32 {
 // String output handle convention (local registry, same shape as the http2 and
 // dtls/sa_tls_server modules). data/len/free live below.
 var string_mutex = std.Io.Mutex.init;
-var string_registry = std.ArrayListUnmanaged(?[]u8){};
+var string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
     string_mutex.lockUncancelable(sio.io());

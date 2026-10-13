@@ -11,11 +11,11 @@ const const_decl = @import("common/const_decl.zig");
 const upstream = @import("common/upstream_loc.zig");
 const sio = @import("sio");
 
-extern fn sa_llvmc_free(ptr: ?*anyopaque) callconv(.C) void;
-extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
-extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, opt_level: c_int, out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
-extern fn sa_llvmc_emit_module_object(module: *const CModule, out_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.C) i32;
-extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_path: [*:0]const u8, out_object_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.C) i32;
+extern fn sa_llvmc_free(ptr: ?*anyopaque) callconv(.c) void;
+extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.c) i32;
+extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, opt_level: c_int, out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.c) i32;
+extern fn sa_llvmc_emit_module_object(module: *const CModule, out_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.c) i32;
+extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_path: [*:0]const u8, out_object_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.c) i32;
 
 pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction };
 pub const EmitOptions = emit_options.EmitOptions;
@@ -248,7 +248,9 @@ fn debugLocForInstruction(item: inst.Instruction, table_loc: ?upstream.UpstreamL
 }
 
 fn makeSlotFallbackName(allocator: std.mem.Allocator, slot: usize) ![*:0]const u8 {
-    const text = try std.fmt.allocPrintZ(allocator, "slot_{d}", .{slot});
+    const raw = try std.fmt.allocPrint(allocator, "slot_{d}", .{slot});
+    defer allocator.free(raw);
+    const text = try allocator.dupeSentinel(u8, raw, 0);
     return text.ptr;
 }
 
@@ -342,7 +344,9 @@ fn collectAnonStringConsts(
 
             const raw_key = try allocator.dupe(u8, arg.text);
             errdefer allocator.free(raw_key);
-            const name = try std.fmt.allocPrintZ(allocator, "__sa_anon_str_{d}", .{anon_idx});
+            const raw_name = try std.fmt.allocPrint(allocator, "__sa_anon_str_{d}", .{anon_idx});
+            defer allocator.free(raw_name);
+            const name = try allocator.dupeSentinel(u8, raw_name, 0);
             const data = try allocator.dupe(u8, bytes);
 
             try c_consts.append(.{ .name = name.ptr, .data = data.ptr, .len = data.len });
@@ -471,10 +475,10 @@ const BuildState = struct {
         } else null;
         if (std.fmt.parseInt(i64, text, 10)) |v| {
             return .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = explicit_ty orelse .i64, .name = null };
-        } else {}
+        } else |_| {}
         if (std.fmt.parseFloat(f64, text)) |v| {
             return .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = v, .ty = explicit_ty orelse .f64, .name = null };
-        } else {}
+        } else |_| {}
         if (self.const_names.contains(text)) {
             const z = try self.allocator.dupeSentinel(u8, text, 0);
             return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .ptr, .name = z.ptr };
