@@ -2043,7 +2043,6 @@ fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
 }
 
 fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
-    _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
         try writer.print("  __sa_trap(\"unsupported call: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
@@ -2055,8 +2054,18 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
         return;
     }
     if (parsed.dest) |dest| {
-        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
-        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        // Resolve the destination through the raw register operand (mirrors
+        // every other instruction via dstSlot): for structured/SAB calls the
+        // dest is a function-local slot whose numeric id must not round-trip
+        // through the global symbol table (which can alias it to an
+        // unrelated global name and fail slot lookup with InvalidOperand).
+        // Text-derived calls fall back to the name lookup below.
+        const slot: u32 = if (base.operands[0] == .reg or base.operands[0] == .symbol)
+            try dstSlot(fsig, use_global, base.operands[0])
+        else blk: {
+            const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
+            break :blk fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        };
         // Fresh blocks from allocator shims and proven callees keep base
         // provenance; everything else is killed (unknown). Move-prefix
         // arguments are consumed.
@@ -2092,7 +2101,6 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
 /// Boxed callee values come from vtable loads or `&func` expressions;
 /// results (including fallible {s,v} objects) pass through untouched.
 fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
-    _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
         try writer.print("  __sa_trap(\"unsupported call_indirect: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
@@ -2100,8 +2108,13 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     };
     defer parsed.deinit(allocator);
     if (parsed.dest) |dest| {
-        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
-        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        // Same register-operand-first resolution as direct calls above.
+        const slot: u32 = if (base.operands[0] == .reg or base.operands[0] == .symbol)
+            try dstSlot(fsig, use_global, base.operands[0])
+        else blk: {
+            const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
+            break :blk fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+        };
         // Fresh blocks from allocator shims and proven callees keep base
         // provenance; everything else is killed (unknown). Move-prefix
         // arguments are consumed.
@@ -3431,6 +3444,15 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         // into the output range (second C++ pass). No temp Buffer alloc,
         // no copy-back, no TextDecoder. For clean ASCII input the bytes
         // and return value are identical to Buffer.from(...).length.
+        // Q3 verdict (2026-10): the remaining 1.5-1.7x vs native is the
+        // host-interface physical limit, not a codegen gap. V8/JSC expose
+        // no zero-copy bytes->string channel (latin1/TextDecoder/
+        // fromCharCode all copy; latin1 TextDecoder is windows-1252);
+        // ExternalString needs a native addon (node_api_create_external_
+        // string_latin1, experimental, may still copy) plus immutable
+        // wasm-memory lifetime at odds with linear-memory grow. Keep this
+        // shape; optional N-API external-string probe is evidence-only
+        // (snapshot <0.05ns/B to matter; >=0.12 means flattened/copied).
         // Contract is strict: a short decode (garbage input or an
         // undersized out range) traps instead of returning short, so a
         // caller bug can never become silent data truncation.
