@@ -814,14 +814,13 @@ fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHa
     errdefer allocator.free(groups);
 
     const rc = regexec(&regex_handle.compiled, @ptrCast(owned_text.ptr), groups.len, groups.ptr, 0);
+    // NOTE: no explicit frees here: the errdefers above own cleanup on every
+    // error return. Explicit frees + errdefer double-free (freelist corruption
+    // on wasm32 dlmalloc: later allocs overlap live objects).
     if (rc == SA_REGEX_REG_NOMATCH) {
-        allocator.free(groups);
-        allocator.free(owned_text);
         return error.FileNotFound;
     }
     if (rc != SA_REGEX_REG_NOERROR) {
-        allocator.free(groups);
-        allocator.free(owned_text);
         return regexErrorToZig(rc);
     }
 

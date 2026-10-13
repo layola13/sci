@@ -10015,3 +10015,17 @@ Current progress: 100%
   (1170/1172/1187/361/363/472/514/1707) — first compile/match always hits, second always misses/reads garbage
   on wasm32 despite valid handles, intact statics, correct re_nsub/pattern copies, and a pure-C double-compile
   control passing; suspect wasi-libc musl second-regcomp silent anomaly. JEV-scoped to defer.
+
+## Fix: 2026-10-13 regex double-free corrupting wasm32 dlmalloc freelist (8 demos un-quarantined)
+
+- Root cause: `regexMatchHandle` freed `groups`/`owned_text` explicitly on error paths AND via
+  `errdefer` -> double-free. wasi-libc dlmalloc freelist corruption made later allocs overlap live
+  objects (`owned.ptr` vs registry divergence, same-address double-live `tptr==gptr`, `0xAA`
+  unwritten concat buffers). glibc tolerates it, so native stayed green and the bug hid there too.
+- Evidence chain: miss-then-hit always fails vs hit-then-hit always passes; direct C calls into the
+  archive with dual-live compiles both hit (archive innocent); straight-line full-history passes;
+  removing groups/frees does not flip it; TNFA headers/transitions/submatch/allocator/pattern-copies
+  all identical across working/failing compiles; deterministic across runs. Fix: delete explicit
+  frees (errdefer owns all error-path cleanup); audited remaining errdefers (all single-owner).
+- Validation: all 8 quarantined demos (1170/1172/1187/361/363/472/514/1707) pass on wasm; wasm full
+  sweep 1929/1930 (only harness-preopens 478 excepted); native regex/json/strings spot green.
