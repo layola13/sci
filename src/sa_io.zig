@@ -244,12 +244,18 @@ pub fn ForwardWriter(comptime W: type) type {
         const vtable: std.Io.Writer.VTable = .{ .drain = drain };
 
         pub fn init(wrapped: W) Self {
-            var self = Self{ .io_writer = undefined, .wrapped = wrapped };
-            self.io_writer = .{ .buffer = &self.storage, .end = 0, .vtable = &vtable };
-            return self;
+            return Self{
+                .io_writer = .{ .buffer = &.{}, .end = 0, .vtable = &vtable },
+                .wrapped = wrapped,
+                .storage = std.mem.zeroes([8192]u8),
+            };
         }
 
         pub fn writer(self: *Self) *std.Io.Writer {
+            // NOTE: `init` returns by value, so the buffer slice captured
+            // there would dangle; (re)bind it to the live storage here.
+            self.io_writer.buffer = &self.storage;
+            if (self.io_writer.end > self.storage.len) self.io_writer.end = 0;
             return &self.io_writer;
         }
 
