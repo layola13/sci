@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("../../src/sa_io.zig");
 
 const Config = struct {
     listen_host: []const u8 = "127.0.0.1",
@@ -229,8 +230,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try sio.argsAlloc(allocator);
+    defer sio.argsFree(allocator, args);
 
     const config_path = if (args.len >= 2) args[1] else "examples/hubproxy/upstream.json";
     var state = try loadConfig(allocator, config_path);

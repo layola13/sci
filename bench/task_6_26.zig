@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("../src/sa_io.zig");
 const saasm = @import("src/lib.zig");
 
 const default_line_goal: usize = 1_000_000;
@@ -130,8 +131,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const argv = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, argv);
+    const argv = try sio.argsAlloc(allocator);
+    defer sio.argsFree(allocator, argv);
 
     const line_goal = parseLineGoal(argv) catch {
         const stderr = std.io.getStdErr().writer();
