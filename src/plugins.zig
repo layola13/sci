@@ -501,11 +501,11 @@ const ProcessExecPermission = struct {
 const RuntimePermissionPolicy = struct {
     has_manifest: bool = false,
     requires_sandbox: bool = false,
-    env_permissions: std.ArrayList([]u8) = .{},
-    fs_permissions: std.ArrayList(FsPermission) = .{},
-    net_permissions: std.ArrayList(NetPermission) = .{},
+    env_permissions: std.ArrayList([]u8) = .empty,
+    fs_permissions: std.ArrayList(FsPermission) = .empty,
+    net_permissions: std.ArrayList(NetPermission) = .empty,
     process_spawn: bool = false,
-    process_exec_permissions: std.ArrayList(ProcessExecPermission) = .{},
+    process_exec_permissions: std.ArrayList(ProcessExecPermission) = .empty,
 
     fn initFromManifest(allocator: std.mem.Allocator, manifest: SapManifest) !RuntimePermissionPolicy {
         var policy = RuntimePermissionPolicy{
@@ -593,11 +593,11 @@ const RuntimeHostAuthorization = struct {
     allow_write_declared: bool = false,
     allow_net_declared: bool = false,
     allow_run_declared: bool = false,
-    allow_env: std.ArrayList([]u8) = .{},
-    allow_read: std.ArrayList([]u8) = .{},
-    allow_write: std.ArrayList([]u8) = .{},
-    allow_net: std.ArrayList([]u8) = .{},
-    allow_run: std.ArrayList([]u8) = .{},
+    allow_env: std.ArrayList([]u8) = .empty,
+    allow_read: std.ArrayList([]u8) = .empty,
+    allow_write: std.ArrayList([]u8) = .empty,
+    allow_net: std.ArrayList([]u8) = .empty,
+    allow_run: std.ArrayList([]u8) = .empty,
 
     fn init(allocator: std.mem.Allocator, input: RuntimeAuthorizationInput) !RuntimeHostAuthorization {
         var auth = RuntimeHostAuthorization{
