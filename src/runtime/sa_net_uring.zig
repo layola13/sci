@@ -2,13 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sa_std = @import("sa_std.zig");
 const net_primitives = @import("sa_net_primitives.zig");
+const sio = @import("../sa_io.zig");
 
-const net = std.net;
+const net = std.Io.net;
 const posix = std.posix;
 const linux = std.os.linux;
 const Thread = std.Thread;
-const Mutex = std.Thread.Mutex;
-const Condition = std.Thread.Condition;
+const Mutex = std.Io.Mutex;
+const Condition = std.Io.Condition;
 
 pub const SA_NETX_ABI_VERSION: u32 = 1;
 
@@ -61,8 +62,8 @@ const ReactorUserTag = enum(u8) {
 };
 
 const WorkerState = struct {
-    mutex: Mutex = .{},
-    cond: Condition = .{},
+    mutex: Mutex = .init,
+    cond: Condition = .init,
     running: bool = false,
     stop: bool = false,
     active_workers: usize = 0,
@@ -83,7 +84,7 @@ const ReactorCommand = struct {
     msg_len: usize = 0,
     slot_ids_ptr: ?[*]const u32 = null,
     slot_ids_len: usize = 0,
-    address: ?net.Address = null,
+    address: ?net.IpAddress = null,
 };
 
 const ReactorCommandQueue = struct {
@@ -273,7 +274,7 @@ const ConnectionSlot = struct {
 
     fn clear(self: *ConnectionSlot) void {
         if (self.fd >= 0) {
-            posix.close(self.fd);
+            _ = linux.close(self.fd);
         }
         self.initFree(self.slot_id);
     }
@@ -454,10 +455,10 @@ const Reactor = struct {
     id: u32,
     ring: linux.IoUring,
     tickets: TicketQueue,
-    ticket_mutex: Mutex = .{},
-    ticket_cond: Condition = .{},
-    command_mutex: Mutex = .{},
-    command_cond: Condition = .{},
+    ticket_mutex: Mutex = .init,
+    ticket_cond: Condition = .init,
+    command_mutex: Mutex = .init,
+    command_cond: Condition = .init,
     server: ?net.Server = null,
     buffers: []align(std.heap.page_size_min) u8 = &.{},
     buffer_group: ?linux.IoUring.BufferGroup = null,
@@ -490,11 +491,15 @@ const Reactor = struct {
             var tickets_owned = tickets;
             tickets_owned.deinit();
         }
-        const command_eventfd = posix.eventfd(0, linux.EFD.CLOEXEC | linux.EFD.NONBLOCK) catch {
-            var tickets_owned = tickets;
-            tickets_owned.deinit();
-            ring.deinit();
-            return error.OutOfMemory;
+        const command_eventfd: posix.fd_t = blk: {
+            const rc = linux.eventfd(0, linux.EFD.CLOEXEC | linux.EFD.NONBLOCK);
+            if (@as(isize, @bitCast(rc)) < 0) {
+                var tickets_owned = tickets;
+                tickets_owned.deinit();
+                ring.deinit();
+                return error.OutOfMemory;
+            }
+            break :blk @intCast(rc);
         };
         return .{
             .id = id,
@@ -507,7 +512,7 @@ const Reactor = struct {
     fn deinit(self: *Reactor) void {
         self.stopWorker();
         if (self.command_eventfd >= 0) {
-            posix.close(self.command_eventfd);
+            _ = linux.close(self.command_eventfd);
             self.command_eventfd = -1;
         }
         self.tickets.deinit();
@@ -521,7 +526,7 @@ const Reactor = struct {
             self.buffers = &.{};
         }
         if (self.server) |*server| {
-            server.deinit();
+            server.deinit(sio.io());
             self.server = null;
         }
         self.ring.deinit();
@@ -536,19 +541,19 @@ const Reactor = struct {
 
     fn stopWorker(self: *Reactor) void {
         if (!self.worker_started) return;
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         self.command_pending = false;
         self.command_result = SA_NETX_ERR_IO;
-        self.command_cond.broadcast();
-        self.command_mutex.unlock();
-        self.ticket_cond.broadcast();
-        getState().worker_state.mutex.lock();
+        self.command_cond.broadcast(sio.io());
+        self.command_mutex.unlock(sio.io());
+        self.ticket_cond.broadcast(sio.io());
+        getState().worker_state.mutex.lockUncancelable(sio.io());
         getState().worker_state.stop = true;
-        getState().worker_state.cond.broadcast();
+        getState().worker_state.cond.broadcast(sio.io());
         while (getState().worker_state.active_workers != 0) {
-            getState().worker_state.cond.wait(&getState().worker_state.mutex);
+            getState().worker_state.cond.waitUncancelable(sio.io(), &getState().worker_state.mutex);
         }
-        getState().worker_state.mutex.unlock();
+        getState().worker_state.mutex.unlock(sio.io());
         self.signalWake();
         if (self.worker) |worker| {
             worker.join();
@@ -579,19 +584,15 @@ const Reactor = struct {
     fn signalWake(self: *Reactor) void {
         if (self.command_eventfd < 0) return;
         const value: u64 = 1;
-        _ = posix.write(self.command_eventfd, std.mem.asBytes(&value)) catch |err| {
-            // Wake signals are best-effort; the reactor also polls command state on its next pump.
-            _ = @errorName(err);
-        };
+        // Wake signals are best-effort; the reactor also polls command state on its next pump.
+        _ = linux.write(self.command_eventfd, std.mem.asBytes(&value).ptr, @sizeOf(u64));
     }
 
     fn drainWakeEvent(self: *Reactor) void {
         if (self.command_eventfd < 0) return;
         var buf: [8]u8 = undefined;
-        _ = posix.read(self.command_eventfd, buf[0..]) catch |err| {
-            // Draining a wake event is best-effort; a stale event only causes an extra wake.
-            _ = @errorName(err);
-        };
+        // Draining a wake event is best-effort; a stale event only causes an extra wake.
+        _ = linux.read(self.command_eventfd, &buf, buf.len);
     }
 
     fn armWakeup(self: *Reactor) !void {
@@ -607,18 +608,18 @@ const Reactor = struct {
         const ud = packUserData(.accept, self.id, 0);
         if (self.accept_multishot_supported) {
             self.accept_addr_len = @sizeOf(posix.sockaddr);
-            const sqe = self.ring.accept_multishot(ud, self.server.?.stream.handle, &self.accept_addr, &self.accept_addr_len, 0) catch |err| switch (err) {
+            const sqe = self.ring.accept_multishot(ud, self.server.?.socket.handle, &self.accept_addr, &self.accept_addr_len, 0) catch |err| switch (err) {
                 else => blk: {
                     self.accept_multishot_supported = false;
                     self.accept_addr_len = @sizeOf(posix.sockaddr);
-                    break :blk try self.ring.accept(ud, self.server.?.stream.handle, &self.accept_addr, &self.accept_addr_len, 0);
+                    break :blk try self.ring.accept(ud, self.server.?.socket.handle, &self.accept_addr, &self.accept_addr_len, 0);
                 },
             };
             _ = sqe;
             self.accept_armed = true;
         } else {
             self.accept_addr_len = @sizeOf(posix.sockaddr);
-            _ = try self.ring.accept(ud, self.server.?.stream.handle, &self.accept_addr, &self.accept_addr_len, 0);
+            _ = try self.ring.accept(ud, self.server.?.socket.handle, &self.accept_addr, &self.accept_addr_len, 0);
             self.accept_armed = true;
         }
     }
@@ -708,7 +709,7 @@ const Reactor = struct {
     }
 
     fn scanExpiredSlots(self: *Reactor) void {
-        const now_ns = std.time.nanoTimestamp();
+        const now_ns = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
         if (runtime_state.slot_pool) |*pool| {
             for (pool.slots) |*slot| {
                 if (slot.reactor_id != self.id) continue;
@@ -740,7 +741,7 @@ const Reactor = struct {
                     .Accepting => {
                         if (self.queueAcceptTicket(slot)) {
                             slot.state = .Handshake;
-                            slot.markActive(@as(u64, @intCast(std.time.nanoTimestamp())));
+                            slot.markActive(@as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())));
                             self.armRecv(slot) catch {
                                 slot.recv_paused = true;
                             };
@@ -760,20 +761,20 @@ const Reactor = struct {
     }
 
     fn requestResume(self: *Reactor) void {
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         self.resume_requested = true;
-        self.command_mutex.unlock();
+        self.command_mutex.unlock(sio.io());
         self.signalWake();
     }
 
     fn processPendingCommand(self: *Reactor) void {
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         if (!self.command_pending) {
-            self.command_mutex.unlock();
+            self.command_mutex.unlock(sio.io());
             return;
         }
         const command = self.command;
-        self.command_mutex.unlock();
+        self.command_mutex.unlock(sio.io());
 
         var result: i32 = SA_NETX_OK;
         switch (command.kind) {
@@ -782,11 +783,10 @@ const Reactor = struct {
                     if (self.server != null) {
                         self.stopListening();
                     }
-                    self.server = address.listen(.{
+                    self.server = address.listen(sio.io(), .{
                         .kernel_backlog = 256,
                         .reuse_address = true,
-                        .reuse_port = true,
-                        .force_nonblocking = true,
+                        .mode = .stream,
                     }) catch {
                         result = SA_NETX_ERR_NET;
                         self.finishCommand(result);
@@ -940,16 +940,16 @@ const Reactor = struct {
     }
 
     fn finishCommand(self: *Reactor, result: i32) void {
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         self.command_result = result;
         self.command_pending = false;
-        self.command_cond.broadcast();
-        self.command_mutex.unlock();
+        self.command_cond.broadcast(sio.io());
+        self.command_mutex.unlock(sio.io());
     }
 
     fn stopListening(self: *Reactor) void {
         if (self.server) |*server| {
-            server.deinit();
+            server.deinit(sio.io());
             self.server = null;
         }
         self.accept_armed = false;
@@ -958,23 +958,23 @@ const Reactor = struct {
 
     fn beginCommand(self: *Reactor, command: ReactorCommand) i32 {
         if (!self.worker_started) return SA_NETX_ERR_INVALID_HANDLE;
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         while (self.command_pending) {
-            self.command_cond.wait(&self.command_mutex);
+            self.command_cond.waitUncancelable(sio.io(), &self.command_mutex);
         }
         self.command = command;
         self.command_result = SA_NETX_OK;
         self.command_pending = true;
-        self.command_mutex.unlock();
+        self.command_mutex.unlock(sio.io());
 
         self.signalWake();
 
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         while (self.command_pending) {
-            self.command_cond.wait(&self.command_mutex);
+            self.command_cond.waitUncancelable(sio.io(), &self.command_mutex);
         }
         const result = self.command_result;
-        self.command_mutex.unlock();
+        self.command_mutex.unlock(sio.io());
         return result;
     }
 
@@ -994,10 +994,10 @@ const Reactor = struct {
         const fd = @as(posix.fd_t, @intCast(cqe.res));
         setNonBlocking(fd);
         var state = getState();
-        const now_ns = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const now_ns = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
         if (state.slot_pool) |*pool| {
             const slot = pool.allocSlot(self.id, fd, now_ns) orelse {
-                posix.close(fd);
+                _ = linux.close(fd);
                 return;
             };
             if (!self.queueAcceptTicket(slot)) {
@@ -1010,7 +1010,7 @@ const Reactor = struct {
                 slot.recv_paused = true;
             };
         } else {
-            posix.close(fd);
+            _ = linux.close(fd);
             return;
         }
         if (!self.accept_multishot_supported) {
@@ -1038,7 +1038,7 @@ const Reactor = struct {
             }
 
             const received = @as(usize, @intCast(cqe.res));
-            slot.markActive(@as(u64, @intCast(std.time.nanoTimestamp())));
+            slot.markActive(@as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())));
             const incoming = if (self.buffer_group) |*group| blk: {
                 break :blk group.get_cqe(cqe) catch return;
             } else blk: {
@@ -1102,7 +1102,7 @@ const Reactor = struct {
         _ = cqe_flags;
         if (slot.state == .Closing or slot.state == .Free) return;
         if (start >= end) return;
-        slot.markActive(@as(u64, @intCast(std.time.nanoTimestamp())));
+        slot.markActive(@as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())));
 
         while (slot.message_start < slot.scratch_used) {
             const pending = slot.scratch[slot.message_start..slot.scratch_used];
@@ -1230,18 +1230,18 @@ const Reactor = struct {
     }
 
     fn queueTicket(self: *Reactor, ticket: Ticket) bool {
-        self.ticket_mutex.lock();
-        defer self.ticket_mutex.unlock();
+        self.ticket_mutex.lockUncancelable(sio.io());
+        defer self.ticket_mutex.unlock(sio.io());
         const pushed = self.tickets.push(ticket);
         if (pushed) {
-            self.ticket_cond.broadcast();
+            self.ticket_cond.broadcast(sio.io());
         }
         return pushed;
     }
 
     fn ticketPop(self: *Reactor) ?Ticket {
-        self.ticket_mutex.lock();
-        defer self.ticket_mutex.unlock();
+        self.ticket_mutex.lockUncancelable(sio.io());
+        defer self.ticket_mutex.unlock(sio.io());
         return self.ticketPopLocked();
     }
 
@@ -1250,8 +1250,8 @@ const Reactor = struct {
     }
 
     fn ticketIsFull(self: *Reactor) bool {
-        self.ticket_mutex.lock();
-        defer self.ticket_mutex.unlock();
+        self.ticket_mutex.lockUncancelable(sio.io());
+        defer self.ticket_mutex.unlock(sio.io());
         return self.tickets.isFull();
     }
 
@@ -1298,11 +1298,11 @@ const Reactor = struct {
     }
 
     fn serviceDeferredWork(self: *Reactor) void {
-        self.command_mutex.lock();
+        self.command_mutex.lockUncancelable(sio.io());
         const should_resume = self.resume_requested;
         self.resume_requested = false;
         const has_command = self.command_pending;
-        self.command_mutex.unlock();
+        self.command_mutex.unlock(sio.io());
         if (has_command) self.processPendingCommand();
         if (should_resume) self.resumePausedSlots();
     }
@@ -1310,7 +1310,7 @@ const Reactor = struct {
 
 fn setThreadAffinity(core_id: usize) void {
     if (builtin.os.tag != .linux) return;
-    var set: linux.cpu_set_t = .{0} ** (linux.CPU_SETSIZE / @sizeOf(usize));
+    var set: linux.cpu_set_t = std.mem.zeroes(linux.cpu_set_t);
     const idx = core_id / (@sizeOf(usize) * 8);
     const bit = core_id % (@sizeOf(usize) * 8);
     if (idx < set.len) {
@@ -1323,36 +1323,36 @@ fn setThreadAffinity(core_id: usize) void {
 }
 
 fn setNonBlocking(fd: posix.fd_t) void {
-    const flags = posix.fcntl(fd, posix.F.GETFL, 0) catch return;
-    _ = posix.fcntl(fd, posix.F.SETFL, flags | (@as(usize, 1) << @bitOffsetOf(posix.O, "NONBLOCK"))) catch |err| {
-        // Nonblocking setup is best-effort for optional descriptors; callers handle I/O errors later.
-        _ = @errorName(err);
-    };
+    const get_rc = linux.fcntl(fd, linux.F.GETFL, 0);
+    if (@as(isize, @bitCast(get_rc)) < 0) return;
+    const flags: usize = @bitCast(@as(isize, @bitCast(get_rc)));
+    // Nonblocking setup is best-effort for optional descriptors; callers handle I/O errors later.
+    _ = linux.fcntl(fd, linux.F.SETFL, flags | (@as(usize, 1) << @bitOffsetOf(posix.O, "NONBLOCK")));
 }
 
 fn reactorWorkerMain(reactor: *Reactor) void {
     if (!builtin.is_test) setThreadAffinity(reactor.id);
     const state = &getState().worker_state;
-    state.mutex.lock();
+    state.mutex.lockUncancelable(sio.io());
     state.active_workers += 1;
     state.running = true;
-    state.cond.broadcast();
-    state.mutex.unlock();
+    state.cond.broadcast(sio.io());
+    state.mutex.unlock(sio.io());
 
     defer {
-        state.mutex.lock();
+        state.mutex.lockUncancelable(sio.io());
         if (state.active_workers > 0) state.active_workers -= 1;
         if (state.active_workers == 0) {
             state.running = false;
-            state.cond.broadcast();
+            state.cond.broadcast(sio.io());
         }
-        state.mutex.unlock();
+        state.mutex.unlock(sio.io());
     }
 
     while (true) {
-        state.mutex.lock();
+        state.mutex.lockUncancelable(sio.io());
         const stop = state.stop;
-        state.mutex.unlock();
+        state.mutex.unlock(sio.io());
         if (stop) break;
         reactor.pump(true) catch |err| {
             // Worker loop keeps servicing deferred cleanup even after a transient pump error.
@@ -1386,7 +1386,7 @@ const RuntimeState = struct {
     reactors: []Reactor = &.{},
     reactor_count: usize = 0,
     listened: bool = false,
-    listen_address: ?net.Address = null,
+    listen_address: ?net.IpAddress = null,
     ticket_capacity: usize = 0,
     worker_state: WorkerState = .{},
 };
@@ -1599,13 +1599,13 @@ fn prefixMatchesVector32(bytes: []const u8, prefix: []const u8) bool {
 }
 
 fn prefixPaddedVector32(prefix: []const u8) @Vector(32, u8) {
-    var padded: [32]u8 = [_]u8{0} ** 32;
+    var padded: [32]u8 = std.mem.zeroes([32]u8);
     @memcpy(padded[0..prefix.len], prefix);
     return padded;
 }
 
 fn prefixMaskVector32(prefix_len: usize) @Vector(32, u8) {
-    var mask: [32]u8 = [_]u8{0} ** 32;
+    var mask: [32]u8 = std.mem.zeroes([32]u8);
     const len = @min(prefix_len, mask.len);
     var i: usize = 0;
     while (i < len) : (i += 1) {
@@ -1945,10 +1945,10 @@ pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
 
     for (reactors) |*reactor| {
         reactor.startWorker() catch {
-            runtime_state.worker_state.mutex.lock();
+            runtime_state.worker_state.mutex.lockUncancelable(sio.io());
             runtime_state.worker_state.stop = true;
-            runtime_state.worker_state.cond.broadcast();
-            runtime_state.worker_state.mutex.unlock();
+            runtime_state.worker_state.cond.broadcast(sio.io());
+            runtime_state.worker_state.mutex.unlock(sio.io());
             var j: usize = 0;
             while (j < reactors.len) : (j += 1) reactors[j].deinit();
             std.heap.page_allocator.free(reactors);
@@ -1972,7 +1972,7 @@ pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i
         if (std.mem.indexOfScalar(u8, host_slice, 0) != null) return SA_NETX_ERR_INVALID_ARGUMENT;
         break :blk host_slice;
     };
-    const address = net.Address.resolveIp(host, port) catch return SA_NETX_ERR_NET;
+    const address = net.IpAddress.resolve(sio.io(), host, port) catch return SA_NETX_ERR_NET;
     if (runtime_state.reactors.len == 0) return SA_NETX_ERR_INVALID_HANDLE;
 
     const first_result = runtime_state.reactors[0].beginCommand(.{
@@ -2012,11 +2012,11 @@ pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i
 pub export fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     const ticket_ptr = out_ticket orelse return SA_NETX_ERR_INVALID_ARGUMENT;
     const reactor = getReactor(reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
-    reactor.ticket_mutex.lock();
-    defer reactor.ticket_mutex.unlock();
+    reactor.ticket_mutex.lockUncancelable(sio.io());
+    defer reactor.ticket_mutex.unlock(sio.io());
     while (reactor.tickets.isEmpty()) {
         if (runtime_state.worker_state.stop) return SA_NETX_ERR_NOT_FOUND;
-        reactor.ticket_cond.wait(&reactor.ticket_mutex);
+        reactor.ticket_cond.waitUncancelable(sio.io(), &reactor.ticket_mutex);
     }
     const ticket = reactor.tickets.pop().?;
     ticket_ptr.* = ticket;
@@ -2081,13 +2081,13 @@ pub export fn sa_netx_close_slot(slot_id: u32) i32 {
 
 pub export fn sa_netx_shutdown() i32 {
     if (!runtime_state.initialized) return SA_NETX_OK;
-    runtime_state.worker_state.mutex.lock();
+    runtime_state.worker_state.mutex.lockUncancelable(sio.io());
     runtime_state.worker_state.stop = true;
-    runtime_state.worker_state.cond.broadcast();
-    runtime_state.worker_state.mutex.unlock();
+    runtime_state.worker_state.cond.broadcast(sio.io());
+    runtime_state.worker_state.mutex.unlock(sio.io());
     if (runtime_state.reactors.len != 0) {
         for (runtime_state.reactors) |*reactor| {
-            reactor.ticket_cond.broadcast();
+            reactor.ticket_cond.broadcast(sio.io());
             reactor.deinit();
         }
         std.heap.page_allocator.free(runtime_state.reactors);
@@ -2107,14 +2107,14 @@ fn getReactor(reactor_id: u32) ?*Reactor {
 }
 
 const LoopbackClient = struct {
-    address: net.Address,
+    address: net.IpAddress,
     request: []const u8,
     received: [256]u8 = undefined,
     received_len: usize = 0,
 };
 
 const WsLoopbackClient = struct {
-    address: net.Address,
+    address: net.IpAddress,
     request: []const u8,
     expected_payload: []const u8,
     expected_frame_len: usize,
@@ -2129,8 +2129,8 @@ const WsLoopbackClient = struct {
 const TicketCollector = struct {
     reactor_id: u32,
     tickets: []Ticket,
-    mutex: Mutex = .{},
-    cond: Condition = .{},
+    mutex: Mutex = .init,
+    cond: Condition = .init,
     count: usize = 0,
     result: i32 = SA_NETX_OK,
 };
@@ -2145,7 +2145,7 @@ fn setLoopbackReadTimeout(stream: net.Stream) void {
         .sec = std.math.cast(TestTimevalSec, timeout_ns / std.time.ns_per_s) orelse 2,
         .usec = std.math.cast(TestTimevalUsec, (timeout_ns % std.time.ns_per_s) / std.time.ns_per_us) orelse 0,
     };
-    std.posix.setsockopt(stream.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
+    std.posix.setsockopt(stream.socket.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
 }
 
 fn ticketPayload(ticket: Ticket) []const u8 {
@@ -2153,16 +2153,19 @@ fn ticketPayload(ticket: Ticket) []const u8 {
 }
 
 fn loopbackClientMain(client: *LoopbackClient) void {
-    const stream = net.tcpConnectToAddress(client.address) catch return;
-    defer stream.close();
+    const stream = client.address.connect(sio.io(), .{ .mode = .stream }) catch return;
+    defer stream.close(sio.io());
     setLoopbackReadTimeout(stream);
 
-    _ = stream.writeAll(client.request) catch return;
+    var wbuf_lb: [4096]u8 = undefined;
+    var w_lb = stream.writer(sio.io(), &wbuf_lb);
+    w_lb.interface.writeAll(client.request) catch return;
+    w_lb.interface.flush() catch return;
 
     var total: usize = 0;
     var buf: [64]u8 = undefined;
     while (total < client.received.len) {
-        const read_len = stream.read(buf[0..]) catch return;
+        const read_len = stream.read(sio.io(), &.{buf[0..]}) catch return;
         if (read_len == 0) break;
         const copy_len = @min(client.received.len - total, read_len);
         if (copy_len != 0) {
@@ -2174,16 +2177,19 @@ fn loopbackClientMain(client: *LoopbackClient) void {
 }
 
 fn wsLoopbackClientMain(client: *WsLoopbackClient) void {
-    const stream = net.tcpConnectToAddress(client.address) catch return;
-    defer stream.close();
+    const stream = client.address.connect(sio.io(), .{ .mode = .stream }) catch return;
+    defer stream.close(sio.io());
     setLoopbackReadTimeout(stream);
 
-    _ = stream.writeAll(client.request) catch return;
+    var wbuf_ws: [4096]u8 = undefined;
+    var w_ws = stream.writer(sio.io(), &wbuf_ws);
+    w_ws.interface.writeAll(client.request) catch return;
+    w_ws.interface.flush() catch return;
 
     var frame_start: usize = 0;
     var upgrade_total: usize = 0;
     while (upgrade_total < client.upgrade_response.len) {
-        const read_len = stream.read(client.upgrade_response[upgrade_total..]) catch return;
+        const read_len = stream.read(sio.io(), &.{client.upgrade_response[upgrade_total..]}) catch return;
         if (read_len == 0) break;
         upgrade_total += read_len;
         if (std.mem.indexOf(u8, client.upgrade_response[0..upgrade_total], "\r\n\r\n")) |idx| {
@@ -2204,7 +2210,7 @@ fn wsLoopbackClientMain(client: *WsLoopbackClient) void {
         @memcpy(client.received[0..frame_start], client.frame_buf[0..frame_start]);
     }
     while (total < client.expected_frame_len) {
-        const read_len = stream.read(client.frame_buf[0..]) catch return;
+        const read_len = stream.read(sio.io(), &.{client.frame_buf[0..]}) catch return;
         if (read_len == 0) break;
         const copy_len = @min(client.received.len - total, read_len);
         if (copy_len != 0) {
@@ -2221,17 +2227,17 @@ fn collectTicketsMain(state: *TicketCollector) void {
     while (index < state.tickets.len) : (index += 1) {
         var ticket: Ticket = undefined;
         const result = sa_netx_recv_ticket(state.reactor_id, &ticket);
-        state.mutex.lock();
+        state.mutex.lockUncancelable(sio.io());
         if (result != SA_NETX_OK) {
             state.result = result;
-            state.cond.broadcast();
-            state.mutex.unlock();
+            state.cond.broadcast(sio.io());
+            state.mutex.unlock(sio.io());
             return;
         }
         state.tickets[index] = ticket;
         state.count = index + 1;
-        state.cond.broadcast();
-        state.mutex.unlock();
+        state.cond.broadcast(sio.io());
+        state.mutex.unlock(sio.io());
     }
 }
 
@@ -2353,20 +2359,20 @@ test "websocket upgrade and binary frame work end to end" {
     const collector_thread = try Thread.spawn(.{}, collectTicketsMain, .{&collector_state});
     const ws_thread = try Thread.spawn(.{}, wsLoopbackClientMain, .{&ws_client});
 
-    collector_state.mutex.lock();
-    const deadline = @as(u64, @intCast(std.time.nanoTimestamp())) + 10 * std.time.ns_per_s;
+    collector_state.mutex.lockUncancelable(sio.io());
+    const deadline = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())) + 10 * std.time.ns_per_s;
     while (collector_state.count < 3 and collector_state.result == SA_NETX_OK) {
-        const now = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const now = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
         if (now >= deadline) break;
         const remaining = deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+        collector_state.cond.waitTimeout(sio.io(), &collector_state.mutex, .{ .duration = .{ .raw = .fromNanoseconds(@as(i96, @intCast(remaining))), .clock = .awake } }) catch |err| {
             // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
             _ = @errorName(err);
         };
     }
     const collected = collector_state.count;
     const result = collector_state.result;
-    collector_state.mutex.unlock();
+    collector_state.mutex.unlock(sio.io());
     if (collected != 3 or result != SA_NETX_OK) return error.TestUnexpectedResult;
 
     var ws_slot: u32 = 0;
@@ -2390,20 +2396,20 @@ test "websocket upgrade and binary frame work end to end" {
     const ws_payload = "WS_OK\n";
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_push_outbound(0, ws_slot, ws_payload.ptr, @as(u32, @intCast(ws_payload.len))));
 
-    collector_state.mutex.lock();
-    const send_deadline = @as(u64, @intCast(std.time.nanoTimestamp())) + 10 * std.time.ns_per_s;
+    collector_state.mutex.lockUncancelable(sio.io());
+    const send_deadline = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())) + 10 * std.time.ns_per_s;
     while (collector_state.count < 4 and collector_state.result == SA_NETX_OK) {
-        const now = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const now = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
         if (now >= send_deadline) break;
         const remaining = send_deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+        collector_state.cond.waitTimeout(sio.io(), &collector_state.mutex, .{ .duration = .{ .raw = .fromNanoseconds(@as(i96, @intCast(remaining))), .clock = .awake } }) catch |err| {
             // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
             _ = @errorName(err);
         };
     }
     const total_collected = collector_state.count;
     const total_result = collector_state.result;
-    collector_state.mutex.unlock();
+    collector_state.mutex.unlock(sio.io());
     if (total_collected != 4 or total_result != SA_NETX_OK) return error.TestUnexpectedResult;
 
     _ = sa_netx_close_slot(ws_slot);
@@ -2479,20 +2485,20 @@ test "listen accept recv_ticket and outbound commands work end to end" {
     const client1_thread = try Thread.spawn(.{}, loopbackClientMain, .{&client1});
     const client2_thread = try Thread.spawn(.{}, loopbackClientMain, .{&client2});
 
-    collector_state.mutex.lock();
-    const first_deadline = @as(u64, @intCast(std.time.nanoTimestamp())) + 10 * std.time.ns_per_s;
+    collector_state.mutex.lockUncancelable(sio.io());
+    const first_deadline = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())) + 10 * std.time.ns_per_s;
     while (collector_state.count < 4 and collector_state.result == SA_NETX_OK) {
-        const now = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const now = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
         if (now >= first_deadline) break;
         const remaining = first_deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+        collector_state.cond.waitTimeout(sio.io(), &collector_state.mutex, .{ .duration = .{ .raw = .fromNanoseconds(@as(i96, @intCast(remaining))), .clock = .awake } }) catch |err| {
             // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
             _ = @errorName(err);
         };
     }
     const first_collected = collector_state.count;
     const collection_result = collector_state.result;
-    collector_state.mutex.unlock();
+    collector_state.mutex.unlock(sio.io());
 
     if (first_collected != 4 or collection_result != SA_NETX_OK) {
         return error.TestUnexpectedResult;
@@ -2543,20 +2549,20 @@ test "listen accept recv_ticket and outbound commands work end to end" {
     const broadcast_msg = "BROAD\n";
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_broadcast(0, broadcast_slots[0..].ptr, @as(u32, @intCast(broadcast_slots.len)), broadcast_msg.ptr, @as(u32, @intCast(broadcast_msg.len))));
 
-    collector_state.mutex.lock();
-    const second_deadline = @as(u64, @intCast(std.time.nanoTimestamp())) + 10 * std.time.ns_per_s;
+    collector_state.mutex.lockUncancelable(sio.io());
+    const second_deadline = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())) + 10 * std.time.ns_per_s;
     while (collector_state.count < 7 and collector_state.result == SA_NETX_OK) {
-        const now = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const now = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
         if (now >= second_deadline) break;
         const remaining = second_deadline - now;
-        collector_state.cond.timedWait(&collector_state.mutex, remaining) catch |err| {
+        collector_state.cond.waitTimeout(sio.io(), &collector_state.mutex, .{ .duration = .{ .raw = .fromNanoseconds(@as(i96, @intCast(remaining))), .clock = .awake } }) catch |err| {
             // Test wait loops re-check the deadline/result predicates after spurious timeout errors.
             _ = @errorName(err);
         };
     }
     const total_collected = collector_state.count;
     const total_result = collector_state.result;
-    collector_state.mutex.unlock();
+    collector_state.mutex.unlock(sio.io());
 
     if (total_collected != 7 or total_result != SA_NETX_OK) {
         return error.TestUnexpectedResult;

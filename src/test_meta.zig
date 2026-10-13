@@ -133,7 +133,7 @@ fn freeTestItems(allocator: std.mem.Allocator, tests: []TestDescAndFn) void {
 }
 
 pub fn collect(allocator: std.mem.Allocator, function_sigs: []const sig.FunctionSig) !TestList {
-    var tests = std.ArrayList(TestDescAndFn).init(allocator);
+    var tests = std.array_list.Managed(TestDescAndFn).init(allocator);
     errdefer {
         freeTestItems(allocator, tests.items);
         tests.deinit();

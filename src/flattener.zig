@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sa_io.zig");
 
 const def_dict = @import("flattener/def_dict.zig");
 const classifier = @import("flattener/line_classifier.zig");
@@ -149,9 +150,9 @@ pub fn takeErrorSourceLine(error_ctx: *ErrorContext) ?u32 {
 }
 
 fn appendExpandedLine(
-    out: *std.ArrayList(u8),
-    line_package_identities: *std.ArrayList(?[]const u8),
-    line_package_hashes: *std.ArrayList(?[32]u8),
+    out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
     text: []const u8,
     package_identity: ?[]const u8,
     package_hash: ?[32]u8,
@@ -178,9 +179,9 @@ fn consumesPendingLoc(kind: LineKind) bool {
 
 fn appendGeneratedLocLine(
     allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
-    line_package_identities: *std.ArrayList(?[]const u8),
-    line_package_hashes: *std.ArrayList(?[32]u8),
+    out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
     source_path: []const u8,
     line_no: u32,
     package_identity: ?[]const u8,
@@ -196,10 +197,10 @@ const ImportExpansion = struct {
     active_paths: std.StringHashMap(void),
     seen_paths: std.StringHashMap(void),
     seen_package_identities: std.StringHashMap(void),
-    line_package_identities: std.ArrayList(?[]const u8),
-    line_package_hashes: std.ArrayList(?[32]u8),
-    owned_paths: std.ArrayList([]u8),
-    layout_versions: std.ArrayList(LayoutVersion),
+    line_package_identities: std.array_list.Managed(?[]const u8),
+    line_package_hashes: std.array_list.Managed(?[32]u8),
+    owned_paths: std.array_list.Managed([]u8),
+    layout_versions: std.array_list.Managed(LayoutVersion),
 
     pub fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
         self.line_package_identities.deinit();
@@ -248,12 +249,12 @@ const ExpandedImportCacheEntry = struct {
     last_used_tick: u64,
 };
 
-var import_source_cache_mutex: std.Thread.Mutex = .{};
+var import_source_cache_mutex: std.atomic.Mutex = .unlocked;
 var import_source_cache: ?std.StringHashMap(ImportSourceCacheEntry) = null;
 var import_source_cache_tick: u64 = 0;
 var test_import_source_cache_max_entries: ?usize = null;
 
-var expanded_import_cache_mutex: std.Thread.Mutex = .{};
+var expanded_import_cache_mutex: std.atomic.Mutex = .unlocked;
 var expanded_import_cache: ?std.StringHashMap(ExpandedImportCacheEntry) = null;
 var expanded_import_cache_tick: u64 = 0;
 var test_expanded_import_cache_max_entries: ?usize = null;
@@ -275,7 +276,7 @@ fn expandedImportCacheMap() *std.StringHashMap(ExpandedImportCacheEntry) {
 }
 
 fn traceImportsEnabled() bool {
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SAASM_TRACE_IMPORTS") catch return false;
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SAASM_TRACE_IMPORTS") catch return false;
     defer std.heap.page_allocator.free(value);
     return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
 }
@@ -284,7 +285,7 @@ fn importSourceCacheMaxEntries() ?usize {
     if (builtin.is_test) {
         if (test_import_source_cache_max_entries) |value| return value;
     }
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_IMPORT_CACHE_MAX_ENTRIES") catch return null;
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_IMPORT_CACHE_MAX_ENTRIES") catch return null;
     defer std.heap.page_allocator.free(value);
     const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
     return if (parsed == 0) null else parsed;
@@ -294,7 +295,7 @@ fn expandedImportCacheMaxEntries() ?usize {
     if (builtin.is_test) {
         if (test_expanded_import_cache_max_entries) |value| return value;
     }
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES") catch return null;
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_EXPANDED_IMPORT_CACHE_MAX_ENTRIES") catch return null;
     defer std.heap.page_allocator.free(value);
     const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
     return if (parsed == 0) null else parsed;
@@ -310,7 +311,7 @@ fn nextExpandedImportCacheTickLocked() u64 {
     return expanded_import_cache_tick;
 }
 
-fn appendCacheBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
+fn appendCacheBytes(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
     try out.appendSlice(bytes);
     try out.append(0);
 }
@@ -321,7 +322,7 @@ fn buildImportSourceCacheKey(
     import_path: []const u8,
     resolve_ctx: ?ResolveContext,
 ) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     try appendCacheBytes(&out, base_dir);
@@ -330,7 +331,9 @@ fn buildImportSourceCacheKey(
         try appendCacheBytes(&out, if (ctx.options.project_root) |path| path else "");
         try appendCacheBytes(&out, if (ctx.options.home_dir) |path| path else "");
         try appendCacheBytes(&out, if (ctx.options.std_root) |path| path else "");
-        try out.writer().print("{}\x00{}\x00", .{ ctx.options.offline, ctx.options.max_local_file_bytes });
+        var flag_buf: [64]u8 = undefined;
+        const flag_text = try std.fmt.bufPrint(&flag_buf, "{}\x00{}\x00", .{ ctx.options.offline, ctx.options.max_local_file_bytes });
+        try out.appendSlice(flag_text);
         for (ctx.options.entry_candidates) |candidate| try appendCacheBytes(&out, candidate);
         try out.append(0);
         for (ctx.options.plugin_import_roots) |root| try appendCacheBytes(&out, root);
@@ -361,11 +364,11 @@ fn isStableImportCacheCandidate(allocator: std.mem.Allocator, base_dir: []const 
     else
         try std.fs.path.join(allocator, &.{ base_dir, import_path });
     defer allocator.free(joined);
-    const real_import = std.fs.cwd().realpathAlloc(allocator, joined) catch return false;
+    const real_import = sio.cwd().realpathAlloc(allocator, joined) catch return false;
     defer allocator.free(real_import);
 
     for (roots) |root| {
-        const real_root = std.fs.cwd().realpathAlloc(allocator, root) catch continue;
+        const real_root = sio.cwd().realpathAlloc(allocator, root) catch continue;
         defer allocator.free(real_root);
         if (pathWithinRoot(real_import, real_root)) return true;
     }
@@ -428,7 +431,7 @@ fn freeExpandedImportCacheEntry(entry: ExpandedImportCacheEntry) void {
 }
 
 fn statImportSourceCacheEntry(path: []const u8) !struct { mtime: i128, size: u64 } {
-    const stat = try std.fs.cwd().statFile(path);
+    const stat = try sio.cwd().statFile(path);
     return .{ .mtime = stat.mtime, .size = stat.size };
 }
 
@@ -491,12 +494,12 @@ fn markSeenImportContextDependency(
 
 fn rollbackExpandedImportCacheApply(
     allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
-    line_package_identities: *std.ArrayList(?[]const u8),
-    line_package_hashes: *std.ArrayList(?[32]u8),
+    out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
     seen_paths: *std.StringHashMap(void),
-    owned_paths: *std.ArrayList([]u8),
-    layout_versions: *std.ArrayList(LayoutVersion),
+    owned_paths: *std.array_list.Managed([]u8),
+    layout_versions: *std.array_list.Managed(LayoutVersion),
     out_len: usize,
     line_len: usize,
     owned_len: usize,
@@ -517,15 +520,15 @@ fn rollbackExpandedImportCacheApply(
 fn appendExpandedImportCacheHit(
     allocator: std.mem.Allocator,
     cache_key: []const u8,
-    out: *std.ArrayList(u8),
-    line_package_identities: *std.ArrayList(?[]const u8),
-    line_package_hashes: *std.ArrayList(?[32]u8),
+    out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
-    owned_paths: *std.ArrayList([]u8),
-    layout_versions: *std.ArrayList(LayoutVersion),
+    owned_paths: *std.array_list.Managed([]u8),
+    layout_versions: *std.array_list.Managed(LayoutVersion),
 ) !bool {
-    expanded_import_cache_mutex.lock();
+    while (!expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer expanded_import_cache_mutex.unlock();
 
     if (expanded_import_cache == null) return false;
@@ -635,7 +638,7 @@ fn storeExpandedImportCacheEntry(
         copied_layouts += 1;
     }
 
-    expanded_import_cache_mutex.lock();
+    while (!expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer expanded_import_cache_mutex.unlock();
     var cache = expandedImportCacheMap();
     if (cache.getPtr(cache_key)) |old| {
@@ -675,7 +678,7 @@ fn storeImportSourceCacheEntry(key: []const u8, resolved: pkg_resolver.ResolvedI
     const package_identity = if (resolved.package_identity) |identity| try cache_allocator.dupe(u8, identity) else null;
     errdefer if (package_identity) |identity| cache_allocator.free(identity);
 
-    import_source_cache_mutex.lock();
+    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer import_source_cache_mutex.unlock();
     var cache = importSourceCacheMap();
     if (cache.contains(key)) {
@@ -799,7 +802,7 @@ fn parseTokenList(allocator: std.mem.Allocator, text: []const u8) ![]const []con
         return try allocator.alloc([]const u8, 0);
     }
 
-    var list = std.ArrayList([]const u8).init(allocator);
+    var list = std.array_list.Managed([]const u8).init(allocator);
     errdefer list.deinit();
 
     var it = std.mem.splitScalar(u8, trimmed, ',');
@@ -822,7 +825,7 @@ fn parseMacroParams(allocator: std.mem.Allocator, text: []const u8) !struct { pa
     for (raw_params, 0..) |param, idx| {
         if (std.mem.endsWith(u8, param, "...")) {
             if (idx + 1 != raw_params.len) return error.InvalidMacroInvocation;
-            const base = std.mem.trimRight(u8, param[0 .. param.len - 3], " \t");
+            const base = std.mem.trimEnd(u8, param[0 .. param.len - 3], " \t");
             if (base.len == 0) return error.InvalidMacroInvocation;
             variadic_param = base;
             param_count = idx;
@@ -1076,7 +1079,7 @@ fn renderWithTokenReplacements(
         return try allocator.dupe(u8, text);
     }
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     errdefer result.deinit();
 
     var i: usize = 0;
@@ -1241,8 +1244,8 @@ fn buildHygieneReplacements(
     allocator: std.mem.Allocator,
     defined_names: *std.StringHashMap(void),
     expansion_id: u64,
-) !std.ArrayList(Replacement) {
-    var replacements = std.ArrayList(Replacement).init(allocator);
+) !std.array_list.Managed(Replacement) {
+    var replacements = std.array_list.Managed(Replacement).init(allocator);
     errdefer replacements.deinit();
 
     var it = defined_names.keyIterator();
@@ -1258,7 +1261,7 @@ fn buildHygieneReplacements(
 
 fn ownText(
     allocator: std.mem.Allocator,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     text: []const u8,
 ) ![]const u8 {
     const dup = try allocator.dupe(u8, text);
@@ -1270,7 +1273,7 @@ fn ownText(
 fn ownFoldedText(
     allocator: std.mem.Allocator,
     dict: *DefDict,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     text: []const u8,
 ) ![]const u8 {
     const folded = try dict.foldText(allocator, text);
@@ -1282,7 +1285,7 @@ fn ownFoldedText(
 fn stripLeadingPlus(text: []const u8) []const u8 {
     const trimmed = std.mem.trim(u8, text, " \t");
     if (trimmed.len > 0 and trimmed[0] == '+') {
-        return std.mem.trimLeft(u8, trimmed[1..], " \t");
+        return std.mem.trimStart(u8, trimmed[1..], " \t");
     }
     return trimmed;
 }
@@ -1297,7 +1300,7 @@ fn parseIntAllowLeadingPlus(comptime T: type, text: []const u8) !T {
 fn parseLayoutOffset(
     allocator: std.mem.Allocator,
     dict: *DefDict,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     text: []const u8,
 ) !u64 {
@@ -1422,7 +1425,7 @@ fn parseSizeOperand(text: []const u8) ?common_instruction.Operand {
 fn resolveOperandText(
     allocator: std.mem.Allocator,
     dict: *DefDict,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     symbols: *SymbolTable,
     text: []const u8,
 ) !common_instruction.Operand {
@@ -1434,7 +1437,7 @@ fn resolveOperandText(
 fn resolveSizeOperandText(
     allocator: std.mem.Allocator,
     dict: *DefDict,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     symbols: *SymbolTable,
     text: []const u8,
 ) !common_instruction.Operand {
@@ -1447,7 +1450,7 @@ fn resolveSizeOperandText(
 }
 
 fn consumePendingLoc(
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
 ) !?common_upstream.UpstreamLoc {
     const loc = pending_loc.*;
@@ -1464,7 +1467,7 @@ fn takePendingLoc(
     return loc;
 }
 
-fn appendNullLoc(loc_table: *std.ArrayList(?common_upstream.UpstreamLoc)) !void {
+fn appendNullLoc(loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc)) !void {
     try loc_table.append(null);
 }
 
@@ -1490,7 +1493,7 @@ fn setPendingLoc(
 
 fn recordLayoutVersion(
     allocator: std.mem.Allocator,
-    layout_versions: *std.ArrayList(LayoutVersion),
+    layout_versions: *std.array_list.Managed(LayoutVersion),
     path: []const u8,
     source: []const u8,
 ) !void {
@@ -1628,14 +1631,14 @@ fn emitParsedLine(
     allocator: std.mem.Allocator,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
     raw_line: []const u8,
     source_line: u32,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2035,12 +2038,12 @@ fn includeFileAsConst(
     source_path: ?[]const u8,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2058,7 +2061,7 @@ fn includeFileAsConst(
     } else try allocator.dupe(u8, include_path_raw);
     defer allocator.free(resolved_path);
 
-    const file = try std.fs.cwd().openFile(resolved_path, .{});
+    const file = try sio.cwd().openFile(resolved_path, .{});
     defer file.close();
     const bytes = try file.readToEndAlloc(allocator, 1 << 20);
     defer allocator.free(bytes);
@@ -2066,14 +2069,15 @@ fn includeFileAsConst(
     const const_name = try std.fmt.allocPrint(allocator, "__INCLUDE_{d}_{d}", .{ source_line, const_decls.items.len });
     defer allocator.free(const_name);
 
-    var hex: ?std.ArrayList(u8) = null;
+    var hex: ?std.array_list.Managed(u8) = null;
     const literal_line = switch (kind) {
         .str => try std.fmt.allocPrint(allocator, "@const {s} = utf8:\"{s}\"", .{ const_name, bytes }),
         .bytes => blk: {
-            hex = std.ArrayList(u8).init(allocator);
+            hex = std.array_list.Managed(u8).init(allocator);
             try hex.?.appendSlice("hex:");
             for (bytes) |b| {
-                try hex.?.writer().print("\\x{X:0>2}", .{b});
+                var hex_byte_buf: [4]u8 = undefined;
+                try hex.?.appendSlice(try std.fmt.bufPrint(&hex_byte_buf, "\\x{X:0>2}", .{b}));
             }
             break :blk try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ const_name, hex.?.items });
         },
@@ -2085,11 +2089,11 @@ fn includeFileAsConst(
 }
 
 fn utf8ConstLine(allocator: std.mem.Allocator, name: []const u8, bytes: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
-    errdefer out.deinit();
-    try out.writer().print("@const {s} = utf8:", .{name});
-    try std.json.stringify(bytes, .{}, out.writer());
-    return out.toOwnedSlice();
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try aw.writer.print("@const {s} = utf8:", .{name});
+    try std.json.Stringify.value(bytes, .{}, &aw.writer);
+    return try aw.toOwnedSlice();
 }
 
 fn expandSourceLocationMacro(
@@ -2100,12 +2104,12 @@ fn expandSourceLocationMacro(
     source_path: ?[]const u8,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2217,7 +2221,7 @@ fn isFunctionSigDeclared(sigs: []const FunctionSig, name: []const u8) bool {
 }
 
 fn parsePrintArgs(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
-    var args = std.ArrayList([]const u8).init(allocator);
+    var args = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (args.items) |arg| allocator.free(arg);
         args.deinit();
@@ -2292,7 +2296,7 @@ const FormatSegment = struct {
 };
 
 fn parseFormatString(allocator: std.mem.Allocator, fmt_str: []const u8) ![]FormatSegment {
-    var segments = std.ArrayList(FormatSegment).init(allocator);
+    var segments = std.array_list.Managed(FormatSegment).init(allocator);
     errdefer {
         for (segments.items) |seg| {
             if (seg.kind == .literal) allocator.free(seg.text);
@@ -2384,13 +2388,13 @@ fn ensureExternSigs(
     allocator: std.mem.Allocator,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
     source_line: u32,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2428,12 +2432,12 @@ fn expandPrintOrFormat(
     source_line: u32,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2600,7 +2604,7 @@ fn expandPrintOrFormat(
             release_ptr_len: bool,
         };
 
-        var segment_datas = std.ArrayList(SegmentData).init(allocator);
+        var segment_datas = std.array_list.Managed(SegmentData).init(allocator);
         defer {
             for (segment_datas.items) |sd| {
                 allocator.free(sd.ptr);
@@ -2857,12 +2861,12 @@ fn expandStringify(
     source_line: u32,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2874,11 +2878,12 @@ fn expandStringify(
     const const_name = try std.fmt.allocPrint(allocator, "__STRINGIFY_LIT_{d}_{d}", .{ source_line, const_decls.items.len });
     defer allocator.free(const_name);
 
-    var hex = std.ArrayList(u8).init(allocator);
+    var hex = std.array_list.Managed(u8).init(allocator);
     errdefer hex.deinit();
     try hex.appendSlice("hex:");
     for (expr_text) |b| {
-        try hex.writer().print("\\x{X:0>2}", .{b});
+        var hex_byte_buf: [4]u8 = undefined;
+        try hex.appendSlice(try std.fmt.bufPrint(&hex_byte_buf, "\\x{X:0>2}", .{b}));
     }
 
     const const_line = try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ const_name, hex.items });
@@ -2903,12 +2908,12 @@ fn expandEnvMacro(
     source_line: u32,
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
 ) !void {
@@ -2921,7 +2926,7 @@ fn expandEnvMacro(
     defer allocator.free(key_raw);
     if (key_raw.len == 0) return error.InvalidMacroInvocation;
 
-    const env_value = std.process.getEnvVarOwned(allocator, key_raw) catch |err| switch (err) {
+    const env_value = sio.getEnvVarOwned(allocator, key_raw) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => {
             if (std.mem.eql(u8, macro_name, "OPTION_ENV!")) {
                 const none_tag_line = try std.fmt.allocPrint(allocator, "store {s}+Option_tag, Option_NONE as u64", .{out_reg});
@@ -2942,11 +2947,12 @@ fn expandEnvMacro(
     const const_name = try std.fmt.allocPrint(allocator, "__ENV_LIT_{d}_{d}", .{ source_line, const_decls.items.len });
     defer allocator.free(const_name);
 
-    var hex = std.ArrayList(u8).init(allocator);
+    var hex = std.array_list.Managed(u8).init(allocator);
     errdefer hex.deinit();
     try hex.appendSlice("hex:");
     for (env_value) |b| {
-        try hex.writer().print("\\x{X:0>2}", .{b});
+        var hex_byte_buf: [4]u8 = undefined;
+        try hex.appendSlice(try std.fmt.bufPrint(&hex_byte_buf, "\\x{X:0>2}", .{b}));
     }
 
     const const_line = try std.fmt.allocPrint(allocator, "@const {s} = {s}", .{ const_name, hex.items });
@@ -3000,19 +3006,19 @@ fn emitRange(
     depth: u16,
     source_line_override: ?u32,
     source_path: ?[]const u8,
-    include_stack: *std.ArrayList([]const u8),
-    macro_call_stack: *std.ArrayList(*const MacroDef),
+    include_stack: *std.array_list.Managed([]const u8),
+    macro_call_stack: *std.array_list.Managed(*const MacroDef),
     replacements: []const Replacement,
     top_level: bool,
     macros: *std.StringHashMap(MacroDef),
     dict: *DefDict,
     symbols: *SymbolTable,
-    loc_table: *std.ArrayList(?common_upstream.UpstreamLoc),
+    loc_table: *std.array_list.Managed(?common_upstream.UpstreamLoc),
     pending_loc: *?common_upstream.UpstreamLoc,
-    instructions: *std.ArrayList(Instruction),
-    const_decls: *std.ArrayList(ConstDecl),
-    function_sigs: *std.ArrayList(FunctionSig),
-    owned_text: *std.ArrayList([]const u8),
+    instructions: *std.array_list.Managed(Instruction),
+    const_decls: *std.array_list.Managed(ConstDecl),
+    function_sigs: *std.array_list.Managed(FunctionSig),
+    owned_text: *std.array_list.Managed([]const u8),
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
@@ -3086,7 +3092,7 @@ fn emitRange(
                     const rep_value = try std.fmt.allocPrint(allocator, "{d}", .{rep_index});
                     defer allocator.free(rep_value);
 
-                    var list = std.ArrayList(Replacement).init(allocator);
+                    var list = std.array_list.Managed(Replacement).init(allocator);
                     errdefer list.deinit();
                     try list.appendSlice(hygiene_replacements.items);
                     try list.appendSlice(replacements);
@@ -3273,7 +3279,7 @@ fn emitRange(
                         if (std.mem.eql(u8, active, resolved_path)) return error.IncludeCycle;
                     }
 
-                    const source = try std.fs.cwd().readFileAlloc(allocator, resolved_path, 1 << 20);
+                    const source = try sio.cwd().readFileAlloc(allocator, resolved_path, 1 << 20);
                     defer allocator.free(source);
                     try include_stack.append(try allocator.dupe(u8, resolved_path));
                     defer {
@@ -3352,7 +3358,7 @@ fn emitRange(
                             var_hygiene.deinit();
                         }
 
-                        var local_replacements = std.ArrayList(Replacement).init(allocator);
+                        var local_replacements = std.array_list.Managed(Replacement).init(allocator);
                         errdefer local_replacements.deinit();
                         try local_replacements.appendSlice(var_hygiene.items);
                         for (def.params, 0..) |param, iarg| {
@@ -3404,7 +3410,7 @@ fn emitRange(
                         nv_hygiene.deinit();
                     }
 
-                    var local_replacements = std.ArrayList(Replacement).init(allocator);
+                    var local_replacements = std.array_list.Managed(Replacement).init(allocator);
                     errdefer local_replacements.deinit();
                     try local_replacements.appendSlice(nv_hygiene.items);
                     for (def.params, 0..) |param, iarg| {
@@ -3448,7 +3454,7 @@ fn collectLocTableEntries(
     allocator: std.mem.Allocator,
     instructions: []const Instruction,
 ) !LocTable {
-    var table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    var table = std.array_list.Managed(?common_upstream.UpstreamLoc).init(allocator);
     errdefer table.deinit();
 
     for (instructions) |item| {
@@ -3482,7 +3488,7 @@ pub fn scanSource(
     line_package_identities: []const ?[]const u8,
     line_package_hashes: []const ?[32]u8,
 ) ![]SourceLine {
-    var lines = std.ArrayList(SourceLine).init(allocator);
+    var lines = std.array_list.Managed(SourceLine).init(allocator);
     errdefer lines.deinit();
     try lines.ensureTotalCapacity(countSourceLines(source));
 
@@ -3557,7 +3563,7 @@ fn remappedSymbolName(
 }
 
 fn appendRemappedSymbolToken(
-    out: *std.ArrayList(u8),
+    out: *std.array_list.Managed(u8),
     source_symbols: *const SymbolTable,
     target_symbols: *const SymbolTable,
     remap: []const u32,
@@ -3572,13 +3578,13 @@ fn appendRemappedSymbolToken(
 
 fn cloneRemappedSymbolText(
     allocator: std.mem.Allocator,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     text: []const u8,
     source_symbols: *const SymbolTable,
     target_symbols: *const SymbolTable,
     remap: []const u32,
 ) ![]const u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     var i: usize = 0;
@@ -3932,7 +3938,7 @@ fn mergeDefDictAllowingIdentical(target: *DefDict, source: *const DefDict) !void
 
 fn mergeConstDeclsAllowingIdentical(
     allocator: std.mem.Allocator,
-    target: *std.ArrayList(ConstDecl),
+    target: *std.array_list.Managed(ConstDecl),
     source: []const ConstDecl,
     source_line_offset: u32,
     expanded_line_offset: u32,
@@ -3967,7 +3973,7 @@ fn cloneLayoutVersion(allocator: std.mem.Allocator, source: LayoutVersion) !Layo
 
 fn mergeLayoutVersionsAllowingIdentical(
     allocator: std.mem.Allocator,
-    target: *std.ArrayList(LayoutVersion),
+    target: *std.array_list.Managed(LayoutVersion),
     source: []const LayoutVersion,
 ) !void {
     for (source) |layout_version| {
@@ -4007,15 +4013,15 @@ fn mergePackageIdentities(
 
 fn appendFlattenFragment(
     allocator: std.mem.Allocator,
-    target_instructions: *std.ArrayList(Instruction),
-    target_const_decls: *std.ArrayList(ConstDecl),
-    target_function_sigs: *std.ArrayList(FunctionSig),
-    target_test_sigs: *std.ArrayList(FunctionSig),
+    target_instructions: *std.array_list.Managed(Instruction),
+    target_const_decls: *std.array_list.Managed(ConstDecl),
+    target_function_sigs: *std.array_list.Managed(FunctionSig),
+    target_test_sigs: *std.array_list.Managed(FunctionSig),
     target_def_dict: *DefDict,
     target_symbols: *SymbolTable,
-    target_layout_versions: *std.ArrayList(LayoutVersion),
+    target_layout_versions: *std.array_list.Managed(LayoutVersion),
     target_package_identities: *std.StringHashMap(void),
-    target_owned_text: *std.ArrayList([]const u8),
+    target_owned_text: *std.array_list.Managed([]const u8),
     target_macros: *std.StringHashMap(MacroDef),
     fragment: *const FlattenResult,
     source_line_offset: u32,
@@ -4069,7 +4075,7 @@ fn appendFlattenFragment(
 
 fn cloneRemappedOperand(
     allocator: std.mem.Allocator,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     operand: Operand,
     source_symbols: *const SymbolTable,
     target_symbols: *const SymbolTable,
@@ -4088,7 +4094,7 @@ fn cloneRemappedOperand(
 
 fn cloneNativeRegNames(
     allocator: std.mem.Allocator,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     source: Instruction,
     cloned_native_text: ?[]const u8,
 ) ![]const []const u8 {
@@ -4118,7 +4124,7 @@ fn cloneNativeRegNames(
 
 fn cloneRemappedInstruction(
     allocator: std.mem.Allocator,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     source: Instruction,
     source_symbols: *const SymbolTable,
     target_symbols: *const SymbolTable,
@@ -4182,7 +4188,7 @@ fn cloneRemappedInstruction(
     return out;
 }
 
-fn appendOwnedSource(out: *std.ArrayList(u8), source: []const u8) !void {
+fn appendOwnedSource(out: *std.array_list.Managed(u8), source: []const u8) !void {
     if (source.len == 0) return;
     const needs_newline = source[source.len - 1] != '\n';
     try out.ensureUnusedCapacity(source.len + @intFromBool(needs_newline));
@@ -4213,7 +4219,7 @@ fn readImportFile(
     const cache_key = try buildImportSourceCacheKey(allocator, base_dir, import_path, resolve_ctx);
     defer allocator.free(cache_key);
 
-    import_source_cache_mutex.lock();
+    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     if (import_source_cache) |*cache| {
         if (cache.getPtr(cache_key)) |cached| {
             if (cachedImportStillValid(cached.*)) {
@@ -4269,7 +4275,7 @@ fn packageNamespacePrefix(allocator: std.mem.Allocator, package_identity: []cons
     const trimmed = std.mem.trim(u8, package_identity, " \t\r\n");
     if (trimmed.len == 0) return error.InvalidPath;
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
     try out.appendSlice("pkg_");
 
@@ -4286,7 +4292,10 @@ fn packageNamespacePrefix(allocator: std.mem.Allocator, package_identity: []cons
             '~' => try out.appendSlice("_tilde_"),
             else => {
                 try out.appendSlice("_x");
-                try out.writer().print("{X:0>2}_", .{c});
+                var hex_c_buf: [2]u8 = undefined;
+                const hex_c = std.fmt.bufPrint(&hex_c_buf, "{X:0>2}", .{c}) catch unreachable;
+                try out.appendSlice(hex_c);
+                try out.append('_');
             },
         }
     }
@@ -4320,7 +4329,7 @@ fn rewritePackageLayoutExpr(
     prefix: []const u8,
     local_defs: []const []const u8,
 ) ![]const u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     var idx: usize = 0;
@@ -4354,7 +4363,7 @@ fn rewritePackageLayoutSource(
     const prefix = try packageNamespacePrefix(allocator, package_identity);
     defer allocator.free(prefix);
 
-    var local_defs = std.ArrayList([]const u8).init(allocator);
+    var local_defs = std.array_list.Managed([]const u8).init(allocator);
     defer local_defs.deinit();
 
     var collector = std.mem.splitScalar(u8, source, '\n');
@@ -4365,7 +4374,7 @@ fn rewritePackageLayoutSource(
         }
     }
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     var iterator = std.mem.splitScalar(u8, source, '\n');
@@ -4399,15 +4408,15 @@ fn rewritePackageLayoutSource(
 
 fn injectImportedFile(
     allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
-    line_package_identities: *std.ArrayList(?[]const u8),
-    line_package_hashes: *std.ArrayList(?[32]u8),
+    out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
     imported: *pkg_resolver.ResolvedImport,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
     seen_package_identities: *std.StringHashMap(void),
-    owned_paths: *std.ArrayList([]u8),
-    layout_versions: *std.ArrayList(LayoutVersion),
+    owned_paths: *std.array_list.Managed([]u8),
+    layout_versions: *std.array_list.Managed(LayoutVersion),
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
@@ -4436,16 +4445,16 @@ fn injectImportedFile(
     const injected_root = struct {
         fn run(
             allocator2: std.mem.Allocator,
-            out2: *std.ArrayList(u8),
-            line_package_identities2: *std.ArrayList(?[]const u8),
-            line_package_hashes2: *std.ArrayList(?[32]u8),
+            out2: *std.array_list.Managed(u8),
+            line_package_identities2: *std.array_list.Managed(?[]const u8),
+            line_package_hashes2: *std.array_list.Managed(?[32]u8),
             base_dir: []const u8,
             file_name: []const u8,
             active_paths2: *std.StringHashMap(void),
             seen_paths2: *std.StringHashMap(void),
             seen_package_identities2: *std.StringHashMap(void),
-            owned_paths2: *std.ArrayList([]u8),
-            layout_versions2: *std.ArrayList(LayoutVersion),
+            owned_paths2: *std.array_list.Managed([]u8),
+            layout_versions2: *std.array_list.Managed(LayoutVersion),
             error_ctx2: ?*ErrorContext,
             current_package_identity2: ?[]const u8,
             current_package_hash2: ?[32]u8,
@@ -4513,7 +4522,7 @@ fn injectImportedFile(
 
     const iface_path = try pathJoin(allocator, &.{ import_dir, iface_name });
     defer allocator.free(iface_path);
-    if (std.fs.cwd().access(iface_path, .{})) |_| {
+    if (sio.cwd().access(iface_path, .{})) |_| {
         try injected_root(
             allocator,
             out,
@@ -4536,7 +4545,7 @@ fn injectImportedFile(
 
     const layout_path = try pathJoin(allocator, &.{ import_dir, layout_name });
     defer allocator.free(layout_path);
-    if (std.fs.cwd().access(layout_path, .{})) |_| {
+    if (sio.cwd().access(layout_path, .{})) |_| {
         try injected_root(
             allocator,
             out,
@@ -4560,17 +4569,17 @@ fn injectImportedFile(
 
 fn expandImportsInto(
     allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
-    line_package_identities: *std.ArrayList(?[]const u8),
-    line_package_hashes: *std.ArrayList(?[32]u8),
+    out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
     source: []const u8,
     base_dir: []const u8,
     current_source_path: ?[]const u8,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
     seen_package_identities: *std.StringHashMap(void),
-    owned_paths: *std.ArrayList([]u8),
-    layout_versions: *std.ArrayList(LayoutVersion),
+    owned_paths: *std.array_list.Managed([]u8),
+    layout_versions: *std.array_list.Managed(LayoutVersion),
     error_ctx: ?*ErrorContext,
     current_package_identity: ?[]const u8,
     current_package_hash: ?[32]u8,
@@ -4758,24 +4767,24 @@ pub fn expandImports(
         seen_package_identities.deinit();
     }
 
-    var line_package_identities = std.ArrayList(?[]const u8).init(allocator);
+    var line_package_identities = std.array_list.Managed(?[]const u8).init(allocator);
     errdefer line_package_identities.deinit();
 
-    var line_package_hashes = std.ArrayList(?[32]u8).init(allocator);
+    var line_package_hashes = std.array_list.Managed(?[32]u8).init(allocator);
     errdefer line_package_hashes.deinit();
 
-    var owned_paths = std.ArrayList([]u8).init(allocator);
+    var owned_paths = std.array_list.Managed([]u8).init(allocator);
     errdefer {
         for (owned_paths.items) |path| allocator.free(path);
         owned_paths.deinit();
     }
-    var layout_versions = std.ArrayList(LayoutVersion).init(allocator);
+    var layout_versions = std.array_list.Managed(LayoutVersion).init(allocator);
     errdefer {
         for (layout_versions.items) |*layout_version| layout_version.deinit(allocator);
         layout_versions.deinit();
     }
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     const base_dir = if (source_path) |path| std.fs.path.dirname(path) orelse "." else ".";
@@ -4784,7 +4793,7 @@ pub fn expandImports(
         const source_full = if (std.fs.path.isAbsolute(path))
             try allocator.dupe(u8, path)
         else
-            try std.fs.cwd().realpathAlloc(allocator, path);
+            try sio.cwd().realpathAlloc(allocator, path);
         owned_paths.append(source_full) catch |err| {
             allocator.free(source_full);
             return err;
@@ -4869,7 +4878,7 @@ fn flattenInternal(
     errdefer dict.deinit();
     var symbols = SymbolTable.init(allocator);
     errdefer symbols.deinit();
-    var instructions = std.ArrayList(Instruction).init(allocator);
+    var instructions = std.array_list.Managed(Instruction).init(allocator);
     errdefer {
         for (instructions.items) |*inst| {
             if (inst.package_identity) |identity| allocator.free(identity);
@@ -4888,22 +4897,22 @@ fn flattenInternal(
         }
         instructions.deinit();
     }
-    var const_decls = std.ArrayList(ConstDecl).init(allocator);
+    var const_decls = std.array_list.Managed(ConstDecl).init(allocator);
     errdefer {
         for (const_decls.items) |*decl| decl.deinit(allocator);
         const_decls.deinit();
     }
-    var function_sigs = std.ArrayList(FunctionSig).init(allocator);
+    var function_sigs = std.array_list.Managed(FunctionSig).init(allocator);
     errdefer {
         for (function_sigs.items) |*sig_item| sig_item.deinit(allocator);
         function_sigs.deinit();
     }
-    var owned_text = std.ArrayList([]const u8).init(allocator);
+    var owned_text = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (owned_text.items) |text| allocator.free(text);
         owned_text.deinit();
     }
-    var loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    var loc_table = std.array_list.Managed(?common_upstream.UpstreamLoc).init(allocator);
     errdefer {
         for (loc_table.items) |entry| {
             if (entry) |loc| allocator.free(loc.file);
@@ -4916,9 +4925,9 @@ fn flattenInternal(
     var macros = std.StringHashMap(MacroDef).init(allocator);
     defer deinitMacroMap(allocator, &macros);
 
-    var include_stack = std.ArrayList([]const u8).init(allocator);
+    var include_stack = std.array_list.Managed([]const u8).init(allocator);
     defer include_stack.deinit();
-    var macro_call_stack = std.ArrayList(*const MacroDef).init(allocator);
+    var macro_call_stack = std.array_list.Managed(*const MacroDef).init(allocator);
     defer macro_call_stack.deinit();
 
     const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
@@ -4986,7 +4995,7 @@ fn flattenInternal(
     const function_sigs_slice = try function_sigs.toOwnedSlice();
 
     // Filter test functions from function_sigs
-    var test_sigs_list = std.ArrayList(FunctionSig).init(allocator);
+    var test_sigs_list = std.array_list.Managed(FunctionSig).init(allocator);
     errdefer test_sigs_list.deinit();
     for (function_sigs_slice) |sig| {
         if (sig.kind == .test_func) {
@@ -5092,9 +5101,9 @@ fn buildMacroPbtProgram(allocator: std.mem.Allocator, random: std.Random, iter: 
     const acc_name = try std.fmt.allocPrint(allocator, "acc_{d}_{d}", .{ iter, salt });
     errdefer allocator.free(acc_name);
 
-    var source = std.ArrayList(u8).init(allocator);
-    errdefer source.deinit();
-    const writer = source.writer();
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    errdefer aw.deinit();
+    const writer = &aw.writer;
     try writer.writeAll(
         \\#def REP_COUNT = 
     );
@@ -5119,7 +5128,7 @@ fn buildMacroPbtProgram(allocator: std.mem.Allocator, random: std.Random, iter: 
     try writer.print("    return {s}\n", .{acc_name});
 
     return .{
-        .source = try source.toOwnedSlice(),
+        .source = try aw.toOwnedSlice(),
         .base_name = base_name,
         .acc_name = acc_name,
         .alloc_size = alloc_size,
@@ -5418,7 +5427,7 @@ test "frontend cache merge clones const declarations and rejects conflicts" {
     );
     defer source_decl.deinit(std.testing.allocator);
 
-    var target = std.ArrayList(ConstDecl).init(std.testing.allocator);
+    var target = std.array_list.Managed(ConstDecl).init(std.testing.allocator);
     defer {
         for (target.items) |*decl| decl.deinit(std.testing.allocator);
         target.deinit();
@@ -5481,14 +5490,14 @@ test "frontend cache clone remaps instruction symbols and owned metadata" {
     defer std.testing.allocator.free(source.upstream_loc.?.file);
     source.package_identity = try std.testing.allocator.dupe(u8, "pkg/core");
     defer std.testing.allocator.free(source.package_identity.?);
-    source.package_source_sha256 = [_]u8{7} ** 32;
+    source.package_source_sha256 = @splat(@as(u8, 7));
     source.operands[0] = .{ .reg = dst_id };
     source.operands[1] = .{ .func = callee_id };
     source.operands[2] = .{ .text = "borrow" };
     source.atomic_expected_text = "old";
     source.atomic_new_text = "new";
 
-    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    var owned_text = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
@@ -5555,7 +5564,7 @@ test "frontend cache clone remaps embedded call text tokens with operands" {
     _ = callee_id;
     _ = opaque_arg_id;
 
-    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    var owned_text = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
@@ -5586,7 +5595,7 @@ test "frontend cache clone rebuilds native register name slices" {
     source.native_reg_names = try classifier.collectNativeRegisterNames(std.testing.allocator, native_text);
     defer std.testing.allocator.free(source.native_reg_names);
 
-    var owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    var owned_text = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer {
         for (owned_text.items) |text| std.testing.allocator.free(text);
         owned_text.deinit();
@@ -5642,7 +5651,7 @@ test "frontend cache merge package identities deep copies new keys" {
 }
 
 test "frontend cache merge layout versions skips identical and rejects conflicts" {
-    var target = std.ArrayList(LayoutVersion).init(std.testing.allocator);
+    var target = std.array_list.Managed(LayoutVersion).init(std.testing.allocator);
     defer {
         for (target.items) |*item| item.deinit(std.testing.allocator);
         target.deinit();
@@ -5691,7 +5700,7 @@ test "frontend cache append fragment remaps and merges end to end" {
     };
     try fragment.package_identities.put(try std.testing.allocator.dupe(u8, "pkg/core"), {});
 
-    var target_instructions = std.ArrayList(Instruction).init(std.testing.allocator);
+    var target_instructions = std.array_list.Managed(Instruction).init(std.testing.allocator);
     defer {
         for (target_instructions.items) |item| {
             if (item.package_identity) |identity| std.testing.allocator.free(identity);
@@ -5700,17 +5709,17 @@ test "frontend cache append fragment remaps and merges end to end" {
         }
         target_instructions.deinit();
     }
-    var target_const_decls = std.ArrayList(ConstDecl).init(std.testing.allocator);
+    var target_const_decls = std.array_list.Managed(ConstDecl).init(std.testing.allocator);
     defer {
         for (target_const_decls.items) |*decl| decl.deinit(std.testing.allocator);
         target_const_decls.deinit();
     }
-    var target_function_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    var target_function_sigs = std.array_list.Managed(FunctionSig).init(std.testing.allocator);
     defer {
         for (target_function_sigs.items) |*sig| sig.deinit(std.testing.allocator);
         target_function_sigs.deinit();
     }
-    var target_test_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    var target_test_sigs = std.array_list.Managed(FunctionSig).init(std.testing.allocator);
     defer {
         for (target_test_sigs.items) |*sig| sig.deinit(std.testing.allocator);
         target_test_sigs.deinit();
@@ -5719,7 +5728,7 @@ test "frontend cache append fragment remaps and merges end to end" {
     defer target_def_dict.deinit();
     var target_symbols = SymbolTable.init(std.testing.allocator);
     defer target_symbols.deinit();
-    var target_layout_versions = std.ArrayList(LayoutVersion).init(std.testing.allocator);
+    var target_layout_versions = std.array_list.Managed(LayoutVersion).init(std.testing.allocator);
     defer {
         for (target_layout_versions.items) |*item| item.deinit(std.testing.allocator);
         target_layout_versions.deinit();
@@ -5730,7 +5739,7 @@ test "frontend cache append fragment remaps and merges end to end" {
         while (it.next()) |entry| std.testing.allocator.free(entry.key_ptr.*);
         target_package_identities.deinit();
     }
-    var target_owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    var target_owned_text = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer {
         for (target_owned_text.items) |text| std.testing.allocator.free(text);
         target_owned_text.deinit();
@@ -5819,7 +5828,7 @@ test "frontend cache append fragment restores imported macro defs for later expa
     var fragment = try flatten(std.testing.allocator, imported_source);
     defer fragment.deinit(std.testing.allocator);
 
-    var target_instructions = std.ArrayList(Instruction).init(std.testing.allocator);
+    var target_instructions = std.array_list.Managed(Instruction).init(std.testing.allocator);
     defer {
         for (target_instructions.items) |item| {
             if (item.package_identity) |identity| std.testing.allocator.free(identity);
@@ -5828,17 +5837,17 @@ test "frontend cache append fragment restores imported macro defs for later expa
         }
         target_instructions.deinit();
     }
-    var target_const_decls = std.ArrayList(ConstDecl).init(std.testing.allocator);
+    var target_const_decls = std.array_list.Managed(ConstDecl).init(std.testing.allocator);
     defer {
         for (target_const_decls.items) |*decl| decl.deinit(std.testing.allocator);
         target_const_decls.deinit();
     }
-    var target_function_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    var target_function_sigs = std.array_list.Managed(FunctionSig).init(std.testing.allocator);
     defer {
         for (target_function_sigs.items) |*sig| sig.deinit(std.testing.allocator);
         target_function_sigs.deinit();
     }
-    var target_test_sigs = std.ArrayList(FunctionSig).init(std.testing.allocator);
+    var target_test_sigs = std.array_list.Managed(FunctionSig).init(std.testing.allocator);
     defer {
         for (target_test_sigs.items) |*sig| sig.deinit(std.testing.allocator);
         target_test_sigs.deinit();
@@ -5847,7 +5856,7 @@ test "frontend cache append fragment restores imported macro defs for later expa
     defer target_def_dict.deinit();
     var target_symbols = SymbolTable.init(std.testing.allocator);
     defer target_symbols.deinit();
-    var target_layout_versions = std.ArrayList(LayoutVersion).init(std.testing.allocator);
+    var target_layout_versions = std.array_list.Managed(LayoutVersion).init(std.testing.allocator);
     defer {
         for (target_layout_versions.items) |*item| item.deinit(std.testing.allocator);
         target_layout_versions.deinit();
@@ -5858,7 +5867,7 @@ test "frontend cache append fragment restores imported macro defs for later expa
         while (it.next()) |entry| std.testing.allocator.free(entry.key_ptr.*);
         target_package_identities.deinit();
     }
-    var target_owned_text = std.ArrayList([]const u8).init(std.testing.allocator);
+    var target_owned_text = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer {
         for (target_owned_text.items) |text| std.testing.allocator.free(text);
         target_owned_text.deinit();
@@ -5894,16 +5903,16 @@ test "frontend cache append fragment restores imported macro defs for later expa
     const empty_replacements = [_]Replacement{};
     var pending_loc: ?common_upstream.UpstreamLoc = null;
     defer if (pending_loc) |loc| std.testing.allocator.free(loc.file);
-    var loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(std.testing.allocator);
+    var loc_table = std.array_list.Managed(?common_upstream.UpstreamLoc).init(std.testing.allocator);
     defer {
         for (loc_table.items) |entry| {
             if (entry) |loc| std.testing.allocator.free(loc.file);
         }
         loc_table.deinit();
     }
-    var include_stack = std.ArrayList([]const u8).init(std.testing.allocator);
+    var include_stack = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer include_stack.deinit();
-    var macro_call_stack = std.ArrayList(*const MacroDef).init(std.testing.allocator);
+    var macro_call_stack = std.array_list.Managed(*const MacroDef).init(std.testing.allocator);
     defer macro_call_stack.deinit();
     var expansion_counter: u64 = 0;
 
@@ -6118,13 +6127,14 @@ test "flatten rejects zero loc hint coordinates" {
 test "flattenFile expands relative @import files" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/io");
-    var iface = try tmp.dir.createFile("sa_std/io/print.sai", .{ .truncate = true });
+    try tdir.makePath("sa_std/io");
+    var iface = try tdir.createFile("sa_std/io/print.sai", .{ .truncate = true });
     try iface.writeAll("@extern sa_print_bytes(&msg: ptr, len: u64) -> void\n");
     iface.close();
 
-    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\@import "sa_std/io/print.sai"
         \\@main() -> i32:
@@ -6133,10 +6143,10 @@ test "flattenFile expands relative @import files" {
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
     var result = try flattenFile(std.testing.allocator, source_path, source);
@@ -6152,8 +6162,9 @@ test "flattenFile expands relative @import files" {
 test "flattenFile tags imported functions with imported source path" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    var module_file = try tmp.dir.createFile("module.sa", .{ .truncate = true });
+    var module_file = try tdir.createFile("module.sa", .{ .truncate = true });
     try module_file.writeAll(
         \\@helper() -> i32:
         \\L_ENTRY:
@@ -6161,7 +6172,7 @@ test "flattenFile tags imported functions with imported source path" {
     );
     module_file.close();
 
-    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\@import "module.sa"
         \\@main() -> i32:
@@ -6170,12 +6181,12 @@ test "flattenFile tags imported functions with imported source path" {
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
-    const module_path = try tmp.dir.realpathAlloc(std.testing.allocator, "module.sa");
+    const module_path = try tdir.realpathAlloc(std.testing.allocator, "module.sa");
     defer std.testing.allocator.free(module_path);
 
     var result = try flattenFile(std.testing.allocator, source_path, source);
@@ -6190,15 +6201,16 @@ test "flattenFile tags imported functions with imported source path" {
 test "std import source cache reuses source without cloning on hit" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/core");
-    var iface = try tmp.dir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
+    try tdir.makePath("sa_std/core");
+    var iface = try tdir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
     try iface.writeAll("@extern cache_probe() -> i32\n");
     iface.close();
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try tdir.realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
 
@@ -6214,7 +6226,7 @@ test "std import source cache reuses source without cloning on hit" {
 }
 
 fn clearImportSourceCacheForTest() void {
-    import_source_cache_mutex.lock();
+    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer import_source_cache_mutex.unlock();
     if (import_source_cache) |*cache| {
         var it = cache.iterator();
@@ -6230,7 +6242,7 @@ fn clearImportSourceCacheForTest() void {
 }
 
 fn importSourceCacheHasEntryPathForTest(path: []const u8) bool {
-    import_source_cache_mutex.lock();
+    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer import_source_cache_mutex.unlock();
     const cache = if (import_source_cache) |*cache| cache else return false;
     var it = cache.iterator();
@@ -6241,7 +6253,7 @@ fn importSourceCacheHasEntryPathForTest(path: []const u8) bool {
 }
 
 fn clearExpandedImportCacheForTest() void {
-    expanded_import_cache_mutex.lock();
+    while (!expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer expanded_import_cache_mutex.unlock();
     if (expanded_import_cache) |*cache| {
         var it = cache.iterator();
@@ -6266,15 +6278,16 @@ test "expanded import cache reuses expanded std fragments across flatten calls" 
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/core");
+    try tdir.makePath("sa_std/core");
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_expanded.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_expanded.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def EXPANDED_CACHE_VALUE = 7\n");
     }
     {
-        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_a.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/cache_expanded.sai"
@@ -6284,7 +6297,7 @@ test "expanded import cache reuses expanded std fragments across flatten calls" 
         );
     }
     {
-        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_b.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/cache_expanded.sai"
@@ -6294,24 +6307,24 @@ test "expanded import cache reuses expanded std fragments across flatten calls" 
         );
     }
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try tdir.realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
 
-    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    const source_a = try tdir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
     defer std.testing.allocator.free(source_a);
-    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    const source_path_a = try tdir.realpathAlloc(std.testing.allocator, "main_a.sa");
     defer std.testing.allocator.free(source_path_a);
     var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
     defer first.deinit(std.testing.allocator);
     try std.testing.expect(test_expanded_import_cache_stores > 0);
     try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
 
-    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    const source_b = try tdir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
     defer std.testing.allocator.free(source_b);
-    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    const source_path_b = try tdir.realpathAlloc(std.testing.allocator, "main_b.sa");
     defer std.testing.allocator.free(source_path_b);
     var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer second.deinit(std.testing.allocator);
@@ -6327,10 +6340,11 @@ test "expanded import cache invalidates when transitive import changes" {
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/core");
+    try tdir.makePath("sa_std/core");
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_mutable.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_mutable.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def EXPANDED_CACHE_VALUE = 7\n");
     }
@@ -6341,39 +6355,39 @@ test "expanded import cache invalidates when transitive import changes" {
         \\
     ;
     {
-        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_a.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(main_source);
     }
     {
-        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_b.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(main_source);
     }
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try tdir.realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
 
-    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    const source_a = try tdir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
     defer std.testing.allocator.free(source_a);
-    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    const source_path_a = try tdir.realpathAlloc(std.testing.allocator, "main_a.sa");
     defer std.testing.allocator.free(source_path_a);
     var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
     defer first.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("7", first.def_dict.get("EXPANDED_CACHE_VALUE").?);
 
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_mutable.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_mutable.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def EXPANDED_CACHE_VALUE = 777\n");
     }
     test_expanded_import_cache_hits = 0;
-    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    const source_b = try tdir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
     defer std.testing.allocator.free(source_b);
-    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    const source_path_b = try tdir.realpathAlloc(std.testing.allocator, "main_b.sa");
     defer std.testing.allocator.free(source_path_b);
     var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer second.deinit(std.testing.allocator);
@@ -6389,10 +6403,11 @@ test "expanded import cache does not store fragments that skipped caller-seen im
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/core");
+    try tdir.makePath("sa_std/core");
     {
-        var file = try tmp.dir.createFile("sa_std/core/dep.sa", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/dep.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@dep_value() -> u64:
@@ -6402,7 +6417,7 @@ test "expanded import cache does not store fragments that skipped caller-seen im
         );
     }
     {
-        var file = try tmp.dir.createFile("sa_std/core/wrapper.sa", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/wrapper.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "dep.sa"
@@ -6414,7 +6429,7 @@ test "expanded import cache does not store fragments that skipped caller-seen im
         );
     }
     {
-        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_a.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/dep.sa"
@@ -6428,7 +6443,7 @@ test "expanded import cache does not store fragments that skipped caller-seen im
         );
     }
     {
-        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_b.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/wrapper.sa"
@@ -6441,22 +6456,22 @@ test "expanded import cache does not store fragments that skipped caller-seen im
         );
     }
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try tdir.realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
 
-    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    const source_a = try tdir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
     defer std.testing.allocator.free(source_a);
-    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    const source_path_a = try tdir.realpathAlloc(std.testing.allocator, "main_a.sa");
     defer std.testing.allocator.free(source_path_a);
     var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
     defer first.deinit(std.testing.allocator);
 
-    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    const source_b = try tdir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
     defer std.testing.allocator.free(source_b);
-    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    const source_path_b = try tdir.realpathAlloc(std.testing.allocator, "main_b.sa");
     defer std.testing.allocator.free(source_path_b);
     var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer second.deinit(std.testing.allocator);
@@ -6477,20 +6492,21 @@ test "expanded import cache LRU is opt-in" {
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/core");
+    try tdir.makePath("sa_std/core");
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_lru_a.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_lru_a.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def EXPANDED_CACHE_VALUE = 11\n");
     }
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_lru_b.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_lru_b.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def EXPANDED_CACHE_VALUE = 22\n");
     }
     {
-        var file = try tmp.dir.createFile("main_a.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_a.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/cache_lru_a.sai"
@@ -6500,7 +6516,7 @@ test "expanded import cache LRU is opt-in" {
         );
     }
     {
-        var file = try tmp.dir.createFile("main_b.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main_b.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/cache_lru_b.sai"
@@ -6510,22 +6526,22 @@ test "expanded import cache LRU is opt-in" {
         );
     }
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try tdir.realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
 
-    const source_a = try tmp.dir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
+    const source_a = try tdir.readFileAlloc(std.testing.allocator, "main_a.sa", 4096);
     defer std.testing.allocator.free(source_a);
-    const source_path_a = try tmp.dir.realpathAlloc(std.testing.allocator, "main_a.sa");
+    const source_path_a = try tdir.realpathAlloc(std.testing.allocator, "main_a.sa");
     defer std.testing.allocator.free(source_path_a);
     var first_a = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
     defer first_a.deinit(std.testing.allocator);
 
-    const source_b = try tmp.dir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
+    const source_b = try tdir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
     defer std.testing.allocator.free(source_b);
-    const source_path_b = try tmp.dir.realpathAlloc(std.testing.allocator, "main_b.sa");
+    const source_path_b = try tdir.realpathAlloc(std.testing.allocator, "main_b.sa");
     defer std.testing.allocator.free(source_path_b);
     var first_b = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer first_b.deinit(std.testing.allocator);
@@ -6545,19 +6561,20 @@ test "layout import exposes sibling extern declarations from sai" {
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
     {
-        var sai = try tmp.dir.createFile("db.sai", .{ .truncate = true });
+        var sai = try tdir.createFile("db.sai", .{ .truncate = true });
         defer sai.close();
         try sai.writeAll("@extern sa_db_tx_insert_rows(handle: ptr, &rows: ptr, rows_len: u64, row_count: u64, &out_info: ptr) -> u32\n");
     }
     {
-        var sal = try tmp.dir.createFile("db.sal", .{ .truncate = true });
+        var sal = try tdir.createFile("db.sal", .{ .truncate = true });
         defer sal.close();
         try sal.writeAll("@import \"db.sai\"\n");
     }
     {
-        var main = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        var main = try tdir.createFile("main.sa", .{ .truncate = true });
         defer main.close();
         try main.writeAll(
             \\@import "db.sal"
@@ -6574,12 +6591,12 @@ test "layout import exposes sibling extern declarations from sai" {
         );
     }
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root } };
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
     var result = try flattenFileWithPackages(std.testing.allocator, source_path, source, resolve_ctx);
@@ -6595,27 +6612,28 @@ test "import source cache LRU is opt-in and avoids borrowed hits" {
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_std/core");
-    var a_file = try tmp.dir.createFile("sa_std/core/cache_a.sai", .{ .truncate = true });
+    try tdir.makePath("sa_std/core");
+    var a_file = try tdir.createFile("sa_std/core/cache_a.sai", .{ .truncate = true });
     try a_file.writeAll("#def CACHE_A = 1\n");
     a_file.close();
-    var b_file = try tmp.dir.createFile("sa_std/core/cache_b.sai", .{ .truncate = true });
+    var b_file = try tdir.createFile("sa_std/core/cache_b.sai", .{ .truncate = true });
     try b_file.writeAll("#def CACHE_B = 2\n");
     b_file.close();
-    var c_file = try tmp.dir.createFile("sa_std/core/cache_c.sai", .{ .truncate = true });
+    var c_file = try tdir.createFile("sa_std/core/cache_c.sai", .{ .truncate = true });
     try c_file.writeAll("#def CACHE_C = 3\n");
     c_file.close();
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try tdir.realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
-    const a_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_a.sai");
+    const a_path = try tdir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_a.sai");
     defer std.testing.allocator.free(a_path);
-    const b_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_b.sai");
+    const b_path = try tdir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_b.sai");
     defer std.testing.allocator.free(b_path);
-    const c_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_c.sai");
+    const c_path = try tdir.realpathAlloc(std.testing.allocator, "sa_std/core/cache_c.sai");
     defer std.testing.allocator.free(c_path);
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .std_root = std_root } };
 
@@ -6638,17 +6656,18 @@ test "import source cache LRU is opt-in and avoids borrowed hits" {
 test "stable import roots participate in import source cache" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("tests/unit_framework/support");
-    var support = try tmp.dir.createFile("tests/unit_framework/support/index.sa", .{ .truncate = true });
+    try tdir.makePath("tests/unit_framework/support");
+    var support = try tdir.createFile("tests/unit_framework/support/index.sa", .{ .truncate = true });
     try support.writeAll("@support_value() -> i32:\nreturn 42\n");
     support.close();
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const stable_root = try tmp.dir.realpathAlloc(std.testing.allocator, "tests/unit_framework/support");
+    const stable_root = try tdir.realpathAlloc(std.testing.allocator, "tests/unit_framework/support");
     defer std.testing.allocator.free(stable_root);
-    const base_dir = try tmp.dir.realpathAlloc(std.testing.allocator, "tests/unit_framework");
+    const base_dir = try tdir.realpathAlloc(std.testing.allocator, "tests/unit_framework");
     defer std.testing.allocator.free(base_dir);
     const stable_roots = [_][]const u8{stable_root};
     const resolve_ctx = ResolveContext{ .options = .{ .project_root = project_root, .stable_import_roots = stable_roots[0..] } };
@@ -6667,25 +6686,26 @@ test "stable import roots participate in import source cache" {
 test "flattenFileWithPackages injects package iface and namespaced layout defs once" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+    try tdir.makePath("sa_vendor/github.com/example/pkg");
 
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
+    var pkg_main = try tdir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     try pkg_main.writeAll("// package body intentionally empty\n");
     pkg_main.close();
 
-    var pkg_iface = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sai", .{ .truncate = true });
+    var pkg_iface = try tdir.createFile("sa_vendor/github.com/example/pkg/index.sai", .{ .truncate = true });
     try pkg_iface.writeAll("@extern pkg_iface() -> i32\n");
     pkg_iface.close();
 
-    var pkg_layout = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sal", .{ .truncate = true });
+    var pkg_layout = try tdir.createFile("sa_vendor/github.com/example/pkg/index.sal", .{ .truncate = true });
     try pkg_layout.writeAll(
         \\#version 1
         \\#def Pkg_SIZE = 4
     );
     pkg_layout.close();
 
-    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\@import "github.com/example/pkg"
         \\
@@ -6695,13 +6715,13 @@ test "flattenFileWithPackages injects package iface and namespaced layout defs o
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
 
     var result = try flattenFileWithPackages(
@@ -6730,10 +6750,11 @@ test "flattenFileWithPackages injects package iface and namespaced layout defs o
 test "flattenFileWithPackages preserves package identity on imported instructions" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+    try tdir.makePath("sa_vendor/github.com/example/pkg");
 
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
+    var pkg_main = try tdir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     try pkg_main.writeAll(
         \\@main() -> i32:
         \\L_ENTRY:
@@ -6746,19 +6767,19 @@ test "flattenFileWithPackages preserves package identity on imported instruction
     );
     pkg_main.close();
 
-    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\@import "github.com/example/pkg"
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
 
     var resolved = try pkg_resolver.resolveImport(
@@ -6803,19 +6824,20 @@ test "flattenFileWithPackages preserves package identity on imported instruction
 test "flattenFile rejects import cycles" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    var a_file = try tmp.dir.createFile("a.sa", .{ .truncate = true });
+    var a_file = try tdir.createFile("a.sa", .{ .truncate = true });
     try a_file.writeAll("@import \"b.sa\"\n");
     a_file.close();
 
-    var b_file = try tmp.dir.createFile("b.sa", .{ .truncate = true });
+    var b_file = try tdir.createFile("b.sa", .{ .truncate = true });
     try b_file.writeAll("@import \"a.sa\"\n");
     b_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "a.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "a.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "a.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "a.sa");
     defer std.testing.allocator.free(source_path);
 
     try std.testing.expectError(error.ImportCycle, flattenFile(std.testing.allocator, source_path, source));
@@ -6824,8 +6846,9 @@ test "flattenFile rejects import cycles" {
 test "flatten expands source location macros from upstream location and file path" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(
         \\#loc "up.rs":42:7
         \\@main() -> i32:
@@ -6840,10 +6863,10 @@ test "flatten expands source location macros from upstream location and file pat
     );
     main_file.close();
 
-    const source = try tmp.dir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
     defer std.testing.allocator.free(source);
 
-    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.sa");
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
     defer std.testing.allocator.free(source_path);
 
     var result = try flattenFile(std.testing.allocator, source_path, source);
@@ -7164,9 +7187,9 @@ test "def dict PBT folds random arithmetic expressions through flatten" {
         const tmp_name = try std.fmt.allocPrint(std.testing.allocator, "tmp_{d}", .{iter});
         defer std.testing.allocator.free(tmp_name);
 
-        var source = std.ArrayList(u8).init(std.testing.allocator);
-        errdefer source.deinit();
-        const writer = source.writer();
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        errdefer aw.deinit();
+        const writer = &aw.writer;
         try writer.writeAll("#def BASE = ");
         try writer.writeAll(base_expr.text);
         try writer.writeByte('\n');
@@ -7175,7 +7198,7 @@ test "def dict PBT folds random arithmetic expressions through flatten" {
         try writer.print("{s} = add SIZE, 1\n", .{tmp_name});
         try writer.print("return {s}\n", .{tmp_name});
 
-        const source_text = try source.toOwnedSlice();
+        const source_text = try aw.toOwnedSlice();
         defer std.testing.allocator.free(source_text);
 
         var result = try flatten(std.testing.allocator, source_text);

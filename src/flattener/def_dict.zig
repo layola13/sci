@@ -82,7 +82,7 @@ pub const DefDict = struct {
             return try allocator.dupe(u8, text);
         }
 
-        var out = std.ArrayList(u8).init(allocator);
+        var out = std.array_list.Managed(u8).init(allocator);
         errdefer out.deinit();
 
         var has_replacement = false;

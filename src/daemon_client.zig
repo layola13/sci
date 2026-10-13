@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sa_io.zig");
 
 // Thin client: if SA_DAEMON_SOCKET is set, forward argv to a running daemon and
 // return its exit code. Returns null when no socket is configured, the request
@@ -14,7 +15,7 @@ pub const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype) !?u8 {
-    const sock_path = std.process.getEnvVarOwned(allocator, "SA_DAEMON_SOCKET") catch return null;
+    const sock_path = sio.getEnvVarOwned(allocator, "SA_DAEMON_SOCKET") catch return null;
     defer allocator.free(sock_path);
     if (sock_path.len == 0) return null;
     if (argv.len >= 2 and std.mem.eql(u8, argv[1], "daemon")) return null;
@@ -35,19 +36,25 @@ pub fn tryDaemonClient(allocator: std.mem.Allocator, argv: []const []const u8, s
 }
 
 fn tryDaemonClientUnixBody(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, sock_path: []const u8) !?u8 {
-    const stream = std.net.connectUnixSocket(sock_path) catch return null;
-    defer stream.close();
+    // NOTE(Zig 0.17): `std.net.connectUnixSocket` is gone; connect via
+    // `std.Io.net.UnixAddress` on the process-global Io. `Stream.read` is
+    // unusable in 0.17.0 (broken `const rc, _ =` destructure in std), and
+    // `Stream.reader` with its default empty control buffer never returns,
+    // so reads use raw `readWithControl` with a stack control buffer.
+    const ua = std.Io.net.UnixAddress.init(sock_path) catch return null;
+    const stream = ua.connect(sio.io()) catch return null;
+    defer stream.close(sio.io());
 
-    const agent_id = std.process.getEnvVarOwned(allocator, "SA_AGENT_ID") catch null;
+    const agent_id = sio.getEnvVarOwned(allocator, "SA_AGENT_ID") catch null;
     defer if (agent_id) |v| allocator.free(v);
-    const generation_text = std.process.getEnvVarOwned(allocator, "SA_AGENT_GENERATION") catch null;
+    const generation_text = sio.getEnvVarOwned(allocator, "SA_AGENT_GENERATION") catch null;
     defer if (generation_text) |v| allocator.free(v);
     const generation: u64 = if (generation_text) |t| std.fmt.parseInt(u64, t, 10) catch 0 else 0;
 
-    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const cwd = std.fs.cwd().realpath(".", &cwd_buf) catch null;
+    var cwd_buf: [sio.max_path_bytes]u8 = undefined;
+    const cwd = sio.cwd().realpath(".", &cwd_buf) catch null;
 
-    var req = std.ArrayList(u8).init(allocator);
+    var req = std.array_list.Managed(u8).init(allocator);
     defer req.deinit();
     try req.appendSlice("{\"argv\":[");
     // Send FULL argv including argv[0] ("sa").
@@ -59,7 +66,7 @@ fn tryDaemonClientUnixBody(allocator: std.mem.Allocator, argv: []const []const u
     if (agent_id) |id| {
         try req.appendSlice(",\"agent_id\":");
         try appendJsonString(&req, id);
-        try req.writer().print(",\"generation\":{d}", .{generation});
+        try req.print(",\"generation\":{d}", .{generation});
     }
     if (cwd) |c| {
         try req.appendSlice(",\"cwd\":");
@@ -67,13 +74,21 @@ fn tryDaemonClientUnixBody(allocator: std.mem.Allocator, argv: []const []const u
     }
     try req.appendSlice("}\n");
     if (req.items.len > MAX_REQUEST_BYTES) return null;
-    stream.writeAll(req.items) catch return null;
+    {
+        var wbuf: [8192]u8 = undefined;
+        var w = stream.writer(sio.io(), &wbuf);
+        w.interface.writeAll(req.items) catch return null;
+        w.interface.flush() catch return null;
+    }
 
-    var resp = std.ArrayList(u8).init(allocator);
+    var resp = std.array_list.Managed(u8).init(allocator);
     defer resp.deinit();
     var buf: [65536]u8 = undefined;
+    var cbuf: [64]u8 = undefined;
     while (true) {
-        const n = stream.read(buf[0..]) catch break;
+        var iov: [1][]u8 = .{buf[0..]};
+        const res = stream.readWithControl(sio.io(), &iov, &cbuf) catch break;
+        const n = res.data_len;
         if (n == 0) break;
         if (resp.items.len > MAX_RESPONSE_BYTES - n) return null;
         try resp.appendSlice(buf[0..n]);
@@ -104,7 +119,7 @@ fn tryDaemonClientUnixBody(allocator: std.mem.Allocator, argv: []const []const u
     return @as(u8, @intCast(code & 0xff));
 }
 
-fn appendJsonString(buf: *std.ArrayList(u8), s: []const u8) !void {
+fn appendJsonString(buf: *std.array_list.Managed(u8), s: []const u8) !void {
     try buf.append('"');
     for (s) |c| {
         switch (c) {
@@ -143,7 +158,7 @@ test "parseCodeField extracts code" {
 }
 
 test "appendJsonString escapes" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer buf.deinit();
     try appendJsonString(&buf, "a\"b\\c");
     try std.testing.expectEqualStrings("\"a\\\"b\\\\c\"", buf.items);

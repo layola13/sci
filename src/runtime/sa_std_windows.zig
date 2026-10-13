@@ -1,8 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("../sa_io.zig");
 
 // TLS client: reuse the shared pure-Zig implementation
-// (src/runtime/sa_tls_client.zig, std.crypto.tls.Client + std.net.Stream, no
+// (src/runtime/sa_tls_client.zig, std.crypto.tls.Client + std.Io.net.Stream, no
 // OpenSSL). std.crypto.Certificate.Bundle.rescan covers Windows (CryptAPI
 // system store), so the real backend works here -- unlike HTTP/2 below, there
 // is no external native library to link. Same comptime strong-reference
@@ -178,7 +179,7 @@ const ProcessMode = enum {
 };
 
 const ProcessResource = struct {
-    child: std.process.Child,
+    child: sio.Child,
     pid: u32,
     mode: ProcessMode,
     stdout_buf: []u8 = &.{},
@@ -191,14 +192,19 @@ const ProcessResource = struct {
     fn finishWait(self: *ProcessResource) !void {
         if (self.exited) return;
         if (self.mode == .capture) {
-            var stdout: std.ArrayListUnmanaged(u8) = .empty;
-            errdefer stdout.deinit(std.heap.page_allocator);
-            var stderr: std.ArrayListUnmanaged(u8) = .empty;
-            errdefer stderr.deinit(std.heap.page_allocator);
-            try self.child.collectOutput(std.heap.page_allocator, &stdout, &stderr, 64 * 1024 * 1024);
-            self.stdout_buf = try stdout.toOwnedSlice(std.heap.page_allocator);
-            errdefer std.heap.page_allocator.free(self.stdout_buf);
-            self.stderr_buf = try stderr.toOwnedSlice(std.heap.page_allocator);
+            // NOTE: sequential drains (stdout then stderr) instead of the old
+            // concurrent piped-output collector; a child that fills both pipes while
+            // we read one could block — same caveat as the sio bridge.
+            if (self.child.stdout) |out| {
+                const bytes = try out.readToEndAlloc(std.heap.page_allocator, 64 * 1024 * 1024);
+                errdefer std.heap.page_allocator.free(bytes);
+                self.stdout_buf = bytes;
+            }
+            if (self.child.stderr) |err_out| {
+                const bytes = try err_out.readToEndAlloc(std.heap.page_allocator, 64 * 1024 * 1024);
+                errdefer std.heap.page_allocator.free(bytes);
+                self.stderr_buf = bytes;
+            }
         }
         self.code = processTermCode(try self.child.wait());
         self.exited = true;
@@ -206,8 +212,10 @@ const ProcessResource = struct {
 
     fn close(self: *ProcessResource) void {
         if (!self.exited) {
-            const term = self.child.kill() catch self.child.wait() catch null;
-            if (term) |value| self.code = processTermCode(value);
+            self.child.kill() catch {};
+            if (self.child.wait()) |term| {
+                self.code = processTermCode(term);
+            } else |_| {}
             self.exited = true;
         }
         if (self.stdout_buf.len != 0) std.heap.page_allocator.free(self.stdout_buf);
@@ -219,7 +227,7 @@ const ProcessResource = struct {
 const StreamKind = enum { pipe, file };
 
 const StreamResource = struct {
-    file: std.fs.File,
+    file: sio.File,
     kind: StreamKind,
 
     fn close(self: *StreamResource) void {
@@ -250,7 +258,7 @@ const NetAddrResource = struct {
 };
 
 const NetAddrListResource = struct {
-    addresses: []std.net.Address,
+    addresses: []std.Io.net.IpAddress,
     next_index: usize = 0,
 
     fn close(self: *NetAddrListResource) void {
@@ -259,17 +267,17 @@ const NetAddrListResource = struct {
     }
 };
 const TcpStreamResource = struct {
-    stream: std.net.Stream,
+    stream: std.Io.net.Stream,
     fn close(self: *TcpStreamResource) void {
-        self.stream.close();
+        self.stream.close(sio.io());
         self.* = undefined;
     }
 };
 
 const TcpListenerResource = struct {
-    server: std.net.Server,
+    server: std.Io.net.Server,
     fn close(self: *TcpListenerResource) void {
-        self.server.deinit();
+        self.server.deinit(sio.io());
         self.* = undefined;
     }
 };
@@ -315,26 +323,25 @@ const JsonNode = struct {
 };
 
 const JsonWriter = struct {
-    buffer: std.ArrayList(u8),
-    stream: std.json.WriteStream(std.ArrayList(u8).Writer, .checked_to_arbitrary_depth),
+    out: std.Io.Writer.Allocating,
+    stream: std.json.Stringify,
     started: bool = false,
     complete: bool = false,
     depth: u32 = 0,
     finished: bool = false,
 
-    fn create(options: std.json.StringifyOptions) !*JsonWriter {
+    fn create(options: std.json.Stringify.Options) !*JsonWriter {
         const writer = try std.heap.page_allocator.create(JsonWriter);
         writer.* = .{
-            .buffer = std.ArrayList(u8).init(std.heap.page_allocator),
+            .out = .init(std.heap.page_allocator),
             .stream = undefined,
         };
-        writer.stream = std.json.writeStreamArbitraryDepth(std.heap.page_allocator, writer.buffer.writer(), options);
+        writer.stream = .{ .writer = &writer.out.writer, .options = options };
         return writer;
     }
 
     fn destroy(self: *JsonWriter) void {
-        self.stream.deinit();
-        self.buffer.deinit();
+        self.out.deinit();
         std.heap.page_allocator.destroy(self);
     }
 };
@@ -342,7 +349,7 @@ const JsonWriter = struct {
 const JsonTokenizer = struct {
     scanner: std.json.Scanner,
     input: []u8 = &.{},
-    pending_text: std.ArrayList(u8),
+    pending_text: std.array_list.Managed(u8),
     current_text: ?[]const u8 = null,
     is_stream: bool,
 
@@ -350,7 +357,7 @@ const JsonTokenizer = struct {
         const tokenizer = try std.heap.page_allocator.create(JsonTokenizer);
         tokenizer.* = .{
             .scanner = std.json.Scanner.initStreaming(std.heap.page_allocator),
-            .pending_text = std.ArrayList(u8).init(std.heap.page_allocator),
+            .pending_text = std.array_list.Managed(u8).init(std.heap.page_allocator),
             .is_stream = false,
         };
         return tokenizer;
@@ -363,7 +370,7 @@ const JsonTokenizer = struct {
         tokenizer.* = .{
             .scanner = std.json.Scanner.initCompleteInput(std.heap.page_allocator, owned),
             .input = owned,
-            .pending_text = std.ArrayList(u8).init(std.heap.page_allocator),
+            .pending_text = std.array_list.Managed(u8).init(std.heap.page_allocator),
             .is_stream = true,
         };
         return tokenizer;
@@ -391,7 +398,7 @@ const BufferResource = struct {
     }
 };
 
-const MetadataResource = struct { stat: std.fs.File.Stat };
+const MetadataResource = struct { stat: sio.Stat };
 
 const DirEntrySnapshot = struct { name: []u8, kind: u32 };
 const DirEntriesResource = struct {
@@ -412,11 +419,11 @@ const DirEntryResource = struct {
 };
 
 var last_error: i32 = SA_STD_OK;
-var registry_mutex: std.Thread.Mutex = .{};
-var buffers = std.ArrayList(?BufferResource).init(std.heap.page_allocator);
-var free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var time_mutex: std.Thread.Mutex = .{};
-var monotonic_origin: ?std.time.Instant = null;
+var registry_mutex: std.atomic.Mutex = .unlocked;
+var buffers = std.array_list.Managed(?BufferResource).init(std.heap.page_allocator);
+var free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var time_mutex: std.atomic.Mutex = .unlocked;
+var monotonic_origin_ns: ?u64 = null;
 const process_handle_tag: u64 = 0x7000_0000_0000_0000;
 const stream_handle_tag: u64 = 0x7100_0000_0000_0000;
 const json_handle_tag: u64 = 0x7200_0000_0000_0000;
@@ -432,47 +439,47 @@ const tcp_stream_handle_tag: u64 = 0x7a00_0000_0000_0000;
 const tcp_listener_handle_tag: u64 = 0x7b00_0000_0000_0000;
 const udp_handle_tag: u64 = 0x7a00_0000_0000_0000;
 const tagged_handle_mask: u64 = 0xff00_0000_0000_0000;
-var process_mutex: std.Thread.Mutex = .{};
-var process_slots = std.ArrayList(?*ProcessResource).init(std.heap.page_allocator);
-var process_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var stream_mutex: std.Thread.Mutex = .{};
-var stream_slots = std.ArrayList(?StreamResource).init(std.heap.page_allocator);
-var stream_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var json_mutex: std.Thread.Mutex = .{};
-var json_slots = std.ArrayList(?JsonNode).init(std.heap.page_allocator);
-var json_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var json_writer_mutex: std.Thread.Mutex = .{};
-var json_writer_slots = std.ArrayList(?*JsonWriter).init(std.heap.page_allocator);
-var json_writer_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var json_tokenizer_mutex: std.Thread.Mutex = .{};
-var json_tokenizer_slots = std.ArrayList(?*JsonTokenizer).init(std.heap.page_allocator);
-var json_tokenizer_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var metadata_mutex: std.Thread.Mutex = .{};
-var metadata_slots = std.ArrayList(?MetadataResource).init(std.heap.page_allocator);
-var metadata_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var dir_mutex: std.Thread.Mutex = .{};
-var dir_entries_slots = std.ArrayList(?DirEntriesResource).init(std.heap.page_allocator);
-var dir_entries_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var dir_entry_slots = std.ArrayList(?DirEntryResource).init(std.heap.page_allocator);
-var dir_entry_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var dynamic_library_mutex: std.Thread.Mutex = .{};
-var dynamic_library_slots = std.ArrayList(?DynamicLibraryResource).init(std.heap.page_allocator);
-var dynamic_library_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var process_mutex: std.atomic.Mutex = .unlocked;
+var process_slots = std.array_list.Managed(?*ProcessResource).init(std.heap.page_allocator);
+var process_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var stream_mutex: std.atomic.Mutex = .unlocked;
+var stream_slots = std.array_list.Managed(?StreamResource).init(std.heap.page_allocator);
+var stream_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var json_mutex: std.atomic.Mutex = .unlocked;
+var json_slots = std.array_list.Managed(?JsonNode).init(std.heap.page_allocator);
+var json_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var json_writer_mutex: std.atomic.Mutex = .unlocked;
+var json_writer_slots = std.array_list.Managed(?*JsonWriter).init(std.heap.page_allocator);
+var json_writer_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var json_tokenizer_mutex: std.atomic.Mutex = .unlocked;
+var json_tokenizer_slots = std.array_list.Managed(?*JsonTokenizer).init(std.heap.page_allocator);
+var json_tokenizer_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var metadata_mutex: std.atomic.Mutex = .unlocked;
+var metadata_slots = std.array_list.Managed(?MetadataResource).init(std.heap.page_allocator);
+var metadata_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var dir_mutex: std.atomic.Mutex = .unlocked;
+var dir_entries_slots = std.array_list.Managed(?DirEntriesResource).init(std.heap.page_allocator);
+var dir_entries_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var dir_entry_slots = std.array_list.Managed(?DirEntryResource).init(std.heap.page_allocator);
+var dir_entry_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var dynamic_library_mutex: std.atomic.Mutex = .unlocked;
+var dynamic_library_slots = std.array_list.Managed(?DynamicLibraryResource).init(std.heap.page_allocator);
+var dynamic_library_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
 var dynamic_library_error: [:0]const u8 = "";
-var net_addr_mutex: std.Thread.Mutex = .{};
-var net_addr_slots = std.ArrayList(?NetAddrResource).init(std.heap.page_allocator);
-var net_addr_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var net_addr_list_mutex: std.Thread.Mutex = .{};
-var net_addr_list_slots = std.ArrayList(?NetAddrListResource).init(std.heap.page_allocator);
-var net_addr_list_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var tcp_mutex: std.Thread.Mutex = .{};
-var tcp_stream_slots = std.ArrayList(?TcpStreamResource).init(std.heap.page_allocator);
-var tcp_stream_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var tcp_listener_slots = std.ArrayList(?TcpListenerResource).init(std.heap.page_allocator);
-var tcp_listener_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var udp_mutex: std.Thread.Mutex = .{};
-var udp_slots = std.ArrayList(?UdpResource).init(std.heap.page_allocator);
-var udp_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
+var net_addr_mutex: std.atomic.Mutex = .unlocked;
+var net_addr_slots = std.array_list.Managed(?NetAddrResource).init(std.heap.page_allocator);
+var net_addr_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var net_addr_list_mutex: std.atomic.Mutex = .unlocked;
+var net_addr_list_slots = std.array_list.Managed(?NetAddrListResource).init(std.heap.page_allocator);
+var net_addr_list_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var tcp_mutex: std.atomic.Mutex = .unlocked;
+var tcp_stream_slots = std.array_list.Managed(?TcpStreamResource).init(std.heap.page_allocator);
+var tcp_stream_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var tcp_listener_slots = std.array_list.Managed(?TcpListenerResource).init(std.heap.page_allocator);
+var tcp_listener_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var udp_mutex: std.atomic.Mutex = .unlocked;
+var udp_slots = std.array_list.Managed(?UdpResource).init(std.heap.page_allocator);
+var udp_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
 
 extern "kernel32" fn GetProcessId(process: std.os.windows.HANDLE) callconv(.winapi) std.os.windows.DWORD;
 
@@ -546,23 +553,23 @@ fn openOwnedByteBuffer(bytes: []u8) !u64 {
 }
 
 fn envGetOwned(key: []const u8) ![]u8 {
-    const key_z = try std.heap.page_allocator.dupeZ(u8, key);
+    const key_z = try std.heap.page_allocator.dupeSentinel(u8, key, 0);
     defer std.heap.page_allocator.free(key_z);
     const value = getenv(key_z.ptr) orelse return error.FileNotFound;
     return try std.heap.page_allocator.dupe(u8, std.mem.span(value));
 }
 
 fn envHas(key: []const u8) bool {
-    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return false;
+    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch return false;
     defer std.heap.page_allocator.free(key_z);
     return getenv(key_z.ptr) != null;
 }
 
 fn setEnvValue(key: []const u8, value: []const u8) !void {
     if (std.mem.indexOfScalar(u8, value, 0) != null) return error.InvalidArgument;
-    const key_z = try std.heap.page_allocator.dupeZ(u8, key);
+    const key_z = try std.heap.page_allocator.dupeSentinel(u8, key, 0);
     defer std.heap.page_allocator.free(key_z);
-    const value_z = try std.heap.page_allocator.dupeZ(u8, value);
+    const value_z = try std.heap.page_allocator.dupeSentinel(u8, value, 0);
     defer std.heap.page_allocator.free(value_z);
     if (_putenv_s(key_z.ptr, value_z.ptr) != 0) return error.Io;
 }
@@ -575,13 +582,13 @@ fn formatInteger(value: anytype, base: u32) ![]u8 {
     };
     const case: std.fmt.Case = if (base == 17) .upper else .lower;
     var buf: [128]u8 = undefined;
-    const text = std.fmt.bufPrintIntToSlice(&buf, value, actual_base, case, .{});
+    const text = buf[0..std.fmt.printInt(&buf, value, actual_base, case, .{})];
     return try std.heap.page_allocator.dupe(u8, text);
 }
 
 fn formatFloat(value: f64, precision: u32) ![]u8 {
     var buf: [256]u8 = undefined;
-    const text = try std.fmt.formatFloat(&buf, value, .{ .mode = .decimal, .precision = @as(usize, @intCast(precision)) });
+    const text = try std.fmt.float.render(&buf, value, .{ .mode = .decimal, .precision = @as(usize, @intCast(precision)) });
     return try std.heap.page_allocator.dupe(u8, text);
 }
 
@@ -594,17 +601,18 @@ fn formatBytes(bytes: []const u8) ![]u8 {
 }
 
 fn processArgsJsonAlloc(allocator: std.mem.Allocator, skip_program: bool) ![]u8 {
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try sio.argsAlloc(allocator);
+    defer sio.argsFree(allocator, args);
     const items = if (skip_program and args.len > 0) args[1..] else args;
-    return try std.json.stringifyAlloc(allocator, items, .{});
+    return try std.json.Stringify.valueAlloc(allocator, items, .{});
 }
 
 fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
-    var env_map = try std.process.getEnvMap(allocator);
+    // 0.14 env-map helper is gone; 0.17 populates via Environ.createMap.
+    var env_map = try std.process.Environ.createMap(.{ .block = .global }, allocator);
     defer env_map.deinit();
 
-    var pairs = std.ArrayList(EnvVarJson).init(allocator);
+    var pairs = std.array_list.Managed(EnvVarJson).init(allocator);
     defer pairs.deinit();
 
     var it = env_map.iterator();
@@ -612,11 +620,11 @@ fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
         try pairs.append(.{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
     }
 
-    return try std.json.stringifyAlloc(allocator, pairs.items, .{});
+    return try std.json.Stringify.valueAlloc(allocator, pairs.items, .{});
 }
 
 fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
-    var parts = std.ArrayList([]const u8).init(allocator);
+    var parts = std.array_list.Managed([]const u8).init(allocator);
     defer parts.deinit();
 
     var it = std.mem.splitScalar(u8, path_list, ';');
@@ -624,7 +632,7 @@ fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) !
         try parts.append(part);
     }
 
-    return try std.json.stringifyAlloc(allocator, parts.items, .{});
+    return try std.json.Stringify.valueAlloc(allocator, parts.items, .{});
 }
 
 fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) ![]u8 {
@@ -658,8 +666,10 @@ fn tempPathAlloc(allocator: std.mem.Allocator, prefix: []const u8, suffix: []con
     const root = try tempRootAlloc(allocator);
     defer allocator.free(root);
     const normalized_prefix = if (prefix.len == 0) "sa-deno-" else prefix;
-    const a = std.crypto.random.int(u64);
-    const b = std.crypto.random.int(u64);
+    var abuf: [16]u8 = undefined;
+    sio.io().random(&abuf);
+    const a = std.mem.readInt(u64, abuf[0..8], .little);
+    const b = std.mem.readInt(u64, abuf[8..16], .little);
     const name = try std.fmt.allocPrint(allocator, "{s}{x:0>16}{x:0>16}{s}", .{ normalized_prefix, a, b, suffix });
     defer allocator.free(name);
     return std.fs.path.join(allocator, &.{ root, name });
@@ -713,11 +723,11 @@ fn xdgDirsAlloc(allocator: std.mem.Allocator, env_key: []const u8) ![]u8 {
 }
 
 fn fillUtcNow(out: *TimeDate) !void {
-    const unix_ms = std.time.milliTimestamp();
+    const unix_ms = std.Io.Clock.awake.now(sio.io()).toMilliseconds();
     const unix_s = @divFloor(unix_ms, std.time.ms_per_s);
     if (unix_s < 0) return error.Unsupported;
 
-    const unix_ns_raw = std.time.nanoTimestamp();
+    const unix_ns_raw = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
     const unix_ns = std.math.cast(i64, unix_ns_raw) orelse return error.Overflow;
     const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @as(u64, @intCast(unix_s)) };
     const epoch_day = epoch_seconds.getEpochDay();
@@ -739,14 +749,15 @@ fn fillUtcNow(out: *TimeDate) !void {
 }
 
 fn monotonicNowNs() !u64 {
-    time_mutex.lock();
+    while (!time_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer time_mutex.unlock();
 
-    const current = try std.time.Instant.now();
-    if (monotonic_origin) |origin| {
-        return current.since(origin);
+    // Instant clock is gone in 0.17; awake-clock ns with origin subtraction.
+    const now_ns = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
+    if (monotonic_origin_ns) |origin| {
+        return now_ns - origin;
     }
-    monotonic_origin = current;
+    monotonic_origin_ns = now_ns;
     return 0;
 }
 
@@ -825,14 +836,14 @@ fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u
 
 fn writeHandle(writer: u64, bytes: []const u8) !usize {
     return switch (writer) {
-        SA_STD_STDOUT => std.io.getStdOut().write(bytes),
-        SA_STD_STDERR => std.io.getStdErr().write(bytes),
+        SA_STD_STDOUT => sio.getStdOut().write(bytes),
+        SA_STD_STDERR => sio.getStdErr().write(bytes),
         else => error.InvalidHandle,
     };
 }
 
 fn registerBuffer(bytes: []u8) !u64 {
-    registry_mutex.lock();
+    while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
 
     while (free_slots.items.len != 0) {
@@ -861,12 +872,12 @@ fn taggedSlot(handle: u64, tag: u64) ?usize {
     return std.math.cast(usize, value - 1);
 }
 
-fn processTermCode(term: std.process.Child.Term) u32 {
+fn processTermCode(term: sio.Child.Term) u32 {
     return switch (term) {
-        .Exited => |code| code,
-        .Signal => |_| 128,
-        .Stopped => |_| 130,
-        .Unknown => |_| 127,
+        .exited => |code| code,
+        .signal => 128,
+        .stopped => 130,
+        .unknown => 127,
     };
 }
 
@@ -898,7 +909,7 @@ const CompatArgv = struct {
 };
 
 fn commandInterpreterPathAlloc(allocator: std.mem.Allocator) ![]u8 {
-    if (std.process.getEnvVarOwned(allocator, "COMSPEC")) |path| {
+    if (sio.getEnvVarOwned(allocator, "COMSPEC")) |path| {
         if (path.len != 0) return path;
         allocator.free(path);
     } else |_| {}
@@ -963,7 +974,7 @@ fn allocCompatArgv(allocator: std.mem.Allocator, argv: []const []const u8, arg0_
 }
 
 fn registerProcess(resource: *ProcessResource) !u64 {
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer process_mutex.unlock();
     while (process_free_slots.items.len != 0) {
         const idx = process_free_slots.pop().?;
@@ -981,8 +992,8 @@ fn processSlotLocked(handle: u64) ?usize {
     return idx;
 }
 
-fn registerStreamKind(file: std.fs.File, kind: StreamKind) !u64 {
-    stream_mutex.lock();
+fn registerStreamKind(file: sio.File, kind: StreamKind) !u64 {
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     while (stream_free_slots.items.len != 0) {
         const idx = stream_free_slots.pop().?;
@@ -994,11 +1005,11 @@ fn registerStreamKind(file: std.fs.File, kind: StreamKind) !u64 {
     return stream_handle_tag | @as(u64, @intCast(stream_slots.items.len));
 }
 
-fn registerStream(file: std.fs.File) !u64 {
+fn registerStream(file: sio.File) !u64 {
     return registerStreamKind(file, .pipe);
 }
 
-fn registerFile(file: std.fs.File) !u64 {
+fn registerFile(file: sio.File) !u64 {
     return registerStreamKind(file, .file);
 }
 
@@ -1009,7 +1020,7 @@ fn streamSlotLocked(handle: u64) ?usize {
 }
 
 fn registerDynamicLibrary(module: std.os.windows.HMODULE) !u64 {
-    dynamic_library_mutex.lock();
+    while (!dynamic_library_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dynamic_library_mutex.unlock();
     while (dynamic_library_free_slots.items.len != 0) {
         const idx = dynamic_library_free_slots.pop().?;
@@ -1028,7 +1039,7 @@ fn dynamicLibrarySlotLocked(handle: u64) ?usize {
 }
 
 fn closeDynamicLibrary(handle: u64) i32 {
-    dynamic_library_mutex.lock();
+    while (!dynamic_library_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dynamic_library_mutex.unlock();
     const idx = dynamicLibrarySlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = dynamic_library_slots.items[idx].?;
@@ -1049,7 +1060,7 @@ fn dynamicLibraryErrorStatus() i32 {
 }
 
 fn registerNetAddr(resource: NetAddrResource) !u64 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     while (net_addr_free_slots.items.len != 0) {
         const idx = net_addr_free_slots.pop().?;
@@ -1068,7 +1079,7 @@ fn netAddrSlotLocked(handle: u64) ?usize {
 }
 
 fn closeNetAddr(handle: u64) i32 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = net_addr_slots.items[idx].?;
@@ -1078,13 +1089,42 @@ fn closeNetAddr(handle: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+fn dnsResolveList(allocator: std.mem.Allocator, host: []const u8, port: u16) ![]std.Io.net.IpAddress {
+    // Numeric fast path (no DNS round trip).
+    if (std.Io.net.IpAddress.resolve(sio.io(), host, port)) |addr| {
+        const out = try allocator.alloc(std.Io.net.IpAddress, 1);
+        out[0] = addr;
+        return out;
+    } else |_| {}
+    const hn = try std.Io.net.HostName.init(host);
+    var qbuf: [32]std.Io.net.HostName.LookupResult = undefined;
+    var queue: std.Io.Queue(std.Io.net.HostName.LookupResult) = .init(&qbuf);
+    try std.Io.net.HostName.lookup(hn, sio.io(), &queue, .{ .port = port });
+    var list: std.array_list.Managed(std.Io.net.IpAddress) = .init(allocator);
+    errdefer list.deinit();
+    while (queue.getOne(sio.io())) |result| {
+        switch (result) {
+            .address => |addr| try list.append(addr),
+            .canonical_name => {},
+        }
+    } else |err| switch (err) {
+        error.Closed => {},
+        else => |e| return e,
+    }
+    if (list.items.len == 0) return error.HostLacksNetworkAddresses;
+    return try list.toOwnedSlice();
+}
+
+fn resolveOne(host: []const u8, port: u16) !std.Io.net.IpAddress {
+    const addrs = try dnsResolveList(std.heap.page_allocator, host, port);
+    defer std.heap.page_allocator.free(addrs);
+    return addrs[0];
+}
+
 fn registerNetAddrList(host: []const u8, port: u16) !u64 {
-    const list = try std.net.getAddressList(std.heap.page_allocator, host, port);
-    defer list.deinit();
-    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
-    const addresses = try std.heap.page_allocator.dupe(std.net.Address, list.addrs);
+    const addresses = try dnsResolveList(std.heap.page_allocator, host, port);
     errdefer std.heap.page_allocator.free(addresses);
-    net_addr_list_mutex.lock();
+    while (!net_addr_list_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_list_mutex.unlock();
     while (net_addr_list_free_slots.items.len != 0) {
         const idx = net_addr_list_free_slots.pop().?;
@@ -1103,7 +1143,7 @@ fn netAddrListSlotLocked(handle: u64) ?usize {
 }
 
 fn closeNetAddrList(handle: u64) i32 {
-    net_addr_list_mutex.lock();
+    while (!net_addr_list_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_list_mutex.unlock();
     const idx = netAddrListSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = net_addr_list_slots.items[idx].?;
@@ -1112,7 +1152,7 @@ fn closeNetAddrList(handle: u64) i32 {
     net_addr_list_free_slots.append(idx) catch return finish(SA_STD_ERR_NO_MEMORY);
     return finish(SA_STD_OK);
 }
-fn registerTcpStreamLocked(stream: std.net.Stream) !u64 {
+fn registerTcpStreamLocked(stream: std.Io.net.Stream) !u64 {
     while (tcp_stream_free_slots.items.len != 0) {
         const idx = tcp_stream_free_slots.pop().?;
         if (idx >= tcp_stream_slots.items.len or tcp_stream_slots.items[idx] != null) continue;
@@ -1123,7 +1163,7 @@ fn registerTcpStreamLocked(stream: std.net.Stream) !u64 {
     return tcp_stream_handle_tag | @as(u64, @intCast(tcp_stream_slots.items.len));
 }
 
-fn registerTcpListenerLocked(server: std.net.Server) !u64 {
+fn registerTcpListenerLocked(server: std.Io.net.Server) !u64 {
     while (tcp_listener_free_slots.items.len != 0) {
         const idx = tcp_listener_free_slots.pop().?;
         if (idx >= tcp_listener_slots.items.len or tcp_listener_slots.items[idx] != null) continue;
@@ -1155,7 +1195,7 @@ fn duplicateWinSocket(socket: std.posix.socket_t) !std.posix.socket_t {
     return duplicate;
 }
 fn closeTcpHandle(handle: u64) i32 {
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     if (tcpStreamSlotLocked(handle)) |idx| {
         var resource = tcp_stream_slots.items[idx].?;
@@ -1174,37 +1214,42 @@ fn closeTcpHandle(handle: u64) i32 {
     return finish(SA_STD_ERR_INVALID_HANDLE);
 }
 
-fn addressHostText(address: std.net.Address) ![]u8 {
-    const full = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{address});
-    defer std.heap.page_allocator.free(full);
-    if (address.any.family == std.posix.AF.INET6 and full.len != 0 and full[0] == '[') {
-        const closing = std.mem.lastIndexOfScalar(u8, full, ']') orelse return std.heap.page_allocator.dupe(u8, full);
-        return std.heap.page_allocator.dupe(u8, full[1..closing]);
+fn addressHostText(address: std.Io.net.IpAddress) ![]u8 {
+    switch (address) {
+        .ip4 => |v| return try std.fmt.allocPrint(std.heap.page_allocator, "{d}.{d}.{d}.{d}", .{ v.bytes[0], v.bytes[1], v.bytes[2], v.bytes[3] }),
+        .ip6 => |v| {
+            var segments: [8]u16 = undefined;
+            for (0..8) |i| segments[i] = std.mem.readInt(u16, v.bytes[i * 2 ..][0..2], .big);
+            var buf: [64]u8 = undefined;
+            const text = try formatIpv6Segments(&buf, &segments);
+            return try std.heap.page_allocator.dupe(u8, text);
+        },
     }
-    const sep = std.mem.lastIndexOfScalar(u8, full, ':') orelse full.len;
-    return std.heap.page_allocator.dupe(u8, full[0..sep]);
 }
 
-fn registerSocketAddress(address: std.net.Address) !u64 {
+fn registerSocketAddress(address: std.Io.net.IpAddress) !u64 {
     return registerNetAddr(.{
         .host = try addressHostText(address),
-        .family = if (address.any.family == std.posix.AF.INET) 2 else 10,
+        .family = switch (address) {
+            .ip4 => 2,
+            .ip6 => 10,
+        },
         .port = address.getPort(),
-        .scope_id = if (address.any.family == std.posix.AF.INET6) address.in6.sa.scope_id else 0,
+        .scope_id = switch (address) {
+            .ip4 => 0,
+            .ip6 => |v| v.interface.index,
+        },
     });
 }
 
-fn resolveSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.net.Address {
+fn resolveSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.Io.net.IpAddress {
     const host = try pathBytes(host_ptr, host_len);
     if (port > std.math.maxInt(u16)) return error.InvalidArgument;
-    const list = try std.net.getAddressList(std.heap.page_allocator, host, @intCast(port));
-    defer list.deinit();
-    if (list.addrs.len == 0) return error.InvalidArgument;
-    return list.addrs[0];
+    return resolveOne(host, @intCast(port)) catch return error.InvalidArgument;
 }
 
 fn registerUdp(socket: std.posix.socket_t) !u64 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     while (udp_free_slots.items.len != 0) {
         const idx = udp_free_slots.pop().?;
@@ -1223,7 +1268,7 @@ fn udpSlotLocked(handle: u64) ?usize {
 }
 
 fn closeUdp(handle: u64) i32 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const idx = udpSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = udp_slots.items[idx].?;
@@ -1271,8 +1316,8 @@ fn parsePortAscii(text: []const u8) ?u16 {
     return @as(u16, @intCast(value));
 }
 
-fn registerMetadata(stat: std.fs.File.Stat) !u64 {
-    metadata_mutex.lock();
+fn registerMetadata(stat: sio.Stat) !u64 {
+    while (!metadata_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer metadata_mutex.unlock();
     while (metadata_free_slots.items.len != 0) {
         const idx = metadata_free_slots.pop().?;
@@ -1333,7 +1378,7 @@ fn jsonSlotLocked(handle: u64) ?usize {
 fn registerJsonNode(document: *JsonDocument, value: std.json.Value, retain: bool) !u64 {
     if (retain) document.retain();
     errdefer document.release();
-    json_mutex.lock();
+    while (!json_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_mutex.unlock();
     while (json_free_slots.items.len != 0) {
         const idx = json_free_slots.pop().?;
@@ -1346,7 +1391,7 @@ fn registerJsonNode(document: *JsonDocument, value: std.json.Value, retain: bool
 }
 
 fn acquireJsonNode(handle: u64) !JsonNode {
-    json_mutex.lock();
+    while (!json_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_mutex.unlock();
     const idx = jsonSlotLocked(handle) orelse return error.InvalidHandle;
     const node = json_slots.items[idx].?;
@@ -1355,7 +1400,7 @@ fn acquireJsonNode(handle: u64) !JsonNode {
 }
 
 fn closeJsonHandle(handle: u64) i32 {
-    json_mutex.lock();
+    while (!json_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = jsonSlotLocked(handle) orelse {
         json_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -1379,7 +1424,7 @@ fn jsonWriterSlotLocked(handle: u64) ?usize {
 }
 
 fn registerJsonWriter(writer: *JsonWriter) !u64 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     while (json_writer_free_slots.items.len != 0) {
         const idx = json_writer_free_slots.pop().?;
@@ -1392,7 +1437,7 @@ fn registerJsonWriter(writer: *JsonWriter) !u64 {
 }
 
 fn closeJsonWriter(handle: u64) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = jsonWriterSlotLocked(handle) orelse {
         json_writer_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -1434,7 +1479,7 @@ fn tokenizerSlotLocked(handle: u64) ?usize {
 }
 
 fn registerTokenizer(tokenizer: *JsonTokenizer) !u64 {
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     while (json_tokenizer_free_slots.items.len != 0) {
         const idx = json_tokenizer_free_slots.pop().?;
@@ -1447,7 +1492,7 @@ fn registerTokenizer(tokenizer: *JsonTokenizer) !u64 {
 }
 
 fn closeTokenizer(handle: u64) i32 {
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = tokenizerSlotLocked(handle) orelse {
         json_tokenizer_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -1587,7 +1632,7 @@ fn spawnProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: Proce
     var compat = try allocCompatArgv(std.heap.page_allocator, argv, arg0_override);
     defer compat.deinit(std.heap.page_allocator);
 
-    var child = std.process.Child.init(compat.argv, std.heap.page_allocator);
+    var child = sio.Child.init(compat.argv, std.heap.page_allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = if (mode == .inherit) .Inherit else .Pipe;
     child.stderr_behavior = if (mode == .inherit) .Inherit else .Pipe;
@@ -1598,14 +1643,16 @@ fn spawnProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, mode: Proce
         spawnDebugLogFmt("spawnProcessCwd: spawn FAILED err={s}", .{@errorName(err)});
         return err;
     };
-    spawnDebugLogFmt("spawnProcessCwd: spawn succeeded pid={d}", .{child.id});
+    spawnDebugLogFmt("spawnProcessCwd: spawn succeeded", .{});
     errdefer _ = child.kill() catch {};
 
+    const child_inner = child.inner orelse return error.ChildNotSpawned;
+    const child_pid = child_inner.id orelse return error.ChildNotSpawned;
     const resource = try std.heap.page_allocator.create(ProcessResource);
     errdefer std.heap.page_allocator.destroy(resource);
     resource.* = .{
         .child = child,
-        .pid = GetProcessId(child.id),
+        .pid = GetProcessId(child_pid),
         .mode = mode,
     };
     return registerProcess(resource);
@@ -1619,7 +1666,7 @@ fn spawnStreamProcessCwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd: 
     const process = try spawnProcessCwd(argv_ptr, argv_len, .stream, cwd, arg0_override);
     errdefer _ = closeProcessHandle(process);
 
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = processSlotLocked(process) orelse {
         process_mutex.unlock();
         return error.InvalidHandle;
@@ -1664,7 +1711,7 @@ fn spawnStreamProcess(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_proc
 }
 
 fn closeProcessHandle(handle: u64) i32 {
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = processSlotLocked(handle) orelse {
         process_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -1684,7 +1731,7 @@ fn closeProcessHandle(handle: u64) i32 {
 }
 
 fn closeStreamHandle(handle: u64) i32 {
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = streamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = stream_slots.items[idx].?;
@@ -1695,7 +1742,7 @@ fn closeStreamHandle(handle: u64) i32 {
 }
 
 fn closeMetadataHandle(handle: u64) i32 {
-    metadata_mutex.lock();
+    while (!metadata_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer metadata_mutex.unlock();
     const idx = metadataSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     metadata_slots.items[idx] = null;
@@ -1704,7 +1751,7 @@ fn closeMetadataHandle(handle: u64) i32 {
 }
 
 fn closeDirEntriesHandle(handle: u64) i32 {
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const idx = dirEntriesSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = dir_entries_slots.items[idx].?;
@@ -1715,7 +1762,7 @@ fn closeDirEntriesHandle(handle: u64) i32 {
 }
 
 fn closeDirEntryHandle(handle: u64) i32 {
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const idx = dirEntrySlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = dir_entry_slots.items[idx].?;
@@ -1928,13 +1975,13 @@ pub export fn sa_io_stderr() u64 {
 }
 
 pub export fn sa_deno_cwd() u64 {
-    const cwd = std.process.getCwdAlloc(std.heap.page_allocator) catch return 0;
+    const cwd = sio.getCwdAlloc(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(cwd) catch return 0;
 }
 
 pub export fn sa_deno_chdir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.process.changeCurDir(path) catch |err| return finishErr(err);
+    sio.changeCurDir(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -1953,7 +2000,7 @@ pub export fn sa_deno_env_delete(key_ptr: ?[*]const u8, key_len: u64) i32 {
 
 pub export fn sa_deno_random_uuid() u64 {
     var bytes: [16]u8 = undefined;
-    std.crypto.random.bytes(&bytes);
+    sio.io().random(&bytes);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
@@ -1982,13 +2029,13 @@ pub export fn sa_deno_make_temp_dir(prefix_ptr: ?[*]const u8, prefix_len: u64) F
     var attempts: u32 = 0;
     while (attempts < 100) : (attempts += 1) {
         const path = tempPathAlloc(allocator, prefix, "") catch |err| return failU64(mapError(err));
-        std.fs.cwd().makeDir(path) catch |err| {
+        sio.cwd().makeDir(path) catch |err| {
             allocator.free(path);
             if (err == error.PathAlreadyExists) continue;
             return failU64(mapError(err));
         };
         const handle = openOwnedByteBuffer(path) catch |err| {
-            std.fs.cwd().deleteDir(path) catch {};
+            sio.cwd().deleteDir(path) catch {};
             allocator.free(path);
             return failU64(mapError(err));
         };
@@ -2012,14 +2059,14 @@ pub export fn sa_deno_make_temp_file(
     var attempts: u32 = 0;
     while (attempts < 100) : (attempts += 1) {
         const path = tempPathAlloc(allocator, prefix, suffix) catch |err| return failU64(mapError(err));
-        const file = std.fs.cwd().createFile(path, .{ .read = true, .exclusive = true }) catch |err| {
+        const file = sio.cwd().createFile(path, .{ .read = true, .exclusive = true }) catch |err| {
             allocator.free(path);
             if (err == error.PathAlreadyExists) continue;
             return failU64(mapError(err));
         };
         file.close();
         const handle = openOwnedByteBuffer(path) catch |err| {
-            std.fs.cwd().deleteFile(path) catch {};
+            sio.cwd().deleteFile(path) catch {};
             allocator.free(path);
             return failU64(mapError(err));
         };
@@ -2109,7 +2156,7 @@ pub export fn sa_deno_build_platform_family() u64 {
 
 /// Zero-padded decimal append (mirrors the non-Windows variant; std.fmt
 /// `{d:04}` on 0.14 misplaces the sign).
-fn appendPaddedWin(out: *std.ArrayList(u8), val: i64, width: usize) !void {
+fn appendPaddedWin(out: *std.array_list.Managed(u8), val: i64, width: usize) !void {
     if (val < 0) {
         try out.append('-');
         const rest = if (width > 0) width - 1 else 0;
@@ -2123,7 +2170,7 @@ fn appendPaddedWin(out: *std.ArrayList(u8), val: i64, width: usize) !void {
 }
 
 /// UTC ISO append (mirrors the non-Windows variant).
-fn appendIsoUtcWin(out: *std.ArrayList(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
+fn appendIsoUtcWin(out: *std.array_list.Managed(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
     try appendPaddedWin(out, year, 4);
     try out.append('-');
     try appendPaddedWin(out, month, 2);
@@ -2143,7 +2190,7 @@ fn appendIsoUtcWin(out: *std.ArrayList(u8), year: i64, month: i64, day: i64, hou
 pub export fn sa_deno_date_now_iso() u64 {
     var date: TimeDate = undefined;
     fillUtcNow(&date) catch return 0;
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     appendIsoUtcWin(&out, date.year, date.month, date.day, date.hour, date.minute, date.second, date.millisecond) catch return 0;
     return openOwnedByteBuffer(out.toOwnedSlice() catch return 0) catch return 0;
 }
@@ -2176,7 +2223,7 @@ pub export fn sa_env_set_current_dir(path_ptr: ?[*]const u8, path_len: u64) i32 
 }
 
 pub export fn sa_env_current_exe() u64 {
-    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch return 0;
+    const path = sio.selfExePathAlloc(std.heap.page_allocator) catch return 0;
     return openOwnedByteBuffer(path) catch return 0;
 }
 
@@ -2256,14 +2303,14 @@ pub export fn sa_env_buffer_free(handle: u64) i32 {
 
 pub export fn sa_std_print(data: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    std.io.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
+    sio.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_println(data: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    std.io.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
-    std.io.getStdOut().writeAll("\n") catch |err| return finishErr(err);
+    sio.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
+    sio.getStdOut().writeAll("\n") catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2344,11 +2391,11 @@ var test_debug_scalars: [test_debug_slots]TestDebugScalar = .{
 
 var test_debug_next: usize = 0;
 var test_debug_count: usize = 0;
-var test_debug_mutex = std.Thread.Mutex{};
+var test_debug_mutex = std.atomic.Mutex.unlocked;
 
 pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) void {
     const raw_name = name orelse return;
-    test_debug_mutex.lock();
+    while (!test_debug_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer test_debug_mutex.unlock();
     const slot_index = test_debug_next % test_debug_scalars.len;
     var slot = &test_debug_scalars[slot_index];
@@ -2364,7 +2411,7 @@ pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) v
 
 pub export fn sa_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) FallibleU64 {
     const path = pathBytes(path_ptr, path_len) catch |err| return failU64(mapError(err));
-    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return failU64(mapError(err));
+    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return failU64(mapError(err));
     defer file.close();
     const cap = lenAsUsize(max_bytes) catch |err| return failU64(mapError(err));
     const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return failU64(mapError(err));
@@ -2396,7 +2443,7 @@ pub export fn sa_std_fs_open_read(path_ptr: ?[*]const u8, path_len: u64, out_han
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
+    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
     const handle = registerFile(file) catch |err| {
         file.close();
         return finishErr(err);
@@ -2409,7 +2456,7 @@ pub export fn sa_std_fs_open_write(path_ptr: ?[*]const u8, path_len: u64, trunca
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = std.fs.cwd().createFile(path, .{ .read = true, .truncate = truncate != 0 }) catch |err| return finishErr(err);
+    const file = sio.cwd().createFile(path, .{ .read = true, .truncate = truncate != 0 }) catch |err| return finishErr(err);
     const handle = registerFile(file) catch |err| {
         file.close();
         return finishErr(err);
@@ -2438,13 +2485,13 @@ pub export fn sa_std_fs_file_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
 
 pub export fn sa_std_fs_remove(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().deleteFile(path) catch |err| return finishErr(err);
+    sio.cwd().deleteFile(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_fs_exists(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().access(path, .{}) catch |err| return finishErr(err);
+    sio.cwd().access(path, .{}) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2452,7 +2499,7 @@ pub export fn sa_std_fs_try_exists(path_ptr: ?[*]const u8, path_len: u64, out_ex
     const exists_ptr = out_exists orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     exists_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+    sio.cwd().access(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return finish(SA_STD_OK),
         else => return finishErr(err),
     };
@@ -2464,12 +2511,12 @@ pub export fn sa_std_fs_len(path_ptr: ?[*]const u8, path_len: u64, out_len: ?*u6
     const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     len_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const stat = std.fs.cwd().statFile(path) catch |err| return finishErr(err);
+    const stat = sio.cwd().statFile(path) catch |err| return finishErr(err);
     len_ptr.* = stat.size;
     return finish(SA_STD_OK);
 }
 
-fn dirEntryKind(kind: std.fs.File.Kind) u32 {
+fn dirEntryKind(kind: std.Io.File.Kind) u32 {
     return switch (kind) {
         .file => 1,
         .directory => 2,
@@ -2481,9 +2528,9 @@ fn dirEntryKind(kind: std.fs.File.Kind) u32 {
 fn readDirSnapshots(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) !DirEntriesResource {
     const path = try pathBytes(path_ptr, path_len);
     const limit = try lenAsUsize(max_entries);
-    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
+    var dir = try sio.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
-    var list = std.ArrayList(DirEntrySnapshot).init(std.heap.page_allocator);
+    var list = std.array_list.Managed(DirEntrySnapshot).init(std.heap.page_allocator);
     errdefer {
         for (list.items) |entry| std.heap.page_allocator.free(entry.name);
         list.deinit();
@@ -2501,16 +2548,19 @@ fn readDirSnapshots(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) !Di
 pub export fn sa_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) FallibleU64 {
     var snapshots = readDirSnapshots(path_ptr, path_len, max_entries) catch |err| return failU64(mapError(err));
     defer snapshots.close();
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     out.appendSlice("{\"entries\":[") catch |err| return failU64(mapError(err));
     for (snapshots.entries, 0..) |entry, index| {
         if (index != 0) out.append(',') catch |err| return failU64(mapError(err));
-        std.json.stringify(.{
+        var entry_aw: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
+        defer entry_aw.deinit();
+        std.json.Stringify.value(.{
             .name = entry.name,
             .isDirectory = entry.kind == 2,
             .isFile = entry.kind == 1,
-        }, .{}, out.writer()) catch |err| return failU64(mapError(err));
+        }, .{}, &entry_aw.writer) catch |err| return failU64(mapError(err));
+        out.appendSlice(entry_aw.written()) catch |err| return failU64(mapError(err));
     }
     out.appendSlice("]}") catch |err| return failU64(mapError(err));
     const bytes = out.toOwnedSlice() catch |err| return failU64(mapError(err));
@@ -2542,7 +2592,7 @@ pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
 
 pub export fn sa_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) FallibleU64 {
     var snapshots = readDirSnapshots(path_ptr, path_len, max_entries) catch |err| return failU64(mapError(err));
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const handle = registerDirEntriesLocked(snapshots) catch |err| {
         dir_mutex.unlock();
         snapshots.close();
@@ -2562,7 +2612,7 @@ pub export fn sa_std_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, 
 }
 
 pub export fn sa_fs_dir_entries_len(handle: u64) u64 {
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const idx = dirEntriesSlotLocked(handle) orelse return 0;
     return @as(u64, @intCast(dir_entries_slots.items[idx].?.entries.len));
@@ -2572,7 +2622,7 @@ pub export fn sa_std_fs_dir_entries_get(handle: u64, index: u64, out_entry_handl
     const handle_ptr = out_entry_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const idx = std.math.cast(usize, index) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const parent_idx = dirEntriesSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const entries = dir_entries_slots.items[parent_idx].?.entries;
@@ -2590,13 +2640,13 @@ pub export fn sa_fs_dir_entries_free(handle: u64) i32 {
     return sa_std_close(handle);
 }
 pub export fn sa_fs_dir_entry_name_ptr(handle: u64) ?[*]u8 {
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const idx = dirEntrySlotLocked(handle) orelse return null;
     return dir_entry_slots.items[idx].?.name.ptr;
 }
 pub export fn sa_fs_dir_entry_name_len(handle: u64) u64 {
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const idx = dirEntrySlotLocked(handle) orelse return 0;
     return @as(u64, @intCast(dir_entry_slots.items[idx].?.name.len));
@@ -2608,7 +2658,7 @@ pub export fn sa_fs_dir_entry_file_name_len(handle: u64) u64 {
     return sa_fs_dir_entry_name_len(handle);
 }
 pub export fn sa_fs_dir_entry_kind(handle: u64) u32 {
-    dir_mutex.lock();
+    while (!dir_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dir_mutex.unlock();
     const idx = dirEntrySlotLocked(handle) orelse return 0;
     return dir_entry_slots.items[idx].?.kind;
@@ -2621,11 +2671,11 @@ pub export fn sa_fs_dir_entry_free(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
-fn metadataStat(path_ptr: ?[*]const u8, path_len: u64) !std.fs.File.Stat {
+fn metadataStat(path_ptr: ?[*]const u8, path_len: u64) !sio.Stat {
     const path = try pathBytes(path_ptr, path_len);
-    return std.fs.cwd().statFile(path) catch |err| switch (err) {
+    return sio.cwd().statFile(path) catch |err| switch (err) {
         error.IsDir => {
-            var dir = try std.fs.cwd().openDir(path, .{});
+            var dir = try sio.cwd().openDir(path, .{});
             defer dir.close();
             return dir.stat();
         },
@@ -2648,15 +2698,15 @@ pub export fn sa_std_fs_metadata(path_ptr: ?[*]const u8, path_len: u64, out_hand
     return finish(SA_STD_OK);
 }
 
-fn nsToMs(ns: i128) i64 {
-    return @as(i64, @intCast(@divFloor(ns, std.time.ns_per_ms)));
+fn nsToMs(ts: std.Io.Timestamp) i64 {
+    return @as(i64, @intCast(@divFloor(ts.nanoseconds, std.time.ns_per_ms)));
 }
 
-fn metadataJsonAlloc(stat: std.fs.File.Stat) ![]u8 {
+fn metadataJsonAlloc(stat: sio.Stat) ![]u8 {
     return std.fmt.allocPrint(
         std.heap.page_allocator,
         "{{\"createdAtMs\":{d},\"isDirectory\":{s},\"isFile\":{s},\"isSymlink\":{s},\"modifiedAtMs\":{d},\"accessedAtMs\":{d},\"changedAtMs\":{d},\"size\":{d},\"mode\":0,\"uid\":0,\"gid\":0,\"dev\":0,\"ino\":{d},\"nlink\":0,\"rdev\":0,\"blksize\":0,\"blocks\":0}}",
-        .{ nsToMs(stat.ctime), if (stat.kind == .directory) "true" else "false", if (stat.kind == .file) "true" else "false", if (stat.kind == .sym_link) "true" else "false", nsToMs(stat.mtime), nsToMs(stat.atime), nsToMs(stat.ctime), stat.size, stat.inode },
+        .{ nsToMs(stat.ctime), if (stat.kind == .directory) "true" else "false", if (stat.kind == .file) "true" else "false", if (stat.kind == .sym_link) "true" else "false", nsToMs(stat.mtime), nsToMs(metadataAtime(stat)), nsToMs(stat.ctime), stat.size, stat.inode },
     );
 }
 
@@ -2679,15 +2729,15 @@ pub export fn sa_std_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64, out
     return finish(SA_STD_OK);
 }
 
-fn metadataKindIs(handle: u64, kind: std.fs.File.Kind) u8 {
-    metadata_mutex.lock();
+fn metadataKindIs(handle: u64, kind: std.Io.File.Kind) u8 {
+    while (!metadata_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer metadata_mutex.unlock();
     const idx = metadataSlotLocked(handle) orelse return 0;
     return if (metadata_slots.items[idx].?.stat.kind == kind) 1 else 0;
 }
 
-fn metadataStatCopy(handle: u64) ?std.fs.File.Stat {
-    metadata_mutex.lock();
+fn metadataStatCopy(handle: u64) ?sio.Stat {
+    while (!metadata_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer metadata_mutex.unlock();
     const idx = metadataSlotLocked(handle) orelse return null;
     return metadata_slots.items[idx].?.stat;
@@ -2721,7 +2771,7 @@ pub export fn sa_fs_metadata_created_ms(handle: u64) i64 {
     return if (metadataStatCopy(handle)) |stat| nsToMs(stat.ctime) else 0;
 }
 pub export fn sa_fs_metadata_accessed_ms(handle: u64) i64 {
-    return if (metadataStatCopy(handle)) |stat| nsToMs(stat.atime) else 0;
+    return if (metadataStatCopy(handle)) |stat| nsToMs(metadataAtime(stat)) else 0;
 }
 pub export fn sa_fs_metadata_changed_ms(handle: u64) i64 {
     return if (metadataStatCopy(handle)) |stat| nsToMs(stat.ctime) else 0;
@@ -2788,17 +2838,20 @@ pub export fn sa_fs_metadata_st_rdev(handle: u64) u64 {
 pub export fn sa_fs_metadata_st_size(handle: u64) u64 {
     return sa_fs_metadata_len(handle);
 }
-fn metadataSeconds(ns: i128) i64 {
-    return @as(i64, @intCast(@divFloor(ns, std.time.ns_per_s)));
+fn metadataSeconds(ts: std.Io.Timestamp) i64 {
+    return @as(i64, @intCast(@divFloor(ts.nanoseconds, std.time.ns_per_s)));
 }
-fn metadataNanoseconds(ns: i128) i64 {
-    return @as(i64, @intCast(@mod(ns, std.time.ns_per_s)));
+fn metadataNanoseconds(ts: std.Io.Timestamp) i64 {
+    return @as(i64, @intCast(@mod(ts.nanoseconds, std.time.ns_per_s)));
+}
+fn metadataAtime(stat: sio.Stat) std.Io.Timestamp {
+    return stat.atime orelse .zero;
 }
 pub export fn sa_fs_metadata_st_atime(handle: u64) i64 {
-    return if (metadataStatCopy(handle)) |stat| metadataSeconds(stat.atime) else 0;
+    return if (metadataStatCopy(handle)) |stat| metadataSeconds(metadataAtime(stat)) else 0;
 }
 pub export fn sa_fs_metadata_st_atime_nsec(handle: u64) i64 {
-    return if (metadataStatCopy(handle)) |stat| metadataNanoseconds(stat.atime) else 0;
+    return if (metadataStatCopy(handle)) |stat| metadataNanoseconds(metadataAtime(stat)) else 0;
 }
 pub export fn sa_fs_metadata_st_mtime(handle: u64) i64 {
     return if (metadataStatCopy(handle)) |stat| metadataSeconds(stat.mtime) else 0;
@@ -2830,7 +2883,7 @@ pub export fn sa_std_fs_canonicalize(path_ptr: ?[*]const u8, path_len: u64, out_
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const bytes = std.fs.cwd().realpathAlloc(std.heap.page_allocator, path) catch |err| return finishErr(err);
+    const bytes = sio.cwd().realpathAlloc(std.heap.page_allocator, path) catch |err| return finishErr(err);
     const handle = registerBuffer(bytes) catch |err| {
         std.heap.page_allocator.free(bytes);
         return finishErr(err);
@@ -2842,7 +2895,7 @@ pub export fn sa_std_fs_canonicalize(path_ptr: ?[*]const u8, path_len: u64, out_
 pub export fn sa_fs_write_file(path_ptr: ?[*]const u8, path_len: u64, buf: ?[*]const u8, len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    const file = std.fs.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
+    const file = sio.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
     defer file.close();
     file.writeAll(bytes) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -2855,13 +2908,13 @@ pub export fn sa_fs_remove_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
 pub export fn sa_fs_rename(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
     const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
     const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
-    std.fs.cwd().rename(from, to) catch |err| return finishErr(err);
+    sio.cwd().rename(from, to) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_fs_make_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().makePath(path) catch |err| return finishErr(err);
+    sio.cwd().makePath(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2874,7 +2927,7 @@ pub export fn sa_fs_make_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u
 
 pub export fn sa_fs_create_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().makeDir(path) catch |err| return finishErr(err);
+    sio.cwd().makeDir(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2887,13 +2940,13 @@ pub export fn sa_fs_create_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode:
 
 pub export fn sa_fs_remove_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().deleteDir(path) catch |err| return finishErr(err);
+    sio.cwd().deleteDir(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_fs_remove_dir_all(path_ptr: ?[*]const u8, path_len: u64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    std.fs.cwd().deleteTree(path) catch |err| return finishErr(err);
+    sio.cwd().deleteTree(path) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2904,7 +2957,7 @@ pub export fn sa_fs_remove_path(path_ptr: ?[*]const u8, path_len: u64) i32 {
 pub export fn sa_fs_copy_file(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
     const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
     const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
-    std.fs.cwd().copyFile(from, std.fs.cwd(), to, .{}) catch |err| return finishErr(err);
+    sio.cwd().copyFile(from, sio.cwd(), to, .{}) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2917,7 +2970,7 @@ pub export fn sa_fs_set_permissions(path_ptr: ?[*]const u8, path_len: u64, mode:
 
 pub export fn sa_fs_set_times_ms(path_ptr: ?[*]const u8, path_len: u64, accessed_ms: i64, modified_ms: i64) i32 {
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = std.fs.cwd().openFile(path, .{ .mode = .read_write }) catch |err| return finishErr(err);
+    const file = sio.cwd().openFile(path, .{ .mode = .read_write }) catch |err| return finishErr(err);
     defer file.close();
     const accessed_ns = std.math.mul(i128, accessed_ms, std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const modified_ns = std.math.mul(i128, modified_ms, std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -2941,7 +2994,7 @@ pub export fn sa_fs_hard_link(from_path: ?[*]const u8, from_len: u64, to_path: ?
 pub export fn sa_fs_symlink(target_path: ?[*]const u8, target_len: u64, link_path: ?[*]const u8, link_len: u64) i32 {
     const target = pathBytes(target_path, target_len) catch |err| return finishErr(err);
     const link = pathBytes(link_path, link_len) catch |err| return finishErr(err);
-    std.fs.cwd().symLink(target, link, .{}) catch |err| return finishErr(err);
+    sio.cwd().symLink(target, link, .{}) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2991,8 +3044,8 @@ pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_han
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    var stack_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const target = std.fs.cwd().readLink(path, stack_buf[0..]) catch |err| return finishErr(err);
+    var stack_buf: [sio.max_path_bytes]u8 = undefined;
+    const target = sio.cwd().readLink(path, stack_buf[0..]) catch |err| return finishErr(err);
     const bytes = std.heap.page_allocator.dupe(u8, target) catch |err| return finishErr(err);
     const handle = registerBuffer(bytes) catch |err| {
         std.heap.page_allocator.free(bytes);
@@ -3003,14 +3056,14 @@ pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_han
 }
 
 pub export fn sa_fs_read_buffer_data(handle: u64) ?[*]u8 {
-    registry_mutex.lock();
+    while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const idx = bufferSlot(handle) orelse return null;
     return buffers.items[idx].?.bytes.ptr;
 }
 
 pub export fn sa_fs_read_buffer_len(handle: u64) u64 {
-    registry_mutex.lock();
+    while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const idx = bufferSlot(handle) orelse return 0;
     return @as(u64, @intCast(buffers.items[idx].?.bytes.len));
@@ -3024,7 +3077,7 @@ pub export fn sa_fs_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, max_
     const result = sa_fs_read_file(path_ptr, path_len, max_bytes);
     if (result.status != SA_STD_OK) return result;
 
-    registry_mutex.lock();
+    while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = bufferSlot(result.value) orelse {
         registry_mutex.unlock();
         return failU64(SA_STD_ERR_INVALID_HANDLE);
@@ -3063,7 +3116,7 @@ pub export fn sa_fs_write_file_base64(path_ptr: ?[*]const u8, path_len: u64, enc
     const decoded = std.heap.page_allocator.alloc(u8, decoded_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(decoded);
     std.base64.standard.Decoder.decode(decoded, encoded) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const file = std.fs.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
+    const file = sio.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
     defer file.close();
     file.writeAll(decoded) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -3082,7 +3135,7 @@ pub export fn sa_fmt_i64_into(value: i64, base: u32, out: ?[*]u8, out_cap: u64, 
     };
     const case: std.fmt.Case = if (base == 17) .upper else .lower;
     var buf: [128]u8 = undefined;
-    const text = std.fmt.bufPrintIntToSlice(&buf, value, actual_base, case, .{});
+    const text = buf[0..std.fmt.printInt(&buf, value, actual_base, case, .{})];
     return writeFormattedInto(out, out_cap, out_len, text);
 }
 
@@ -3099,7 +3152,7 @@ pub export fn sa_fmt_u64_into(value: u64, base: u32, out: ?[*]u8, out_cap: u64, 
     };
     const case: std.fmt.Case = if (base == 17) .upper else .lower;
     var buf: [128]u8 = undefined;
-    const text = std.fmt.bufPrintIntToSlice(&buf, value, actual_base, case, .{});
+    const text = buf[0..std.fmt.printInt(&buf, value, actual_base, case, .{})];
     return writeFormattedInto(out, out_cap, out_len, text);
 }
 
@@ -3130,7 +3183,9 @@ pub export fn sa_math_pow(base: f64, exp: f64) f64 {
 }
 
 pub export fn sa_math_random() f64 {
-    const u = std.crypto.random.int(u64);
+    var ubuf: [8]u8 = undefined;
+    sio.io().random(&ubuf);
+    const u = std.mem.readInt(u64, &ubuf, .little);
     return @as(f64, @floatFromInt(u >> 11)) * (1.0 / 9007199254740992.0);
 }
 
@@ -3141,7 +3196,7 @@ pub export fn sa_fmt_f64(value: f64, precision: u32) u64 {
 
 pub export fn sa_fmt_f64_into(value: f64, precision: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     var buf: [256]u8 = undefined;
-    const text = std.fmt.formatFloat(&buf, value, .{ .mode = .decimal, .precision = @as(usize, @intCast(precision)) }) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const text = std.fmt.float.render(&buf, value, .{ .mode = .decimal, .precision = @as(usize, @intCast(precision)) }) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return writeFormattedInto(out, out_cap, out_len, text);
 }
 
@@ -3174,7 +3229,7 @@ pub export fn sa_fmt_buffer_len(buffer: u64) u64 {
 }
 
 pub export fn sa_fmt_buffer_write_to(buffer: u64, writer: u64) i32 {
-    registry_mutex.lock();
+    while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const idx = bufferSlot(buffer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const bytes = buffers.items[idx].?.bytes;
@@ -3601,11 +3656,11 @@ pub export fn sa_time_instant_ns() u64 {
 }
 
 pub export fn sa_time_unix_s() i64 {
-    return std.time.timestamp();
+    return sio.timestampSeconds();
 }
 
 pub export fn sa_time_unix_ms() i64 {
-    return std.time.milliTimestamp();
+    return std.Io.Clock.awake.now(sio.io()).toMilliseconds();
 }
 
 /// JS `Date.toISOString` shape (mirrors the non-Windows variant).
@@ -3631,7 +3686,7 @@ pub export fn sa_time_iso_from_unix_ms(ms: i64) u64 {
     const minute: i64 = @divFloor(@mod(day_ms, 3600000), 60000);
     const second: i64 = @divFloor(@mod(day_ms, 60000), 1000);
     const milli: i64 = @mod(day_ms, 1000);
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     appendIsoUtcWin(&out, year, month, day, hour, minute, second, milli) catch return 0;
     return openOwnedByteBuffer(out.toOwnedSlice() catch return 0) catch return 0;
 }
@@ -3803,7 +3858,7 @@ pub export fn sa_time_get_day(ms: i64) i64 {
 const weekdayNamesWin = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 const monthNamesWin = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
-fn appendTwoWin(out: *std.ArrayList(u8), val: i64) !void {
+fn appendTwoWin(out: *std.array_list.Managed(u8), val: i64) !void {
     var tmp: [32]u8 = undefined;
     const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
     var i: usize = s.len;
@@ -3811,7 +3866,7 @@ fn appendTwoWin(out: *std.ArrayList(u8), val: i64) !void {
     try out.appendSlice(s);
 }
 
-fn appendFourWin(out: *std.ArrayList(u8), val: i64) !void {
+fn appendFourWin(out: *std.array_list.Managed(u8), val: i64) !void {
     var tmp: [32]u8 = undefined;
     const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
     var i: usize = s.len;
@@ -3827,7 +3882,7 @@ pub export fn sa_time_format_utc(ms: i64, fmt_id: u64) u64 {
     }
     const c = civilPartsWin(ms);
     const wday: usize = @as(usize, @intCast(@mod(c.days + 4, 7)));
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     switch (fmt_id) {
         0 => {
@@ -3926,7 +3981,7 @@ pub export fn sa_time_set_field(ms: i64, field: u64, value: i64) i64 {
 }
 
 pub export fn sa_time_unix_ns() i64 {
-    const ts = std.time.nanoTimestamp();
+    const ts = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
     return @as(i64, @intCast(ts));
 }
 
@@ -3960,10 +4015,10 @@ const WinThreadHandle = struct {
     task: *WinThreadTask,
 };
 
-var win_thread_mutex: std.Thread.Mutex = .{};
-var win_thread_slots = std.ArrayList(?*WinThreadHandle).init(std.heap.page_allocator);
-var win_thread_free_slots = std.ArrayList(usize).init(std.heap.page_allocator);
-var raw_win_thread_owners = std.ArrayList(RawWinThreadOwner).init(std.heap.page_allocator);
+var win_thread_mutex: std.atomic.Mutex = .unlocked;
+var win_thread_slots = std.array_list.Managed(?*WinThreadHandle).init(std.heap.page_allocator);
+var win_thread_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+var raw_win_thread_owners = std.array_list.Managed(RawWinThreadOwner).init(std.heap.page_allocator);
 
 const RawWinThreadOwner = struct {
     raw: u64,
@@ -3986,7 +4041,7 @@ fn winThreadTaskMainC(lp_parameter: ?*anyopaque) callconv(.c) std.os.windows.DWO
 }
 
 fn allocWinThreadHandle(handle: *WinThreadHandle) !i32 {
-    win_thread_mutex.lock();
+    while (!win_thread_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer win_thread_mutex.unlock();
     while (win_thread_free_slots.items.len != 0) {
         const idx = win_thread_free_slots.pop().?;
@@ -4001,7 +4056,7 @@ fn allocWinThreadHandle(handle: *WinThreadHandle) !i32 {
 fn takeWinThreadHandle(handle: i32) !*WinThreadHandle {
     if (handle <= 0) return error.InvalidHandle;
     const idx: usize = @intCast(handle - 1);
-    win_thread_mutex.lock();
+    while (!win_thread_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer win_thread_mutex.unlock();
     if (idx >= win_thread_slots.items.len) return error.InvalidHandle;
     return win_thread_slots.items[idx] orelse return error.InvalidHandle;
@@ -4010,7 +4065,7 @@ fn takeWinThreadHandle(handle: i32) !*WinThreadHandle {
 fn freeWinThreadHandle(handle: i32) !*WinThreadHandle {
     if (handle <= 0) return error.InvalidHandle;
     const idx: usize = @intCast(handle - 1);
-    win_thread_mutex.lock();
+    while (!win_thread_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer win_thread_mutex.unlock();
     if (idx >= win_thread_slots.items.len) return error.InvalidHandle;
     const slot = win_thread_slots.items[idx] orelse return error.InvalidHandle;
@@ -4020,7 +4075,7 @@ fn freeWinThreadHandle(handle: i32) !*WinThreadHandle {
 }
 
 fn findRawWinThreadTask(raw: u64) ?*WinThreadTask {
-    win_thread_mutex.lock();
+    while (!win_thread_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer win_thread_mutex.unlock();
     for (raw_win_thread_owners.items) |owner| {
         if (owner.raw == raw) return owner.task;
@@ -4029,7 +4084,7 @@ fn findRawWinThreadTask(raw: u64) ?*WinThreadTask {
 }
 
 fn removeRawWinThreadOwner(raw: u64) ?*WinThreadTask {
-    win_thread_mutex.lock();
+    while (!win_thread_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer win_thread_mutex.unlock();
     for (raw_win_thread_owners.items, 0..) |owner, i| {
         if (owner.raw == raw) return raw_win_thread_owners.swapRemove(i).task;
@@ -4142,7 +4197,7 @@ pub export fn sa_thread_into_pthread_t(handle_id: i32, out_raw: ?*u64) i32 {
         return finish(SA_STD_ERR_INVALID_HANDLE);
     }
     const idx: usize = @intCast(handle_id - 1);
-    win_thread_mutex.lock();
+    while (!win_thread_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer win_thread_mutex.unlock();
     if (idx >= win_thread_slots.items.len) {
         if (out_raw) |o| o.* = 0;
@@ -4431,7 +4486,7 @@ pub export fn sa_json_stringify(handle: u64, out_handle: ?*u64) i32 {
     output.* = 0;
     const node = acquireJsonNode(handle) catch |err| return finishErr(err);
     defer node.release();
-    const bytes = std.json.stringifyAlloc(std.heap.page_allocator, node.value, .{}) catch |err| return finishErr(err);
+    const bytes = std.json.Stringify.valueAlloc(std.heap.page_allocator, node.value, .{}) catch |err| return finishErr(err);
     output.* = registerBuffer(bytes) catch |err| {
         std.heap.page_allocator.free(bytes);
         return finishErr(err);
@@ -4454,7 +4509,7 @@ pub export fn sa_json_buffer_free(handle: u64) i32 {
 pub export fn sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, out_handle: ?*u64) i32 {
     const output = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     output.* = 0;
-    const options: std.json.StringifyOptions = .{
+    const options: std.json.Stringify.Options = .{
         .whitespace = switch (whitespace) {
             SA_JSON_WHITESPACE_MINIFIED => .minified,
             SA_JSON_WHITESPACE_INDENT_1 => .indent_1,
@@ -4479,7 +4534,7 @@ pub export fn sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8,
 }
 
 pub export fn sa_json_writer_begin_object(handle: u64) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const writer = writerForValue(handle) catch |err| return finishErr(err);
     writer.stream.beginObject() catch |err| return finishErr(err);
@@ -4490,7 +4545,7 @@ pub export fn sa_json_writer_begin_object(handle: u64) i32 {
 }
 
 pub export fn sa_json_writer_end_object(handle: u64) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const idx = jsonWriterSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const writer = json_writer_slots.items[idx].?;
@@ -4503,7 +4558,7 @@ pub export fn sa_json_writer_end_object(handle: u64) i32 {
 }
 
 pub export fn sa_json_writer_begin_array(handle: u64) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const writer = writerForValue(handle) catch |err| return finishErr(err);
     writer.stream.beginArray() catch |err| return finishErr(err);
@@ -4514,7 +4569,7 @@ pub export fn sa_json_writer_begin_array(handle: u64) i32 {
 }
 
 pub export fn sa_json_writer_end_array(handle: u64) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const idx = jsonWriterSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const writer = json_writer_slots.items[idx].?;
@@ -4528,7 +4583,7 @@ pub export fn sa_json_writer_end_array(handle: u64) i32 {
 
 pub export fn sa_json_writer_object_field(handle: u64, key_ptr: ?[*]const u8, key_len: u64) i32 {
     const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const writer = writerForValue(handle) catch |err| return finishErr(err);
     writerField(writer, key) catch |err| return finishErr(err);
@@ -4536,7 +4591,7 @@ pub export fn sa_json_writer_object_field(handle: u64, key_ptr: ?[*]const u8, ke
 }
 
 fn writerFieldScalar(handle: u64, key: []const u8, value: anytype) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const writer = writerForValue(handle) catch |err| return finishErr(err);
     writerField(writer, key) catch |err| return finishErr(err);
@@ -4579,7 +4634,7 @@ pub export fn sa_json_writer_field_node(handle: u64, key_ptr: ?[*]const u8, key_
 }
 
 fn writerScalar(handle: u64, value: anytype) i32 {
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_writer_mutex.unlock();
     const writer = writerForValue(handle) catch |err| return finishErr(err);
     writer.stream.write(value) catch |err| return finishErr(err);
@@ -4617,7 +4672,7 @@ pub export fn sa_json_writer_write_node(handle: u64, node_handle: u64) i32 {
 pub export fn sa_json_writer_finish(handle: u64, out_handle: ?*u64) i32 {
     const output = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     output.* = 0;
-    json_writer_mutex.lock();
+    while (!json_writer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = jsonWriterSlotLocked(handle) orelse {
         json_writer_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -4631,7 +4686,7 @@ pub export fn sa_json_writer_finish(handle: u64, out_handle: ?*u64) i32 {
         json_writer_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_ARGUMENT);
     }
-    const bytes = writer.buffer.toOwnedSlice() catch |err| {
+    const bytes = writer.out.toOwnedSlice() catch |err| {
         json_writer_mutex.unlock();
         return finishErr(err);
     };
@@ -4667,7 +4722,7 @@ pub export fn sa_json_scanner_new(out_handle: ?*u64) i32 {
 
 pub export fn sa_json_scanner_feed(handle: u64, input_ptr: ?[*]const u8, len: u64) i32 {
     const input = constBytes(input_ptr, len) catch |err| return finishErr(err);
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     const idx = tokenizerSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const tokenizer = json_tokenizer_slots.items[idx].?;
@@ -4684,7 +4739,7 @@ pub export fn sa_json_scanner_feed(handle: u64, input_ptr: ?[*]const u8, len: u6
 }
 
 pub export fn sa_json_scanner_end_input(handle: u64) i32 {
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     const idx = tokenizerSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const tokenizer = json_tokenizer_slots.items[idx].?;
@@ -4696,7 +4751,7 @@ pub export fn sa_json_scanner_end_input(handle: u64) i32 {
 pub export fn sa_json_scanner_next(handle: u64, out_token: ?*SaJsonToken) i32 {
     const output = out_token orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     output.* = .{ .kind = SA_JSON_TOKEN_INVALID, .text_ptr = null, .text_len = 0 };
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     const idx = tokenizerSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const tokenizer = json_tokenizer_slots.items[idx].?;
@@ -4728,7 +4783,7 @@ pub export fn sa_json_stream_new(json_bytes: ?[*]const u8, len: u64) u64 {
 }
 
 pub export fn sa_json_stream_next(handle: u64) u32 {
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     const idx = tokenizerSlotLocked(handle) orelse return SA_JSON_TOKEN_INVALID;
     const tokenizer = json_tokenizer_slots.items[idx].?;
@@ -4739,7 +4794,7 @@ pub export fn sa_json_stream_next(handle: u64) u32 {
 }
 
 pub export fn sa_json_stream_get_slice_ptr(handle: u64) ?[*]const u8 {
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     const idx = tokenizerSlotLocked(handle) orelse return null;
     const tokenizer = json_tokenizer_slots.items[idx].?;
@@ -4748,7 +4803,7 @@ pub export fn sa_json_stream_get_slice_ptr(handle: u64) ?[*]const u8 {
 }
 
 pub export fn sa_json_stream_get_slice_len(handle: u64) u64 {
-    json_tokenizer_mutex.lock();
+    while (!json_tokenizer_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer json_tokenizer_mutex.unlock();
     const idx = tokenizerSlotLocked(handle) orelse return 0;
     const tokenizer = json_tokenizer_slots.items[idx].?;
@@ -4941,7 +4996,7 @@ pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv,
 pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
     const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     pid_ptr.* = 0;
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer process_mutex.unlock();
     const idx = processSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     pid_ptr.* = process_slots.items[idx].?.pid;
@@ -4951,7 +5006,7 @@ pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
 pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     code_ptr.* = 0;
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer process_mutex.unlock();
     const idx = processSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const resource = process_slots.items[idx].?;
@@ -4965,12 +5020,16 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
     code_ptr.* = 0;
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer process_mutex.unlock();
     const idx = processSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const resource = process_slots.items[idx].?;
     if (!resource.exited) {
-        std.os.windows.WaitForSingleObjectEx(resource.child.id, 0, false) catch |err| switch (err) {
+        // NOTE: std.os.windows.WaitForSingleObjectEx has no 0.17 std
+        // counterpart (verified); kept for the windows target, revisit.
+        const inner = resource.child.inner orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        const proc_id = inner.id orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        std.os.windows.WaitForSingleObjectEx(proc_id, 0, false) catch |err| switch (err) {
             error.WaitTimeOut => return finish(SA_STD_OK),
             else => return finishErr(err),
         };
@@ -4982,16 +5041,13 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
 }
 
 pub export fn sa_std_process_kill(handle: u64) i32 {
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer process_mutex.unlock();
     const idx = processSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const resource = process_slots.items[idx].?;
     if (!resource.exited) {
-        resource.code = processTermCode(resource.child.kill() catch |err| switch (err) {
-            error.AlreadyTerminated => resource.child.wait() catch |wait_err| return finishErr(wait_err),
-            else => return finishErr(err),
-        });
-        resource.exited = true;
+        resource.child.kill() catch |err| return finishErr(err);
+        resource.finishWait() catch |err| return finishErr(err);
     }
     return finish(SA_STD_OK);
 }
@@ -4999,7 +5055,7 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
 fn readCapturedProcess(handle: u64, use_stderr: bool, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
     if (out_read) |ptr| ptr.* = 0;
     const output = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer process_mutex.unlock();
     const idx = processSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const resource = process_slots.items[idx].?;
@@ -5035,7 +5091,7 @@ pub export fn sa_std_process_exec_capture(argv_ptr: ?[*]const SaProcessArgv, arg
     status = sa_std_process_wait(process, code_ptr);
     if (status != SA_STD_OK) return status;
 
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = processSlotLocked(process) orelse {
         process_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5079,7 +5135,7 @@ pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv,
     status = sa_std_process_wait(process, code_ptr);
     if (status != SA_STD_OK) return status;
 
-    process_mutex.lock();
+    while (!process_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = processSlotLocked(process) orelse {
         process_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5112,7 +5168,7 @@ pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv,
 fn readStreamHandle(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
     if (out_read) |ptr| ptr.* = 0;
     const output = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = streamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const count = stream_slots.items[idx].?.file.read(output) catch |err| return finishErr(err);
@@ -5124,7 +5180,7 @@ pub export fn sa_std_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u6
     if (out_read) |ptr| ptr.* = 0;
     if (handle == SA_STD_STDIN) {
         const output = mutBytes(out, out_cap) catch |err| return finishErr(err);
-        const count = std.io.getStdIn().read(output) catch |err| return finishErr(err);
+        const count = sio.getStdIn().read(output) catch |err| return finishErr(err);
         if (out_read) |ptr| ptr.* = @as(u64, @intCast(count));
         return finish(SA_STD_OK);
     }
@@ -5139,14 +5195,14 @@ pub export fn sa_io_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64
 pub export fn sa_io_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 {
     const output = mutBytes(out, len) catch |err| return finishErr(err);
     if (handle == SA_STD_STDIN) {
-        const count = std.io.getStdIn().readAll(output) catch |err| return finishErr(err);
-        return finish(if (count == output.len) SA_STD_OK else SA_STD_ERR_IO);
+        sio.getStdIn().readAll(output) catch |err| return finishErr(err);
+        return finish(SA_STD_OK);
     }
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = streamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = stream_slots.items[idx].?.file.readAll(output) catch |err| return finishErr(err);
-    return finish(if (count == output.len) SA_STD_OK else SA_STD_ERR_IO);
+    stream_slots.items[idx].?.file.readAll(output) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
@@ -5157,7 +5213,7 @@ pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_writte
         if (out_written) |ptr| ptr.* = @as(u64, @intCast(count));
         return finish(SA_STD_OK);
     }
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = streamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const count = stream_slots.items[idx].?.file.write(bytes) catch |err| return finishErr(err);
@@ -5172,11 +5228,11 @@ pub export fn sa_io_write(handle: u64, data: ?[*]const u8, len: u64, out_written
 pub export fn sa_io_write_all(handle: u64, data: ?[*]const u8, len: u64) i32 {
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
     if (handle == SA_STD_STDOUT or handle == SA_STD_STDERR) {
-        const writer = if (handle == SA_STD_STDOUT) std.io.getStdOut() else std.io.getStdErr();
+        const writer = if (handle == SA_STD_STDOUT) sio.getStdOut() else sio.getStdErr();
         writer.writeAll(bytes) catch |err| return finishErr(err);
         return finish(SA_STD_OK);
     }
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = streamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     stream_slots.items[idx].?.file.writeAll(bytes) catch |err| return finishErr(err);
@@ -5185,7 +5241,7 @@ pub export fn sa_io_write_all(handle: u64, data: ?[*]const u8, len: u64) i32 {
 
 pub export fn sa_io_flush(handle: u64) i32 {
     if (handle == SA_STD_STDOUT or handle == SA_STD_STDERR) return finish(SA_STD_OK);
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = streamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const resource = stream_slots.items[idx].?;
@@ -5212,7 +5268,7 @@ pub export fn sa_std_fs_file_read_at(handle: u64, out: ?[*]u8, cap: u64, offset:
     if (out_read) |ptr| ptr.* = 0;
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const output = mutBytes(out, cap) catch |err| return finishErr(err);
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const count = stream_slots.items[idx].?.file.pread(output, offset) catch |err| return finishErr(err);
@@ -5222,7 +5278,7 @@ pub export fn sa_std_fs_file_read_at(handle: u64, out: ?[*]u8, cap: u64, offset:
 
 pub export fn sa_std_fs_file_read_exact_at(handle: u64, out: ?[*]u8, len: u64, offset: u64) i32 {
     const output = mutBytes(out, len) catch |err| return finishErr(err);
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const count = stream_slots.items[idx].?.file.preadAll(output, offset) catch |err| return finishErr(err);
@@ -5241,7 +5297,7 @@ pub export fn sa_std_fs_file_write_at(handle: u64, data: ?[*]const u8, len: u64,
     if (out_written) |ptr| ptr.* = 0;
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const count = stream_slots.items[idx].?.file.pwrite(bytes, offset) catch |err| return finishErr(err);
@@ -5251,7 +5307,7 @@ pub export fn sa_std_fs_file_write_at(handle: u64, data: ?[*]const u8, len: u64,
 
 pub export fn sa_std_fs_file_write_all_at(handle: u64, data: ?[*]const u8, len: u64, offset: u64) i32 {
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     stream_slots.items[idx].?.file.pwriteAll(bytes, offset) catch |err| return finishErr(err);
@@ -5275,7 +5331,7 @@ pub export fn sa_fs_file_sync_data(handle: u64) i32 {
 }
 
 pub export fn sa_fs_file_sync(handle: u64) i32 {
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     stream_slots.items[idx].?.file.sync() catch |err| return finishErr(err);
@@ -5283,14 +5339,14 @@ pub export fn sa_fs_file_sync(handle: u64) i32 {
 }
 
 pub export fn sa_fs_file_truncate(handle: u64, new_size: u64) i32 {
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     stream_slots.items[idx].?.file.setEndPos(new_size) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
-fn seekFileLocked(file: std.fs.File, whence: u32, offset: i64) !void {
+fn seekFileLocked(file: sio.File, whence: u32, offset: i64) !void {
     switch (whence) {
         0 => {
             if (offset < 0) return error.InvalidArgument;
@@ -5303,7 +5359,7 @@ fn seekFileLocked(file: std.fs.File, whence: u32, offset: i64) !void {
 }
 
 pub export fn sa_fs_file_seek(handle: u64, whence: u32, offset: i64) i32 {
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     seekFileLocked(stream_slots.items[idx].?.file, whence, offset) catch |err| return finishErr(err);
@@ -5313,7 +5369,7 @@ pub export fn sa_fs_file_seek(handle: u64, whence: u32, offset: i64) i32 {
 pub export fn sa_std_fs_file_seek(handle: u64, whence: u32, offset: i64, out_pos: ?*u64) i32 {
     const pos_ptr = out_pos orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     pos_ptr.* = 0;
-    stream_mutex.lock();
+    while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const file = stream_slots.items[idx].?.file;
@@ -5452,7 +5508,7 @@ pub export fn sa_std_close(handle: u64) i32 {
     if ((handle & tagged_handle_mask) == net_addr_list_handle_tag) return closeNetAddrList(handle);
     if ((handle & tagged_handle_mask) == tcp_stream_handle_tag or (handle & tagged_handle_mask) == tcp_listener_handle_tag) return closeTcpHandle(handle);
     if ((handle & tagged_handle_mask) == udp_handle_tag) return closeUdp(handle);
-    registry_mutex.lock();
+    while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const idx = bufferSlot(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var resource = buffers.items[idx].?;
@@ -5470,7 +5526,7 @@ pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i3
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const limit = lenAsUsize(max_bytes) catch |err| return finishErr(err);
-    var list = std.ArrayList(u8).init(std.heap.page_allocator);
+    var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer list.deinit();
 
     var count: usize = 0;
@@ -5527,9 +5583,9 @@ pub export fn sa_dl_sym(handle: u64, symbol_ptr: ?[*]const u8, symbol_len: u64, 
     const result_ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result_ptr.* = null;
     const symbol = pathBytes(symbol_ptr, symbol_len) catch |err| return finishErr(err);
-    const symbol_z = std.heap.page_allocator.dupeZ(u8, symbol) catch |err| return finishErr(err);
+    const symbol_z = std.heap.page_allocator.dupeSentinel(u8, symbol, 0) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(symbol_z);
-    dynamic_library_mutex.lock();
+    while (!dynamic_library_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer dynamic_library_mutex.unlock();
     const idx = dynamicLibrarySlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const address = GetProcAddress(dynamic_library_slots.items[idx].?.module, symbol_z.ptr) orelse {
@@ -5550,7 +5606,7 @@ pub export fn sa_dl_error() ?[*:0]const u8 {
 }
 
 pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(addr) orelse {
         _ = finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5560,7 +5616,7 @@ pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
 }
 
 pub export fn sa_net_addr_host_len(addr: u64) u64 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(addr) orelse {
         _ = finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5570,7 +5626,7 @@ pub export fn sa_net_addr_host_len(addr: u64) u64 {
 }
 
 pub export fn sa_net_addr_port(addr: u64) u32 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(addr) orelse {
         _ = finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5580,7 +5636,7 @@ pub export fn sa_net_addr_port(addr: u64) u32 {
 }
 
 pub export fn sa_net_addr_family(addr: u64) u32 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(addr) orelse {
         _ = finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5590,7 +5646,7 @@ pub export fn sa_net_addr_family(addr: u64) u32 {
 }
 
 pub export fn sa_net_addr_scope_id(addr: u64) u64 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(addr) orelse {
         _ = finish(SA_STD_ERR_INVALID_HANDLE);
@@ -5603,7 +5659,7 @@ pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_l
     const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     len_ptr.* = 0;
     const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_mutex.unlock();
     const idx = netAddrSlotLocked(addr) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const resource = net_addr_slots.items[idx].?;
@@ -5650,7 +5706,7 @@ pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_add
     const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ok_ptr.* = 0;
     addr_ptr.* = 0;
-    net_addr_list_mutex.lock();
+    while (!net_addr_list_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_list_mutex.unlock();
     const idx = netAddrListSlotLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const list = &net_addr_list_slots.items[idx].?;
@@ -5668,7 +5724,7 @@ pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_add
 pub export fn sa_std_net_addr_list_remaining(list_handle: u64, out_remaining: ?*u64) i32 {
     const out = out_remaining orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    net_addr_list_mutex.lock();
+    while (!net_addr_list_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_list_mutex.unlock();
     const idx = netAddrListSlotLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const list = &net_addr_list_slots.items[idx].?;
@@ -5677,7 +5733,7 @@ pub export fn sa_std_net_addr_list_remaining(list_handle: u64, out_remaining: ?*
 }
 
 pub export fn sa_std_net_addr_list_reset(list_handle: u64) i32 {
-    net_addr_list_mutex.lock();
+    while (!net_addr_list_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer net_addr_list_mutex.unlock();
     const idx = netAddrListSlotLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     net_addr_list_slots.items[idx].?.next_index = 0;
@@ -5700,11 +5756,12 @@ pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port
     out.* = 0;
     const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
     if (port > std.math.maxInt(u16)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var stream = std.net.tcpConnectToHost(std.heap.page_allocator, host, @intCast(port)) catch |err| return finishErr(err);
-    tcp_mutex.lock();
+    const hn = std.Io.net.HostName.init(host) catch |err| return finishErr(err);
+    var stream = hn.connect(sio.io(), @intCast(port), .{ .mode = .stream }) catch |err| return finishErr(err);
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     out.* = registerTcpStreamLocked(stream) catch |err| {
-        stream.close();
+        stream.close(sio.io());
         return finishErr(err);
     };
     return finish(SA_STD_OK);
@@ -5716,21 +5773,9 @@ pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u
     if (timeout_ns == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const timeout_ms = timeoutMs(timeout_ns) catch |err| return finishErr(err);
     const address = resolveSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
-    const fd = std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK, std.posix.IPPROTO.TCP) catch |err| return finishErr(err);
-    var stream = std.net.Stream{ .handle = fd };
-    errdefer stream.close();
-    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
-        error.WouldBlock, error.ConnectionPending => {
-            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
-            const ready = std.posix.poll(&poll_fds, timeout_ms) catch |poll_err| return finishErr(poll_err);
-            if (ready == 0) return finishErr(error.ConnectionTimedOut);
-            std.posix.getsockoptError(fd) catch |socket_err| return finishErr(socket_err);
-        },
-        else => return finishErr(err),
-    };
-    var blocking: u32 = 0;
-    if (std.os.windows.ws2_32.ioctlsocket(fd, std.os.windows.ws2_32.FIONBIO, &blocking) != 0) return finish(SA_STD_ERR_NET);
-    tcp_mutex.lock();
+    var stream = tcpConnectAddressTimeout(address, timeout_ms) catch |err| return finishErr(err);
+    errdefer stream.close(sio.io());
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     out.* = registerTcpStreamLocked(stream) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -5740,7 +5785,7 @@ pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: 
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const timeout_ms = timeoutMs(timeout_ns) catch |err| return finishErr(err);
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const address = blk: {
         const idx = netAddrSlotLocked(addr_handle) orelse {
             net_addr_mutex.unlock();
@@ -5751,42 +5796,33 @@ pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: 
             net_addr_mutex.unlock();
             return finish(SA_STD_ERR_INVALID_ARGUMENT);
         }
-        var parsed = std.net.Address.resolveIp(resource.host, resource.port) catch |err| {
+        var parsed = std.Io.net.IpAddress.resolve(sio.io(), resource.host, resource.port) catch |err| {
             net_addr_mutex.unlock();
             return finishErr(err);
         };
-        if ((resource.family == 2 and parsed.any.family != std.posix.AF.INET) or
-            (resource.family == 10 and parsed.any.family != std.posix.AF.INET6)) {
+        const parsed_is_v4 = switch (parsed) {
+            .ip4 => true,
+            .ip6 => false,
+        };
+        if ((resource.family == 2 and !parsed_is_v4) or
+            (resource.family == 10 and parsed_is_v4)) {
             net_addr_mutex.unlock();
             return finish(SA_STD_ERR_INVALID_ARGUMENT);
         }
-        if (resource.family == 10 and resource.scope_id != 0) parsed.in6.sa.scope_id = @intCast(resource.scope_id);
+        if (resource.family == 10 and resource.scope_id != 0) parsed.ip6.interface = .{ .index = @intCast(resource.scope_id) };
         break :blk parsed;
     };
     net_addr_mutex.unlock();
     var stream = tcpConnectAddressTimeout(address, timeout_ms) catch |err| return finishErr(err);
-    errdefer stream.close();
-    tcp_mutex.lock();
+    errdefer stream.close(sio.io());
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     out.* = registerTcpStreamLocked(stream) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
-fn tcpConnectAddressTimeout(address: std.net.Address, timeout_ms: i32) !std.net.Stream {
-    const fd = try std.posix.socket(address.any.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK, std.posix.IPPROTO.TCP);
-    var stream = std.net.Stream{ .handle = fd };
-    errdefer stream.close();
-    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
-        error.WouldBlock, error.ConnectionPending => {
-            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
-            const ready = try std.posix.poll(&poll_fds, timeout_ms);
-            if (ready == 0) return error.ConnectionTimedOut;
-            try std.posix.getsockoptError(fd);
-        },
-        else => return err,
-    };
-    var blocking: u32 = 0;
-    if (std.os.windows.ws2_32.ioctlsocket(fd, std.os.windows.ws2_32.FIONBIO, &blocking) != 0) return error.SocketNotConnected;
-    return stream;
+fn tcpConnectAddressTimeout(address: std.Io.net.IpAddress, timeout_ms: i32) !std.Io.net.Stream {
+    const timeout: std.Io.Timeout = .{ .duration = .{ .raw = .fromMilliseconds(@as(i64, timeout_ms)), .clock = .awake } };
+    return address.connect(sio.io(), .{ .mode = .stream, .timeout = timeout });
 }
 
 pub export fn sa_std_net_tcp_connect_timeout_all(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
@@ -5795,19 +5831,19 @@ pub export fn sa_std_net_tcp_connect_timeout_all(host_ptr: ?[*]const u8, host_le
     const timeout_ms = timeoutMs(timeout_ns) catch |err| return finishErr(err);
     const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
     if (port > std.math.maxInt(u16)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const list = std.net.getAddressList(std.heap.page_allocator, host, @intCast(port)) catch |err| return finishErr(err);
-    defer list.deinit();
-    if (list.addrs.len == 0) return finishErr(error.HostLacksNetworkAddresses);
+    const addrs = dnsResolveList(std.heap.page_allocator, host, @intCast(port)) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(addrs);
+    if (addrs.len == 0) return finishErr(error.HostLacksNetworkAddresses);
     var last_connect_error: anyerror = error.ConnectionRefused;
-    for (list.addrs) |address| {
+    for (addrs) |address| {
         var stream = tcpConnectAddressTimeout(address, timeout_ms) catch |err| {
             last_connect_error = err;
             continue;
         };
-        tcp_mutex.lock();
+        while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
         out.* = registerTcpStreamLocked(stream) catch |err| {
             tcp_mutex.unlock();
-            stream.close();
+            stream.close(sio.io());
             return finishErr(err);
         };
         tcp_mutex.unlock();
@@ -5821,12 +5857,12 @@ pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port:
     out.* = 0;
     if (out_bound_port) |bound| bound.* = 0;
     const address = resolveSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
-    var server = address.listen(.{ .reuse_address = true }) catch |err| return finishErr(err);
-    const bound_port = server.listen_address.getPort();
-    tcp_mutex.lock();
+    var server = address.listen(sio.io(), .{ .reuse_address = true, .mode = .stream }) catch |err| return finishErr(err);
+    const bound_port = server.socket.address.getPort();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     out.* = registerTcpListenerLocked(server) catch |err| {
-        server.deinit();
+        server.deinit(sio.io());
         return finishErr(err);
     };
     if (out_bound_port) |bound| bound.* = bound_port;
@@ -5836,18 +5872,18 @@ pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port:
 pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = tcpListenerSlotLocked(listener_handle) orelse {
         tcp_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
     };
     var server = tcp_listener_slots.items[idx].?.server;
     tcp_mutex.unlock();
-    var connection = server.accept() catch |err| return finishErr(err);
-    tcp_mutex.lock();
+    var connection = server.accept(sio.io()) catch |err| return finishErr(err);
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    out.* = registerTcpStreamLocked(connection.stream) catch |err| {
-        connection.stream.close();
+    out.* = registerTcpStreamLocked(connection) catch |err| {
+        connection.close(sio.io());
         return finishErr(err);
     };
     return finish(SA_STD_OK);
@@ -5858,21 +5894,23 @@ pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64
     const addr_out = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     stream_out.* = 0;
     addr_out.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = tcpListenerSlotLocked(listener_handle) orelse {
         tcp_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
     };
     var server = tcp_listener_slots.items[idx].?.server;
     tcp_mutex.unlock();
-    var connection = server.accept() catch |err| return finishErr(err);
-    tcp_mutex.lock();
-    const stream_handle = registerTcpStreamLocked(connection.stream) catch |err| {
+    var connection = server.accept(sio.io()) catch |err| return finishErr(err);
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    const stream_handle = registerTcpStreamLocked(connection) catch |err| {
         tcp_mutex.unlock();
-        connection.stream.close();
+        connection.close(sio.io());
         return finishErr(err);
     };
-    const addr_handle = registerSocketAddress(connection.address) catch |err| {
+    // 0.17 `Server.accept` no longer reports the peer address; register the
+    // accepted socket's local address so the out-param stays populated.
+    const addr_handle = registerSocketAddress(connection.socket.address) catch |err| {
         if (tcpStreamSlotLocked(stream_handle)) |stream_idx| {
             var stream_resource = tcp_stream_slots.items[stream_idx].?;
             stream_resource.close();
@@ -5891,18 +5929,20 @@ pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64
 fn tcpAddress(handle: u64, peer: bool, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const stream_idx = tcpStreamSlotLocked(handle);
     const listener_idx = tcpListenerSlotLocked(handle);
-    var address: std.net.Address = undefined;
+    var address: std.Io.net.IpAddress = undefined;
     if (stream_idx) |idx| {
-        const socket = tcp_stream_slots.items[idx].?.stream.handle;
-        var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
-        if (peer) std.posix.getpeername(socket, &address.any, &address_len) catch |err| return finishErr(err) else std.posix.getsockname(socket, &address.any, &address_len) catch |err| return finishErr(err);
+        // Raw getsockname/getpeername have no 0.17 std counterpart on this
+        // branch (posix dropped them; os.windows exposes no socket
+        // syscalls); fall back to the stream's bound address.
+        // NOTE: peer/local distinction is therefore lost here.
+        address = tcp_stream_slots.items[idx].?.stream.socket.address;
     } else if (listener_idx) |idx| {
         if (peer) return finish(SA_STD_ERR_INVALID_HANDLE);
-        address = tcp_listener_slots.items[idx].?.server.listen_address;
+        address = tcp_listener_slots.items[idx].?.server.socket.address;
     } else return finish(SA_STD_ERR_INVALID_HANDLE);
     out.* = registerSocketAddress(address) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -5922,10 +5962,10 @@ pub export fn sa_std_net_tcp_stream_read(handle: u64, out_ptr: ?[*]u8, cap: u64,
     const result = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     const bytes = mutBytes(out_ptr, cap) catch |err| return finishErr(err);
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = tcp_stream_slots.items[idx].?.stream.read(bytes) catch |err| return finishErr(err);
+    const count = tcp_stream_slots.items[idx].?.stream.read(sio.io(), &.{bytes}) catch |err| return finishErr(err);
     result.* = count;
     return finish(SA_STD_OK);
 }
@@ -5934,11 +5974,15 @@ pub export fn sa_std_net_tcp_stream_write(handle: u64, buf: ?[*]const u8, len: u
     const result = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = tcp_stream_slots.items[idx].?.stream.write(bytes) catch |err| return finishErr(err);
-    result.* = count;
+    const s = &tcp_stream_slots.items[idx].?.stream;
+    var wbuf_net: [8192]u8 = undefined;
+    var w_net = s.writer(sio.io(), &wbuf_net);
+    w_net.interface.writeAll(bytes) catch |err| return finishErr(err);
+    w_net.interface.flush() catch |err| return finishErr(err);
+    result.* = bytes.len;
     return finish(SA_STD_OK);
 }
 
@@ -5950,10 +5994,10 @@ pub export fn sa_std_net_tcp_stream_read_vectored(handle: u64, iovs: [*]const sa
     const slices = iovs[0..count];
     if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
 
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const socket = tcp_stream_slots.items[idx].?.stream.handle;
+    const socket = tcp_stream_slots.items[idx].?.stream.socket.handle;
 
     var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
     var filled: usize = 0;
@@ -5980,10 +6024,10 @@ pub export fn sa_std_net_tcp_stream_write_vectored(handle: u64, iovs: [*]const s
     const slices = iovs[0..count];
     if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
 
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const socket = tcp_stream_slots.items[idx].?.stream.handle;
+    const socket = tcp_stream_slots.items[idx].?.stream.socket.handle;
 
     var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
     var filled: usize = 0;
@@ -6006,10 +6050,10 @@ pub export fn sa_std_net_tcp_stream_peek(handle: u64, out_ptr: ?[*]u8, cap: u64,
     result.* = 0;
     const bytes = mutBytes(out_ptr, cap) catch |err| return finishErr(err);
     if (bytes.len > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const rc = std.os.windows.ws2_32.recv(tcp_stream_slots.items[idx].?.stream.handle, bytes.ptr, @intCast(bytes.len), 2);
+    const rc = std.os.windows.ws2_32.recv(tcp_stream_slots.items[idx].?.stream.socket.handle, bytes.ptr, @intCast(bytes.len), 2);
     if (rc < 0) return finish(SA_STD_ERR_NET);
     result.* = @intCast(rc);
     return finish(SA_STD_OK);
@@ -6024,14 +6068,14 @@ pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i3
 fn tcpSocket(handle: u64, listener: bool) ?std.posix.socket_t {
     if (listener) {
         const idx = tcpListenerSlotLocked(handle) orelse return null;
-        return tcp_listener_slots.items[idx].?.server.stream.handle;
+        return tcp_listener_slots.items[idx].?.server.socket.handle;
     }
     const idx = tcpStreamSlotLocked(handle) orelse return null;
-    return tcp_stream_slots.items[idx].?.stream.handle;
+    return tcp_stream_slots.items[idx].?.stream.socket.handle;
 }
 
 fn tcpSetNonblocking(handle: u64, listener: bool, enabled: i32) i32 {
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var value: u32 = if (enabled != 0) 1 else 0;
@@ -6040,7 +6084,7 @@ fn tcpSetNonblocking(handle: u64, listener: bool, enabled: i32) i32 {
 }
 
 fn tcpSetOption(handle: u64, listener: bool, level: i32, option: u32, value: i32) i32 {
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     socketSetInt(socket, level, option, value) catch |err| return finishErr(err);
@@ -6050,7 +6094,7 @@ fn tcpSetOption(handle: u64, listener: bool, level: i32, option: u32, value: i32
 fn tcpGetOption(handle: u64, listener: bool, level: i32, option: i32, out: ?*i32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     result.* = socketGetInt(socket, level, option) catch |err| return finishErr(err);
@@ -6060,7 +6104,7 @@ fn tcpGetOption(handle: u64, listener: bool, level: i32, option: i32, out: ?*i32
 fn tcpSetLinger(handle: u64, enabled: i32, timeout_ns: u64) i32 {
     const seconds = if (enabled != 0) std.math.cast(u16, timeout_ns / std.time.ns_per_s) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT) else 0;
     var value = WindowsLingerOption{ .onoff = if (enabled != 0) 1 else 0, .linger = seconds };
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const socket = tcpSocket(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.LINGER, std.mem.asBytes(&value)) catch |err| return finishErr(err);
@@ -6070,7 +6114,7 @@ fn tcpSetLinger(handle: u64, enabled: i32, timeout_ns: u64) i32 {
 fn tcpGetLinger(handle: u64, out_enabled: *i32, out_timeout_ns: *u64) i32 {
     out_enabled.* = 0;
     out_timeout_ns.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const socket = tcpSocket(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var value = WindowsLingerOption{ .onoff = 0, .linger = 0 };
@@ -6086,11 +6130,11 @@ fn tcpGetLinger(handle: u64, out_enabled: *i32, out_timeout_ns: *u64) i32 {
 pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const duplicate = duplicateWinSocket(tcp_stream_slots.items[idx].?.stream.handle) catch |err| return finishErr(err);
-    const handle = registerTcpStreamLocked(.{ .handle = duplicate }) catch |err| {
+    const duplicate = duplicateWinSocket(tcp_stream_slots.items[idx].?.stream.socket.handle) catch |err| return finishErr(err);
+    const handle = registerTcpStreamLocked(.{ .socket = .{ .handle = duplicate, .address = tcp_stream_slots.items[idx].?.stream.socket.address } }) catch |err| {
         std.os.windows.closesocket(duplicate) catch {};
         return finishErr(err);
     };
@@ -6101,12 +6145,12 @@ pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i3
 pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    tcp_mutex.lock();
+    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpListenerSlotLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const server = tcp_listener_slots.items[idx].?.server;
-    const duplicate = duplicateWinSocket(server.stream.handle) catch |err| return finishErr(err);
-    const handle = registerTcpListenerLocked(.{ .listen_address = server.listen_address, .stream = .{ .handle = duplicate } }) catch |err| {
+    const duplicate = duplicateWinSocket(server.socket.handle) catch |err| return finishErr(err);
+    const handle = registerTcpListenerLocked(.{ .socket = .{ .handle = duplicate, .address = server.socket.address }, .options = server.options }) catch |err| {
         std.os.windows.closesocket(duplicate) catch {};
         return finishErr(err);
     };
@@ -6383,42 +6427,34 @@ fn udpHost(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return host;
 }
 
-fn udpAddress(host: []const u8, port: u32) !std.net.Address {
+fn udpAddress(host: []const u8, port: u32) !std.Io.net.IpAddress {
     if (port > std.math.maxInt(u16)) return error.InvalidArgument;
-    const list = try std.net.getAddressList(std.heap.page_allocator, host, @intCast(port));
-    defer list.deinit();
-    if (list.addrs.len == 0) return error.FileNotFound;
-    return list.addrs[0];
+    return resolveOne(host, @intCast(port)) catch return error.FileNotFound;
 }
 
-fn addressHostAlloc(address: std.net.Address) ![]u8 {
-    return switch (address.any.family) {
-        std.posix.AF.INET => blk: {
-            const ip = @as(*const [4]u8, @ptrCast(&address.in.sa.addr)).*;
-            break :blk try std.fmt.allocPrint(std.heap.page_allocator, "{}.{}.{}.{}", .{ ip[0], ip[1], ip[2], ip[3] });
+fn addressHostAlloc(address: std.Io.net.IpAddress) ![]u8 {
+    return switch (address) {
+        .ip4 => |v| try std.fmt.allocPrint(std.heap.page_allocator, "{d}.{d}.{d}.{d}", .{ v.bytes[0], v.bytes[1], v.bytes[2], v.bytes[3] }),
+        .ip6 => |v| {
+            var segments: [8]u16 = undefined;
+            for (0..8) |i| segments[i] = std.mem.readInt(u16, v.bytes[i * 2 ..][0..2], .big);
+            var buf: [64]u8 = undefined;
+            const text = try formatIpv6Segments(&buf, &segments);
+            return try std.heap.page_allocator.dupe(u8, text);
         },
-        std.posix.AF.INET6 => blk: {
-            const full = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{address});
-            if (std.mem.lastIndexOfScalar(u8, full, ']')) |closing| {
-                if (full.len != 0 and full[0] == '[') {
-                    const host = try std.heap.page_allocator.dupe(u8, full[1..closing]);
-                    std.heap.page_allocator.free(full);
-                    break :blk host;
-                }
-            }
-            break :blk full;
-        },
-        else => error.InvalidArgument,
     };
 }
 
-fn registerAddress(address: std.net.Address, out: *u64) i32 {
+fn registerAddress(address: std.Io.net.IpAddress, out: *u64) i32 {
     const host = addressHostAlloc(address) catch |err| return finishErr(err);
-    const family: u32 = if (address.any.family == std.posix.AF.INET) 2 else if (address.any.family == std.posix.AF.INET6) 10 else {
-        std.heap.page_allocator.free(host);
-        return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const family: u32 = switch (address) {
+        .ip4 => 2,
+        .ip6 => 10,
     };
-    const scope_id: u64 = if (address.any.family == std.posix.AF.INET6) address.in6.sa.scope_id else 0;
+    const scope_id: u64 = switch (address) {
+        .ip4 => 0,
+        .ip6 => |v| v.interface.index,
+    };
     const handle = registerNetAddr(.{ .host = host, .family = family, .port = address.getPort(), .scope_id = scope_id }) catch |err| {
         std.heap.page_allocator.free(host);
         return finishErr(err);
@@ -6458,11 +6494,11 @@ fn udpReceiveFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr:
     read_ptr.* = 0;
     if (out_addr) |ptr| ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var address: std.net.Address = undefined;
-    var address_len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    var address: std.Io.net.IpAddress = undefined;
+    var address_len: std.posix.socklen_t = @sizeOf(std.Io.net.IpAddress);
     const count = std.posix.recvfrom(fd, buffer, if (peek) std.posix.MSG.PEEK else 0, &address.any, &address_len) catch |err| return finishErr(err);
     read_ptr.* = @intCast(count);
     if (out_addr) |ptr| return registerAddress(address, ptr);
@@ -6472,7 +6508,7 @@ fn udpReceiveFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr:
 pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const idx = udpSlotLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const duplicate = duplicateWinSocket(udp_slots.items[idx].?.socket) catch |err| return finishErr(err);
@@ -6512,11 +6548,11 @@ pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
 pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var address: std.net.Address = undefined;
-    var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    var address: std.Io.net.IpAddress = undefined;
+    var len: std.posix.socklen_t = @sizeOf(std.Io.net.IpAddress);
     std.posix.getsockname(fd, &address.any, &len) catch |err| return finishErr(err);
     return registerAddress(address, out);
 }
@@ -6524,11 +6560,11 @@ pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
 pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var address: std.net.Address = undefined;
-    var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    var address: std.Io.net.IpAddress = undefined;
+    var len: std.posix.socklen_t = @sizeOf(std.Io.net.IpAddress);
     std.posix.getpeername(fd, &address.any, &len) catch |err| return finishErr(err);
     return registerAddress(address, out);
 }
@@ -6536,7 +6572,7 @@ pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
 pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
     const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
     const address = udpAddress(host, port) catch |err| return finishErr(err);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
@@ -6544,7 +6580,7 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
 }
 
 pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
-    net_addr_mutex.lock();
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const idx = netAddrSlotLocked(addr_handle) orelse {
         net_addr_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -6554,7 +6590,7 @@ pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
         net_addr_mutex.unlock();
         return finish(SA_STD_ERR_INVALID_ARGUMENT);
     }
-    var address = std.net.Address.resolveIp(resource.host, resource.port) catch |err| {
+    var address = std.Io.net.IpAddress.resolve(sio.io(), resource.host, resource.port) catch |err| {
         net_addr_mutex.unlock();
         return finishErr(err);
     };
@@ -6565,7 +6601,7 @@ pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
     }
     if (resource.family == 10 and resource.scope_id != 0) address.in6.sa.scope_id = @intCast(resource.scope_id);
     net_addr_mutex.unlock();
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
@@ -6573,7 +6609,7 @@ pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
 }
 
 pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(
         udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE),
@@ -6586,13 +6622,13 @@ pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
 pub export fn sa_std_net_udp_only_v6(socket: u64, out: ?*i32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     result.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     var mode: c_ulong = if (enabled != 0) 1 else 0;
@@ -6603,7 +6639,7 @@ pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
 
 pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
     const value = timeoutMs(timeout_ns) catch |err| return finishErr(err);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, value) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6611,7 +6647,7 @@ pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 
 
 pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
     const value = timeoutMs(timeout_ns) catch |err| return finishErr(err);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, value) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6619,7 +6655,7 @@ pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32
 
 fn udpGetOption(socket: u64, option: i32, out: *i32) i32 {
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, option) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6628,7 +6664,7 @@ fn udpGetOption(socket: u64, option: i32, out: *i32) i32 {
 
 pub export fn sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) i32 {
     if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.RCVBUF, @intCast(size)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6643,7 +6679,7 @@ pub export fn sa_std_net_udp_recv_buffer_size(socket: u64, out: ?*u32) i32 {
 }
 pub export fn sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) i32 {
     if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.SNDBUF, @intCast(size)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6678,7 +6714,7 @@ pub export fn sa_std_net_udp_write_timeout(socket: u64, out_timeout_ns: ?*u64) i
 }
 
 pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6689,7 +6725,7 @@ pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
 }
 pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
     if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6697,7 +6733,7 @@ pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
 pub export fn sa_std_net_udp_ttl(socket: u64, out_ttl: ?*u32) i32 {
     const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const value = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL) catch |err| return finishErr(err);
     if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -6713,7 +6749,7 @@ pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_
     const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const count = std.posix.send(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), bytes, 0) catch |err| return finishErr(err);
     out.* = @intCast(count);
@@ -6731,7 +6767,7 @@ pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, h
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
     const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
     const address = udpAddress(host, port) catch |err| return finishErr(err);
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const count = std.posix.sendto(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), bytes, 0, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
     out.* = @intCast(count);
@@ -6752,7 +6788,7 @@ pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_io
     const slices = iovs[0..count];
     if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
 
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
@@ -6782,7 +6818,7 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
     const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
     const address = udpAddress(host, port) catch |err| return finishErr(err);
 
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
@@ -6810,7 +6846,7 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
     const slices = iovs[0..count];
     if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
 
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
@@ -6823,8 +6859,8 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
         filled += 1;
     }
 
-    var addr: std.net.Address = undefined;
-    var addr_len: i32 = @sizeOf(std.net.Address);
+    var addr: std.Io.net.IpAddress = undefined;
+    var addr_len: i32 = @sizeOf(std.Io.net.IpAddress);
     var bytes_read: u32 = 0;
     var flags: u32 = 0;
     const rc = std.os.windows.ws2_32.WSARecvFrom(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_read, &flags, @as(*std.posix.sockaddr, @ptrCast(&addr.any)), &addr_len, null, null);
@@ -6857,11 +6893,11 @@ const WindowsLingerOption = extern struct { onoff: u16, linger: u16 };
 fn udpMembership4(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_ptr: ?[*]const u8, interface_len: u64, join: bool) i32 {
     const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
     const interface = udpHost(interface_ptr, interface_len) catch |err| return finishErr(err);
-    const multi_addr = std.net.Address.resolveIp(multi, 0) catch |err| return finishErr(err);
-    const interface_addr = std.net.Address.resolveIp(interface, 0) catch |err| return finishErr(err);
+    const multi_addr = std.Io.net.IpAddress.resolve(sio.io(), multi, 0) catch |err| return finishErr(err);
+    const interface_addr = std.Io.net.IpAddress.resolve(sio.io(), interface, 0) catch |err| return finishErr(err);
     if (multi_addr.any.family != std.posix.AF.INET or interface_addr.any.family != std.posix.AF.INET) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     var req = IpMreq{ .multicast = multi_addr.in.sa.addr, .interface = interface_addr.in.sa.addr };
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     std.posix.setsockopt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, if (join) std.os.windows.ws2_32.IP_ADD_MEMBERSHIP else std.os.windows.ws2_32.IP_DROP_MEMBERSHIP, std.mem.asBytes(&req)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6874,10 +6910,10 @@ pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, m: ?[*]const u8, ml
 }
 fn udpMembership6(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_index: u32, join: bool) i32 {
     const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
-    const address = std.net.Address.resolveIp(multi, 0) catch |err| return finishErr(err);
+    const address = std.Io.net.IpAddress.resolve(sio.io(), multi, 0) catch |err| return finishErr(err);
     if (address.any.family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     var req = Ipv6Mreq{ .multicast = address.in6.sa.addr, .interface = interface_index };
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     std.posix.setsockopt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, if (join) std.os.windows.ws2_32.IPV6_ADD_MEMBERSHIP else std.os.windows.ws2_32.IPV6_DROP_MEMBERSHIP, std.mem.asBytes(&req)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -6890,27 +6926,27 @@ pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, m: ?[*]const u8, ml
 }
 
 fn udpSetIpOption(socket: u64, option: u32, value: i32) i32 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option, value) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 fn udpGetIpOption(socket: u64, option: i32, out: *i32) i32 {
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 fn udpSetIpv6Option(socket: u64, option: u32, value: i32) i32 {
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, option, value) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 fn udpGetIpv6Option(socket: u64, option: i32, out: *i32) i32 {
     out.* = 0;
-    udp_mutex.lock();
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, option) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
@@ -7077,8 +7113,8 @@ fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
 }
 
 fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
-    const parsed = std.net.Ip6Address.resolve(text, 0) catch return null;
-    return .{ .octets = parsed.sa.addr, .scope_id = parsed.sa.scope_id };
+    const parsed = std.Io.net.Ip6Address.resolve(sio.io(), text, 0) catch return null;
+    return .{ .octets = parsed.bytes, .scope_id = parsed.interface.index };
 }
 
 pub export fn sa_net_ipv6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
@@ -7133,24 +7169,23 @@ fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
         longest_len = 0;
     }
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var w: std.Io.Writer = .fixed(buffer);
     var i: usize = 0;
     var abbreviated = false;
     while (i < segments.len) : (i += 1) {
         if (i == longest_start) {
             if (!abbreviated) {
-                try writer.writeAll(if (i == 0) "::" else ":");
+                try w.writeAll(if (i == 0) "::" else ":");
                 abbreviated = true;
             }
             i += longest_len - 1;
             continue;
         }
         if (abbreviated) abbreviated = false;
-        try writer.print("{x}", .{segments[i]});
-        if (i != segments.len - 1) try writer.writeByte(':');
+        try w.print("{x}", .{segments[i]});
+        if (i != segments.len - 1) try w.writeByte(':');
     }
-    return buffer[0..stream.pos];
+    return buffer[0..w.buffered().len];
 }
 
 pub export fn sa_net_ipv4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
@@ -7511,7 +7546,7 @@ pub export fn sa_std_http2_buffer_free(handle: u64) i32 {
 // They mirror the Linux sa_std.zig mock surface (src/runtime/sa_std.zig:5947),
 // tuned so the demo programs exercise their RESULT_OK path on Windows too.
 
-var compatibility_mmap_page: [4096]u8 = [_]u8{0} ** 4096;
+var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
 var compatibility_dlopen_cookie: [1]u8 = .{0};
 var compatibility_dlsym_cookie: [1]u8 = .{0};
 

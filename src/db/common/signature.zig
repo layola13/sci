@@ -218,7 +218,7 @@ const TestModifiers = struct {
 };
 
 fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
-    var rest = std.mem.trimLeft(u8, text, " \t");
+    var rest = std.mem.trimStart(u8, text, " \t");
     var ignored = false;
     var should_panic = false;
 
@@ -234,7 +234,7 @@ fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
         } else {
             return ParseError.InvalidFunctionSig;
         }
-        rest = std.mem.trimLeft(u8, rest[token_end..], " \t");
+        rest = std.mem.trimStart(u8, rest[token_end..], " \t");
     }
 
     return .{
@@ -278,12 +278,12 @@ pub fn parseFunctionSig(
         if (return_text.len == 0) return ParseError.InvalidFunctionSig;
         if (return_text[return_text.len - 1] == '!') {
             return_fallible = true;
-            return_text = std.mem.trimRight(u8, return_text[0 .. return_text.len - 1], " \t\r");
+            return_text = std.mem.trimEnd(u8, return_text[0 .. return_text.len - 1], " \t\r");
             if (return_text.len == 0) return ParseError.InvalidFunctionSig;
         }
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
-        const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
+        const ty_text = std.mem.trimStart(u8, cap_split.rest, " \t\r");
         if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
@@ -292,7 +292,7 @@ pub fn parseFunctionSig(
         }
     }
 
-    var param_list = std.ArrayList(ParamSpec).init(allocator);
+    var param_list = std.array_list.Managed(ParamSpec).init(allocator);
     errdefer {
         for (param_list.items) |param| allocator.free(param.name);
         param_list.deinit();
@@ -348,7 +348,7 @@ pub fn parseFunctionHeader(
     var body = if (spec.require_colon)
         trimmed[spec.prefix.len .. trimmed.len - 1]
     else
-        std.mem.trimRight(u8, trimmed[spec.prefix.len..], " :\t\r");
+        std.mem.trimEnd(u8, trimmed[spec.prefix.len..], " :\t\r");
 
     var ignored = false;
     var should_panic = false;
@@ -359,7 +359,7 @@ pub fn parseFunctionHeader(
         should_panic = modifiers.should_panic;
     }
 
-    const after_name = std.mem.trimLeft(u8, body, " \t");
+    const after_name = std.mem.trimStart(u8, body, " \t");
     const open = std.mem.indexOfScalar(u8, after_name, '(') orelse return ParseError.InvalidFunctionSig;
     const close = std.mem.lastIndexOfScalar(u8, after_name, ')') orelse return ParseError.InvalidFunctionSig;
     if (close <= open) return ParseError.InvalidFunctionSig;
@@ -391,12 +391,12 @@ pub fn parseFunctionHeader(
         if (return_text.len == 0) return ParseError.InvalidFunctionSig;
         if (return_text[return_text.len - 1] == '!') {
             return_fallible = true;
-            return_text = std.mem.trimRight(u8, return_text[0 .. return_text.len - 1], " \t\r");
+            return_text = std.mem.trimEnd(u8, return_text[0 .. return_text.len - 1], " \t\r");
             if (return_text.len == 0) return ParseError.InvalidFunctionSig;
         }
         const cap_split = parseOptionalCap(return_text);
         return_cap = cap_split.cap;
-        const ty_text = std.mem.trimLeft(u8, cap_split.rest, " \t\r");
+        const ty_text = std.mem.trimStart(u8, cap_split.rest, " \t\r");
         if (ty_text.len == 0) return ParseError.InvalidFunctionSig;
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
@@ -405,7 +405,7 @@ pub fn parseFunctionHeader(
         }
     }
 
-    var param_list = std.ArrayList(ParamSpec).init(allocator);
+    var param_list = std.array_list.Managed(ParamSpec).init(allocator);
     errdefer {
         for (param_list.items) |param| allocator.free(param.name);
         param_list.deinit();
@@ -695,9 +695,8 @@ test "function signature parsing is deterministic across random headers" {
         else
             instr.CapPrefix.by_value;
 
-        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer buf.deinit();
-        const writer = buf.writer();
         var expected = FunctionSig{
             .id = @intCast(idx),
             .name = try std.fmt.allocPrint(std.testing.allocator, "f_{d}", .{idx}),
@@ -724,14 +723,14 @@ test "function signature parsing is deterministic across random headers" {
                 .cap = param_cap,
             };
         }
-        try writeFunctionHeader(writer, expected);
+        try writeFunctionHeader(&buf.writer, expected);
         for (param_buf) |param| {
             std.testing.allocator.free(param.name);
         }
 
-        var first = try parseFunctionHeader(std.testing.allocator, buf.items, @intCast(idx), @intCast(idx * 10), kind);
+        var first = try parseFunctionHeader(std.testing.allocator, buf.writer.buffered(), @intCast(idx), @intCast(idx * 10), kind);
         defer first.deinit(std.testing.allocator);
-        var second = try parseFunctionHeader(std.testing.allocator, buf.items, @intCast(idx), @intCast(idx * 10), kind);
+        var second = try parseFunctionHeader(std.testing.allocator, buf.writer.buffered(), @intCast(idx), @intCast(idx * 10), kind);
         defer second.deinit(std.testing.allocator);
 
         try expectSigEqual(first, second);

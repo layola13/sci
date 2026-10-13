@@ -6,8 +6,8 @@ const builtin = @import("builtin");
 // must match the expected stdout of each demo (verified against native
 // build-exe during development). Pure Zig backend: no LLVM required.
 
-fn runJsWithNode(allocator: std.mem.Allocator, js_path: []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runJsWithNode(allocator: std.mem.Allocator, js_path: []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "node", js_path },
     });
@@ -19,18 +19,18 @@ fn elapsedMs(start_ns: i128) i128 {
 
 fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
@@ -47,7 +47,7 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const base = std.fs.path.basename(path);
@@ -65,7 +65,7 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     if (build_js_code != 0) std.debug.print("build-js failed: {s}\n", .{path});
     try std.testing.expectEqual(@as(u8, 0), build_js_code);
 
-    const js_file = try tmp.dir.openFile(js_name, .{});
+    const js_file = try tmp.dir.openFile(std.testing.io, js_name, .{});
     defer js_file.close();
     const js_bytes = try js_file.readToEndAlloc(std.testing.allocator, 1 << 24);
     defer std.testing.allocator.free(js_bytes);
@@ -75,7 +75,7 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     defer std.testing.allocator.free(js_result.stdout);
     defer std.testing.allocator.free(js_result.stderr);
     switch (js_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, js_result.stdout, expected_stdout) or js_result.stderr.len != 0) {
                 std.debug.print("js demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, js_result.stdout, js_result.stderr });
             }
@@ -1065,7 +1065,7 @@ test "js backend rosetta demos match expected output under node" {
 }
 
 fn assertJsBuildRejects(path: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
@@ -1075,7 +1075,7 @@ fn assertJsBuildRejects(path: []const u8) !void {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_js_argv = [_][]const u8{ "sa", "build-js", source_path, "-o", "rejected.mjs", "--project-root", repo_root };
@@ -1106,18 +1106,18 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
     // diagnostic on stderr. Probes live in demos/support (never rosetta,
     // so the native/wasm matrices that expect exit 0 stay untouched).
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
@@ -1127,7 +1127,7 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_js_argv = [_][]const u8{ "sa", "build-js", source_path, "-o", "trap.mjs", "--project-root", repo_root };
@@ -1141,7 +1141,7 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
     defer std.testing.allocator.free(js_result.stdout);
     defer std.testing.allocator.free(js_result.stderr);
     switch (js_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             std.debug.print("[js-trap] demo={s} exit={} stderr={s}\n", .{ path, code, js_result.stderr });
             try std.testing.expect(code != 0);
         },

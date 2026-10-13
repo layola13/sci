@@ -1,15 +1,14 @@
 const std = @import("std");
 
-fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
+fn latestGitTag(allocator: std.mem.Allocator, io: std.Io) ?[]const u8 {
     const argv = [_][]const u8{ "git", "tag", "--sort=-v:refname" };
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const result = std.process.run(allocator, io, .{
         .argv = argv[0..],
     }) catch return null;
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code != 0) {
+        .exited => |code| if (code != 0) {
             allocator.free(result.stdout);
             return null;
         },
@@ -35,23 +34,17 @@ fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    // System root for cross-compilation to targets without bundled libc
-    // (e.g. FreeBSD: extract base.txz and pass -Dsysroot=<dir>).
-    if (b.option([]const u8, "sysroot", "System root directory for cross-compilation (provides target libc headers/libs).")) |s| {
-        b.sysroot = s;
-    }
-    // Custom libc installation file (-libc) for targets without bundled libc
-    // (e.g. FreeBSD: generate from the sysroot, see tools/build_freebsd.sh).
-    if (b.option([]const u8, "libc", "Custom libc installation file for cross-compilation targets without bundled libc.")) |l| {
-        b.libc_file = l;
-    }
+    // NOTE(Zig 0.17): the global `b.sysroot` / `b.libc_file` overrides were
+    // removed from std.Build, and Zig 0.17 bundles FreeBSD libc, so the old
+    // -Dsysroot/-Dlibc cross-compilation options are obsolete. Plain
+    // `-Dtarget=<triple>` now works (see tools/build_freebsd.sh).
     const is_windows = target.result.os.tag == .windows;
     const is_linux = target.result.os.tag == .linux;
     const release_safe = b.option(bool, "release-safe", "Build all artifacts with ReleaseSafe optimization.") orelse false;
     const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
     const enable_llvm_default = target.result.os.tag != .windows;
     const enable_llvm = b.option(bool, "llvm", "Enable LLVM-C native backend integration.") orelse enable_llvm_default;
-    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator) orelse "0.0.1";
+    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator, b.graph.io) orelse "0.0.1";
     const llvm_include_dir = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.") orelse defaultLlvmIncludeDir(target.result.os.tag);
     const llvm_lib_dir = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.") orelse defaultLlvmLibDir(target.result.os.tag);
     const llvm_lib_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.") orelse defaultLlvmLibName(target.result.os.tag);
@@ -59,14 +52,14 @@ pub fn build(b: *std.Build) void {
     var optimize = b.standardOptimizeOption(.{});
     if (release_safe) optimize = .ReleaseSafe;
     if (release_small) optimize = .ReleaseSmall;
-    const repo_root = b.pathFromRoot(".");
+    const repo_root = pathFromRoot(b, ".");
     const repo_root_lazy = b.path(".");
     const build_options = b.addOptions();
     const test_build_options = b.addOptions();
     const sa_std_archive_rel = targetSaStdArchivePath(target.result.os.tag);
     const sa_std_root = targetSaStdRoot(target.result.os.tag);
     validateLlvmConfig(b, target.result.os.tag, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
-    build_options.addOption([]const u8, "sa_std_archive_path", b.pathFromRoot(sa_std_archive_rel));
+    build_options.addOption([]const u8, "sa_std_archive_path", pathFromRoot(b, sa_std_archive_rel));
     build_options.addOption(bool, "llvm_enabled", enable_llvm);
     build_options.addOption([]const u8, "repo_root", repo_root);
     build_options.addOption([]const u8, "version", version);
@@ -286,6 +279,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/wasm_matrix_smoke.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     wasm_matrix_module.addImport("saasm", lib_module);
     wasm_matrix_module.addOptions("build_options", build_options);
@@ -518,6 +512,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/unit_framework/runner.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     unit_framework_module.addImport("saasm", lib_module);
     unit_framework_module.addOptions("build_options", build_options);
@@ -529,8 +524,12 @@ pub fn build(b: *std.Build) void {
     addLlvmBinDirToRun(b, run_unit_framework, enable_llvm, llvm_lib_dir, target.result.os.tag);
     run_unit_framework.step.dependOn(&install_sa_exe.step);
     run_unit_framework.step.dependOn(&sync_sa_std_artifact.step);
-    run_unit_framework.setEnvironmentVariable("SA_STD_DIR", b.pathFromRoot("sa_std"));
-    run_unit_framework.setEnvironmentVariable("SA_BIN", b.getInstallPath(.bin, "sa"));
+    run_unit_framework.setEnvironmentVariable("SA_STD_DIR", pathFromRoot(b, "sa_std"));
+    // NOTE(Zig 0.17): the install prefix is only known at make time, so the
+    // installed `sa` path cannot be computed at configure time anymore.
+    // Pass the just-built `sa` executable as `--sa-bin=<path>` instead; the
+    // runner falls back to SA_BIN/"sa" on PATH when the flag is absent.
+    run_unit_framework.addPrefixedFileArg("--sa-bin=", exe.getEmittedBin());
     if (enable_llvm) test_step.dependOn(&run_unit_framework.step);
     const unit_framework_step = b.step("unit-framework", "Run native SA unit framework suites");
     if (enable_llvm) unit_framework_step.dependOn(&run_unit_framework.step);
@@ -933,10 +932,13 @@ pub fn build(b: *std.Build) void {
         std_step.dependOn(&run_native_sys_runtime.step);
     }
 
-    const smoke = b.addTest(.{
+    const smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/smoke/whitepaper_lint.zig"),
         .target = target,
         .optimize = optimize,
+    });
+    const smoke = b.addTest(.{
+        .root_module = smoke_module,
     });
     smoke.root_module.addOptions("build_options", build_options);
     const run_smoke = b.addRunArtifact(smoke);
@@ -971,10 +973,13 @@ pub fn build(b: *std.Build) void {
         host_basic_step.dependOn(runtime_basic_step);
     }
 
-    const scope_demo = b.addTest(.{
+    const scope_demo_module = b.createModule(.{
         .root_source_file = b.path("tests/libsa_scope_demo.zig"),
         .target = target,
         .optimize = optimize,
+    });
+    const scope_demo = b.addTest(.{
+        .root_module = scope_demo_module,
     });
     scope_demo.root_module.addOptions("build_options", build_options);
     const run_scope_demo = b.addRunArtifact(scope_demo);
@@ -1086,6 +1091,24 @@ pub fn build(b: *std.Build) void {
     bench_compare.dependOn(&bench_compare_rust.step);
 }
 
+/// NOTE(Zig 0.17): `Build.pathFromRoot` was removed. Equivalent helper:
+/// resolve `sub_path` against the directory containing build.zig.
+fn pathFromRoot(b: *std.Build, sub_path: []const u8) []u8 {
+    const root_path = b.root.root_dir.path orelse ".";
+    return std.fs.path.resolveAlloc(b.allocator, &.{ root_path, sub_path }) catch @panic("OOM");
+}
+
+/// NOTE(Zig 0.17): `std.fs.Dir` was replaced by `std.Io.Dir`; every
+/// filesystem operation now takes an explicit `Io`.
+fn pathExists(io: std.Io, path: []const u8) bool {
+    if (std.fs.path.isAbsolute(path)) {
+        std.Io.Dir.accessAbsolute(io, path, .{}) catch return false;
+    } else {
+        std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+    }
+    return true;
+}
+
 fn targetSaStdArchivePath(os_tag: std.Target.Os.Tag) []const u8 {
     return switch (os_tag) {
         .windows => "artifacts/sa_std/sa_std.lib",
@@ -1131,23 +1154,24 @@ fn validateLlvmConfig(
 ) void {
     if (!enable_llvm) return;
 
+    const io = b.graph.io;
     const core_header = std.fs.path.join(b.allocator, &.{ include_dir, "llvm-c", "Core.h" }) catch |err| {
         failLlvmConfig("failed to construct LLVM include path: {s}", .{@errorName(err)});
     };
     defer b.allocator.free(core_header);
-    std.fs.cwd().access(core_header, .{}) catch |err| {
+    if (!pathExists(io, core_header)) {
         failLlvmConfig(
-            "LLVM-C header not found: {s}\n  pass -Dllvm-include-dir=<path-to-llvm-include> or use -Dllvm=false for the bootstrap compiler ({s})",
-            .{ core_header, @errorName(err) },
+            "LLVM-C header not found: {s}\n  pass -Dllvm-include-dir=<path-to-llvm-include> or use -Dllvm=false for the bootstrap compiler",
+            .{core_header},
         );
-    };
+    }
 
-    std.fs.cwd().access(lib_dir, .{}) catch |err| {
+    if (!pathExists(io, lib_dir)) {
         failLlvmConfig(
-            "LLVM library directory not found: {s}\n  pass -Dllvm-lib-dir=<path-to-llvm-lib> or use -Dllvm=false for the bootstrap compiler ({s})",
-            .{ lib_dir, @errorName(err) },
+            "LLVM library directory not found: {s}\n  pass -Dllvm-lib-dir=<path-to-llvm-lib> or use -Dllvm=false for the bootstrap compiler",
+            .{lib_dir},
         );
-    };
+    }
 
     if (!llvmLibraryExists(b, os_tag, lib_dir, lib_name)) {
         switch (os_tag) {
@@ -1186,18 +1210,21 @@ fn llvmLibraryExists(b: *std.Build, os_tag: std.Target.Os.Tag, lib_dir: []const 
         if (!llvmLibraryCandidateApplies(os_tag, candidate)) continue;
         const path = std.fs.path.join(b.allocator, &.{ lib_dir, candidate }) catch continue;
         defer b.allocator.free(path);
-        std.fs.cwd().access(path, .{}) catch continue;
+        if (!pathExists(b.graph.io, path)) continue;
         return true;
     }
     if (os_tag == .linux or os_tag == .macos) {
-        if (versionedSharedLibraryExists(b.allocator, os_tag, lib_dir, lib_name)) return true;
+        if (versionedSharedLibraryExists(b.allocator, b.graph.io, os_tag, lib_dir, lib_name)) return true;
     }
     return false;
 }
 
-fn versionedSharedLibraryExists(allocator: std.mem.Allocator, os_tag: std.Target.Os.Tag, lib_dir: []const u8, lib_name: []const u8) bool {
-    var dir = std.fs.cwd().openDir(lib_dir, .{ .iterate = true }) catch return false;
-    defer dir.close();
+fn versionedSharedLibraryExists(allocator: std.mem.Allocator, io: std.Io, os_tag: std.Target.Os.Tag, lib_dir: []const u8, lib_name: []const u8) bool {
+    var dir = if (std.fs.path.isAbsolute(lib_dir))
+        std.Io.Dir.openDirAbsolute(io, lib_dir, .{ .iterate = true }) catch return false
+    else
+        std.Io.Dir.cwd().openDir(io, lib_dir, .{ .iterate = true }) catch return false;
+    defer dir.close(io);
     const prefix = switch (os_tag) {
         .linux => std.fmt.allocPrint(allocator, "lib{s}.so.", .{lib_name}) catch return false,
         .macos => std.fmt.allocPrint(allocator, "lib{s}.", .{lib_name}) catch return false,
@@ -1205,7 +1232,7 @@ fn versionedSharedLibraryExists(allocator: std.mem.Allocator, os_tag: std.Target
     };
     defer allocator.free(prefix);
     var it = dir.iterate();
-    while (it.next() catch null) |entry| {
+    while (it.next(io) catch null) |entry| {
         if (entry.kind == .file or entry.kind == .sym_link) {
             if (std.mem.startsWith(u8, entry.name, prefix)) return true;
         }
@@ -1261,9 +1288,9 @@ fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir:
 
 fn linkLLVMToCompile(compile: *std.Build.Step.Compile, enable_llvm: bool, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
     if (!enable_llvm) return;
-    compile.addSystemIncludePath(.{ .cwd_relative = include_dir });
-    compile.addLibraryPath(.{ .cwd_relative = lib_dir });
-    compile.linkSystemLibrary(lib_name);
+    compile.root_module.addSystemIncludePath(.{ .cwd_relative = include_dir });
+    compile.root_module.addLibraryPath(.{ .cwd_relative = lib_dir });
+    compile.root_module.linkSystemLibrary(lib_name, .{});
 }
 
 fn addLlvmBinDirToRun(
@@ -1275,7 +1302,11 @@ fn addLlvmBinDirToRun(
 ) void {
     if (!enable_llvm or os_tag != .windows) return;
     const llvm_root_dir = std.fs.path.dirname(lib_dir) orelse lib_dir;
-    run.addPathDir(b.pathJoin(&.{ llvm_root_dir, "bin" }));
+    // NOTE(Zig 0.17): Step.Run.addPathDir was removed; prepend via PATH instead.
+    const llvm_bin = b.pathJoin(&.{ llvm_root_dir, "bin" });
+    const prev_path = b.graph.environ_map.get("PATH") orelse "";
+    const new_path = if (prev_path.len == 0) llvm_bin else b.fmt("{s};{s}", .{ llvm_bin, prev_path });
+    run.setEnvironmentVariable("PATH", new_path);
 }
 
 /// On Windows, `sa.exe` is linked against the LLVM-C import library but the
@@ -1298,6 +1329,6 @@ fn installLlvmCDll(
 
 fn linkWindowsNetworkingToCompile(compile: *std.Build.Step.Compile, os_tag: std.Target.Os.Tag) void {
     if (os_tag != .windows) return;
-    compile.linkSystemLibrary("ws2_32");
-    compile.linkSystemLibrary("iphlpapi");
+    compile.root_module.linkSystemLibrary("ws2_32", .{});
+    compile.root_module.linkSystemLibrary("iphlpapi", .{});
 }

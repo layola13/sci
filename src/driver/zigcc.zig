@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("../sa_io.zig");
 
 pub const Optimization = enum {
     none,
@@ -19,7 +20,7 @@ pub const CompileError = error{
 };
 
 pub const Argv = struct {
-    items: std.ArrayList([]const u8),
+    items: std.array_list.Managed([]const u8),
 
     pub fn slice(self: *const Argv) []const []const u8 {
         return self.items.items;
@@ -41,7 +42,7 @@ pub fn argvForExe(
     debug: bool,
     target_triple: ?[]const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
@@ -91,7 +92,7 @@ pub fn argvForObj(
     debug: bool,
     target_triple: ?[]const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
@@ -126,7 +127,7 @@ pub fn argvForRelocatableObj(
     out_path: []const u8,
     input_objects: []const []const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
@@ -148,7 +149,7 @@ pub fn argvForWasm(
     debug: bool,
     sa_std_archive_path: ?[]const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
@@ -181,15 +182,15 @@ pub fn argvForWasm(
     return argv;
 }
 
-fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.Term {
-    var child = std.process.Child.init(argv, allocator);
+fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.Term {
+    var child = sio.Child.init(argv, allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
@@ -218,9 +219,9 @@ fn printCompilerLaunchFailure(writer: anytype, argv: []const []const u8, action:
     try printCommandLine(writer, argv);
 }
 
-fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: std.process.Child.RunResult) !void {
+fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: sio.Child.RunResult) !void {
     switch (result.term) {
-        .Exited => |code| try writer.print("error[ExternalCompiler]: zig cc exited with code {d} while {s} {s} -> {s}\n", .{ code, action, input_path, out_path }),
+        .exited => |code| try writer.print("error[ExternalCompiler]: zig cc exited with code {d} while {s} {s} -> {s}\n", .{ code, action, input_path, out_path }),
         else => try writer.print("error[ExternalCompiler]: zig cc terminated unexpectedly while {s} {s} -> {s}\n", .{ action, input_path, out_path }),
     }
     try printCommandLine(writer, argv);
@@ -248,7 +249,7 @@ pub fn compileExe(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -281,7 +282,7 @@ pub fn compileObj(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -311,7 +312,7 @@ pub fn compileRelocatableObj(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -345,7 +346,7 @@ pub fn compileWasm(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {

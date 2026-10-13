@@ -2,38 +2,38 @@ const std = @import("std");
 const saasm = @import("saasm");
 
 fn repoRoot(allocator: std.mem.Allocator) ![]u8 {
-    return std.fs.cwd().realpathAlloc(allocator, ".");
+    return sio.cwd().realpathAlloc(allocator, ".");
 }
 
 fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
+    const file = try sio.cwd().openFile(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, 1 << 20);
 }
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
+fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
 }
 
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn runCommandWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const std.process.EnvMap) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommandWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const sio.EnvMap) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .env_map = env_map,
     });
 }
 
-fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
@@ -1489,7 +1489,7 @@ test "libsa_async macro expansion stays equivalent to the manual state machine" 
     const macro_source = try readFileAlloc(std.testing.allocator, "demos/rosetta/09_async_await/main.sa");
     defer std.testing.allocator.free(macro_source);
 
-    const print_iface_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std/io/print.sai");
+    const print_iface_path = try sio.cwd().realpathAlloc(std.testing.allocator, "sa_std/io/print.sai");
     defer std.testing.allocator.free(print_iface_path);
 
     const manual_source = try std.fmt.allocPrint(std.testing.allocator,
@@ -1788,7 +1788,7 @@ test "sa_std path module exercises real string macros" {
 }
 
 test "sa_std string concat runtime helper is usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1800,7 +1800,7 @@ test "sa_std string concat runtime helper is usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1843,7 +1843,7 @@ test "sa_std string concat runtime helper is usable from C" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1862,7 +1862,7 @@ test "sa_std string concat runtime helper is usable from C" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1870,14 +1870,14 @@ test "sa_std string concat runtime helper is usable from C" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std string concat ok\n", run_result.stdout);
 }
 
 test "sa_std no-alloc format helpers write into caller buffers" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1889,7 +1889,7 @@ test "sa_std no-alloc format helpers write into caller buffers" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1935,7 +1935,7 @@ test "sa_std no-alloc format helpers write into caller buffers" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1954,7 +1954,7 @@ test "sa_std no-alloc format helpers write into caller buffers" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1962,7 +1962,7 @@ test "sa_std no-alloc format helpers write into caller buffers" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std fmt into ok\n", run_result.stdout);
@@ -1992,7 +1992,7 @@ test "sa_std env helpers are concrete and verifiable" {
 }
 
 test "sa_std env runtime helper is usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -2004,7 +2004,7 @@ test "sa_std env runtime helper is usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -2118,7 +2118,7 @@ test "sa_std env runtime helper is usable from C" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -2137,7 +2137,7 @@ test "sa_std env runtime helper is usable from C" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -2145,7 +2145,7 @@ test "sa_std env runtime helper is usable from C" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std env ok\n", run_result.stdout);
@@ -2229,7 +2229,7 @@ test "sa_std fs helper declarations stay aligned" {
 }
 
 test "sa_std fs base64 and directory helpers are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -2241,7 +2241,7 @@ test "sa_std fs base64 and directory helpers are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -2352,7 +2352,7 @@ test "sa_std fs base64 and directory helpers are usable from C" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -2371,7 +2371,7 @@ test "sa_std fs base64 and directory helpers are usable from C" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -2379,14 +2379,14 @@ test "sa_std fs base64 and directory helpers are usable from C" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std fs base64 dir metadata copy remove ok\n", run_result.stdout);
 }
 
 test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -2398,7 +2398,7 @@ test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -2547,7 +2547,7 @@ test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -2566,7 +2566,7 @@ test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -2574,7 +2574,7 @@ test "sa_std Deno chat SSE fallback splits thought tags across chunks" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno chat sse thought split ok\n", run_result.stdout);
@@ -3848,9 +3848,9 @@ test "sa_std Deno JSON facade runs from SA" {
     ;
     try writeSource(tmp.dir, "deno_json_facade.sa", source);
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", "deno_json_facade.sa", "-o", "deno_json_facade" };
@@ -3861,7 +3861,7 @@ test "sa_std Deno JSON facade runs from SA" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     switch (run_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -3964,9 +3964,9 @@ test "sa_std Deno text and base64 facade runs from SA" {
     ;
     try writeSource(tmp.dir, "deno_text_base64.sa", source);
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", "deno_text_base64.sa", "-o", "deno_text_base64" };
@@ -3977,13 +3977,13 @@ test "sa_std Deno text and base64 facade runs from SA" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     switch (run_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
 
 test "sa_std Deno fallible status macros compile and run" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -3996,7 +3996,7 @@ test "sa_std Deno fallible status macros compile and run" {
     try writeSource(tmp.dir, "deno.sal", deno_sal);
     try writeSource(tmp.dir, "deno.sai", deno_sai);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source =
@@ -4072,7 +4072,7 @@ test "sa_std Deno fallible status macros compile and run" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     switch (run_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -4082,12 +4082,12 @@ test "std smoke fixture runs through the current compiler surface" {
     defer std.testing.allocator.free(fixture);
     try std.testing.expect(std.mem.containsAtLeast(u8, fixture, 1, "ptr_add"));
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "std_smoke.sa", fixture);
@@ -4100,7 +4100,7 @@ test "std smoke fixture runs through the current compiler surface" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const artifact_file = try tmp.dir.openFile("std_smoke.out.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "std_smoke.out.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -4110,7 +4110,7 @@ test "std smoke fixture runs through the current compiler surface" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 209), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 209), code),
         else => return error.TestUnexpectedResult,
     }
 }

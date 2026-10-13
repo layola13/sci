@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("sa_io.zig");
 
 pub const Termination = union(enum) {
     exited: u32,
@@ -50,12 +51,12 @@ pub const TestOutcome = union(enum) {
     ignored,
 };
 
-pub fn terminationFrom(term: std.process.Child.Term) Termination {
+pub fn terminationFrom(term: sio.Child.Term) Termination {
     return switch (term) {
-        .Exited => |code| .{ .exited = code },
-        .Signal => |sig_num| .{ .signal = sig_num },
-        .Stopped => |sig_num| .{ .stopped = sig_num },
-        .Unknown => |status| .{ .unknown = status },
+        .exited => |code| .{ .exited = code },
+        .signal => |sig| .{ .signal = @intFromEnum(sig) },
+        .stopped => |sig| .{ .stopped = @intFromEnum(sig) },
+        .unknown => |status| .{ .unknown = status },
     };
 }
 
@@ -159,7 +160,7 @@ pub fn parsePanicInfo(stderr: []const u8) ?PanicInfo {
     return null;
 }
 
-pub fn toOutcome(display_name: []const u8, term: std.process.Child.Term, stderr: []const u8, should_panic: bool) TestOutcome {
+pub fn toOutcome(display_name: []const u8, term: sio.Child.Term, stderr: []const u8, should_panic: bool) TestOutcome {
     const termination = terminationFrom(term);
     if (should_panic) {
         if (stderrHasPanic(stderr)) return .passed;
@@ -246,28 +247,28 @@ pub fn writeFailure(writer: anytype, failure: TestFailure) !void {
 }
 
 test "termination classification preserves process details" {
-    const exited = terminationFrom(.{ .Exited = 7 });
+    const exited = terminationFrom(.{ .exited = 7 });
     try std.testing.expectEqual(@as(u32, 7), exited.exited);
 
-    const signaled = terminationFrom(.{ .Signal = 6 });
+    const signaled = terminationFrom(.{ .signal = @enumFromInt(6) });
     try std.testing.expectEqual(@as(u32, 6), signaled.signal);
 
-    const stopped = terminationFrom(.{ .Stopped = 19 });
+    const stopped = terminationFrom(.{ .stopped = @enumFromInt(19) });
     try std.testing.expectEqual(@as(u32, 19), stopped.stopped);
 }
 
 test "failure formatting keeps the visible process reason" {
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
-    try writeFailure(out.writer(), .{
+    try writeFailure(&aw.writer, .{
         .display_name = "signal abort",
         .reason = .{ .signal = 6 },
         .stderr = "panic text",
     });
 
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "terminated by signal 6"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "panic text"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "terminated by signal 6"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "panic text"));
 }
 
 test "assertion panic text extracts expected and actual values" {
@@ -292,10 +293,10 @@ test "panic text extracts numeric panic code" {
 }
 
 test "failure formatting surfaces assertion values before raw stderr" {
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
-    try writeFailure(out.writer(), .{
+    try writeFailure(&aw.writer, .{
         .display_name = "assert eq diagnostic",
         .reason = .{ .exited = 231 },
         .stderr = "PANIC[103]: assert_values.sa:8:5: expected=42 actual=41",
@@ -308,23 +309,23 @@ test "failure formatting surfaces assertion values before raw stderr" {
         .selector_name = "_saasm_test_1",
     });
 
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "test location: tests/assert_values.sa:4:1"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "code path: tests/assert_values.sa::_saasm_test_1"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "panic: code=103"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "panic location: assert_values.sa:8:5"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "assertion failed:"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "expected: 42"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "actual: 41"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "PANIC[103]: assert_values.sa:8:5: expected=42 actual=41"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "test location: tests/assert_values.sa:4:1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "code path: tests/assert_values.sa::_saasm_test_1"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "panic: code=103"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "panic location: assert_values.sa:8:5"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "assertion failed:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "expected: 42"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "actual: 41"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "PANIC[103]: assert_values.sa:8:5: expected=42 actual=41"));
 }
 
 test "should panic classification treats PANIC output as success" {
-    const outcome = toOutcome("panic path", .{ .Exited = 128 }, "PANIC: code=99\n", true);
+    const outcome = toOutcome("panic path", .{ .exited = 128 }, "PANIC: code=99\n", true);
     try std.testing.expect(outcome == .passed);
 }
 
 test "should panic classification fails if panic is missing" {
-    const outcome = toOutcome("panic path", .{ .Exited = 0 }, "", true);
+    const outcome = toOutcome("panic path", .{ .exited = 0 }, "", true);
     try std.testing.expect(outcome == .failed);
     switch (outcome) {
         .failed => |failure| {
@@ -335,14 +336,14 @@ test "should panic classification fails if panic is missing" {
 }
 
 test "launch failure formatting stays explicit" {
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
-    try writeFailure(out.writer(), .{
+    try writeFailure(&aw.writer, .{
         .display_name = "panic path",
         .reason = .{ .launch_failed = "ChildProcessFailed" },
         .stderr = "",
     });
 
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "failed to launch test panic path: ChildProcessFailed"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "failed to launch test panic path: ChildProcessFailed"));
 }

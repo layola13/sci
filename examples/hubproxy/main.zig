@@ -32,7 +32,7 @@ fn loadConfig(allocator: std.mem.Allocator, path: []const u8) !ConfigState {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try sio.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     const parsed = try std.json.parseFromSliceLeaky(Config, arena.allocator(), bytes, .{
@@ -63,12 +63,12 @@ fn resolveRoute(target: []const u8) ?ResolvedRoute {
 }
 
 fn joinUpstreamUrl(allocator: std.mem.Allocator, base_url: []const u8, suffix: []const u8) ![]u8 {
-    const trimmed_base = std.mem.trimRight(u8, base_url, "/");
+    const trimmed_base = std.mem.trimEnd(u8, base_url, "/");
     return try std.fmt.allocPrint(allocator, "{s}{s}", .{ trimmed_base, suffix });
 }
 
 fn readRequestBody(allocator: std.mem.Allocator, request: *std.http.Server.Request) ![]u8 {
-    var body = std.ArrayList(u8).init(allocator);
+    var body = std.array_list.Managed(u8).init(allocator);
     errdefer body.deinit();
 
     var reader = try request.reader();
@@ -120,7 +120,7 @@ fn proxyBufferedResponse(
     status: std.http.Status,
     content_type: []const u8,
 ) !void {
-    var body = std.ArrayList(u8).init(allocator);
+    var body = std.array_list.Managed(u8).init(allocator);
     defer body.deinit();
 
     var reader = upstream.reader();
@@ -225,7 +225,7 @@ fn serve(config: Config) !void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 

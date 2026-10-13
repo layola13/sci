@@ -5,6 +5,7 @@ const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
 const call = @import("referee/call.zig");
 const const_decl = @import("common/const_decl.zig");
+const sio = @import("sa_io.zig");
 
 pub const EmitOptions = emit_options.EmitOptions;
 pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, OutOfMemory };
@@ -243,7 +244,7 @@ fn collectNpmImports(
     tasks: []const FuncTask,
     npm_binds: *const std.StringHashMap([]const u8),
 ) ![]NpmImport {
-    var out = std.ArrayList(NpmImport).init(allocator);
+    var out = std.array_list.Managed(NpmImport).init(allocator);
     errdefer out.deinit();
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
@@ -390,7 +391,7 @@ fn emitNpmWrapper(
 }
 
 fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask {
-    var tasks = std.ArrayList(FuncTask).init(allocator);
+    var tasks = std.array_list.Managed(FuncTask).init(allocator);
     errdefer tasks.deinit();
     var sig_index: usize = 0;
     var idx: usize = 0;
@@ -1143,17 +1144,17 @@ fn resolveTextToJs(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, con
     if (std.fmt.parseInt(i64, text, 10)) |v| {
         try writer.print("{d}", .{v});
         return;
-    } else |_| {}
+    } else {}
     // u64-range literals that overflow i64 still materialize exactly as
     // BigInt (plain float formatting would lose precision above 2^53).
     if (std.fmt.parseInt(u64, text, 10)) |v| {
         try writer.print("{d}n", .{v});
         return;
-    } else |_| {}
+    } else {}
     if (std.fmt.parseFloat(f64, text)) |v| {
         try writer.print("{d}", .{v});
         return;
-    } else |_| {}
+    } else {}
     // Static consts live at fixed linear-memory addresses (mirrors
     // emit_llvm_llvmc.textOperand checking const_names before symbols).
     if (const_addrs.get(text)) |_| {
@@ -2616,9 +2617,9 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             try writer.writeAll("        ");
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths, promo);
-            const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
+            var fbs = std.Io.Writer.fixed(&buf);
+            try emitLinearInstruction(&fbs, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths, promo);
+            const s = std.mem.trim(u8, fbs.buffered(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
             var first_line = true;
@@ -2970,11 +2971,11 @@ fn provCallDestBase(
 }
 
 const ProvBody = struct {
-    blocks: std.ArrayList(BlockRange),
+    blocks: std.array_list.Managed(BlockRange),
     lid_to_blk: std.AutoHashMap(u32, usize),
-    succs: std.ArrayList(std.ArrayList(usize)),
-    in_sets: std.ArrayList(BaseSet),
-    out_sets: std.ArrayList(BaseSet),
+    succs: std.array_list.Managed(std.array_list.Managed(usize)),
+    in_sets: std.array_list.Managed(BaseSet),
+    out_sets: std.array_list.Managed(BaseSet),
 
     fn deinit(self: *ProvBody) void {
         for (self.in_sets.items) |*s| s.deinit();
@@ -3000,11 +3001,11 @@ fn provSolveBody(
     seed: ?u32,
 ) JsEmitError!ProvBody {
     var prov = ProvBody{
-        .blocks = std.ArrayList(BlockRange).init(allocator),
+        .blocks = std.array_list.Managed(BlockRange).init(allocator),
         .lid_to_blk = std.AutoHashMap(u32, usize).init(allocator),
-        .succs = std.ArrayList(std.ArrayList(usize)).init(allocator),
-        .in_sets = std.ArrayList(BaseSet).init(allocator),
-        .out_sets = std.ArrayList(BaseSet).init(allocator),
+        .succs = std.array_list.Managed(std.array_list.Managed(usize)).init(allocator),
+        .in_sets = std.array_list.Managed(BaseSet).init(allocator),
+        .out_sets = std.array_list.Managed(BaseSet).init(allocator),
     };
     errdefer prov.deinit();
     {
@@ -3035,7 +3036,7 @@ fn provSolveBody(
         }
     }
     for (prov.blocks.items, 0..) |blk, bi| {
-        var s = std.ArrayList(usize).init(allocator);
+        var s = std.array_list.Managed(usize).init(allocator);
         errdefer s.deinit();
         if (blk.end > blk.start) {
             const last = verified.annotated[blk.end - 1].base;
@@ -3128,7 +3129,7 @@ fn provSolveBody(
                     while (oit.next()) |e| tmp.put(e.key_ptr.*, {}) catch return JsEmitError.OutOfMemory;
                     first_pred = false;
                 } else {
-                    var rm = std.ArrayList(u32).init(allocator);
+                    var rm = std.array_list.Managed(u32).init(allocator);
                     defer rm.deinit();
                     var tit = tmp.iterator();
                     while (tit.next()) |e| {
@@ -3216,7 +3217,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     var promo = try collectPromotableSlots(allocator, verified, fsig, task, use_global);
     defer promo.deinit();
     if (promo.count() != 0) {
-        var pkeys = std.ArrayList(u32).init(allocator);
+        var pkeys = std.array_list.Managed(u32).init(allocator);
         defer pkeys.deinit();
         var pkit = promo.keyIterator();
         while (pkit.next()) |k| try pkeys.append(k.*);
@@ -5661,11 +5662,11 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
 }
 
 pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    const writer = out.writer();
+    const writer = &out.writer;
     // Indirect-call function table: every vtable slot target, deduped in order.
-    var fn_names = std.ArrayList([]const u8).init(allocator);
+    var fn_names = std.array_list.Managed([]const u8).init(allocator);
     defer fn_names.deinit();
     var fn_idx = std.StringHashMap(usize).init(allocator);
     defer fn_idx.deinit();
@@ -5847,32 +5848,32 @@ pub fn emitJsToFile(allocator: std.mem.Allocator, verified: anytype, source_path
     defer allocator.free(final);
     const needle = "__SA_MEM_BYTES_DECL__";
     if (std.mem.indexOf(u8, final, needle)) |pos| {
-        var patched = std.ArrayList(u8).init(allocator);
+        var patched = std.array_list.Managed(u8).init(allocator);
         errdefer patched.deinit();
         try patched.appendSlice(final[0..pos]);
-        try patched.writer().print("{d}", .{mem_bytes});
+        try patched.print("{d}", .{mem_bytes});
         try patched.appendSlice(final[pos + needle.len ..]);
         const owned = try patched.toOwnedSlice();
         defer allocator.free(owned);
         const dir = std.fs.path.dirname(path);
-        if (dir) |d| try std.fs.cwd().makePath(d);
-        const f = try std.fs.cwd().createFile(path, .{});
+        if (dir) |d| try sio.cwd().makePath(d);
+        const f = try sio.cwd().createFile(path, .{});
         defer f.close();
         try f.writeAll(owned);
         return;
     }
     const dir = std.fs.path.dirname(path);
-    if (dir) |d| try std.fs.cwd().makePath(d);
-    const f = try std.fs.cwd().createFile(path, .{});
+    if (dir) |d| try sio.cwd().makePath(d);
+    const f = try sio.cwd().createFile(path, .{});
     defer f.close();
     try f.writeAll(final);
 }
 
 test "js ident sanitizes names" {
     var buf: [64]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try jsIdent(fbs.writer(), "hello-world.foo");
-    try std.testing.expectEqualStrings("hello_world_foo", fbs.getWritten());
+    var fbs = std.Io.Writer.fixed(&buf);
+    try jsIdent(&fbs, "hello-world.foo");
+    try std.testing.expectEqualStrings("hello_world_foo", fbs.buffered());
 }
 
 test "js format parses esm and cjs" {

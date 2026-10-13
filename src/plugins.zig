@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("sa_io.zig");
 
 pub const abi_version: u32 = 1;
 pub const host_version: []const u8 = "sci-0.2";
@@ -403,7 +404,7 @@ const LoadedPlugin = struct {
 
     fn exportsAny(self: *LoadedPlugin, allocator: std.mem.Allocator, symbol_names: []const []const u8) !bool {
         for (symbol_names) |symbol| {
-            const symbol_z = try allocator.dupeZ(u8, symbol);
+            const symbol_z = try allocator.dupeSentinel(u8, symbol, 0);
             defer allocator.free(symbol_z);
             if (self.lib.lookup(*anyopaque, symbol_z)) |_| return true;
         }
@@ -412,7 +413,7 @@ const LoadedPlugin = struct {
 
     fn exportsAll(self: *LoadedPlugin, allocator: std.mem.Allocator, symbol_names: []const []u8) !bool {
         for (symbol_names) |symbol| {
-            const symbol_z = try allocator.dupeZ(u8, symbol);
+            const symbol_z = try allocator.dupeSentinel(u8, symbol, 0);
             defer allocator.free(symbol_z);
             if (self.lib.lookup(*anyopaque, symbol_z) == null) return false;
         }
@@ -500,11 +501,11 @@ const ProcessExecPermission = struct {
 const RuntimePermissionPolicy = struct {
     has_manifest: bool = false,
     requires_sandbox: bool = false,
-    env_permissions: std.ArrayListUnmanaged([]u8) = .{},
-    fs_permissions: std.ArrayListUnmanaged(FsPermission) = .{},
-    net_permissions: std.ArrayListUnmanaged(NetPermission) = .{},
+    env_permissions: std.ArrayList([]u8) = .{},
+    fs_permissions: std.ArrayList(FsPermission) = .{},
+    net_permissions: std.ArrayList(NetPermission) = .{},
     process_spawn: bool = false,
-    process_exec_permissions: std.ArrayListUnmanaged(ProcessExecPermission) = .{},
+    process_exec_permissions: std.ArrayList(ProcessExecPermission) = .{},
 
     fn initFromManifest(allocator: std.mem.Allocator, manifest: SapManifest) !RuntimePermissionPolicy {
         var policy = RuntimePermissionPolicy{
@@ -529,7 +530,7 @@ const RuntimePermissionPolicy = struct {
         }
         policy.process_spawn = manifest.process_spawn;
         for (manifest.process_exec_permissions) |entry| {
-            var owned_args = std.ArrayList([]u8).init(allocator);
+            var owned_args = std.array_list.Managed([]u8).init(allocator);
             errdefer {
                 for (owned_args.items) |arg| allocator.free(arg);
                 owned_args.deinit();
@@ -592,11 +593,11 @@ const RuntimeHostAuthorization = struct {
     allow_write_declared: bool = false,
     allow_net_declared: bool = false,
     allow_run_declared: bool = false,
-    allow_env: std.ArrayListUnmanaged([]u8) = .{},
-    allow_read: std.ArrayListUnmanaged([]u8) = .{},
-    allow_write: std.ArrayListUnmanaged([]u8) = .{},
-    allow_net: std.ArrayListUnmanaged([]u8) = .{},
-    allow_run: std.ArrayListUnmanaged([]u8) = .{},
+    allow_env: std.ArrayList([]u8) = .{},
+    allow_read: std.ArrayList([]u8) = .{},
+    allow_write: std.ArrayList([]u8) = .{},
+    allow_net: std.ArrayList([]u8) = .{},
+    allow_run: std.ArrayList([]u8) = .{},
 
     fn init(allocator: std.mem.Allocator, input: RuntimeAuthorizationInput) !RuntimeHostAuthorization {
         var auth = RuntimeHostAuthorization{
@@ -611,7 +612,7 @@ const RuntimeHostAuthorization = struct {
         auth.project_root = if (input.project_root) |root|
             try allocator.dupe(u8, root)
         else
-            try std.fs.cwd().realpathAlloc(allocator, ".");
+            try sio.cwd().realpathAlloc(allocator, ".");
         try appendOwnedStrings(allocator, &auth.allow_env, input.allow_env);
         try appendOwnedStrings(allocator, &auth.allow_read, input.allow_read);
         try appendOwnedStrings(allocator, &auth.allow_write, input.allow_write);
@@ -718,7 +719,7 @@ fn runtimeBrokerEnvGet(broker: *const RuntimeBroker, req: ?*const anyopaque, res
     if (!broker.policy.allowsEnv(env_name)) return .denied;
     if (!broker.authorization.allowsEnv(env_name)) return .denied;
 
-    const value = std.process.getEnvVarOwned(broker.allocator, env_name) catch |err| switch (err) {
+    const value = sio.getEnvVarOwned(broker.allocator, env_name) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return .not_found,
         else => return .failed,
     };
@@ -759,7 +760,7 @@ fn runtimeBrokerFsRead(broker: *const RuntimeBroker, req: ?*const anyopaque, res
     const host_allowed = broker.authorization.allowsRead(broker.allocator, abs_path) catch return .failed;
     if (!host_allowed) return .denied;
 
-    var file = std.fs.openFileAbsolute(abs_path, .{}) catch |err| switch (err) {
+    var file = sio.openFileAbsolute(abs_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return .not_found,
         else => return .failed,
     };
@@ -772,8 +773,7 @@ fn runtimeBrokerFsRead(broker: *const RuntimeBroker, req: ?*const anyopaque, res
 
     const out_ptr = request.value_ptr orelse return .invalid_request;
     const out = out_ptr[0..@as(usize, @intCast(file_size))];
-    const read_len = file.readAll(out) catch return .failed;
-    if (read_len != out.len) return .failed;
+    file.readAll(out) catch return .failed;
     return .ok;
 }
 
@@ -813,12 +813,10 @@ fn runtimeBrokerHttpRequest(broker: *const RuntimeBroker, req: ?*const anyopaque
     else
         request.body_ptr.?[0..request.body_len];
 
-    var client: std.http.Client = .{ .allocator = broker.allocator };
+    var client: std.http.Client = .{ .allocator = broker.allocator, .io = sio.io() };
     defer client.deinit();
 
-    var server_header_buffer: [16 * 1024]u8 = undefined;
-    var http_request = client.open(method, uri, .{
-        .server_header_buffer = &server_header_buffer,
+    var http_request = client.request(method, uri, .{
         .redirect_behavior = .not_allowed,
         .keep_alive = false,
         .headers = .{
@@ -827,49 +825,49 @@ fn runtimeBrokerHttpRequest(broker: *const RuntimeBroker, req: ?*const anyopaque
     }) catch return .failed;
     defer http_request.deinit();
 
-    if (body.len != 0) {
-        http_request.transfer_encoding = .{ .content_length = body.len };
+    if (method.requestHasBody()) {
+        http_request.sendBodyComplete(body) catch return .failed;
+    } else {
+        http_request.sendBodiless() catch return .failed;
     }
+    var redirect_buf: [8 * 1024]u8 = undefined;
+    var response_head = http_request.receiveHead(&redirect_buf) catch return .failed;
 
-    http_request.send() catch return .failed;
-    if (body.len != 0) http_request.writeAll(body) catch return .failed;
-    http_request.finish() catch return .failed;
-    http_request.wait() catch return .failed;
-
-    response.status_code = @intFromEnum(http_request.response.status);
+    response.status_code = @intFromEnum(response_head.head.status);
     if (!method.responseHasBody()) return .ok;
 
-    if (http_request.response.content_length) |content_length| {
+    if (response_head.head.content_length) |content_length| {
         response.value_len = @as(usize, @intCast(content_length));
         if (content_length > request.value_cap) return .insufficient_buffer;
         if (content_length == 0) return .ok;
         const out_ptr = request.value_ptr orelse return .invalid_request;
         const out = out_ptr[0..@as(usize, @intCast(content_length))];
-        const read_len = http_request.reader().readAll(out) catch return .failed;
-        if (read_len != out.len) return .failed;
+        var transfer_buf: [8192]u8 = undefined;
+        response_head.reader(&transfer_buf).readSliceAll(out) catch return .failed;
         return .ok;
     }
 
-    var payload = std.ArrayList(u8).init(broker.allocator);
-    defer payload.deinit();
     const unknown_body_limit = if (request.value_cap < max_net_probe_bytes)
         request.value_cap + 1
     else
         max_net_probe_bytes;
-    http_request.reader().readAllArrayList(&payload, unknown_body_limit) catch |err| {
+    var transfer_buf: [8192]u8 = undefined;
+    var body_reader = response_head.reader(&transfer_buf);
+    const payload = body_reader.allocRemaining(broker.allocator, .limited(unknown_body_limit)) catch |err| {
         if (err == error.StreamTooLong) {
-            response.value_len = payload.items.len;
+            response.value_len = unknown_body_limit;
             return .insufficient_buffer;
         }
         return .failed;
     };
+    defer broker.allocator.free(payload);
 
-    response.value_len = payload.items.len;
-    if (payload.items.len > request.value_cap) return .insufficient_buffer;
-    if (payload.items.len == 0) return .ok;
+    response.value_len = payload.len;
+    if (payload.len > request.value_cap) return .insufficient_buffer;
+    if (payload.len == 0) return .ok;
 
     const out_ptr = request.value_ptr orelse return .invalid_request;
-    @memcpy(out_ptr[0..payload.items.len], payload.items);
+    @memcpy(out_ptr[0..payload.len], payload);
     return .ok;
 }
 
@@ -901,7 +899,7 @@ fn runtimeBrokerProcessSpawn(broker: *const RuntimeBroker, req: ?*const anyopaqu
     };
     defer broker.allocator.free(abs_path);
 
-    var argv_list = std.ArrayList([]const u8).init(broker.allocator);
+    var argv_list = std.array_list.Managed([]const u8).init(broker.allocator);
     defer argv_list.deinit();
     if (request.argv_len != 0) {
         const raw_argv = request.argv_ptr.?[0..request.argv_len];
@@ -916,7 +914,7 @@ fn runtimeBrokerProcessSpawn(broker: *const RuntimeBroker, req: ?*const anyopaqu
     const host_allowed = broker.authorization.allowsRun(broker.allocator, abs_path) catch return .failed;
     if (!host_allowed) return .denied;
 
-    var command_argv = std.ArrayList([]const u8).init(broker.allocator);
+    var command_argv = std.array_list.Managed([]const u8).init(broker.allocator);
     defer command_argv.deinit();
     command_argv.append(abs_path) catch return .failed;
     command_argv.appendSlice(argv_list.items) catch return .failed;
@@ -925,13 +923,13 @@ fn runtimeBrokerProcessSpawn(broker: *const RuntimeBroker, req: ?*const anyopaqu
         max_process_probe_bytes
     else
         request.stdout_cap + request.stderr_cap + 1;
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = broker.allocator,
         .argv = command_argv.items,
         .max_output_bytes = max_output_bytes,
     }) catch |err| switch (err) {
         error.FileNotFound => return .not_found,
-        error.StdoutStreamTooLong, error.StderrStreamTooLong => return .insufficient_buffer,
+        error.StreamTooLong => return .insufficient_buffer,
         else => return .failed,
     };
     defer broker.allocator.free(result.stdout);
@@ -942,7 +940,7 @@ fn runtimeBrokerProcessSpawn(broker: *const RuntimeBroker, req: ?*const anyopaqu
     if (result.stdout.len > request.stdout_cap or result.stderr.len > request.stderr_cap) return .insufficient_buffer;
 
     response.exit_code = switch (result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return .failed,
     };
 
@@ -968,13 +966,13 @@ fn loadRuntimePermissionPolicy(allocator: std.mem.Allocator, lib_path: []const u
     return try RuntimePermissionPolicy.initFromManifest(allocator, manifest);
 }
 
-fn appendOwnedStrings(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]u8), entries: []const []const u8) !void {
+fn appendOwnedStrings(allocator: std.mem.Allocator, list: *std.ArrayList([]u8), entries: []const []const u8) !void {
     for (entries) |entry| {
         try list.append(allocator, try allocator.dupe(u8, entry));
     }
 }
 
-fn freeOwnedStringList(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]u8)) void {
+fn freeOwnedStringList(allocator: std.mem.Allocator, list: *std.ArrayList([]u8)) void {
     for (list.items) |entry| allocator.free(entry);
     list.deinit(allocator);
 }
@@ -991,14 +989,14 @@ fn matchesAnyEnvPattern(patterns: []const []u8, name: []const u8) bool {
 }
 
 fn resolveBrokerRequestPath(allocator: std.mem.Allocator, requested_path: []const u8, project_root: []const u8) ![]u8 {
-    if (std.fs.path.isAbsolute(requested_path)) return try std.fs.cwd().realpathAlloc(allocator, requested_path);
+    if (std.fs.path.isAbsolute(requested_path)) return try sio.cwd().realpathAlloc(allocator, requested_path);
     const joined = try std.fs.path.join(allocator, &.{ project_root, requested_path });
     defer allocator.free(joined);
-    return try std.fs.cwd().realpathAlloc(allocator, joined);
+    return try sio.cwd().realpathAlloc(allocator, joined);
 }
 
 fn parseBrokerHttpMethod(text: []const u8) ?std.http.Method {
-    const method: std.http.Method = @enumFromInt(std.http.Method.parse(text));
+    const method: std.http.Method = std.meta.stringToEnum(std.http.Method, text) orelse return null;
     return switch (method) {
         .GET, .POST, .PUT, .PATCH, .DELETE, .HEAD, .OPTIONS => method,
         else => null,
@@ -1069,12 +1067,12 @@ fn uriPathAllows(pattern_path: []const u8, requested_path: []const u8) bool {
 
 fn resolveExecutablePath(allocator: std.mem.Allocator, requested_path: []const u8) ![]u8 {
     if (!std.fs.path.isAbsolute(requested_path)) return error.InvalidPath;
-    return try std.fs.cwd().realpathAlloc(allocator, requested_path);
+    return try sio.cwd().realpathAlloc(allocator, requested_path);
 }
 
 fn matchesExecutablePermissionPath(allocator: std.mem.Allocator, declared_path: []const u8, abs_path: []const u8) !bool {
     if (!std.fs.path.isAbsolute(declared_path)) return false;
-    const resolved_declared = std.fs.cwd().realpathAlloc(allocator, declared_path) catch |err| switch (err) {
+    const resolved_declared = sio.cwd().realpathAlloc(allocator, declared_path) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -1121,9 +1119,9 @@ fn normalizePermissionPathForMatch(allocator: std.mem.Allocator, path: []const u
 }
 
 fn permissionHome(allocator: std.mem.Allocator) ![]u8 {
-    return std.process.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
+    return sio.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => if (@import("builtin").os.tag == .windows)
-            std.process.getEnvVarOwned(allocator, "USERPROFILE")
+            sio.getEnvVarOwned(allocator, "USERPROFILE")
         else
             error.EnvironmentVariableNotFound,
         else => err,
@@ -1156,7 +1154,7 @@ fn resolvePermissionPathPattern(allocator: std.mem.Allocator, pattern: []const u
 fn resolvePatternFromRoot(allocator: std.mem.Allocator, root: []const u8, suffix: []const u8) ![]u8 {
     const recursive = std.mem.endsWith(u8, suffix, "/**");
     const suffix_body = if (recursive) suffix[0 .. suffix.len - 3] else suffix;
-    const trimmed = std.mem.trimLeft(u8, suffix_body, "/");
+    const trimmed = std.mem.trimStart(u8, suffix_body, "/");
     const base = if (trimmed.len == 0)
         try allocator.dupe(u8, root)
     else
@@ -1171,7 +1169,8 @@ test "Windows permission path matching ignores separator and ASCII case" {
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
     const requested_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "DATA", "ITEM.TXT" });
     defer std.testing.allocator.free(requested_path);
@@ -1191,7 +1190,8 @@ test "Windows permission path matching ignores separator and ASCII case" {
 test "permission path roots expand for host matching" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+    const project_root = try tdir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
 
     const project_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "data", "item.txt" });
@@ -1217,17 +1217,17 @@ test "permission path roots expand for host matching" {
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
-    plugins: std.ArrayList(LoadedPlugin),
-    manifest_help: std.ArrayList(ManifestHelpEntry),
-    diagnostics: std.ArrayList(LoadDiagnostic),
+    plugins: std.array_list.Managed(LoadedPlugin),
+    manifest_help: std.array_list.Managed(ManifestHelpEntry),
+    diagnostics: std.array_list.Managed(LoadDiagnostic),
     host_authorization: RuntimeHostAuthorization,
 
     pub fn init(allocator: std.mem.Allocator) Runtime {
         return .{
             .allocator = allocator,
-            .plugins = std.ArrayList(LoadedPlugin).init(allocator),
-            .manifest_help = std.ArrayList(ManifestHelpEntry).init(allocator),
-            .diagnostics = std.ArrayList(LoadDiagnostic).init(allocator),
+            .plugins = std.array_list.Managed(LoadedPlugin).init(allocator),
+            .manifest_help = std.array_list.Managed(ManifestHelpEntry).init(allocator),
+            .diagnostics = std.array_list.Managed(LoadDiagnostic).init(allocator),
             .host_authorization = .{},
         };
     }
@@ -1283,7 +1283,7 @@ pub const Runtime = struct {
     }
 
     pub fn loadFromEnv(self: *Runtime) !void {
-        if (std.process.getEnvVarOwned(self.allocator, "SA_PLUGINS_PATH")) |path_list| {
+        if (sio.getEnvVarOwned(self.allocator, "SA_PLUGINS_PATH")) |path_list| {
             defer self.allocator.free(path_list);
             try self.loadPathList(path_list);
             return;
@@ -1313,7 +1313,7 @@ pub const Runtime = struct {
     pub fn loadPath(self: *Runtime, path: []const u8) !void {
         var resolved_path: ?[]u8 = null;
         const load_path = if (std.fs.path.isAbsolute(path)) path else blk: {
-            const absolute = std.fs.cwd().realpathAlloc(self.allocator, path) catch |err| {
+            const absolute = sio.cwd().realpathAlloc(self.allocator, path) catch |err| {
                 try self.addDiagnostic(path, @errorName(err));
                 return;
             };
@@ -1380,7 +1380,7 @@ pub const Runtime = struct {
 
     pub fn appendLibrariesExportingAny(
         self: *Runtime,
-        list: *std.ArrayList([]const u8),
+        list: *std.array_list.Managed([]const u8),
         symbol_names: []const []const u8,
     ) !void {
         if (symbol_names.len == 0) return;
@@ -1406,7 +1406,7 @@ pub const Runtime = struct {
             if (try self.dispatchManifestHelpIfRequested(argv, loaded, stdout)) |code| return code;
         }
 
-        var plugin_argv = std.ArrayList([]const u8).init(self.allocator);
+        var plugin_argv = std.array_list.Managed([]const u8).init(self.allocator);
         defer plugin_argv.deinit();
         try plugin_argv.appendSlice(argv);
         if (json_mode) try plugin_argv.append("--json");
@@ -1572,7 +1572,7 @@ pub const Runtime = struct {
     }
 
     fn loadInstalledRoot(self: *Runtime, root_path: []const u8) !void {
-        var root = std.fs.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
+        var root = sio.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound, error.NotDir => return,
             else => return err,
         };
@@ -1596,7 +1596,7 @@ pub const Runtime = struct {
             return;
         }
 
-        var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        var dir = sio.openDirAbsolute(dir_path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound, error.NotDir => {
                 try self.addDiagnostic(dir_path, @errorName(err));
                 return;
@@ -1838,15 +1838,18 @@ fn invalidDynamicLibraryHeader(allocator: std.mem.Allocator, path: []const u8) !
     _ = allocator;
     if (@import("builtin").os.tag != .windows) return null;
 
-    var file = std.fs.openFileAbsolute(path, .{}) catch |err| switch (err) {
+    var file = sio.openFileAbsolute(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return "FileNotFound",
         else => return err,
     };
     defer file.close();
 
     var magic: [2]u8 = undefined;
-    const read_len = try file.readAll(&magic);
-    if (read_len != magic.len or !std.mem.eql(u8, magic[0..], "MZ")) return "invalid dynamic library header";
+    file.readAll(&magic) catch |err| switch (err) {
+        error.EndOfStream => return "invalid dynamic library header",
+        else => return err,
+    };
+    if (!std.mem.eql(u8, magic[0..], "MZ")) return "invalid dynamic library header";
     return null;
 }
 
@@ -2037,10 +2040,10 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     const version_dir = try std.fs.path.join(allocator, &.{ home, "installed", manifest.name, manifest.version });
     defer allocator.free(version_dir);
 
-    if (options.overwrite and dirExistsAbsolute(installed_dir)) try std.fs.cwd().deleteTree(installed_dir);
-    if (options.overwrite and dirExistsAbsolute(version_dir)) try std.fs.cwd().deleteTree(version_dir);
-    try std.fs.cwd().makePath(installed_dir);
-    try std.fs.cwd().makePath(version_dir);
+    if (options.overwrite and dirExistsAbsolute(installed_dir)) try sio.cwd().deleteTree(installed_dir);
+    if (options.overwrite and dirExistsAbsolute(version_dir)) try sio.cwd().deleteTree(version_dir);
+    try sio.cwd().makePath(installed_dir);
+    try sio.cwd().makePath(version_dir);
 
     const artifact_name = std.fs.path.basename(manifest.artifact_rel);
     const installed_artifact = try std.fs.path.join(allocator, &.{ installed_dir, artifact_name });
@@ -2063,10 +2066,10 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     if (manifest.interface_files.len > 0) {
         const sa_dir = try std.fs.path.join(allocator, &.{ installed_dir, "sa" });
         defer allocator.free(sa_dir);
-        try std.fs.cwd().makePath(sa_dir);
+        try sio.cwd().makePath(sa_dir);
         const version_sa_dir = try std.fs.path.join(allocator, &.{ version_dir, "sa" });
         defer allocator.free(version_sa_dir);
-        try std.fs.cwd().makePath(version_sa_dir);
+        try sio.cwd().makePath(version_sa_dir);
         for (manifest.interface_files) |iface| {
             const rel = iface.path;
             const src = try std.fs.path.join(allocator, &.{ manifest.root_dir, rel });
@@ -2082,7 +2085,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     }
     try copyAssetFiles(allocator, manifest, installed_dir, version_dir);
 
-    var artifact_file = try std.fs.openFileAbsolute(artifact_abs, .{});
+    var artifact_file = try sio.openFileAbsolute(artifact_abs, .{});
     defer artifact_file.close();
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var buf: [8192]u8 = undefined;
@@ -2185,7 +2188,7 @@ pub fn listInstalled(allocator: std.mem.Allocator, stdout: anytype) !u8 {
     defer allocator.free(home);
     const root_path = try std.fs.path.join(allocator, &.{ home, "installed" });
     defer allocator.free(root_path);
-    var root = std.fs.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
+    var root = sio.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound, error.NotDir => {
             try stdout.writeAll("plugin\tinstalled_path\n");
             return 0;
@@ -2208,12 +2211,13 @@ pub fn listInstalled(allocator: std.mem.Allocator, stdout: anytype) !u8 {
 }
 
 fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, confirmed: bool, dev_install: bool) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
-    errdefer out.deinit();
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    errdefer aw.deinit();
+    const w = &aw.writer;
     const digest_hex = std.fmt.bytesToHex(manifest.permission_digest, .lower);
     const graph_digest = dependencyGraphDigest(manifest);
     const graph_digest_hex = std.fmt.bytesToHex(graph_digest, .lower);
-    try out.writer().print(
+    try w.print(
         \\schema=sa.permissions/1
         \\plugin={s}
         \\version={s}
@@ -2235,31 +2239,31 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
         if (dev_install) "true" else "false",
     });
     if (manifest.external_urls.len != 0) {
-        try out.writer().writeAll("external_urls\n");
-        for (manifest.external_urls) |url| try out.writer().print("- {s}\n", .{url});
+        try w.writeAll("external_urls\n");
+        for (manifest.external_urls) |url| try w.print("- {s}\n", .{url});
     }
     if (manifest.dependencies.len != 0) {
-        try out.writer().writeAll("plugin_dependencies\n");
+        try w.writeAll("plugin_dependencies\n");
         for (manifest.dependencies) |dep| {
-            try out.writer().print("- {s} version={s} abi={d} optional={s}", .{
+            try w.print("- {s} version={s} abi={d} optional={s}", .{
                 dep.name,
                 dep.version,
                 dep.abi,
                 if (dep.optional) "true" else "false",
             });
             if (dep.symbols.len != 0) {
-                try out.writer().writeAll(" symbols=");
+                try w.writeAll(" symbols=");
                 for (dep.symbols, 0..) |symbol, idx| {
-                    if (idx != 0) try out.writer().writeByte(',');
-                    try out.writer().writeAll(symbol);
+                    if (idx != 0) try w.writeByte(',');
+                    try w.writeAll(symbol);
                 }
             }
-            if (dep.path) |path| try out.writer().print(" path={s}", .{path});
-            if (dep.url) |url| try out.writer().print(" url={s}", .{url});
-            try out.writer().writeByte('\n');
+            if (dep.path) |path| try w.print(" path={s}", .{path});
+            if (dep.url) |url| try w.print(" url={s}", .{url});
+            try w.writeByte('\n');
         }
     }
-    return try out.toOwnedSlice();
+    return try aw.toOwnedSlice();
 }
 
 fn dependencyGraphDigest(manifest: SapManifest) [32]u8 {
@@ -2379,15 +2383,15 @@ fn fetchRemoteGitPluginSource(allocator: std.mem.Allocator, spec: RemotePluginSp
     defer allocator.free(home);
     const cache_root = try std.fs.path.join(allocator, &.{ home, "cache", "git" });
     defer allocator.free(cache_root);
-    try std.fs.cwd().makePath(cache_root);
+    try sio.cwd().makePath(cache_root);
 
     const cache_key = remoteCacheKeyForSpec(spec);
     const cache_key_hex = std.fmt.bytesToHex(cache_key, .lower);
     const checkout_dir = try std.fs.path.join(allocator, &.{ cache_root, cache_key_hex[0..] });
     errdefer allocator.free(checkout_dir);
-    if (dirExistsAbsolute(checkout_dir)) try std.fs.cwd().deleteTree(checkout_dir);
+    if (dirExistsAbsolute(checkout_dir)) try sio.cwd().deleteTree(checkout_dir);
 
-    const clone_result = try std.process.Child.run(.{
+    const clone_result = try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "git", "clone", "--quiet", spec.url, checkout_dir },
     });
@@ -2399,7 +2403,7 @@ fn fetchRemoteGitPluginSource(allocator: std.mem.Allocator, spec: RemotePluginSp
     }
 
     if (spec.ref) |ref| {
-        const checkout_result = try std.process.Child.run(.{
+        const checkout_result = try sio.Child.run(.{
             .allocator = allocator,
             .argv = &.{ "git", "-C", checkout_dir, "checkout", "--quiet", ref },
         });
@@ -2481,9 +2485,9 @@ fn remoteCacheKeyForSpec(spec: RemotePluginSpec) [32]u8 {
     return out;
 }
 
-fn childExitedZero(term: std.process.Child.Term) bool {
+fn childExitedZero(term: sio.Child.Term) bool {
     return switch (term) {
-        .Exited => |code| code == 0,
+        .exited => |code| code == 0,
         else => false,
     };
 }
@@ -2496,14 +2500,14 @@ fn fetchRemoteArchivePluginSource(allocator: std.mem.Allocator, spec: RemotePlug
     defer allocator.free(home);
     const cache_root = try std.fs.path.join(allocator, &.{ home, "cache", "archive" });
     defer allocator.free(cache_root);
-    try std.fs.cwd().makePath(cache_root);
+    try sio.cwd().makePath(cache_root);
 
     const cache_key = remoteCacheKeyForSpec(spec);
     const cache_key_hex = std.fmt.bytesToHex(cache_key, .lower);
     const bundle_dir = try std.fs.path.join(allocator, &.{ cache_root, cache_key_hex[0..] });
     defer allocator.free(bundle_dir);
-    if (dirExistsAbsolute(bundle_dir)) try std.fs.cwd().deleteTree(bundle_dir);
-    try std.fs.cwd().makePath(bundle_dir);
+    if (dirExistsAbsolute(bundle_dir)) try sio.cwd().deleteTree(bundle_dir);
+    try sio.cwd().makePath(bundle_dir);
 
     const archive_path = try std.fs.path.join(allocator, &.{ bundle_dir, archiveFilename(format) });
     defer allocator.free(archive_path);
@@ -2519,18 +2523,18 @@ fn fetchRemoteArchivePluginSource(allocator: std.mem.Allocator, spec: RemotePlug
 
     const extract_dir = try std.fs.path.join(allocator, &.{ bundle_dir, "extract" });
     defer allocator.free(extract_dir);
-    try std.fs.cwd().makePath(extract_dir);
+    try sio.cwd().makePath(extract_dir);
     try extractArchiveToDirectory(allocator, archive_path, extract_dir, format, stdout);
     return try findExtractedPluginRoot(allocator, extract_dir);
 }
 
 fn downloadRemoteFile(allocator: std.mem.Allocator, url: []const u8, dst_path: []const u8, stdout: anytype) !void {
-    const curl_result = std.process.Child.run(.{
+    const curl_result = sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "curl", "-L", "--fail", "--silent", "--show-error", "--noproxy", "127.0.0.1,localhost,::1", "-o", dst_path, url },
     }) catch |err| switch (err) {
         error.FileNotFound => {
-            const wget_result = try std.process.Child.run(.{
+            const wget_result = try sio.Child.run(.{
                 .allocator = allocator,
                 .argv = &.{ "wget", "-q", "-O", dst_path, url },
             });
@@ -2568,7 +2572,7 @@ fn extractArchiveToDirectory(
         .tar_xz => &.{ "tar", "--no-same-owner", "-xJf", archive_path, "-C", extract_dir },
         .tar_zst => &.{ "tar", "--no-same-owner", "--zstd", "-xf", archive_path, "-C", extract_dir },
     };
-    const result = try std.process.Child.run(.{
+    const result = try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
@@ -2587,7 +2591,7 @@ fn findExtractedPluginRoot(allocator: std.mem.Allocator, extract_dir: []const u8
 
 fn findUniqueSapRoot(allocator: std.mem.Allocator, root: []const u8, depth: u8) anyerror![]u8 {
     if (depth > 4) return error.NoPluginManifestInArchive;
-    var dir = try std.fs.openDirAbsolute(root, .{ .iterate = true });
+    var dir = try sio.openDirAbsolute(root, .{ .iterate = true });
     defer dir.close();
 
     var found: ?[]u8 = null;
@@ -2651,8 +2655,37 @@ fn archiveFilename(format: ArchiveFormat) []const u8 {
     };
 }
 
+fn stdinIsTty() bool {
+    _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
+    return true;
+}
+
+const StdinLineReader = struct {
+    inner: *std.Io.Reader,
+
+    pub fn readUntilDelimiterOrEof(self: StdinLineReader, buf: []u8, delimiter: u8) !?[]u8 {
+        var i: usize = 0;
+        var eof = false;
+        while (true) {
+            const b = self.inner.takeByte() catch |err| switch (err) {
+                error.EndOfStream => {
+                    eof = true;
+                    break;
+                },
+                else => return err,
+            };
+            if (b == delimiter) break;
+            if (i >= buf.len) return error.StreamTooLong;
+            buf[i] = b;
+            i += 1;
+        }
+        if (i == 0 and eof) return null;
+        return buf[0..i];
+    }
+};
+
 fn confirmExternalUrl(stdout: anytype, url: []const u8) !bool {
-    if (!std.posix.isatty(std.io.getStdIn().handle)) {
+    if (!stdinIsTty()) {
         try stdout.print("refusing remote plugin URL {s}: manual TTY confirmation is required\n", .{url});
         return false;
     }
@@ -2662,7 +2695,10 @@ fn confirmExternalUrl(stdout: anytype, url: []const u8) !bool {
         \\Type the exact URL to fetch this plugin source: 
     , .{url});
     var buffer: [1024]u8 = undefined;
-    const line = (try std.io.getStdIn().reader().readUntilDelimiterOrEof(&buffer, '\n')) orelse "";
+    var stdin_buf: [8192]u8 = undefined;
+    var stdin_stream = sio.getStdIn().reader(&stdin_buf);
+    var stdin_reader = StdinLineReader{ .inner = &stdin_stream.interface };
+    const line = (try stdin_reader.readUntilDelimiterOrEof(&buffer, '\n')) orelse "";
     const answer = std.mem.trim(u8, line, " \t\r\n");
     if (!std.mem.eql(u8, answer, url)) {
         try stdout.writeAll("remote plugin install cancelled\n");
@@ -2673,7 +2709,7 @@ fn confirmExternalUrl(stdout: anytype, url: []const u8) !bool {
 
 pub fn defaultPluginsHome(allocator: std.mem.Allocator) ![]u8 {
     if (@import("builtin").os.tag == .windows) {
-        const local_app_data = std.process.getEnvVarOwned(allocator, "LOCALAPPDATA") catch |err| switch (err) {
+        const local_app_data = sio.getEnvVarOwned(allocator, "LOCALAPPDATA") catch |err| switch (err) {
             error.EnvironmentVariableNotFound => null,
             else => return err,
         };
@@ -2682,7 +2718,7 @@ pub fn defaultPluginsHome(allocator: std.mem.Allocator) ![]u8 {
             if (std.fs.path.isAbsolute(root)) return try std.fs.path.join(allocator, &.{ root, "sa_plugins" });
         }
 
-        const user_profile = std.process.getEnvVarOwned(allocator, "USERPROFILE") catch |err| switch (err) {
+        const user_profile = sio.getEnvVarOwned(allocator, "USERPROFILE") catch |err| switch (err) {
             error.EnvironmentVariableNotFound => null,
             else => return err,
         };
@@ -2691,14 +2727,14 @@ pub fn defaultPluginsHome(allocator: std.mem.Allocator) ![]u8 {
             if (std.fs.path.isAbsolute(root)) return try std.fs.path.join(allocator, &.{ root, ".local", "share", "sa_plugins" });
         }
 
-        const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+        const cwd = try sio.cwd().realpathAlloc(allocator, ".");
         defer allocator.free(cwd);
         return try std.fs.path.join(allocator, &.{ cwd, ".sa_plugins" });
     }
 
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
+    const home = sio.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => {
-            const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+            const cwd = try sio.cwd().realpathAlloc(allocator, ".");
             defer allocator.free(cwd);
             return try std.fs.path.join(allocator, &.{ cwd, ".sa_plugins" });
         },
@@ -2713,13 +2749,13 @@ pub fn pluginsHomePath(allocator: std.mem.Allocator) ![]u8 {
 }
 
 fn pluginsHome(allocator: std.mem.Allocator) ![]u8 {
-    const configured = std.process.getEnvVarOwned(allocator, "SA_PLUGINS_HOME") catch |err| switch (err) {
+    const configured = sio.getEnvVarOwned(allocator, "SA_PLUGINS_HOME") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return try defaultPluginsHome(allocator),
         else => return err,
     };
     defer allocator.free(configured);
     if (std.fs.path.isAbsolute(configured)) return try allocator.dupe(u8, configured);
-    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const cwd = try sio.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
     return try std.fs.path.join(allocator, &.{ cwd, configured });
 }
@@ -2806,7 +2842,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
 
 fn absolutePath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     if (std.fs.path.isAbsolute(path)) return try allocator.dupe(u8, path);
-    return try std.fs.cwd().realpathAlloc(allocator, path);
+    return try sio.cwd().realpathAlloc(allocator, path);
 }
 
 fn jsonString(value: std.json.Value) ![]const u8 {
@@ -2979,7 +3015,7 @@ fn artifactFromValue(value: std.json.Value) !SelectedArtifact {
 }
 
 fn collectInterfaceFiles(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![]InterfaceFile {
-    var files = std.ArrayList(InterfaceFile).init(allocator);
+    var files = std.array_list.Managed(InterfaceFile).init(allocator);
     errdefer {
         for (files.items) |*file| file.deinit(allocator);
         files.deinit();
@@ -3017,7 +3053,7 @@ fn interfaceFileFromValue(allocator: std.mem.Allocator, kind: InterfaceKind, val
 }
 
 fn collectAssetFiles(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![]AssetFile {
-    var files = std.ArrayList(AssetFile).init(allocator);
+    var files = std.array_list.Managed(AssetFile).init(allocator);
     errdefer {
         for (files.items) |*file| file.deinit(allocator);
         files.deinit();
@@ -3142,7 +3178,7 @@ fn copyAssetFiles(allocator: std.mem.Allocator, manifest: SapManifest, installed
 }
 
 fn verifySymbolSmoke(allocator: std.mem.Allocator, manifest: SapManifest, artifact_abs: []const u8, stdout: anytype) !u8 {
-    var externs = std.ArrayList([]u8).init(allocator);
+    var externs = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (externs.items) |name| allocator.free(name);
         externs.deinit();
@@ -3161,7 +3197,7 @@ fn verifySymbolSmoke(allocator: std.mem.Allocator, manifest: SapManifest, artifa
     };
     defer lib.close();
     for (externs.items) |symbol| {
-        const symbol_z = try allocator.dupeZ(u8, symbol);
+        const symbol_z = try allocator.dupeSentinel(u8, symbol, 0);
         defer allocator.free(symbol_z);
         if (lib.lookup(*anyopaque, symbol_z) == null) {
             try stdout.print("plugin artifact missing @extern symbol from .sai: {s}\n", .{symbol});
@@ -3171,7 +3207,7 @@ fn verifySymbolSmoke(allocator: std.mem.Allocator, manifest: SapManifest, artifa
     return 0;
 }
 
-fn collectExternSymbolsFromSai(allocator: std.mem.Allocator, path: []const u8, out: *std.ArrayList([]u8)) !void {
+fn collectExternSymbolsFromSai(allocator: std.mem.Allocator, path: []const u8, out: *std.array_list.Managed([]u8)) !void {
     const source = try readFileAbsoluteAlloc(allocator, path, 1 << 20);
     defer allocator.free(source);
     var it = std.mem.splitScalar(u8, source, '\n');
@@ -3206,14 +3242,14 @@ const ExternProvider = struct {
 };
 
 fn verifyInstalledExternSymbolConflicts(allocator: std.mem.Allocator, manifest: SapManifest, stdout: anytype) !u8 {
-    var installed = std.ArrayList(ExternProvider).init(allocator);
+    var installed = std.array_list.Managed(ExternProvider).init(allocator);
     defer {
         for (installed.items) |*provider| provider.deinit(allocator);
         installed.deinit();
     }
     if (try collectInstalledExternProviders(allocator, manifest.name, stdout, &installed) != 0) return 1;
 
-    var current = std.ArrayList([]u8).init(allocator);
+    var current = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (current.items) |symbol| allocator.free(symbol);
         current.deinit();
@@ -3235,13 +3271,13 @@ fn collectInstalledExternProviders(
     allocator: std.mem.Allocator,
     installing_name: []const u8,
     stdout: anytype,
-    out: *std.ArrayList(ExternProvider),
+    out: *std.array_list.Managed(ExternProvider),
 ) !u8 {
     const home = try pluginsHome(allocator);
     defer allocator.free(home);
     const root_path = try std.fs.path.join(allocator, &.{ home, "installed" });
     defer allocator.free(root_path);
-    var root = std.fs.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
+    var root = sio.openDirAbsolute(root_path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound, error.NotDir => return 0,
         else => return err,
     };
@@ -3253,7 +3289,7 @@ fn collectInstalledExternProviders(
         if (std.mem.eql(u8, entry.name, installing_name)) continue;
         const sa_dir = try std.fs.path.join(allocator, &.{ root_path, entry.name, "current", "sa" });
         defer allocator.free(sa_dir);
-        var dir = std.fs.openDirAbsolute(sa_dir, .{ .iterate = true }) catch |err| switch (err) {
+        var dir = sio.openDirAbsolute(sa_dir, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound, error.NotDir => continue,
             else => return err,
         };
@@ -3265,7 +3301,7 @@ fn collectInstalledExternProviders(
             if (!std.mem.endsWith(u8, sa_entry.name, ".sai")) continue;
             const sai_path = try std.fs.path.join(allocator, &.{ sa_dir, sa_entry.name });
             defer allocator.free(sai_path);
-            var symbols = std.ArrayList([]u8).init(allocator);
+            var symbols = std.array_list.Managed([]u8).init(allocator);
             defer symbols.deinit();
             try collectExternSymbolsFromSai(allocator, sai_path, &symbols);
             for (symbols.items, 0..) |symbol, idx| {
@@ -3295,7 +3331,7 @@ fn collectInstalledExternProviders(
     return 0;
 }
 
-fn collectManifestExternSymbols(allocator: std.mem.Allocator, manifest: SapManifest, out: *std.ArrayList([]u8)) !void {
+fn collectManifestExternSymbols(allocator: std.mem.Allocator, manifest: SapManifest, out: *std.array_list.Managed([]u8)) !void {
     for (manifest.interface_files) |iface| {
         if (iface.kind != .sai) continue;
         const path = try std.fs.path.join(allocator, &.{ manifest.root_dir, iface.path });
@@ -3376,7 +3412,7 @@ fn verifyArtifactStaticPolicy(
     stdout: anytype,
     options: InstallOptions,
 ) !u8 {
-    var imports = std.ArrayList([]u8).init(allocator);
+    var imports = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (imports.items) |symbol| allocator.free(symbol);
         imports.deinit();
@@ -3410,11 +3446,11 @@ fn verifyArtifactStaticPolicy(
     return 0;
 }
 
-fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: []const u8, out: *std.ArrayList([]u8)) !void {
+fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: []const u8, out: *std.array_list.Managed([]u8)) !void {
     if (@import("builtin").os.tag == .windows) {
         const tools = [_][]const u8{"dumpbin"};
         for (tools) |tool| {
-            const result = std.process.Child.run(.{
+            const result = sio.Child.run(.{
                 .allocator = allocator,
                 .argv = &.{ tool, "/nologo", "/imports", artifact_abs },
             }) catch |err| switch (err) {
@@ -3432,7 +3468,7 @@ fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: [
 
     const tools = [_][]const u8{ "nm", "llvm-nm" };
     for (tools) |tool| {
-        const result = std.process.Child.run(.{
+        const result = sio.Child.run(.{
             .allocator = allocator,
             .argv = &.{ tool, "-D", "--undefined-only", artifact_abs },
         }) catch |err| switch (err) {
@@ -3448,7 +3484,7 @@ fn collectArtifactUndefinedImports(allocator: std.mem.Allocator, artifact_abs: [
     return error.PluginArtifactScanUnavailable;
 }
 
-fn parseDumpbinImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.ArrayList([]u8)) !void {
+fn parseDumpbinImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.array_list.Managed([]u8)) !void {
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \t\r");
@@ -3473,7 +3509,7 @@ fn isHexToken(text: []const u8) bool {
     return true;
 }
 
-fn parseUndefinedImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.ArrayList([]u8)) !void {
+fn parseUndefinedImportList(allocator: std.mem.Allocator, text: []const u8, out: *std.array_list.Managed([]u8)) !void {
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \t\r");
@@ -3487,7 +3523,7 @@ fn parseUndefinedImportList(allocator: std.mem.Allocator, text: []const u8, out:
 }
 
 fn collectStringArray(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![][]u8 {
-    var items = std.ArrayList([]u8).init(allocator);
+    var items = std.array_list.Managed([]u8).init(allocator);
     errdefer {
         for (items.items) |item| allocator.free(item);
         items.deinit();
@@ -3502,7 +3538,7 @@ fn collectStringArray(allocator: std.mem.Allocator, maybe_value: ?std.json.Value
 }
 
 fn collectPluginDependencies(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) ![]PluginDependency {
-    var deps = std.ArrayList(PluginDependency).init(allocator);
+    var deps = std.array_list.Managed(PluginDependency).init(allocator);
     errdefer {
         for (deps.items) |*dep| dep.deinit(allocator);
         deps.deinit();
@@ -3554,7 +3590,7 @@ fn collectPluginDependencies(allocator: std.mem.Allocator, maybe_value: ?std.jso
     return try deps.toOwnedSlice();
 }
 
-fn collectManifestExternalUrls(allocator: std.mem.Allocator, object: std.json.ObjectMap, urls: *std.ArrayList([]u8)) !void {
+fn collectManifestExternalUrls(allocator: std.mem.Allocator, object: std.json.ObjectMap, urls: *std.array_list.Managed([]u8)) !void {
     if (object.get("source")) |source_value| {
         const source_obj = switch (source_value) {
             .object => |o| o,
@@ -3589,12 +3625,12 @@ fn collectManifestExternalUrls(allocator: std.mem.Allocator, object: std.json.Ob
 const PermissionInfo = struct {
     requires_sandbox: bool,
     digest: [32]u8,
-    urls: std.ArrayList([]u8),
-    env_permissions: std.ArrayList([]u8),
-    fs_permissions: std.ArrayList(FsPermission),
-    net_permissions: std.ArrayList(NetPermission),
+    urls: std.array_list.Managed([]u8),
+    env_permissions: std.array_list.Managed([]u8),
+    fs_permissions: std.array_list.Managed(FsPermission),
+    net_permissions: std.array_list.Managed(NetPermission),
     process_spawn: bool,
-    process_exec_permissions: std.ArrayList(ProcessExecPermission),
+    process_exec_permissions: std.array_list.Managed(ProcessExecPermission),
     has_fs_permission: bool,
     has_net_permission: bool,
     has_env_permission: bool,
@@ -3621,7 +3657,7 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
         else => return error.PluginPermissionsMissing,
     };
     try validatePermissionKeys(obj);
-    const permissions_json = try std.json.stringifyAlloc(allocator, value, .{});
+    const permissions_json = try std.json.Stringify.valueAlloc(allocator, value, .{});
     defer allocator.free(permissions_json);
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     hasher.update(permissions_json);
@@ -3633,12 +3669,12 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
     var has_net_permission = false;
     var has_env_permission = false;
     var has_process_permission = false;
-    var urls = std.ArrayList([]u8).init(allocator);
-    var env_permissions = std.ArrayList([]u8).init(allocator);
-    var fs_permissions = std.ArrayList(FsPermission).init(allocator);
-    var net_permissions = std.ArrayList(NetPermission).init(allocator);
+    var urls = std.array_list.Managed([]u8).init(allocator);
+    var env_permissions = std.array_list.Managed([]u8).init(allocator);
+    var fs_permissions = std.array_list.Managed(FsPermission).init(allocator);
+    var net_permissions = std.array_list.Managed(NetPermission).init(allocator);
     var process_spawn = false;
-    var process_exec_permissions = std.ArrayList(ProcessExecPermission).init(allocator);
+    var process_exec_permissions = std.array_list.Managed(ProcessExecPermission).init(allocator);
     errdefer {
         for (urls.items) |url| allocator.free(url);
         urls.deinit();
@@ -3829,7 +3865,7 @@ fn parseProcessExecPermission(allocator: std.mem.Allocator, value: std.json.Valu
     try rejectUnknownKeys(obj, &.{ "path", "args" });
     const path = try jsonString(obj.get("path") orelse return error.InvalidPluginPermission);
     if (!std.fs.path.isAbsolute(path)) return error.InvalidPluginPermission;
-    var args = std.ArrayList([]u8).init(allocator);
+    var args = std.array_list.Managed([]u8).init(allocator);
     errdefer {
         for (args.items) |arg| allocator.free(arg);
         args.deinit();
@@ -3907,8 +3943,8 @@ fn isLoopbackPermissionHost(host: []const u8) bool {
 }
 
 fn isIpLiteralHost(host: []const u8) bool {
-    _ = std.net.Address.parseIp4(host, 0) catch {
-        _ = std.net.Address.parseIp6(host, 0) catch return false;
+    _ = std.Io.net.IpAddress.parseIp4(host, 0) catch {
+        _ = std.Io.net.IpAddress.parseIp6(host, 0) catch return false;
         return true;
     };
     return true;
@@ -3938,13 +3974,13 @@ test "plugin network permission URLs reject remote http and bare remote IPs" {
 }
 
 fn pluginDevMode(allocator: std.mem.Allocator) bool {
-    const value = std.process.getEnvVarOwned(allocator, "SA_PLUGIN_DEV") catch return false;
+    const value = sio.getEnvVarOwned(allocator, "SA_PLUGIN_DEV") catch return false;
     defer allocator.free(value);
     return std.mem.eql(u8, value, "1") or std.mem.eql(u8, value, "true");
 }
 
 fn confirmPrivilegedPluginInstall(stdout: anytype, manifest: SapManifest) !bool {
-    if (!std.posix.isatty(std.io.getStdIn().handle)) {
+    if (!stdinIsTty()) {
         try stdout.print("refusing to install privileged plugin {s}: manual TTY confirmation is required\n", .{manifest.name});
         return false;
     }
@@ -3970,7 +4006,10 @@ fn confirmPrivilegedPluginInstall(stdout: anytype, manifest: SapManifest) !bool 
     }
     try stdout.print("Type the exact plugin name to continue: ", .{});
     var buffer: [256]u8 = undefined;
-    const line = (try std.io.getStdIn().reader().readUntilDelimiterOrEof(&buffer, '\n')) orelse "";
+    var stdin_buf: [8192]u8 = undefined;
+    var stdin_stream = sio.getStdIn().reader(&stdin_buf);
+    var stdin_reader = StdinLineReader{ .inner = &stdin_stream.interface };
+    const line = (try stdin_reader.readUntilDelimiterOrEof(&buffer, '\n')) orelse "";
     const answer = std.mem.trim(u8, line, " \t\r\n");
     if (!std.mem.eql(u8, answer, manifest.name)) {
         try stdout.writeAll("plugin install cancelled\n");
@@ -3980,14 +4019,14 @@ fn confirmPrivilegedPluginInstall(stdout: anytype, manifest: SapManifest) !bool 
 }
 
 fn fileExistsAbsolute(path: []const u8) bool {
-    var file = std.fs.openFileAbsolute(path, .{}) catch return false;
+    var file = sio.openFileAbsolute(path, .{}) catch return false;
     file.close();
     return true;
 }
 
 fn sha256File(allocator: std.mem.Allocator, path: []const u8) ![32]u8 {
     _ = allocator;
-    var file = try std.fs.openFileAbsolute(path, .{});
+    var file = try sio.openFileAbsolute(path, .{});
     defer file.close();
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var buf: [8192]u8 = undefined;
@@ -4010,7 +4049,7 @@ fn fileExistsInProject(allocator: std.mem.Allocator, root_dir: []const u8, rel: 
 fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout: anytype, optimize: []const u8) !u8 {
     const optimize_arg = try std.fmt.allocPrint(allocator, "-Doptimize={s}", .{optimize});
     defer allocator.free(optimize_arg);
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "zig", "build", optimize_arg, "--summary", "all" },
         .cwd = root_dir,
@@ -4025,7 +4064,7 @@ fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code == 0) return 0;
             try stdout.print("zig build failed for plugin project {s}\n{s}", .{ root_dir, result.stderr });
             return 1;
@@ -4038,36 +4077,39 @@ fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout
 }
 
 fn dirExistsAbsolute(path: []const u8) bool {
-    var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
+    var dir = sio.openDirAbsolute(path, .{}) catch return false;
     dir.close();
     return true;
 }
 
+// NOTE(Zig 0.17): @cImport was moved to an external package; declare the
+// single libc symbol this test needs directly.
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
 test "plugin build reports clear error when zig is missing from PATH" {
-    const c = @cImport(@cInclude("stdlib.h"));
     const allocator = std.testing.allocator;
-    const old_path = std.process.getEnvVarOwned(allocator, "PATH") catch null;
+    const old_path = sio.getEnvVarOwned(allocator, "PATH") catch null;
     defer if (old_path) |p| allocator.free(p);
     // Point PATH at a nonexistent dir so `zig` cannot be resolved; buildPluginProject
     // must return 1 with a clear message instead of propagating error.FileNotFound.
-    if (c.setenv("PATH", "/tmp/sa-test-no-such-path-dir", 1) != 0) return error.SetEnvFailed;
+    if (setenv("PATH", "/tmp/sa-test-no-such-path-dir", 1) != 0) return error.SetEnvFailed;
     defer blk: {
         if (old_path) |p| {
-            const z = allocator.dupeZ(u8, p) catch break :blk;
+            const z = allocator.dupeSentinel(u8, p, 0) catch break :blk;
             defer allocator.free(z);
-            _ = c.setenv("PATH", z.ptr, 1);
+            _ = setenv("PATH", z.ptr, 1);
         }
     }
-    var out = std.ArrayList(u8).init(allocator);
-    defer out.deinit();
-    const rc = try buildPluginProject(allocator, "/tmp", out.writer(), "ReleaseFast");
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    const rc = try buildPluginProject(allocator, "/tmp", &aw.writer, "ReleaseFast");
     try std.testing.expectEqual(@as(u8, 1), rc);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "zig") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "PATH") != null);
+    try std.testing.expect(std.mem.indexOf(u8, aw.written(), "zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, aw.written(), "PATH") != null);
 }
 
 fn readFileAbsoluteAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
-    var file = try std.fs.openFileAbsolute(path, .{});
+    var file = try sio.openFileAbsolute(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, max_bytes);
 }
@@ -4085,7 +4127,7 @@ fn writeFileAbsolute(path: []const u8, bytes: []const u8) !void {
 }
 
 fn ensureParentDir(path: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir| try std.fs.cwd().makePath(dir);
+    if (std.fs.path.dirname(path)) |dir| try sio.cwd().makePath(dir);
 }
 
 fn loadDescriptor(lib: *std.DynLib) ?PluginDescriptor {
@@ -4126,7 +4168,7 @@ fn dupeZArgs(allocator: std.mem.Allocator, argv: []const []const u8) ![][*:0]con
         for (out[0..copied]) |arg| allocator.free(std.mem.sliceTo(arg, 0));
     }
     for (argv, 0..) |arg, idx| {
-        out[idx] = try allocator.dupeZ(u8, arg);
+        out[idx] = try allocator.dupeSentinel(u8, arg, 0);
         copied += 1;
     }
     return out;

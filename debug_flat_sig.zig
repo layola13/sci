@@ -3,16 +3,16 @@ const flattener = @import("src/flattener.zig");
 const call = @import("src/referee/call.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     const source_path = "/tmp/json_writer_debug.sa";
-    const source = try std.fs.cwd().readFileAlloc(allocator, source_path, 4 * 1024 * 1024);
+    const source = try sio.cwd().readFileAlloc(allocator, source_path, 4 * 1024 * 1024);
     defer allocator.free(source);
-    const project_root = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const project_root = try sio.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(project_root);
-    const std_root = try std.fs.cwd().realpathAlloc(allocator, "sa_std");
+    const std_root = try sio.cwd().realpathAlloc(allocator, "sa_std");
     defer allocator.free(std_root);
 
     var error_ctx: flattener.ErrorContext = .{};

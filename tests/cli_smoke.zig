@@ -43,13 +43,13 @@ fn jsonStringValue(value: std.json.Value) ![]const u8 {
     };
 }
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
+fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
 }
 
-fn writeBytes(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
+fn writeBytes(dir: sio.Dir, path: []const u8, bytes: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
@@ -74,7 +74,7 @@ fn bytesHashHex(bytes: []const u8) [64]u8 {
     return std.fmt.bytesToHex(digest, .lower);
 }
 
-fn writeCacheManifest(dir: std.fs.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8) !void {
+fn writeCacheManifest(dir: sio.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8) !void {
     const artifact_hash = bytesHashHex(artifact);
     const output_hash = bytesHashHex(output);
     const manifest = try std.fmt.allocPrint(
@@ -94,7 +94,7 @@ fn freeStringMtimeMap(allocator: std.mem.Allocator, map: *std.StringHashMap(i128
     map.deinit();
 }
 
-fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: std.fs.Dir) !std.StringHashMap(i128) {
+fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: sio.Dir) !std.StringHashMap(i128) {
     var result = std.StringHashMap(i128).init(allocator);
     errdefer freeStringMtimeMap(allocator, &result);
 
@@ -120,7 +120,7 @@ fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: std.fs.Dir) !st
     return result;
 }
 
-fn cachedFunctionManifestCount(dir: std.fs.Dir) !usize {
+fn cachedFunctionManifestCount(dir: sio.Dir) !usize {
     var count: usize = 0;
     var cache_root = try dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
     defer cache_root.close();
@@ -136,7 +136,7 @@ fn cachedFunctionManifestCount(dir: std.fs.Dir) !usize {
     return count;
 }
 
-fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.fs.Dir, rel_path: []const u8) ![]u8 {
+fn singleCacheEntryName(allocator: std.mem.Allocator, dir: sio.Dir, rel_path: []const u8) ![]u8 {
     var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
     defer cache_root.close();
     var cache_iter = cache_root.iterate();
@@ -150,7 +150,7 @@ fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.fs.Dir, rel_path:
     return found orelse error.FileNotFound;
 }
 
-fn cacheEntryCount(dir: std.fs.Dir, rel_path: []const u8) !usize {
+fn cacheEntryCount(dir: sio.Dir, rel_path: []const u8) !usize {
     var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
     defer cache_root.close();
     var cache_iter = cache_root.iterate();
@@ -162,7 +162,7 @@ fn cacheEntryCount(dir: std.fs.Dir, rel_path: []const u8) !usize {
 }
 
 fn writeManifestForPackage(
-    dir: std.fs.Dir,
+    dir: sio.Dir,
     project_root: []const u8,
     package_url: []const u8,
     package_root: []const u8,
@@ -182,7 +182,7 @@ fn writeManifestForPackage(
     try writeSource(dir, manifest_path, manifest_source);
 }
 
-fn writeProjectSum(dir: std.fs.Dir, project_root: []const u8) !void {
+fn writeProjectSum(dir: sio.Dir, project_root: []const u8) !void {
     const manifest_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "sa.mod" });
     defer std.testing.allocator.free(manifest_path);
     const manifest_source = try dir.readFileAlloc(std.testing.allocator, manifest_path, 16 * 1024 * 1024);
@@ -195,7 +195,7 @@ fn writeProjectSum(dir: std.fs.Dir, project_root: []const u8) !void {
     defer update.deinit(std.testing.allocator);
 }
 
-fn expectNoTextLlvmArtifacts(dir: std.fs.Dir, out_name: []const u8) !void {
+fn expectNoTextLlvmArtifacts(dir: sio.Dir, out_name: []const u8) !void {
     const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.ll", .{out_name});
     defer std.testing.allocator.free(ll_name);
     const sa_ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.ll", .{out_name});
@@ -213,7 +213,7 @@ fn extractLineValue(output: []const u8, prefix: []const u8) ![]const u8 {
 }
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
-    const result = try std.process.Child.run(.{
+    const result = try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
@@ -221,7 +221,7 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) return error.TestUnexpectedResult;
         },
         else => return error.TestUnexpectedResult,
@@ -230,15 +230,15 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     return result.stdout;
 }
 
-fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn runCommandAnyExitWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const std.process.EnvMap) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommandAnyExitWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const sio.EnvMap) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .env_map = env_map,
@@ -248,14 +248,14 @@ fn llvmDisAvailable() bool {
     // bc2sa invokes llvm-dis to disassemble bitcode; skip the test when the tool is absent.
     const probes = [_][]const u8{ "llvm-dis-14", "llvm-dis" };
     for (probes) |probe| {
-        const result = std.process.Child.run(.{
+        const result = sio.Child.run(.{
             .allocator = std.heap.page_allocator,
             .argv = &[_][]const u8{ probe, "--version" },
         }) catch continue;
         std.heap.page_allocator.free(result.stdout);
         std.heap.page_allocator.free(result.stderr);
         switch (result.term) {
-            .Exited => |code| if (code == 0) return true,
+            .exited => |code| if (code == 0) return true,
             else => {},
         }
     }
@@ -265,21 +265,21 @@ fn llvmDisAvailable() bool {
 fn clangAvailable() bool {
     const probes = [_][]const u8{ "clang", "clang.exe" };
     for (probes) |probe| {
-        const result = std.process.Child.run(.{
+        const result = sio.Child.run(.{
             .allocator = std.heap.page_allocator,
             .argv = &[_][]const u8{ probe, "--version" },
         }) catch continue;
         std.heap.page_allocator.free(result.stdout);
         std.heap.page_allocator.free(result.stderr);
         switch (result.term) {
-            .Exited => |code| if (code == 0) return true,
+            .exited => |code| if (code == 0) return true,
             else => {},
         }
     }
     return false;
 }
 
-fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
+fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !sio.Child.RunResult {
     const args_json = try std.json.stringifyAlloc(allocator, args, .{});
     defer allocator.free(args_json);
     const wasm_json = try std.json.stringifyAlloc(allocator, wasm_path, .{});
@@ -306,17 +306,17 @@ fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []
 
     const script_path = try std.fs.path.join(allocator, &.{ std.fs.path.dirname(wasm_path) orelse ".", "run_wasm.js" });
     defer allocator.free(script_path);
-    try writeSource(std.fs.cwd(), script_path, script);
-    return try std.process.Child.run(.{
+    try writeSource(sio.cwd(), script_path, script);
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "node", "--no-warnings", script_path },
     });
 }
 
 fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", path };
@@ -330,20 +330,20 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
 }
 
 fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const print_iface = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/io/print.sai");
     defer std.testing.allocator.free(print_iface);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
 
-    try tmp.dir.makePath("bin");
+    try tmp.dir.createDirPath(std.testing.io, "bin");
 
     const demo_dir = std.fs.path.basename(std.fs.path.dirname(path).?);
     const out_path = try std.fmt.allocPrint(std.testing.allocator, "bin/{s}.out", .{demo_dir});
@@ -363,7 +363,7 @@ fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
                 std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
             }
@@ -379,20 +379,20 @@ fn assertBuildExeStdout(path: []const u8, expected_stdout: []const u8) !void {
 }
 
 fn assertBuildExeStdoutPureBc(path: []const u8, expected_stdout: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const print_iface = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/io/print.sai");
     defer std.testing.allocator.free(print_iface);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
 
-    try tmp.dir.makePath("bin");
+    try tmp.dir.createDirPath(std.testing.io, "bin");
 
     const demo_dir = std.fs.path.basename(std.fs.path.dirname(path).?);
     const out_path = try std.fmt.allocPrint(std.testing.allocator, "bin/{s}.out", .{demo_dir});
@@ -412,7 +412,7 @@ fn assertBuildExeStdoutPureBc(path: []const u8, expected_stdout: []const u8) !vo
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
                 std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
             }
@@ -425,7 +425,7 @@ fn assertBuildExeStdoutPureBc(path: []const u8, expected_stdout: []const u8) !vo
 }
 
 fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []const u8, expected_trap_code: u32, expected_message: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
@@ -433,13 +433,13 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", out_name };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -449,10 +449,10 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, out_name, .{}));
     const bc_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{out_name});
     defer std.testing.allocator.free(bc_name);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(bc_name, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, bc_name, .{}));
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
 
     var trap_buf: [64]u8 = undefined;
@@ -468,21 +468,21 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
 }
 
 fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_name: []const u8, expected_fragment: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, source_name, source);
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_name, "-o", out_name };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -493,7 +493,7 @@ fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_na
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, out_name, .{}));
     try std.testing.expect(std.mem.startsWith(u8, stderr_buffer.items, "error[ExternalCompiler]: zig cc exited with code 1 while linking "));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "  command: zig cc "));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_fragment));
@@ -501,9 +501,9 @@ fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_na
 }
 
 fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []const u8) !void {
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", path, arg };
@@ -536,7 +536,7 @@ fn wasmImportNames(bytes: []const u8, allocator: std.mem.Allocator) ![]const []c
     if (!std.mem.eql(u8, bytes[0..4], &std.wasm.magic)) return error.InvalidWasm;
     if (!std.mem.eql(u8, bytes[4..8], &std.wasm.version)) return error.InvalidWasm;
 
-    var names = std.ArrayList([]const u8).init(allocator);
+    var names = std.array_list.Managed([]const u8).init(allocator);
     errdefer names.deinit();
 
     var fbs = std.io.fixedBufferStream(bytes[8..]);
@@ -601,12 +601,12 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
         \\return 7
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "sample.sa", source);
@@ -620,31 +620,31 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const exe = try tmp.dir.openFile(exe_path, .{});
+    const exe = try tmp.dir.openFile(std.testing.io, exe_path, .{});
     const exe_bytes = try exe.readToEndAlloc(std.testing.allocator, 1 << 20);
     exe.close();
     defer std.testing.allocator.free(exe_bytes);
     try std.testing.expect(exe_bytes.len > 0);
 
     const artifact_path = "sample.out.sa.bc";
-    const artifact = try tmp.dir.openFile(artifact_path, .{});
+    const artifact = try tmp.dir.openFile(std.testing.io, artifact_path, .{});
     const artifact_bytes = try artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
     artifact.close();
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
-    try tmp.dir.deleteFile(exe_path);
-    try tmp.dir.deleteFile(artifact_path);
+    try tmp.dir.deleteFile(std.testing.io, exe_path);
+    try tmp.dir.deleteFile(std.testing.io, artifact_path);
     const cached_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), cached_exe_code);
-    const cached_artifact = try tmp.dir.openFile(artifact_path, .{});
+    const cached_artifact = try tmp.dir.openFile(std.testing.io, artifact_path, .{});
     cached_artifact.close();
     if (builtin.os.tag != .windows) {
         const cached_exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./sample.out"});
         defer std.testing.allocator.free(cached_exe_result.stdout);
         defer std.testing.allocator.free(cached_exe_result.stderr);
         switch (cached_exe_result.term) {
-            .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
+            .exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
             else => return error.TestUnexpectedResult,
         }
     }
@@ -654,7 +654,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     const obj_code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
-    const obj = try tmp.dir.openFile(obj_path, .{});
+    const obj = try tmp.dir.openFile(std.testing.io, obj_path, .{});
     defer obj.close();
     const obj_bytes = try obj.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
@@ -665,7 +665,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
-    const wasm = try tmp.dir.openFile(wasm_path, .{});
+    const wasm = try tmp.dir.openFile(std.testing.io, wasm_path, .{});
     defer wasm.close();
     const wasm_bytes = try wasm.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
@@ -690,20 +690,20 @@ test "llvm disabled build-exe reports backend diagnostic" {
         \\return 0
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "minimal.sa", source);
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", "minimal.sa" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -718,7 +718,7 @@ test "llvm disabled build-exe reports backend diagnostic" {
 
     const default_out = try std.fmt.allocPrint(std.testing.allocator, "minimal{s}", .{saasm.cli.defaultExecutableSuffix()});
     defer std.testing.allocator.free(default_out);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(default_out, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, default_out, .{}));
 }
 
 test "cli build-obj incremental reuses local cache layout" {
@@ -731,12 +731,12 @@ test "cli build-obj incremental reuses local cache layout" {
         \\return value
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "incremental.sa", source);
@@ -776,27 +776,27 @@ test "cli build-obj incremental reuses local cache layout" {
     }
     try std.testing.expect(reused_count >= 1);
 
-    const obj_file = try tmp.dir.openFile("incremental.o", .{});
+    const obj_file = try tmp.dir.openFile(std.testing.io, "incremental.o", .{});
     defer obj_file.close();
     const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
     try std.testing.expect(obj_bytes.len > 0);
 
-    const bc_file = try tmp.dir.openFile("incremental.o.sa.bc", .{});
+    const bc_file = try tmp.dir.openFile(std.testing.io, "incremental.o.sa.bc", .{});
     defer bc_file.close();
     const bc_bytes = try bc_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(bc_bytes);
     try std.testing.expect(bc_bytes.len > 0);
 
-    var cache_dir = try tmp.dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
+    var cache_dir = try tmp.dir.openDir(std.testing.io, ".sa_cache/build-obj-incremental", .{ .iterate = true });
     defer cache_dir.close();
     var cache_iter = cache_dir.iterate();
     try std.testing.expect((try cache_iter.next()) != null);
     try std.testing.expect(try cachedFunctionManifestCount(tmp.dir) >= 1);
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
     const help_argv = [_][]const u8{ "sa", "build-obj", "--help" };
     const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
@@ -810,19 +810,19 @@ test "cli build project cache is default and can be disabled" {
         \\return 9
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "cached.sa", source);
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const build_argv = [_][]const u8{ "sa", "build-exe", "cached.sa", "-o", "cached.out", "--json", "--profile" };
@@ -836,8 +836,8 @@ test "cli build project cache is default and can be disabled" {
     try std.testing.expectEqualStrings("build-exe", try jsonStringValue(try jsonObjectGetValue(first_cache, "kind")));
     try std.testing.expectEqual(false, try jsonBoolValue(try jsonObjectGetValue(first_cache, "hit")));
 
-    try tmp.dir.deleteFile("cached.out");
-    try tmp.dir.deleteFile("cached.out.sa.bc");
+    try tmp.dir.deleteFile(std.testing.io, "cached.out");
+    try tmp.dir.deleteFile(std.testing.io, "cached.out.sa.bc");
     stderr_buf.clearRetainingCapacity();
     const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
     try std.testing.expectEqual(@as(u8, 0), second_code);
@@ -866,32 +866,32 @@ test "cli build project cache is default and can be disabled" {
 }
 
 test "cli cache clean removes invalid project cache entries" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const good_key = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const incomplete_key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const corrupt_manifest_key = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-    try tmp.dir.makePath(".sa_cache/build-exe/" ++ good_key);
+    try tmp.dir.createDirPath(std.testing.io, ".sa_cache/build-exe/" ++ good_key);
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/artifact.sa.bc", "bc");
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ good_key ++ "/output.bin", "exe");
     try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ good_key, "build-exe", good_key, "bc", "exe");
-    try tmp.dir.makePath(".sa_cache/build-exe/" ++ incomplete_key);
+    try tmp.dir.createDirPath(std.testing.io, ".sa_cache/build-exe/" ++ incomplete_key);
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ incomplete_key ++ "/artifact.sa.bc", "bc");
-    try tmp.dir.makePath(".sa_cache/build-exe/" ++ corrupt_manifest_key);
+    try tmp.dir.createDirPath(std.testing.io, ".sa_cache/build-exe/" ++ corrupt_manifest_key);
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_manifest_key ++ "/artifact.sa.bc", "bc");
     try writeBytes(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_manifest_key ++ "/output.bin", "exe");
     try writeCacheManifest(tmp.dir, ".sa_cache/build-exe/" ++ corrupt_manifest_key, "build-exe", corrupt_manifest_key, "bc", "wrong-output");
-    try tmp.dir.makePath(".sa_cache/test/not-a-hex-key");
+    try tmp.dir.createDirPath(std.testing.io, ".sa_cache/test/not-a-hex-key");
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const clean_argv = [_][]const u8{ "sa", "cache", "clean", "--max-age-days", "0" };
@@ -900,10 +900,10 @@ test "cli cache clean removes invalid project cache entries" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache clean: scanned=4 removed=3 kept=1"));
 
-    try tmp.dir.access(".sa_cache/build-exe/" ++ good_key ++ "/output.bin", .{});
-    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ incomplete_key, .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/build-exe/" ++ corrupt_manifest_key, .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.access(".sa_cache/test/not-a-hex-key", .{}));
+    try tmp.dir.access(std.testing.io, ".sa_cache/build-exe/" ++ good_key ++ "/output.bin", .{});
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(std.testing.io, ".sa_cache/build-exe/" ++ incomplete_key, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(std.testing.io, ".sa_cache/build-exe/" ++ corrupt_manifest_key, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(std.testing.io, ".sa_cache/test/not-a-hex-key", .{}));
 
     stdout_buf.clearRetainingCapacity();
     const help_argv = [_][]const u8{ "sa", "cache", "clean", "--help" };
@@ -913,12 +913,12 @@ test "cli cache clean removes invalid project cache entries" {
 }
 
 test "sa test compile-only reuses and repairs project test cache" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source =
@@ -928,9 +928,9 @@ test "sa test compile-only reuses and repairs project test cache" {
     ;
     try writeSource(tmp.dir, "cached_test.sa", source);
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const test_argv = [_][]const u8{ "sa", "test", "cached_test.sa", "--compile-only", "--jobs", "1" };
@@ -948,8 +948,8 @@ test "sa test compile-only reuses and repairs project test cache" {
     defer std.testing.allocator.free(cached_manifest);
     const cached_metadata = try std.fmt.allocPrint(std.testing.allocator, ".sa_cache/test/{s}/test-metadata.json", .{cache_key});
     defer std.testing.allocator.free(cached_metadata);
-    try tmp.dir.access(cached_manifest, .{});
-    const metadata_bytes = try tmp.dir.readFileAlloc(std.testing.allocator, cached_metadata, 64 * 1024);
+    try tmp.dir.access(std.testing.io, cached_manifest, .{});
+    const metadata_bytes = try tmp.dir.readFileAlloc(std.testing.io, cached_metadata, std.testing.allocator, .limited(64 * 1024));
     defer std.testing.allocator.free(metadata_bytes);
     try std.testing.expect(std.mem.indexOf(u8, metadata_bytes, "cached test compile") != null);
 
@@ -961,7 +961,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
 
-    try tmp.dir.deleteFile(cached_output);
+    try tmp.dir.deleteFile(std.testing.io, cached_output);
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
@@ -970,7 +970,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
-    try tmp.dir.access(cached_output, .{});
+    try tmp.dir.access(std.testing.io, cached_output, .{});
 
     try writeBytes(tmp.dir, cached_manifest, "{\"version\":1,\"kind\":\"test\",\"key\":\"bad\"}\n");
     stdout_buf.clearRetainingCapacity();
@@ -980,7 +980,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expectEqual(@as(usize, 1), try cacheEntryCount(tmp.dir, ".sa_cache/test"));
-    const repaired_manifest = try tmp.dir.readFileAlloc(std.testing.allocator, cached_manifest, 64 * 1024);
+    const repaired_manifest = try tmp.dir.readFileAlloc(std.testing.io, cached_manifest, std.testing.allocator, .limited(64 * 1024));
     defer std.testing.allocator.free(repaired_manifest);
     try std.testing.expect(std.mem.indexOf(u8, repaired_manifest, cache_key) != null);
 }
@@ -995,12 +995,12 @@ test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
         \\return value
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const tmp_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const tmp_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(tmp_root);
 
     try writeSource(tmp.dir, "jobs_ok.sa", source);
@@ -1023,12 +1023,12 @@ test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
     defer std.testing.allocator.free(serial_artifact_path);
     const auto_artifact_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{auto_out_path});
     defer std.testing.allocator.free(auto_artifact_path);
-    const serial_artifact = try tmp.dir.openFile(serial_artifact_path, .{});
+    const serial_artifact = try tmp.dir.openFile(std.testing.io, serial_artifact_path, .{});
     defer serial_artifact.close();
     const serial_artifact_bytes = try serial_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(serial_artifact_bytes);
 
-    const auto_artifact = try tmp.dir.openFile(auto_artifact_path, .{});
+    const auto_artifact = try tmp.dir.openFile(std.testing.io, auto_artifact_path, .{});
     defer auto_artifact.close();
     const auto_artifact_bytes = try auto_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(auto_artifact_bytes);
@@ -1047,12 +1047,12 @@ test "cli build-exe prunes unused imported functions before llvm emission" {
         \\return 0
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "unused_sort_import.sa", source);
@@ -1061,7 +1061,7 @@ test "cli build-exe prunes unused imported functions before llvm emission" {
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
-    const artifact_file = try tmp.dir.openFile("unused_sort_import.out.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "unused_sort_import.out.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -1107,19 +1107,19 @@ test "json extern build-exe does not inject debug prints" {
         \\    return 0
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "json_debug_clean.sa", source);
 
-    var build_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    var build_stdout = std.array_list.Managed(u8).init(std.testing.allocator);
     defer build_stdout.deinit();
-    var build_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    var build_stderr = std.array_list.Managed(u8).init(std.testing.allocator);
     defer build_stderr.deinit();
 
     const build_exe_argv = [_][]const u8{
@@ -1149,7 +1149,7 @@ test "json extern build-exe does not inject debug prints" {
     defer std.testing.allocator.free(native_result.stdout);
     defer std.testing.allocator.free(native_result.stderr);
     switch (native_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or native_result.stdout.len != 0 or native_result.stderr.len != 0) {
                 std.debug.print("json debug-clean native failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ native_result.stdout, native_result.stderr });
             }
@@ -1185,19 +1185,19 @@ test "cli run with jobs 2 keeps the earliest source-order trap" {
         \\return second_missing
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "parallel_trap.sa", source);
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "parallel_trap.sa", "--jobs", "2" };
@@ -1210,9 +1210,9 @@ test "cli run with jobs 2 keeps the earliest source-order trap" {
 }
 
 test "hello world demo prints through sa run" {
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "demos/rosetta/01_hello_world/main.sa" };
@@ -1231,18 +1231,18 @@ test "sa run reports unsupported extern symbol names" {
         \\return value
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "extern_run.sa", source);
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "extern_run.sa" };
@@ -1255,23 +1255,23 @@ test "sa run reports unsupported extern symbol names" {
 
 test "hello world demo prints through build-wasm and node wasi" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
@@ -1289,7 +1289,7 @@ test "hello world demo prints through build-wasm and node wasi" {
     defer std.testing.allocator.free(native_result.stdout);
     defer std.testing.allocator.free(native_result.stderr);
     switch (native_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, native_result.stdout, "hello, saasm\n") or native_result.stderr.len != 0) {
                 std.debug.print("native hello demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ native_result.stdout, native_result.stderr });
             }
@@ -1304,7 +1304,7 @@ test "hello world demo prints through build-wasm and node wasi" {
     defer std.testing.allocator.free(node_result.stdout);
     defer std.testing.allocator.free(node_result.stderr);
     switch (node_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.containsAtLeast(u8, node_result.stdout, 1, "hello, saasm\n")) {
                 std.debug.print("wasm hello demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ node_result.stdout, node_result.stderr });
             }
@@ -1319,12 +1319,12 @@ test "hello world demo prints through build-wasm and node wasi" {
 test "windows llvm builds and runs hello world executable" {
     if (builtin.os.tag != .windows or !saasm.build_options.llvm_enabled) return error.SkipZigTest;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/01_hello_world/main.sa");
@@ -1332,7 +1332,7 @@ test "windows llvm builds and runs hello world executable" {
     const build_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "hello.exe", "--no-incremental" };
     try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, &build_argv));
 
-    const file = try tmp.dir.openFile("hello.exe", .{});
+    const file = try tmp.dir.openFile(std.testing.io, "hello.exe", .{});
     defer file.close();
     var magic: [2]u8 = undefined;
     try file.reader().readNoEof(&magic);
@@ -1342,7 +1342,7 @@ test "windows llvm builds and runs hello world executable" {
     defer std.testing.allocator.free(result.stdout);
     defer std.testing.allocator.free(result.stderr);
     switch (result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("hello, saasm\n", result.stdout);
@@ -1351,23 +1351,23 @@ test "windows llvm builds and runs hello world executable" {
 
 test "hello world upstream line can break in gdb" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const gdb_probe = std.process.Child.run(.{
+    const gdb_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "gdb", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(gdb_probe.stdout);
     defer std.testing.allocator.free(gdb_probe.stderr);
     switch (gdb_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source =
@@ -1396,7 +1396,7 @@ test "hello world upstream line can break in gdb" {
     const build_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
-    const gdb_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const gdb_dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(gdb_dir);
     const directory_cmd = try std.fmt.allocPrint(std.testing.allocator, "directory {s}", .{gdb_dir});
     defer std.testing.allocator.free(directory_cmd);
@@ -1423,7 +1423,7 @@ test "hello world upstream line can break in gdb" {
     defer std.testing.allocator.free(gdb_result.stdout);
     defer std.testing.allocator.free(gdb_result.stderr);
     switch (gdb_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 std.debug.print("gdb returned nonzero exit code {d}\nstdout:\n{s}\nstderr:\n{s}\n", .{ code, gdb_result.stdout, gdb_result.stderr });
             }
@@ -1441,23 +1441,23 @@ test "hello world upstream line can break in gdb" {
 
 test "hello compute demo prints through build-exe and build-wasm" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/98_build_pipeline/main.sa");
@@ -1471,7 +1471,7 @@ test "hello compute demo prints through build-exe and build-wasm" {
     defer std.testing.allocator.free(native_result.stdout);
     defer std.testing.allocator.free(native_result.stderr);
     switch (native_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, native_result.stdout, "6\n") or native_result.stderr.len != 0) {
                 std.debug.print("native hello-compute failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ native_result.stdout, native_result.stderr });
             }
@@ -1490,7 +1490,7 @@ test "hello compute demo prints through build-exe and build-wasm" {
     defer std.testing.allocator.free(node_result.stdout);
     defer std.testing.allocator.free(node_result.stderr);
     switch (node_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, node_result.stdout, "6\n") or node_result.stderr.len != 0) {
                 std.debug.print("wasm hello-compute failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ node_result.stdout, node_result.stderr });
             }
@@ -1503,9 +1503,9 @@ test "hello compute demo prints through build-exe and build-wasm" {
 }
 
 test "trait vtable demo runs through sa run" {
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "demos/rosetta/07_trait_vtable/main.sa" };
@@ -1524,13 +1524,13 @@ test "indirect calls shadowed by an early import resolve to valued callees" {
 }
 
 test "pkg lib dynamic demo compiles via object archive and prints through native link" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const main_source = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/220_pkg_lib_dynamic/main.sa");
@@ -1563,7 +1563,7 @@ test "pkg lib dynamic demo compiles via object archive and prints through native
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("220\n", exe_result.stdout);
@@ -1893,7 +1893,7 @@ test "struct demo runs through sa run" {
 }
 
 test "sys runtime demo prints and round-trips file contents" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/sys_runtime_probe.sa");
     defer std.testing.allocator.free(source_path);
@@ -1901,7 +1901,7 @@ test "sys runtime demo prints and round-trips file contents" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try assertRunStdoutWithArg(source_path, "marker", "ok\n");
@@ -1914,7 +1914,7 @@ test "sys runtime demo prints and round-trips file contents" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, exe_result.stdout, "ok\n") or exe_result.stderr.len != 0) {
                 std.debug.print("native demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
@@ -1925,26 +1925,26 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqualStrings("ok\n", exe_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 
-    const file = try tmp.dir.openFile("sys_io.txt", .{});
+    const file = try tmp.dir.openFile(std.testing.io, "sys_io.txt", .{});
     defer file.close();
     const contents = try file.readToEndAlloc(std.testing.allocator, 1024);
     defer std.testing.allocator.free(contents);
     try std.testing.expectEqualStrings("saasm", contents);
 
-    try tmp.dir.deleteFile("sys_io.txt");
+    try tmp.dir.deleteFile(std.testing.io, "sys_io.txt");
 
     const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", "sys_runtime_probe.wasm", "--target", "wasm32" };
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
-    const wasm_artifact = try tmp.dir.openFile("sys_runtime_probe.wasm.sa.bc", .{});
+    const wasm_artifact = try tmp.dir.openFile(std.testing.io, "sys_runtime_probe.wasm.sa.bc", .{});
     defer wasm_artifact.close();
     const wasm_artifact_bytes = try wasm_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_artifact_bytes);
     try std.testing.expect(wasm_artifact_bytes.len > 0);
     try expectNoTextLlvmArtifacts(tmp.dir, "sys_runtime_probe.wasm");
 
-    const wasm_file = try tmp.dir.openFile("sys_runtime_probe.wasm", .{});
+    const wasm_file = try tmp.dir.openFile(std.testing.io, "sys_runtime_probe.wasm", .{});
     defer wasm_file.close();
     const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
@@ -1952,14 +1952,14 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &std.wasm.version, wasm_bytes[4..8]);
 
-    const node_probe = std.process.Child.run(.{
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
@@ -1967,7 +1967,7 @@ test "sys runtime demo prints and round-trips file contents" {
     defer std.testing.allocator.free(wasm_result.stdout);
     defer std.testing.allocator.free(wasm_result.stderr);
     switch (wasm_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, wasm_result.stdout, "ok\n") or wasm_result.stderr.len != 0) {
                 std.debug.print("wasm sys runtime demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ wasm_result.stdout, wasm_result.stderr });
             }
@@ -1978,7 +1978,7 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqualStrings("ok\n", wasm_result.stdout);
     try std.testing.expectEqual(@as(usize, 0), wasm_result.stderr.len);
 
-    const wasm_written_file = try tmp.dir.openFile("sys_io.txt", .{});
+    const wasm_written_file = try tmp.dir.openFile(std.testing.io, "sys_io.txt", .{});
     defer wasm_written_file.close();
     const wasm_written = try wasm_written_file.readToEndAlloc(std.testing.allocator, 1024);
     defer std.testing.allocator.free(wasm_written);
@@ -1986,7 +1986,7 @@ test "sys runtime demo prints and round-trips file contents" {
 }
 
 test "ffi airlock demo preserves pointer values through assume_* in sa run" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/airlock_probe.sa");
     defer std.testing.allocator.free(source_path);
@@ -1994,7 +1994,7 @@ test "ffi airlock demo preserves pointer values through assume_* in sa run" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try assertRunStdout(source_path, "ok\n");
@@ -2007,7 +2007,7 @@ test "ffi airlock demo preserves pointer values through assume_* in sa run" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, exe_result.stdout, "ok\n") or exe_result.stderr.len != 0) {
                 std.debug.print("airlock demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
@@ -2020,14 +2020,14 @@ test "ffi airlock demo preserves pointer values through assume_* in sa run" {
 }
 
 test "http client saasm demo builds through native exe" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/301_http_client_saasm/main.sa");
     defer std.testing.allocator.free(source_path);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const address = try std.net.Address.parseIp4("127.0.0.1", 18090);
@@ -2054,7 +2054,7 @@ test "http client saasm demo builds through native exe" {
             var request = http_server.receiveHead() catch return;
             const reader = request.reader() catch return;
 
-            var body = std.ArrayList(u8).init(std.testing.allocator);
+            var body = std.array_list.Managed(u8).init(std.testing.allocator);
             defer body.deinit();
             if (reader.readAllArrayList(&body, 1024 * 1024)) |_| {
                 seen.* = std.mem.eql(u8, body.items, "hello from saasm");
@@ -2072,7 +2072,7 @@ test "http client saasm demo builds through native exe" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 std.debug.print("http client demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
@@ -2088,14 +2088,14 @@ test "http client saasm demo builds through native exe" {
 }
 
 test "http server saasm demo builds through native exe" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/302_http_server_saasm/main.sa");
     defer std.testing.allocator.free(source_path);
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "http_server_saasm.out" };
@@ -2124,7 +2124,7 @@ test "http server saasm demo builds through native exe" {
                 ) catch return;
 
                 var buf: [256]u8 = undefined;
-                var response = std.ArrayList(u8).init(std.testing.allocator);
+                var response = std.array_list.Managed(u8).init(std.testing.allocator);
                 defer response.deinit();
                 while (true) {
                     const n = conn.read(&buf) catch return;
@@ -2141,7 +2141,7 @@ test "http server saasm demo builds through native exe" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 std.debug.print("http server demo failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
@@ -2162,12 +2162,12 @@ test "panic builtins terminate through the interpreter" {
         \\panic(17)
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "panic.sa", plain_source);
@@ -2264,20 +2264,20 @@ test "panic builtins terminate through the interpreter" {
 }
 
 test "sa test covers include macro expansion fixture" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/include_macro_expand_unit.sa");
     defer std.testing.allocator.free(source_path);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
@@ -2297,20 +2297,20 @@ test "sa test covers include macro expansion fixture" {
 }
 
 test "sa test covers module_path macro expansion fixture" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/module_path_macro_unit.sa");
     defer std.testing.allocator.free(source_path);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
@@ -2330,20 +2330,20 @@ test "sa test covers module_path macro expansion fixture" {
 }
 
 test "sa test runs isolated native tests with filterable names" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_basic.sa");
     defer std.testing.allocator.free(source_path);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
@@ -2573,7 +2573,7 @@ test "sa test runs isolated native tests with filterable names" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 2 passed; 0 failed; 0 skipped"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 
-    const source_text = try std.fs.cwd().readFileAlloc(std.testing.allocator, source_path, 1024 * 1024);
+    const source_text = try sio.cwd().readFileAlloc(std.testing.allocator, source_path, 1024 * 1024);
     defer std.testing.allocator.free(source_text);
     var flat = try saasm.flattener.flatten(std.testing.allocator, source_text);
     defer flat.deinit(std.testing.allocator);
@@ -2610,20 +2610,20 @@ test "sa test runs isolated native tests with filterable names" {
 }
 
 test "sa test schedules native tests in parallel when jobs are higher" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_jobs_parallel.sa");
     defer std.testing.allocator.free(source_path);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const serial_start = std.time.nanoTimestamp();
@@ -2689,12 +2689,12 @@ test "fallible ABI and ? propagation work end to end" {
         \\return value
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "fallible.sa", source);
 
@@ -2706,7 +2706,7 @@ test "fallible ABI and ? propagation work end to end" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const artifact_file = try tmp.dir.openFile("fallible.out.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "fallible.out.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -2716,7 +2716,7 @@ test "fallible ABI and ? propagation work end to end" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -2795,12 +2795,12 @@ test "extern u64 fallible return can be loaded from ABI payload offset" {
         \\    panic(124)
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "fallible_u64_file.sa", source);
     try writeBytes(tmp.dir, "probe.env", "PORT=28080\n");
@@ -2813,7 +2813,7 @@ test "extern u64 fallible return can be loaded from ABI payload offset" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 std.debug.print("fallible u64 ABI probe failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
@@ -2923,12 +2923,12 @@ test "extern i32 fallible return uses ABI-aligned payload offset" {
         \\    return status
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "fallible_i32_file.sa", source);
     try writeBytes(tmp.dir, "probe.env", "PORT=28080\n");
@@ -2941,7 +2941,7 @@ test "extern i32 fallible return uses ABI-aligned payload offset" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 std.debug.print("fallible i32 ABI probe failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ exe_result.stdout, exe_result.stderr });
             }
@@ -2952,12 +2952,12 @@ test "extern i32 fallible return uses ABI-aligned payload offset" {
 }
 
 test "result unwrap_or and map_or helpers branch on tags correctly" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const result_layout_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/result.sal");
@@ -3035,12 +3035,12 @@ test "const pointer stores survive load and print end to end" {
         \\return 0
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "const_ptr_store.sa", source);
 
@@ -3052,7 +3052,7 @@ test "const pointer stores survive load and print end to end" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
@@ -3098,12 +3098,12 @@ test "vtable loads preserve indirect call provenance end to end" {
         \\    return 1
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "vtable_indirect.sa", source);
 
@@ -3115,19 +3115,19 @@ test "vtable loads preserve indirect call provenance end to end" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("OK\n", exe_result.stdout);
 }
 
 test "bc2sa translates real llvm bitcode" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "sample.ll",
@@ -3144,7 +3144,7 @@ test "bc2sa translates real llvm bitcode" {
         \\
     );
 
-    const as_result = std.process.Child.run(.{
+    const as_result = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "llvm-as-14", "sample.ll", "-o", "sample.bc" },
     }) catch |err| switch (err) {
@@ -3154,13 +3154,13 @@ test "bc2sa translates real llvm bitcode" {
     defer std.testing.allocator.free(as_result.stdout);
     defer std.testing.allocator.free(as_result.stderr);
     switch (as_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "sample.bc" };
@@ -3177,37 +3177,37 @@ test "bc2sa translates clang cmake bitcode demo" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_cmake");
+    const demo_root = try sio.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_cmake");
     defer std.testing.allocator.free(demo_root);
 
-    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const build_dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(build_dir);
 
-    const cmake_result = try std.process.Child.run(.{
+    const cmake_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "cmake", "-S", demo_root, "-B", build_dir },
     });
     defer std.testing.allocator.free(cmake_result.stdout);
     defer std.testing.allocator.free(cmake_result.stderr);
     switch (cmake_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    const build_result = try std.process.Child.run(.{
+    const build_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "cmake", "--build", build_dir, "--target", "bc" },
     });
     defer std.testing.allocator.free(build_result.stdout);
     defer std.testing.allocator.free(build_result.stderr);
     switch (build_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const bc_path = try std.fs.path.join(std.testing.allocator, &.{ build_dir, "main.bc" });
@@ -3228,29 +3228,29 @@ test "bc2sa translates sqlite3 api probe bitcode" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_sqlite3");
+    const demo_root = try sio.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_sqlite3");
     defer std.testing.allocator.free(demo_root);
     const source_path = try std.fs.path.join(std.testing.allocator, &.{ demo_root, "sqlite3_probe.c" });
     defer std.testing.allocator.free(source_path);
-    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const build_dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(build_dir);
     const bc_path = try std.fs.path.join(std.testing.allocator, &.{ build_dir, "sqlite3_probe.bc" });
     defer std.testing.allocator.free(bc_path);
 
-    const clang_result = try std.process.Child.run(.{
+    const clang_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "clang", "-std=c11", "-O0", "-emit-llvm", "-c", source_path, "-o", bc_path },
     });
     defer std.testing.allocator.free(clang_result.stdout);
     defer std.testing.allocator.free(clang_result.stderr);
     switch (clang_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", bc_path };
@@ -3274,31 +3274,31 @@ test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const demo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_cmake");
+    const demo_root = try sio.cwd().realpathAlloc(std.testing.allocator, "demos/bc2sa_cmake");
     defer std.testing.allocator.free(demo_root);
 
-    const build_dir = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const build_dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(build_dir);
 
-    const cmake_result = try std.process.Child.run(.{
+    const cmake_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "cmake", "-S", demo_root, "-B", build_dir },
     });
     defer std.testing.allocator.free(cmake_result.stdout);
     defer std.testing.allocator.free(cmake_result.stderr);
     switch (cmake_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    const build_result = try std.process.Child.run(.{
+    const build_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "cmake", "--build", build_dir, "--target", "bc" },
     });
     defer std.testing.allocator.free(build_result.stdout);
     defer std.testing.allocator.free(build_result.stderr);
     switch (build_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
@@ -3309,20 +3309,20 @@ test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
         \\}
     );
 
-    const clang_result = try std.process.Child.run(.{
+    const clang_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{ "clang", "-std=c11", "-O0", "-emit-llvm", "-c", "vulnerable.c", "-o", "vulnerable.bc" },
     });
     defer std.testing.allocator.free(clang_result.stdout);
     defer std.testing.allocator.free(clang_result.stderr);
     switch (clang_result.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var stdout_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buf.deinit();
-    var stderr_buf = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "vulnerable.bc" };
@@ -3334,7 +3334,7 @@ test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
 }
 
 test "import expansion keeps source paths alive end to end" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/rosetta/40_impl_block_state/main.sa");
     defer std.testing.allocator.free(source_path);
@@ -3342,7 +3342,7 @@ test "import expansion keeps source paths alive end to end" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "impl_block_state.out" };
@@ -3353,7 +3353,7 @@ test "import expansion keeps source paths alive end to end" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("15\n", exe_result.stdout);
@@ -3377,12 +3377,12 @@ test "atomic instructions work end to end and emit real LLVM" {
         \\return y
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "atomic.sa", source);
@@ -3395,7 +3395,7 @@ test "atomic instructions work end to end and emit real LLVM" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const artifact_file = try tmp.dir.openFile("atomic.out.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "atomic.out.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -3405,7 +3405,7 @@ test "atomic instructions work end to end and emit real LLVM" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 11), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 11), code),
         else => return error.TestUnexpectedResult,
     }
 
@@ -3413,7 +3413,7 @@ test "atomic instructions work end to end and emit real LLVM" {
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
-    const wasm_file = try tmp.dir.openFile("atomic.wasm", .{});
+    const wasm_file = try tmp.dir.openFile(std.testing.io, "atomic.wasm", .{});
     defer wasm_file.close();
     const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
@@ -3425,7 +3425,7 @@ test "atomic instructions work end to end and emit real LLVM" {
     const obj_code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
-    const obj_file = try tmp.dir.openFile("atomic.o", .{});
+    const obj_file = try tmp.dir.openFile(std.testing.io, "atomic.o", .{});
     defer obj_file.close();
     const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
@@ -3449,12 +3449,12 @@ test "ptr arithmetic lowers to gep and runs through the interpreter" {
         \\return value
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "ptr_add.sa", source);
@@ -3467,7 +3467,7 @@ test "ptr arithmetic lowers to gep and runs through the interpreter" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const artifact_file = try tmp.dir.openFile("ptr_add.out.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "ptr_add.out.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -3477,7 +3477,7 @@ test "ptr arithmetic lowers to gep and runs through the interpreter" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 65), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 65), code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -3527,12 +3527,12 @@ test "panic lowers to native executable failure code" {
         \\panic_msg(77, *buf, 2)
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "panic_native.sa", source);
@@ -3541,7 +3541,7 @@ test "panic lowers to native executable failure code" {
     const exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
-    const artifact_file = try tmp.dir.openFile("panic_native.out.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "panic_native.out.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -3551,7 +3551,7 @@ test "panic lowers to native executable failure code" {
     defer std.testing.allocator.free(exe_result.stdout);
     defer std.testing.allocator.free(exe_result.stderr);
     switch (exe_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 205), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 205), code),
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expect(std.mem.containsAtLeast(u8, exe_result.stderr, 1, "PANIC[77]: hi"));
@@ -3560,7 +3560,7 @@ test "panic lowers to native executable failure code" {
     const wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
-    const wasm = try tmp.dir.openFile("panic_native.wasm", .{});
+    const wasm = try tmp.dir.openFile(std.testing.io, "panic_native.wasm", .{});
     defer wasm.close();
     const wasm_bytes = try wasm.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
@@ -3605,12 +3605,12 @@ test "extern export ffi wrapper map to real declarations and symbols" {
         \\return 7
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "contracts.sa", source);
 
@@ -3618,7 +3618,7 @@ test "extern export ffi wrapper map to real declarations and symbols" {
     const code = try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), code);
 
-    const artifact_file = try tmp.dir.openFile("contracts.o.sa.bc", .{});
+    const artifact_file = try tmp.dir.openFile(std.testing.io, "contracts.o.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -3640,19 +3640,19 @@ test "unknown sys intrinsic is rejected before emission" {
         \\return value
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "unsupported_sys.sa", source);
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", "unsupported_sys.sa", "-o", "unsupported_sys.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
@@ -3661,8 +3661,8 @@ test "unknown sys intrinsic is rejected before emission" {
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unsupported_sys.out.sa.bc", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "unsupported_sys.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "unsupported_sys.out.sa.bc", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnsupportedSysIntrinsic\""));
 }
 
@@ -3680,7 +3680,7 @@ test "external compiler failures report linker context instead of child process 
 }
 
 test "unknown register demo is rejected with structured trap output" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/unknown_register.sa");
     defer std.testing.allocator.free(source_path);
@@ -3688,13 +3688,13 @@ test "unknown register demo is rejected with structured trap output" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "unknown_register.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -3704,15 +3704,15 @@ test "unknown register demo is rejected with structured trap output" {
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("unknown_register.out.sa.bc", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "unknown_register.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "unknown_register.out.sa.bc", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnknownRegister\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1007"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"register\":\"ghost\""));
 }
 
 test "memory leak demo is rejected with structured trap output" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/memory_leak.sa");
     defer std.testing.allocator.free(source_path);
@@ -3720,13 +3720,13 @@ test "memory leak demo is rejected with structured trap output" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "memory_leak.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -3736,14 +3736,14 @@ test "memory leak demo is rejected with structured trap output" {
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("memory_leak.out.sa.bc", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "memory_leak.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "memory_leak.out.sa.bc", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"MemoryLeak\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1012"));
 }
 
 test "fallthrough demo is rejected without a terminator" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/fallthrough.sa");
     defer std.testing.allocator.free(source_path);
@@ -3751,13 +3751,13 @@ test "fallthrough demo is rejected without a terminator" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "fallthrough.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -3767,15 +3767,15 @@ test "fallthrough demo is rejected without a terminator" {
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("fallthrough.out.sa.bc", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "fallthrough.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "fallthrough.out.sa.bc", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"FallthroughForbidden\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1014"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "function body ended without a terminator"));
 }
 
 test "duplicate label demo is rejected with structured trap output" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/duplicate_label.sa");
     defer std.testing.allocator.free(source_path);
@@ -3783,13 +3783,13 @@ test "duplicate label demo is rejected with structured trap output" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "duplicate_label.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -3799,15 +3799,15 @@ test "duplicate label demo is rejected with structured trap output" {
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("duplicate_label.out.sa.bc", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "duplicate_label.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "duplicate_label.out.sa.bc", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"DuplicateLabel\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1003"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "label is already defined"));
 }
 
 test "phi conflict demo is rejected on mismatched join states" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_conflict.sa");
     defer std.testing.allocator.free(source_path);
@@ -3815,13 +3815,13 @@ test "phi conflict demo is rejected on mismatched join states" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "phi_conflict.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -3831,14 +3831,14 @@ test "phi conflict demo is rejected on mismatched join states" {
         stderr_buffer.writer(),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out", .{}));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile("phi_conflict.out.sa.bc", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "phi_conflict.out", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "phi_conflict.out.sa.bc", .{}));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"PhiStateConflict\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap_code\":1015"));
 }
 
 test "phi join AND demo runs through the join point" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "demos/support/phi_join_and.sa");
     defer std.testing.allocator.free(source_path);
@@ -3846,13 +3846,13 @@ test "phi join AND demo runs through the join point" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "phi_join_and.out" };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -3869,7 +3869,7 @@ test "phi join AND demo runs through the join point" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     switch (run_result.term) {
-        .Exited => |exit_code| try std.testing.expectEqual(@as(u8, 0), exit_code),
+        .exited => |exit_code| try std.testing.expectEqual(@as(u8, 0), exit_code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -3880,12 +3880,12 @@ test "build-wasm supports wasm64 freestanding no-entry" {
         \\return 0
     ;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
     try writeSource(tmp.dir, "wasm64.sa", source);
 
@@ -3893,7 +3893,7 @@ test "build-wasm supports wasm64 freestanding no-entry" {
     const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
 
-    const wasm_file = try tmp.dir.openFile("wasm64.wasm", .{});
+    const wasm_file = try tmp.dir.openFile(std.testing.io, "wasm64.wasm", .{});
     defer wasm_file.close();
     const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
@@ -3906,12 +3906,12 @@ test "build-wasm supports wasm64 freestanding no-entry" {
 }
 
 test "db cli init writes iface and table lifecycle commands update storage" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "flash_sale.sadb-schema",
@@ -3928,9 +3928,9 @@ test "db cli init writes iface and table lifecycle commands update storage" {
         \\{"ID":3,"PRICE":11.75}
     );
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const init_argv = [_][]const u8{ "sa", "db", "init", "flash_sale.sadb-schema" };
@@ -3944,7 +3944,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "flash_sale.iface"));
 
-    const iface_file = try tmp.dir.openFile("flash_sale.iface", .{});
+    const iface_file = try tmp.dir.openFile(std.testing.io, "flash_sale.iface", .{});
     defer iface_file.close();
     const iface_bytes = try iface_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(iface_bytes);
@@ -3966,7 +3966,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 2"));
 
-    const meta_file = try tmp.dir.openFile("flash_sale.meta", .{});
+    const meta_file = try tmp.dir.openFile(std.testing.io, "flash_sale.meta", .{});
     defer meta_file.close();
     const meta_bytes = try meta_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(meta_bytes);
@@ -3985,7 +3985,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expectEqual(@as(u8, 0), snapshot_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "epoch: 1"));
-    const snapshot_meta = try tmp.dir.openFile(".sa/db/snapshots/flash_sale/1/flash_sale.meta", .{});
+    const snapshot_meta = try tmp.dir.openFile(std.testing.io, ".sa/db/snapshots/flash_sale/1/flash_sale.meta", .{});
     defer snapshot_meta.close();
 
     stdout_buffer.clearRetainingCapacity();
@@ -4002,7 +4002,7 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 3"));
 
-    const updated_meta_file = try tmp.dir.openFile("flash_sale.meta", .{});
+    const updated_meta_file = try tmp.dir.openFile(std.testing.io, "flash_sale.meta", .{});
     defer updated_meta_file.close();
     const updated_meta_bytes = try updated_meta_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(updated_meta_bytes);
@@ -4079,12 +4079,12 @@ test "db cli init writes iface and table lifecycle commands update storage" {
 }
 
 test "db cli register inspect exec round trip through registry" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "simple.sadb-schema",
@@ -4104,15 +4104,15 @@ test "db cli register inspect exec round trip through registry" {
         \\return total
     );
 
-    var params = std.ArrayList(u8).init(std.testing.allocator);
+    var params = std.array_list.Managed(u8).init(std.testing.allocator);
     defer params.deinit();
     try params.writer().writeInt(u64, 7, .little);
     try params.writer().writeInt(u64, 5, .little);
     try writeBytes(tmp.dir, "params.bin", params.items);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const register_argv = [_][]const u8{ "sa", "db", "register", "simple.query.sa" };
@@ -4160,9 +4160,9 @@ test "db cli register inspect exec round trip through registry" {
 }
 
 test "layout cli prints text, json, and debug macro outputs" {
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const text_argv = [_][]const u8{ "sa", "layout", "--name", "Entity", "--fields", "id:u32, pos_x:f64, pos_y:f64, hp:i32" };
@@ -4257,9 +4257,9 @@ test "layout cli prints text, json, and debug macro outputs" {
 }
 
 test "agent-first cli commands print explain fix and skills outputs" {
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const explain_argv = [_][]const u8{ "sa", "explain", "SA-CLI-001" };
@@ -4340,12 +4340,12 @@ test "agent-first cli commands print explain fix and skills outputs" {
 }
 
 test "sa skills writes Codex and Claude skill files for current project" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("sa_plugins/sa_plugin_deno");
+    try tmp.dir.createDirPath(std.testing.io, "sa_plugins/sa_plugin_deno");
     try writeSource(tmp.dir, "sa_plugins/sa_plugin_deno/sap.json",
         \\{
         \\  "schema": "sa.plugin/1",
@@ -4380,18 +4380,18 @@ test "sa skills writes Codex and Claude skill files for current project" {
         \\[END_MACRO]
         \\
     );
-    try tmp.dir.makePath("sa_plugins/sa_plugin_3dengines");
+    try tmp.dir.createDirPath(std.testing.io, "sa_plugins/sa_plugin_3dengines");
     try writeSource(tmp.dir, "sa_plugins/sa_plugin_3dengines/README.md",
         \\Experimental 3D engine plugin should not be included in the common catalog.
         \\
     );
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -4412,13 +4412,13 @@ test "sa skills writes Codex and Claude skill files for current project" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Rust-style string/vec/slice/option/result/core helper macros"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "optional deno/http/node/db/plugin APIs stay outside compiler std"));
 
-    const codex_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".codex/skills/sa/SKILL.md", 16 * 1024 * 1024);
+    const codex_skill = try tmp.dir.readFileAlloc(std.testing.io, ".codex/skills/sa/SKILL.md", std.testing.allocator, .limited(16 * 1024 * 1024));
     defer std.testing.allocator.free(codex_skill);
-    const claude_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".claude/skills/sa/SKILL.md", 16 * 1024 * 1024);
+    const claude_skill = try tmp.dir.readFileAlloc(std.testing.io, ".claude/skills/sa/SKILL.md", std.testing.allocator, .limited(16 * 1024 * 1024));
     defer std.testing.allocator.free(claude_skill);
-    const codex_plugins_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".codex/skills/sa_plugins/SKILL.md", 16 * 1024 * 1024);
+    const codex_plugins_skill = try tmp.dir.readFileAlloc(std.testing.io, ".codex/skills/sa_plugins/SKILL.md", std.testing.allocator, .limited(16 * 1024 * 1024));
     defer std.testing.allocator.free(codex_plugins_skill);
-    const claude_plugins_skill = try tmp.dir.readFileAlloc(std.testing.allocator, ".claude/skills/sa_plugins/SKILL.md", 16 * 1024 * 1024);
+    const claude_plugins_skill = try tmp.dir.readFileAlloc(std.testing.io, ".claude/skills/sa_plugins/SKILL.md", std.testing.allocator, .limited(16 * 1024 * 1024));
     defer std.testing.allocator.free(claude_plugins_skill);
 
     try std.testing.expect(std.mem.containsAtLeast(u8, codex_skill, 1, "name: \"sa\""));
@@ -4481,17 +4481,17 @@ test "cli audit dispatches through runtime package plugin" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("pkg");
+    try tmp.dir.createDirPath(std.testing.io, "pkg");
     try writeSource(tmp.dir, "pkg/index.sa",
         \\call @sys_print(*MSG, 2)
         \\
     );
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const audit_argv = [_][]const u8{ "sa", "audit", "--format", "json", pkg_root };
@@ -4510,25 +4510,25 @@ test "cli audit dispatches through runtime package plugin" {
 }
 
 test "cli audit update-lock writes project lock through package flow" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("zig-out");
-    try tmp.dir.makePath("pkg");
+    try tmp.dir.createDirPath(std.testing.io, "zig-out");
+    try tmp.dir.createDirPath(std.testing.io, "pkg");
     try writeSource(tmp.dir, "pkg/index.sa",
         \\@main() -> i32:
         \\return 0
         \\
     );
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const audit_argv = [_][]const u8{ "sa", "audit", "--update-lock", "--format", "json", "pkg" };
@@ -4545,7 +4545,7 @@ test "cli audit update-lock writes project lock through package flow" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"created_entry\":true"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"changed\":true"));
 
-    const lock_source = try tmp.dir.readFileAlloc(std.testing.allocator, "sa.lock", 1024 * 1024);
+    const lock_source = try tmp.dir.readFileAlloc(std.testing.io, "sa.lock", std.testing.allocator, .limited(1024 * 1024));
     defer std.testing.allocator.free(lock_source);
     var lock_file = try saasm.pkg.manifest.parseLock(std.testing.allocator, lock_source);
     defer lock_file.deinit(std.testing.allocator);
@@ -4569,17 +4569,17 @@ test "cli audit update-lock writes project lock through package flow" {
 }
 
 test "cli init creates a binary project and install syncs manifest dependencies" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const init_argv = [_][]const u8{ "sa", "init", "app" };
@@ -4592,11 +4592,11 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     try std.testing.expectEqual(@as(u8, 0), init_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "Initialized SA binary project: app"));
-    try tmp.dir.access("app/sa.mod", .{ .mode = .read_only });
-    try tmp.dir.access("app/src/main.sa", .{ .mode = .read_only });
-    try tmp.dir.access("app/.gitignore", .{ .mode = .read_only });
+    try tmp.dir.access(std.testing.io, "app/sa.mod", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "app/src/main.sa", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "app/.gitignore", .{ .read = true });
 
-    var app_dir = try tmp.dir.openDir("app", .{});
+    var app_dir = try tmp.dir.openDir(std.testing.io, "app", .{});
     defer app_dir.close();
     try app_dir.setAsCwd();
     const run_argv = [_][]const u8{ "sa", "run", "src/main.sa" };
@@ -4609,13 +4609,13 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     try std.testing.expectEqual(@as(u8, 0), run_code);
 
     try original_cwd.setAsCwd();
-    try tmp.dir.setAsCwd();
-    try tmp.dir.makePath("app/deps/example/pkg");
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    try tmp.dir.createDirPath(std.testing.io, "app/deps/example/pkg");
     try writeSource(tmp.dir, "app/deps/example/pkg/index.sa",
         \\@pkg_value() -> i32:
         \\return 42
     );
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/deps/example/pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "app/deps/example/pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
     var pkg_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/pkg", "HEAD", pkg_root, &.{});
     defer pkg_report.deinit(std.testing.allocator);
@@ -4640,24 +4640,24 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
     try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/pkg"));
-    try tmp.dir.access("app/sa_vendor/deps/example/pkg/index.sa", .{ .mode = .read_only });
-    try tmp.dir.access("app/sa.sum", .{ .mode = .read_only });
+    try tmp.dir.access(std.testing.io, "app/sa_vendor/deps/example/pkg/index.sa", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "app/sa.sum", .{ .read = true });
 }
 
 test "workspace install aggregates member manifests at root and pkg install falls back to builtin workspace flow" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("members/app/src");
-    try tmp.dir.makePath("members/tool/src");
-    try tmp.dir.makePath("deps/example/shared");
-    try tmp.dir.makePath("deps/example/app");
-    try tmp.dir.makePath("deps/example/tool");
+    try tmp.dir.createDirPath(std.testing.io, "members/app/src");
+    try tmp.dir.createDirPath(std.testing.io, "members/tool/src");
+    try tmp.dir.createDirPath(std.testing.io, "deps/example/shared");
+    try tmp.dir.createDirPath(std.testing.io, "deps/example/app");
+    try tmp.dir.createDirPath(std.testing.io, "deps/example/tool");
 
     try writeSource(tmp.dir, "members/app/src/main.sa",
         \\@main() -> i32:
@@ -4680,11 +4680,11 @@ test "workspace install aggregates member manifests at root and pkg install fall
         \\return 30
     );
 
-    const shared_root = try tmp.dir.realpathAlloc(std.testing.allocator, "deps/example/shared");
+    const shared_root = try tmp.dir.realPathFileAlloc(std.testing.io, "deps/example/shared", std.testing.allocator);
     defer std.testing.allocator.free(shared_root);
-    const app_root = try tmp.dir.realpathAlloc(std.testing.allocator, "deps/example/app");
+    const app_root = try tmp.dir.realPathFileAlloc(std.testing.io, "deps/example/app", std.testing.allocator);
     defer std.testing.allocator.free(app_root);
-    const tool_root = try tmp.dir.realpathAlloc(std.testing.allocator, "deps/example/tool");
+    const tool_root = try tmp.dir.realPathFileAlloc(std.testing.io, "deps/example/tool", std.testing.allocator);
     defer std.testing.allocator.free(tool_root);
 
     var shared_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/shared", "HEAD", shared_root, &.{});
@@ -4727,9 +4727,9 @@ test "workspace install aggregates member manifests at root and pkg install fall
     defer std.testing.allocator.free(tool_manifest_source);
     try writeSource(tmp.dir, "members/tool/sa.mod", tool_manifest_source);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const install_argv = [_][]const u8{ "sa", "install" };
@@ -4744,10 +4744,10 @@ test "workspace install aggregates member manifests at root and pkg install fall
     try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/shared"));
     try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/app"));
     try std.testing.expect(try containsPortablePath(std.testing.allocator, stdout_buffer.items, "sa_vendor/deps/example/tool"));
-    try tmp.dir.access("sa_vendor/deps/example/shared/index.sa", .{ .mode = .read_only });
-    try tmp.dir.access("sa_vendor/deps/example/app/index.sa", .{ .mode = .read_only });
-    try tmp.dir.access("sa_vendor/deps/example/tool/index.sa", .{ .mode = .read_only });
-    try tmp.dir.access("sa.sum", .{ .mode = .read_only });
+    try tmp.dir.access(std.testing.io, "sa_vendor/deps/example/shared/index.sa", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "sa_vendor/deps/example/app/index.sa", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "sa_vendor/deps/example/tool/index.sa", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "sa.sum", .{ .read = true });
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
@@ -4764,16 +4764,16 @@ test "workspace install aggregates member manifests at root and pkg install fall
 }
 
 test "package preflight rejects tampered project sum as structured trap" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("app/src");
-    try tmp.dir.makePath("app/deps/example/pkg");
+    try tmp.dir.createDirPath(std.testing.io, "app/src");
+    try tmp.dir.createDirPath(std.testing.io, "app/deps/example/pkg");
     try writeSource(tmp.dir, "app/src/main.sa",
         \\@main() -> i32:
         \\return 0
@@ -4783,7 +4783,7 @@ test "package preflight rejects tampered project sum as structured trap" {
         \\return 42
     );
 
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/deps/example/pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "app/deps/example/pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
     var pkg_report = try saasm.pkg.audit.auditPackage(std.testing.allocator, "deps/example/pkg", "HEAD", pkg_root, &.{});
     defer pkg_report.deinit(std.testing.allocator);
@@ -4796,13 +4796,13 @@ test "package preflight rejects tampered project sum as structured trap" {
     defer std.testing.allocator.free(manifest_source);
     try writeSource(tmp.dir, "app/sa.mod", manifest_source);
 
-    var app_dir = try tmp.dir.openDir("app", .{});
+    var app_dir = try tmp.dir.openDir(std.testing.io, "app", .{});
     defer app_dir.close();
     try app_dir.setAsCwd();
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const install_argv = [_][]const u8{ "sa", "install" };
@@ -4819,7 +4819,7 @@ test "package preflight rejects tampered project sum as structured trap" {
         \\deps/example/pkg @HEAD sha256:0000000000000000000000000000000000000000000000000000000000000000
         \\
     ;
-    try writeSource(std.fs.cwd(), "sa.sum", bad_sum);
+    try writeSource(sio.cwd(), "sa.sum", bad_sum);
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
@@ -4837,16 +4837,16 @@ test "package preflight rejects tampered project sum as structured trap" {
 }
 
 test "PkgMgr-Confirm-NonTty rejects risky package preflight before build output" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("app/src");
-    try tmp.dir.makePath("app/sa_vendor/risky/pkg");
+    try tmp.dir.createDirPath(std.testing.io, "app/src");
+    try tmp.dir.createDirPath(std.testing.io, "app/sa_vendor/risky/pkg");
     try writeSource(tmp.dir, "app/src/main.sa",
         \\@main() -> i32:
         \\return 0
@@ -4855,18 +4855,18 @@ test "PkgMgr-Confirm-NonTty rejects risky package preflight before build output"
         \\call @sys_net_tx(*BUF, 4)
         \\
     );
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/risky/pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "app/sa_vendor/risky/pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
     try writeManifestForPackage(tmp.dir, "app", "risky/pkg", pkg_root, "");
     try writeProjectSum(tmp.dir, "app");
 
-    var app_dir = try tmp.dir.openDir("app", .{});
+    var app_dir = try tmp.dir.openDir(std.testing.io, "app", .{});
     defer app_dir.close();
     try app_dir.setAsCwd();
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     var input = std.io.fixedBufferStream("");
@@ -4881,20 +4881,20 @@ test "PkgMgr-Confirm-NonTty rejects risky package preflight before build output"
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"MissingTtyForConfirmation\""));
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("blocked.out", .{ .mode = .read_only }));
+    try std.testing.expectError(error.FileNotFound, sio.cwd().access("blocked.out", .{ .read = true }));
 }
 
 test "PkgMgr-Confirm-Tty accepts exact URL through compile preflight" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("app/src");
-    try tmp.dir.makePath("app/sa_vendor/risky/pkg");
+    try tmp.dir.createDirPath(std.testing.io, "app/src");
+    try tmp.dir.createDirPath(std.testing.io, "app/sa_vendor/risky/pkg");
     try writeSource(tmp.dir, "app/src/main.sa",
         \\@main() -> i32:
         \\return 0
@@ -4903,18 +4903,18 @@ test "PkgMgr-Confirm-Tty accepts exact URL through compile preflight" {
         \\call @sys_net_tx(*BUF, 4)
         \\
     );
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/risky/pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "app/sa_vendor/risky/pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
     try writeManifestForPackage(tmp.dir, "app", "risky/pkg", pkg_root, "");
     try writeProjectSum(tmp.dir, "app");
 
-    var app_dir = try tmp.dir.openDir("app", .{});
+    var app_dir = try tmp.dir.openDir(std.testing.io, "app", .{});
     defer app_dir.close();
     try app_dir.setAsCwd();
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     var input = std.io.fixedBufferStream("risky/pkg\n");
@@ -4933,16 +4933,16 @@ test "PkgMgr-Confirm-Tty accepts exact URL through compile preflight" {
 }
 
 test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("app/src");
-    try tmp.dir.makePath("app/sa_vendor/ci/pkg");
+    try tmp.dir.createDirPath(std.testing.io, "app/src");
+    try tmp.dir.createDirPath(std.testing.io, "app/sa_vendor/ci/pkg");
     try writeSource(tmp.dir, "app/src/main.sa",
         \\@main() -> i32:
         \\return 0
@@ -4951,7 +4951,7 @@ test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives"
         \\call @sys_net_tx(*BUF, 4)
         \\
     );
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/ci/pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "app/sa_vendor/ci/pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
 
     const bad_manifest =
@@ -4960,13 +4960,13 @@ test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives"
     ;
     try writeSource(tmp.dir, "app/sa.mod", bad_manifest);
 
-    var app_dir = try tmp.dir.openDir("app", .{});
+    var app_dir = try tmp.dir.openDir(std.testing.io, "app", .{});
     defer app_dir.close();
     try app_dir.setAsCwd();
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const run_ci_argv = [_][]const u8{ "sa", "run", "src/main.sa", "--ci", "--json" };
@@ -4980,7 +4980,7 @@ test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives"
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UpstreamShaMismatch\""));
 
     try original_cwd.setAsCwd();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     try writeManifestForPackage(tmp.dir, "app", "ci/pkg", pkg_root, "");
     try app_dir.setAsCwd();
 
@@ -4997,16 +4997,16 @@ test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives"
 }
 
 test "PkgMgr-Offline-Build uses vendored sources and project sum" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("app/src");
-    try tmp.dir.makePath("app/sa_vendor/safe/pkg");
+    try tmp.dir.createDirPath(std.testing.io, "app/src");
+    try tmp.dir.createDirPath(std.testing.io, "app/sa_vendor/safe/pkg");
     try writeSource(tmp.dir, "app/src/main.sa",
         \\@main() -> i32:
         \\return 0
@@ -5015,18 +5015,18 @@ test "PkgMgr-Offline-Build uses vendored sources and project sum" {
         \\@pkg_value() -> i32:
         \\return 42
     );
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "app/sa_vendor/safe/pkg");
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "app/sa_vendor/safe/pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
     try writeManifestForPackage(tmp.dir, "app", "safe/pkg", pkg_root, "");
     try writeProjectSum(tmp.dir, "app");
 
-    var app_dir = try tmp.dir.openDir("app", .{});
+    var app_dir = try tmp.dir.openDir(std.testing.io, "app", .{});
     defer app_dir.close();
     try app_dir.setAsCwd();
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "src/main.sa", "--offline" };
@@ -5042,12 +5042,12 @@ test "PkgMgr-Offline-Build uses vendored sources and project sum" {
 }
 
 test "build and run json diagnostics emit structured success metrics on stderr" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "json_success.sa",
@@ -5055,9 +5055,9 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
         \\return 7
     );
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "json_success.sa", "--json" };
@@ -5139,15 +5139,15 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
 }
 
 test "graph and size cli emit structured reports for a tiny project" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("src");
+    try tmp.dir.createDirPath(std.testing.io, "src");
     try writeSource(tmp.dir, "src/main.sa",
         \\@helper(value: i32) -> i32:
         \\    return value
@@ -5156,9 +5156,9 @@ test "graph and size cli emit structured reports for a tiny project" {
         \\    return value
     );
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const graph_argv = [_][]const u8{ "sa", "graph", "--json" };
@@ -5217,9 +5217,9 @@ test "llvmc backend compilation and verification on rosetta demos" {
 }
 
 test "agent capability: check verdict cache and affected help" {
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const help_argv = [_][]const u8{ "sa", "--help" };
@@ -5253,9 +5253,9 @@ test "agent capability: check verdict cache and affected help" {
 }
 
 test "agent capability: affected selects impacted tests" {
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     // First run establishes baseline (no prior function hashes in this process).
@@ -5277,12 +5277,12 @@ test "agent capability: affected selects impacted tests" {
 }
 
 test "sab with corrupted param_ids traps CorruptedSignature without panic or text fallback" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     // The program needs a function with parameters so param_ids is populated
@@ -5304,14 +5304,14 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
     // process stdout, which corrupts the `zig build` --listen test protocol
     // and hangs the run.
     const emit_argv = [_][]const u8{ "sa", "check", "params.sa", "--emit-sab", "params.sab" };
-    var emit_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    var emit_stdout = std.array_list.Managed(u8).init(std.testing.allocator);
     defer emit_stdout.deinit();
-    var emit_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    var emit_stderr = std.array_list.Managed(u8).init(std.testing.allocator);
     defer emit_stderr.deinit();
     const emit_code = try saasm.cli.executeWithWriters(std.testing.allocator, emit_argv[0..], emit_stdout.writer(), emit_stderr.writer());
     try std.testing.expectEqual(@as(u8, 0), emit_code);
 
-    const sab_file = try tmp.dir.openFile("params.sab", .{});
+    const sab_file = try tmp.dir.openFile(std.testing.io, "params.sab", .{});
     const sab_bytes = try sab_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     sab_file.close();
     defer std.testing.allocator.free(sab_bytes);
@@ -5377,9 +5377,9 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
             try writeBytes(tmp.dir, bad_name, bad_bytes);
         }
 
-        var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+        var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
         defer stdout_buffer.deinit();
-        var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+        var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
         defer stderr_buffer.deinit();
         const argv = [_][]const u8{ "sa", "check", bad_name };
         const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer());

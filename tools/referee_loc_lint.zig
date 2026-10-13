@@ -23,7 +23,7 @@ pub fn main() void {
     var exit_code: u8 = 0;
     defer std.process.exit(exit_code);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     const stdout = std.io.getStdOut().writer();
@@ -36,7 +36,7 @@ pub fn main() void {
     };
 
     const tokei_argv = [_][]const u8{ "tokei", referee_paths[0], referee_paths[1] };
-    const tokei_result = std.process.Child.run(.{
+    const tokei_result = sio.Child.run(.{
         .allocator = allocator,
         .argv = tokei_argv[0..],
     }) catch |err| {
@@ -61,7 +61,7 @@ pub fn main() void {
     defer allocator.free(tokei_result.stderr);
 
     switch (tokei_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 reportTokeiExitError(stderr, code, tokei_result.stdout, tokei_result.stderr) catch {};
                 exit_code = 1;
@@ -110,14 +110,14 @@ fn countRefereeLocFallback(allocator: std.mem.Allocator) !TokeiTotals {
 
 fn countPathLocFallback(allocator: std.mem.Allocator, path: []const u8, totals: *TokeiTotals) !void {
     if (std.mem.endsWith(u8, path, ".zig")) {
-        const contents = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+        const contents = try sio.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
         defer allocator.free(contents);
         totals.files += 1;
         countSourceLines(contents, totals);
         return;
     }
 
-    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
+    var dir = try sio.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
 
     var walker = try dir.walk(allocator);
@@ -148,7 +148,7 @@ fn countSourceLines(contents: []const u8, totals: *TokeiTotals) void {
 }
 
 fn readTaskCeiling(allocator: std.mem.Allocator) !usize {
-    const contents = try std.fs.cwd().readFileAlloc(allocator, tasks_path, 1 << 20);
+    const contents = try sio.cwd().readFileAlloc(allocator, tasks_path, 1 << 20);
     defer allocator.free(contents);
 
     var lines = std.mem.splitScalar(u8, contents, '\n');
@@ -158,7 +158,7 @@ fn readTaskCeiling(allocator: std.mem.Allocator) !usize {
         if (std.mem.indexOf(u8, line, "6.27 Referee LOC lint") == null) continue;
 
         const marker = std.mem.indexOf(u8, line, "≤") orelse return error.CeilingParseFailed;
-        const after_marker = std.mem.trimLeft(u8, line[marker + "≤".len ..], " \t");
+        const after_marker = std.mem.trimStart(u8, line[marker + "≤".len ..], " \t");
         const ceiling = try parseUnsignedPrefix(after_marker);
         return ceiling;
     }
@@ -174,7 +174,7 @@ fn parseUnsignedPrefix(slice: []const u8) !usize {
 }
 
 fn stripAnsiEscapes(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     errdefer result.deinit();
     var i: usize = 0;
     while (i < input.len) {
@@ -261,12 +261,12 @@ fn reportTokeiExitError(writer: anytype, code: u8, stdout: []const u8, stderr: [
     try printCapturedOutput(writer, stdout, stderr);
 }
 
-fn reportTokeiTermError(writer: anytype, term: std.process.Child.Term, stdout: []const u8, stderr: []const u8) !void {
+fn reportTokeiTermError(writer: anytype, term: sio.Child.Term, stdout: []const u8, stderr: []const u8) !void {
     switch (term) {
         .Signal => |sig| try writer.print("[referee-loc] error: `tokei {s}` was terminated by signal {d}\n", .{ referee_scope, sig }),
         .Stopped => |sig| try writer.print("[referee-loc] error: `tokei {s}` was stopped by signal {d}\n", .{ referee_scope, sig }),
         .Unknown => |code| try writer.print("[referee-loc] error: `tokei {s}` ended unexpectedly with code {d}\n", .{ referee_scope, code }),
-        .Exited => |code| try writer.print("[referee-loc] error: `tokei {s}` exited with status {d}\n", .{ referee_scope, code }),
+        .exited => |code| try writer.print("[referee-loc] error: `tokei {s}` exited with status {d}\n", .{ referee_scope, code }),
     }
     try printCapturedOutput(writer, stdout, stderr);
 }

@@ -5,7 +5,7 @@ const std = @import("std");
 // older in-flight/queued requests are recognized as superseded and skipped.
 // This is entry-level cooperative cancellation, not mid-compile interruption.
 
-var gen_mutex: std.Thread.Mutex = .{};
+var gen_mutex: std.atomic.Mutex = .unlocked;
 var gen_map: ?std.StringHashMap(u64) = null;
 
 fn genMap() *std.StringHashMap(u64) {
@@ -19,7 +19,9 @@ fn genMap() *std.StringHashMap(u64) {
 // generation should proceed, false if a newer one was already registered.
 pub fn registerGeneration(agent_id: []const u8, generation: u64) bool {
     if (agent_id.len == 0) return true;
-    gen_mutex.lock();
+    while (!gen_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer gen_mutex.unlock();
     const map = genMap();
     const gop = map.getOrPut(agent_id) catch return true;
@@ -37,7 +39,9 @@ pub fn registerGeneration(agent_id: []const u8, generation: u64) bool {
 // Check whether this request's generation is still current.
 pub fn generationIsCurrent(agent_id: []const u8, generation: u64) bool {
     if (agent_id.len == 0) return true;
-    gen_mutex.lock();
+    while (!gen_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer gen_mutex.unlock();
     if (genMap().get(agent_id)) |latest| {
         return generation >= latest;
@@ -49,7 +53,9 @@ pub fn generationIsCurrent(agent_id: []const u8, generation: u64) bool {
 /// known value. Returns the new generation.
 pub fn cancelAgent(agent_id: []const u8) u64 {
     if (agent_id.len == 0) return 0;
-    gen_mutex.lock();
+    while (!gen_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer gen_mutex.unlock();
     const map = genMap();
     const gop = map.getOrPut(agent_id) catch return 0;
@@ -114,7 +120,7 @@ test "json field parsing" {
 
 // Per-agent in-flight quota: prevents a single agent from occupying all daemon
 // workers and starving others. agent_id == "" is unlimited.
-var agent_inflight_mutex: std.Thread.Mutex = .{};
+var agent_inflight_mutex: std.atomic.Mutex = .unlocked;
 var agent_inflight_map: ?std.StringHashMap(u32) = null;
 var per_agent_limit: u32 = 4;
 
@@ -130,14 +136,18 @@ fn agentInflightMap() *std.StringHashMap(u32) {
 }
 
 pub fn setPerAgentLimit(limit: u32) void {
-    agent_inflight_mutex.lock();
+    while (!agent_inflight_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer agent_inflight_mutex.unlock();
     per_agent_limit = limit;
 }
 
 pub fn acquireSlot(agent_id: []const u8) bool {
     if (agent_id.len == 0) return true;
-    agent_inflight_mutex.lock();
+    while (!agent_inflight_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer agent_inflight_mutex.unlock();
     const map = agentInflightMap();
     const gop = map.getOrPut(agent_id) catch return true;
@@ -157,7 +167,9 @@ pub fn acquireSlot(agent_id: []const u8) bool {
 
 pub fn releaseSlot(agent_id: []const u8) void {
     if (agent_id.len == 0) return;
-    agent_inflight_mutex.lock();
+    while (!agent_inflight_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer agent_inflight_mutex.unlock();
     const map = agentInflightMap();
     if (map.getPtr(agent_id)) |v| {

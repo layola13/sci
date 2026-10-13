@@ -17,17 +17,17 @@ test "sum flattens one hundred transitive dependencies within budget" {
     var hashes = try std.testing.allocator.alloc([32]u8, dep_count);
     defer std.testing.allocator.free(hashes);
 
-    try tmp.dir.makePath("pkgs");
+    try tmp.dir.createDirPath(std.testing.io, "pkgs");
     for (0..dep_count) |idx| {
         const rel = try std.fmt.allocPrint(std.testing.allocator, "pkgs/pkg{d:0>3}", .{idx});
         defer std.testing.allocator.free(rel);
-        try tmp.dir.makePath(rel);
+        try tmp.dir.createDirPath(std.testing.io, rel);
         const source_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/index.sa", .{rel});
         defer std.testing.allocator.free(source_path);
         const source = try std.fmt.allocPrint(std.testing.allocator, "@pkg{d:0>3}() -> i32:\nreturn {d}\n", .{ idx, idx });
         defer std.testing.allocator.free(source);
-        try tmp.dir.writeFile(.{ .sub_path = source_path, .data = source });
-        roots[idx] = try tmp.dir.realpathAlloc(std.testing.allocator, rel);
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = source_path, .data = source });
+        roots[idx] = try tmp.dir.realPathFileAlloc(std.testing.io, rel, std.testing.allocator);
     }
 
     var reverse_idx = dep_count;
@@ -43,13 +43,13 @@ test "sum flattens one hundred transitive dependencies within budget" {
             defer std.testing.allocator.free(nested_manifest);
             const manifest_path = try std.fmt.allocPrint(std.testing.allocator, "pkgs/pkg{d:0>3}/sa.mod", .{reverse_idx});
             defer std.testing.allocator.free(manifest_path);
-            try tmp.dir.writeFile(.{ .sub_path = manifest_path, .data = nested_manifest });
+            try tmp.dir.writeFile(std.testing.io, .{ .sub_path = manifest_path, .data = nested_manifest });
         }
 
         hashes[reverse_idx] = try audit.hashPackageSource(std.testing.allocator, roots[reverse_idx]);
     }
 
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(project_root);
     const root_hex = std.fmt.bytesToHex(hashes[0], .lower);
     const manifest_source = try std.fmt.allocPrint(

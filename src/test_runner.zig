@@ -4,16 +4,17 @@ const test_executor = @import("test_executor.zig");
 const test_formatter = @import("test_formatter.zig");
 const test_meta = @import("test_meta.zig");
 const test_result = @import("test_result.zig");
+const sio = @import("sa_io.zig");
 
 const SharedState = struct {
     executor: test_executor.TestExecutor,
     tests: []const test_meta.TestDescAndFn,
     next_index: std.atomic.Value(usize),
     results: []?test_result.TestOutcome,
-    stdout: std.io.AnyWriter,
-    stderr: std.io.AnyWriter,
-    results_mutex: std.Thread.Mutex = .{},
-    output_mutex: std.Thread.Mutex = .{},
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+    results_mutex: std.atomic.Mutex = .unlocked,
+    output_mutex: std.atomic.Mutex = .unlocked,
     summary: test_formatter.RunSummary = .{},
 };
 
@@ -31,12 +32,16 @@ fn workerMain(shared: *SharedState) void {
         const test_case = shared.tests[index];
         const outcome = shared.executor.run(test_case);
 
-        shared.results_mutex.lock();
+        while (!shared.results_mutex.tryLock()) {
+            std.Thread.yield() catch {};
+        }
         shared.results[index] = outcome;
         shared.summary.record(outcome);
         shared.results_mutex.unlock();
 
-        shared.output_mutex.lock();
+        while (!shared.output_mutex.tryLock()) {
+            std.Thread.yield() catch {};
+        }
         defer shared.output_mutex.unlock();
         _ = test_formatter.writeOutcome(shared.stdout, shared.stderr, test_case, outcome) catch |err| {
             // Test result state is recorded above; formatter output is diagnostic-only.
@@ -48,13 +53,13 @@ fn workerMain(shared: *SharedState) void {
 pub fn run(
     allocator: std.mem.Allocator,
     exe_path: []const u8,
-    cwd_dir: std.fs.Dir,
+    cwd_dir: sio.Dir,
     test_list: *test_meta.TestList,
     selection: test_meta.TestSelection,
     trace_panic: bool,
     jobs: ?usize,
-    stdout: std.io.AnyWriter,
-    stderr: std.io.AnyWriter,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
 ) !u8 {
     defer test_list.deinit(allocator);
 

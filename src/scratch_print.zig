@@ -1,20 +1,21 @@
 const std = @import("std");
 const saasm = @import("saasm");
+const sio = @import("sa_io.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     const suite_path = "tests/unit_framework/feature_suite.sa";
-    var file = try std.fs.cwd().openFile(suite_path, .{});
+    var file = try sio.cwd().openFile(suite_path, .{});
     defer file.close();
     const source = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
     defer allocator.free(source);
 
-    const std_root = try std.fs.cwd().realpathAlloc(allocator, "sa_std");
+    const std_root = try sio.cwd().realpathAlloc(allocator, "sa_std");
     defer allocator.free(std_root);
-    const project_root = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const project_root = try sio.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(project_root);
 
     var error_ctx = saasm.flattener.ErrorContext{};

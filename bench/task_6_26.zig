@@ -18,7 +18,7 @@ const Program = struct {
     }
 };
 
-fn appendLine(list: *std.ArrayList(u8), comptime fmt: []const u8, args: anytype) !void {
+fn appendLine(list: *std.array_list.Managed(u8), comptime fmt: []const u8, args: anytype) !void {
     try list.writer().print(fmt, args);
     try list.append('\n');
 }
@@ -44,7 +44,7 @@ fn parseLineGoal(args: []const []const u8) !usize {
 }
 
 fn buildProgram(allocator: std.mem.Allocator, line_goal: usize) !Program {
-    var source = try std.ArrayList(u8).initCapacity(allocator, line_goal * 32);
+    var source = try std.array_list.Managed(u8).initCapacity(allocator, line_goal * 32);
     errdefer source.deinit();
 
     const repeat_count = if (line_goal > fixed_lines) line_goal - fixed_lines else 1;
@@ -126,7 +126,7 @@ fn runOnce(allocator: std.mem.Allocator, source: []const u8) !struct {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 

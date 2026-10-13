@@ -30,7 +30,7 @@ fn udpMulticastV6JoinPermitted() bool {
     return std.os.linux.E.init(rc) == .SUCCESS;
 }
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
+fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
@@ -53,12 +53,12 @@ fn unsetEnvVarZ(name: [:0]const u8) void {
 }
 
 fn saveEnvVarZ(allocator: std.mem.Allocator, name: []const u8) !?[:0]u8 {
-    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+    const value = sio.getEnvVarOwned(allocator, name) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return null,
         else => return err,
     };
     defer allocator.free(value);
-    return try allocator.dupeZ(u8, value);
+    return try allocator.dupeSentinel(u8, value, 0);
 }
 
 fn restoreEnvVarZ(name: [:0]const u8, value: ?[:0]const u8) !void {
@@ -72,7 +72,7 @@ fn restoreEnvVarZ(name: [:0]const u8, value: ?[:0]const u8) !void {
 fn saTestJobsArg(allocator: std.mem.Allocator) ![]const u8 {
     const env_names = [_][]const u8{ "SA_TEST_JOBS", "SA_ZIG_JOBS", "ZIG_BUILD_JOBS" };
     for (env_names) |name| {
-        if (std.process.getEnvVarOwned(allocator, name)) |value| {
+        if (sio.getEnvVarOwned(allocator, name)) |value| {
             if (value.len != 0) return value;
             allocator.free(value);
         } else |_| {}
@@ -89,7 +89,7 @@ fn saTestJobsArgForPath(allocator: std.mem.Allocator, path: []const u8) ![]const
 }
 
 fn hasEnvVar(allocator: std.mem.Allocator, name: []const u8) bool {
-    const value = std.process.getEnvVarOwned(allocator, name) catch return false;
+    const value = sio.getEnvVarOwned(allocator, name) catch return false;
     allocator.free(value);
     return true;
 }
@@ -101,7 +101,7 @@ fn parsePositiveUsize(text: []const u8) ?usize {
 }
 
 fn saUnitFileJobs() usize {
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_UNIT_FILE_JOBS") catch return 1;
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_UNIT_FILE_JOBS") catch return 1;
     defer std.heap.page_allocator.free(value);
     if (parsePositiveUsize(value)) |requested| {
         const cpu_count = std.Thread.getCpuCount() catch 1;
@@ -111,7 +111,7 @@ fn saUnitFileJobs() usize {
 }
 
 fn saBinaryPath(allocator: std.mem.Allocator) ?[]u8 {
-    const value = std.process.getEnvVarOwned(allocator, "SA_BIN") catch return null;
+    const value = sio.getEnvVarOwned(allocator, "SA_BIN") catch return null;
     if (value.len == 0) {
         allocator.free(value);
         return null;
@@ -203,7 +203,7 @@ fn isSaTestSpace(c: u8) bool {
 }
 
 fn trimSaTestSpace(text: []const u8) []const u8 {
-    return std.mem.trimLeft(u8, text, " \t\r");
+    return std.mem.trimStart(u8, text, " \t\r");
 }
 
 fn consumeSaTestKeyword(rest: *[]const u8, keyword: []const u8) bool {
@@ -253,21 +253,21 @@ fn parseSaTestDecl(line: []const u8) ?ParsedSaTestDecl {
     return null;
 }
 
-fn appendPassMarker(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), name: []const u8) !void {
+fn appendPassMarker(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), name: []const u8) !void {
     const marker = try std.fmt.allocPrint(allocator, "[PASS] {s}", .{name});
     errdefer allocator.free(marker);
     try list.append(marker);
 }
 
 fn buildSaTestExpectations(allocator: std.mem.Allocator, path: []const u8) !SaTestExpectations {
-    const source = try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    const source = try sio.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
     defer allocator.free(source);
 
-    var expected_passes = std.ArrayList([]const u8).init(allocator);
+    var expected_passes = std.array_list.Managed([]const u8).init(allocator);
     defer expected_passes.deinit();
     errdefer freeStringList(allocator, expected_passes.items);
 
-    var expected_absent_passes = std.ArrayList([]const u8).init(allocator);
+    var expected_absent_passes = std.array_list.Managed([]const u8).init(allocator);
     defer expected_absent_passes.deinit();
     errdefer freeStringList(allocator, expected_absent_passes.items);
 
@@ -328,16 +328,16 @@ fn runSaTestFileWithExpectations(path: []const u8, expectations: SaTestExpectati
 }
 
 fn runSaTestFileInProcess(path: []const u8, expectations: SaTestExpectations) !void {
-    const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, path);
+    const suite_path = try sio.cwd().realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
     defer std.testing.allocator.free(jobs_arg);
     const start_ns = startSaFileLog(path, "in-process", jobs_arg, 0, 0);
-    errdefer |err| errorSaFileLog(path, "in-process", 0, 0, err);
+    errdefer errorSaFileLog(path, "in-process", 0, 0, err);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const argv = [_][]const u8{ "sa", "test", suite_path, "--jobs", jobs_arg, "--trace-panic" };
@@ -368,25 +368,25 @@ const SaTestWorkerContext = struct {
     tasks: []const SaTestTask,
     next_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     failed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    output_mutex: std.Thread.Mutex = .{},
+    output_mutex: std.atomic.Mutex = .{},
 };
 
-fn externalSaTestCode(term: std.process.Child.Term) u8 {
+fn externalSaTestCode(term: sio.Child.Term) u8 {
     return switch (term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => 255,
     };
 }
 
 fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask, index: usize, total: usize) !void {
-    const suite_path = try std.fs.cwd().realpathAlloc(std.heap.page_allocator, task.path);
+    const suite_path = try sio.cwd().realpathAlloc(std.heap.page_allocator, task.path);
     defer std.heap.page_allocator.free(suite_path);
     const start_ns = startSaFileLog(task.path, "process", task.jobs_arg, index, total);
-    errdefer |err| errorSaFileLog(task.path, "process", index, total, err);
+    errdefer errorSaFileLog(task.path, "process", index, total, err);
 
     const argv = [_][]const u8{ sa_bin, "test", suite_path, "--jobs", task.jobs_arg, "--trace-panic" };
 
-    const result = try std.process.Child.run(.{
+    const result = try sio.Child.run(.{
         .allocator = std.heap.page_allocator,
         .argv = argv[0..],
         .max_output_bytes = 2 * 1024 * 1024,
@@ -487,16 +487,16 @@ fn clearQueuedSaTestFiles() void {
 
 test "native unit framework suite covers the demo-derived feature matrix" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
-    const suite_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "tests/unit_framework/feature_suite.sa");
+    const suite_path = try sio.cwd().realpathAlloc(std.testing.allocator, "tests/unit_framework/feature_suite.sa");
     defer std.testing.allocator.free(suite_path);
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
     const start_ns = startSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", jobs_arg, 0, 0);
-    errdefer |err| errorSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", 0, 0, err);
+    errdefer errorSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", 0, 0, err);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
     var total_stdout_bytes: usize = 0;
     var total_stderr_bytes: usize = 0;
@@ -538,7 +538,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
         \\    return
         \\
     );
-    const ignored_path = try ignored_tmp.dir.realpathAlloc(std.testing.allocator, "ignored_modes.sa");
+    const ignored_path = try ignored_tmp.dir.realPathFileAlloc(std.testing.io, "ignored_modes.sa", std.testing.allocator);
     defer std.testing.allocator.free(ignored_path);
 
     stdout_buffer.clearRetainingCapacity();
@@ -580,7 +580,7 @@ test "native unit framework suite covers the demo-derived feature matrix" {
 }
 
 test "native unit assertions surface file line expected and got details" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const core_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/core/sa_core.sa");
     defer std.testing.allocator.free(core_path);
@@ -588,7 +588,7 @@ test "native unit assertions surface file line expected and got details" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source = try std.fmt.allocPrint(std.testing.allocator,
@@ -609,14 +609,14 @@ test "native unit assertions surface file line expected and got details" {
     defer std.testing.allocator.free(source);
     try writeSource(tmp.dir, "assert_diag.sa", source);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
     const start_ns = startSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0);
-    errdefer |err| errorSaFileLog("assert_diag.sa", "negative-diagnostic", 0, 0, err);
+    errdefer errorSaFileLog("assert_diag.sa", "negative-diagnostic", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "assert_diag.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
@@ -1408,9 +1408,9 @@ test "queued sa test worker failure returns test error without crashing" {
         \\
     );
 
-    const pass_path = try tmp.dir.realpathAlloc(std.testing.allocator, "queued_pass.sa");
+    const pass_path = try tmp.dir.realPathFileAlloc(std.testing.io, "queued_pass.sa", std.testing.allocator);
     defer std.testing.allocator.free(pass_path);
-    const fail_path = try tmp.dir.realpathAlloc(std.testing.allocator, "queued_fail.sa");
+    const fail_path = try tmp.dir.realPathFileAlloc(std.testing.io, "queued_fail.sa", std.testing.allocator);
     defer std.testing.allocator.free(fail_path);
 
     try enqueueSaTestFile(pass_path, .{
@@ -1427,7 +1427,7 @@ test "queued sa test worker failure returns test error without crashing" {
 }
 
 test "native unit framework exposes standard mock io buffer" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const mock_io_path = try original_cwd.realpathAlloc(std.testing.allocator, "sa_std/testing/mock_io.sa");
     defer std.testing.allocator.free(mock_io_path);
@@ -1435,7 +1435,7 @@ test "native unit framework exposes standard mock io buffer" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const source = try std.fmt.allocPrint(std.testing.allocator,
@@ -1527,14 +1527,14 @@ test "native unit framework exposes standard mock io buffer" {
     defer std.testing.allocator.free(source);
     try writeSource(tmp.dir, "mock_io_test.sa", source);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
     const start_ns = startSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0);
-    errdefer |err| errorSaFileLog("mock_io_test.sa", "in-process", 0, 0, err);
+    errdefer errorSaFileLog("mock_io_test.sa", "in-process", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "mock_io_test.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(

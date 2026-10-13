@@ -6,10 +6,10 @@ const std = @import("std");
 // Level 2 (call-graph): remember last-good per-function body hashes and compute
 // the set of tests that transitively cover changed functions.
 
-var passed_mutex: std.Thread.Mutex = .{};
+var passed_mutex: std.atomic.Mutex = .unlocked;
 var passed_map: ?std.StringHashMap(void) = null;
 
-var fn_mutex: std.Thread.Mutex = .{};
+var fn_mutex: std.atomic.Mutex = .unlocked;
 var fn_hash_map: ?std.StringHashMap([32]u8) = null;
 
 pub var hits: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
@@ -46,7 +46,9 @@ pub fn hashInput(source: []const u8, filter: ?[]const u8) [64]u8 {
 }
 
 pub fn isCachedPass(digest: [64]u8) bool {
-    passed_mutex.lock();
+    while (!passed_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer passed_mutex.unlock();
     const hit = passedMap().contains(&digest);
     if (hit) {
@@ -58,7 +60,9 @@ pub fn isCachedPass(digest: [64]u8) bool {
 }
 
 pub fn recordPass(digest: [64]u8) void {
-    passed_mutex.lock();
+    while (!passed_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer passed_mutex.unlock();
     const owned = std.heap.page_allocator.dupe(u8, &digest) catch return;
     passedMap().put(owned, {}) catch {
@@ -83,7 +87,9 @@ pub fn hashFunctionBody(name: []const u8, body_raw_texts: []const []const u8) [3
 /// Returns true if this function body changed vs the last recorded baseline.
 /// Missing baseline counts as changed (first run establishes baseline later).
 pub fn functionChanged(name: []const u8, digest: [32]u8) bool {
-    fn_mutex.lock();
+    while (!fn_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer fn_mutex.unlock();
     if (fnHashMap().get(name)) |prev| {
         return !std.mem.eql(u8, &prev, &digest);
@@ -92,7 +98,9 @@ pub fn functionChanged(name: []const u8, digest: [32]u8) bool {
 }
 
 pub fn recordFunctionHash(name: []const u8, digest: [32]u8) void {
-    fn_mutex.lock();
+    while (!fn_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer fn_mutex.unlock();
     const map = fnHashMap();
     if (map.getPtr(name)) |slot| {
@@ -106,20 +114,26 @@ pub fn recordFunctionHash(name: []const u8, digest: [32]u8) void {
 }
 
 pub fn hasFunctionBaseline() bool {
-    fn_mutex.lock();
+    while (!fn_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer fn_mutex.unlock();
     return if (fn_hash_map) |*m| m.count() > 0 else false;
 }
 
 pub fn clear() void {
-    passed_mutex.lock();
+    while (!passed_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer passed_mutex.unlock();
     if (passed_map) |*m| {
         var it = m.keyIterator();
         while (it.next()) |k| std.heap.page_allocator.free(k.*);
         m.clearRetainingCapacity();
     }
-    fn_mutex.lock();
+    while (!fn_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer fn_mutex.unlock();
     if (fn_hash_map) |*m| {
         var it = m.keyIterator();
@@ -140,9 +154,9 @@ pub fn buildReverseCallMap(
     allocator: std.mem.Allocator,
     callers: []const []const u8,
     callees: []const []const u8,
-) !std.StringHashMap(std.ArrayList([]const u8)) {
+) !std.StringHashMap(std.array_list.Managed([]const u8)) {
     std.debug.assert(callers.len == callees.len);
-    var rev = std.StringHashMap(std.ArrayList([]const u8)).init(allocator);
+    var rev = std.StringHashMap(std.array_list.Managed([]const u8)).init(allocator);
     errdefer {
         var it = rev.iterator();
         while (it.next()) |e| e.value_ptr.deinit();
@@ -152,7 +166,7 @@ pub fn buildReverseCallMap(
         const gop = try rev.getOrPut(callee);
         if (!gop.found_existing) {
             gop.key_ptr.* = callee;
-            gop.value_ptr.* = std.ArrayList([]const u8).init(allocator);
+            gop.value_ptr.* = std.array_list.Managed([]const u8).init(allocator);
         }
         try gop.value_ptr.append(caller);
     }
@@ -164,11 +178,11 @@ pub fn buildReverseCallMap(
 pub fn impactedFunctions(
     allocator: std.mem.Allocator,
     changed: []const []const u8,
-    rev: *const std.StringHashMap(std.ArrayList([]const u8)),
+    rev: *const std.StringHashMap(std.array_list.Managed([]const u8)),
 ) !std.StringHashMap(void) {
     var out = std.StringHashMap(void).init(allocator);
     errdefer out.deinit();
-    var queue = std.ArrayList([]const u8).init(allocator);
+    var queue = std.array_list.Managed([]const u8).init(allocator);
     defer queue.deinit();
     for (changed) |name| {
         try out.put(name, {});

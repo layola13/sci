@@ -110,11 +110,11 @@ pub fn opcodeByte(op: Opcode) u8 {
     return @intFromEnum(op);
 }
 
-pub fn writeOpcode(writer: anytype, op: Opcode) !void {
+pub fn writeOpcode(writer: *std.Io.Writer, op: Opcode) !void {
     try writer.writeByte(opcodeByte(op));
 }
 
-pub fn writePrefixedOpcode(writer: anytype, prefix: Opcode, subopcode: anytype) !void {
+pub fn writePrefixedOpcode(writer: *std.Io.Writer, prefix: Opcode, subopcode: anytype) !void {
     try writeOpcode(writer, prefix);
     try encoder.writeUleb32(writer, @intFromEnum(subopcode));
 }

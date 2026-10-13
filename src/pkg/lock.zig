@@ -41,7 +41,7 @@ fn rejectGlobalProjectRoot(project_root: []const u8) !void {
 
 fn projectLockPath(allocator: std.mem.Allocator, project_root: []const u8) ![]u8 {
     try rejectGlobalProjectRoot(project_root);
-    const canonical_root = try std.fs.cwd().realpathAlloc(allocator, project_root);
+    const canonical_root = try sio.cwd().realpathAlloc(allocator, project_root);
     defer allocator.free(canonical_root);
     try rejectGlobalProjectRoot(canonical_root);
     return try std.fs.path.join(allocator, &.{ canonical_root, "sa.lock" });
@@ -68,7 +68,7 @@ fn emptyLockFile(allocator: std.mem.Allocator) !manifest.LockFile {
 }
 
 fn readProjectLock(allocator: std.mem.Allocator, path: []const u8) !manifest.LockFile {
-    const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| switch (err) {
+    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| switch (err) {
         error.FileNotFound => return try emptyLockFile(allocator),
         else => return err,
     };
@@ -177,12 +177,12 @@ fn updateEntry(
 }
 
 fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file: manifest.LockFile) !void {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
     try manifest.writeLock(out.writer(), lock_file);
 
     if (std.fs.path.dirname(path)) |parent| {
-        if (parent.len != 0) try std.fs.cwd().makePath(parent);
+        if (parent.len != 0) try sio.cwd().makePath(parent);
     }
 
     var random: [8]u8 = undefined;
@@ -191,10 +191,10 @@ fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file
     const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp.{s}", .{ path, suffix[0..] });
     defer allocator.free(tmp_path);
 
-    var file = try std.fs.cwd().createFile(tmp_path, .{ .truncate = true });
+    var file = try sio.cwd().createFile(tmp_path, .{ .truncate = true });
     var file_open = true;
     errdefer if (file_open) file.close();
-    errdefer std.fs.cwd().deleteFile(tmp_path) catch |err| {
+    errdefer sio.cwd().deleteFile(tmp_path) catch |err| {
         // Atomic-write rollback is best-effort after the primary error is already being returned.
         _ = @errorName(err);
     };
@@ -204,9 +204,9 @@ fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file
     file_open = false;
 
     if (std.fs.path.isAbsolute(path)) {
-        try std.fs.renameAbsolute(tmp_path, path);
+        try sio.renameAbsolute(tmp_path, path);
     } else {
-        try std.fs.cwd().rename(tmp_path, path);
+        try sio.cwd().rename(tmp_path, path);
     }
 }
 
@@ -221,7 +221,7 @@ pub fn updateProjectLock(
     errdefer allocator.free(lock_path);
     const target_key = if (options.target_key) |key| try allocator.dupe(u8, key) else try defaultTargetKey(allocator);
     errdefer allocator.free(target_key);
-    const acknowledged_at_utc = options.acknowledged_at_utc orelse std.time.timestamp();
+    const acknowledged_at_utc = options.acknowledged_at_utc orelse sio.timestampSeconds();
 
     var lock_file = try readProjectLock(allocator, lock_path);
     defer lock_file.deinit(allocator);
@@ -271,7 +271,7 @@ pub fn matchingEntryHasTargetHash(lock_file: manifest.LockFile, package_url: []c
 }
 
 fn expectLockEntryCount(path: []const u8, expected: usize) !manifest.LockFile {
-    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, path, 1024 * 1024);
+    const bytes = try sio.cwd().readFileAlloc(std.testing.allocator, path, 1024 * 1024);
     defer std.testing.allocator.free(bytes);
     var parsed = try manifest.parseLock(std.testing.allocator, bytes);
     errdefer parsed.deinit(std.testing.allocator);
@@ -282,11 +282,11 @@ fn expectLockEntryCount(path: []const u8, expected: usize) !manifest.LockFile {
 test "updateProjectLock creates a project-local lock and is idempotent" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.makePath("pkg");
-    try tmp.dir.writeFile(.{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\n" });
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "pkg");
+    try tmp.dir.createDirPath(std.testing.io, "pkg");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\n" });
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(project_root);
 
     var report = try audit.auditPackage(std.testing.allocator, "github.com/example/pkg", "v1", pkg_root, &.{.io_write});
@@ -302,7 +302,7 @@ test "updateProjectLock creates a project-local lock and is idempotent" {
     try std.testing.expect(first.changed);
     try std.testing.expectEqual(@as(u8, 1), first.target_count);
 
-    const before = try std.fs.cwd().readFileAlloc(std.testing.allocator, first.lock_path, 1024 * 1024);
+    const before = try sio.cwd().readFileAlloc(std.testing.allocator, first.lock_path, 1024 * 1024);
     defer std.testing.allocator.free(before);
 
     var second = try updateProjectLock(std.testing.allocator, project_root, report, artifact_hash, .{
@@ -313,7 +313,7 @@ test "updateProjectLock creates a project-local lock and is idempotent" {
     try std.testing.expect(!second.created_entry);
     try std.testing.expect(!second.changed);
 
-    const after = try std.fs.cwd().readFileAlloc(std.testing.allocator, second.lock_path, 1024 * 1024);
+    const after = try sio.cwd().readFileAlloc(std.testing.allocator, second.lock_path, 1024 * 1024);
     defer std.testing.allocator.free(after);
     try std.testing.expectEqualStrings(before, after);
 
@@ -325,11 +325,11 @@ test "updateProjectLock creates a project-local lock and is idempotent" {
 test "updateProjectLock clears stale target hashes when source changes" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.makePath("pkg");
-    try tmp.dir.writeFile(.{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\n" });
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "pkg");
+    try tmp.dir.createDirPath(std.testing.io, "pkg");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\n" });
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
-    const project_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const project_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(project_root);
 
     var first_report = try audit.auditPackage(std.testing.allocator, "github.com/example/pkg", "v1", pkg_root, &.{.io_write});
@@ -340,7 +340,7 @@ test "updateProjectLock clears stale target hashes when source changes" {
     defer wasm.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(u8, 2), wasm.target_count);
 
-    try tmp.dir.writeFile(.{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\ncall @sys_time_now()\n" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pkg/index.sa", .data = "call @sys_print(*MSG, 2)\ncall @sys_time_now()\n" });
     var changed_report = try audit.auditPackage(std.testing.allocator, "github.com/example/pkg", "v1", pkg_root, &.{ .io_write, .time_now });
     defer changed_report.deinit(std.testing.allocator);
     try std.testing.expectError(error.UpstreamShaMismatch, updateProjectLock(std.testing.allocator, project_root, changed_report, hashArtifactBytes("native-v2"), .{ .target_key = "native" }));
@@ -360,9 +360,9 @@ test "updateProjectLock clears stale target hashes when source changes" {
 test "updateProjectLock rejects global state paths" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.makePath("pkg");
-    try tmp.dir.writeFile(.{ .sub_path = "pkg/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
-    const pkg_root = try tmp.dir.realpathAlloc(std.testing.allocator, "pkg");
+    try tmp.dir.createDirPath(std.testing.io, "pkg");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pkg/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
+    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, "pkg", std.testing.allocator);
     defer std.testing.allocator.free(pkg_root);
     var report = try audit.auditPackage(std.testing.allocator, "github.com/example/pkg", "v1", pkg_root, &.{});
     defer report.deinit(std.testing.allocator);

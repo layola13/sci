@@ -10,7 +10,7 @@ fn lineCount(text: []const u8) usize {
 }
 
 test "whitepaper files exist and stay under line limit" {
-    const cwd = std.fs.cwd();
+    const cwd = sio.cwd();
     const md_file = try cwd.openFile("docs/whitepaper.md", .{});
     defer md_file.close();
     const txt_file = try cwd.openFile("docs/whitepaper.txt", .{});

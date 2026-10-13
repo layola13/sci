@@ -3,15 +3,29 @@ const builtin = @import("builtin");
 
 const test_meta = @import("test_meta.zig");
 const test_result = @import("test_result.zig");
+const sio = @import("sa_io.zig");
 
 pub const TestExecutor = struct {
     allocator: std.mem.Allocator,
     exe_path: []const u8,
-    cwd_dir: std.fs.Dir,
+    cwd_dir: sio.Dir,
     selection: test_meta.TestSelection,
     trace_panic: bool = false,
-    fn addPluginDirectoriesToPath(allocator: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
-        const plugin_paths = std.process.getEnvVarOwned(allocator, "SA_PLUGINS_PATH") catch |err| switch (err) {
+    /// NOTE(Zig 0.17): `std.process.getEnvMap` is gone; populate via
+    /// `Environ.createMap` from the live process block (`.global` on Windows,
+    /// `std.c.environ` elsewhere; every build module links libc).
+    fn currentEnvMap(allocator: std.mem.Allocator) !sio.EnvMap {
+        if (comptime builtin.os.tag == .windows) {
+            return try std.process.Environ.createMap(.{ .block = .global }, allocator);
+        } else {
+            var count: usize = 0;
+            while (std.c.environ[count] != null) : (count += 1) {}
+            const slice: [:null]const ?[*:0]const u8 = std.c.environ[0..count :null];
+            return try std.process.Environ.createMap(.{ .block = .{ .slice = slice } }, allocator);
+        }
+    }
+    fn addPluginDirectoriesToPath(allocator: std.mem.Allocator, env_map: *sio.EnvMap) !void {
+        const plugin_paths = sio.getEnvVarOwned(allocator, "SA_PLUGINS_PATH") catch |err| switch (err) {
             error.EnvironmentVariableNotFound => return,
             else => return err,
         };
@@ -19,7 +33,7 @@ pub const TestExecutor = struct {
 
         const separator: u8 = if (builtin.os.tag == .windows) ';' else ':';
         const path_separator: []const u8 = if (builtin.os.tag == .windows) ";" else ":";
-        var directories = std.ArrayList([]const u8).init(allocator);
+        var directories = std.array_list.Managed([]const u8).init(allocator);
         defer {
             for (directories.items) |directory| allocator.free(directory);
             directories.deinit();
@@ -34,7 +48,7 @@ pub const TestExecutor = struct {
         if (directories.items.len == 0) return;
 
         const existing_path = env_map.get("PATH") orelse "";
-        var path = std.ArrayList(u8).init(allocator);
+        var path = std.array_list.Managed(u8).init(allocator);
         defer path.deinit();
         for (directories.items, 0..) |directory, index| {
             if (index != 0) try path.appendSlice(path_separator);
@@ -61,7 +75,7 @@ pub const TestExecutor = struct {
             return if (test_case.desc.ignored) .ignored else .skipped;
         }
 
-        var env_map = std.process.getEnvMap(self.allocator) catch |err| {
+        var env_map = currentEnvMap(self.allocator) catch |err| {
             return launchFailure(test_case, @errorName(err));
         };
         defer env_map.deinit();
@@ -78,7 +92,7 @@ pub const TestExecutor = struct {
             return launchFailure(test_case, @errorName(err));
         };
 
-        const run_result = std.process.Child.run(.{
+        const run_result = sio.Child.run(.{
             .allocator = self.allocator,
             .argv = &.{self.exe_path},
             .cwd_dir = self.cwd_dir,
@@ -122,7 +136,7 @@ test "executor skips tests that do not match selection" {
     const executor = TestExecutor{
         .allocator = std.testing.allocator,
         .exe_path = "unused",
-        .cwd_dir = tmp.dir,
+        .cwd_dir = .{ .inner = tmp.dir },
         .selection = .{
             .include_filters = &.{"match"},
             .exact = true,
@@ -143,7 +157,7 @@ test "executor skips tests that do not match selection" {
     const ignored_executor = TestExecutor{
         .allocator = std.testing.allocator,
         .exe_path = "unused",
-        .cwd_dir = tmp.dir,
+        .cwd_dir = .{ .inner = tmp.dir },
         .selection = .{},
     };
     const ignored = ignored_executor.run(.{

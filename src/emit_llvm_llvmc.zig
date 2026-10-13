@@ -9,6 +9,7 @@ const atomic = @import("common/atomic.zig");
 const sig = @import("common/signature.zig");
 const const_decl = @import("common/const_decl.zig");
 const upstream = @import("common/upstream_loc.zig");
+const sio = @import("sa_io.zig");
 
 extern fn sa_llvmc_free(ptr: ?*anyopaque) callconv(.C) void;
 extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.C) i32;
@@ -30,12 +31,12 @@ fn recordLastError(message: []const u8) void {
 
 fn recordLlvmcError(prefix: []const u8, msg: [*:0]const u8) void {
     const message = std.mem.sliceTo(msg, 0);
-    var stream = std.io.fixedBufferStream(&last_error_buf);
-    stream.writer().print("{s}: {s}", .{ prefix, message }) catch {
+    var stream = std.Io.Writer.fixed(&last_error_buf);
+    stream.print("{s}: {s}", .{ prefix, message }) catch {
         recordLastError(message);
         return;
     };
-    last_error_len = stream.pos;
+    last_error_len = stream.end;
 }
 
 pub fn lastErrorMessage() ?[]const u8 {
@@ -165,7 +166,7 @@ fn parseHexDigitPair(text: []const u8) !u8 {
 fn decodeQuotedBytes(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') return error.InvalidOperand;
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     var i: usize = 1;
@@ -256,7 +257,7 @@ fn buildDebugVars(allocator: std.mem.Allocator, symbols: anytype, fsig: sig.Func
     const vars = try allocator.alloc(CDebugVar, fsig.reg_ids.len);
     for (fsig.reg_ids, 0..) |reg_id, slot| {
         const raw_name = symbols.lookupName(reg_id);
-        const name = if (raw_name) |value| (try allocator.dupeZ(u8, value)).ptr else try makeSlotFallbackName(allocator, slot);
+        const name = if (raw_name) |value| (try allocator.dupeSentinel(u8, value, 0)).ptr else try makeSlotFallbackName(allocator, slot);
         vars[slot] = .{
             .name = name,
             .ty = .i64,
@@ -316,7 +317,7 @@ fn collectAnonStringConsts(
     symbols: anytype,
     annotated: []const referee.AnnotatedInstruction,
     anon_string_names: *std.StringHashMap([*:0]const u8),
-    c_consts: *std.ArrayList(CConst),
+    c_consts: *std.array_list.Managed(CConst),
 ) !void {
     var anon_idx: usize = c_consts.items.len;
     for (annotated) |item| {
@@ -470,12 +471,12 @@ const BuildState = struct {
         } else null;
         if (std.fmt.parseInt(i64, text, 10)) |v| {
             return .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = explicit_ty orelse .i64, .name = null };
-        } else |_| {}
+        } else {}
         if (std.fmt.parseFloat(f64, text)) |v| {
             return .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = v, .ty = explicit_ty orelse .f64, .name = null };
-        } else |_| {}
+        } else {}
         if (self.const_names.contains(text)) {
-            const z = try self.allocator.dupeZ(u8, text);
+            const z = try self.allocator.dupeSentinel(u8, text, 0);
             return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .ptr, .name = z.ptr };
         }
         if (self.symbols.findId(text)) |id| {
@@ -493,7 +494,7 @@ fn labelNameZ(allocator: std.mem.Allocator, symbols: anytype, operand: inst.Oper
         else => return error.InvalidOperand,
     };
     const name = symbols.lookupName(id) orelse return error.InvalidOperand;
-    return (try allocator.dupeZ(u8, name)).ptr;
+    return (try allocator.dupeSentinel(u8, name, 0)).ptr;
 }
 
 fn binaryOp(kind: inst.OpKind) !CBinaryOp {
@@ -1109,7 +1110,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
                 break :blk .{ .op = .call_indirect, .dst = dst, .operand0 = callee_op, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
             }
             const callee_name = if (resolved) |resolved_sig| emittedFunctionName(resolved_sig) else parsed.callee;
-            const callee = try allocator.dupeZ(u8, callee_name);
+            const callee = try allocator.dupeSentinel(u8, callee_name, 0);
             const call_ty = if (resolved) |resolved_sig| try cType(returnTypeForSig(resolved_sig.return_cap, resolved_sig.return_ty)) else builtinReturnType(parsed.callee) orelse CType.void;
             const call_fallible = if (resolved) |resolved_sig| resolved_sig.return_fallible else false;
             break :blk .{ .op = .call, .dst = dst, .operand0 = none, .operand1 = none, .operand2 = none, .ty = call_ty, .binary_op = .add, .label = null, .false_label = null, .callee = callee.ptr, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = call_fallible, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
@@ -1223,11 +1224,11 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             .{ .line = fsig.entry_inst_idx + 1, .col = 1 };
 
         const func_source_path = if (fsig.upstream_loc) |loc| loc.file else context.source_path;
-        const func_source_file = a.dupeZ(u8, sourceFileName(func_source_path)) catch |err| {
+        const func_source_file = a.dupeSentinel(u8, sourceFileName(func_source_path), 0) catch |err| {
             job.err = err;
             return;
         };
-        const func_source_dir = a.dupeZ(u8, sourceDirName(func_source_path)) catch |err| {
+        const func_source_dir = a.dupeSentinel(u8, sourceDirName(func_source_path), 0) catch |err| {
             job.err = err;
             return;
         };
@@ -1237,7 +1238,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             return;
         };
         for (fsig.params, 0..) |param, pidx| {
-            const pname = a.dupeZ(u8, param.name) catch |err| {
+            const pname = a.dupeSentinel(u8, param.name, 0) catch |err| {
                 job.err = err;
                 return;
             };
@@ -1256,8 +1257,8 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
         else
             @as([]CDebugVar, &.{});
 
-        var insts = std.ArrayList(CInstruction).init(a);
-        var debug_locs = std.ArrayList(CDebugLoc).init(a);
+        var insts = std.array_list.Managed(CInstruction).init(a);
+        var debug_locs = std.array_list.Managed(CDebugLoc).init(a);
 
         if (task.decl_kind != .extern_decl) {
             const body = context.verified.annotated[task.start_idx + 1 .. task.end_idx];
@@ -1288,7 +1289,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             }
         }
 
-        const name = a.dupeZ(u8, emittedFunctionName(fsig)) catch |err| {
+        const name = a.dupeSentinel(u8, emittedFunctionName(fsig), 0) catch |err| {
             job.err = err;
             return;
         };
@@ -1326,12 +1327,12 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     defer arena.deinit();
     const a = arena.allocator();
 
-    const module_source_file = try a.dupeZ(u8, sourceFileName(source_path));
-    const module_source_dir = try a.dupeZ(u8, sourceDirName(source_path));
+    const module_source_file = try a.dupeSentinel(u8, sourceFileName(source_path), 0);
+    const module_source_dir = try a.dupeSentinel(u8, sourceDirName(source_path), 0);
     var function_sig_index = try buildFunctionSigIndex(a, verified.function_sigs);
 
-    var c_consts = std.ArrayList(CConst).init(a);
-    var c_vtables = std.ArrayList(CVTable).init(a);
+    var c_consts = std.array_list.Managed(CConst).init(a);
+    var c_vtables = std.array_list.Managed(CVTable).init(a);
     var anon_string_names = std.StringHashMap([*:0]const u8).init(a);
     for (verified.const_decls) |decl| {
         switch (decl.value) {
@@ -1339,17 +1340,17 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                 const funcs = try a.alloc([*:0]const u8, literal.slots.len);
                 for (literal.slots, 0..) |slot, slot_idx| {
                     const sig_idx = function_sig_index.get(slot.func_name) orelse return error.UnknownFunction;
-                    const fname = try a.dupeZ(u8, emittedFunctionName(verified.function_sigs[sig_idx]));
+                    const fname = try a.dupeSentinel(u8, emittedFunctionName(verified.function_sigs[sig_idx]), 0);
                     funcs[slot_idx] = fname.ptr;
                 }
-                const name = try a.dupeZ(u8, decl.name);
+                const name = try a.dupeSentinel(u8, decl.name, 0);
                 try c_vtables.append(.{ .name = name.ptr, .funcs = funcs.ptr, .func_count = funcs.len });
             },
             else => {
                 const len = try constBytesLen(decl.value);
                 const bytes = try a.alloc(u8, len);
                 try fillConstBytes(bytes, decl.value);
-                const name = try a.dupeZ(u8, decl.name);
+                const name = try a.dupeSentinel(u8, decl.name, 0);
                 try c_consts.append(.{ .name = name.ptr, .data = bytes.ptr, .len = bytes.len });
             },
         }
@@ -1430,7 +1431,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         }
     }
 
-    var tasks = std.ArrayList(ParallelEmitTask).init(a);
+    var tasks = std.array_list.Managed(ParallelEmitTask).init(a);
     var sig_index: usize = 0;
     var idx: usize = 0;
     var task_idx: usize = 0;
@@ -1549,13 +1550,13 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         }
     }
 
-    var c_funcs = std.ArrayList(CFunction).init(a);
+    var c_funcs = std.array_list.Managed(CFunction).init(a);
     for (jobs) |job| {
         if (job.err) |err| return err;
         try c_funcs.append(job.result orelse return error.Failed);
     }
 
-    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeZ(u8, t)).ptr else null;
+    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeSentinel(u8, t, 0)).ptr else null;
     defer if (target_triple_z) |z| a.free(std.mem.span(z));
 
     const module = CModule{
@@ -1576,7 +1577,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     };
 
     if (obj_path) |path| {
-        const path_z = try a.dupeZ(u8, path);
+        const path_z = try a.dupeSentinel(u8, path, 0);
         var err_msg: ?[*:0]u8 = null;
         if (sa_llvmc_emit_module_object(&module, path_z.ptr, @intCast(opt_level), &err_msg) != 0) {
             if (err_msg) |msg| {
@@ -1617,12 +1618,12 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     defer arena.deinit();
     const a = arena.allocator();
 
-    const module_source_file = try a.dupeZ(u8, sourceFileName(source_path));
-    const module_source_dir = try a.dupeZ(u8, sourceDirName(source_path));
+    const module_source_file = try a.dupeSentinel(u8, sourceFileName(source_path), 0);
+    const module_source_dir = try a.dupeSentinel(u8, sourceDirName(source_path), 0);
     var function_sig_index = try buildFunctionSigIndex(a, verified.function_sigs);
 
-    var c_consts = std.ArrayList(CConst).init(a);
-    var c_vtables = std.ArrayList(CVTable).init(a);
+    var c_consts = std.array_list.Managed(CConst).init(a);
+    var c_vtables = std.array_list.Managed(CVTable).init(a);
     var anon_string_names = std.StringHashMap([*:0]const u8).init(a);
     for (verified.const_decls) |decl| {
         switch (decl.value) {
@@ -1630,17 +1631,17 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                 const funcs = try a.alloc([*:0]const u8, literal.slots.len);
                 for (literal.slots, 0..) |slot, slot_idx| {
                     const sig_idx = function_sig_index.get(slot.func_name) orelse return error.UnknownFunction;
-                    const fname = try a.dupeZ(u8, emittedFunctionName(verified.function_sigs[sig_idx]));
+                    const fname = try a.dupeSentinel(u8, emittedFunctionName(verified.function_sigs[sig_idx]), 0);
                     funcs[slot_idx] = fname.ptr;
                 }
-                const name = try a.dupeZ(u8, decl.name);
+                const name = try a.dupeSentinel(u8, decl.name, 0);
                 try c_vtables.append(.{ .name = name.ptr, .funcs = funcs.ptr, .func_count = funcs.len });
             },
             else => {
                 const len = try constBytesLen(decl.value);
                 const bytes = try a.alloc(u8, len);
                 try fillConstBytes(bytes, decl.value);
-                const name = try a.dupeZ(u8, decl.name);
+                const name = try a.dupeSentinel(u8, decl.name, 0);
                 try c_consts.append(.{ .name = name.ptr, .data = bytes.ptr, .len = bytes.len });
             },
         }
@@ -1719,7 +1720,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         }
     }
 
-    var tasks = std.ArrayList(ParallelEmitTask).init(a);
+    var tasks = std.array_list.Managed(ParallelEmitTask).init(a);
     var sig_index: usize = 0;
     var idx: usize = 0;
     var task_idx: usize = 0;
@@ -1828,13 +1829,13 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         }
     }
 
-    var c_funcs = std.ArrayList(CFunction).init(a);
+    var c_funcs = std.array_list.Managed(CFunction).init(a);
     for (jobs) |job| {
         if (job.err) |err| return err;
         try c_funcs.append(job.result orelse return error.Failed);
     }
 
-    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeZ(u8, t)).ptr else null;
+    const target_triple_z: ?[*:0]const u8 = if (options.target_triple) |t| (try a.dupeSentinel(u8, t, 0)).ptr else null;
     defer if (target_triple_z) |z| a.free(std.mem.span(z));
 
     const module = CModule{
@@ -1854,8 +1855,8 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .target_triple = target_triple_z,
     };
 
-    const bc_z = try a.dupeZ(u8, bitcode_path);
-    const obj_z = try a.dupeZ(u8, object_path);
+    const bc_z = try a.dupeSentinel(u8, bitcode_path, 0);
+    const obj_z = try a.dupeSentinel(u8, object_path, 0);
     var err_msg: ?[*:0]u8 = null;
     if (sa_llvmc_emit_module_artifacts(&module, bc_z.ptr, obj_z.ptr, @intCast(opt_level), &err_msg) != 0) {
         if (err_msg) |msg| {
@@ -1869,7 +1870,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
 pub fn emitLlvmcToFile(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions, path: []const u8) !void {
     const verified_bitcode = try emitLlvmc(allocator, verified, def_dict, loc_table, source_path, size_bits, options);
     defer allocator.free(verified_bitcode);
-    var file = if (std.fs.path.isAbsolute(path)) try std.fs.createFileAbsolute(path, .{ .truncate = true }) else try std.fs.cwd().createFile(path, .{ .truncate = true });
+    var file = if (std.fs.path.isAbsolute(path)) try sio.createFileAbsolute(path, .{ .truncate = true }) else try sio.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(verified_bitcode);
 }

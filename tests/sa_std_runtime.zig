@@ -2,43 +2,43 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
+fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
 }
 
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
 fn copyRuntimeArchiveToCwd() !void {
-    var src = try std.fs.openFileAbsolute(build_options.sa_std_archive_path, .{});
+    var src = try sio.openFileAbsolute(build_options.sa_std_archive_path, .{});
     defer src.close();
-    var dst = try std.fs.cwd().createFile("libsa_std.a", .{ .truncate = true });
+    var dst = try sio.cwd().createFile("libsa_std.a", .{ .truncate = true });
     defer dst.close();
     _ = try src.copyRangeAll(0, dst, 0, try src.getEndPos());
 }
 
-fn expectSuccess(result: std.process.Child.RunResult) !void {
+fn expectSuccess(result: sio.Child.RunResult) !void {
     if (result.stderr.len != 0) {
         std.debug.print("{s}", .{result.stderr});
     }
     switch (result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
 
-fn expectSuccessCode(result: std.process.Child.RunResult) !void {
+fn expectSuccessCode(result: sio.Child.RunResult) !void {
     if (result.stderr.len != 0) {
         std.debug.print("{s}", .{result.stderr});
     }
     switch (result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -79,7 +79,7 @@ fn udpMulticastV6JoinPermitted() bool {
 }
 
 test "sa_std dynamic loading helpers are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -91,7 +91,7 @@ test "sa_std dynamic loading helpers are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const plugin_source =
@@ -167,7 +167,7 @@ fn writeProcessArgv(
 
 test "sa_std udp loopback and address accessors are usable from C" {
     if (!udpSendtoPermitted()) return; // sandbox blocks sendto(2); nothing to verify
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -179,7 +179,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -262,7 +262,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
 }
 
 test "sa_std udp multicast helpers and scope id are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -274,7 +274,7 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -349,7 +349,7 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
 
     try copyRuntimeArchiveToCwd();
 
-    var build_demo_argv = std.ArrayList([]const u8).init(std.testing.allocator);
+    var build_demo_argv = std.array_list.Managed([]const u8).init(std.testing.allocator);
     defer build_demo_argv.deinit();
     try build_demo_argv.appendSlice(&[_][]const u8{
         "zig",
@@ -376,7 +376,7 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
 }
 
 test "sa_std udp connected send and recv are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -388,7 +388,7 @@ test "sa_std udp connected send and recv are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -477,7 +477,7 @@ test "sa_std udp connected send and recv are usable from C" {
 }
 
 test "sa_std static library exposes a usable C ABI" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -489,7 +489,7 @@ test "sa_std static library exposes a usable C ABI" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -556,7 +556,7 @@ test "sa_std static library exposes a usable C ABI" {
 }
 
 test "sa_std tcp stream peek does not consume bytes" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -568,7 +568,7 @@ test "sa_std tcp stream peek does not consume bytes" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -651,7 +651,7 @@ test "sa_std tcp stream peek does not consume bytes" {
 }
 
 test "sa_std fmt and process exports are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -663,7 +663,7 @@ test "sa_std fmt and process exports are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -787,7 +787,7 @@ test "sa_std fmt and process exports are usable from C" {
 }
 
 test "sa_std detached pthread export runs without join" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -799,7 +799,7 @@ test "sa_std detached pthread export runs without join" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -856,7 +856,7 @@ test "sa_std detached pthread export runs without join" {
 }
 
 test "sa_std json exports are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -868,7 +868,7 @@ test "sa_std json exports are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1035,7 +1035,7 @@ test "sa_std json exports are usable from C" {
 }
 
 test "sa_std json streaming scanner and writer are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1047,7 +1047,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1135,7 +1135,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
 }
 
 test "sa_std regex compile match and group access are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1147,7 +1147,7 @@ test "sa_std regex compile match and group access are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1221,7 +1221,7 @@ test "sa_std regex compile match and group access are usable from C" {
 }
 
 test "sa_std json streaming handle exposes stable slices from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1233,7 +1233,7 @@ test "sa_std json streaming handle exposes stable slices from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1312,7 +1312,7 @@ test "sa_std json streaming handle exposes stable slices from C" {
 }
 
 test "sa_std time exports are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1324,7 +1324,7 @@ test "sa_std time exports are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1408,7 +1408,7 @@ test "sa_std time exports are usable from C" {
 }
 
 test "sa_std Deno facade runtime helpers are usable from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1420,7 +1420,7 @@ test "sa_std Deno facade runtime helpers are usable from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =

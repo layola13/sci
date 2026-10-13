@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
-    const result = try std.process.Child.run(.{
+    const result = try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
@@ -10,7 +10,7 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) return error.TestUnexpectedResult;
         },
         else => return error.TestUnexpectedResult,
@@ -20,7 +20,7 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
 }
 
 test "libsa_scope C-ABI demo emits release text" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -32,7 +32,7 @@ test "libsa_scope C-ABI demo emits release text" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const lib_path = "libsa_scope.a";
@@ -46,14 +46,14 @@ test "libsa_scope C-ABI demo emits release text" {
         "Debug",
         "-femit-bin=libsa_scope.a",
     };
-    const build_lib_result = try std.process.Child.run(.{
+    const build_lib_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = build_lib_argv[0..],
     });
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     switch (build_lib_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 
@@ -67,14 +67,14 @@ test "libsa_scope C-ABI demo emits release text" {
         "-o",
         exe_path,
     };
-    const build_demo_result = try std.process.Child.run(.{
+    const build_demo_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = build_demo_argv[0..],
     });
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     switch (build_demo_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 

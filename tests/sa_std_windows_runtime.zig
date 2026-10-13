@@ -1,22 +1,22 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
+fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(source);
 }
 
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn expectSuccess(result: std.process.Child.RunResult) !void {
+fn expectSuccess(result: sio.Child.RunResult) !void {
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 if (result.stdout.len != 0) std.debug.print("stdout:\n{s}", .{result.stdout});
                 if (result.stderr.len != 0) std.debug.print("stderr:\n{s}", .{result.stderr});
@@ -29,7 +29,7 @@ fn expectSuccess(result: std.process.Child.RunResult) !void {
 }
 
 test "windows sa_std bootstrap print and file IO link from C" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -37,7 +37,7 @@ test "windows sa_std bootstrap print and file IO link from C" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =

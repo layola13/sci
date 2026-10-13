@@ -2,7 +2,7 @@ const std = @import("std");
 const saasm = @import("saasm");
 
 fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []const u8, expected_trap_code: u32, expected_message: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
@@ -10,13 +10,13 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", out_name };
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const code = try saasm.cli.executeWithWriters(
@@ -27,10 +27,10 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(out_name, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, out_name, .{}));
     const bc_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{out_name});
     defer std.testing.allocator.free(bc_name);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(bc_name, .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, bc_name, .{}));
 
     var trap_buf: [64]u8 = undefined;
     const trap_text = try std.fmt.bufPrint(&trap_buf, "\"trap\":\"{s}\"", .{expected_trap});

@@ -1,5 +1,6 @@
 const std = @import("std");
 const trap = @import("common/trap.zig");
+const sio = @import("sa_io.zig");
 
 pub const DiagnosticsMode = enum {
     human,
@@ -129,9 +130,9 @@ pub fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: Diagnosti
 pub fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8) !void {
     _ = allocator;
     if (std.fs.path.dirname(path)) |dir| {
-        if (dir.len != 0) try std.fs.cwd().makePath(dir);
+        if (dir.len != 0) try sio.cwd().makePath(dir);
     }
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
+    var file = try sio.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
 }

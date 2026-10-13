@@ -44,12 +44,12 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const header = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std.h", 8 * 1024 * 1024);
-    const linux_source = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std.zig", 32 * 1024 * 1024);
-    const windows_source = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std_windows.zig", 32 * 1024 * 1024);
-    const unsupported_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_unsupported.txt", 1 * 1024 * 1024);
-    const extra_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_extra.txt", 1 * 1024 * 1024);
-    const plugin_provided_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_plugin_provided.txt", 1 * 1024 * 1024);
+    const header = try sio.cwd().readFileAlloc(allocator, "src/runtime/sa_std.h", 8 * 1024 * 1024);
+    const linux_source = try sio.cwd().readFileAlloc(allocator, "src/runtime/sa_std.zig", 32 * 1024 * 1024);
+    const windows_source = try sio.cwd().readFileAlloc(allocator, "src/runtime/sa_std_windows.zig", 32 * 1024 * 1024);
+    const unsupported_source = try sio.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_unsupported.txt", 1 * 1024 * 1024);
+    const extra_source = try sio.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_extra.txt", 1 * 1024 * 1024);
+    const plugin_provided_source = try sio.cwd().readFileAlloc(allocator, "docs/runtime_abi_plugin_provided.txt", 1 * 1024 * 1024);
 
     var header_symbols = SymbolSet.init(allocator);
     var linux_symbols = SymbolSet.init(allocator);
@@ -222,7 +222,7 @@ fn reportManifestStats(
     );
 
     if (stats.duplicate_symbols.count() != 0) {
-        var names = std.ArrayList([]const u8).init(std.heap.page_allocator);
+        var names = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
         defer names.deinit();
         var iterator = stats.duplicate_symbols.keyIterator();
         while (iterator.next()) |name| names.append(name.*) catch return;
@@ -235,7 +235,7 @@ fn reportManifestStats(
         }
     }
 
-    var domains = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var domains = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer domains.deinit();
     var domain_iterator = stats.domain_counts.keyIterator();
     while (domain_iterator.next()) |domain| domains.append(domain.*) catch return;

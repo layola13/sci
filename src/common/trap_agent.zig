@@ -216,7 +216,7 @@ pub fn trapFromNumericCode(code: u32) ?Trap {
 }
 
 test "all 58 traps have unique stable codes and resolve three ways" {
-    var seen = std.AutoHashMap([]const u8, void).init(std.testing.allocator);
+    var seen = std.StringHashMap(void).init(std.testing.allocator);
     defer seen.deinit();
     try std.testing.expectEqual(@as(usize, 58), allTraps().len);
     for (allTraps()) |t| {
