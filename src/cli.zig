@@ -1207,7 +1207,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandFromName(name: []const u8) ?Command {
-    inline for (std.meta.fields(Command)) |field| {
+    inline for (@typeInfo(Command).@"enum".fields) |field| {
         const cmd: Command = @enumFromInt(field.value);
         if (std.mem.eql(u8, name, commandName(cmd))) return cmd;
     }
