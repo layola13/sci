@@ -110,7 +110,7 @@ const ReactorCommandQueue = struct {
             .HUGETLB = true,
         };
 
-        const mapped = std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, base_flags, -1, 0) catch return error.OutOfMemory;
+        const mapped = std.posix.mmap(null, bytes_len, .{ .READ = true, .WRITE = true }, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, .{ .READ = true, .WRITE = true }, base_flags, -1, 0) catch return error.OutOfMemory;
         @memset(mapped, 0);
         const ptr: [*]align(@alignOf(ReactorCommand)) ReactorCommand = @ptrCast(@alignCast(mapped.ptr));
         return .{
@@ -317,7 +317,7 @@ const TicketQueue = struct {
             .HUGETLB = true,
         };
 
-        const mapped = std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, base_flags, -1, 0) catch return error.OutOfMemory;
+        const mapped = std.posix.mmap(null, bytes_len, .{ .READ = true, .WRITE = true }, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, .{ .READ = true, .WRITE = true }, base_flags, -1, 0) catch return error.OutOfMemory;
         errdefer {
             const bytes: []align(std.heap.page_size_min) const u8 = mapped;
             std.posix.munmap(bytes);
@@ -402,7 +402,7 @@ const SlotPool = struct {
             .HUGETLB = true,
         };
 
-        const mapped = std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, linux.PROT.READ | linux.PROT.WRITE, base_flags, -1, 0) catch return error.OutOfMemory;
+        const mapped = std.posix.mmap(null, bytes_len, .{ .READ = true, .WRITE = true }, huge_flags, -1, 0) catch std.posix.mmap(null, bytes_len, .{ .READ = true, .WRITE = true }, base_flags, -1, 0) catch return error.OutOfMemory;
         @memset(mapped, 0);
         const ptr: [*]align(@alignOf(ConnectionSlot)) ConnectionSlot = @ptrCast(@alignCast(mapped.ptr));
         const slots = ptr[0..capacity];
@@ -460,7 +460,6 @@ const Reactor = struct {
     command_mutex: Mutex = .init,
     command_cond: Condition = .init,
     server: ?net.Server = null,
-    buffers: []align(std.heap.page_size_min) u8 = &.{},
     buffer_group: ?linux.IoUring.BufferGroup = null,
     timeout_armed: bool = false,
     wake_armed: bool = false,
@@ -517,13 +516,8 @@ const Reactor = struct {
         }
         self.tickets.deinit();
         if (self.buffer_group) |*group| {
-            group.deinit();
+            group.deinit(std.heap.page_allocator);
             self.buffer_group = null;
-        }
-        if (self.buffers.len != 0) {
-            const bytes: []align(std.heap.page_size_min) const u8 = self.buffers;
-            std.posix.munmap(bytes);
-            self.buffers = &.{};
         }
         if (self.server) |*server| {
             server.deinit(sio.io());
@@ -563,19 +557,12 @@ const Reactor = struct {
     }
 
     fn ensureBuffers(self: *Reactor) !void {
-        if (self.buffer_group != null or self.buffers.len != 0) return;
+        // NOTE(Zig 0.17): BufferGroup.init now allocates its own buffers via
+        // the given allocator (no caller mmap slice anymore).
+        if (self.buffer_group != null) return;
         const buffer_count = 64;
         const buffer_size = 4096;
-        const total = buffer_count * buffer_size;
-        const base_flags = std.posix.MAP{
-            .TYPE = .PRIVATE,
-            .ANONYMOUS = true,
-            .POPULATE = true,
-        };
-        const mapped = std.posix.mmap(null, total, linux.PROT.READ | linux.PROT.WRITE, base_flags, -1, 0) catch return error.OutOfMemory;
-        @memset(mapped, 0);
-        self.buffers = mapped;
-        self.buffer_group = linux.IoUring.BufferGroup.init(&self.ring, @as(u16, @intCast(self.id + 1)), self.buffers[0..total], buffer_size, buffer_count) catch {
+        self.buffer_group = linux.IoUring.BufferGroup.init(&self.ring, std.heap.page_allocator, @as(u16, @intCast(self.id + 1)), buffer_size, buffer_count) catch {
             self.buffer_group = null;
             return;
         };
@@ -1040,7 +1027,7 @@ const Reactor = struct {
             const received = @as(usize, @intCast(cqe.res));
             slot.markActive(@as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds())));
             const incoming = if (self.buffer_group) |*group| blk: {
-                break :blk group.get_cqe(cqe) catch return;
+                break :blk group.get(cqe) catch return;
             } else blk: {
                 break :blk slot.scratch[0..received];
             };
@@ -1063,7 +1050,7 @@ const Reactor = struct {
                 try self.armRecv(slot);
             }
             if (self.buffer_group) |*group| {
-                group.put_cqe(cqe) catch |err| {
+                group.put(cqe) catch |err| {
                     // Buffer recycling failure is tolerated for this CQE; later receives can allocate fallback buffers.
                     _ = @errorName(err);
                 };
@@ -1983,7 +1970,7 @@ pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i
     if (first_result != SA_NETX_OK) return first_result;
 
     const listen_address = runtime_state.reactors[0].server orelse return SA_NETX_ERR_IO;
-    runtime_state.listen_address = listen_address.listen_address;
+    runtime_state.listen_address = listen_address.socket.address;
 
     var idx: usize = 1;
     while (idx < runtime_state.reactors.len) : (idx += 1) {
@@ -2165,7 +2152,7 @@ fn loopbackClientMain(client: *LoopbackClient) void {
     var total: usize = 0;
     var buf: [64]u8 = undefined;
     while (total < client.received.len) {
-        const read_len = stream.read(sio.io(), &.{buf[0..]}) catch return;
+        const read_len = std.posix.read(stream.socket.handle, buf[0..]) catch return;
         if (read_len == 0) break;
         const copy_len = @min(client.received.len - total, read_len);
         if (copy_len != 0) {
@@ -2189,7 +2176,7 @@ fn wsLoopbackClientMain(client: *WsLoopbackClient) void {
     var frame_start: usize = 0;
     var upgrade_total: usize = 0;
     while (upgrade_total < client.upgrade_response.len) {
-        const read_len = stream.read(sio.io(), &.{client.upgrade_response[upgrade_total..]}) catch return;
+        const read_len = std.posix.read(stream.socket.handle, client.upgrade_response[upgrade_total..]) catch return;
         if (read_len == 0) break;
         upgrade_total += read_len;
         if (std.mem.indexOf(u8, client.upgrade_response[0..upgrade_total], "\r\n\r\n")) |idx| {
@@ -2210,7 +2197,7 @@ fn wsLoopbackClientMain(client: *WsLoopbackClient) void {
         @memcpy(client.received[0..frame_start], client.frame_buf[0..frame_start]);
     }
     while (total < client.expected_frame_len) {
-        const read_len = stream.read(sio.io(), &.{client.frame_buf[0..]}) catch return;
+        const read_len = std.posix.read(stream.socket.handle, client.frame_buf[0..]) catch return;
         if (read_len == 0) break;
         const copy_len = @min(client.received.len - total, read_len);
         if (copy_len != 0) {

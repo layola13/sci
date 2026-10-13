@@ -577,6 +577,10 @@ pub fn build(b: *std.Build) void {
     });
     sa_std_unit_module.addImport("sio", sio_module);
     sa_std_unit_module.addOptions("build_options", build_options);
+    // NOTE: sa_std.zig references the swizzle/pthread C shims; test roots
+    // compiling it directly must link them (like the sa_std lib modules).
+    addHostThreadShimToModule(b, sa_std_unit_module, target.result.os.tag);
+    addB64SwizzleToModule(b, sa_std_unit_module);
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
     });
@@ -790,6 +794,9 @@ pub fn build(b: *std.Build) void {
     });
     sa_net_uring_module.addImport("sio", sio_module);
     sa_net_uring_module.addOptions("build_options", build_options);
+    // NOTE: imports sa_std.zig (swizzle/pthread C shims); link them here too.
+    addHostThreadShimToModule(b, sa_net_uring_module, target.result.os.tag);
+    addB64SwizzleToModule(b, sa_net_uring_module);
     const sa_net_uring_tests = b.addTest(.{
         .root_module = sa_net_uring_module,
     });
