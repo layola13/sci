@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const saasm = @import("saasm");
 const sio = @import("sio");
+const build_options = @import("build_options");
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
@@ -687,6 +688,8 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
 }
 
 test "native build and test link installed plugin exporting referenced extern" {
+    // Requires the LLVM-C native backend (unavailable with -Dllvm=false).
+    if (!build_options.llvm_enabled) return error.SkipZigTest;
     const test_start = startTimedTest("native build and test link installed plugin exporting referenced extern");
     defer endTimedTest("native build and test link installed plugin exporting referenced extern", test_start);
     if (builtin.os.tag == .windows) return error.SkipZigTest;

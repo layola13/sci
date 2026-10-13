@@ -629,14 +629,14 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
 
     const exe = try tmp.dir.openFile(std.testing.io, exe_path, .{});
     const exe_bytes = try sio.readToEndAlloc(exe, std.testing.allocator, 1 << 20);
-    exe.close();
+    exe.close(std.testing.io);
     defer std.testing.allocator.free(exe_bytes);
     try std.testing.expect(exe_bytes.len > 0);
 
     const artifact_path = "sample.out.sa.bc";
     const artifact = try tmp.dir.openFile(std.testing.io, artifact_path, .{});
     const artifact_bytes = try sio.readToEndAlloc(artifact, std.testing.allocator, 1 << 20);
-    artifact.close();
+    artifact.close(std.testing.io);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
@@ -645,7 +645,7 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     const cached_exe_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
     try std.testing.expectEqual(@as(u8, 0), cached_exe_code);
     const cached_artifact = try tmp.dir.openFile(std.testing.io, artifact_path, .{});
-    cached_artifact.close();
+    cached_artifact.close(std.testing.io);
     if (builtin.os.tag != .windows) {
         const cached_exe_result = try runCommandAnyExit(std.testing.allocator, &[_][]const u8{"./sample.out"});
         defer std.testing.allocator.free(cached_exe_result.stdout);
@@ -5325,7 +5325,7 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
 
     const sab_file = try tmp.dir.openFile(std.testing.io, "params.sab", .{});
     const sab_bytes = try sio.readToEndAlloc(sab_file, std.testing.allocator, 1 << 20);
-    sab_file.close();
+    sab_file.close(std.testing.io);
     defer std.testing.allocator.free(sab_bytes);
     try std.testing.expect(sab_bytes.len > 0);
 
