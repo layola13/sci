@@ -7065,7 +7065,9 @@ fn executeRun(
             defer owned.deinit(allocator);
             rejectNpmBindsUnlessJs("sa run", &owned.flat, stderr) catch return 1;
             var run_out_forward = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+            defer run_out_forward.writer().flush() catch {};
             var run_err_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer run_err_forward.writer().flush() catch {};
             const code = interp.runWithWriters(allocator, &owned.verified, argv, run_out_forward.writer(), run_err_forward.writer()) catch |err| switch (err) {
                 error.UserExit => 0,
                 error.UnsupportedExtern => return 1,
@@ -7601,6 +7603,7 @@ fn executeCheck(
     exec_options: ExecuteOptions,
 ) !u8 {
     var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
     var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var emit_sab_path: ?[]const u8 = null;
@@ -7783,6 +7786,7 @@ fn executeGraph(
     exec_options: ExecuteOptions,
 ) !u8 {
     var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
     var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
@@ -7882,6 +7886,7 @@ fn executeSize(
     exec_options: ExecuteOptions,
 ) !u8 {
     var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
     var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
@@ -8251,7 +8256,9 @@ fn executeTestInner(
                 return 0;
             }
             var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+            defer run_out_fw.writer().flush() catch {};
             var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer run_err_fw.writer().flush() catch {};
             return try test_runner.run(
                 allocator,
                 exe_full_path,
@@ -8387,7 +8394,9 @@ fn executeTestInner(
                 var run_list = list;
                 sab_selected_test_list = null;
                 var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+                defer run_out_fw.writer().flush() catch {};
                 var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+                defer run_err_fw.writer().flush() catch {};
                 return try test_runner.run(
                     allocator,
                     exe_full_path,
@@ -8403,7 +8412,9 @@ fn executeTestInner(
                 var run_list = compiled_test_list.?;
                 compiled_test_list = null;
                 var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+                defer run_out_fw.writer().flush() catch {};
                 var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+                defer run_err_fw.writer().flush() catch {};
                 return try test_runner.run(
                     allocator,
                     exe_full_path,
@@ -8504,6 +8515,7 @@ pub fn executeWithWritersAndOptions(
         .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
         .build => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
@@ -8548,6 +8560,7 @@ pub fn executeWithWritersAndOptions(
         },
         .build_workspace => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8597,6 +8610,7 @@ pub fn executeWithWritersAndOptions(
         .run => {
             if (args.len < 3) return error.MissingSourcePath;
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var runtime_args = std.array_list.Managed([]const u8).init(allocator);
@@ -8617,6 +8631,7 @@ pub fn executeWithWritersAndOptions(
         },
         .build_exe => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
@@ -8661,6 +8676,7 @@ pub fn executeWithWritersAndOptions(
         },
         .build_obj => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
@@ -8710,6 +8726,7 @@ pub fn executeWithWritersAndOptions(
         },
         .build_wasm => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
@@ -8761,6 +8778,7 @@ pub fn executeWithWritersAndOptions(
         },
         .build_js => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
@@ -8820,6 +8838,7 @@ pub fn executeWithWritersAndOptions(
         },
         .test_cmd => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
             var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var include_filters = std.array_list.Managed([]const u8).init(allocator);
