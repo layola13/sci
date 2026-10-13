@@ -8,8 +8,8 @@ fn repoRoot(allocator: std.mem.Allocator) ![]u8 {
 
 fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const file = try sio.cwd().openFile(path, .{});
-    defer file.close();
-    return try file.readToEndAlloc(allocator, 1 << 20);
+    defer file.close(std.testing.io);
+    return try sio.readToEndAlloc(file, allocator, 1 << 20);
 }
 
 fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
@@ -4105,8 +4105,8 @@ test "std smoke fixture runs through the current compiler surface" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "std_smoke.out.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 

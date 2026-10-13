@@ -628,14 +628,14 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const exe = try tmp.dir.openFile(std.testing.io, exe_path, .{});
-    const exe_bytes = try exe.readToEndAlloc(std.testing.allocator, 1 << 20);
+    const exe_bytes = try sio.readToEndAlloc(exe, std.testing.allocator, 1 << 20);
     exe.close();
     defer std.testing.allocator.free(exe_bytes);
     try std.testing.expect(exe_bytes.len > 0);
 
     const artifact_path = "sample.out.sa.bc";
     const artifact = try tmp.dir.openFile(std.testing.io, artifact_path, .{});
-    const artifact_bytes = try artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
+    const artifact_bytes = try sio.readToEndAlloc(artifact, std.testing.allocator, 1 << 20);
     artifact.close();
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
@@ -662,8 +662,8 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
     const obj = try tmp.dir.openFile(std.testing.io, obj_path, .{});
-    defer obj.close();
-    const obj_bytes = try obj.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer obj.close(std.testing.io);
+    const obj_bytes = try sio.readToEndAlloc(obj, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
     try std.testing.expect(obj_bytes.len > 0);
 
@@ -673,8 +673,8 @@ test "cli run/build-exe/build-wasm produce real artifacts" {
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
     const wasm = try tmp.dir.openFile(std.testing.io, wasm_path, .{});
-    defer wasm.close();
-    const wasm_bytes = try wasm.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm.close(std.testing.io);
+    const wasm_bytes = try sio.readToEndAlloc(wasm, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
@@ -784,14 +784,14 @@ test "cli build-obj incremental reuses local cache layout" {
     try std.testing.expect(reused_count >= 1);
 
     const obj_file = try tmp.dir.openFile(std.testing.io, "incremental.o", .{});
-    defer obj_file.close();
-    const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer obj_file.close(std.testing.io);
+    const obj_bytes = try sio.readToEndAlloc(obj_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
     try std.testing.expect(obj_bytes.len > 0);
 
     const bc_file = try tmp.dir.openFile(std.testing.io, "incremental.o.sa.bc", .{});
-    defer bc_file.close();
-    const bc_bytes = try bc_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer bc_file.close(std.testing.io);
+    const bc_bytes = try sio.readToEndAlloc(bc_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(bc_bytes);
     try std.testing.expect(bc_bytes.len > 0);
 
@@ -1031,13 +1031,13 @@ test "cli build-exe with jobs 1 and auto produce bitcode artifacts" {
     const auto_artifact_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{auto_out_path});
     defer std.testing.allocator.free(auto_artifact_path);
     const serial_artifact = try tmp.dir.openFile(std.testing.io, serial_artifact_path, .{});
-    defer serial_artifact.close();
-    const serial_artifact_bytes = try serial_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer serial_artifact.close(std.testing.io);
+    const serial_artifact_bytes = try sio.readToEndAlloc(serial_artifact, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(serial_artifact_bytes);
 
     const auto_artifact = try tmp.dir.openFile(std.testing.io, auto_artifact_path, .{});
-    defer auto_artifact.close();
-    const auto_artifact_bytes = try auto_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer auto_artifact.close(std.testing.io);
+    const auto_artifact_bytes = try sio.readToEndAlloc(auto_artifact, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(auto_artifact_bytes);
 
     try std.testing.expect(serial_artifact_bytes.len > 0);
@@ -1069,8 +1069,8 @@ test "cli build-exe prunes unused imported functions before llvm emission" {
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "unused_sort_import.out.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 }
@@ -1340,7 +1340,7 @@ test "windows llvm builds and runs hello world executable" {
     try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, &build_argv));
 
     const file = try tmp.dir.openFile(std.testing.io, "hello.exe", .{});
-    defer file.close();
+    defer file.close(std.testing.io);
     var magic: [2]u8 = undefined;
     try file.reader().readNoEof(&magic);
     try std.testing.expectEqualStrings("MZ", &magic);
@@ -1933,8 +1933,8 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqual(@as(usize, 0), exe_result.stderr.len);
 
     const file = try tmp.dir.openFile(std.testing.io, "sys_io.txt", .{});
-    defer file.close();
-    const contents = try file.readToEndAlloc(std.testing.allocator, 1024);
+    defer file.close(std.testing.io);
+    const contents = try sio.readToEndAlloc(file, std.testing.allocator, 1024);
     defer std.testing.allocator.free(contents);
     try std.testing.expectEqualStrings("saasm", contents);
 
@@ -1945,15 +1945,15 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
     const wasm_artifact = try tmp.dir.openFile(std.testing.io, "sys_runtime_probe.wasm.sa.bc", .{});
-    defer wasm_artifact.close();
-    const wasm_artifact_bytes = try wasm_artifact.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm_artifact.close(std.testing.io);
+    const wasm_artifact_bytes = try sio.readToEndAlloc(wasm_artifact, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_artifact_bytes);
     try std.testing.expect(wasm_artifact_bytes.len > 0);
     try expectNoTextLlvmArtifacts(tmp.dir, "sys_runtime_probe.wasm");
 
     const wasm_file = try tmp.dir.openFile(std.testing.io, "sys_runtime_probe.wasm", .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm_file.close(std.testing.io);
+    const wasm_bytes = try sio.readToEndAlloc(wasm_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
@@ -1986,8 +1986,8 @@ test "sys runtime demo prints and round-trips file contents" {
     try std.testing.expectEqual(@as(usize, 0), wasm_result.stderr.len);
 
     const wasm_written_file = try tmp.dir.openFile(std.testing.io, "sys_io.txt", .{});
-    defer wasm_written_file.close();
-    const wasm_written = try wasm_written_file.readToEndAlloc(std.testing.allocator, 1024);
+    defer wasm_written_file.close(std.testing.io);
+    const wasm_written = try sio.readToEndAlloc(wasm_written_file, std.testing.allocator, 1024);
     defer std.testing.allocator.free(wasm_written);
     try std.testing.expectEqualStrings("saasm", wasm_written);
 }
@@ -2719,8 +2719,8 @@ test "fallible ABI and ? propagation work end to end" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "fallible.out.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
@@ -3408,8 +3408,8 @@ test "atomic instructions work end to end and emit real LLVM" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "atomic.out.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
@@ -3426,8 +3426,8 @@ test "atomic instructions work end to end and emit real LLVM" {
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
     const wasm_file = try tmp.dir.openFile(std.testing.io, "atomic.wasm", .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm_file.close(std.testing.io);
+    const wasm_bytes = try sio.readToEndAlloc(wasm_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
@@ -3438,8 +3438,8 @@ test "atomic instructions work end to end and emit real LLVM" {
     try std.testing.expectEqual(@as(u8, 0), obj_code);
 
     const obj_file = try tmp.dir.openFile(std.testing.io, "atomic.o", .{});
-    defer obj_file.close();
-    const obj_bytes = try obj_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer obj_file.close(std.testing.io);
+    const obj_bytes = try sio.readToEndAlloc(obj_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(obj_bytes);
     try std.testing.expect(obj_bytes.len > 0);
 }
@@ -3480,8 +3480,8 @@ test "ptr arithmetic lowers to gep and runs through the interpreter" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "ptr_add.out.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
@@ -3554,8 +3554,8 @@ test "panic lowers to native executable failure code" {
     try std.testing.expectEqual(@as(u8, 0), exe_code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "panic_native.out.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
@@ -3573,8 +3573,8 @@ test "panic lowers to native executable failure code" {
     try std.testing.expectEqual(@as(u8, 0), wasm_code);
 
     const wasm = try tmp.dir.openFile(std.testing.io, "panic_native.wasm", .{});
-    defer wasm.close();
-    const wasm_bytes = try wasm.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm.close(std.testing.io);
+    const wasm_bytes = try sio.readToEndAlloc(wasm, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
@@ -3631,8 +3631,8 @@ test "extern export ffi wrapper map to real declarations and symbols" {
     try std.testing.expectEqual(@as(u8, 0), code);
 
     const artifact_file = try tmp.dir.openFile(std.testing.io, "contracts.o.sa.bc", .{});
-    defer artifact_file.close();
-    const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer artifact_file.close(std.testing.io);
+    const artifact_bytes = try sio.readToEndAlloc(artifact_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
     try std.testing.expect(artifact_bytes.len > 0);
 
@@ -3906,8 +3906,8 @@ test "build-wasm supports wasm64 freestanding no-entry" {
     try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
 
     const wasm_file = try tmp.dir.openFile(std.testing.io, "wasm64.wasm", .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm_file.close(std.testing.io);
+    const wasm_bytes = try sio.readToEndAlloc(wasm_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
@@ -3957,8 +3957,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "flash_sale.iface"));
 
     const iface_file = try tmp.dir.openFile(std.testing.io, "flash_sale.iface", .{});
-    defer iface_file.close();
-    const iface_bytes = try iface_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer iface_file.close(std.testing.io);
+    const iface_bytes = try sio.readToEndAlloc(iface_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(iface_bytes);
     try std.testing.expect(std.mem.containsAtLeast(u8, iface_bytes, 1, "#def MAX_ROWS = 10"));
     try std.testing.expect(std.mem.containsAtLeast(u8, iface_bytes, 1, "#def TABLE_ROW_BYTES = 12"));
@@ -3979,8 +3979,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 2"));
 
     const meta_file = try tmp.dir.openFile(std.testing.io, "flash_sale.meta", .{});
-    defer meta_file.close();
-    const meta_bytes = try meta_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer meta_file.close(std.testing.io);
+    const meta_bytes = try sio.readToEndAlloc(meta_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(meta_bytes);
     try std.testing.expect(std.mem.containsAtLeast(u8, meta_bytes, 1, "\"row_count\":2"));
 
@@ -4015,8 +4015,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "row_count: 3"));
 
     const updated_meta_file = try tmp.dir.openFile(std.testing.io, "flash_sale.meta", .{});
-    defer updated_meta_file.close();
-    const updated_meta_bytes = try updated_meta_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer updated_meta_file.close(std.testing.io);
+    const updated_meta_bytes = try sio.readToEndAlloc(updated_meta_file, std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(updated_meta_bytes);
     try std.testing.expect(std.mem.containsAtLeast(u8, updated_meta_bytes, 1, "\"row_count\":3"));
 
@@ -5324,7 +5324,7 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
     try std.testing.expectEqual(@as(u8, 0), emit_code);
 
     const sab_file = try tmp.dir.openFile(std.testing.io, "params.sab", .{});
-    const sab_bytes = try sab_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    const sab_bytes = try sio.readToEndAlloc(sab_file, std.testing.allocator, 1 << 20);
     sab_file.close();
     defer std.testing.allocator.free(sab_bytes);
     try std.testing.expect(sab_bytes.len > 0);

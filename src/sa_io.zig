@@ -395,6 +395,14 @@ pub const File = struct {
     }
 };
 
+/// Old `file.readToEndAlloc(allocator, max)` shape for raw `std.Io.File`
+/// handles (the method was removed in 0.17).
+pub fn readToEndAlloc(file: std.Io.File, allocator: std.mem.Allocator, max_bytes: usize) ![]u8 {
+    var buf: [8192]u8 = undefined;
+    var r = file.readerStreaming(io(), &buf);
+    return try r.interface.allocRemaining(allocator, .limited(max_bytes));
+}
+
 // ---------------------------------------------------------------------------
 // Absolute-path free functions (mirrors old `std.fs.*Absolute`)
 // ---------------------------------------------------------------------------
