@@ -8,6 +8,30 @@
 // Status codes follow the sci convention: 0 = SA_STD_OK, negative = error.
 
 const std = @import("std");
+const builtin = @import("builtin");
+
+// wasm32-wasi has no dlopen: stub DynLib so loader probes honestly report
+// "unsupported" (null lookups, failed opens) instead of breaking the build.
+const is_wasi = builtin.os.tag == .wasi;
+const WasiDynLib = struct {
+    fn open(path: []const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn openZ(path: [:0]const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn close(self: WasiDynLib) void {
+        _ = self;
+    }
+    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
+        _ = self;
+        _ = name;
+        return null;
+    }
+};
+const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
@@ -37,7 +61,7 @@ const ErrPeekError = *const fn () callconv(.c) u64;
 const SSL_FILETYPE_PEM: c_int = 1;
 
 const SslApi = struct {
-    lib: std.DynLib,
+    lib: DynLib,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
     use_cert_file: SslCtxUseCertFile,
@@ -56,6 +80,8 @@ var ssl_api: ?SslApi = null;
 var ssl_api_mutex = std.Thread.Mutex{};
 
 fn loadSslApi() ?*SslApi {
+    // WASI has no dlopen: loader can never resolve; report unavailable.
+    if (is_wasi) return null;
     ssl_api_mutex.lock();
     defer ssl_api_mutex.unlock();
     if (ssl_api) |*api| return api;
@@ -66,9 +92,9 @@ fn loadSslApi() ?*SslApi {
         "/lib/x86_64-linux-gnu/libssl.so.3",
         "/usr/lib/x86_64-linux-gnu/libssl.so.3",
     };
-    var lib: ?std.DynLib = null;
+    var lib: ?DynLib = null;
     for (ssl_candidates) |c| {
-        if (std.DynLib.open(c)) |l| {
+        if (DynLib.open(c)) |l| {
             lib = l;
             break;
         } else |_| {}
@@ -154,6 +180,7 @@ pub export fn sa_std_tls_server_supported(out_supported: ?*u32) i32 {
 }
 
 pub export fn sa_std_tls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_path_len: u64, key_path_ptr: ?[*]const u8, key_path_len: u64, out_ctx: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ctx orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
@@ -183,6 +210,7 @@ pub export fn sa_std_tls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_pat
 }
 
 pub export fn sa_std_tls_server_ctx_free(ctx_handle: u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ctx_handle == 0) return SA_STD_OK;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
     api.ctx_free(@ptrFromInt(ctx_handle));
@@ -190,6 +218,7 @@ pub export fn sa_std_tls_server_ctx_free(ctx_handle: u64) i32 {
 }
 
 pub export fn sa_std_tls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ssl orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ctx_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -211,6 +240,7 @@ pub export fn sa_std_tls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64)
 }
 
 pub export fn sa_std_tls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_read orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -224,6 +254,7 @@ pub export fn sa_std_tls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, out
 }
 
 pub export fn sa_std_tls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_written orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -236,6 +267,7 @@ pub export fn sa_std_tls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u
 }
 
 pub export fn sa_std_tls_server_close(ssl_handle: u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ssl_handle == 0) return SA_STD_OK;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
     _ = api.shutdown(@ptrFromInt(ssl_handle));

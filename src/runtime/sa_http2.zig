@@ -7,6 +7,30 @@
 // state machine lives here.
 
 const std = @import("std");
+const builtin = @import("builtin");
+
+// wasm32-wasi has no dlopen: stub DynLib so loader probes honestly report
+// "unsupported" instead of breaking the build (std.DynLib is unsupported on WASI).
+const is_wasi = builtin.os.tag == .wasi;
+const WasiDynLib = struct {
+    fn open(path: []const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn openZ(path: [:0]const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn close(self: WasiDynLib) void {
+        _ = self;
+    }
+    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
+        _ = self;
+        _ = name;
+        return null;
+    }
+};
+const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
 
 // --- outcome helpers (mirrors the sa_plugin_node private surface) ---
 
@@ -19,6 +43,7 @@ fn fail() u32 {
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
+const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 
 var buffer_registry_mutex = std.Thread.Mutex{};
 var buffer_slots = std.ArrayListUnmanaged(?BufferEntry){};
@@ -141,7 +166,7 @@ const Nghttp2SessionWantFn = *const fn (?*Nghttp2Session) callconv(.c) c_int;
 const Nghttp2VersionFn = *const fn (c_int) callconv(.c) ?*const Nghttp2Version;
 
 const Nghttp2Api = struct {
-    lib: std.DynLib,
+    lib: DynLib,
     callbacks_new: Nghttp2CallbacksNewFn,
     callbacks_del: Nghttp2CallbacksDelFn,
     callbacks_set_on_header_callback: Nghttp2SetOnHeaderFn,
@@ -173,7 +198,7 @@ fn loadNghttp2Api() ?*Nghttp2Api {
     };
 
     for (candidates) |candidate| {
-        var lib = std.DynLib.open(candidate) catch continue;
+        var lib = DynLib.open(candidate) catch continue;
         const callbacks_new = lib.lookup(Nghttp2CallbacksNewFn, "nghttp2_session_callbacks_new") orelse {
             lib.close();
             continue;
@@ -548,6 +573,8 @@ fn writeHandle(out_handle: ?*u64, handle: u64) i32 {
 }
 
 pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, out_handle: ?*u64) i32 {
+    // WASI has no sockets/dlopen: no transport available.
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const api = loadNghttp2Api() orelse return SA_STD_ERR_INVALID_ARGUMENT;
@@ -674,6 +701,7 @@ pub export fn sa_std_http2_sensitive_headers(out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, settings_json_len: u64, out_handle: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const settings_json = if (settings_json_ptr) |ptr| ptr[0..settings_json_len] else "";
@@ -698,6 +726,7 @@ pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, 
 }
 
 pub export fn sa_std_http2_get_unpacked_settings_json(buf_ptr: ?[*]const u8, buf_len: u64, out_handle: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const buf = if (buf_ptr) |ptr| ptr[0..buf_len] else return SA_STD_ERR_INVALID_ARGUMENT;
@@ -750,6 +779,8 @@ pub export fn sa_std_http2_perform_server_handshake(
     out_bytes_handle: ?*u64,
     out_json_handle: ?*u64,
 ) i32 {
+    // WASI has no sockets/dlopen: no transport available.
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     {
         const b = out_bytes_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
         b.* = 0;

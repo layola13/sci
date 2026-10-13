@@ -9,6 +9,30 @@
 // Status codes: 0 = SA_STD_OK, negative = error.
 
 const std = @import("std");
+const builtin = @import("builtin");
+
+// wasm32-wasi has no dlopen: stub DynLib so loader probes honestly report
+// "unsupported" instead of breaking the build.
+const is_wasi = builtin.os.tag == .wasi;
+const WasiDynLib = struct {
+    fn open(path: []const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn openZ(path: [:0]const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn close(self: WasiDynLib) void {
+        _ = self;
+    }
+    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
+        _ = self;
+        _ = name;
+        return null;
+    }
+};
+const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
@@ -41,7 +65,7 @@ const SSL_FILETYPE_PEM: c_int = 1;
 const BIO_CLOSE: c_int = 0x00;
 
 const DtlsApi = struct {
-    lib: std.DynLib,
+    lib: DynLib,
     method_new: SslMethodNew,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
@@ -72,9 +96,9 @@ fn loadDtlsApi() ?*DtlsApi {
         "/usr/lib/x86_64-linux-gnu/libssl.so.3",
         "libssl.so.3",
     };
-    var l: ?std.DynLib = null;
+    var l: ?DynLib = null;
     for (ssl_candidates) |c| {
-        if (std.DynLib.open(c)) |ok| {
+        if (DynLib.open(c)) |ok| {
             l = ok;
             break;
         } else |_| {}
@@ -171,6 +195,7 @@ pub export fn sa_std_dtls_supported(out: ?*u32) i32 {
 }
 
 pub export fn sa_std_dtls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_path_len: u64, key_path_ptr: ?[*]const u8, key_path_len: u64, out_ctx: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ctx orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
@@ -199,6 +224,7 @@ pub export fn sa_std_dtls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_pa
 }
 
 pub export fn sa_std_dtls_server_ctx_free(ctx_handle: u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ctx_handle == 0) return SA_STD_OK;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
     api.ctx_free(@ptrFromInt(ctx_handle));
@@ -209,6 +235,7 @@ pub export fn sa_std_dtls_server_ctx_free(ctx_handle: u64) i32 {
 // SSL_set_fd (OpenSSL's BIO_dgram path can also be used, but set_fd is the
 // simplest real handshake path for a bound UDP socket).
 pub export fn sa_std_dtls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ssl orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ctx_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -230,6 +257,7 @@ pub export fn sa_std_dtls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64
 }
 
 pub export fn sa_std_dtls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_read orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -243,6 +271,7 @@ pub export fn sa_std_dtls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, ou
 }
 
 pub export fn sa_std_dtls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_written orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -255,6 +284,7 @@ pub export fn sa_std_dtls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: 
 }
 
 pub export fn sa_std_dtls_server_close(ssl_handle: u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ssl_handle == 0) return SA_STD_OK;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
     _ = api.shutdown(@ptrFromInt(ssl_handle));

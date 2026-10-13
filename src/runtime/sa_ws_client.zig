@@ -26,6 +26,10 @@
 // same as the other protocol sinks).
 
 const std = @import("std");
+const builtin = @import("builtin");
+
+// wasm32-wasi has no TCP sockets: entry points below report UNSUPPORTED.
+const is_wasi = builtin.os.tag == .wasi;
 const primitives = @import("sa_net_primitives.zig");
 const tls_client = @import("sa_tls_client.zig");
 
@@ -64,7 +68,8 @@ const WsError = error{
 fn handleFromU64(handle: u64) *WsClientHandle {
     // Heap pointers from page_allocator are 16-byte aligned; alignCast keeps
     // this sound on targets (aarch64) where @ptrFromInt is stricter.
-    const p: *WsClientHandle = @ptrFromInt(handle);
+    // wasm32 is 32-bit: narrow the u64 registry handle explicitly.
+    const p: *WsClientHandle = @ptrFromInt(@as(usize, @truncate(handle)));
     return @alignCast(p);
 }
 
@@ -273,6 +278,7 @@ pub export fn sa_std_ws_client_supported(out_supported: ?*u32) i32 {
 }
 
 pub export fn sa_std_ws_client_connect(url_ptr: ?[*]const u8, url_len: u64, out_handle: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const url = if (url_ptr) |p| p[0..url_len] else return SA_STD_ERR_INVALID_ARGUMENT;
@@ -418,6 +424,7 @@ fn recvImpl(h: *WsClientHandle, opcode_slot: *u32, buf_slot: *u64) WsError!void 
 }
 
 pub export fn sa_std_ws_client_recv(handle: u64, out_opcode: ?*u32, out_buf_handle: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const opcode_slot = out_opcode orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const buf_slot = out_buf_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     opcode_slot.* = 0;

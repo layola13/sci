@@ -112,6 +112,7 @@ typedef struct {
     const SaFunction *functions;
     size_t function_count;
     const char *target_triple;
+    unsigned char wasm_std_archive;
 } SaModule;
 
 typedef struct { const char *name; LLVMBasicBlockRef block; } LabelEntry;
@@ -372,7 +373,12 @@ static LLVMTypeRef fallible_wire_type_of(EmitCtx *e, SaType payload_ty) {
     return fallible_type_of(e, payload_ty);
 }
 
-static int external_fallible_i32_uses_i64_abi(const SaFunction *f) {
+static int external_fallible_i32_uses_i64_abi(EmitCtx *e, const SaFunction *f) {
+    /* The i64 packing relies on SysV returning 8-byte structs in a single
+       register. wasm32 uses multi-value {i32, i32} returns instead, so the
+       packed declaration mismatches the archive callee (local.set i32 vs
+       call i64 at validation). Fall back to the plain struct ABI there. */
+    if (e != NULL && e->wasm_compat) return 0;
     return f != NULL && f->kind == SA_F_EXTERNAL && f->return_fallible && (f->ret_ty == SA_T_I32 || f->ret_ty == SA_T_U32 || f->ret_ty == SA_T_I16 || f->ret_ty == SA_T_U16 || f->ret_ty == SA_T_I8 || f->ret_ty == SA_T_U8);
 }
 
@@ -388,7 +394,7 @@ static int external_fallible_i32_uses_i64_abi(const SaFunction *f) {
 #ifdef _WIN32
 static int external_fallible_uses_sret_win64(const SaFunction *f) {
     if (f == NULL || f->kind != SA_F_EXTERNAL || !f->return_fallible) return 0;
-    if (external_fallible_i32_uses_i64_abi(f)) return 0;
+    if (external_fallible_i32_uses_i64_abi(NULL, f)) return 0;
     switch (f->ret_ty) {
         case SA_T_I64:
         case SA_T_U64:
@@ -404,7 +410,7 @@ static int external_fallible_uses_sret_win64(const SaFunction *f) { (void)f; ret
 #endif
 
 static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
-    if (external_fallible_i32_uses_i64_abi(f)) return e->i64_ty;
+    if (external_fallible_i32_uses_i64_abi(e, f)) return e->i64_ty;
     if (external_fallible_uses_sret_win64(f)) return LLVMVoidTypeInContext(e->ctx);
     if (f->return_fallible) return fallible_type_of(e, f->ret_ty);
     return type_of(e, f->ret_ty);
@@ -1345,7 +1351,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 free(param_types);
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)total_args, sret ? "" : (in->has_dst ? "call" : ""));
                 LLVMValueRef resultv = callv;
-                if (external_fallible_i32_uses_i64_abi(callee_sig)) resultv = unpack_external_fallible_i32(e, callv);
+                if (external_fallible_i32_uses_i64_abi(e, callee_sig)) resultv = unpack_external_fallible_i32(e, callv);
                 if (sret) {
                     LLVMTypeRef result_struct = fallible_type_of(e, callee_sig->ret_ty);
                     LLVMValueRef agg = LLVMGetUndef(result_struct);
@@ -1585,6 +1591,10 @@ static void emit_sa_print_bytes(EmitCtx *e) {
         fn = LLVMAddFunction(e->module, "sa_print_bytes", LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), params, 2, 0));
     }
     if (LLVMCountBasicBlocks(fn) != 0) return;
+    /* wasm_compat in-module runtime: internal linkage so a linked sa_std
+       archive (which exports the same ABI) never collides; the archive
+       member is simply left unpulled. */
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMPositionBuilderAtEnd(e->builder, bb);
     LLVMValueRef len = coerce_to_size(e, LLVMGetParam(fn, 1), "len_size");
@@ -1677,6 +1687,7 @@ static LLVMValueRef wasm_fixed_intrinsic(EmitCtx *e, const char *name, LLVMTypeR
 static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_hexdec_simd");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMTypeRef i64 = e->i64_ty;
     LLVMTypeRef v16 = LLVMVectorType(e->i8_ty, 16);
     LLVMTypeRef v8 = LLVMVectorType(e->i8_ty, 8);
@@ -1836,6 +1847,7 @@ static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
 static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_b64dec_simd");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMTypeRef i64 = e->i64_ty;
     LLVMTypeRef v16 = LLVMVectorType(e->i8_ty, 16);
     LLVMTypeRef v12 = LLVMVectorType(e->i8_ty, 12);
@@ -2235,6 +2247,7 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
 static void emit_sa_mfind_u8_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_mfind_u8");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMTypeRef i64 = e->i64_ty;
     LLVMTypeRef size = size_type(e);
     LLVMValueRef hay = LLVMGetParam(fn, 0);
@@ -2533,6 +2546,7 @@ static LLVMValueRef fmt_wasm_ensure_uint(EmitCtx *e, const FmtWasmState *s, LLVM
 static void fmt_wasm_define_u64(EmitCtx *e, LLVMValueRef uint_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_u64");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMPositionBuilderAtEnd(e->builder, bb);
     LLVMValueRef args[3] = {
@@ -2544,6 +2558,7 @@ static void fmt_wasm_define_u64(EmitCtx *e, LLVMValueRef uint_fn) {
 static void fmt_wasm_define_i64(EmitCtx *e, LLVMValueRef uint_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_i64");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMValueRef val = LLVMGetParam(fn, 0);
     LLVMValueRef base = LLVMGetParam(fn, 1);
     LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
@@ -2560,6 +2575,7 @@ static void fmt_wasm_define_i64(EmitCtx *e, LLVMValueRef uint_fn) {
 static void fmt_wasm_define_f64(EmitCtx *e, const FmtWasmState *s, LLVMValueRef alloc_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_f64");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMValueRef val = LLVMGetParam(fn, 0);
     LLVMValueRef prec = LLVMGetParam(fn, 1);
     LLVMTypeRef buf_ty = LLVMArrayType(e->i8_ty, SA_FMT_WASM_F64_SCRATCH);
@@ -2597,6 +2613,7 @@ static void fmt_wasm_define_f64(EmitCtx *e, const FmtWasmState *s, LLVMValueRef 
 static void fmt_wasm_define_bytes(EmitCtx *e, LLVMValueRef alloc_fn, const FmtWasmState *s) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_bytes");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMValueRef src = LLVMGetParam(fn, 0);
     LLVMValueRef len = LLVMGetParam(fn, 1);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
@@ -2620,6 +2637,7 @@ static void fmt_wasm_define_bytes(EmitCtx *e, LLVMValueRef alloc_fn, const FmtWa
 static void fmt_wasm_define_buffer_data(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_data");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
     LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
@@ -2637,6 +2655,7 @@ static void fmt_wasm_define_buffer_data(EmitCtx *e, const FmtWasmState *s, LLVMV
 static void fmt_wasm_define_buffer_len(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_len");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
     LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
@@ -2654,6 +2673,7 @@ static void fmt_wasm_define_buffer_len(EmitCtx *e, const FmtWasmState *s, LLVMVa
 static void fmt_wasm_define_buffer_free(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_free");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    LLVMSetLinkage(fn, LLVMInternalLinkage);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
     LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
@@ -3171,7 +3191,11 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     }
     if (m->wasm_compat) {
         emit_sa_print_bytes(e);
-        emit_sa_fmt_wasm_runtime(e);
+        /* When the link will pull the real sa_std archive, skip the stateful
+           in-module fmt runtime: its slot table would split the buffer-handle
+           ABI with the archive registry (archive-created handles unreadable
+           by inline readers). Archive-less builds keep the inline runtime. */
+        if (!m->wasm_std_archive) emit_sa_fmt_wasm_runtime(e);
         emit_sa_hexdec_simd_wasm(e);
         emit_sa_b64dec_simd_wasm(e);
         emit_sa_mfind_u8_wasm(e);

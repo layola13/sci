@@ -16,6 +16,30 @@
 // session — the fidelity rule from the objective.
 
 const std = @import("std");
+const builtin = @import("builtin");
+
+// wasm32-wasi has no dlopen: stub DynLib so probes honestly report
+// "unsupported" instead of breaking the build.
+const is_wasi = builtin.os.tag == .wasi;
+const WasiDynLib = struct {
+    fn open(path: []const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn openZ(path: [:0]const u8) !WasiDynLib {
+        _ = path;
+        return error.Unsupported;
+    }
+    fn close(self: WasiDynLib) void {
+        _ = self;
+    }
+    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
+        _ = self;
+        _ = name;
+        return null;
+    }
+};
+const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
@@ -24,7 +48,7 @@ const SA_STD_ERR_NO_MEMORY: i32 = -12;
 
 fn dynLibAvailable(candidates: []const []const u8) bool {
     for (candidates) |c| {
-        if (std.DynLib.open(c)) |opened| {
+        if (DynLib.open(c)) |opened| {
             var lib = opened;
             lib.close();
             return true;

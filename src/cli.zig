@@ -5633,6 +5633,19 @@ fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
 
 const RuntimeArchiveFingerprint = struct { size: u64, mtime_ns: u64 };
 
+fn selfExeFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
+    // Under `zig build test` the self-exe is a fresh test runner every time;
+    // fingerprinting it would defeat the cache there, so keep old behavior.
+    if (builtin.is_test) return null;
+    const exe_path = std.fs.selfExePathAlloc(allocator) catch return null;
+    defer allocator.free(exe_path);
+    const stat = std.fs.cwd().statFile(exe_path) catch return null;
+    return .{
+        .size = stat.size,
+        .mtime_ns = @as(u64, @truncate(@as(u128, @bitCast(stat.mtime)))),
+    };
+}
+
 fn runtimeArchiveFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
     const archive_path = saStdArchivePath(allocator) catch return null;
     defer allocator.free(archive_path);
@@ -5930,6 +5943,15 @@ fn computeProjectBuildKey(
     // after the archive was rebuilt without AVX-512, SIGILL). Cheap stat,
     // no content hashing; missing archive keeps old behavior.
     if (runtimeArchiveFingerprint(allocator)) |fp| {
+        cacheU64(&hasher, fp.size);
+        cacheU64(&hasher, fp.mtime_ns);
+    }
+    // Fingerprint the compiler binary itself: emitter/backend changes (e.g.
+    // wasm inline-runtime gating) must invalidate cached bitcode, otherwise
+    // stale .bc is silently reused after `sa` is rebuilt (observed: fixed
+    // wasm ABI still served pre-fix .bc from cache). Missing path keeps old
+    // behavior (notably `builtin.is_test`, where self-exe is the test runner).
+    if (selfExeFingerprint(allocator)) |fp| {
         cacheU64(&hasher, fp.size);
         cacheU64(&hasher, fp.mtime_ns);
     }
@@ -7362,15 +7384,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
-            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
-                try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                return 1;
-            };
-            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-            recordMetricMemoryAfterEmit(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-
+            // Resolve the target archive BEFORE emit: the backend skips its
+            // in-module fmt runtime when the archive will provide it, keeping
+            // a single buffer-handle ABI (inline slot table vs archive
+            // registry must never mix).
             const std_archive_path: ?[]const u8 = saStdArchivePathForTarget(allocator, target.triple) catch |err| blk: {
                 if (err == error.ArchiveNotFoundForTarget) {
                     break :blk null;
@@ -7378,6 +7395,15 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
                 return err;
             };
             defer if (std_archive_path) |p| allocator.free(p);
+            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .wasm_std_archive = std_archive_path != null, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+                try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                return 1;
+            };
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+            recordMetricMemoryAfterEmit(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+
             const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, std_archive_path, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => {

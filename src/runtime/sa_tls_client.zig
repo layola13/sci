@@ -32,6 +32,10 @@
 // truncation safety anyway.
 
 const std = @import("std");
+const builtin = @import("builtin");
+
+// wasm32-wasi has no TCP sockets: entry points below report UNSUPPORTED.
+const is_wasi = builtin.os.tag == .wasi;
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
@@ -123,6 +127,7 @@ pub export fn sa_std_tls_client_supported(out_supported: ?*u32) i32 {
 }
 
 pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const host_slice = if (host_ptr) |p| p[0..host_len] else return SA_STD_ERR_INVALID_ARGUMENT;
@@ -182,6 +187,7 @@ pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, p
 }
 
 pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const path = if (path_ptr) |p| p[0..path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (path.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     // addCertsFromFilePathAbsolute asserts an absolute path; reject early with
@@ -202,11 +208,13 @@ pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u6
 fn handleFromU64(handle: u64) *TlsClientHandle {
     // Heap pointers from page_allocator are 16-byte aligned; alignCast keeps
     // this sound on targets (aarch64) where @ptrFromInt is stricter.
-    const p: *TlsClientHandle = @ptrFromInt(handle);
+    // wasm32 is 32-bit: narrow the u64 registry handle explicitly.
+    const p: *TlsClientHandle = @ptrFromInt(@as(usize, @truncate(handle)));
     return @alignCast(p);
 }
 
 pub export fn sa_std_tls_client_read(handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_read orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;

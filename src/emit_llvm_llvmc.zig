@@ -114,6 +114,7 @@ const CModule = extern struct {
     functions: [*]const CFunction,
     function_count: usize,
     target_triple: ?[*:0]const u8,
+    wasm_std_archive: bool,
 };
 
 fn takeOwnedBitcode(allocator: std.mem.Allocator, bytes: *?[*]u8, len: *usize) ![]u8 {
@@ -1561,6 +1562,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     const module = CModule{
         .size_bits = size_bits,
         .wasm_compat = options.wasm_compat,
+        .wasm_std_archive = options.wasm_std_archive,
         .test_mode = options.test_mode,
         .debug = options.debug,
         .is_cgu = options.codegen_unit_count > 1,
@@ -1840,6 +1842,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     const module = CModule{
         .size_bits = size_bits,
         .wasm_compat = options.wasm_compat,
+        .wasm_std_archive = options.wasm_std_archive,
         .test_mode = options.test_mode,
         .debug = options.debug,
         .is_cgu = options.codegen_unit_count > 1,

@@ -756,8 +756,8 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
         \\function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
         \\function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
-        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
-        \\function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
+        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt(Math.trunc(+v)); }
+        \\function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt(Math.trunc(+v))); }
         \\function __sa_cvt_sext_ptr(v) { return __sa_cvt_ptr64(v); }
         \\function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
         \\function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }

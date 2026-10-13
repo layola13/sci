@@ -9993,3 +9993,25 @@ Current progress: 100%
 - Added filesystem byte aliases for sequential/positioned/exact/whole-file operations in `sa_std/fs.sa`, covered by `tests/unit_framework/std_fs_bytes_alias_surface.sa`.
 - Added TCP/UDP/Unix network byte aliases in `sa_std/net.sa`, covered by `tests/unit_framework/std_net_bytes_alias_surface.sa`.
 - Added path and process capture byte aliases in `sa_std/path.sa` and `sa_std/process.sa`, covered by `tests/unit_framework/std_path_process_bytes_alias_surface.sa`.
+
+## Continued: 2026-10-13 wasm32-wasi stdlib port + tsgosa triple-matrix sign-off
+
+- Ported `sa_std` to wasm32-wasi (`zig build -Dtarget=wasm32-wasi sa-std-static`: 84 errors to zero).
+  Strategy: `WasiDynLib` stub (dlopen reports unsupported, loader probes return 0), `NetAddress`/`NetServer`
+  placeholders, one-line `if (is_wasi)` early-return stubs for transport/process/env exports (comptime-pruned,
+  zero native behavior change; pruning semantics verified empirically), narrowings (`@truncate`/`@intCast`)
+  where live wasm paths need them, musl-layout `RegexC` for wasi (32B, re_nsub@0, C-probed), width-guarded
+  glibc asserts. Archive installs at `artifacts/sa_std/wasm32-wasi/libsa_std.a`, linked via `$SA_STD_DIR/<triple>/`.
+- Backend fixes: Fallible(i32) externs declared as i64-packed break wasm32 multi-value returns -> struct ABI
+  under `wasm_compat`; wasm-inline fmt runtime vs archive duplicate symbols -> internal linkage + skip inline
+  fmt when archive present (`wasm_std_archive` option cli->emitter->shim, single buffer-handle ABI); project
+  cache key now fingerprints the compiler binary itself (stale .bc reuse after rebuilds).
+- Contract fixes: `sa_std/text/regex.sai` + `sa_std/encoding/json.sai` handle types `ptr`->`u64` to match the
+  archive (worked on 64-bit by width coincidence; wasm32 declared i8* vs defined i64); `ts_arr_pop` empty-array
+  guard (was OOB read, zero on native by luck); JS `__sa_cvt_sext_i64/u64` dropped `|0` truncation (wide mul/add).
+- Validation with tsgosa (2146 demos): native 2146/2146 (twice, before+after, zero regression), wasm 1913/1921,
+  js 1928/1928, std-smoke green.
+- Known wasm limitation (quarantined, issue to follow): regex loop+join/split/replace family
+  (1170/1172/1187/361/363/472/514/1707) — first compile/match always hits, second always misses/reads garbage
+  on wasm32 despite valid handles, intact statics, correct re_nsub/pattern copies, and a pure-C double-compile
+  control passing; suspect wasi-libc musl second-regcomp silent anomaly. JEV-scoped to defer.
