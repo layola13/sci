@@ -26,7 +26,7 @@ const Entry = struct {
 };
 
 var registry_mutex = std.Io.Mutex.init;
-var entries = std.ArrayList(Entry).init(std.heap.page_allocator);
+var entries = std.array_list.Managed(Entry).init(std.heap.page_allocator);
 
 /// Availability probe (same `*_supported` convention as the http2/tls/dtls/
 /// quic modules). Thread-local storage is pure Zig with no native backend,
