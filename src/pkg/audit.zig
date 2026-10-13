@@ -636,7 +636,12 @@ test "audit flags ungranted network primitives and ignores strings/comments" {
 
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
-    try writeJsonReport(out.writer(), report);
+    {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try writeJsonReport(&aw.writer, report);
+        try out.appendSlice(aw.written());
+    }
     try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "\"risk\":\"HIGH RISK\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "\"granted\":false"));
 }

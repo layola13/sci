@@ -122,7 +122,7 @@ pub fn loadProjectRules(
         else => return err,
     }
 
-    var env_map = try std.process.getEnvMap(allocator);
+    var env_map = try sio.getEnvMap(allocator);
     defer env_map.deinit();
     var it = env_map.iterator();
     while (it.next()) |entry| {

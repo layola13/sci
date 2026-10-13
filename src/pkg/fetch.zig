@@ -162,14 +162,14 @@ fn chmodFileReadOnly(path: []const u8) !void {
     if (builtin.os.tag == .windows) return;
     var file = try sio.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
-    try file.inner.setPermissions(sio.io(), @enumFromInt(0o444));
+    try file.chmod(0o444);
 }
 
 fn chmodDirReadOnly(path: []const u8) !void {
     if (builtin.os.tag == .windows) return;
     var dir = try sio.cwd().openDir(path, .{ .iterate = true, .follow_symlinks = false });
     defer dir.close();
-    try dir.inner.setPermissions(sio.io(), @enumFromInt(0o555));
+    try dir.chmod(0o555);
 }
 
 fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Allocator, options: CopyTreeOptions) !void {
@@ -233,21 +233,21 @@ fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !vo
                 const entry_dir: sio.Dir = .{ .inner = entry.dir };
                 var file = try entry_dir.openFile(entry.basename, .{ .mode = .read_only });
                 defer file.close();
-                try file.inner.setPermissions(sio.io(), @enumFromInt(0o444));
+                try file.chmod(0o444);
             },
             .directory => {
                 if (builtin.os.tag == .windows) continue;
                 const entry_dir: sio.Dir = .{ .inner = entry.dir };
                 var dir = try entry_dir.openDir(entry.basename, .{ .iterate = true, .follow_symlinks = false });
                 defer dir.close();
-                try dir.inner.setPermissions(sio.io(), @enumFromInt(0o555));
+                try dir.chmod(0o555);
             },
             .sym_link => continue,
             else => {},
         }
     }
 
-    if (builtin.os.tag != .windows) try root_dir.inner.setPermissions(sio.io(), @enumFromInt(0o555));
+    if (builtin.os.tag != .windows) try root_dir.chmod(0o555);
 }
 
 fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8, target_root: []const u8) !void {
@@ -430,12 +430,12 @@ test "copyTree can set read-only permissions while skipping symlinks" {
         if (builtin.os.tag != .windows) {
             var nested = sio.cwd().openDir("dst/nested", .{ .iterate = true, .follow_symlinks = false }) catch null;
             if (nested) |*dir| {
-                dir.inner.setPermissions(sio.io(), @enumFromInt(0o755)) catch {};
+                dir.chmod(0o755) catch {};
                 dir.close();
             }
             var dst = sio.cwd().openDir("dst", .{ .iterate = true, .follow_symlinks = false }) catch null;
             if (dst) |*dir| {
-                dir.inner.setPermissions(sio.io(), @enumFromInt(0o755)) catch {};
+                dir.chmod(0o755) catch {};
                 dir.close();
             }
         }
@@ -450,12 +450,12 @@ test "copyTree can set read-only permissions while skipping symlinks" {
 
     var copied_file = try sio.cwd().openFile("dst/nested/main.sa", .{ .mode = .read_only });
     defer copied_file.close();
-    const file_mode = (try copied_file.stat()).mode & 0o777;
+    const file_mode = @intFromEnum((try copied_file.stat()).permissions) & 0o777;
     try std.testing.expectEqual(@as(u32, 0o444), @as(u32, @intCast(file_mode)));
 
     var copied_dir = try sio.cwd().openDir("dst/nested", .{ .iterate = true, .follow_symlinks = false });
     defer copied_dir.close();
-    const dir_mode = (try copied_dir.stat()).mode & 0o777;
+    const dir_mode = @intFromEnum((try copied_dir.stat()).permissions) & 0o777;
     try std.testing.expectEqual(@as(u32, 0o555), @as(u32, @intCast(dir_mode)));
 }
 
@@ -495,7 +495,7 @@ test "setReadOnlyRecursive does not follow symlinked directories" {
 
     var outside = try sio.cwd().openDir("outside", .{ .iterate = true, .follow_symlinks = false });
     defer outside.close();
-    const outside_mode = (try outside.stat()).mode & 0o777;
+    const outside_mode = @intFromEnum((try outside.stat()).permissions) & 0o777;
     try std.testing.expect((outside_mode & 0o200) != 0);
 }
 
@@ -506,13 +506,18 @@ test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {
     try tmp.dir.createDirPath(std.testing.io, "github.com/example/smoke");
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "github.com/example/smoke/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
     var postinstall = try tmp.dir.createFile(std.testing.io, "github.com/example/smoke/postinstall.sh", .{ .truncate = true });
-    try postinstall.writeAll(
-        \\#!/bin/sh
-        \\echo executed > executed.marker
-        \\
-    );
-    if (builtin.os.tag != .windows) try postinstall.chmod(0o755);
-    postinstall.close();
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = postinstall.writer(std.testing.io, &wbuf);
+        try wfb.interface.writeAll(
+            \\#!/bin/sh
+            \\echo executed > executed.marker
+            \\
+        );
+        try wfb.interface.flush();
+    }
+    if (builtin.os.tag != .windows) try postinstall.setPermissions(std.testing.io, @enumFromInt(0o755));
+    postinstall.close(std.testing.io);
 
     const source_root = try tmp.dir.realPathFileAlloc(std.testing.io, "github.com/example/smoke", std.testing.allocator);
     defer std.testing.allocator.free(source_root);
@@ -542,8 +547,13 @@ test "fetch rejects precompiled artifacts" {
 
     try tmp.dir.createDirPath(std.testing.io, "github.com/example/bad");
     var bad_file = try tmp.dir.createFile(std.testing.io, "github.com/example/bad/libfoo.so", .{ .truncate = true });
-    defer bad_file.close();
-    try bad_file.writeAll("x");
+    defer bad_file.close(std.testing.io);
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = bad_file.writer(std.testing.io, &wbuf);
+        try wfb.interface.writeAll("x");
+        try wfb.interface.flush();
+    }
 
     var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();

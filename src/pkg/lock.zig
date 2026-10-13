@@ -180,7 +180,12 @@ fn updateEntry(
 fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file: manifest.LockFile) !void {
     var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
-    try manifest.writeLock(out.writer(), lock_file);
+    {
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        try manifest.writeLock(&aw.writer, lock_file);
+        try out.appendSlice(aw.written());
+    }
 
     if (std.fs.path.dirname(path)) |parent| {
         if (parent.len != 0) try sio.cwd().makePath(parent);
@@ -207,7 +212,7 @@ fn writeLockFileAtomic(allocator: std.mem.Allocator, path: []const u8, lock_file
     if (std.fs.path.isAbsolute(path)) {
         try sio.renameAbsolute(tmp_path, path);
     } else {
-        try sio.cwd().rename(tmp_path, path);
+        try sio.cwd().rename(tmp_path, sio.cwd(), path);
     }
 }
 

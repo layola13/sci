@@ -304,9 +304,9 @@ fn mapFileReadOnly(path: []const u8, max_bytes: usize) ResolveError!struct { map
     const mapped = std.posix.mmap(
         null,
         len,
-        std.posix.PROT.READ,
+        .{ .READ = true },
         .{ .TYPE = .SHARED },
-        file.handle,
+        file.inner.handle,
         0,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -654,8 +654,13 @@ test "resolveImport prefers a relative source file" {
 
     try tmp.dir.createDirPath(std.testing.io, "src");
     var source_file = try tmp.dir.createFile(std.testing.io, "src/module.sa", .{ .truncate = true });
-    defer source_file.close();
-    try source_file.writeAll("@main() -> i32:\n    return 0\n");
+    defer source_file.close(sio.io());
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = source_file.writer(sio.io(), &wbuf);
+        try wfb.interface.writeAll("@main() -> i32:\n    return 0\n");
+        try wfb.interface.flush();
+    }
 
     const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);
@@ -683,8 +688,13 @@ test "resolveImport falls back to local vendor package roots" {
 
     try tmp.dir.createDirPath(std.testing.io, "sa_vendor/github.com/example/pkg");
     var index = try tmp.dir.createFile(std.testing.io, "sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
-    defer index.close();
-    try index.writeAll("@pkg() -> i32:\n    return 123\n");
+    defer index.close(sio.io());
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = index.writer(sio.io(), &wbuf);
+        try wfb.interface.writeAll("@pkg() -> i32:\n    return 123\n");
+        try wfb.interface.flush();
+    }
 
     const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);
@@ -713,8 +723,13 @@ test "resolveImport maps global cache entries read-only" {
 
     try tmp.dir.createDirPath(std.testing.io, ".sa/pkg/github.com/example/pkg@v1");
     var index = try tmp.dir.createFile(std.testing.io, ".sa/pkg/github.com/example/pkg@v1/index.sa", .{ .truncate = true });
-    defer index.close();
-    try index.writeAll("@global() -> i32:\n    return 7\n");
+    defer index.close(sio.io());
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = index.writer(sio.io(), &wbuf);
+        try wfb.interface.writeAll("@global() -> i32:\n    return 7\n");
+        try wfb.interface.flush();
+    }
 
     const home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(home);
@@ -863,8 +878,13 @@ test "resolveImport falls back to declared plugin interface roots" {
 
     try tmp.dir.createDirPath(std.testing.io, "plugins/installed/deno/current/sa");
     var layout = try tmp.dir.createFile(std.testing.io, "plugins/installed/deno/current/sa/deno.sal", .{ .truncate = true });
-    defer layout.close();
-    try layout.writeAll("@const DENO_OK: u64 = 1\n");
+    defer layout.close(sio.io());
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = layout.writer(sio.io(), &wbuf);
+        try wfb.interface.writeAll("@const DENO_OK: u64 = 1\n");
+        try wfb.interface.flush();
+    }
 
     const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);

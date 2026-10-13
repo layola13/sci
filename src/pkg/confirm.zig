@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("sio");
 
 const audit = @import("audit.zig");
 
@@ -62,7 +63,7 @@ fn allPrimitivesGranted(report: audit.AuditReport) bool {
 }
 
 pub fn stdinIsTty() bool {
-    return std.posix.isatty(std.io.getStdIn().handle);
+    return std.Io.File.stdin().isTty(sio.io()) catch false;
 }
 
 fn writeSha256Hex(writer: anytype, hash: [32]u8) !void {
@@ -109,9 +110,10 @@ pub fn confirmWithReaderWriter(
     if (!stdin_is_tty) return error.MissingTtyForConfirmation;
 
     try writeBanner(writer, report);
-    var buf: [1024]u8 = undefined;
-    const input = try reader.readUntilDelimiterOrEof(buf[0..], '\n') orelse return error.BlockedRiskUnconfirmed;
-    const trimmed = std.mem.trim(u8, input, " \t\r\n");
+    // NOTE(Zig 0.17): `readUntilDelimiterOrEof` is gone; take up to the
+    // newline (EOF without delimiter also rejects, same as a mismatch).
+    const line = reader.takeDelimiterExclusive('\n') catch return error.BlockedRiskUnconfirmed;
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
     if (!std.mem.eql(u8, trimmed, report.package_url)) return error.BlockedRiskUnconfirmed;
     try session.markConfirmed(report);
 }
@@ -131,16 +133,16 @@ test "confirm blocks high risk package until exact URL is typed" {
     defer session.deinit();
     try std.testing.expectEqual(RiskState.blocked_risk, session.stateFor(report));
 
-    var wrong_in = std.io.fixedBufferStream("github.com/other/pkg\n");
+    var wrong_in = std.Io.Reader.fixed("github.com/other/pkg\n");
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
     try std.testing.expectError(
         error.BlockedRiskUnconfirmed,
-        confirmWithReaderWriter(&session, report, wrong_in.reader(), out.writer(), true, false),
+        confirmWithReaderWriter(&session, report, &wrong_in, sio.managedWriter(&out), true, false),
     );
 
-    var ok_in = std.io.fixedBufferStream("github.com/risky/pkg\n");
-    try confirmWithReaderWriter(&session, report, ok_in.reader(), out.writer(), true, false);
+    var ok_in = std.Io.Reader.fixed("github.com/risky/pkg\n");
+    try confirmWithReaderWriter(&session, report, &ok_in, sio.managedWriter(&out), true, false);
     try std.testing.expectEqual(RiskState.confirmed, session.stateFor(report));
 }
 
@@ -157,16 +159,16 @@ test "confirm rejects missing tty and auto approve bypasses" {
 
     var session = Session.init(std.testing.allocator);
     defer session.deinit();
-    var input = std.io.fixedBufferStream("github.com/risky/pkg\n");
+    var input = std.Io.Reader.fixed("github.com/risky/pkg\n");
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
 
     try std.testing.expectError(
         error.MissingTtyForConfirmation,
-        confirmWithReaderWriter(&session, report, input.reader(), out.writer(), false, false),
+        confirmWithReaderWriter(&session, report, &input, sio.managedWriter(&out), false, false),
     );
     try std.testing.expectError(
         error.AutoApproveForbidden,
-        confirmWithReaderWriter(&session, report, input.reader(), out.writer(), true, true),
+        confirmWithReaderWriter(&session, report, &input, sio.managedWriter(&out), true, true),
     );
 }

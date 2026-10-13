@@ -1938,7 +1938,12 @@ test "manifest parser preserves requires and mirrors" {
 
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
-    try writeManifest(out.writer(), manifest);
+    {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try writeManifest(&aw.writer, manifest);
+        try out.appendSlice(aw.written());
+    }
 
     var manifest2 = try parseManifestWithFile(std.testing.allocator, out.items, "pkg/sa.mod");
     defer manifest2.deinit(std.testing.allocator);
@@ -2028,7 +2033,12 @@ test "manifest parser preserves package and workspace declarations" {
 
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
-    try writeManifest(out.writer(), parsed);
+    {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try writeManifest(&aw.writer, parsed);
+        try out.appendSlice(aw.written());
+    }
 
     var reparsed = try parseManifestWithFile(std.testing.allocator, out.items, "pkg/sa.mod");
     defer reparsed.deinit(std.testing.allocator);
@@ -2059,7 +2069,12 @@ test "manifest parser preserves package metadata block" {
 
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
-    try writeManifest(out.writer(), parsed);
+    {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try writeManifest(&aw.writer, parsed);
+        try out.appendSlice(aw.written());
+    }
     var reparsed = try parseManifestWithFile(std.testing.allocator, out.items, "pkg/sa.mod");
     defer reparsed.deinit(std.testing.allocator);
     try std.testing.expect(reparsed.package_decl != null);
@@ -2186,7 +2201,12 @@ test "lock parser preserves dependency blocks and target hashes" {
 
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
-    try writeLock(out.writer(), lock_file);
+    {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try writeLock(&aw.writer, lock_file);
+        try out.appendSlice(aw.written());
+    }
 
     var lock_file2 = try parseLock(std.testing.allocator, out.items);
     defer lock_file2.deinit(std.testing.allocator);
@@ -2208,7 +2228,12 @@ test "sum parser preserves depth and sha256" {
 
     var out = std.array_list.Managed(u8).init(std.testing.allocator);
     defer out.deinit();
-    try writeSum(out.writer(), sum_file);
+    {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try writeSum(&aw.writer, sum_file);
+        try out.appendSlice(aw.written());
+    }
 
     var sum_file2 = try parseSum(std.testing.allocator, out.items);
     defer sum_file2.deinit(std.testing.allocator);

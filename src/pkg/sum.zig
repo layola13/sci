@@ -174,7 +174,12 @@ fn sameSum(lhs: manifest.SumFile, rhs: manifest.SumFile) bool {
 fn writeAtomic(allocator: std.mem.Allocator, path: []const u8, sum_file: manifest.SumFile) !void {
     var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
-    try manifest.writeSum(out.writer(), sum_file);
+    {
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        try manifest.writeSum(&aw.writer, sum_file);
+        try out.appendSlice(aw.written());
+    }
 
     if (std.fs.path.dirname(path)) |parent| {
         if (parent.len != 0) try sio.cwd().makePath(parent);
@@ -201,7 +206,7 @@ fn writeAtomic(allocator: std.mem.Allocator, path: []const u8, sum_file: manifes
     if (std.fs.path.isAbsolute(path)) {
         try sio.renameAbsolute(tmp, path);
     } else {
-        try sio.cwd().rename(tmp, path);
+        try sio.cwd().rename(tmp, sio.cwd(), path);
     }
 }
 
@@ -263,7 +268,7 @@ test "sum flattens transitive dependency trees and detects tampering" {
     const nested_manifest = try std.fmt.allocPrint(std.testing.allocator, "require b @HEAD sha256:{s}\n", .{b_hex[0..]});
     defer std.testing.allocator.free(nested_manifest);
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "sa_vendor/a/sa.mod", .data = nested_manifest });
-    try tmp.dir.copyFile("sa_vendor/b/index.sa", tmp.dir, "sa_vendor/a/sa_vendor/b/index.sa", .{});
+    try tmp.dir.copyFile("sa_vendor/b/index.sa", tmp.dir, "sa_vendor/a/sa_vendor/b/index.sa", std.testing.io, .{});
 
     var a_report = try audit.auditPackage(std.testing.allocator, "a", "HEAD", a_root, &.{});
     defer a_report.deinit(std.testing.allocator);
