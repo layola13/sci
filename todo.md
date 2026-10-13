@@ -427,3 +427,4 @@
   - **问题**：目前只有 9 靶向 demo＋34 peer 校验；用户禁全量跑，完整背书缺失。
   - **方案**：用户放行后跑全量两矩阵，失败项按 337/347/350 模式个个击破。
   - **验收**：两矩阵全绿，sala 注记。
+- **验证（2026-10-13 Q1A/Q1B 不动手，JEV 落件）**：新 Q-doc 提案 Q1A-7ops（extend+2xdot[64,1]+narrow+dot[4096,1]+shuffle）/Q1B-6ops（shift+dot+shuffle）逐项核对现行 5-op（shl/shr+bitselect+dot+shuffle，`emit_llvm_llvmc_shim.c` 注释已载明比较结论）：5-op 严格更少，动手即回归，不做。实测背书（wasmtime 25.0.2 本机装好，`/tmp/sem_*.sa` 自研 semtest 驱动，全 64 字母周期填充）：4 在仓 peers（b64nbig/bad/mid/t）＋5 新向量（64B/68B/64KB×2 相位/25852B，全字节和校验）9/9 MATCH＋1 负对照（错校验和正确 FAIL）；`--release-fast` 两点斜率（64KB×20 vs ×200 解码差分，fill/sum 相消）0.34ns/B 健康，与 Q1 关闭线同口径。另实锤方法论坑两枚：Debug 编译器发射的 `.wasm` 慢约 5x（1.7ns/B 误报，`--release-fast` 还原）；`!` 释放须与定义同块-or-全路径有定义（join 块释放部分路径未定义寄存器报 UnknownRegister）。零代码改动。
