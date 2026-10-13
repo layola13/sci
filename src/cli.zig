@@ -7064,7 +7064,9 @@ fn executeRun(
             var owned = ok;
             defer owned.deinit(allocator);
             rejectNpmBindsUnlessJs("sa run", &owned.flat, stderr) catch return 1;
-            const code = interp.runWithWriters(allocator, &owned.verified, argv, stdout, stderr) catch |err| switch (err) {
+            var run_out_forward = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+            var run_err_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            const code = interp.runWithWriters(allocator, &owned.verified, argv, run_out_forward.writer(), run_err_forward.writer()) catch |err| switch (err) {
                 error.UserExit => 0,
                 error.UnsupportedExtern => return 1,
                 else => {

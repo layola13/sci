@@ -353,14 +353,18 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
     const bc_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{wasm_path});
     defer std.testing.allocator.free(bc_path);
     const bc_file = try tmp.dir.openFile(std.testing.io, bc_path, .{});
-    defer bc_file.close();
-    const bc_bytes = try bc_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer bc_file.close(std.testing.io);
+    var bc_rbuf: [8192]u8 = undefined;
+    var bc_reader = bc_file.reader(std.testing.io, &bc_rbuf);
+    const bc_bytes = try bc_reader.interface.allocRemaining(std.testing.allocator, .limited(1 << 20));
     defer std.testing.allocator.free(bc_bytes);
     try std.testing.expect(bc_bytes.len > 0);
 
     const wasm_file = try tmp.dir.openFile(std.testing.io, wasm_path, .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    defer wasm_file.close(std.testing.io);
+    var wasm_rbuf: [8192]u8 = undefined;
+    var wasm_reader = wasm_file.reader(std.testing.io, &wasm_rbuf);
+    const wasm_bytes = try wasm_reader.interface.allocRemaining(std.testing.allocator, .limited(1 << 20));
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);

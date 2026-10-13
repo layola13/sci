@@ -67,8 +67,10 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     try std.testing.expectEqual(@as(u8, 0), build_js_code);
 
     const js_file = try tmp.dir.openFile(std.testing.io, js_name, .{});
-    defer js_file.close();
-    const js_bytes = try js_file.readToEndAlloc(std.testing.allocator, 1 << 24);
+    defer js_file.close(std.testing.io);
+    var js_rbuf: [8192]u8 = undefined;
+    var js_reader = js_file.reader(std.testing.io, &js_rbuf);
+    const js_bytes = try js_reader.interface.allocRemaining(std.testing.allocator, .limited(1 << 24));
     defer std.testing.allocator.free(js_bytes);
     try std.testing.expect(js_bytes.len > 64);
 
