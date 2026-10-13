@@ -3213,7 +3213,15 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
         for (size_t i = 0; i < m->function_count; i++) {
             if (!m->functions[i].emit_main_wrapper) continue;
             LLVMTypeRef params[2] = { e->i32_ty, e->ptr_ty };
-            LLVMValueRef main_fn = LLVMAddFunction(e->module, "main", LLVMFunctionType(e->i32_ty, params, 2, 0));
+            /* WASI command model (wasi-libc __main_void.c contract): the
+               compiler must expose the argc/argv entry as `__main_argc_argv`.
+               A plain `main` is left unreferenced and links to an
+               `unreachable` weak stub (LLVM 14's libc provided a weak default
+               `__main_argc_argv` that called `main`; LLVM 17+ toolchains do
+               not, so the rename is required for wasm_compat). Native keeps
+               the traditional `main` entry. */
+            const char *entry_name = m->wasm_compat ? "__main_argc_argv" : "main";
+            LLVMValueRef main_fn = LLVMAddFunction(e->module, entry_name, LLVMFunctionType(e->i32_ty, params, 2, 0));
             LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, main_fn, "entry");
             LLVMPositionBuilderAtEnd(e->builder, bb);
             LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 0), e->saasm_argc_global);

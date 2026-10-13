@@ -23,12 +23,15 @@ fn expectNotContains(text: []const u8, needle: []const u8) !void {
 /// Precedent: udpSendtoPermitted / udpMulticastV6JoinPermitted in
 /// tests/sa_std_runtime.zig (sci@71e02f12).
 fn udpMulticastV6JoinPermitted() bool {
-    const sock = std.posix.socket(std.posix.AF.INET6, std.posix.SOCK.DGRAM, 0) catch return false;
-    defer std.posix.close(sock);
     if (builtin.os.tag != .linux) return false;
+    const os = std.os.linux;
+    const fd = os.socket(os.AF.INET6, os.SOCK.DGRAM, 0);
+    if (@as(isize, @bitCast(fd)) < 0) return false;
+    const sock: os.fd_t = @intCast(fd);
+    defer _ = os.close(sock);
     var mreq = [_]u8{ 0xFF, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x14, 0, 0, 0, 0 };
-    const rc = std.os.linux.setsockopt(sock, 41, 20, &mreq, mreq.len);
-    return std.os.linux.E.init(rc) == .SUCCESS;
+    const rc = os.setsockopt(sock, 41, 20, &mreq, mreq.len);
+    return rc == 0;
 }
 
 fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
@@ -337,8 +340,16 @@ fn runSaTestFileInProcess(path: []const u8, expectations: SaTestExpectations) !v
     const jobs_arg = try saTestJobsArgForPath(std.testing.allocator, path);
     defer std.testing.allocator.free(jobs_arg);
     const start_ns = startSaFileLog(path, "in-process", jobs_arg, 0, 0);
-    errdefer errorSaFileLog(path, "in-process", 0, 0, err);
+    // NOTE(Zig 0.17): `errdefer |err|` payload capture was removed after 0.14,
+    // so the fallible tail runs in an inner function with an explicit catch
+    // that preserves the structured `status=error err=<name>` log marker.
+    runSaTestFileInProcessInner(path, expectations, suite_path, jobs_arg, start_ns) catch |err| {
+        errorSaFileLog(path, "in-process", 0, 0, err);
+        return err;
+    };
+}
 
+fn runSaTestFileInProcessInner(path: []const u8, expectations: SaTestExpectations, suite_path: []const u8, jobs_arg: []const u8, start_ns: i128) !void {
     var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
@@ -372,7 +383,9 @@ const SaTestWorkerContext = struct {
     tasks: []const SaTestTask,
     next_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     failed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    output_mutex: std.atomic.Mutex = .{},
+    // NOTE(Zig 0.17): `std.atomic.Mutex` is now an enum lock (`.unlocked`)
+    // with tryLock/unlock only; spin instead of the removed blocking lock().
+    output_mutex: std.atomic.Mutex = .unlocked,
 };
 
 fn externalSaTestCode(term: sio.Child.Term) u8 {
@@ -386,8 +399,15 @@ fn runSaTestFileExternal(sa_bin: []const u8, task: SaTestTask, index: usize, tot
     const suite_path = try sio.cwd().realpathAlloc(std.heap.page_allocator, task.path);
     defer std.heap.page_allocator.free(suite_path);
     const start_ns = startSaFileLog(task.path, "process", task.jobs_arg, index, total);
-    errdefer errorSaFileLog(task.path, "process", index, total, err);
+    // NOTE(Zig 0.17): `errdefer |err|` payload capture was removed after 0.14;
+    // inner function + explicit catch preserves the structured error log marker.
+    runSaTestFileExternalInner(sa_bin, task, index, total, suite_path, start_ns) catch |err| {
+        errorSaFileLog(task.path, "process", index, total, err);
+        return err;
+    };
+}
 
+fn runSaTestFileExternalInner(sa_bin: []const u8, task: SaTestTask, index: usize, total: usize, suite_path: []const u8, start_ns: i128) !void {
     const argv = [_][]const u8{ sa_bin, "test", suite_path, "--jobs", task.jobs_arg, "--trace-panic" };
 
     const result = try sio.Child.run(.{
@@ -432,7 +452,7 @@ fn saTestWorkerMain(context: *SaTestWorkerContext) void {
         if (index >= context.tasks.len) return;
         runSaTestFileExternal(context.sa_bin, context.tasks[index], index + 1, context.tasks.len) catch |err| {
             context.failed.store(true, .release);
-            context.output_mutex.lock();
+            while (!context.output_mutex.tryLock()) std.atomic.spinLoopHint();
             defer context.output_mutex.unlock();
             std.debug.print("[unit-framework] worker observed error file={s} err={s}\n", .{ context.tasks[index].path, @errorName(err) });
         };
@@ -496,8 +516,15 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     const jobs_arg = try saTestJobsArg(std.testing.allocator);
     defer std.testing.allocator.free(jobs_arg);
     const start_ns = startSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", jobs_arg, 0, 0);
-    errdefer errorSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", 0, 0, err);
+    // NOTE(Zig 0.17): `errdefer |err|` payload capture was removed after 0.14;
+    // inner function + explicit catch preserves the structured error log marker.
+    featureSuiteAllModesInner(suite_path, jobs_arg, start_ns) catch |err| {
+        errorSaFileLog("tests/unit_framework/feature_suite.sa", "all-modes", 0, 0, err);
+        return err;
+    };
+}
 
+fn featureSuiteAllModesInner(suite_path: []const u8, jobs_arg: []const u8, start_ns: i128) !void {
     var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
@@ -613,14 +640,22 @@ test "native unit assertions surface file line expected and got details" {
     defer std.testing.allocator.free(source);
     try writeSource(tmp.dir, "assert_diag.sa", source);
 
+    const jobs_arg = try saTestJobsArg(std.testing.allocator);
+    defer std.testing.allocator.free(jobs_arg);
+    const start_ns = startSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0);
+    // NOTE(Zig 0.17): `errdefer |err|` payload capture was removed after 0.14;
+    // inner function + explicit catch preserves the structured error log marker.
+    assertDiagNegativeInner(jobs_arg, start_ns) catch |err| {
+        errorSaFileLog("assert_diag.sa", "negative-diagnostic", 0, 0, err);
+        return err;
+    };
+}
+
+fn assertDiagNegativeInner(jobs_arg: []const u8, start_ns: i128) !void {
     var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
-    const jobs_arg = try saTestJobsArg(std.testing.allocator);
-    defer std.testing.allocator.free(jobs_arg);
-    const start_ns = startSaFileLog("assert_diag.sa", "negative-diagnostic", jobs_arg, 0, 0);
-    errdefer errorSaFileLog("assert_diag.sa", "negative-diagnostic", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "assert_diag.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(
@@ -1531,14 +1566,22 @@ test "native unit framework exposes standard mock io buffer" {
     defer std.testing.allocator.free(source);
     try writeSource(tmp.dir, "mock_io_test.sa", source);
 
+    const jobs_arg = try saTestJobsArg(std.testing.allocator);
+    defer std.testing.allocator.free(jobs_arg);
+    const start_ns = startSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0);
+    // NOTE(Zig 0.17): `errdefer |err|` payload capture was removed after 0.14;
+    // inner function + explicit catch preserves the structured error log marker.
+    mockIoInProcessInner(jobs_arg, start_ns) catch |err| {
+        errorSaFileLog("mock_io_test.sa", "in-process", 0, 0, err);
+        return err;
+    };
+}
+
+fn mockIoInProcessInner(jobs_arg: []const u8, start_ns: i128) !void {
     var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
     var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
-    const jobs_arg = try saTestJobsArg(std.testing.allocator);
-    defer std.testing.allocator.free(jobs_arg);
-    const start_ns = startSaFileLog("mock_io_test.sa", "in-process", jobs_arg, 0, 0);
-    errdefer errorSaFileLog("mock_io_test.sa", "in-process", 0, 0, err);
 
     const argv = [_][]const u8{ "sa", "test", "mock_io_test.sa", "--jobs", jobs_arg };
     const code = try saasm.cli.executeWithWriters(

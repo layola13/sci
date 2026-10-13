@@ -244,8 +244,31 @@ fn artifactStem(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     return try allocator.dupe(u8, std.fs.path.basename(parent));
 }
 
+var matrix_seq: usize = 0;
+
+/// Shard selector for long demo matrices: SA_WASM_MATRIX_SHARD="i/n" runs
+/// only demos whose sequence number satisfies seq % n == i (0-based).
+/// Absent or malformed values run every demo (default behavior unchanged).
+fn matrixShardSelected() bool {
+    const seq = matrix_seq;
+    matrix_seq += 1;
+    const value = sio.getEnvVarOwned(std.testing.allocator, "SA_WASM_MATRIX_SHARD") catch return true;
+    defer std.testing.allocator.free(value);
+    var parts = std.mem.splitScalar(u8, value, '/');
+    const i_text = parts.next() orelse return true;
+    const n_text = parts.next() orelse return true;
+    const i = std.fmt.parseUnsigned(usize, i_text, 10) catch return true;
+    const n = std.fmt.parseUnsigned(usize, n_text, 10) catch return true;
+    if (n == 0 or i >= n) return true;
+    return seq % n == i;
+}
+
 fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_stdout: []const u8) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!matrixShardSelected()) {
+        std.debug.print("[wasm-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
     const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },

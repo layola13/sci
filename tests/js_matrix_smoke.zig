@@ -18,8 +18,31 @@ fn elapsedMs(start_ns: i128) i128 {
     return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
+var js_matrix_seq: usize = 0;
+
+/// Shard selector for the long JS demo matrix: SA_JS_MATRIX_SHARD="i/n" runs
+/// only demos whose sequence number satisfies seq % n == i (0-based).
+/// Absent or malformed values run every demo (default behavior unchanged).
+fn jsMatrixShardSelected() bool {
+    const seq = js_matrix_seq;
+    js_matrix_seq += 1;
+    const value = sio.getEnvVarOwned(std.testing.allocator, "SA_JS_MATRIX_SHARD") catch return true;
+    defer std.testing.allocator.free(value);
+    var parts = std.mem.splitScalar(u8, value, '/');
+    const i_text = parts.next() orelse return true;
+    const n_text = parts.next() orelse return true;
+    const i = std.fmt.parseUnsigned(usize, i_text, 10) catch return true;
+    const n = std.fmt.parseUnsigned(usize, n_text, 10) catch return true;
+    if (n == 0 or i >= n) return true;
+    return seq % n == i;
+}
+
 fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!jsMatrixShardSelected()) {
+        std.debug.print("[js-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
     const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },

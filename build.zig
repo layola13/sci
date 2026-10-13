@@ -315,6 +315,10 @@ pub fn build(b: *std.Build) void {
     const run_wasm_matrix = b.addRunArtifact(wasm_matrix);
     run_wasm_matrix.setCwd(repo_root_lazy);
     addLlvmBinDirToRun(b, run_wasm_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    // Shard selector for the long wasm demo matrix ("i/n"); empty runs all.
+    // Passed as an explicit env var (not inherited) so each shard gets its
+    // own run-step fingerprint instead of a false cache hit.
+    run_wasm_matrix.setEnvironmentVariable("SA_WASM_MATRIX_SHARD", b.option([]const u8, "wasm-matrix-shard", "Run only wasm matrix demos with sequence number seq % n == i (\"i/n\").") orelse "");
     run_wasm_matrix.step.name = "wasm-matrix";
     test_step.dependOn(&run_wasm_matrix.step);
     const wasm_matrix_step = b.step("wasm-matrix", "Run LLVM-C native/wasm32 demo equivalence matrix");
@@ -334,6 +338,9 @@ pub fn build(b: *std.Build) void {
     const run_js_matrix = b.addRunArtifact(js_matrix);
     run_js_matrix.setCwd(repo_root_lazy);
     addLlvmBinDirToRun(b, run_js_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    // Shard selector for the long JS demo matrix ("i/n"); empty runs all.
+    // Explicit env var so each shard gets its own run-step fingerprint.
+    run_js_matrix.setEnvironmentVariable("SA_JS_MATRIX_SHARD", b.option([]const u8, "js-matrix-shard", "Run only JS matrix demos with sequence number seq % n == i (\"i/n\").") orelse "");
     run_js_matrix.step.name = "js-matrix";
     run_js_matrix.step.dependOn(&sync_sa_std_artifact.step);
     test_step.dependOn(&run_js_matrix.step);
@@ -563,11 +570,17 @@ pub fn build(b: *std.Build) void {
     run_unit_framework.step.dependOn(&install_sa_exe.step);
     run_unit_framework.step.dependOn(&sync_sa_std_artifact.step);
     run_unit_framework.setEnvironmentVariable("SA_STD_DIR", pathFromRoot(b, "sa_std"));
-    // NOTE(Zig 0.17): the install prefix is only known at make time, so the
-    // installed `sa` path cannot be computed at configure time anymore.
-    // Pass the just-built `sa` executable as `--sa-bin=<path>` instead; the
-    // runner falls back to SA_BIN/"sa" on PATH when the flag is absent.
-    run_unit_framework.addPrefixedFileArg("--sa-bin=", exe.getEmittedBin());
+    // NOTE(Zig 0.17): the install prefix is only known at make time and the
+    // default test runner rejects unknown `--sa-bin=` argv, so pass the
+    // just-built `sa` via SA_BIN (which the runner already honors) instead.
+    // This matches the 0.14 behavior for the default `zig-out` prefix.
+    run_unit_framework.setEnvironmentVariable("SA_BIN", pathFromRoot(b, if (is_windows) "zig-out/bin/sa.exe" else "zig-out/bin/sa"));
+    // Multithreaded unit-test execution: SA_UNIT_FILE_JOBS>1 makes the runner
+    // queue suites and verify them via external `sa` processes with a worker
+    // thread pool instead of slow serial in-process runs. Defaults to the
+    // host CPU count (capped at 8); override with -Dunit-file-jobs=<n>
+    // (1 keeps the serial in-process mode).
+    run_unit_framework.setEnvironmentVariable("SA_UNIT_FILE_JOBS", b.fmt("{d}", .{b.option(u32, "unit-file-jobs", "Parallel external file jobs for the native SA unit framework suites.") orelse defaultUnitFileJobs()}));
     if (enable_llvm) test_step.dependOn(&run_unit_framework.step);
     const unit_framework_step = b.step("unit-framework", "Run native SA unit framework suites");
     if (enable_llvm) unit_framework_step.dependOn(&run_unit_framework.step);
@@ -597,6 +610,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/sa_std_runtime.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
     sa_std_runtime_module.addImport("sio", sio_module);
     sa_std_runtime_module.addOptions("build_options", build_options);
@@ -925,6 +940,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/sa_term_runtime.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
     sa_term_runtime_module.addImport("sio", sio_module);
     sa_term_runtime_module.addOptions("build_options", build_options);
@@ -941,6 +958,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/native_sys_runtime.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
     native_sys_runtime_module.addImport("sio", sio_module);
     native_sys_runtime_module.addOptions("build_options", build_options);
@@ -1041,6 +1060,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/libsa_scope_demo.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
     scope_demo_module.addImport("sio", sio_module);
     const scope_demo = b.addTest(.{
@@ -1157,6 +1178,13 @@ pub fn build(b: *std.Build) void {
     const bench_compare_rust = b.addSystemCommand(&.{ "bash", "demos/compare/run_rust_bench.sh" });
     bench_compare_rust.setCwd(repo_root_lazy);
     bench_compare.dependOn(&bench_compare_rust.step);
+}
+
+/// Default parallel file jobs for the native SA unit framework suites:
+/// host CPU count capped at 8 (each job spawns an external `sa` process).
+fn defaultUnitFileJobs() u32 {
+    const cpu = std.Thread.getCpuCount() catch 4;
+    return @intCast(@min(cpu, 8));
 }
 
 /// NOTE(Zig 0.17): `Build.pathFromRoot` was removed. Equivalent helper:
