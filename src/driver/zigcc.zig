@@ -46,6 +46,11 @@ pub fn argvForExe(
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    // NOTE(Zig 0.17): the driver's default UBSan set is much larger than
+    // 0.14's; instrumented objects need a ubsan runtime that native glibc
+    // links do not provide (undefined __ubsan_handle_*). Disable sanitizers
+    // to restore 0.14 link behavior (and remove checking overhead).
+    try argv.items.append("-fno-sanitize=all");
     if (target_triple) |triple| {
         try argv.items.append("-target");
         try argv.items.append(triple);
@@ -96,6 +101,8 @@ pub fn argvForObj(
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
+    try argv.items.append("-fno-sanitize=all");
     if (target_triple) |triple| {
         try argv.items.append("-target");
         try argv.items.append(triple);
@@ -153,6 +160,8 @@ pub fn argvForWasm(
     errdefer argv.deinit();
     try argv.items.append("zig");
     try argv.items.append("cc");
+    // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
+    try argv.items.append("-fno-sanitize=all");
     if (debug) {
         try argv.items.append("-g");
     }
@@ -364,28 +373,28 @@ pub fn compileWasm(
 test "argv helpers choose the requested optimization" {
     var exe_small = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_small.deinit();
-    try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
-    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_small.slice()[3]);
-    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[5]);
+    try std.testing.expectEqualStrings("-O1", exe_small.slice()[3]);
+    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_small.slice()[4]);
+    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[6]);
     var exe_fast = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_fast.deinit();
-    try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
-    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_fast.slice()[3]);
+    try std.testing.expectEqualStrings("-O3", exe_fast.slice()[3]);
+    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_fast.slice()[4]);
 
     var exe_debug = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, true, null);
     defer exe_debug.deinit();
-    try std.testing.expectEqualStrings("-g", exe_debug.slice()[2]);
-    try std.testing.expectEqualStrings("-O0", exe_debug.slice()[3]);
+    try std.testing.expectEqualStrings("-g", exe_debug.slice()[3]);
+    try std.testing.expectEqualStrings("-O0", exe_debug.slice()[4]);
     for (exe_debug.slice()) |arg| {
         try std.testing.expect(!std.mem.eql(u8, arg, "-Wl,--strip-debug"));
     }
 
     var wasm_small = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false, null);
     defer wasm_small.deinit();
-    try std.testing.expectEqualStrings("-O1", wasm_small.slice()[4]);
+    try std.testing.expectEqualStrings("-O1", wasm_small.slice()[5]);
     var wasm_fast = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false, null);
     defer wasm_fast.deinit();
-    try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
+    try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[6]);
     var wasm_std = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_fast, false, "/repo/libsa_std.a");
     defer wasm_std.deinit();
     try std.testing.expectEqualStrings("/repo/libsa_std.a", wasm_std.slice()[wasm_std.slice().len - 3]);

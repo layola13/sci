@@ -1357,14 +1357,14 @@ fn addLlvmcSupportToModule(
         module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_shim.c"), .flags = &.{} });
         linkLLVMToModule(module, include_dir, lib_dir, lib_name);
     } else {
-        module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_stub.c"), .flags = &.{} });
+        module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_stub.c"), .flags = &.{"-fno-sanitize=all"} });
     }
 }
 
 fn addHostThreadShimToModule(b: *std.Build, module: *std.Build.Module, os_tag: std.Target.Os.Tag) void {
     switch (os_tag) {
         .windows => {},
-        else => module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{} }),
+        else => module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{"-fno-sanitize=all"} }),
     }
 }
 
@@ -1373,7 +1373,7 @@ fn addB64SwizzleToModule(b: *std.Build, module: *std.Build.Module) void {
     // compiles to stubs (Zig falls back to the portable Mula path), so
     // this is unconditional and needs no per-file -mavx2 flag (the kernel
     // carries function-level target("avx2") attributes instead).
-    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_b64_swizzle.c"), .flags = &.{} });
+    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_b64_swizzle.c"), .flags = &.{"-fno-sanitize=all"} });
 }
 
 fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
