@@ -2,7 +2,6 @@ const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
 const sio = @import("sio");
-const build_options = @import("build_options");
 
 fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
@@ -401,7 +400,7 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
 
 test "llvmc wasm rosetta and support demos match expected output with native sanity subset" {
     // Requires the LLVM-C native backend (unavailable with -Dllvm=false).
-    if (!build_options.llvm_enabled) return error.SkipZigTest;
+    if (!saasm.build_options.llvm_enabled) return error.SkipZigTest;
     var stats = WasmMatrixStats.init(std.testing.allocator);
     defer stats.deinit();
     defer stats.printSummary();
