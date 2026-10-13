@@ -1,10 +1,13 @@
 const std = @import("std");
 const sio = @import("sio");
 
-fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
@@ -24,6 +27,57 @@ fn expectSuccess(result: sio.Child.RunResult) !void {
     }
 }
 
+// NOTE(Zig 0.17): `zig build-lib` cannot mix positional C sources with
+// explicit `-M` modules, so the pthread shim is compiled first with
+// `zig cc -c`, and the named "sio" import is mapped explicitly (the same
+// shape as `zig build` uses for these modules).
+fn buildRuntimeLib(
+    allocator: std.mem.Allocator,
+    runtime_source: []const u8,
+    pthread_host_source: []const u8,
+    swizzle_source: []const u8,
+    sio_source: []const u8,
+) !void {
+    {
+        const cc_argv = [_][]const u8{ "zig", "cc", "-c", pthread_host_source, "-o", "pthread_host.o" };
+        const cc_result = try runCommand(allocator, cc_argv[0..]);
+        defer allocator.free(cc_result.stdout);
+        defer allocator.free(cc_result.stderr);
+        try expectSuccess(cc_result);
+    }
+    {
+        // The b64 swizzle kernel carries its own symbols (see build.zig
+        // addB64SwizzleToModule); the child link needs its object too.
+        const cc_argv = [_][]const u8{ "zig", "cc", "-c", swizzle_source, "-o", "sa_b64_swizzle.o" };
+        const cc_result = try runCommand(allocator, cc_argv[0..]);
+        defer allocator.free(cc_result.stdout);
+        defer allocator.free(cc_result.stderr);
+        try expectSuccess(cc_result);
+    }
+    const root_flag = try std.fmt.allocPrint(allocator, "-Mroot={s}", .{runtime_source});
+    defer allocator.free(root_flag);
+    const sio_flag = try std.fmt.allocPrint(allocator, "-Msio={s}", .{sio_source});
+    defer allocator.free(sio_flag);
+    const build_lib_argv = [_][]const u8{
+        "zig",
+        "build-lib",
+        "--dep",
+        "sio",
+        root_flag,
+        sio_flag,
+        "pthread_host.o",
+        "sa_b64_swizzle.o",
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = try runCommand(allocator, build_lib_argv[0..]);
+    defer allocator.free(build_lib_result.stdout);
+    defer allocator.free(build_lib_result.stderr);
+    try expectSuccess(build_lib_result);
+}
+
 test "sa_term raw mode and winsize are usable from C" {
     var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -34,6 +88,10 @@ test "sa_term raw mode and winsize are usable from C" {
     defer std.testing.allocator.free(runtime_source);
     const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
+    const swizzle_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_b64_swizzle.c");
+    defer std.testing.allocator.free(swizzle_source);
+    const sio_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/sa_io.zig");
+    defer std.testing.allocator.free(sio_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -118,20 +176,7 @@ test "sa_term raw mode and winsize are usable from C" {
     ;
     try writeSource(tmp.dir, "raw_mode.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try buildRuntimeLib(std.testing.allocator, runtime_source, pthread_host_source, swizzle_source, sio_source);
 
     const build_demo_argv = [_][]const u8{
         "zig",
@@ -166,6 +211,10 @@ test "sa_term epoll and process streaming are usable from C" {
     defer std.testing.allocator.free(runtime_source);
     const pthread_host_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
+    const swizzle_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/sa_b64_swizzle.c");
+    defer std.testing.allocator.free(swizzle_source);
+    const sio_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/sa_io.zig");
+    defer std.testing.allocator.free(sio_source);
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
@@ -222,20 +271,7 @@ test "sa_term epoll and process streaming are usable from C" {
     ;
     try writeSource(tmp.dir, "stream.c", c_source);
 
-    const build_lib_argv = [_][]const u8{
-        "zig",
-        "build-lib",
-        runtime_source,
-        pthread_host_source,
-        "-O",
-        "Debug",
-        "-lc",
-        "-femit-bin=libsa_std.a",
-    };
-    const build_lib_result = try runCommand(std.testing.allocator, build_lib_argv[0..]);
-    defer std.testing.allocator.free(build_lib_result.stdout);
-    defer std.testing.allocator.free(build_lib_result.stderr);
-    try expectSuccess(build_lib_result);
+    try buildRuntimeLib(std.testing.allocator, runtime_source, pthread_host_source, swizzle_source, sio_source);
 
     const build_demo_argv = [_][]const u8{
         "zig",

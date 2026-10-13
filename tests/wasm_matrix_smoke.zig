@@ -3,10 +3,13 @@ const saasm = @import("saasm");
 const builtin = @import("builtin");
 const sio = @import("sio");
 
-fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
 fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
@@ -43,7 +46,7 @@ fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []
 
     const script_path = try std.fs.path.join(allocator, &.{ std.fs.path.dirname(wasm_path) orelse ".", "run_wasm.js" });
     defer allocator.free(script_path);
-    try writeSource(sio.cwd(), script_path, script);
+    try writeSource(std.Io.Dir.cwd(), script_path, script);
     return try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "node", "--no-warnings", script_path },
@@ -51,12 +54,12 @@ fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []
 }
 
 fn elapsedMs(start_ns: i128) i128 {
-    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+    return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
 fn startTimedPhase(path: []const u8, phase: []const u8) i128 {
     std.debug.print("[wasm-matrix] START demo={s} phase={s}\n", .{ path, phase });
-    return std.time.nanoTimestamp();
+    return sio.nanoTimestamp();
 }
 
 fn endTimedPhase(path: []const u8, phase: []const u8, start_ns: i128) i128 {

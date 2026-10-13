@@ -2,10 +2,13 @@ const std = @import("std");
 const build_options = @import("build_options");
 const sio = @import("sio");
 
-fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {

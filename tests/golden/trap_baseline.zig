@@ -23,8 +23,8 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);

@@ -31,10 +31,13 @@ fn udpMulticastV6JoinPermitted() bool {
     return std.os.linux.E.init(rc) == .SUCCESS;
 }
 
-fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
 fn setEnvVarZ(name: [:0]const u8, value: [:0]const u8) !void {
@@ -121,7 +124,7 @@ fn saBinaryPath(allocator: std.mem.Allocator) ?[]u8 {
 }
 
 fn elapsedMs(start_ns: i128) i128 {
-    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+    return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
 fn startSaFileLog(path: []const u8, mode: []const u8, jobs_arg: []const u8, index: usize, total: usize) i128 {
@@ -130,7 +133,7 @@ fn startSaFileLog(path: []const u8, mode: []const u8, jobs_arg: []const u8, inde
     } else {
         std.debug.print("[unit-framework] START index={}/{} file={s} mode={s} jobs={s}\n", .{ index, total, path, mode, jobs_arg });
     }
-    return std.time.nanoTimestamp();
+    return sio.nanoTimestamp();
 }
 
 fn endSaFileLog(
@@ -345,8 +348,8 @@ fn runSaTestFileInProcess(path: []const u8, expectations: SaTestExpectations) !v
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (code != 0) {
         std.debug.print("stdout: {s}\n", .{stdout_buffer.items});
@@ -455,7 +458,7 @@ fn runQueuedSaTestFiles() !void {
         return;
     }
 
-    const start_ns = std.time.nanoTimestamp();
+    const start_ns = sio.nanoTimestamp();
     defer std.debug.print("[unit-framework] macro surface files elapsed={}ms file_jobs={} files={} mode=process\n", .{ elapsedMs(start_ns), worker_count, tasks.len });
 
     var context = SaTestWorkerContext{ .sa_bin = sa_bin, .tasks = tasks };
@@ -506,8 +509,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     const default_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         default_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (default_code != 0) {
         std.debug.print("stdout: {s}\n", .{stdout_buffer.items});
@@ -549,8 +552,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     const ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), ignored_code);
     try expectContains(stdout_buffer.items, "[PASS] small ignored case");
@@ -567,8 +570,8 @@ test "native unit framework suite covers the demo-derived feature matrix" {
     const include_ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         include_ignored_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), include_ignored_code);
     try expectContains(stdout_buffer.items, "[PASS] small normal case");
@@ -623,8 +626,8 @@ test "native unit assertions surface file line expected and got details" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
 
     try std.testing.expectEqual(@as(u8, 1), code);
@@ -1541,8 +1544,8 @@ test "native unit framework exposes standard mock io buffer" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (code != 0) {
         std.debug.print("stdout: {s}\n", .{stdout_buffer.items});

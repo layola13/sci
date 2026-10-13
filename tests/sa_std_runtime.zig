@@ -3,10 +3,13 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const sio = @import("sio");
 
-fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
@@ -21,7 +24,9 @@ fn copyRuntimeArchiveToCwd() !void {
     defer src.close();
     var dst = try sio.cwd().createFile("libsa_std.a", .{ .truncate = true });
     defer dst.close();
-    _ = try src.copyRangeAll(0, dst, 0, try src.getEndPos());
+    const data = try src.readToEndAlloc(std.heap.page_allocator, 256 * 1024 * 1024);
+    defer std.heap.page_allocator.free(data);
+    try dst.writeAll(data);
 }
 
 fn expectSuccess(result: sio.Child.RunResult) !void {
@@ -49,21 +54,23 @@ fn expectSuccessCode(result: sio.Child.RunResult) !void {
 /// send(); the loopback C-ABI test cannot exercise send_to there, so it
 /// skips instead of reporting environment incapability as product failure.
 fn udpSendtoPermitted() bool {
-    const sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch return false;
-    defer std.posix.close(sock);
-    const addr = std.net.Address.parseIp4("127.0.0.1", 9999) catch return false;
-    if (builtin.os.tag == .linux) {
-        // Raw syscall: a seccomp-blocked sendto(2) returns -EPERM directly,
-        // without the std.posix unexpectedErrno stack dump.
-        const rc = std.os.linux.sendto(sock, "probe".ptr, "probe".len, 0, &addr.any, addr.getOsSockLen());
-        return std.os.linux.E.init(rc) != .PERM;
-    }
-    _ = std.posix.sendto(sock, "probe", 0, &addr.any, addr.getOsSockLen()) catch |err| {
-        // std.posix.sendto has no EPERM mapping: a blocked sendto(2)
-        // surfaces as error.Unexpected.
-        return err != error.Unexpected;
+    // NOTE(Zig 0.17): raw io_uring-era std has no posix.socket/Address
+    // helpers; probe with raw Linux syscalls (this module runs on Linux).
+    if (builtin.os.tag != .linux) return false;
+    const os = std.os.linux;
+    const fd = os.socket(os.AF.INET, os.SOCK.DGRAM, 0);
+    if (@as(isize, @bitCast(fd)) < 0) return false;
+    const sock: os.fd_t = @intCast(fd);
+    defer _ = os.close(sock);
+    var addr = os.sockaddr.in{
+        .port = std.mem.nativeToBig(u16, 9999),
+        .addr = 0x0100007f, // 127.0.0.1
     };
-    return true;
+    // Raw syscall: a seccomp-blocked sendto(2) returns -EPERM directly,
+    // without any errno-mapping helper (0.17 has no E.init).
+    const neg_eperm: usize = @bitCast(@as(isize, -1)); // EPERM == 1
+    const rc = os.sendto(sock, "probe".ptr, "probe".len, 0, @ptrCast(&addr), @sizeOf(@TypeOf(addr)));
+    return rc != neg_eperm;
 }
 
 /// Probe whether the sandbox permits IPv6 multicast joins. Some containers
@@ -71,12 +78,15 @@ fn udpSendtoPermitted() bool {
 /// multicast works; the udp multicast C-ABI test then verifies only its v4
 /// section instead of reporting environment incapability as product failure.
 fn udpMulticastV6JoinPermitted() bool {
-    const sock = std.posix.socket(std.posix.AF.INET6, std.posix.SOCK.DGRAM, 0) catch return false;
-    defer std.posix.close(sock);
     if (builtin.os.tag != .linux) return false;
+    const os = std.os.linux;
+    const fd = os.socket(os.AF.INET6, os.SOCK.DGRAM, 0);
+    if (@as(isize, @bitCast(fd)) < 0) return false;
+    const sock: os.fd_t = @intCast(fd);
+    defer _ = os.close(sock);
     var mreq = [_]u8{ 0xFF, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x14, 0, 0, 0, 0 };
-    const rc = std.os.linux.setsockopt(sock, 41, 20, &mreq, mreq.len);
-    return std.os.linux.E.init(rc) == .SUCCESS;
+    const rc = os.setsockopt(sock, 41, 20, &mreq, mreq.len);
+    return rc == 0;
 }
 
 test "sa_std dynamic loading helpers are usable from C" {

@@ -15,7 +15,7 @@ fn runJsWithNode(allocator: std.mem.Allocator, js_path: []const u8) !sio.Child.R
 }
 
 fn elapsedMs(start_ns: i128) i128 {
-    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+    return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
 fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
@@ -38,7 +38,7 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
 
-    const demo_start = std.time.nanoTimestamp();
+    const demo_start = sio.nanoTimestamp();
     std.debug.print("[js-matrix] START demo={s}\n", .{path});
     var demo_ended = false;
     errdefer {

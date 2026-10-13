@@ -44,16 +44,22 @@ fn jsonStringValue(value: std.json.Value) ![]const u8 {
     };
 }
 
-fn writeSource(dir: sio.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
-fn writeBytes(dir: sio.Dir, path: []const u8, bytes: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(bytes);
+fn writeBytes(dir: std.Io.Dir, path: []const u8, bytes: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(bytes);
+    try w.interface.flush();
 }
 
 fn containsPortablePath(allocator: std.mem.Allocator, text: []const u8, slash_path: []const u8) !bool {
@@ -75,7 +81,7 @@ fn bytesHashHex(bytes: []const u8) [64]u8 {
     return std.fmt.bytesToHex(digest, .lower);
 }
 
-fn writeCacheManifest(dir: sio.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8) !void {
+fn writeCacheManifest(dir: std.Io.Dir, cache_dir: []const u8, kind: []const u8, key: []const u8, artifact: []const u8, output: []const u8) !void {
     const artifact_hash = bytesHashHex(artifact);
     const output_hash = bytesHashHex(output);
     const manifest = try std.fmt.allocPrint(
@@ -95,55 +101,55 @@ fn freeStringMtimeMap(allocator: std.mem.Allocator, map: *std.StringHashMap(i128
     map.deinit();
 }
 
-fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: sio.Dir) !std.StringHashMap(i128) {
+fn cachedFunctionObjectMtimes(allocator: std.mem.Allocator, dir: std.Io.Dir) !std.StringHashMap(i128) {
     var result = std.StringHashMap(i128).init(allocator);
     errdefer freeStringMtimeMap(allocator, &result);
 
-    var cache_root = try dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
-    defer cache_root.close();
+    var cache_root = try dir.openDir(std.testing.io, ".sa_cache/build-obj-incremental", .{ .iterate = true });
+    defer cache_root.close(std.testing.io);
     var cache_iter = cache_root.iterate();
-    while (try cache_iter.next()) |cache_entry| {
+    while (try cache_iter.next(std.testing.io)) |cache_entry| {
         if (cache_entry.kind != .directory) continue;
-        var functions_dir = cache_root.openDir(cache_entry.name, .{ .iterate = true }) catch continue;
-        defer functions_dir.close();
-        var object_dir = functions_dir.openDir("functions", .{ .iterate = true }) catch continue;
-        defer object_dir.close();
+        var functions_dir = cache_root.openDir(std.testing.io, cache_entry.name, .{ .iterate = true }) catch continue;
+        defer functions_dir.close(std.testing.io);
+        var object_dir = functions_dir.openDir(std.testing.io, "functions", .{ .iterate = true }) catch continue;
+        defer object_dir.close(std.testing.io);
 
         var object_iter = object_dir.iterate();
-        while (try object_iter.next()) |object_entry| {
+        while (try object_iter.next(std.testing.io)) |object_entry| {
             if (object_entry.kind != .file or !std.mem.endsWith(u8, object_entry.name, ".o")) continue;
             const key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ cache_entry.name, object_entry.name });
             errdefer allocator.free(key);
-            const stat = try object_dir.statFile(object_entry.name);
-            try result.put(key, stat.mtime);
+            const stat = try object_dir.statFile(std.testing.io, object_entry.name, .{});
+            try result.put(key, @as(i128, stat.mtime.toNanoseconds()));
         }
     }
     return result;
 }
 
-fn cachedFunctionManifestCount(dir: sio.Dir) !usize {
+fn cachedFunctionManifestCount(dir: std.Io.Dir) !usize {
     var count: usize = 0;
-    var cache_root = try dir.openDir(".sa_cache/build-obj-incremental", .{ .iterate = true });
-    defer cache_root.close();
+    var cache_root = try dir.openDir(std.testing.io, ".sa_cache/build-obj-incremental", .{ .iterate = true });
+    defer cache_root.close(std.testing.io);
     var cache_iter = cache_root.iterate();
-    while (try cache_iter.next()) |cache_entry| {
+    while (try cache_iter.next(std.testing.io)) |cache_entry| {
         if (cache_entry.kind != .directory) continue;
-        var entry_dir = cache_root.openDir(cache_entry.name, .{ .iterate = true }) catch continue;
-        defer entry_dir.close();
-        const manifest = entry_dir.openFile("manifest.json", .{}) catch continue;
-        manifest.close();
+        var entry_dir = cache_root.openDir(std.testing.io, cache_entry.name, .{ .iterate = true }) catch continue;
+        defer entry_dir.close(std.testing.io);
+        const manifest = entry_dir.openFile(std.testing.io, "manifest.json", .{}) catch continue;
+        manifest.close(std.testing.io);
         count += 1;
     }
     return count;
 }
 
-fn singleCacheEntryName(allocator: std.mem.Allocator, dir: sio.Dir, rel_path: []const u8) ![]u8 {
-    var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
-    defer cache_root.close();
+fn singleCacheEntryName(allocator: std.mem.Allocator, dir: std.Io.Dir, rel_path: []const u8) ![]u8 {
+    var cache_root = try dir.openDir(std.testing.io, rel_path, .{ .iterate = true });
+    defer cache_root.close(std.testing.io);
     var cache_iter = cache_root.iterate();
     var found: ?[]u8 = null;
     errdefer if (found) |name| allocator.free(name);
-    while (try cache_iter.next()) |entry| {
+    while (try cache_iter.next(std.testing.io)) |entry| {
         if (entry.kind != .directory) continue;
         if (found != null) return error.TestUnexpectedResult;
         found = try allocator.dupe(u8, entry.name);
@@ -151,19 +157,19 @@ fn singleCacheEntryName(allocator: std.mem.Allocator, dir: sio.Dir, rel_path: []
     return found orelse error.FileNotFound;
 }
 
-fn cacheEntryCount(dir: sio.Dir, rel_path: []const u8) !usize {
-    var cache_root = try dir.openDir(rel_path, .{ .iterate = true });
-    defer cache_root.close();
+fn cacheEntryCount(dir: std.Io.Dir, rel_path: []const u8) !usize {
+    var cache_root = try dir.openDir(std.testing.io, rel_path, .{ .iterate = true });
+    defer cache_root.close(std.testing.io);
     var cache_iter = cache_root.iterate();
     var count: usize = 0;
-    while (try cache_iter.next()) |entry| {
+    while (try cache_iter.next(std.testing.io)) |entry| {
         if (entry.kind == .directory) count += 1;
     }
     return count;
 }
 
 fn writeManifestForPackage(
-    dir: sio.Dir,
+    dir: std.Io.Dir,
     project_root: []const u8,
     package_url: []const u8,
     package_root: []const u8,
@@ -183,27 +189,27 @@ fn writeManifestForPackage(
     try writeSource(dir, manifest_path, manifest_source);
 }
 
-fn writeProjectSum(dir: sio.Dir, project_root: []const u8) !void {
+fn writeProjectSum(dir: std.Io.Dir, project_root: []const u8) !void {
     const manifest_path = try std.fs.path.join(std.testing.allocator, &.{ project_root, "sa.mod" });
     defer std.testing.allocator.free(manifest_path);
-    const manifest_source = try dir.readFileAlloc(std.testing.allocator, manifest_path, 16 * 1024 * 1024);
+    const manifest_source = try dir.readFileAlloc(std.testing.io, manifest_path, std.testing.allocator, .limited(16 * 1024 * 1024));
     defer std.testing.allocator.free(manifest_source);
     var project_manifest = try saasm.pkg.manifest.parseManifestWithFile(std.testing.allocator, manifest_source, manifest_path);
     defer project_manifest.deinit(std.testing.allocator);
-    const root_abs = try dir.realpathAlloc(std.testing.allocator, project_root);
+    const root_abs = try dir.realPathFileAlloc(std.testing.io, project_root, std.testing.allocator);
     defer std.testing.allocator.free(root_abs);
     var update = try saasm.pkg.sum.updateProjectSum(std.testing.allocator, root_abs, project_manifest);
     defer update.deinit(std.testing.allocator);
 }
 
-fn expectNoTextLlvmArtifacts(dir: sio.Dir, out_name: []const u8) !void {
+fn expectNoTextLlvmArtifacts(dir: std.Io.Dir, out_name: []const u8) !void {
     const ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.ll", .{out_name});
     defer std.testing.allocator.free(ll_name);
     const sa_ll_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.ll", .{out_name});
     defer std.testing.allocator.free(sa_ll_name);
 
-    try std.testing.expectError(error.FileNotFound, dir.openFile(ll_name, .{}));
-    try std.testing.expectError(error.FileNotFound, dir.openFile(sa_ll_name, .{}));
+    try std.testing.expectError(error.FileNotFound, dir.openFile(std.testing.io, ll_name, .{}));
+    try std.testing.expectError(error.FileNotFound, dir.openFile(std.testing.io, sa_ll_name, .{}));
 }
 
 fn extractLineValue(output: []const u8, prefix: []const u8) ![]const u8 {
@@ -307,7 +313,7 @@ fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []
 
     const script_path = try std.fs.path.join(allocator, &.{ std.fs.path.dirname(wasm_path) orelse ".", "run_wasm.js" });
     defer allocator.free(script_path);
-    try writeSource(sio.cwd(), script_path, script);
+    try writeSource(std.Io.Dir.cwd(), script_path, script);
     return try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "node", "--no-warnings", script_path },
@@ -321,7 +327,7 @@ fn assertRunStdout(path: []const u8, expected_stdout: []const u8) !void {
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", path };
-    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     if (run_code != 0 or stderr_buf.items.len != 0 or !std.mem.eql(u8, stdout_buf.items, expected_stdout)) {
         std.debug.print("demo run failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, stdout_buf.items, stderr_buf.items });
     }
@@ -446,8 +452,8 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, out_name, .{}));
@@ -489,8 +495,8 @@ fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_na
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -508,7 +514,7 @@ fn assertRunStdoutWithArg(path: []const u8, arg: []const u8, expected_stdout: []
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", path, arg };
-    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     if (run_code != 0 or stderr_buf.items.len != 0 or !std.mem.eql(u8, stdout_buf.items, expected_stdout)) {
         std.debug.print("demo run failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, stdout_buf.items, stderr_buf.items });
     }
@@ -710,8 +716,8 @@ test "llvm disabled build-exe reports backend diagnostic" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -800,7 +806,7 @@ test "cli build-obj incremental reuses local cache layout" {
     var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buf.deinit();
     const help_argv = [_][]const u8{ "sa", "build-obj", "--help" };
-    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--incremental") != null);
 }
@@ -827,7 +833,7 @@ test "cli build project cache is default and can be disabled" {
     defer stderr_buf.deinit();
 
     const build_argv = [_][]const u8{ "sa", "build-exe", "cached.sa", "-o", "cached.out", "--json", "--profile" };
-    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), first_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
     var first_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
@@ -840,7 +846,7 @@ test "cli build project cache is default and can be disabled" {
     try tmp.dir.deleteFile(std.testing.io, "cached.out");
     try tmp.dir.deleteFile(std.testing.io, "cached.out.sa.bc");
     stderr_buf.clearRetainingCapacity();
-    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, build_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), second_code);
     var second_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
     defer second_json.deinit();
@@ -850,7 +856,7 @@ test "cli build project cache is default and can be disabled" {
 
     stderr_buf.clearRetainingCapacity();
     const no_cache_argv = [_][]const u8{ "sa", "build-exe", "cached.sa", "-o", "cached_no_cache.out", "--json", "--profile", "--no-incremental" };
-    const no_cache_code = try saasm.cli.executeWithWriters(std.testing.allocator, no_cache_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const no_cache_code = try saasm.cli.executeWithWriters(std.testing.allocator, no_cache_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), no_cache_code);
     var no_cache_json = try parseJsonValue(std.testing.allocator, stderr_buf.items);
     defer no_cache_json.deinit();
@@ -860,7 +866,7 @@ test "cli build project cache is default and can be disabled" {
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
     const help_argv = [_][]const u8{ "sa", "build-exe", "--help" };
-    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--no-incremental") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--mem-report") != null);
@@ -896,7 +902,7 @@ test "cli cache clean removes invalid project cache entries" {
     defer stderr_buf.deinit();
 
     const clean_argv = [_][]const u8{ "sa", "cache", "clean", "--max-age-days", "0" };
-    const clean_code = try saasm.cli.executeWithWriters(std.testing.allocator, clean_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const clean_code = try saasm.cli.executeWithWriters(std.testing.allocator, clean_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), clean_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "cache clean: scanned=4 removed=3 kept=1"));
@@ -908,7 +914,7 @@ test "cli cache clean removes invalid project cache entries" {
 
     stdout_buf.clearRetainingCapacity();
     const help_argv = [_][]const u8{ "sa", "cache", "clean", "--help" };
-    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
 }
@@ -935,7 +941,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     defer stderr_buf.deinit();
 
     const test_argv = [_][]const u8{ "sa", "test", "cached_test.sa", "--compile-only", "--jobs", "1" };
-    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const first_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), first_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -956,7 +962,7 @@ test "sa test compile-only reuses and repairs project test cache" {
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
-    const cached_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const cached_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), cached_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -966,7 +972,7 @@ test "sa test compile-only reuses and repairs project test cache" {
 
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
-    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const second_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), second_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -976,7 +982,7 @@ test "sa test compile-only reuses and repairs project test cache" {
     try writeBytes(tmp.dir, cached_manifest, "{\"version\":1,\"kind\":\"test\",\"key\":\"bad\"}\n");
     stdout_buf.clearRetainingCapacity();
     stderr_buf.clearRetainingCapacity();
-    const third_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const third_code = try saasm.cli.executeWithWriters(std.testing.allocator, test_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), third_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "compiled 1 selected tests (1 discovered)"));
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -1136,8 +1142,8 @@ test "json extern build-exe does not inject debug prints" {
     const build_exe_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        build_stdout.writer(),
-        build_stderr.writer(),
+        sio.managedWriter(&build_stdout),
+        sio.managedWriter(&build_stderr),
     );
     if (build_exe_code != 0) {
         std.debug.print("json debug-clean build failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ build_stdout.items, build_stderr.items });
@@ -1202,7 +1208,7 @@ test "cli run with jobs 2 keeps the earliest source-order trap" {
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "parallel_trap.sa", "--jobs", "2" };
-    const code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "\"trap\":\"UnknownRegister\""));
@@ -1217,7 +1223,7 @@ test "hello world demo prints through sa run" {
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "demos/rosetta/01_hello_world/main.sa" };
-    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), run_code);
     try std.testing.expectEqualStrings("hello, saasm\n", stdout_buf.items);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -1247,7 +1253,7 @@ test "sa run reports unsupported extern symbol names" {
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "extern_run.sa" };
-    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 1), run_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "sa run unsupported extern: sa_missing_plugin"));
@@ -1510,7 +1516,7 @@ test "trait vtable demo runs through sa run" {
     defer stderr_buf.deinit();
 
     const run_argv = [_][]const u8{ "sa", "run", "demos/rosetta/07_trait_vtable/main.sa" };
-    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const run_code = try saasm.cli.executeWithWriters(std.testing.allocator, run_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), run_code);
     try std.testing.expectEqualStrings("77\n", stdout_buf.items);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
@@ -2031,9 +2037,9 @@ test "http client saasm demo builds through native exe" {
     try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    const address = try std.net.Address.parseIp4("127.0.0.1", 18090);
-    const server = try std.testing.allocator.create(std.net.Server);
-    server.* = try address.listen(.{ .reuse_address = true });
+    const address = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 18090);
+    const server = try std.testing.allocator.create(std.Io.net.Server);
+    server.* = try address.listen(sio.io(), .{ .reuse_address = true });
     defer std.testing.allocator.destroy(server);
 
     const body_seen = try std.testing.allocator.create(bool);
@@ -2044,26 +2050,27 @@ test "http client saasm demo builds through native exe" {
     defer std.testing.allocator.destroy(server_ready);
 
     const server_thread = try std.Thread.spawn(.{}, struct {
-        fn run(listen_server: *std.net.Server, seen: *bool, ready: *std.atomic.Value(bool)) void {
-            defer listen_server.deinit();
+        fn run(listen_server: *std.Io.net.Server, seen: *bool, ready: *std.atomic.Value(bool)) void {
+            defer listen_server.deinit(sio.io());
             ready.store(true, .release);
-            var conn = listen_server.accept() catch return;
-            defer conn.stream.close();
+            var stream = listen_server.accept(sio.io()) catch return;
+            defer stream.close(sio.io());
 
-            var request_buffer: [4096]u8 = undefined;
-            var http_server = std.http.Server.init(conn, &request_buffer);
+            var rbuf: [4096]u8 = undefined;
+            var wbuf: [4096]u8 = undefined;
+            var sreader = stream.reader(sio.io(), &rbuf);
+            var swriter = stream.writer(sio.io(), &wbuf);
+            var http_server = std.http.Server.init(&sreader.interface, &swriter.interface);
             var request = http_server.receiveHead() catch return;
-            const reader = request.reader() catch return;
-
-            var body = std.array_list.Managed(u8).init(std.testing.allocator);
-            defer body.deinit();
-            if (reader.readAllArrayList(&body, 1024 * 1024)) |_| {
-                seen.* = std.mem.eql(u8, body.items, "hello from saasm");
-                request.respond(body.items, .{ .status = .ok }) catch return;
-            } else |_| return;
+            var body_tmp: [4096]u8 = undefined;
+            var body_reader = request.readerExpectNone(&body_tmp);
+            const content = body_reader.interface.allocRemaining(std.testing.allocator, .limited(1024 * 1024)) catch return;
+            defer std.testing.allocator.free(content);
+            seen.* = std.mem.eql(u8, content, "hello from saasm");
+            request.respond(content, .{ .status = .ok }) catch return;
         }
     }.run, .{ server, body_seen, server_ready });
-    while (!server_ready.load(.acquire)) std.time.sleep(1 * std.time.ns_per_ms);
+    while (!server_ready.load(.acquire)) std.Io.sleep(sio.io(), .fromMilliseconds(1), .awake) catch {};
 
     const build_exe_argv = [_][]const u8{ "sa", "build-exe", source_path, "-o", "http_client_saasm.out" };
     const build_code = try saasm.cli.execute(std.testing.allocator, build_exe_argv[0..]);
@@ -2111,24 +2118,28 @@ test "http server saasm demo builds through native exe" {
         fn run(seen: *bool) void {
             var attempt: usize = 0;
             while (attempt < 50) : (attempt += 1) {
-                const conn = std.net.tcpConnectToHost(std.testing.allocator, "127.0.0.1", 18091) catch |err| switch (err) {
+                const dial_addr = std.Io.net.IpAddress.parseIp4("127.0.0.1", 18091) catch return;
+                var conn = dial_addr.connect(sio.io(), .{ .mode = .stream }) catch |err| switch (err) {
                     error.ConnectionRefused => {
-                        std.time.sleep(20 * std.time.ns_per_ms);
+                        std.Io.sleep(sio.io(), .fromMilliseconds(20), .awake) catch {};
                         continue;
                     },
                     else => return,
                 };
-                defer conn.close();
+                defer conn.close(sio.io());
 
-                conn.writeAll(
+                var wbuf: [4096]u8 = undefined;
+                var w = conn.writer(sio.io(), &wbuf);
+                w.interface.writeAll(
                     "GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n",
                 ) catch return;
+                w.interface.flush() catch return;
 
                 var buf: [256]u8 = undefined;
                 var response = std.array_list.Managed(u8).init(std.testing.allocator);
                 defer response.deinit();
                 while (true) {
-                    const n = conn.read(&buf) catch return;
+                    const n = std.posix.read(conn.socket.handle, &buf) catch return;
                     if (n == 0) break;
                     response.appendSlice(buf[0..n]) catch return;
                 }
@@ -2285,8 +2296,8 @@ test "sa test covers include macro expansion fixture" {
     const test_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         test_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (test_code != 0 or stderr_buffer.items.len != 0) {
         std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
@@ -2318,8 +2329,8 @@ test "sa test covers module_path macro expansion fixture" {
     const test_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         test_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (test_code != 0 or stderr_buffer.items.len != 0) {
         std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
@@ -2351,8 +2362,8 @@ test "sa test runs isolated native tests with filterable names" {
     const test_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         test_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (test_code != 0 or stderr_buffer.items.len != 0) {
         std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
@@ -2370,8 +2381,8 @@ test "sa test runs isolated native tests with filterable names" {
     const list_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         list_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), list_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "tests:"));
@@ -2397,8 +2408,8 @@ test "sa test runs isolated native tests with filterable names" {
     const list_only_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         list_only_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), list_only_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "list avoids backend link"));
@@ -2412,8 +2423,8 @@ test "sa test runs isolated native tests with filterable names" {
     const filter_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         filter_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), filter_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] another test"));
@@ -2426,8 +2437,8 @@ test "sa test runs isolated native tests with filterable names" {
     const exact_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         exact_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), exact_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] simple pass"));
@@ -2444,8 +2455,8 @@ test "sa test runs isolated native tests with filterable names" {
     const should_panic_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         should_panic_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), should_panic_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] panic path"));
@@ -2477,8 +2488,8 @@ test "sa test runs isolated native tests with filterable names" {
     const compile_only_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         compile_only_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), compile_only_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "compiled 1 selected tests (1 discovered)"));
@@ -2492,8 +2503,8 @@ test "sa test runs isolated native tests with filterable names" {
     const assert_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         assert_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), assert_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[FAIL] assert equal reports values"));
@@ -2517,8 +2528,8 @@ test "sa test runs isolated native tests with filterable names" {
     const skip_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         skip_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), skip_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] simple pass"));
@@ -2535,8 +2546,8 @@ test "sa test runs isolated native tests with filterable names" {
     const ignored_default_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_default_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), ignored_default_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] active case"));
@@ -2550,8 +2561,8 @@ test "sa test runs isolated native tests with filterable names" {
     const ignored_only_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ignored_only_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), ignored_only_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] ignored case"));
@@ -2565,8 +2576,8 @@ test "sa test runs isolated native tests with filterable names" {
     const include_ignored_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         include_ignored_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), include_ignored_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] active case"));
@@ -2603,8 +2614,8 @@ test "sa test runs isolated native tests with filterable names" {
     const signal_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         signal_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), signal_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "terminated by signal"));
@@ -2627,15 +2638,15 @@ test "sa test schedules native tests in parallel when jobs are higher" {
     var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const serial_start = std.time.nanoTimestamp();
+    const serial_start = sio.nanoTimestamp();
     const serial_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1" };
     const serial_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         serial_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
-    const serial_elapsed: i128 = std.time.nanoTimestamp() - serial_start;
+    const serial_elapsed: i128 = sio.nanoTimestamp() - serial_start;
     if (serial_code != 0 or stderr_buffer.items.len != 0) {
         std.debug.print(
             "parallel jobs serial run failed:\nstdout:\n{s}\nstderr:\n{s}\n",
@@ -2653,15 +2664,15 @@ test "sa test schedules native tests in parallel when jobs are higher" {
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
 
-    const parallel_start = std.time.nanoTimestamp();
+    const parallel_start = sio.nanoTimestamp();
     const parallel_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "4" };
     const parallel_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         parallel_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
-    const parallel_elapsed: i128 = std.time.nanoTimestamp() - parallel_start;
+    const parallel_elapsed: i128 = sio.nanoTimestamp() - parallel_start;
     if (parallel_code != 0 or stderr_buffer.items.len != 0) {
         std.debug.print(
             "parallel jobs parallel run failed:\nstdout:\n{s}\nstderr:\n{s}\n",
@@ -3165,7 +3176,7 @@ test "bc2sa translates real llvm bitcode" {
     defer stderr_buf.deinit();
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "sample.bc" };
-    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export main(lhs: i32, rhs: i32) -> i32:") != null);
@@ -3215,7 +3226,7 @@ test "bc2sa translates clang cmake bitcode demo" {
     defer std.testing.allocator.free(bc_path);
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", bc_path };
-    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@export demo(arg0: i32, arg1: i32) -> i32:") != null);
@@ -3255,7 +3266,7 @@ test "bc2sa translates sqlite3 api probe bitcode" {
     defer stderr_buf.deinit();
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", bc_path };
-    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 0), bc2sa_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buf.items.len);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "@extern sqlite3_open(") != null);
@@ -3327,7 +3338,7 @@ test "bc2sa rejects static stack buffer overflow in clang cmake demo" {
     defer stderr_buf.deinit();
 
     const bc2sa_argv = [_][]const u8{ "sa", "bc2sa", "vulnerable.bc" };
-    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], stdout_buf.writer(), stderr_buf.writer());
+    const bc2sa_code = try saasm.cli.executeWithWriters(std.testing.allocator, bc2sa_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
     try std.testing.expectEqual(@as(u8, 1), bc2sa_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buf.items.len);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buf.items, 1, "SA-CLI-019"));
@@ -3658,8 +3669,8 @@ test "unknown sys intrinsic is rejected before emission" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "unsupported_sys.out", .{}));
@@ -3701,8 +3712,8 @@ test "unknown register demo is rejected with structured trap output" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "unknown_register.out", .{}));
@@ -3733,8 +3744,8 @@ test "memory leak demo is rejected with structured trap output" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "memory_leak.out", .{}));
@@ -3764,8 +3775,8 @@ test "fallthrough demo is rejected without a terminator" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "fallthrough.out", .{}));
@@ -3796,8 +3807,8 @@ test "duplicate label demo is rejected with structured trap output" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "duplicate_label.out", .{}));
@@ -3828,8 +3839,8 @@ test "phi conflict demo is rejected on mismatched join states" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expectError(error.FileNotFound, tmp.dir.openFile(std.testing.io, "phi_conflict.out", .{}));
@@ -3859,8 +3870,8 @@ test "phi join AND demo runs through the join point" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -3938,8 +3949,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const init_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         init_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), init_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -3960,8 +3971,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const ingest_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         ingest_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), ingest_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -3980,8 +3991,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const snapshot_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         snapshot_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), snapshot_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -3996,8 +4007,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const second_ingest_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         second_ingest_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), second_ingest_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4016,8 +4027,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const verify_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         verify_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), verify_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4030,8 +4041,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const compact_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         compact_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), compact_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4044,8 +4055,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const restore_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         restore_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), restore_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4058,8 +4069,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const lock_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         lock_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), lock_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4072,8 +4083,8 @@ test "db cli init writes iface and table lifecycle commands update storage" {
     const locked_compact_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         locked_compact_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), locked_compact_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "error: Locked"));
@@ -4107,8 +4118,8 @@ test "db cli register inspect exec round trip through registry" {
 
     var params = std.array_list.Managed(u8).init(std.testing.allocator);
     defer params.deinit();
-    try params.writer().writeInt(u64, 7, .little);
-    try params.writer().writeInt(u64, 5, .little);
+    try sio.managedWriter(&params).writeInt(u64, 7, .little);
+    try sio.managedWriter(&params).writeInt(u64, 5, .little);
     try writeBytes(tmp.dir, "params.bin", params.items);
 
     var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
@@ -4120,8 +4131,8 @@ test "db cli register inspect exec round trip through registry" {
     const register_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         register_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), register_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4137,8 +4148,8 @@ test "db cli register inspect exec round trip through registry" {
     const inspect_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         inspect_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), inspect_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4152,8 +4163,8 @@ test "db cli register inspect exec round trip through registry" {
     const exec_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         exec_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 12), exec_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -4170,8 +4181,8 @@ test "layout cli prints text, json, and debug macro outputs" {
     const text_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         text_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), text_code);
     try std.testing.expectEqualStrings(
@@ -4187,8 +4198,8 @@ test "layout cli prints text, json, and debug macro outputs" {
     const json_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         json_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), json_code);
     try std.testing.expectEqualStrings(
@@ -4204,8 +4215,8 @@ test "layout cli prints text, json, and debug macro outputs" {
     const debug_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         debug_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), debug_code);
     try std.testing.expectEqualStrings(
@@ -4237,8 +4248,8 @@ test "layout cli prints text, json, and debug macro outputs" {
     const dict_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         dict_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), dict_code);
     try std.testing.expectEqualStrings(
@@ -4267,8 +4278,8 @@ test "agent-first cli commands print explain fix and skills outputs" {
     const explain_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         explain_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), explain_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4283,8 +4294,8 @@ test "agent-first cli commands print explain fix and skills outputs" {
     const explain_json_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         explain_json_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), explain_json_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4298,8 +4309,8 @@ test "agent-first cli commands print explain fix and skills outputs" {
     const fix_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         fix_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), fix_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4313,8 +4324,8 @@ test "agent-first cli commands print explain fix and skills outputs" {
     const skills_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         skills_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), skills_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4331,8 +4342,8 @@ test "agent-first cli commands print explain fix and skills outputs" {
     const skills_help_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         skills_help_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), skills_help_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4398,8 +4409,8 @@ test "sa skills writes Codex and Claude skill files for current project" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "skills" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4499,8 +4510,8 @@ test "cli audit dispatches through runtime package plugin" {
     const audit_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         audit_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), audit_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4536,8 +4547,8 @@ test "cli audit update-lock writes project lock through package flow" {
     const audit_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         audit_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), audit_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4560,8 +4571,8 @@ test "cli audit update-lock writes project lock through package flow" {
     const second_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         audit_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), second_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4587,8 +4598,8 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     const init_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         init_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), init_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4604,8 +4615,8 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     const run_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), run_code);
 
@@ -4635,8 +4646,8 @@ test "cli init creates a binary project and install syncs manifest dependencies"
     const install_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         install_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4737,8 +4748,8 @@ test "workspace install aggregates member manifests at root and pkg install fall
     const install_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         install_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4756,8 +4767,8 @@ test "workspace install aggregates member manifests at root and pkg install fall
     const pkg_install_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         pkg_install_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), pkg_install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4810,8 +4821,8 @@ test "package preflight rejects tampered project sum as structured trap" {
     const install_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         install_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), install_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -4820,7 +4831,7 @@ test "package preflight rejects tampered project sum as structured trap" {
         \\deps/example/pkg @HEAD sha256:0000000000000000000000000000000000000000000000000000000000000000
         \\
     ;
-    try writeSource(sio.cwd(), "sa.sum", bad_sum);
+    try writeSource(std.Io.Dir.cwd(), "sa.sum", bad_sum);
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
@@ -4828,8 +4839,8 @@ test "package preflight rejects tampered project sum as structured trap" {
     const run_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), run_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -4875,8 +4886,8 @@ test "PkgMgr-Confirm-NonTty rejects risky package preflight before build output"
     const code = try saasm.cli.executeWithWritersAndOptions(
         std.testing.allocator,
         build_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         .{ .stdin_reader = input.reader().any(), .stdin_is_tty = false },
     );
     try std.testing.expectEqual(@as(u8, 1), code);
@@ -4923,8 +4934,8 @@ test "PkgMgr-Confirm-Tty accepts exact URL through compile preflight" {
     const code = try saasm.cli.executeWithWritersAndOptions(
         std.testing.allocator,
         run_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         .{ .stdin_reader = input.reader().any(), .stdin_is_tty = true },
     );
     try std.testing.expectEqual(@as(u8, 0), code);
@@ -4974,8 +4985,8 @@ test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives"
     var code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_ci_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UpstreamShaMismatch\""));
@@ -4990,8 +5001,8 @@ test "PkgMgr-CI-DualTrack rejects mismatched source and unauthorized primitives"
     code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_ci_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 1), code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "\"trap\":\"UnauthorizedPrimitive\""));
@@ -5034,8 +5045,8 @@ test "PkgMgr-Offline-Build uses vendored sources and project sum" {
     const code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -5065,8 +5076,8 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     const run_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 7), run_code);
     try std.testing.expectEqualStrings("{\"status\":\"ok\",\"metrics\":{\"compile_tokens\":5,\"instruction_count\":2}}\n", stderr_buffer.items);
@@ -5079,8 +5090,8 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     const build_exe_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_exe_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), build_exe_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -5094,8 +5105,8 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     const build_mem_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_mem_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), build_mem_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -5127,8 +5138,8 @@ test "build and run json diagnostics emit structured success metrics on stderr" 
     const build_mem_text_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         build_mem_text_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), build_mem_text_code);
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
@@ -5166,8 +5177,8 @@ test "graph and size cli emit structured reports for a tiny project" {
     const graph_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         graph_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), graph_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -5195,8 +5206,8 @@ test "graph and size cli emit structured reports for a tiny project" {
     const size_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         size_argv[0..],
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), size_code);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
@@ -5224,7 +5235,7 @@ test "agent capability: check verdict cache and affected help" {
     defer stderr_buffer.deinit();
 
     const help_argv = [_][]const u8{ "sa", "--help" };
-    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     try std.testing.expectEqual(@as(u8, 0), help_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "check"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "daemon"));
@@ -5235,20 +5246,20 @@ test "agent capability: check verdict cache and affected help" {
 
     // In-process check hit: same process reuses verdict cache.
     const check1 = [_][]const u8{ "sa", "check", "tests/agent_fixtures/check_ok.sa", "--json" };
-    const c1 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    const c1 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     try std.testing.expectEqual(@as(u8, 0), c1);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"hit\":false") or std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"status\":\"ok\""));
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
-    const c2 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    const c2 = try saasm.cli.executeWithWriters(std.testing.allocator, check1[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     try std.testing.expectEqual(@as(u8, 0), c2);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "\"hit\":true"));
 
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
     const test_help = [_][]const u8{ "sa", "test", "--help" };
-    const th = try saasm.cli.executeWithWriters(std.testing.allocator, test_help[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    const th = try saasm.cli.executeWithWriters(std.testing.allocator, test_help[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     try std.testing.expectEqual(@as(u8, 0), th);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "--affected"));
 }
@@ -5261,7 +5272,7 @@ test "agent capability: affected selects impacted tests" {
 
     // First run establishes baseline (no prior function hashes in this process).
     const first = [_][]const u8{ "sa", "test", "tests/agent_fixtures/affected_graph.sa", "--affected" };
-    const code1 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    const code1 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     try std.testing.expectEqual(@as(u8, 0), code1);
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "affected:"));
     try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "baseline=no") or std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "selected_tests"));
@@ -5269,7 +5280,7 @@ test "agent capability: affected selects impacted tests" {
     // Second identical run: source-pass-cache or no impacted tests.
     stdout_buffer.clearRetainingCapacity();
     stderr_buffer.clearRetainingCapacity();
-    const code2 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], stdout_buffer.writer(), stderr_buffer.writer());
+    const code2 = try saasm.cli.executeWithWriters(std.testing.allocator, first[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     try std.testing.expectEqual(@as(u8, 0), code2);
     try std.testing.expect(
         std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "skipped") or
@@ -5309,7 +5320,7 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
     defer emit_stdout.deinit();
     var emit_stderr = std.array_list.Managed(u8).init(std.testing.allocator);
     defer emit_stderr.deinit();
-    const emit_code = try saasm.cli.executeWithWriters(std.testing.allocator, emit_argv[0..], emit_stdout.writer(), emit_stderr.writer());
+    const emit_code = try saasm.cli.executeWithWriters(std.testing.allocator, emit_argv[0..], sio.managedWriter(&emit_stdout), sio.managedWriter(&emit_stderr));
     try std.testing.expectEqual(@as(u8, 0), emit_code);
 
     const sab_file = try tmp.dir.openFile(std.testing.io, "params.sab", .{});
@@ -5383,7 +5394,7 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
         var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
         defer stderr_buffer.deinit();
         const argv = [_][]const u8{ "sa", "check", bad_name };
-        const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer());
+        const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
         try std.testing.expectEqual(@as(u8, 1), code);
         try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "CorruptedSignature") != null);
         try std.testing.expect(std.mem.indexOf(u8, stderr_buffer.items, "corrupted function signature") != null);
