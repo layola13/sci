@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("../sa_io.zig");
 const build_options = if (builtin.is_test) struct {
     pub const repo_root: []const u8 = ".";
 } else @import("build_options");

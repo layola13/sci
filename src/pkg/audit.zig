@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("../sa_io.zig");
 const manifest = @import("manifest.zig");
 
 pub const RiskLevel = enum {

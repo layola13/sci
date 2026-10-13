@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("../sa_io.zig");
 
 const audit = @import("audit.zig");
 const manifest = @import("manifest.zig");
