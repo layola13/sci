@@ -262,7 +262,7 @@ pub export fn sa_std_tls_server_status_json(out_handle: ?*u64) i32 {
 }
 
 var string_registry_mutex = std.Io.Mutex.init;
-var string_registry = std.ArrayListUnmanaged(?[]u8){};
+var string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
     string_registry_mutex.lockUncancelable(sio.io());
@@ -351,17 +351,18 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
     const allocator = std.heap.page_allocator;
     var td = std.testing.tmpDir(.{});
     defer td.cleanup();
-    const dirpath = try td.dir.realpathAlloc(allocator, ".");
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(allocator, ".");
     defer allocator.free(dirpath);
 
-    var cert_path_buf = std.ArrayList(u8).init(allocator);
-    defer cert_path_buf.deinit();
-    try cert_path_buf.appendSlice(dirpath);
-    try cert_path_buf.appendSlice("/cert.pem");
-    var key_path_buf = std.ArrayList(u8).init(allocator);
-    defer key_path_buf.deinit();
-    try key_path_buf.appendSlice(dirpath);
-    try key_path_buf.appendSlice("/key.pem");
+    var cert_path_buf: std.ArrayList(u8) = .empty;
+    defer cert_path_buf.deinit(allocator);
+    try cert_path_buf.appendSlice(allocator, dirpath);
+    try cert_path_buf.appendSlice(allocator, "/cert.pem");
+    var key_path_buf: std.ArrayList(u8) = .empty;
+    defer key_path_buf.deinit(allocator);
+    try key_path_buf.appendSlice(allocator, dirpath);
+    try key_path_buf.appendSlice(allocator, "/key.pem");
 
     // openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 1
     //             -nodes -subj "/CN=localhost"
@@ -371,12 +372,12 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
         "-out", cert_path_buf.items,
         "-days", "1", "-nodes", "-subj", "/CN=localhost",
     };
-    var child = std.process.Child.init(&args, allocator);
+    var child = sio.Child.init(&args, allocator);
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
     const term = child.spawnAndWait() catch return error.OpensslSpawnFailed;
     switch (term) {
-        .Exited => |code| if (code != 0) return error.OpensslCertFailed,
+        .exited => |code| if (code != 0) return error.OpensslCertFailed,
         else => return error.OpensslCertAbnormal,
     }
 
@@ -392,20 +393,23 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
     try testing.expect(ctx_handle != 0);
 
     // TCP server+client.
-    const localhost = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try localhost.listen(.{ .reuse_address = true });
-    defer listener.deinit();
-    const bound_port = listener.listen_address.getPort();
+    const localhost = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try localhost.listen(sio.io(), .{ .reuse_address = true });
+    defer listener.deinit(sio.io());
+    const bound_port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
 
     // TLS server thread: accept raw TCP, hand to OpenSSL, echo one read chunk.
-    const SlockArg = struct { ctx: u64, lst: *std.net.Server };
+    const SlockArg = struct { ctx: u64, lst: *std.Io.net.Server };
     var sarg: SlockArg = .{ .ctx = ctx_handle, .lst = &listener };
     const serverRunner = struct {
         fn run(a: *SlockArg) void {
-            const conn = a.lst.accept() catch return;
+            var stream = a.lst.accept(sio.io()) catch return;
+            defer stream.close(sio.io());
             var ssl_handle: u64 = 0;
-            if (sa_std_tls_server_accept(a.ctx, conn.stream.handle, &ssl_handle) != 0) {
-                conn.stream.close();
+            if (sa_std_tls_server_accept(a.ctx, stream.socket.handle, &ssl_handle) != 0) {
                 return;
             }
             var buf: [256]u8 = undefined;
@@ -414,32 +418,63 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
                 _ = sa_std_tls_server_write(ssl_handle, &buf, n_read, &n_read);
             }
             _ = sa_std_tls_server_close(ssl_handle);
-            conn.stream.close();
         }
     };
     var server_thread = try std.Thread.spawn(.{}, serverRunner.run, .{&sarg});
 
-    const server_addr = try std.net.Address.parseIp4("127.0.0.1", bound_port);
-    var tcp = try std.net.tcpConnectToAddress(server_addr);
-    defer tcp.close();
-    var client = std.crypto.tls.Client.init(tcp, .{
+    // Loopback TLS peer using the new Reader/Writer TLS client API.
+    const server_addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", bound_port);
+    var tcp = try server_addr.connect(sio.io(), .{ .mode = .stream });
+    defer tcp.close(sio.io());
+    var sock_rb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var sock_wb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var tls_rb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var tls_wb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var tcp_reader = tcp.reader(sio.io(), &sock_rb);
+    var tcp_writer = tcp.writer(sio.io(), &sock_wb);
+    var entropy: [std.crypto.tls.Client.Options.entropy_len]u8 = undefined;
+    sio.io().random(&entropy);
+    var client = std.crypto.tls.Client.init(&tcp_reader.interface, &tcp_writer.interface, .{
         .host = .no_verification,
         .ca = .no_verification,
-        .ssl_key_log_file = null,
+        .read_buffer = &tls_rb,
+        .write_buffer = &tls_wb,
+        .entropy = &entropy,
+        .realtime_now = std.Io.Clock.real.now(sio.io()),
+        .allow_truncation_attacks = true,
     }) catch return error.TlsClientHandshakeFailed;
-    client.allow_truncation_attacks = true;
 
     const payload = "hello-tls-server";
-    try client.writeAll(&tcp, payload);
+    client.writer.writeAll(payload) catch return error.TlsClientWriteFailed;
+    client.writer.flush() catch return error.TlsClientWriteFailed;
+    tcp_writer.interface.flush() catch return error.TlsClientWriteFailed;
     var echo: [256]u8 = undefined;
-    const got = try client.read(&tcp, &echo);
+    const got = try tlsPeerRead(&client, &echo);
     try testing.expect(got == payload.len);
     try testing.expectEqualStrings(payload, echo[0..got]);
     while (true) {
-        const more = client.read(&tcp, &echo) catch break;
+        const more = tlsPeerRead(&client, &echo) catch break;
         if (more == 0) break;
     }
     server_thread.join();
+}
+
+// NOTE(Zig 0.17): drain-then-pull single-shot read over the new TLS client
+// Reader (see the same note in sa_tls_client.zig).
+fn tlsPeerRead(client: *std.crypto.tls.Client, buf: []u8) !usize {
+    while (true) {
+        const avail = client.reader.bufferedLen();
+        if (avail > 0) {
+            const take = @min(buf.len, avail);
+            var vec = [_][]u8{buf[0..take]};
+            return try client.reader.readVec(&vec);
+        }
+        var vec = [_][]u8{buf};
+        _ = client.reader.readVec(&vec) catch |err| {
+            if (client.read_err) |rerr| return rerr;
+            return err;
+        };
+    }
 }
 
 // ============================================================================
