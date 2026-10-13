@@ -8250,6 +8250,8 @@ fn executeTestInner(
                 );
                 return 0;
             }
+            var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+            var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
             return try test_runner.run(
                 allocator,
                 exe_full_path,
@@ -8258,8 +8260,8 @@ fn executeTestInner(
                 test_options.selection,
                 test_options.trace_panic,
                 compile_options.jobs,
-                stdout,
-                stderr,
+                run_out_fw.writer(),
+                run_err_fw.writer(),
             );
         }
         cached_test_list.deinit(allocator);
@@ -8384,6 +8386,8 @@ fn executeTestInner(
             if (sab_selected_test_list) |list| {
                 var run_list = list;
                 sab_selected_test_list = null;
+                var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+                var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
                 return try test_runner.run(
                     allocator,
                     exe_full_path,
@@ -8392,12 +8396,14 @@ fn executeTestInner(
                     test_options.selection,
                     test_options.trace_panic,
                     compile_options.jobs,
-                    stdout,
-                    stderr,
+                    run_out_fw.writer(),
+                    run_err_fw.writer(),
                 );
             } else {
                 var run_list = compiled_test_list.?;
                 compiled_test_list = null;
+                var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+                var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
                 return try test_runner.run(
                     allocator,
                     exe_full_path,
@@ -8406,8 +8412,8 @@ fn executeTestInner(
                     test_options.selection,
                     test_options.trace_panic,
                     compile_options.jobs,
-                    stdout,
-                    stderr,
+                    run_out_fw.writer(),
+                    run_err_fw.writer(),
                 );
             }
         },
