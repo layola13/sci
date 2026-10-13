@@ -28,6 +28,7 @@
 const std = @import("std");
 const primitives = @import("sa_net_primitives.zig");
 const tls_client = @import("sa_tls_client.zig");
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
@@ -464,12 +465,12 @@ pub export fn sa_std_ws_client_status_json(out_handle: ?*u64) i32 {
 
 // ---- buffer handle registry (same shape as sa_tls_client.zig) --------------------
 
-var string_registry_mutex = std.Thread.Mutex{};
+var string_registry_mutex = std.Io.Mutex.init;
 var string_registry = std.ArrayListUnmanaged(?[]u8){};
 
 fn registerBuffer(bytes: []u8) WsError!u64 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < string_registry.items.len) : (i += 1) {
         if (string_registry.items[i] == null) {
@@ -495,8 +496,8 @@ fn registerBufferOwned(bytes: []u8, slot: *u64) i32 {
 
 fn takeBuffer(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return null;
     return string_registry.items[idx];
@@ -513,8 +514,8 @@ pub export fn sa_std_ws_client_buffer_len(handle: u64) u64 {
 }
 
 pub export fn sa_std_ws_client_buffer_free(handle: u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return SA_STD_ERR_INVALID_ARGUMENT;

@@ -32,6 +32,7 @@
 // truncation safety anyway.
 
 const std = @import("std");
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
@@ -51,7 +52,7 @@ const TlsClientHandle = struct {
 // Populated once from the OS trust store (rescan), extended on demand by
 // add_ca_file, never freed. Mirrors the SslApi singleton in sa_tls_server.zig.
 
-var bundle_mutex = std.Thread.Mutex{};
+var bundle_mutex = std.Io.Mutex.init;
 var ca_bundle: ?std.crypto.Certificate.Bundle = null;
 
 /// Caller must hold bundle_mutex. Returns a pointer to the live singleton so
@@ -146,8 +147,8 @@ pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, p
     // 3. Snapshot the bundle and run the blocking TLS handshake under the
     // mutex: the copied Bundle shares the singleton's byte storage, and this
     // keeps add_ca_file from reallocating it mid-handshake.
-    bundle_mutex.lock();
-    defer bundle_mutex.unlock();
+    bundle_mutex.lockUncancelable(sio.io());
+    defer bundle_mutex.unlock(sio.io());
     const bundle_copy = (ensureBundleLocked() catch |err| {
         std.heap.page_allocator.free(host_owned);
         stream.close();
@@ -187,8 +188,8 @@ pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u6
     // addCertsFromFilePathAbsolute asserts an absolute path; reject early with
     // a contract error instead of tripping the assert.
     if (!std.fs.path.isAbsolute(path)) return SA_STD_ERR_INVALID_ARGUMENT;
-    bundle_mutex.lock();
-    defer bundle_mutex.unlock();
+    bundle_mutex.lockUncancelable(sio.io());
+    defer bundle_mutex.unlock(sio.io());
     const b = ensureBundleLocked() catch |err| return mapBundleErr(err);
     b.addCertsFromFilePathAbsolute(std.heap.page_allocator, path) catch |err| {
         return switch (err) {
@@ -255,12 +256,12 @@ pub export fn sa_std_tls_client_status_json(out_handle: ?*u64) i32 {
 
 // ---- buffer handle registry (same shape as sa_tls_server.zig) --------------
 
-var string_registry_mutex = std.Thread.Mutex{};
+var string_registry_mutex = std.Io.Mutex.init;
 var string_registry = std.ArrayListUnmanaged(?[]u8){};
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < string_registry.items.len) : (i += 1) {
         if (string_registry.items[i] == null) {
@@ -279,8 +280,8 @@ fn registerString(bytes: []u8, slot: *u64) i32 {
 
 fn takeString(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return null;
     return string_registry.items[idx];
@@ -297,8 +298,8 @@ pub export fn sa_std_tls_client_buffer_len(handle: u64) u64 {
 }
 
 pub export fn sa_std_tls_client_buffer_free(handle: u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return SA_STD_ERR_INVALID_ARGUMENT;

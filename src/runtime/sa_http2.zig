@@ -7,6 +7,7 @@
 // state machine lives here.
 
 const std = @import("std");
+const sio = @import("sio");
 
 // --- outcome helpers (mirrors the sa_plugin_node private surface) ---
 
@@ -20,7 +21,7 @@ const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 
-var buffer_registry_mutex = std.Thread.Mutex{};
+var buffer_registry_mutex = std.Io.Mutex.init;
 var buffer_slots = std.ArrayListUnmanaged(?BufferEntry){};
 
 const BufferEntry = struct {
@@ -32,8 +33,8 @@ const BufferEntry = struct {
 // convention. On failure the bytes are freed and 0 is returned (0 == invalid
 // handle, consistent with sci's other handle registries).
 fn registerBuffer(bytes: []u8) u64 {
-    buffer_registry_mutex.lock();
-    defer buffer_registry_mutex.unlock();
+    buffer_registry_mutex.lockUncancelable(sio.io());
+    defer buffer_registry_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < buffer_slots.items.len) : (i += 1) {
         if (buffer_slots.items[i] == null) {
@@ -50,8 +51,8 @@ fn registerBuffer(bytes: []u8) u64 {
 
 fn takeBuffer(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    buffer_registry_mutex.lock();
-    defer buffer_registry_mutex.unlock();
+    buffer_registry_mutex.lockUncancelable(sio.io());
+    defer buffer_registry_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= buffer_slots.items.len) return null;
     const entry = buffer_slots.items[idx] orelse return null;
@@ -159,11 +160,11 @@ const Nghttp2Api = struct {
 };
 
 var nghttp2_api: ?Nghttp2Api = null;
-var nghttp2_api_mutex = std.Thread.Mutex{};
+var nghttp2_api_mutex = std.Io.Mutex.init;
 
 fn loadNghttp2Api() ?*Nghttp2Api {
-    nghttp2_api_mutex.lock();
-    defer nghttp2_api_mutex.unlock();
+    nghttp2_api_mutex.lockUncancelable(sio.io());
+    defer nghttp2_api_mutex.unlock(sio.io());
     if (nghttp2_api) |*api| return api;
 
     const candidates = [_][]const u8{
@@ -858,8 +859,8 @@ pub export fn sa_std_http2_buffer_len(handle: u64) u64 {
 }
 
 pub export fn sa_std_http2_buffer_free(handle: u64) i32 {
-    buffer_registry_mutex.lock();
-    defer buffer_registry_mutex.unlock();
+    buffer_registry_mutex.lockUncancelable(sio.io());
+    defer buffer_registry_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= buffer_slots.items.len) return SA_STD_ERR_INVALID_ARGUMENT;

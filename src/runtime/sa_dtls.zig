@@ -9,6 +9,7 @@
 // Status codes: 0 = SA_STD_OK, negative = error.
 
 const std = @import("std");
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
@@ -60,11 +61,11 @@ const DtlsApi = struct {
 };
 
 var dtls_api: ?DtlsApi = null;
-var dtls_api_mutex = std.Thread.Mutex{};
+var dtls_api_mutex = std.Io.Mutex.init;
 
 fn loadDtlsApi() ?*DtlsApi {
-    dtls_api_mutex.lock();
-    defer dtls_api_mutex.unlock();
+    dtls_api_mutex.lockUncancelable(sio.io());
+    defer dtls_api_mutex.unlock(sio.io());
     if (dtls_api) |*api| return api;
 
     const ssl_candidates = [_][]const u8{
@@ -262,7 +263,7 @@ pub export fn sa_std_dtls_server_close(ssl_handle: u64) i32 {
     return SA_STD_OK;
 }
 
-var dtls_string_mutex = std.Thread.Mutex{};
+var dtls_string_mutex = std.Io.Mutex.init;
 var dtls_string_registry = std.ArrayListUnmanaged(?[]u8){};
 
 pub export fn sa_std_dtls_status_json(out_handle: ?*u64) i32 {
@@ -277,8 +278,8 @@ pub export fn sa_std_dtls_status_json(out_handle: ?*u64) i32 {
 }
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
-    dtls_string_mutex.lock();
-    defer dtls_string_mutex.unlock();
+    dtls_string_mutex.lockUncancelable(sio.io());
+    defer dtls_string_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < dtls_string_registry.items.len) : (i += 1) {
         if (dtls_string_registry.items[i] == null) {
@@ -294,8 +295,8 @@ fn registerString(bytes: []u8, slot: *u64) i32 {
 
 fn takeString(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    dtls_string_mutex.lock();
-    defer dtls_string_mutex.unlock();
+    dtls_string_mutex.lockUncancelable(sio.io());
+    defer dtls_string_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= dtls_string_registry.items.len) return null;
     return dtls_string_registry.items[idx];
@@ -310,8 +311,8 @@ pub export fn sa_std_dtls_buffer_len(handle: u64) u64 {
     return @intCast(s.len);
 }
 pub export fn sa_std_dtls_buffer_free(handle: u64) i32 {
-    dtls_string_mutex.lock();
-    defer dtls_string_mutex.unlock();
+    dtls_string_mutex.lockUncancelable(sio.io());
+    defer dtls_string_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= dtls_string_registry.items.len) return SA_STD_ERR_INVALID_ARGUMENT;
