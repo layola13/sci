@@ -148,6 +148,10 @@ pub const Dir = struct {
         return .{ .it = self.inner.iterate() };
     }
 
+    pub fn walk(self: Dir, allocator: std.mem.Allocator) !Walker {
+        return .{ .inner = try std.Io.Dir.walk(self.inner, allocator) };
+    }
+
     pub fn setAsCwd(self: Dir) !void {
         return try std.process.setCurrentDir(io(), self.inner);
     }
@@ -160,10 +164,113 @@ pub const Dir = struct {
     pub fn fd(self: Dir) std.posix.fd_t {
         return self.inner.handle;
     }
+
+    /// Old `dir.chmod(mode)` shape.
+    pub fn chmod(self: Dir, mode: u32) !void {
+        try self.inner.setPermissions(io(), @enumFromInt(mode));
+    }
 };
 
 pub fn cwd() Dir {
     return .{ .inner = std.Io.Dir.cwd() };
+}
+
+/// Recursive directory walker (old `Dir.walk` shape).
+pub const Walker = struct {
+    inner: std.Io.Dir.Walker,
+
+    pub fn next(self: *Walker) !?std.Io.Dir.Walker.Entry {
+        return try self.inner.next(io());
+    }
+
+    pub fn deinit(self: *Walker) void {
+        self.inner.deinit();
+    }
+};
+
+/// Formatted append onto a `Managed(u8)` list (old `list.writer().print`,
+/// removed in 0.17) using the list's own allocator.
+pub fn managedPrint(list: *std.array_list.Managed(u8), comptime fmt: []const u8, args: anytype) !void {
+    var aw: std.Io.Writer.Allocating = .init(list.allocator);
+    defer aw.deinit();
+    try aw.writer.print(fmt, args);
+    try list.appendSlice(aw.written());
+}
+
+/// Old `list.writer()` shape for `Managed(u8)` (removed in 0.17): forwards
+/// the `print`/`writeAll`/`writeByte`/`write` surface used across the CLI.
+pub const ManagedWriter = struct {
+    list: *std.array_list.Managed(u8),
+
+    pub fn writeAll(self: ManagedWriter, bytes: []const u8) !void {
+        try self.list.appendSlice(bytes);
+    }
+
+    pub fn write(self: ManagedWriter, bytes: []const u8) !usize {
+        try self.list.appendSlice(bytes);
+        return bytes.len;
+    }
+
+    pub fn writeByte(self: ManagedWriter, byte: u8) !void {
+        try self.list.append(byte);
+    }
+
+    pub fn writeInt(self: ManagedWriter, comptime T: type, value: T, endian: std.builtin.Endian) !void {
+        var buf: [@divExact(@typeInfo(T).int.bits, 8)]u8 = undefined;
+        std.mem.writeInt(T, &buf, value, endian);
+        try self.list.appendSlice(&buf);
+    }
+
+    pub fn print(self: ManagedWriter, comptime fmt: []const u8, args: anytype) !void {
+        try managedPrint(self.list, fmt, args);
+    }
+};
+
+pub fn managedWriter(list: *std.array_list.Managed(u8)) ManagedWriter {
+    return .{ .list = list };
+}
+
+/// Adapts any duck-typed writer (`writeAll`/`writeByte`/`print`/`write`,
+/// e.g. `ManagedWriter` or `*std.Io.Writer`) to a `*std.Io.Writer` for APIs
+/// that store one (like `CompileOptions.diagnostic_writer`).
+pub fn ForwardWriter(comptime W: type) type {
+    return struct {
+        const Self = @This();
+
+        io_writer: std.Io.Writer,
+        wrapped: W,
+        storage: [8192]u8 = std.mem.zeroes([8192]u8),
+
+        const vtable: std.Io.Writer.VTable = .{ .drain = drain };
+
+        pub fn init(wrapped: W) Self {
+            var self = Self{ .io_writer = undefined, .wrapped = wrapped };
+            self.io_writer = .{ .buffer = &self.storage, .end = 0, .vtable = &vtable };
+            return self;
+        }
+
+        pub fn writer(self: *Self) *std.Io.Writer {
+            return &self.io_writer;
+        }
+
+        fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+            const self: *Self = @fieldParentPtr("io_writer", w);
+            if (w.end != 0) {
+                self.wrapped.writeAll(w.buffer[0..w.end]) catch return error.WriteFailed;
+                w.end = 0;
+            }
+            var total: usize = 0;
+            for (data, 0..) |slice, i| {
+                const reps: usize = if (i == data.len - 1) splat else 1;
+                var r: usize = 0;
+                while (r < reps) : (r += 1) {
+                    self.wrapped.writeAll(slice) catch return error.WriteFailed;
+                    total += slice.len;
+                }
+            }
+            return total;
+        }
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +292,11 @@ pub const File = struct {
 
     pub fn sync(self: File) !void {
         return try self.inner.sync(io());
+    }
+
+    /// Old `file.chmod(mode)` shape.
+    pub fn chmod(self: File, mode: u32) !void {
+        try self.inner.setPermissions(io(), @enumFromInt(mode));
     }
 
     pub fn length(self: File) !u64 {
@@ -326,6 +438,26 @@ pub fn getEnvVarOwned(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
     return try allocator.dupe(u8, std.mem.span(value));
 }
 
+/// Old `std.process.getEnvMap` shape (removed in 0.17): snapshot the whole
+/// process environment into an owned map.
+pub fn getEnvMap(allocator: std.mem.Allocator) !EnvMap {
+    var map = EnvMap.init(allocator);
+    errdefer map.deinit();
+    if (builtin.os.tag == .windows) {
+        const peb = std.os.windows.peb();
+        std.debug.assert(std.os.windows.ntdll.RtlEnterCriticalSection(peb.FastPebLock) == .SUCCESS);
+        defer std.debug.assert(std.os.windows.ntdll.RtlLeaveCriticalSection(peb.FastPebLock) == .SUCCESS);
+        try map.putWindowsBlock(.{ .ptr = peb.ProcessParameters.Environment });
+    } else {
+        // Requires libc (all build modules set link_libc), same as getenv above.
+        const envp: [*:null]?[*:0]u8 = std.c.environ;
+        var count: usize = 0;
+        while (envp[count] != null) : (count += 1) {}
+        try map.putPosixBlock(.{ .slice = @as([][*:0]u8, @ptrCast(envp[0..count])) });
+    }
+    return map;
+}
+
 pub fn getCwdAlloc(allocator: std.mem.Allocator) ![]u8 {
     const z = try std.process.currentPathAlloc(io(), allocator);
     defer allocator.free(z);
@@ -359,6 +491,11 @@ pub const max_path_bytes = std.Io.Dir.max_path_bytes;
 /// Wall-clock Unix seconds (old `std.time.timestamp`).
 pub fn timestampSeconds() i64 {
     return std.Io.Clock.real.now(io()).toSeconds();
+}
+
+/// Monotonic nanoseconds (old `std.time.nanoTimestamp`).
+pub fn nanoTimestamp() i128 {
+    return @as(i128, std.Io.Clock.awake.now(io()).toNanoseconds());
 }
 
 extern "kernel32" fn GetCommandLineW() callconv(.winapi) [*:0]u16;
